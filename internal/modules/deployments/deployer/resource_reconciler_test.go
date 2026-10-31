@@ -106,6 +106,7 @@ func TestDeployStackReconcilesResourcesBeforeInitJobs(t *testing.T) {
 				runner:          runner,
 				resources:       newResourceReconciler(swarm.NewSwarm(dockerClient, "")),
 				initJobRunner:   initJobs,
+				serviceWaiter:   newSuccessfulServiceWaiter(t),
 			}
 
 			desired := compose.Compose{
@@ -239,6 +240,7 @@ func TestDeployStackInitJobFailureDoesNotDeleteResources(t *testing.T) {
 		runner:          runner,
 		resources:       newResourceReconciler(swarm.NewSwarm(newDockerTestClient(t, server), "")),
 		initJobRunner:   initJobs,
+		serviceWaiter:   newSuccessfulServiceWaiter(t),
 	}
 	desired := compose.Compose{
 		Configs: compose.Configs{

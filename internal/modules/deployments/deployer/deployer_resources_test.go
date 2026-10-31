@@ -109,7 +109,8 @@ func TestDeployStackReconcilesResourcesWithAndWithoutInitJobs(t *testing.T) {
 
 				deployer := &Deployer{secretResolver: newTestSecretResolver(),
 					stackDeployArgs: []string{"stack", "deploy"}, runner: runner, initJobRunner: jobs,
-					resources: &resourceReconciler{configs: configs, secrets: secrets},
+					resources:     &resourceReconciler{configs: configs, secrets: secrets},
+					serviceWaiter: newSuccessfulServiceWaiter(t),
 				}
 				_, err := deployer.DeployStack(t.Context(), "demo", filepath.Join(dir, "compose.yaml"), deployPath, compose.Compose{
 					Services: []compose.Service{service}, Configs: compose.Configs{"app": config}, Secrets: compose.Secrets{"password": secret},
@@ -180,7 +181,8 @@ func TestDeployStackResourceFailuresStopDeployment(t *testing.T) {
 				}
 				deployer := &Deployer{secretResolver: newTestSecretResolver(),
 					stackDeployArgs: []string{"stack", "deploy"}, runner: runner, initJobRunner: jobs,
-					resources: &resourceReconciler{configs: configs, secrets: secrets},
+					resources:     &resourceReconciler{configs: configs, secrets: secrets},
+					serviceWaiter: newSuccessfulServiceWaiter(t),
 				}
 				_, err := deployer.DeployStack(context.Background(), "demo", filepath.Join(dir, "compose.yaml"), "rendered.yaml", desired)
 				require.ErrorContains(t, err, "")
@@ -220,7 +222,8 @@ func TestDeployStackDeployFailureKeepsReconciledResources(t *testing.T) {
 			runner.EXPECT().Run(gomock.Any(), "stack", "deploy", "-c", "rendered.yaml", "demo").Return("", deployErr)
 			deployer := &Deployer{secretResolver: newTestSecretResolver(),
 				stackDeployArgs: []string{"stack", "deploy"}, runner: runner, initJobRunner: jobs,
-				resources: &resourceReconciler{configs: configs, secrets: secrets},
+				resources:     &resourceReconciler{configs: configs, secrets: secrets},
+				serviceWaiter: newSuccessfulServiceWaiter(t),
 			}
 			result, err := deployer.DeployStack(t.Context(), "demo", "compose.yaml", "rendered.yaml", desired)
 			require.ErrorIs(t, err, deployErr)
