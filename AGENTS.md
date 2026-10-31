@@ -3,7 +3,7 @@
 - This project implements Continuous Deployment for Docker Swarm
 
 ## Projects Rules
-- Before starting any coding task, load and follow all files in `.cursor/rules/*.md`
+- Before starting any coding task, inspect `.cursor/rules/*.md` frontmatter and load and follow only the rules applicable to the files being changed.
 - Treat frontmatter as policy:
 - `apply: always` means rule is always active.
 - `apply: by file patterns` + `globs` means apply only to matching files.
@@ -23,13 +23,6 @@
 - Approval of a task does not imply approval of architectural changes.
 
 **When in doubt, ask before implementing.**
-
-## Docker API Boundary
-
-- **All new Docker Engine / Docker Swarm API operations MUST go through `internal/swarm`.** Other packages must use the managers exposed by `internal/swarm`; they must not call Docker SDK client methods directly or introduce parallel Docker API clients/adapters.
-- If an operation is missing, extend the appropriate `internal/swarm` manager interface and implementation, including mocks and tests where relevant.
-- Docker SDK **data types** (for example, `dockerswarm.ServiceSpec`, `mount.Mount`, and Docker network options) may be used directly by other packages. Do not introduce wrapper DTOs that merely duplicate these complex SDK types.
-- Existing direct Docker API calls outside `internal/swarm` do not require unrelated refactoring in every task, but must not be copied or expanded. Migrate them when working on the corresponding integration or in an explicitly scoped refactor.
 
 ## Project structure
 - `./ui` - Vue frontend
