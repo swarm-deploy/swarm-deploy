@@ -47,6 +47,7 @@ type renderedCleaner interface {
 type Controller struct {
 	deployments  deployments.Executor
 	scheduler    *scheduler.Scheduler
+	deployQueue *scheduler.DeploymentQueue
 	event        dispatcher.Dispatcher
 	cleaner      renderedCleaner
 	ownership    *controllerOwnership
@@ -78,13 +79,15 @@ func New(
 	networkCoordinator := networkloop.NewCoordinator(
 		db, configStore, stateStore, networkloop.New(swarmService.Networks), eventDispatcher,
 	)
+	deployQueue := scheduler.NewDeploymentQueue(stackReconciler, cfg.Spec.DataDir)
 	runner := syncrun.New(
 		configStore, git, metricGroup, eventDispatcher, stateStore,
-		networkCoordinator, stackReconciler, puller,
+		networkCoordinator, stackReconciler, puller, deployQueue,
 	)
 	return &Controller{
 		deployments:  deploymentExecutor,
-		scheduler:    scheduler.New(cfg, runner),
+		scheduler:    scheduler.New(cfg, runner, deployQueue),
+		deployQueue: deployQueue,
 		event:        eventDispatcher,
 		cleaner:      preparer,
 		ownership:    newControllerOwnership(cfg.Spec.DataDir),
@@ -122,6 +125,9 @@ func (c *Controller) Run(ctx context.Context) error {
 				slog.WarnContext(ctx, "failed to clean up rendered compose files", "err", err)
 			}
 		}
+	}
+	if c.deployQueue != nil {
+		if err := c.deployQueue.CleanupStale(); err != nil { return fmt.Errorf("cleanup stale deployment snapshots: %w", err) }
 	}
 	if c.deployments != nil {
 		if err := c.deployments.Recover(ctx); err != nil {

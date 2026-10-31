@@ -58,6 +58,12 @@ type Task struct {
 	SpanContext trace.SpanContext
 }
 
+// DeploymentQueue accepts immutable stack execution inputs.
+type DeploymentQueue interface {
+	// Enqueue snapshots source data for a stack deployment.
+	Enqueue(context.Context, stackloop.ReconciliationRequest, string) error
+}
+
 // Runner executes Git polling, complete synchronization runs and scheduled cleanup.
 type Runner struct {
 	configStore       *configstore.ConfigStore
@@ -67,6 +73,7 @@ type Runner struct {
 	stateStore        modelstore.Store
 	networkReconciler *networkloop.Coordinator
 	stackReconciler   stackloop.StackReconciler
+	deployments DeploymentQueue
 	stackPlanner      *stackplan.Planner
 	puller            *gitpull.Puller
 	tracer            trace.Tracer
@@ -82,11 +89,15 @@ func New(
 	networkReconciler *networkloop.Coordinator,
 	stackReconciler stackloop.StackReconciler,
 	puller *gitpull.Puller,
+	deployments ...DeploymentQueue,
 ) *Runner {
+	var queue DeploymentQueue
+	if len(deployments) > 0 { queue = deployments[0] }
 	return &Runner{
 		configStore: configStore, git: git, metrics: metricGroup, event: eventDispatcher,
 		stateStore: stateStore, networkReconciler: networkReconciler,
 		stackReconciler: stackReconciler, stackPlanner: stackplan.NewPlanner(git), puller: puller,
+		deployments: queue,
 		tracer: otel.Tracer("github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller"),
 	}
 }
@@ -229,9 +240,11 @@ func (r *Runner) syncStacks(
 ) []error {
 	var deployErrs []error
 	for _, stackCfg := range stacks {
-		err := r.stackReconciler.Reconcile(ctx, stackloop.ReconciliationRequest{
-			Stack: stackCfg, Commit: commit, IsManual: reason == TriggerManual,
-		})
+		request := stackloop.ReconciliationRequest{Stack: stackCfg, Commit: commit, IsManual: reason == TriggerManual}
+		var err error
+		if r.deployments == nil { err = r.stackReconciler.Reconcile(ctx, request) } else {
+			err = r.deployments.Enqueue(ctx, request, r.git.WorkingDir())
+		}
 		if err == nil {
 			continue
 		}

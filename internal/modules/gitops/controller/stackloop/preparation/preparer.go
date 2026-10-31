@@ -107,6 +107,29 @@ func (p *Preparer) Load(ctx context.Context, stack config.StackSpec) (*compose.F
 	return p.composeLoader.Load(ctx, filepath.Join(p.git.WorkingDir(), stack.ComposeFile))
 }
 
+// LoadFrom loads a stack from an immutable checkout and adjusts source references.
+func (p *Preparer) LoadFrom(ctx context.Context, stack config.StackSpec, snapshot, original string) (*compose.File, error) {
+	reader := func(ctx context.Context, path string) ([]byte, error) {
+		if filepath.IsAbs(path) {
+			rel, err := filepath.Rel(original, path)
+			if err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+				path = filepath.Join(snapshot, rel)
+			}
+		}
+		return p.fileSystem.ReadFile(ctx, path)
+	}
+	file, err := compose.NewFileLoaderWithReader(reader).Load(ctx, filepath.Join(snapshot, stack.ComposeFile))
+	if err != nil { return nil, err }
+	for _, obj := range file.Compose.Configs { if obj != nil && filepath.IsAbs(obj.File) { obj.File = readerPath(obj.File, original, snapshot) } }
+	for _, obj := range file.Compose.Secrets { if obj != nil && filepath.IsAbs(obj.File) { obj.File = readerPath(obj.File, original, snapshot) } }
+	return file, nil
+}
+func readerPath(path, original, snapshot string) string {
+	rel, err := filepath.Rel(original, path)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) { return path }
+	return filepath.Join(snapshot, rel)
+}
+
 // Prepare builds the effective definition and writes a rendered file when deployment requires one.
 func (p *Preparer) Prepare(ctx context.Context, req Request) (*Prepared, error) {
 	prepared := &Prepared{Desired: req.Desired, DeployComposePath: req.Desired.Path}

@@ -26,6 +26,10 @@ type ReconciliationRequest struct {
 	Commit string
 	// IsManual reports whether reconciliation was triggered manually.
 	IsManual bool
+	// SourceDirectory selects an immutable source snapshot for this operation.
+	SourceDirectory string
+	// OriginalSourceDirectory identifies the checkout path before snapshotting.
+	OriginalSourceDirectory string
 }
 
 func NewStackReconciler(

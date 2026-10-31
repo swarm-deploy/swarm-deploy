@@ -122,7 +122,13 @@ func (r *Reconciler) Reconcile(
 	r.reconcileMu.Lock()
 	defer r.reconcileMu.Unlock()
 
-	desiredState, err := r.preparer.Load(ctx, req.Stack)
+	var desiredState *compose.File
+	var err error
+	if req.SourceDirectory != "" {
+		desiredState, err = r.preparer.LoadFrom(ctx, req.Stack, req.SourceDirectory, req.OriginalSourceDirectory)
+	} else {
+		desiredState, err = r.preparer.Load(ctx, req.Stack)
+	}
 	if err != nil {
 		persistErr := r.recordFailure(ctx, req.Stack.Name, req.Commit, nil, err)
 
