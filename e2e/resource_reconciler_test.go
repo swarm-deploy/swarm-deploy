@@ -20,7 +20,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 
-// TestDeployStackOnRealSwarm exercises the actual Docker Engine, Docker CLI, and a
+// TestDeployStackOnRealSwarm exercises the actual Docker Engine API and a
 // running Swarm task. It must not be replaced with a mocked Docker API fixture.
 func TestDeployStackOnRealSwarm(t *testing.T) {
 	if os.Getenv("SWARM_DEPLOY_E2E") != "1" {
@@ -36,27 +36,13 @@ func TestDeployStackOnRealSwarm(t *testing.T) {
 
 	stack := fmt.Sprintf("sdreconcile%d", time.Now().UnixNano())
 	dir := t.TempDir()
-	preflightLog := filepath.Join(dir, "preflight.log")
 	wrapperPath := filepath.Join(dir, "docker-wrapper.sh")
-	// The wrapper inspects real Swarm resources BEFORE it invokes docker stack deploy.
-	// A regression that lets Docker CLI create resources instead of the reconciler
-	// must fail here, rather than accidentally pass after Docker CLI creates them.
+	// Any Docker CLI invocation is a regression: deployments must use the API.
 	wrapper := `#!/bin/sh
-set -eu
-if [ "$1" = "stack" ] && [ "$2" = "deploy" ]; then
-  "$SWARM_E2E_REAL_DOCKER" secret inspect "$SWARM_E2E_SECRET_NAME" >/dev/null
-  "$SWARM_E2E_REAL_DOCKER" config inspect "$SWARM_E2E_CONFIG_NAME" >/dev/null
-  printf '%s %s\n' "$SWARM_E2E_SECRET_NAME" "$SWARM_E2E_CONFIG_NAME" >> "$SWARM_E2E_PREFLIGHT_LOG"
-fi
-exec "$SWARM_E2E_REAL_DOCKER" "$@"
+echo "unexpected Docker CLI invocation: $*" >&2
+exit 97
 `
 	require.NoError(t, os.WriteFile(wrapperPath, []byte(wrapper), 0o700))
-	absDockerPath, err := filepath.Abs(dockerPath)
-	require.NoError(t, err)
-	t.Setenv("SWARM_E2E_REAL_DOCKER", absDockerPath)
-	t.Setenv("SWARM_E2E_PREFLIGHT_LOG", preflightLog)
-	t.Setenv("SWARM_E2E_SECRET_NAME", stack+"_password")
-	t.Setenv("SWARM_E2E_CONFIG_NAME", stack+"_settings")
 
 	swarmService := swarm.NewSwarm(dockerClient, wrapperPath)
 	stackDeployer := deployer.NewDeployer(100*time.Millisecond, 2*time.Minute, dockerClient, swarmService, nil, deployer.NewSecretResolver(fs.NewLocalFileSystem(), deployer.PlaintextDecoder{}))
@@ -88,22 +74,12 @@ exec "$SWARM_E2E_REAL_DOCKER" "$@"
 	// new resource versions are created and mounted in the new task.
 	rotatedSecretName := stack + "-password-v2"
 	rotatedConfigName := stack + "-settings-v2"
-	t.Setenv("SWARM_E2E_SECRET_NAME", rotatedSecretName)
-	t.Setenv("SWARM_E2E_CONFIG_NAME", rotatedConfigName)
 	writeRealSwarmFixture(t, dir, composePath, rotatedSecretName, rotatedConfigName, "secret-v2", "config-v2", "mounted-v2")
 	deployFixture(t, ctx, stackDeployer, stack, composePath)
 	secretID2, configID2 := inspectRealSwarmResources(t, ctx, dockerClient, dockerPath, stack, rotatedSecretName, rotatedConfigName)
 	assert.NotEqual(t, secretID1, secretID2, "rotated secret must be a different Docker object")
 	assert.NotEqual(t, configID1, configID2, "rotated config must be a different Docker object")
 	waitForRealSwarmTask(t, ctx, dockerPath, stack+"_check", "mounted-v2")
-	preflights, err := os.ReadFile(preflightLog)
-	require.NoError(t, err)
-	assert.Equal(t, []string{
-		stack + "_password " + stack + "_settings",
-		stack + "_password " + stack + "_settings",
-		rotatedSecretName + " " + rotatedConfigName,
-	}, strings.Split(strings.TrimSpace(string(preflights)), "\n"),
-		"all three deployments must have resources ready before Docker CLI starts")
 }
 
 func writeRealSwarmFixture(t *testing.T, dir, composePath, secretName, configName, secretValue, configValue, marker string) {
