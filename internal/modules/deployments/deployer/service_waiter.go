@@ -2,6 +2,7 @@ package deployer
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"reflect"
 	"sort"
@@ -9,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	cerrdefs "github.com/containerd/errdefs"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/tracing"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	"go.opentelemetry.io/otel"
@@ -20,6 +23,7 @@ import (
 const (
 	defaultServiceWaitTimeout  = 10 * time.Minute
 	maxServiceDiagnosticLength = 256
+	globalServiceMode          = "global"
 )
 
 var serviceWaiterTracer = otel.Tracer(
@@ -131,42 +135,46 @@ func (w *ServiceWaiter) wait(
 	defer ticker.Stop()
 
 	for {
-		current, err := w.Snapshot(ctx, request.StackName)
-		if err != nil {
-			state.failPending(span, request.Progress, err)
-			if ctx.Err() != nil {
-				return waitInterruptedError(request.StackName, state.last, ctx.Err())
-			}
-			return err
-		}
-		currentByName := servicesByName(current)
-		if request.OnlyAffected {
-			discoverAffectedTargets(targets, candidates, baseline, currentByName)
-		}
-
-		if len(targets) == 0 {
-			return nil
-		}
-
-		allReady, observeErr := w.observeTargets(ctx, span, request.Progress, baseline, currentByName, targets, state)
+		allReady, observeErr := w.poll(ctx, span, request, baseline, candidates, targets, state)
 		if observeErr != nil {
-			state.failPending(span, request.Progress, observeErr)
-			if ctx.Err() != nil {
-				return waitInterruptedError(request.StackName, state.last, ctx.Err())
+			if waitErr := state.handleObservationError(ctx, span, request, targets, observeErr); waitErr != nil {
+				return waitErr
 			}
-			return observeErr
-		}
-		if allReady {
+		} else if allReady {
 			return nil
 		}
 
 		select {
 		case <-ctx.Done():
 			state.failPending(span, request.Progress, ctx.Err())
-			return waitInterruptedError(request.StackName, state.last, ctx.Err())
+			return waitInterruptedError(request.StackName, state.last, ctx.Err(), state.lastObservationError)
 		case <-ticker.C:
 		}
 	}
+}
+
+func (w *ServiceWaiter) poll(
+	ctx context.Context,
+	span trace.Span,
+	request ServiceWaitRequest,
+	baseline map[string]swarm.StackService,
+	candidates []string,
+	targets map[string]struct{},
+	state *waitState,
+) (bool, error) {
+	current, err := w.Snapshot(ctx, request.StackName)
+	if err != nil {
+		return false, err
+	}
+	currentByName := servicesByName(current)
+	if request.OnlyAffected {
+		discoverAffectedTargets(targets, candidates, baseline, currentByName)
+	}
+	if len(targets) == 0 {
+		return true, nil
+	}
+
+	return w.observeTargets(ctx, span, request.Progress, baseline, currentByName, targets, state)
 }
 
 func (w *ServiceWaiter) observeTargets(
@@ -220,9 +228,10 @@ func finishServiceWaitSpan(span trace.Span, startedAt time.Time, state waitState
 }
 
 type waitState struct {
-	last      map[string]ServiceProgress
-	observed  int
-	converged int
+	last                 map[string]ServiceProgress
+	observed             int
+	converged            int
+	lastObservationError error
 }
 
 func (s *waitState) emit(span trace.Span, callback ServiceProgressCallback, progress ServiceProgress) {
@@ -255,6 +264,45 @@ func (s *waitState) failPending(span trace.Span, callback ServiceProgressCallbac
 	}
 }
 
+func (s *waitState) retryPending(
+	span trace.Span,
+	callback ServiceProgressCallback,
+	targets map[string]struct{},
+	cause error,
+) {
+	s.lastObservationError = cause
+	for _, name := range sortedTargetNames(targets) {
+		progress, ok := s.last[name]
+		if ok && progress.State != ServicePending {
+			continue
+		}
+		if !ok {
+			progress = ServiceProgress{Name: name, State: ServicePending}
+		}
+		progress.Message = boundedDiagnostic(fmt.Sprintf("temporary Docker API error; retrying: %v", cause))
+		s.emit(span, callback, progress)
+	}
+}
+
+func (s *waitState) handleObservationError(
+	ctx context.Context,
+	span trace.Span,
+	request ServiceWaitRequest,
+	targets map[string]struct{},
+	cause error,
+) error {
+	if ctx.Err() != nil {
+		s.failPending(span, request.Progress, ctx.Err())
+		return waitInterruptedError(request.StackName, s.last, ctx.Err(), s.lastObservationError)
+	}
+	if isTransientDockerAPIError(cause) {
+		s.retryPending(span, request.Progress, targets, cause)
+		return nil
+	}
+	s.failPending(span, request.Progress, cause)
+	return cause
+}
+
 func (w *ServiceWaiter) observeService(
 	ctx context.Context,
 	name string,
@@ -277,7 +325,7 @@ func (w *ServiceWaiter) observeService(
 		progress.Message = "service job mode is outside convergence monitoring scope"
 		return progress, nil
 	}
-	if service.Mode != "replicated" && service.Mode != "global" {
+	if service.Mode != "replicated" && service.Mode != globalServiceMode {
 		progress.State = ServiceFailed
 		progress.Message = boundedDiagnostic(fmt.Sprintf("unsupported service mode %q", service.Mode))
 		return progress, nil
@@ -285,7 +333,17 @@ func (w *ServiceWaiter) observeService(
 
 	tasks, err := w.services.ListTasks(ctx, service.ID)
 	if err != nil {
+		progress.Message = boundedDiagnostic(fmt.Sprintf("list tasks: %v", err))
 		return progress, fmt.Errorf("list tasks for service %s: %w", name, err)
+	}
+	desired = observedDesiredTasks(service, tasks)
+	progress.Desired = desired
+	if globalSchedulerPending(baseline, service, desired) {
+		progress.Message = "waiting for global scheduler to create tasks"
+		return progress, nil
+	}
+	if desired == 0 {
+		return zeroDesiredProgress(progress, tasks), nil
 	}
 
 	requireCurrentGeneration := baseline.ID == "" || baseline.ID != service.ID ||
@@ -369,6 +427,50 @@ func serviceDesiredTasks(service swarm.StackService) uint64 {
 	return service.DesiredTasks
 }
 
+func observedDesiredTasks(service swarm.StackService, tasks []swarm.ServiceTask) uint64 {
+	desired := serviceDesiredTasks(service)
+	if service.Mode != globalServiceMode {
+		return desired
+	}
+	desiredFromTasks := countDesiredTasks(tasks)
+	if desiredFromTasks > desired {
+		return desiredFromTasks
+	}
+	return desired
+}
+
+func globalSchedulerPending(
+	baseline swarm.StackService,
+	service swarm.StackService,
+	desired uint64,
+) bool {
+	if service.Mode != globalServiceMode || desired != 0 {
+		return false
+	}
+	if baseline.ID == "" || baseline.ID != service.ID {
+		return true
+	}
+	return baseline.DesiredTasks > 0 || !reflect.DeepEqual(
+		baseline.ServiceSpec.TaskTemplate.Placement,
+		service.ServiceSpec.TaskTemplate.Placement,
+	)
+}
+
+func zeroDesiredProgress(progress ServiceProgress, tasks []swarm.ServiceTask) ServiceProgress {
+	active := countActiveTasks(tasks)
+	if active == 0 {
+		progress.State = ServiceReady
+		progress.Message = "service converged"
+		return progress
+	}
+	progress.Message = boundedDiagnostic(fmt.Sprintf(
+		"waiting for active tasks to stop: %d remaining%s",
+		active,
+		taskFailureDiagnostic(tasks),
+	))
+	return progress
+}
+
 func countDesiredTasks(tasks []swarm.ServiceTask) uint64 {
 	var count uint64
 	for _, task := range tasks {
@@ -377,6 +479,40 @@ func countDesiredTasks(tasks []swarm.ServiceTask) uint64 {
 		}
 	}
 	return count
+}
+
+func countActiveTasks(tasks []swarm.ServiceTask) uint64 {
+	var count uint64
+	for _, task := range tasks {
+		if taskIsActive(task.CurrentState) {
+			count++
+		}
+	}
+	return count
+}
+
+func taskIsActive(state swarm.TaskState) bool {
+	switch state {
+	case swarm.TaskStateNew,
+		swarm.TaskStateAllocated,
+		swarm.TaskStatePending,
+		swarm.TaskStateAssigned,
+		swarm.TaskStateAccepted,
+		swarm.TaskStatePreparing,
+		swarm.TaskStateReady,
+		swarm.TaskStateStarting,
+		swarm.TaskStateRunning:
+		return true
+	case swarm.TaskStateComplete,
+		swarm.TaskStateShutdown,
+		swarm.TaskStateFailed,
+		swarm.TaskStateRejected,
+		swarm.TaskStateRemove,
+		swarm.TaskStateOrphaned:
+		return false
+	default:
+		return true
+	}
 }
 
 func countCurrentRunningTasks(tasks []swarm.ServiceTask, requireCurrentGeneration bool, cutoff time.Time) uint64 {
@@ -471,7 +607,12 @@ func taskFailureDiagnostic(tasks []swarm.ServiceTask) string {
 	return "; latest task failure: " + reason
 }
 
-func waitInterruptedError(stackName string, progress map[string]ServiceProgress, cause error) error {
+func waitInterruptedError(
+	stackName string,
+	progress map[string]ServiceProgress,
+	cause error,
+	lastObservationError error,
+) error {
 	pending := make([]string, 0)
 	for _, name := range sortedProgressNames(progress) {
 		service := progress[name]
@@ -486,7 +627,28 @@ func waitInterruptedError(stackName string, progress map[string]ServiceProgress,
 			service.Message,
 		))
 	}
-	return fmt.Errorf("wait for services in stack %s: %w: %s", stackName, cause, strings.Join(pending, "; "))
+	diagnostic := strings.Join(pending, "; ")
+	if lastObservationError != nil {
+		if diagnostic != "" {
+			diagnostic += "; "
+		}
+		diagnostic += fmt.Sprintf("last Docker API error: %v", lastObservationError)
+	}
+	return fmt.Errorf("wait for services in stack %s: %w: %s", stackName, cause, diagnostic)
+}
+
+func isTransientDockerAPIError(err error) bool {
+	if cerrdefs.IsUnavailable(err) {
+		return true
+	}
+
+	var temporary faults.Error
+	if errors.As(err, &temporary) && temporary.Temporary() {
+		return true
+	}
+
+	var timeout interface{ Timeout() bool }
+	return errors.As(err, &timeout) && timeout.Timeout()
 }
 
 func uniqueSortedNames(names []string) []string {
