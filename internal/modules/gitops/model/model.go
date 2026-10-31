@@ -27,6 +27,8 @@ type Stack struct {
 	LastError string `json:"last_error"`
 	// LastDeployAt is the timestamp of the latest stack deployment attempt.
 	LastDeployAt time.Time `json:"last_deploy_at"`
+	// StateUpdatedAt prevents delayed deployment events from overwriting newer reconciliation results.
+	StateUpdatedAt time.Time `json:"state_updated_at,omitempty"`
 	// Services stores per-service deployment state for the stack.
 	Services map[string]Service `json:"services"`
 }
