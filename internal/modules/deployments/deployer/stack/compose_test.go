@@ -103,3 +103,57 @@ func TestSingleServicePreservesCredentialConfig(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, compose.Configs{"credential": desired.Configs["credential"]}, selected.Configs)
 }
+
+func TestSingleServiceComposeIncludesInitJobNetworks(t *testing.T) {
+	tests := []struct {
+		name    string
+		service compose.Service
+		want    map[string]compose.Network
+	}{
+		{
+			name: "job-only network alongside implicit default",
+			service: compose.Service{
+				Name: "api",
+				InitJobs: []compose.InitJob{{
+					Name: "prepare", Networks: compose.NewServiceNetworks(&compose.ServiceNetwork{Alias: "jobs"}),
+				}},
+			},
+			want: map[string]compose.Network{"default": {}, "jobs": {}},
+		},
+		{
+			name: "job network alongside explicit service network",
+			service: compose.Service{
+				Name: "api",
+				Networks: compose.NewServiceNetworks(&compose.ServiceNetwork{Alias: "backend"}),
+				InitJobs: []compose.InitJob{{
+					Name: "prepare", Networks: compose.NewServiceNetworks(&compose.ServiceNetwork{Alias: "jobs"}),
+				}},
+			},
+			want: map[string]compose.Network{"backend": {}, "jobs": {}},
+		},
+		{
+			name: "job reuses service network",
+			service: compose.Service{
+				Name: "api",
+				Networks: compose.NewServiceNetworks(&compose.ServiceNetwork{Alias: "backend"}),
+				InitJobs: []compose.InitJob{{
+					Name: "prepare", Networks: compose.NewServiceNetworks(&compose.ServiceNetwork{Alias: "backend"}),
+				}},
+			},
+			want: map[string]compose.Network{"backend": {}},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			desired := compose.Compose{
+				Services: compose.Services{tt.service},
+				Networks: map[string]compose.Network{
+					"default": {}, "backend": {}, "jobs": {}, "unused": {},
+				},
+			}
+			selected, err := SingleServiceCompose(desired, "api")
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, selected.Networks)
+		})
+	}
+}
