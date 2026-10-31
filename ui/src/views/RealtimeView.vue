@@ -661,11 +661,13 @@ onUnmounted(() => {
 .realtime-scale-summary { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px 16px; margin: 0 0 6px; font-size: .84rem; }
 .realtime-scale-summary dt { color: var(--muted); }
 .realtime-scale-summary dd { margin: 0; overflow-wrap: anywhere; }
-.realtime-scale-input { display: flex; align-items: center; gap: 6px; }
-.realtime-scale-input input { min-width: 0; width: 100%; height: 32px; border: 1px solid var(--border-default); border-radius: 6px; background: var(--surface-input); color: var(--text); padding: 4px 8px; font: inherit; font-size: .84rem; appearance: textfield; }
+.realtime-scale-input { display: flex; align-items: stretch; min-width: 0; height: 32px; overflow: hidden; border: 1px solid var(--border-default); border-radius: 6px; background: var(--surface-input); }
+.realtime-scale-input:focus-within { border-color: var(--accent-border); outline: 2px solid var(--accent-focus); outline-offset: 1px; }
+.realtime-scale-input input { flex: 1 1 auto; min-width: 0; width: 100%; height: 100%; border: 0; border-radius: 0; outline: 0; background: transparent; color: var(--text); padding: 4px 8px; text-align: center; font: inherit; font-size: .84rem; appearance: textfield; }
 .realtime-scale-input input::-webkit-inner-spin-button, .realtime-scale-input input::-webkit-outer-spin-button { appearance: none; margin: 0; }
-.realtime-scale-input input:focus-visible { border-color: var(--accent-border); outline: 2px solid var(--accent-focus); outline-offset: 1px; }
-.realtime-scale-input button { display: inline-grid; place-items: center; flex: 0 0 28px; width: 28px; height: 28px; min-width: 0; padding: 0; border-radius: 4px; font-size: 16px; line-height: 1; transform: none; filter: none; }
+.realtime-scale-input button { display: inline-grid; place-items: center; flex: 0 0 28px; width: 28px; min-width: 0; border: 0; border-radius: 0; background: transparent; color: var(--control-primary); padding: 0; font-size: 16px; line-height: 1; transform: none; filter: none; }
+.realtime-scale-input button:hover:not(:disabled) { background: var(--surface-hover); }
+.realtime-scale-input button:focus-visible { outline: 2px solid var(--accent-focus); outline-offset: -3px; }
 .realtime-scale-modal button:disabled { cursor: not-allowed; opacity: .58; }
 .realtime-scale-error { margin: 0; color: var(--error); overflow-wrap: anywhere; }
 .realtime-scale-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
