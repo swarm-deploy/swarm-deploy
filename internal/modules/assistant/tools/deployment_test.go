@@ -13,42 +13,45 @@ import (
 	deploymentmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/model"
 	deploymentstore "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/deployment"
-	gitopsmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/testutil"
 )
 
 func TestDeploymentToolsListFilterPaginationAndSafeDetail(t *testing.T) {
 	db := testutil.OpenSQLite(t)
 	publisher := &dispatcher.NopDispatcher{}
-	service := deployment.NewService(db, publisher)
-	creation := deployments.NewService(db, publisher)
+	service := deployments.NewService(db, publisher)
 	store := deploymentstore.NewStore(db)
 	failedIDs := make([]string, 0, 3)
 	for index, stack := range []string{"api", "other", "api", "api"} {
 		file := deploymentToolCompose(index)
-		attempt, err := creation.StartIfChanged(
-			t.Context(), stack, string(rune('a'+index)), file, true, service.ProjectInterruption,
+		attempt, err := service.StartIfChanged(
+			t.Context(), stack, string(rune('a'+index)), file, true,
 		)
 		require.NoError(t, err)
 		if index == 1 {
-			require.NoError(t, service.Succeed(t.Context(), attempt.ID, gitopsmodel.Stack{}))
+			require.NoError(t, service.Complete(t.Context(), attempt.ID, deployments.Completion{
+				Outcome: deployments.CompletionSucceeded,
+			}))
 			continue
 		}
 		failedIDs = append(failedIDs, attempt.DeploymentID)
-		require.NoError(t, service.FailApplyWithError(t.Context(), attempt.ID, gitopsmodel.Stack{},
-			"apply_failed", errors.New("registry request failed: token=private-value")))
+		require.NoError(t, service.Complete(t.Context(), attempt.ID, deployments.Completion{
+			Outcome:    deployments.CompletionApplyFailed,
+			Diagnostic: errors.New("registry request failed: token=private-value"),
+		}))
 	}
-	running, err := creation.StartIfChanged(
-		t.Context(), "running", "running", deploymentToolCompose(10), true, service.ProjectInterruption,
+	running, err := service.StartIfChanged(
+		t.Context(), "running", "running", deploymentToolCompose(10), true,
 	)
 	require.NoError(t, err)
 	require.NotNil(t, running)
-	interrupted, err := creation.StartIfChanged(
-		t.Context(), "interrupted", "interrupted", deploymentToolCompose(11), true, service.ProjectInterruption,
+	interrupted, err := service.StartIfChanged(
+		t.Context(), "interrupted", "interrupted", deploymentToolCompose(11), true,
 	)
 	require.NoError(t, err)
-	require.NoError(t, service.InterruptStack(t.Context(), "interrupted"))
+	require.NoError(t, service.Complete(t.Context(), interrupted.ID, deployments.Completion{
+		Outcome: deployments.CompletionProcessInterrupted,
+	}))
 	require.NotNil(t, interrupted)
 
 	list := NewDeploymentList(store)

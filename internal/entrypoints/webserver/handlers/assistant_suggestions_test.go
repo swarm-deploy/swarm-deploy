@@ -20,8 +20,6 @@ import (
 	deploymentstore "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/modelstore"
 	eventbus "github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/outbox"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/deployment"
-	gitopsmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/storage"
 	"github.com/swarm-deploy/swarm-deploy/internal/testutil"
 )
@@ -242,13 +240,15 @@ func createSuccessfulDeployment(
 ) {
 	t.Helper()
 	publisher := eventbus.NewOutboxDispatcher(outbox.New(db))
-	service := deployment.NewService(db, publisher)
-	attempt, err := deployments.NewService(db, publisher).StartIfChanged(
-		t.Context(), stack, commit, file, true, service.ProjectInterruption,
+	service := deployments.NewService(db, publisher)
+	attempt, err := service.StartIfChanged(
+		t.Context(), stack, commit, file, true,
 	)
 	require.NoError(t, err)
 	require.NotNil(t, attempt)
-	require.NoError(t, service.Succeed(t.Context(), attempt.ID, gitopsmodel.Stack{}))
+	require.NoError(t, service.Complete(t.Context(), attempt.ID, deployments.Completion{
+		Outcome: deployments.CompletionSucceeded,
+	}))
 }
 
 func openSuggestionDatabase(t *testing.T) storage.Database {

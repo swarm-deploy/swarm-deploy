@@ -191,7 +191,7 @@ func TestImagePolicyViolationLifecycle(t *testing.T) {
 	repoDir := t.TempDir()
 	repository.EXPECT().WorkingDir().Return(repoDir).AnyTimes()
 	require.NoError(t, writeComposeFile(repoDir))
-	reconciler := New(cfg, repository, deployments.NewService(db, bus), stackDeployer, &swarm.Swarm{
+	reconciler := newTestReconciler(cfg, repository, deployments.NewService(db, bus), stackDeployer, &swarm.Swarm{
 		Services: serviceManager, Configs: swarm.NewMockConfigManager(ctrl), Secrets: swarm.NewMockSecretManager(ctrl),
 	}, bus, &metrics.NopDeploys{}, state, fs.NewLocalFileSystem(), db)
 
@@ -274,7 +274,7 @@ func TestImagePolicyDisabledPreservesDeployment(t *testing.T) {
 	stackDeployer.EXPECT().DeployStack(gomock.Any(), "app", gomock.Any(), gomock.Any(), gomock.Any()).Return(deployer.Result{}, nil)
 	serviceManager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "app"}).Return([]swarm.StackService{}, nil)
 
-	reconciler := New(&config.Config{Spec: config.Spec{DataDir: filepath.Join(t.TempDir(), "data")}}, repository,
+	reconciler := newTestReconciler(&config.Config{Spec: config.Spec{DataDir: filepath.Join(t.TempDir(), "data")}}, repository,
 		deployments.NewService(db, bus), stackDeployer, &swarm.Swarm{
 			Services: serviceManager, Configs: swarm.NewMockConfigManager(ctrl), Secrets: swarm.NewMockSecretManager(ctrl),
 		}, bus, &metrics.NopDeploys{}, state, fs.NewLocalFileSystem(), db)

@@ -16,13 +16,13 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/pruner"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/gitpull"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/networkloop"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackloop"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackplan"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/deployment"
 	git "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/modelstore"
@@ -262,7 +262,9 @@ func TestControllersSharingSQLiteDoNotReconcileConcurrently(t *testing.T) {
 			stateStore:   store,
 			reconcileCh:  make(chan reconcileTask, 1),
 			ownership:    newControllerOwnership(dataDir),
-			recovery:     deployment.NewService(db, events),
+			deployments: deployments.NewController(
+				deployments.NewService(db, events), nil, nil, nil, &metrics.NopDeploys{},
+			),
 			shutdownWait: 100 * time.Millisecond,
 			tracer:       otel.Tracer("test"),
 		}
@@ -321,7 +323,6 @@ func TestNewControllerDoesNotRemoveRenderedComposeOwnedByActiveController(t *tes
 		nil,
 		nil,
 		&swarm.Swarm{},
-		nil,
 		nil,
 		metricGroup,
 		&dispatcher.NopDispatcher{},
@@ -530,7 +531,7 @@ func TestControllerSyncContinuesWhenConfigurationEventPublicationFails(t *testin
 		event:             eventDispatcher,
 		stateStore:        store,
 		networkReconciler: networkloop.New(nil),
-		stackReconciler: stackloop.New(
+		stackReconciler: newTestStackReconciler(
 			cfg,
 			repository,
 			deployments.NewService(db, eventDispatcher),
@@ -689,7 +690,7 @@ func TestControllerSyncOncePrioritizesChangedStacks(t *testing.T) {
 		event:             eventDispatcher,
 		stateStore:        store,
 		networkReconciler: networkloop.New(nil),
-		stackReconciler: stackloop.New(
+		stackReconciler: newTestStackReconciler(
 			cfg,
 			repository,
 			deployments.NewService(db, eventDispatcher),
@@ -773,7 +774,7 @@ func TestControllerSyncOnceContinuesWhenGitDiffFails(t *testing.T) {
 		event:             eventDispatcher,
 		stateStore:        store,
 		networkReconciler: networkloop.New(nil),
-		stackReconciler: stackloop.New(
+		stackReconciler: newTestStackReconciler(
 			cfg,
 			repository,
 			deployments.NewService(db, eventDispatcher),
@@ -794,6 +795,28 @@ func TestControllerSyncOnceContinuesWhenGitDiffFails(t *testing.T) {
 	state := readSQLState(t, store)
 	assert.Equal(t, syncRunResultSuccess, state.LastSyncResult, "unexpected sync result")
 	assert.Equal(t, "commit-2", state.GitRevision, "unexpected git revision")
+}
+
+func newTestStackReconciler(
+	cfg *config.Config,
+	repository git.Repository,
+	lifecycle *deployments.Service,
+	stackDeployer deployer.StackDeployer,
+	swarmService *swarm.Swarm,
+	eventDispatcher dispatcher.Dispatcher,
+	deployMetrics metrics.Deploys,
+	stateStore modelstore.Store,
+	fileSystem fs.FileSystem,
+	db storage.Database,
+) stackloop.StackReconciler {
+	executor := deployments.NewController(
+		lifecycle, stackDeployer, swarmService.Services,
+		pruner.NewServicePruner(swarmService.Services, eventDispatcher, cfg.Spec.Sync.Policy),
+		deployMetrics,
+	)
+	return stackloop.New(
+		cfg, repository, executor, swarmService, eventDispatcher, deployMetrics, stateStore, fileSystem, db,
+	)
 }
 
 func writeStacksFile(path string, stackName string) error {

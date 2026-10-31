@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackloop/drift"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/tracing"
@@ -86,10 +87,10 @@ func (r *Reconciler) healService(
 	)
 
 	remediation := serviceRemediation{attempted: true}
-	_, err = r.deployer.DeployService(
-		ctx, payload.Stack.Name, payload.Desired.Path, service.Name,
-		payload.Desired.Compose, deployCompose,
-	)
+	_, err = r.executor.ExecuteService(ctx, deployments.ExecuteServiceRequest{
+		StackName: payload.Stack.Name, SourceComposePath: payload.Desired.Path,
+		ServiceName: service.Name, Desired: payload.Desired.Compose, Deploy: deployCompose,
+	})
 	if err != nil {
 		remediation.applyErr = err
 		slog.ErrorContext(ctx, "self-heal apply command failed; awaiting state verification",

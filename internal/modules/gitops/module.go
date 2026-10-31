@@ -10,7 +10,10 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments"
 	deploymentstore "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/deployment"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/differ"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/modelstore"
@@ -58,14 +61,19 @@ func InitModule(
 
 	srv.Store = modelstore.NewSQLStore(cnt.GetStorage())
 	srv.Deployments = deploymentstore.NewStore(cnt.GetStorage())
+	projection := deployment.NewProjectionSubscriber(cnt.GetStorage(), srv.Deployments, srv.Store)
+	if err := dispatcher.SubscribeMany(cnt.GetEventModule().Dispatcher, []events.TypeName{
+		events.TypeNameDeploySuccess, events.TypeNameDeployFailed, events.TypeNameDeployInterrupted,
+	}, "gitops-runtime", projection); err != nil {
+		return nil, err
+	}
 
 	srv.Controller = controller.New(
 		cfg,
 		cnt.GetConfigStore(),
 		srv.GitRepository,
 		cnt.GetSwarm(),
-		cnt.GetDeploymentsModule().Creation,
-		cnt.GetDeploymentsModule().Deployer,
+		cnt.GetDeploymentsModule().Controller,
 		cnt.GetMetrics(),
 		cnt.GetEventModule().Dispatcher,
 		srv.Store,

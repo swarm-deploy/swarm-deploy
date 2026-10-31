@@ -56,19 +56,18 @@ type completionState struct {
 }
 
 // Complete persists one terminal attempt transition, updates the successful baseline when applicable,
-// invokes the consumer projection, and publishes the deployment event in one database transaction.
+// and publishes the deployment event in one database transaction.
 func (s *Service) Complete(
 	ctx context.Context,
 	attemptID string,
 	completion Completion,
-	project ProjectionUpdater,
 ) error {
 	state, err := completion.state()
 	if err != nil {
 		return err
 	}
 	return s.db.WithinTransaction(ctx, func(ctx context.Context) error {
-		return s.complete(ctx, attemptID, state, project)
+		return s.complete(ctx, attemptID, state)
 	})
 }
 
@@ -76,7 +75,6 @@ func (s *Service) complete(
 	ctx context.Context,
 	attemptID string,
 	state completionState,
-	project ProjectionUpdater,
 ) error {
 	attempt, err := s.store.GetAttempt(ctx, attemptID)
 	if err != nil {
@@ -107,11 +105,6 @@ func (s *Service) complete(
 	}
 	if state.status == deploymentmodel.Succeeded {
 		if err = s.store.SaveBaseline(ctx, deployment.ID); err != nil {
-			return err
-		}
-	}
-	if project != nil {
-		if err = project(ctx, deployment); err != nil {
 			return err
 		}
 	}

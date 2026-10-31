@@ -26,6 +26,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer"
 	deploymentmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/model"
 	deploymentstore "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/modelstore"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/pruner"
 	eventbus "github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/outbox"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackloop"
@@ -105,8 +106,13 @@ exec "$SWARM_AGE_DOCKER" "$@"
 			stackDeployer := deployer.NewDeployer(100*time.Millisecond, time.Minute, dockerClient, swarmService, &metrics.NopDeploys{},
 				deployer.NewSecretResolver(fileSystem, deployer.NewAgeDecoder(cfg.Spec.SecretRotation.Age.IdentityFile.Content), deployer.PlaintextDecoder{}))
 			bus := eventbus.NewOutboxDispatcher(outbox.New(db))
-			r := stackloop.New(cfg, gitx.NewRepository(cfg.Spec.Git, dir), deployments.NewService(db, bus),
-				stackDeployer, swarmService, bus, &metrics.NopDeploys{}, modelstore.NewSQLStore(db), fileSystem, db)
+			deployMetrics := &metrics.NopDeploys{}
+			executor := deployments.NewController(
+				deployments.NewService(db, bus), stackDeployer, swarmService.Services,
+				pruner.NewServicePruner(swarmService.Services, bus, cfg.Spec.Sync.Policy), deployMetrics,
+			)
+			r := stackloop.New(cfg, gitx.NewRepository(cfg.Spec.Git, dir), executor,
+				swarmService, bus, deployMetrics, modelstore.NewSQLStore(db), fileSystem, db)
 			req := stackloop.ReconciliationRequest{Stack: config.StackSpec{Name: stack, ComposeFile: "compose.yaml"}, Commit: "v1"}
 			composePath := filepath.Join(dir, "compose.yaml")
 			writeAgeSwarmFixture(t, dir, identity.Recipient(), "age-private-marker-v1", "mounted-age-v1")

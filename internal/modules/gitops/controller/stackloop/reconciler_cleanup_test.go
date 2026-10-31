@@ -17,9 +17,8 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/pruner"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackloop/pruner"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/deployment"
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
@@ -57,11 +56,8 @@ func TestReconcileRemovesRenderedComposeAfterEarlyPipelineFailure(t *testing.T) 
 		composeLoader:    compose.NewFileLoader(),
 		composeRotator:   NewRotator(fileSystem),
 		envFilePopulator: compose.NewEnvFilePopulator(),
-		pending:          map[string]pendingCompletion{},
 	}
 	reconciler.db = db
-	reconciler.deployments = deployment.NewService(db, reconciler.event)
-	reconciler.creation = deployments.NewService(db, reconciler.event)
 	reconciler.pipeline = pipe.NewPipelineWithConfig[*pipelinePayload](pipe.Config{
 		PipelineName: "test early failure",
 		Logger:       faults.NewSafeLogger(slog.Default()),
@@ -77,8 +73,7 @@ func TestReconcileRemovesRenderedComposeAfterEarlyPipelineFailure(t *testing.T) 
 	})
 
 	err := reconciler.Reconcile(context.Background(), ReconciliationRequest{
-		Stack:  config.StackSpec{Name: "app", ComposeFile: "app.yaml"},
-		Commit: "commit-early-failure",
+		Stack: config.StackSpec{Name: "app", ComposeFile: "app.yaml"}, Commit: "commit-early-failure",
 	})
 
 	require.Error(t, err, "expected reconciliation failure")
@@ -123,7 +118,6 @@ func TestRenderedComposeCleanupFailureDoesNotFailReconciliation(t *testing.T) {
 	reconciler := &Reconciler{
 		cfg:            &config.Config{Spec: config.Spec{DataDir: dataDir}},
 		git:            repository,
-		deployer:       stackDeployer,
 		event:          &dispatcher.NopDispatcher{},
 		deployMetrics:  &metrics.NopDeploys{},
 		stateStore:     stateStore,
@@ -131,18 +125,17 @@ func TestRenderedComposeCleanupFailureDoesNotFailReconciliation(t *testing.T) {
 		pruner:         pruner.NewServicePruner(serviceManager, &dispatcher.NopDispatcher{}, config.SyncPolicySpec{}),
 		composeLoader:  compose.NewFileLoader(),
 		composeRotator: NewRotator(fs.NewLocalFileSystem()),
-		driftAnalyzer:  nil,
 		serviceManager: serviceManager,
-		pending:        map[string]pendingCompletion{},
 	}
 	reconciler.db = db
-	reconciler.deployments = deployment.NewService(db, reconciler.event)
-	reconciler.creation = deployments.NewService(db, reconciler.event)
+	reconciler.executor = deployments.NewController(
+		deployments.NewService(db, reconciler.event), stackDeployer, serviceManager,
+		reconciler.pruner, reconciler.deployMetrics,
+	)
 	reconciler.attachPipeline()
 
 	err := reconciler.Reconcile(context.Background(), ReconciliationRequest{
-		Stack:  config.StackSpec{Name: "app", ComposeFile: "app.yaml"},
-		Commit: "commit-cleanup-failure",
+		Stack: config.StackSpec{Name: "app", ComposeFile: "app.yaml"}, Commit: "commit-cleanup-failure",
 	})
 
 	require.NoError(t, err, "cleanup failure must not change the reconciliation result")

@@ -23,9 +23,6 @@ type Publisher interface {
 	Publish(context.Context, events.Event) error
 }
 
-// ProjectionUpdater updates a consumer-owned projection in the active lifecycle transaction.
-type ProjectionUpdater func(context.Context, deploymentmodel.Deployment) error
-
 // Service owns deployment and attempt lifecycle persistence.
 type Service struct {
 	db     storage.Database
@@ -60,7 +57,6 @@ func (s *Service) StartIfChanged(
 	commit string,
 	file compose.File,
 	sourceChanged bool,
-	projectInterruption ProjectionUpdater,
 ) (*deploymentmodel.Attempt, error) {
 	desired, err := deploymentmodel.Prepare(file)
 	if err != nil {
@@ -69,7 +65,7 @@ func (s *Service) StartIfChanged(
 	var result *deploymentmodel.Attempt
 	err = s.db.WithinTransaction(ctx, func(ctx context.Context) error {
 		var startErr error
-		result, startErr = s.startPrepared(ctx, stack, commit, desired, sourceChanged, projectInterruption)
+		result, startErr = s.startPrepared(ctx, stack, commit, desired, sourceChanged)
 		return startErr
 	})
 	if err != nil {
@@ -84,7 +80,6 @@ func (s *Service) startPrepared(
 	commit string,
 	desired deploymentmodel.Prepared,
 	sourceChanged bool,
-	projectInterruption ProjectionUpdater,
 ) (*deploymentmodel.Attempt, error) {
 	latest, latestDesired, err := s.store.Latest(ctx, stack)
 	if errors.Is(err, deploymentstore.ErrNotFound) {
@@ -100,7 +95,7 @@ func (s *Service) startPrepared(
 		return s.startExisting(ctx, latest)
 	}
 	removedServices := desiredServiceRemovals(latestDesired.Definition, desired.Definition)
-	if err = s.supersedePrevious(ctx, latest, projectInterruption); err != nil {
+	if err = s.supersedePrevious(ctx, latest); err != nil {
 		return nil, err
 	}
 	attempt, err := s.createDeployment(ctx, stack, commit, desired)
@@ -155,7 +150,6 @@ func (s *Service) startExisting(
 func (s *Service) supersedePrevious(
 	ctx context.Context,
 	latest deploymentmodel.Deployment,
-	projectInterruption ProjectionUpdater,
 ) error {
 	if latest.Status != deploymentmodel.Running {
 		return nil
@@ -164,7 +158,7 @@ func (s *Service) supersedePrevious(
 	if err != nil {
 		return err
 	}
-	return s.Complete(ctx, attempt.ID, Completion{Outcome: CompletionProcessInterrupted}, projectInterruption)
+	return s.Complete(ctx, attempt.ID, Completion{Outcome: CompletionProcessInterrupted})
 }
 
 func (s *Service) runningAttempt(
@@ -254,4 +248,72 @@ func (s *Service) comparisonBasis(
 	}
 	id, err := s.store.BaselineDeploymentID(ctx, stack)
 	return baseline, deploymentmodel.BasisSuccessfulBaseline, id, err
+}
+
+// SaveInitJobExecution stores one observational Init Job execution result.
+func (s *Service) SaveInitJobExecution(ctx context.Context, execution deploymentmodel.InitJobExecution) error {
+	return s.store.SaveInitJobExecution(ctx, execution)
+}
+
+// Inspect reads one attempt and its owning stack in a consistent transaction.
+func (s *Service) Inspect(ctx context.Context, id string) (deploymentmodel.Attempt, error) {
+	var result deploymentmodel.Attempt
+	err := s.db.WithinTransaction(ctx, func(ctx context.Context) error {
+		var err error
+		result, err = s.store.GetAttempt(ctx, id)
+		if err != nil {
+			return err
+		}
+		deployment, err := s.store.Get(ctx, result.DeploymentID)
+		if err == nil {
+			result.Stack = deployment.Stack
+		}
+		return err
+	})
+	return result, err
+}
+
+// InterruptRunning recovers unfinished attempts without inventing successful completion.
+func (s *Service) InterruptRunning(ctx context.Context) error {
+	return s.db.WithinTransaction(ctx, func(ctx context.Context) error {
+		return s.interruptRunning(ctx)
+	})
+}
+
+func (s *Service) interruptRunning(ctx context.Context) error {
+	running, err := s.store.RunningAttempts(ctx, "")
+	if err != nil {
+		return err
+	}
+	legacy, err := s.store.LegacyRunning(ctx, "")
+	if err != nil {
+		return err
+	}
+	for _, deployment := range legacy {
+		attempt, materializeErr := s.runningAttempt(ctx, deployment)
+		if materializeErr != nil {
+			return materializeErr
+		}
+		running = append(running, attempt)
+	}
+	return s.interruptAttempts(ctx, running)
+}
+
+func (s *Service) interruptAttempts(ctx context.Context, attempts []deploymentmodel.Attempt) error {
+	state, err := (Completion{Outcome: CompletionProcessInterrupted}).state()
+	if err != nil {
+		return err
+	}
+	for _, attempt := range attempts {
+		synchronized, syncErr := s.store.SynchronizeRunningAttempt(ctx, attempt)
+		if syncErr != nil {
+			return syncErr
+		}
+		if !synchronized {
+			if err = s.complete(ctx, attempt.ID, state); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }

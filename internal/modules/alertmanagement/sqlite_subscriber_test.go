@@ -23,8 +23,6 @@ import (
 	eventbus "github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/outbox"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/deployment"
-	gitopsmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/storage"
 )
 
@@ -600,10 +598,10 @@ func TestDeploymentCompletionOutboxPreservesAlertThresholds(t *testing.T) {
 				require.NoError(t, bus.Subscribe(typ, "alerts", subscriber))
 				var deploymentID string
 				for i := range 3 {
-					service := deployment.NewService(db, bus)
-					attempt, startErr := deployments.NewService(db, bus).StartIfChanged(ctx, "app", fmt.Sprint(i), compose.File{
+					service := deployments.NewService(db, bus)
+					attempt, startErr := service.StartIfChanged(ctx, "app", fmt.Sprint(i), compose.File{
 						Compose: compose.Compose{Services: compose.Services{{Name: "api", Image: "api:1"}}},
-					}, true, service.ProjectInterruption)
+					}, true)
 					require.NoError(t, startErr)
 					if i == 0 {
 						deploymentID = attempt.DeploymentID
@@ -617,11 +615,18 @@ func TestDeploymentCompletionOutboxPreservesAlertThresholds(t *testing.T) {
 					}
 					switch phase {
 					case "apply":
-						err = service.FailApplyWithError(ctx, attempt.ID, gitopsmodel.Stack{}, "apply_failed", cause)
+						err = service.Complete(ctx, attempt.ID, deployments.Completion{
+							Outcome: deployments.CompletionApplyFailed, Diagnostic: cause,
+						})
 					case "verification":
-						err = service.InterruptVerificationWithError(ctx, attempt.ID, gitopsmodel.Stack{}, cause)
+						err = service.Complete(ctx, attempt.ID, deployments.Completion{
+							Outcome: deployments.CompletionVerificationInterrupted, Diagnostic: cause,
+						})
 					case "cleanup":
-						err = service.FailCleanupWithError(ctx, attempt.ID, gitopsmodel.Stack{}, "prune_failed", time.Now(), cause)
+						observedAt := time.Now()
+						err = service.Complete(ctx, attempt.ID, deployments.Completion{
+							Outcome: deployments.CompletionCleanupFailed, Diagnostic: cause, ObservedAt: &observedAt,
+						})
 					}
 					require.NoError(t, err)
 					stored, readErr := deploymentstore.NewStore(db).Get(ctx, attempt.DeploymentID)

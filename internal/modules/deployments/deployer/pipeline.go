@@ -2,6 +2,7 @@ package deployer
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"regexp"
@@ -32,6 +33,21 @@ const (
 	stepWaitConvergence    = "wait for service convergence"
 	stepPrepareService     = "prepare single-service compose"
 )
+
+// FailedStep returns the execution pipeline step that produced err, when available.
+func FailedStep(err error) string {
+	stepErr, ok := errors.AsType[*pipe.StepError](err)
+	if !ok {
+		return ""
+	}
+	return stepErr.StepName
+}
+
+// InitJobsFailed reports whether err was produced while running Init Jobs.
+func InitJobsFailed(err error) bool { return FailedStep(err) == stepRunInitJobs }
+
+// ConvergenceFailed reports whether err was produced while waiting for service convergence.
+func ConvergenceFailed(err error) bool { return FailedStep(err) == stepWaitConvergence }
 
 func (d *Deployer) attachPipelines() {
 	d.pipelineOnce.Do(func() {

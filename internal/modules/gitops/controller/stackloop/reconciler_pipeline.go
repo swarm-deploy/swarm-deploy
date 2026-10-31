@@ -12,10 +12,10 @@ import (
 	pipe "github.com/artarts36/gopipe"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments"
 	deploymentmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/model"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/pruner"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackloop/drift"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackloop/pruner"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/labelsdict"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
@@ -24,7 +24,6 @@ import (
 const (
 	renderedComposeDirectoryMode = 0o755
 	renderedComposeFileMode      = 0o600
-	initJobPersistenceTimeout    = 2 * time.Second
 )
 
 type pipelinePayload struct {
@@ -44,6 +43,7 @@ type pipelinePayload struct {
 	LiveServices   []swarm.StackService
 	ObservedAt     time.Time
 	PrunedServices []string
+	ExecutionError string
 	CleanupResult  rotatedCleanupResult
 	Drift          map[string]drift.ServiceDrift
 	RemainingDrift map[string]drift.ServiceDrift
@@ -104,24 +104,19 @@ func (r *Reconciler) attachPipeline() {
 	})
 
 	r.pipeline.Add(pipe.Step[*pipelinePayload]{
-		Name: "start deployment",
-		Run:  r.startDeployment,
-	})
-	r.pipeline.Add(pipe.Step[*pipelinePayload]{
-		Name: "deploy stack",
-		When: pipe.When(func(payload *pipelinePayload) bool {
-			return payload.Attempt != nil
-		}),
-		Run: r.deployStack,
+		Name: "execute deployment",
+		Run:  r.executeDeployment,
 	})
 
 	r.pipeline.Add(pipe.Step[*pipelinePayload]{
 		Name: "load live state",
+		When: pipe.When(func(payload *pipelinePayload) bool { return payload.Attempt == nil }),
 		Run:  r.loadLiveState,
 	})
 
 	r.pipeline.Add(pipe.Step[*pipelinePayload]{
 		Name: "prune orphaned services",
+		When: pipe.When(func(payload *pipelinePayload) bool { return payload.Attempt == nil }),
 		Run:  r.pruneOrphanedServices,
 	})
 
@@ -150,12 +145,16 @@ func (r *Reconciler) attachPipeline() {
 	})
 }
 
-func (r *Reconciler) startDeployment(ctx context.Context, payload *pipelinePayload) error {
-	attempt, err := r.creation.StartIfChanged(
-		ctx, payload.Stack.Name, payload.Commit, *payload.Desired, payload.IsNewDigest,
-		r.deployments.ProjectInterruption,
-	)
-	payload.Attempt = attempt
+func (r *Reconciler) executeDeployment(ctx context.Context, payload *pipelinePayload) error {
+	result, err := r.executor.Execute(ctx, deployments.ExecuteRequest{
+		Stack: payload.Stack, Commit: payload.Commit, Desired: *payload.Desired,
+		DeployComposePath: payload.DeployComposePath, SourceChanged: payload.IsNewDigest,
+	})
+	payload.Attempt = result.Attempt
+	payload.LiveServices = result.LiveServices
+	payload.ObservedAt = result.ObservedAt
+	payload.PrunedServices = result.PrunedServices
+	payload.ExecutionError = result.ErrorCode
 	return err
 }
 
@@ -240,53 +239,6 @@ func (r *Reconciler) cleanupRenderedComposeFile(ctx context.Context, payload *pi
 	}
 	if err := r.fileSystem.RemoveFile(ctx, payload.RenderedComposePath); err != nil && !errors.Is(err, os.ErrNotExist) {
 		slog.WarnContext(ctx, "failed to clean up rendered compose file", "path", payload.RenderedComposePath, "err", err)
-	}
-}
-
-func (r *Reconciler) deployStack(ctx context.Context, payload *pipelinePayload) error {
-	result, deployErr := r.deployer.DeployStack(
-		ctx,
-		payload.Stack.Name,
-		payload.Desired.Path,
-		payload.DeployComposePath,
-		payload.Desired.Compose,
-	)
-	r.persistInitJobs(ctx, payload.Attempt.ID, result.InitJobs)
-	return deployErr
-}
-
-func (r *Reconciler) persistInitJobs(ctx context.Context, attemptID string, results []deployer.InitJobResult) {
-	for index, result := range results {
-		r.persistInitJobExecution(ctx, deploymentmodel.InitJobExecution{
-			AttemptID:     attemptID,
-			Ordinal:       index + 1,
-			ServiceName:   result.ServiceName,
-			JobName:       result.JobName,
-			Status:        deploymentmodel.InitJobStatus(result.Status),
-			StartedAt:     result.StartedAt,
-			FinishedAt:    result.FinishedAt,
-			Logs:          result.Logs,
-			LogsAvailable: result.LogsAvailable,
-			LogsTruncated: result.LogsTruncated,
-		})
-	}
-}
-
-func (r *Reconciler) persistInitJobExecution(
-	ctx context.Context,
-	execution deploymentmodel.InitJobExecution,
-) {
-	persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), initJobPersistenceTimeout)
-	defer cancel()
-	if err := r.deployments.SaveInitJobExecution(persistCtx, execution); err != nil {
-		slog.WarnContext(
-			persistCtx,
-			"persist init job execution",
-			slog.String("attempt_id", execution.AttemptID),
-			slog.String("service_name", execution.ServiceName),
-			slog.String("job_name", execution.JobName),
-			slog.Any("err", err),
-		)
 	}
 }
 

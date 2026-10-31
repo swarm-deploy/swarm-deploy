@@ -3,7 +3,6 @@ package deployments
 import (
 	"context"
 	"errors"
-	"fmt"
 	"testing"
 	"time"
 
@@ -106,17 +105,10 @@ func TestCompletePersistsLifecycleBaselineAndEvents(t *testing.T) {
 			}))
 			subscribe(t, db, bus, testCase.wantEvent)
 			attempt, err := service.StartIfChanged(
-				t.Context(), "app", "commit", desiredServices("api"), true, nil,
+				t.Context(), "app", "commit", desiredServices("api"), true,
 			)
 			require.NoError(t, err)
-			projected := false
-			require.NoError(t, service.Complete(t.Context(), attempt.ID, testCase.completion,
-				func(_ context.Context, deployment deploymentmodel.Deployment) error {
-					projected = true
-					assert.Equal(t, attempt.DeploymentID, deployment.ID)
-					return nil
-				}))
-			assert.True(t, projected)
+			require.NoError(t, service.Complete(t.Context(), attempt.ID, testCase.completion))
 
 			stored, err := deploymentstore.NewStore(db).Get(t.Context(), attempt.DeploymentID)
 			require.NoError(t, err)
@@ -200,12 +192,12 @@ func assertCompletionPublication(
 
 func TestFailedCompletionDoesNotReplaceSuccessfulBaseline(t *testing.T) {
 	db, service, _ := openService(t)
-	first, err := service.StartIfChanged(t.Context(), "app", "first", desiredServices("api"), true, nil)
+	first, err := service.StartIfChanged(t.Context(), "app", "first", desiredServices("api"), true)
 	require.NoError(t, err)
-	require.NoError(t, service.Complete(t.Context(), first.ID, Completion{Outcome: CompletionSucceeded}, nil))
-	second, err := service.StartIfChanged(t.Context(), "app", "second", desiredServices("worker"), true, nil)
+	require.NoError(t, service.Complete(t.Context(), first.ID, Completion{Outcome: CompletionSucceeded}))
+	second, err := service.StartIfChanged(t.Context(), "app", "second", desiredServices("worker"), true)
 	require.NoError(t, err)
-	require.NoError(t, service.Complete(t.Context(), second.ID, Completion{Outcome: CompletionApplyFailed}, nil))
+	require.NoError(t, service.Complete(t.Context(), second.ID, Completion{Outcome: CompletionApplyFailed}))
 
 	baseline, err := deploymentstore.NewStore(db).BaselineDeploymentID(t.Context(), "app")
 	require.NoError(t, err)
@@ -225,9 +217,9 @@ func TestCompleteRejectsInvalidOrTerminalTransitions(t *testing.T) {
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
 			db, service, _ := openService(t)
-			attempt, err := service.StartIfChanged(t.Context(), "app", "commit", desiredServices("api"), true, nil)
+			attempt, err := service.StartIfChanged(t.Context(), "app", "commit", desiredServices("api"), true)
 			require.NoError(t, err)
-			require.Error(t, service.Complete(t.Context(), attempt.ID, testCase.completion, nil))
+			require.Error(t, service.Complete(t.Context(), attempt.ID, testCase.completion))
 			stored, err := deploymentstore.NewStore(db).Get(t.Context(), attempt.DeploymentID)
 			require.NoError(t, err)
 			assert.Equal(t, deploymentmodel.Running, stored.Status)
@@ -238,53 +230,44 @@ func TestCompleteRejectsInvalidOrTerminalTransitions(t *testing.T) {
 	}
 
 	_, service, _ := openService(t)
-	first, err := service.StartIfChanged(t.Context(), "app", "first", desiredServices("api"), true, nil)
+	first, err := service.StartIfChanged(t.Context(), "app", "first", desiredServices("api"), true)
 	require.NoError(t, err)
-	require.NoError(t, service.Complete(t.Context(), first.ID, Completion{Outcome: CompletionApplyFailed}, nil))
-	retry, err := service.StartIfChanged(t.Context(), "app", "retry", desiredServices("api"), true, nil)
+	require.NoError(t, service.Complete(t.Context(), first.ID, Completion{Outcome: CompletionApplyFailed}))
+	retry, err := service.StartIfChanged(t.Context(), "app", "retry", desiredServices("api"), true)
 	require.NoError(t, err)
 	require.ErrorIs(t, service.Complete(t.Context(), first.ID, Completion{
 		Outcome: CompletionApplyFailed,
-	}, nil), deploymentstore.ErrNotRunning)
-	require.NoError(t, service.Complete(t.Context(), retry.ID, Completion{Outcome: CompletionSucceeded}, nil))
+	}), deploymentstore.ErrNotRunning)
+	require.NoError(t, service.Complete(t.Context(), retry.ID, Completion{Outcome: CompletionSucceeded}))
 }
 
 func TestCompleteRollsBackEveryTransactionalParticipant(t *testing.T) {
 	tests := []struct {
 		name  string
-		setup func(t *testing.T, db storage.Database) ProjectionUpdater
+		setup func(t *testing.T, db storage.Database)
 	}{
 		{
 			name: "lifecycle persistence failure",
-			setup: func(t *testing.T, db storage.Database) ProjectionUpdater {
+			setup: func(t *testing.T, db storage.Database) {
 				_, err := db.Exec(t.Context(), `CREATE TRIGGER reject_attempt_completion BEFORE UPDATE ON deployment_attempts
 					WHEN NEW.status <> 'running' BEGIN SELECT RAISE(ABORT, 'attempt persistence failed'); END`)
 				require.NoError(t, err)
-				return projectionInsert(t, db, nil)
 			},
 		},
 		{
 			name: "baseline persistence failure",
-			setup: func(t *testing.T, db storage.Database) ProjectionUpdater {
+			setup: func(t *testing.T, db storage.Database) {
 				_, err := db.Exec(t.Context(), `CREATE TRIGGER reject_baseline BEFORE INSERT ON desired_snapshots
 					BEGIN SELECT RAISE(ABORT, 'baseline persistence failed'); END`)
 				require.NoError(t, err)
-				return projectionInsert(t, db, nil)
-			},
-		},
-		{
-			name: "projection failure",
-			setup: func(t *testing.T, db storage.Database) ProjectionUpdater {
-				return projectionInsert(t, db, errors.New("projection failed"))
 			},
 		},
 		{
 			name: "event publication failure",
-			setup: func(t *testing.T, db storage.Database) ProjectionUpdater {
+			setup: func(t *testing.T, db storage.Database) {
 				_, err := db.Exec(t.Context(), `CREATE TRIGGER reject_completion_event BEFORE INSERT ON outbox_events
 					WHEN NEW.event_type='DeploySuccess' BEGIN SELECT RAISE(ABORT, 'event publication failed'); END`)
 				require.NoError(t, err)
-				return projectionInsert(t, db, nil)
 			},
 		},
 	}
@@ -293,13 +276,11 @@ func TestCompleteRollsBackEveryTransactionalParticipant(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			db, service, bus := openService(t)
 			subscribe(t, db, bus, events.TypeNameDeploySuccess)
-			_, err := db.Exec(t.Context(), "CREATE TABLE completion_projection (deployment_id TEXT PRIMARY KEY)")
-			require.NoError(t, err)
-			attempt, err := service.StartIfChanged(t.Context(), "app", "commit", desiredServices("api"), true, nil)
+			attempt, err := service.StartIfChanged(t.Context(), "app", "commit", desiredServices("api"), true)
 			require.NoError(t, err)
 
-			project := testCase.setup(t, db)
-			require.Error(t, service.Complete(t.Context(), attempt.ID, Completion{Outcome: CompletionSucceeded}, project))
+			testCase.setup(t, db)
+			require.Error(t, service.Complete(t.Context(), attempt.ID, Completion{Outcome: CompletionSucceeded}))
 
 			stored, err := deploymentstore.NewStore(db).Get(t.Context(), attempt.DeploymentID)
 			require.NoError(t, err)
@@ -308,32 +289,18 @@ func TestCompleteRollsBackEveryTransactionalParticipant(t *testing.T) {
 			assert.Equal(t, deploymentmodel.Running, stored.Attempts[0].Status)
 			_, err = deploymentstore.NewStore(db).BaselineDeploymentID(t.Context(), "app")
 			assert.ErrorIs(t, err, deploymentstore.ErrNotFound)
-			var projectionCount int
-			require.NoError(t, db.Get(t.Context(), &projectionCount, "SELECT COUNT(*) FROM completion_projection"))
-			assert.Zero(t, projectionCount)
 			assert.Empty(t, publications(t, db, events.TypeNameDeploySuccess))
 		})
 	}
 }
 
-func projectionInsert(t *testing.T, db storage.Database, result error) ProjectionUpdater {
-	t.Helper()
-	return func(ctx context.Context, deployment deploymentmodel.Deployment) error {
-		_, err := db.Exec(ctx, "INSERT INTO completion_projection (deployment_id) VALUES (?)", deployment.ID)
-		if err != nil {
-			return fmt.Errorf("insert projection: %w", err)
-		}
-		return result
-	}
-}
-
 func TestCompleteJoinsExistingTransaction(t *testing.T) {
 	db, service, _ := openService(t)
-	attempt, err := service.StartIfChanged(t.Context(), "app", "commit", desiredServices("api"), true, nil)
+	attempt, err := service.StartIfChanged(t.Context(), "app", "commit", desiredServices("api"), true)
 	require.NoError(t, err)
 
 	err = db.WithinTransaction(t.Context(), func(ctx context.Context) error {
-		if completeErr := service.Complete(ctx, attempt.ID, Completion{Outcome: CompletionSucceeded}, nil); completeErr != nil {
+		if completeErr := service.Complete(ctx, attempt.ID, Completion{Outcome: CompletionSucceeded}); completeErr != nil {
 			return completeErr
 		}
 		return errors.New("outer transaction failed")

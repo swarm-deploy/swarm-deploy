@@ -3,6 +3,7 @@ package pruner
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"strings"
 
@@ -34,7 +35,7 @@ func NewServicePruner(
 		services: serviceManager,
 		event:    eventDispatcher,
 		syncCfg:  syncCfg,
-		tracer:   otel.Tracer("github.com/swarm-deploy/internal/modules/gitops/controller/stackloop/pruner"),
+		tracer:   otel.Tracer("github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/pruner"),
 	}
 }
 
@@ -57,6 +58,7 @@ func (p *ServicePruner) Prune(
 	span.SetAttributes(tracing.ResourceDesiredServiceNames(desiredServiceNamesList))
 
 	prunedServices := make([]string, 0)
+	var pruneErrors []error
 	for _, liveService := range req.Live {
 		liveServiceNames = append(liveServiceNames, liveService.Name)
 
@@ -77,6 +79,7 @@ func (p *ServicePruner) Prune(
 			)
 
 			tracing.FailSpan(span, err)
+			pruneErrors = append(pruneErrors, fmt.Errorf("prune service %s: %w", liveService.Name, err))
 		}
 
 		if pruned {
@@ -92,7 +95,7 @@ func (p *ServicePruner) Prune(
 		tracing.ResourceLiveServiceNames(liveServiceNames),
 	)
 
-	return prunedServices, nil
+	return prunedServices, errors.Join(pruneErrors...)
 }
 
 func (p *ServicePruner) pruneService(
@@ -157,6 +160,7 @@ func (p *ServicePruner) pruneService(
 	if publishErr != nil {
 		slog.WarnContext(ctx, "[service-pruner] failed to publish event", slog.Any("err", publishErr))
 		tracing.FailSpan(span, publishErr)
+		return true, publishErr
 	}
 
 	return true, nil
