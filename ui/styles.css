@@ -1754,37 +1754,6 @@ a.overview-summary-row:focus-visible {
   color: var(--accent-strong);
 }
 
-.service-deployments-list {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  display: grid;
-}
-
-.overview-deployment-list .service-deployment-item {
-  grid-template-columns: 9px minmax(0, 1fr) max-content max-content;
-}
-
-.service-deployment-item--interactive {
-  cursor: pointer;
-}
-
-.service-deployment-status {
-  color: var(--text);
-  font-weight: 500;
-  text-transform: capitalize;
-}
-
-.service-deployment-image {
-  grid-column: 2 / -1;
-  min-width: 0;
-  overflow: hidden;
-  color: var(--muted);
-  font-size: 0.72rem;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .services-header {
   display: flex;
   gap: 14px;
@@ -4094,20 +4063,6 @@ a.overview-summary-row:focus-visible {
   .overview-deployment-list .overview-summary-value-empty {
     grid-column: 3;
     grid-row: 2;
-  }
-
-  .overview-deployment-list .service-deployment-item {
-    grid-template-columns: 9px minmax(0, 1fr) max-content;
-  }
-
-  .service-deployment-status {
-    grid-column: 2 / -1;
-    grid-row: 1;
-  }
-
-  .service-deployment-image {
-    grid-column: 2 / -1;
-    grid-row: 3;
   }
 
   .services-header {

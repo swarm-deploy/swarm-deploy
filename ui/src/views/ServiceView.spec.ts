@@ -413,7 +413,7 @@ describe("ServiceView", () => {
     });
   });
 
-  it("shows compact deployment rows and opens details by ID", async () => {
+  it("reuses the recent deployment timeline and opens details by ID", async () => {
     apiMocks.fetchServiceDeployments.mockResolvedValue({ deployments: [
       { id: "deployment-1", created_at: "2026-10-10T10:00:00Z", status: "succeeded",
         image: "registry.example.com/api:v2", image_version: "v2", commit: "abc123456" },
@@ -430,26 +430,23 @@ describe("ServiceView", () => {
       name: "deployments",
       query: { stack_name: "infra", service_name: "api" },
     });
-    const rows = wrapper.findAll(".service-deployment-item");
+    expect(apiMocks.fetchServiceDeployments).toHaveBeenCalledWith("infra", "api", 4);
+    const rows = wrapper.findAll(".stack-deployment");
     expect(rows).toHaveLength(4);
-    expect(rows[0].text()).toContain("succeeded");
+    expect(rows[0].text()).toContain("Deploy completed");
     expect(rows.every((row) => row.text().includes("Image v2"))).toBe(true);
-    expect(rows[0].get(".service-deployment-image").attributes("title")).toBe("registry.example.com/api:v2");
     expect(rows[0].text()).not.toContain("infra/api");
-    expect(rows[0].get("time").attributes("title")).toBeTruthy();
-    expect(rows[0].get(".overview-deployment-result").classes()).toContain("overview-deployment-result--success");
-    expect(rows[1].get(".overview-deployment-result").classes()).toContain("overview-deployment-result--failed");
-    expect(rows[2].get(".overview-deployment-result").classes()).toContain("overview-deployment-result--running");
-    expect(rows[3].get(".overview-deployment-result").classes()).toContain("overview-deployment-result--interrupted");
+    expect(rows[0].classes()).toContain("stack-deployment--success");
+    expect(rows[1].classes()).toContain("stack-deployment--failed");
+    expect(rows[2].classes()).toContain("stack-deployment--running");
+    expect(rows[3].classes()).toContain("stack-deployment--unknown");
 
     const store = useOverviewStore();
     const openDeployment = vi.spyOn(store, "openDeploymentDetailsModal").mockResolvedValue(undefined);
     const openCommit = vi.spyOn(store, "openCommitDetailsModal").mockResolvedValue(undefined);
-    const detailsButton = rows[0].get(".overview-deployment-details");
-    expect(detailsButton.element.tagName).toBe("BUTTON");
-    await detailsButton.trigger("click");
+    await rows[0].trigger("click");
     expect(openDeployment).toHaveBeenCalledWith("deployment-1");
-    await rows[0].get(".overview-summary-sha-badge").trigger("click");
+    await rows[0].get(".stack-commit-button").trigger("click");
     expect(openCommit).toHaveBeenCalledWith("abc123456");
     expect(openDeployment).toHaveBeenCalledTimes(1);
   });

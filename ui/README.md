@@ -19,7 +19,9 @@ uses the same relative URLs as it does with the real backend.
 
 The default overview dataset contains 10 stacks and 16 related services. It includes healthy and
 out-of-sync workloads, deployment metadata, Git revisions, routes, images, and synchronization
-errors so the main overview states can be tested without editing the mock first.
+errors so the main overview states can be tested without editing the mock first. Every service
+details page also receives a deterministic recent deployment history covering successful, running,
+failed, and interrupted states.
 
 To run only the mock API:
 

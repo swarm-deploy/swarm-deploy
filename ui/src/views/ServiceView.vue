@@ -16,12 +16,12 @@ import AppTableEmpty from "../components/common/AppTableEmpty.vue";
 import AppPanel from "../components/common/AppPanel.vue";
 import AppStatusBadge from "../components/common/AppStatusBadge.vue";
 import DeploymentIcon from "../components/overview/DeploymentIcon.vue";
+import RecentDeploymentsPanel from "../components/overview/RecentDeploymentsPanel.vue";
 import TaskDetailsPanel from "../components/services/TaskDetailsPanel.vue";
 import TaskLogsModal from "../components/services/TaskLogsModal.vue";
-import { useOverviewStore } from "../stores/overview";
 import { useSecretDetailsStore } from "../stores/secretDetails";
 import { copyText } from "../utils/clipboard";
-import { formatBytes, formatDate, formatNanoCPU, shortCommitHash } from "../utils/format";
+import { formatBytes, formatDate, formatNanoCPU } from "../utils/format";
 
 const route = useRoute();
 
@@ -43,7 +43,6 @@ const logsModalOpen = ref(false);
 const logsTaskID = ref("");
 const labelsModalOpen = ref(false);
 const secretDetailsStore = useSecretDetailsStore();
-const overviewStore = useOverviewStore();
 let taskDetailsRequest = 0;
 
 const stackName = computed(() => String(route.params.stack ?? "").trim());
@@ -130,6 +129,13 @@ const deployments = computed(() => {
   const items = serviceDeployments.value;
   return Array.isArray(items) ? items : [];
 });
+const recentDeployments = computed(() => deployments.value.slice(0, 4).map((deployment) => ({
+  id: deployment.id,
+  status: deployment.status,
+  startedAt: deployment.created_at,
+  commit: deployment.commit,
+  summary: deployment.message || `Image ${deployment.image_version || "n/a"}`,
+})));
 
 const realtime = computed(() => {
   const items = realtimeTasks.value;
@@ -146,19 +152,6 @@ function isSwarmDeployLabel(key: string): boolean {
 
 function isOtherSystemLabel(key: string): boolean {
   return key === "prometheus.port";
-}
-
-function deploymentStatusClass(status: ServiceDeploymentResponse["status"]): string {
-  if (status === "succeeded") return "overview-deployment-result--success";
-  if (status === "running") return "overview-deployment-result--running";
-  if (status === "interrupted") return "overview-deployment-result--interrupted";
-  return "overview-deployment-result--failed";
-}
-
-function deploymentTime(raw: string): string {
-  const date = new Date(raw);
-  if (Number.isNaN(date.valueOf())) return raw;
-  return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
 function realtimeStateClass(state: string): string {
@@ -201,15 +194,6 @@ async function copyTaskID(taskID: string): Promise<void> {
   }
 
   await copyText(id);
-}
-
-async function openCommitDetails(commitHash: string | undefined): Promise<void> {
-  const hash = String(commitHash || "").trim();
-  if (!hash) {
-    return;
-  }
-
-  await overviewStore.openCommitDetailsModal(hash);
 }
 
 function openSecretDetails(secretName: string): void {
@@ -374,7 +358,7 @@ async function loadServiceDeployments() {
   deploymentsLoading.value = true;
   deploymentsError.value = "";
   try {
-    const response = await fetchServiceDeployments(stackName.value, serviceName.value);
+    const response = await fetchServiceDeployments(stackName.value, serviceName.value, 4);
     serviceDeployments.value = Array.isArray(response.deployments) ? response.deployments : [];
   } catch (error) {
     serviceDeployments.value = [];
@@ -794,49 +778,15 @@ onUnmounted(() => {
 
 
 
-          <AppPanel
-            class="overview-summary-panel service-panel service-deployments-card"
-            header-class="overview-summary-panel-header"
-            content-class="service-panel-content"
-          >
-          <template #header>
-            <RouterLink
-              :to="{ name: 'deployments', query: { stack_name: stackName, service_name: serviceName } }"
-              class="overview-summary-panel-header-link"
-            >
-              <span class="overview-summary-panel-icon" aria-hidden="true">
-                <svg viewBox="0 0 24 24" fill="none"><path d="M12 3v11m0 0 4-4m-4 4-4-4M5 17v3h14v-3" /></svg>
-              </span>
-              <h3 class="overview-panel-title">Latest Deployments</h3>
-            </RouterLink>
-          </template>
-          <p v-if="deploymentsLoading" class="meta">Loading deployments...</p>
-          <p v-else-if="deploymentsError" class="meta">Failed to load deployments: {{ deploymentsError }}</p>
-          <p v-else-if="deployments.length === 0" class="meta">No deployments yet.</p>
-          <ul v-else class="service-deployments-list overview-deployment-list">
-            <li v-for="deployment in deployments" :key="deployment.id"
-              class="service-deployment-item service-deployment-item--interactive overview-summary-row overview-deployment-row">
-              <button type="button" class="overview-deployment-details"
-                :aria-label="`Open ${deployment.status} deployment details from ${formatDate(deployment.created_at)}`"
-                @click="overviewStore.openDeploymentDetailsModal(deployment.id)" />
-              <span class="overview-summary-severity overview-deployment-result"
-                :class="deploymentStatusClass(deployment.status)" :aria-label="`Deployment ${deployment.status}`"
-                :title="deployment.status" role="img"></span>
-              <span class="service-deployment-status">{{ deployment.status }}</span>
-              <time class="overview-deployment-time" :datetime="deployment.created_at" :title="formatDate(deployment.created_at)">
-                {{ deploymentTime(deployment.created_at) }}
-              </time>
-              <button v-if="deployment.commit" type="button" class="overview-commit-badge overview-summary-sha-badge"
-                :aria-label="`Open Git commit ${deployment.commit}`" @click.stop="openCommitDetails(deployment.commit)">
-                {{ shortCommitHash(deployment.commit) }}
-              </button>
-              <span v-else class="overview-summary-value-empty">n/a</span>
-              <span class="service-deployment-image" :title="deployment.image">
-                Image {{ deployment.image_version || "n/a" }}
-              </span>
-            </li>
-          </ul>
-          </AppPanel>
+          <RecentDeploymentsPanel
+            id="service-deployments-title"
+            class="service-panel service-deployments-card"
+            title="Latest Deployments"
+            :link="{ name: 'deployments', query: { stack_name: stackName, service_name: serviceName } }"
+            :deployments="recentDeployments"
+            :loading="deploymentsLoading"
+            :error="deploymentsError"
+          />
         </template>
       </div>
     </div>

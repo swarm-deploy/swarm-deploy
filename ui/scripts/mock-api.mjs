@@ -67,6 +67,48 @@ function recentDeployments(stack) {
   ];
 }
 
+function recentServiceDeployments(stack, service) {
+  const image = `registry.example.test/${stack}/${service}`;
+  const idPrefix = `${stack}-${service}-deploy`;
+
+  return [
+    {
+      id: `${idPrefix}-204`,
+      created_at: "2026-10-30T20:54:18Z",
+      status: "succeeded",
+      image: `${image}:2.14.3`,
+      image_version: "2.14.3",
+      commit: "c8a421d947ef",
+    },
+    {
+      id: `${idPrefix}-203`,
+      created_at: "2026-10-30T20:49:02Z",
+      status: "running",
+      image: `${image}:2.14.3`,
+      image_version: "2.14.3",
+      message: "Updating 2 of 3 service replicas",
+    },
+    {
+      id: `${idPrefix}-202`,
+      created_at: "2026-10-29T16:31:47Z",
+      status: "failed",
+      image: `${image}:2.14.2`,
+      image_version: "2.14.2",
+      message: `Service ${service} failed its health check during deployment`,
+      commit: "f131e26a390b",
+    },
+    {
+      id: `${idPrefix}-201`,
+      created_at: "2026-10-28T09:12:33Z",
+      status: "interrupted",
+      image: `${image}:2.14.1`,
+      image_version: "2.14.1",
+      message: "Deployment was interrupted by a newer desired state",
+      commit: "9bde028cb731",
+    },
+  ];
+}
+
 function deploymentActivity(interval) {
   const weekly = interval !== "daily";
   const count = weekly ? 8 : 30;
@@ -361,6 +403,16 @@ app.get("/api/v1/deployments", (context) => {
   const deployments = selectedStacks.flatMap(recentDeployments)
     .slice(0, Number.isFinite(limit) ? Math.max(0, limit) : 4);
   console.log(`[mock-api] GET ${context.req.path} (recent deployment fixtures)`);
+  return context.json({ deployments });
+});
+
+app.get("/api/v1/stacks/:stack/services/:service/deployments", (context) => {
+  const stack = context.req.param("stack");
+  const service = context.req.param("service");
+  const requestedLimit = Number.parseInt(context.req.query("limit") || "5", 10);
+  const limit = Number.isFinite(requestedLimit) ? Math.min(100, Math.max(1, requestedLimit)) : 5;
+  const deployments = recentServiceDeployments(stack, service).slice(0, limit);
+  console.log(`[mock-api] GET ${context.req.path} (service deployment fixtures)`);
   return context.json({ deployments });
 });
 

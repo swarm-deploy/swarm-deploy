@@ -7,6 +7,7 @@ import { fetchServices } from "../api/services";
 import type { Alert, DeploymentSummary, NetworkInfo, ServiceInfo, StackResourceInfo, StackView } from "../api/types";
 import AppTableEmpty from "../components/common/AppTableEmpty.vue";
 import DeploymentIcon from "../components/overview/DeploymentIcon.vue";
+import RecentDeploymentsPanel from "../components/overview/RecentDeploymentsPanel.vue";
 import ServicesTable from "../components/overview/ServicesTable.vue";
 import DeploymentActivityChart from "../components/stack/DeploymentActivityChart.vue";
 import { useOverviewStore } from "../stores/overview";
@@ -35,35 +36,6 @@ function errorMessage(reason: unknown): string {
   return reason instanceof Error ? reason.message : "Request failed";
 }
 
-function deploymentStatusClass(status: string): string {
-  switch (status) {
-    case "succeeded": return "stack-deployment--success";
-    case "failed": return "stack-deployment--failed";
-    case "running": return "stack-deployment--running";
-    default: return "stack-deployment--unknown";
-  }
-}
-
-function deploymentIcon(status: string): "check" | "failed" | "running" | "warning" {
-  switch (status) {
-    case "succeeded": return "check";
-    case "failed": return "failed";
-    case "running": return "running";
-    default: return "warning";
-  }
-}
-
-function deploymentTitle(status: string): string {
-  switch (status) {
-    case "succeeded": return "Deploy completed";
-    case "failed": return "Deploy failed";
-    case "running": return "Deploy started";
-    case "interrupted": return "Deploy interrupted";
-    case "superseded": return "Deploy superseded";
-    default: return "Deployment updated";
-  }
-}
-
 function deploymentSummary(deployment: DeploymentSummary): string {
   const changed = deployment.summary.added + deployment.summary.changed + deployment.summary.removed;
   if (deployment.status === "failed" && deployment.reason) return deployment.reason;
@@ -75,11 +47,14 @@ function deploymentSummary(deployment: DeploymentSummary): string {
   return deployment.phase === "completed" ? "Stack state reconciled" : `Phase: ${deployment.phase}`;
 }
 
-function openDeploymentFromKeyboard(event: KeyboardEvent, id: string) {
-  if (event.target !== event.currentTarget || (event.key !== "Enter" && event.key !== " ")) return;
-  event.preventDefault();
-  void store.openDeploymentDetailsModal(id);
-}
+const recentDeployments = computed(() => deployments.value.map((deployment) => ({
+  id: deployment.id,
+  status: deployment.status,
+  startedAt: deployment.started_at,
+  commit: deployment.commit,
+  phase: deployment.phase,
+  summary: deploymentSummary(deployment),
+})));
 
 async function load() {
   const current = ++request;
@@ -203,45 +178,14 @@ onUnmounted(() => { request++; });
           <ServicesTable :services="services" min-width="620px" variant="stack-detail" />
         </section>
 
-        <section class="stack-panel stack-deployments-panel" aria-labelledby="stack-deployments-title">
-          <header class="overview-summary-panel-header">
-            <RouterLink class="overview-summary-panel-header-link" :to="{ name: 'deployments', query: { stack: stack.name } }">
-              <span class="overview-summary-panel-icon" aria-hidden="true">
-                <svg viewBox="0 0 24 24" fill="none"><path d="M12 3v11m0 0 4-4m-4 4-4-4M5 17v3h14v-3" /></svg>
-              </span>
-              <h3 id="stack-deployments-title" class="overview-panel-title">Recent Deployments</h3>
-            </RouterLink>
-          </header>
-          <p v-if="deploymentsError" class="stack-panel-state" role="alert">Failed to load deployments: {{ deploymentsError }}</p>
-          <p v-else-if="!deployments.length" class="stack-panel-state">No deployments yet.</p>
-          <ol v-else class="stack-deployment-list">
-            <li v-for="deployment in deployments" :key="deployment.id" class="stack-deployment"
-              :class="deploymentStatusClass(deployment.status)" tabindex="0"
-              :aria-label="`Open ${deployment.status} deployment details`"
-              @click="store.openDeploymentDetailsModal(deployment.id)"
-              @keydown="openDeploymentFromKeyboard($event, deployment.id)">
-              <span class="stack-deployment-icon"><DeploymentIcon :name="deploymentIcon(deployment.status)" /></span>
-              <div class="stack-deployment-copy">
-                <div class="stack-deployment-heading">
-                  <strong>{{ deploymentTitle(deployment.status) }}</strong>
-                  <time :datetime="deployment.started_at">{{ formatDate(deployment.started_at) }}</time>
-                </div>
-                <p class="stack-deployment-meta">
-                  <span>Commit
-                    <button v-if="deployment.commit" type="button" class="stack-commit-button"
-                      :aria-label="`Open deployment commit ${deployment.commit}`"
-                      @click.stop="store.openCommitDetailsModal(deployment.commit)" @keydown.stop>
-                      {{ shortCommitHash(deployment.commit) }}
-                    </button>
-                    <span v-else>not available</span>
-                  </span>
-                  <span>Phase <strong>{{ deployment.phase }}</strong></span>
-                </p>
-                <p class="stack-deployment-summary">{{ deploymentSummary(deployment) }}</p>
-              </div>
-            </li>
-          </ol>
-        </section>
+        <RecentDeploymentsPanel
+          id="stack-deployments-title"
+          class="stack-deployments-panel"
+          title="Recent Deployments"
+          :link="{ name: 'deployments', query: { stack: stack.name } }"
+          :deployments="recentDeployments"
+          :error="deploymentsError"
+        />
       </div>
 
       <DeploymentActivityChart :stack="stack.name" />
@@ -319,29 +263,6 @@ onUnmounted(() => { request++; });
 .stack-services-panel :deep(.services-stack-table--detail .services-col-version) { width: 30%; }
 .stack-services-panel :deep(.services-cell-image) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .stack-services-panel :deep(.stack-service-name-wrap) { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.stack-panel-state { margin: 0; padding: 20px 16px; color: var(--muted); font-size: .86rem; font-variant-numeric: tabular-nums; }
-.stack-deployment-list { list-style: none; margin: 0; padding: 0 16px 8px; }
-.stack-deployment { position: relative; display: grid; grid-template-columns: 32px minmax(0, 1fr); gap: 12px; padding: 16px 0; cursor: pointer; }
-.stack-deployment + .stack-deployment { border-top: 1px solid var(--border-subtle); }
-.stack-deployment::before { content: ""; position: absolute; left: 16px; top: 50px; bottom: -16px; width: 1px; background: var(--border-subtle); }
-.stack-deployment:last-child::before { display: none; }
-.stack-deployment:hover .stack-deployment-copy strong { color: var(--accent-strong); }
-.stack-deployment:focus-visible { outline: 2px solid var(--accent-focus); outline-offset: -2px; }
-.stack-deployment-icon { position: relative; z-index: 1; width: 29px; height: 29px; display: grid; place-items: center; border: 1px solid var(--border-default); border-radius: 50%; color: var(--muted); background: var(--surface-muted); }
-.stack-deployment-icon :deep(svg) { width: 15px; height: 15px; }
-.stack-deployment--success .stack-deployment-icon { color: var(--success); border-color: var(--success-border); background: var(--success-muted); }
-.stack-deployment--failed .stack-deployment-icon { color: var(--error); border-color: var(--error-border); background: var(--error-muted); }
-.stack-deployment--running .stack-deployment-icon { color: var(--info); border-color: var(--accent-border); background: var(--info-muted); }
-.stack-deployment-copy { min-width: 0; display: grid; gap: 4px; }
-.stack-deployment-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
-.stack-deployment-heading strong { font-size: .86rem; transition: color 120ms ease; }
-.stack-deployment-heading time { color: var(--muted); font-size: .75rem; white-space: nowrap; }
-.stack-deployment-meta, .stack-deployment-summary { margin: 0; }
-.stack-deployment-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 16px; color: var(--muted); font-size: .76rem; }
-.stack-deployment-meta > span { display: inline-flex; gap: 4px; }
-.stack-deployment-meta strong { color: var(--text); font-weight: 500; }
-.stack-deployment-summary { color: var(--muted); font-size: .78rem; line-height: 1.4; }
-.stack-deployment--failed .stack-deployment-summary { color: var(--error); }
 .stack-alert-panel { display: grid; }
 .stack-alert-row { width: 100%; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 12px; border: 0; border-bottom: 1px solid var(--border-subtle); border-radius: 0; background: transparent; color: var(--text); padding: 12px 16px; text-align: left; box-shadow: none; }
 .stack-alert-row:last-child { border-bottom: 0; }
@@ -386,11 +307,8 @@ onUnmounted(() => { request++; });
   .stack-services-panel :deep(.services-cell-type) { grid-column: 1; grid-row: 2; color: var(--muted); font-size: .78rem; }
   .stack-services-panel :deep(.services-cell-image) { grid-column: 2; grid-row: 2; color: var(--muted); font-size: .78rem; text-align: right; }
   .stack-services-panel :deep(.app-table-empty-cell) { grid-column: 1 / -1; text-align: left; }
-  .stack-deployment-heading { align-items: flex-start; flex-direction: column; gap: 4px; }
-  .stack-deployment-meta { align-items: flex-start; flex-direction: column; gap: 4px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .stack-details-page button { transition-duration: 0s; }
-  .stack-deployment-heading strong { transition-duration: 0s; }
 }
 </style>
