@@ -2,10 +2,12 @@ package scheduler
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/google/uuid"
 )
@@ -13,6 +15,21 @@ import (
 // snapshotCheckout takes a private copy of the checkout before another Git pull.
 // Symlinks and Git metadata are excluded to avoid reading outside the checkout.
 func snapshotCheckout(ctx context.Context, source, root string) (string, error) {
+	sourceAbs, err := filepath.Abs(source)
+	if err != nil {
+		return "", err
+	}
+	rootAbs, err := filepath.Abs(root)
+	if err != nil {
+		return "", err
+	}
+	rel, err := filepath.Rel(sourceAbs, rootAbs)
+	if err != nil {
+		return "", err
+	}
+	if rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))) {
+		return "", errors.New("deployment snapshot directory must be outside the Git checkout")
+	}
 	if err := os.MkdirAll(root, 0o700); err != nil {
 		return "", err
 	}
