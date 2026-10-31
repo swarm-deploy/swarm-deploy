@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/mount"
 	dockerregistry "github.com/docker/docker/api/types/registry"
 	dockerswarm "github.com/docker/docker/api/types/swarm"
@@ -46,6 +47,22 @@ func TestApplySkipsSemanticallyUnchangedResolvedImage(t *testing.T) {
 	changed, err := New(manager, &registry.NopAuthManager{}).Apply(t.Context(), "demo", []dockerswarm.ServiceSpec{desired})
 	require.NoError(t, err)
 	assert.Empty(t, changed)
+}
+
+func TestApplySkipsDaemonRuntimeAndIsolationDefaults(t *testing.T) {
+	manager := swarm.NewMockServiceManager(gomock.NewController(t))
+	desired := serviceSpec("api", "busybox:1.36")
+	current := cloneSpec(desired)
+	current.TaskTemplate.Runtime = dockerswarm.RuntimeContainer
+	current.TaskTemplate.ContainerSpec.Isolation = container.IsolationDefault
+	manager.EXPECT().Inspect(gomock.Any(), "demo_api").Return(service("api-id", 7, current), nil)
+	changed, err := New(manager, &registry.NopAuthManager{}).Apply(t.Context(), "demo", []dockerswarm.ServiceSpec{desired})
+	require.NoError(t, err)
+	assert.Empty(t, changed) // Any update would be an unexpected gomock call.
+	current.TaskTemplate.ContainerSpec.Isolation = container.IsolationHyperV
+	assert.False(t, serviceSpecsEqual(current, desired), "non-default isolation must remain a real change")
+	assert.Empty(t, desired.TaskTemplate.Runtime, "comparison must not mutate desired state")
+	assert.Empty(t, desired.TaskTemplate.ContainerSpec.Isolation)
 }
 
 func TestApplyUpdatesChangedServiceAndPreservesMounts(t *testing.T) {

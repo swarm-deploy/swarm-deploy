@@ -17,20 +17,9 @@ type Compose struct {
 }
 
 func Parse(raw []byte) (*Compose, error) {
-	var syntax yaml.Node
-	if err := yaml.Unmarshal(raw, &syntax); err != nil {
-		return nil, fmt.Errorf("decode compose schema: %w", err)
-	}
-	interpolated, err := interpolateSyntax(&syntax)
-	if err != nil {
-		return nil, fmt.Errorf("interpolate compose schema: %w", err)
-	}
 	schema := Compose{}
-	err = syntax.Decode(&schema)
+	err := yaml.Unmarshal(raw, &schema)
 	if err != nil {
-		if interpolated {
-			err = fmt.Errorf("invalid Compose value after interpolation")
-		}
 		return nil, fmt.Errorf("decode compose schema: %w", err)
 	}
 

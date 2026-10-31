@@ -99,10 +99,18 @@ func (l *fileLoader) Load(ctx context.Context, path string) (*File, error) {
 	}
 
 	if issues := l.linkServices(&schema, filepath.Dir(path)); len(issues) > 0 {
+		if interpolated {
+			for i := range issues {
+				issues[i].Message = "invalid Compose value after interpolation"
+			}
+		}
 		return nil, &ValidateComposeError{FilePath: path, Issues: issues}
 	}
 
 	if err = l.loadEnvFiles(ctx, filepath.Dir(path), schema.Services); err != nil {
+		if interpolated {
+			err = fmt.Errorf("invalid or unreadable env_file")
+		}
 		return nil, fmt.Errorf("load env files: %w", err)
 	}
 
@@ -112,6 +120,9 @@ func (l *fileLoader) Load(ctx context.Context, path string) (*File, error) {
 		setConfigData,
 	)
 	if err != nil {
+		if interpolated {
+			err = fmt.Errorf("invalid or unreadable config file")
+		}
 		return nil, fmt.Errorf("load config files: %w", err)
 	}
 
@@ -121,6 +132,9 @@ func (l *fileLoader) Load(ctx context.Context, path string) (*File, error) {
 		nil,
 	)
 	if err != nil {
+		if interpolated {
+			err = fmt.Errorf("invalid or unreadable secret file")
+		}
 		return nil, fmt.Errorf("load secret files: %w", err)
 	}
 

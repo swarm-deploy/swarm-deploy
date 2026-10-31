@@ -90,8 +90,12 @@ func TestConvertInterpolatedHealthcheckList(t *testing.T) {
 	t.Setenv("SD_TEST_VALUE", "ok")
 	converter, networks, _, _ := newTestConverter(t)
 	networks.EXPECT().Get(gomock.Any(), "demo_default").Return(existingNetwork("demo_default"), nil)
-	desired := parseStack(t, `services: {app: {image: alpine, healthcheck: {test: [CMD-SHELL, 'echo ${SD_TEST_VALUE} $$HOME $$$$']}}}`)
-	result, err := converter.Convert(t.Context(), "demo", desired)
+	loader := compose.NewFileLoaderWithReader(func(context.Context, string) ([]byte, error) {
+		return []byte(`services: {app: {image: alpine, healthcheck: {test: [CMD-SHELL, 'echo ${SD_TEST_VALUE} $$HOME $$$$']}}}`), nil
+	})
+	file, err := loader.Load(t.Context(), "compose.yaml")
+	require.NoError(t, err)
+	result, err := converter.Convert(t.Context(), "demo", file.Compose)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"CMD-SHELL", "echo ok $HOME $$"}, result.Services[0].TaskTemplate.ContainerSpec.Healthcheck.Test)
 }

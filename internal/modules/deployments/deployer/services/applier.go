@@ -10,6 +10,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/docker/docker/api/types/container"
 	dockerswarm "github.com/docker/docker/api/types/swarm"
 	"github.com/swarm-deploy/swarm-deploy/internal/registry"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/labelsdict"
@@ -221,9 +222,19 @@ func normalizeDockerDefaults(spec *dockerswarm.ServiceSpec) {
 	if spec.EndpointSpec != nil && spec.EndpointSpec.Mode == "" {
 		spec.EndpointSpec.Mode = dockerswarm.ResolutionModeVIP
 	}
-	if spec.TaskTemplate.ContainerSpec != nil && spec.TaskTemplate.ContainerSpec.StopGracePeriod == nil {
-		value := defaultStopGracePeriod
-		spec.TaskTemplate.ContainerSpec.StopGracePeriod = &value
+	if spec.TaskTemplate.ContainerSpec != nil {
+		// Engine's SwarmKit conversion returns explicit runtime/isolation
+		// defaults even when they were omitted in the create request.
+		if spec.TaskTemplate.Runtime == "" {
+			spec.TaskTemplate.Runtime = dockerswarm.RuntimeContainer
+		}
+		if spec.TaskTemplate.ContainerSpec.Isolation == "" {
+			spec.TaskTemplate.ContainerSpec.Isolation = container.IsolationDefault
+		}
+		if spec.TaskTemplate.ContainerSpec.StopGracePeriod == nil {
+			value := defaultStopGracePeriod
+			spec.TaskTemplate.ContainerSpec.StopGracePeriod = &value
+		}
 	}
 	if spec.TaskTemplate.RestartPolicy == nil {
 		spec.TaskTemplate.RestartPolicy = &dockerswarm.RestartPolicy{}

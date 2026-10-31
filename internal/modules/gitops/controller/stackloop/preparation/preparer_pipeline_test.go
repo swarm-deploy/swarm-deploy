@@ -115,7 +115,7 @@ func TestImagePolicyUsesInterpolatedSource(t *testing.T) {
 		Policy: config.SyncPolicySpec{Image: config.ImagePolicySpec{Tag: config.ImageTagPolicySpec{NoLatest: true}}},
 	}}}
 	repository := gitx.NewRepository(config.GitSpec{}, dir)
-	for _, tag := range []string{"1.27", "latest"} {
+	for _, tag := range []string{"1.27", "latest", "private value"} {
 		t.Run(tag, func(t *testing.T) {
 			t.Setenv("SD_TEST_TAG", tag)
 			preparer := New(cfg, repository, fs.NewLocalFileSystem(), nil)
@@ -123,10 +123,15 @@ func TestImagePolicyUsesInterpolatedSource(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, "nginx:"+tag, source.Compose.Services[0].Image)
 			err = ValidateImagePolicy(cfg.Spec.Sync.Policy.Image, source)
-			if tag == "latest" {
+			if tag != "1.27" {
 				var validation *compose.ValidateComposeError
 				require.ErrorAs(t, err, &validation)
-				assert.Equal(t, ImageViolationLatest, validation.Issues[0].Code)
+				code := ImageViolationLatest
+				if tag == "private value" {
+					code = ImageViolationInvalid
+				}
+				assert.Equal(t, code, validation.Issues[0].Code)
+				assert.NotContains(t, err.Error(), "nginx:"+tag)
 			} else {
 				require.NoError(t, err)
 			}

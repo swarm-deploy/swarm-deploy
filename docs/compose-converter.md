@@ -156,7 +156,9 @@ than through the stack CLI, so their `$()` shell expressions remain untouched.
 
 Source digests still hash source YAML and referenced payloads, not process
 environment values. Changing only the controller environment is not itself a
-source-change trigger. Interpolation diagnostics omit input values and custom
+source-change trigger. The raw `compose.Parse` API used for Git source diffs
+does not interpolate. Only `FileLoader.Load` builds interpolated effective models.
+Interpolation diagnostics omit input values and custom
 required-variable messages to keep them out of logs and traces.
 
 ## Native apply behavior and remaining cleanup
