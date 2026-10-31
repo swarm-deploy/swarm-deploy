@@ -21,7 +21,6 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/tracing"
-	"github.com/swarm-deploy/swarm-deploy/internal/storage"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -61,13 +60,12 @@ type Task struct {
 
 // Runner executes Git polling, complete synchronization runs and scheduled cleanup.
 type Runner struct {
-	db                storage.Database
 	configStore       *configstore.ConfigStore
 	git               gitx.Repository
 	metrics           *metrics.Group
 	event             dispatcher.Dispatcher
 	stateStore        modelstore.Store
-	networkReconciler *NetworkReconciler
+	networkReconciler *networkloop.Coordinator
 	stackReconciler   stackloop.StackReconciler
 	stackPlanner      *stackplan.Planner
 	puller            *gitpull.Puller
@@ -76,21 +74,18 @@ type Runner struct {
 
 // New creates a synchronization runner from the existing GitOps components.
 func New(
-	db storage.Database,
 	configStore *configstore.ConfigStore,
 	git gitx.Repository,
 	metricGroup *metrics.Group,
 	eventDispatcher dispatcher.Dispatcher,
 	stateStore modelstore.Store,
-	networkReconciler *networkloop.Reconciler,
+	networkReconciler *networkloop.Coordinator,
 	stackReconciler stackloop.StackReconciler,
 	puller *gitpull.Puller,
 ) *Runner {
 	return &Runner{
-		db: db, configStore: configStore, git: git, metrics: metricGroup, event: eventDispatcher,
-		stateStore: stateStore, networkReconciler: NewNetworkReconciler(
-			db, configStore, stateStore, networkReconciler, eventDispatcher,
-		),
+		configStore: configStore, git: git, metrics: metricGroup, event: eventDispatcher,
+		stateStore: stateStore, networkReconciler: networkReconciler,
 		stackReconciler: stackReconciler, stackPlanner: stackplan.NewPlanner(git), puller: puller,
 		tracer: otel.Tracer("github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller"),
 	}

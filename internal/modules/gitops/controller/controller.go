@@ -75,9 +75,12 @@ func New(
 	puller := gitpull.NewPuller(
 		git, gitpull.NewMonitor(db, stateStore, eventDispatcher), metricGroup.Git, cfg.Spec.Git,
 	)
+	networkCoordinator := networkloop.NewCoordinator(
+		db, configStore, stateStore, networkloop.New(swarmService.Networks), eventDispatcher,
+	)
 	runner := syncrun.New(
-		db, configStore, git, metricGroup, eventDispatcher, stateStore,
-		networkloop.New(swarmService.Networks), stackReconciler, puller,
+		configStore, git, metricGroup, eventDispatcher, stateStore,
+		networkCoordinator, stackReconciler, puller,
 	)
 	return &Controller{
 		deployments:  deploymentExecutor,

@@ -1,4 +1,4 @@
-package syncrun
+package networkloop
 
 import (
 	"context"
@@ -10,7 +10,6 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/configstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/networkloop"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/tracing"
@@ -20,32 +19,32 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-// NetworkReconciler coordinates network reconciliation and transactional result persistence.
-type NetworkReconciler struct {
+// Coordinator coordinates network reconciliation and transactional result persistence.
+type Coordinator struct {
 	db          storage.Database
 	configStore *configstore.ConfigStore
 	stateStore  modelstore.Store
-	reconciler  *networkloop.Reconciler
+	reconciler  *Reconciler
 	event       dispatcher.Dispatcher
 	tracer      trace.Tracer
 }
 
-// NewNetworkReconciler creates the synchronization-level network coordinator.
-func NewNetworkReconciler(
+// NewCoordinator creates a coordinator for configured networks, state persistence, and events.
+func NewCoordinator(
 	db storage.Database,
 	configStore *configstore.ConfigStore,
 	stateStore modelstore.Store,
-	reconciler *networkloop.Reconciler,
+	reconciler *Reconciler,
 	eventDispatcher dispatcher.Dispatcher,
-) *NetworkReconciler {
-	return &NetworkReconciler{db: db, configStore: configStore, stateStore: stateStore,
+) *Coordinator {
+	return &Coordinator{db: db, configStore: configStore, stateStore: stateStore,
 		reconciler: reconciler, event: eventDispatcher,
 		tracer: otel.Tracer("github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller"),
 	}
 }
 
 // Reconcile applies all configured networks and persists their runtime projection.
-func (r *NetworkReconciler) Reconcile(ctx context.Context, commit string) error {
+func (r *Coordinator) Reconcile(ctx context.Context, commit string) error {
 	ctx, span := r.tracer.Start(ctx, "controller.SyncNetworks", trace.WithAttributes(
 		tracing.SyncCommitSha.String(commit)))
 	defer span.End()
@@ -95,7 +94,7 @@ func syncedNetwork(state model.Runtime, name, commit string) (model.Network, boo
 		(previous.LastStatus == "success" || previous.LastStatus == "no_change")
 }
 
-func (r *NetworkReconciler) reconcileNetwork(
+func (r *Coordinator) reconcileNetwork(
 	ctx context.Context, networkCfg config.NetworkSpec, commit string, syncedAt time.Time,
 ) (model.Network, *events.NetworkCreated, error) {
 	skipped, created, err := r.reconciler.Reconcile(ctx, networkCfg)
@@ -109,7 +108,7 @@ func (r *NetworkReconciler) reconcileNetwork(
 	return state, created, err
 }
 
-func (r *NetworkReconciler) persist(
+func (r *Coordinator) persist(
 	ctx context.Context, nextState map[string]model.Network, createdEvents []*events.NetworkCreated,
 ) error {
 	return r.db.WithinTransaction(ctx, func(ctx context.Context) error {

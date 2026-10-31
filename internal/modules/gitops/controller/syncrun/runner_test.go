@@ -130,6 +130,8 @@ func newTestRunner(
 	namespace := strings.NewReplacer("/", "_", " ", "_").Replace("test_" + t.Name())
 	metricGroup := metrics.NewGroup(metrics.CreateGroupParams{Namespace: namespace})
 	puller := gitpull.NewPuller(repository, gitpull.NewMonitor(db, store, events), metricGroup.Git, cfg.Spec.Git)
-	return New(db, configstore.New(cfg, events), repository, metricGroup, events, store,
-		networkloop.New(nil), reconciler, puller), store
+	configuration := configstore.New(cfg, events)
+	networkCoordinator := networkloop.NewCoordinator(db, configuration, store, networkloop.New(nil), events)
+	return New(configuration, repository, metricGroup, events, store,
+		networkCoordinator, reconciler, puller), store
 }
