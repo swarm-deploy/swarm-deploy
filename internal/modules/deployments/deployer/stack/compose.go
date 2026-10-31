@@ -15,7 +15,7 @@ func SingleServiceCompose(desired compose.Compose, serviceName string) (compose.
 		}
 
 		desired.Services = compose.Services{service}
-		desired.Networks = selectNetworks(desired.Networks, service.Networks)
+		desired.Networks = selectNetworks(desired.Networks, service)
 		desired.Secrets = selectObjects(desired.Secrets, service.Secrets)
 		configRefs := service.Configs
 		if service.CredentialSpec != nil && service.CredentialSpec.Config != "" {
@@ -30,22 +30,30 @@ func SingleServiceCompose(desired compose.Compose, serviceName string) (compose.
 	return compose.Compose{}, fmt.Errorf("service %q not found in compose", serviceName)
 }
 
-func selectNetworks(networks map[string]compose.Network, refs *compose.ServiceNetworks) map[string]compose.Network {
+func selectNetworks(networks map[string]compose.Network, service compose.Service) map[string]compose.Network {
 	if len(networks) == 0 {
 		return nil
 	}
-	if refs == nil {
-		defaultNetwork, ok := networks["default"]
-		if !ok {
-			return nil
-		}
-		return map[string]compose.Network{"default": defaultNetwork}
-	}
 	selected := make(map[string]compose.Network)
-	for _, alias := range refs.GetAliases() {
+	add := func(alias string) {
 		if network, ok := networks[alias]; ok {
 			selected[alias] = network
 		}
+	}
+	aliases := service.Networks.GetAliases()
+	if len(aliases) == 0 {
+		aliases = []string{"default"}
+	}
+	for _, alias := range aliases {
+		add(alias)
+	}
+	for _, job := range service.InitJobs {
+		for _, alias := range job.Networks.GetAliases() {
+			add(alias)
+		}
+	}
+	if len(selected) == 0 {
+		return nil
 	}
 	return selected
 }
