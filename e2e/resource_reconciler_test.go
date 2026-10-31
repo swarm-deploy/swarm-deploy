@@ -85,9 +85,25 @@ func TestDeployStackOnRealSwarm(t *testing.T) {
 	deployFixture(t, ctx, stackDeployer, stack, composePath)
 	afterForce, err := swarmService.Services.Inspect(ctx, stack+"_check")
 	require.NoError(t, err)
-	assert.Equal(t, forced.Version.Index, afterForce.Version.Index)
-	assert.Equal(t, forced.Spec.TaskTemplate.ForceUpdate, afterForce.Spec.TaskTemplate.ForceUpdate)
-	runningBefore, _ = realSwarmTaskIDs(t, ctx, swarmService, afterForce.ID)
+	// Swarm advances the object version as this rollout's status progresses.
+	// An application update would replace PreviousSpec as well as potentially
+	// changing Spec, so compare those across the in-flight force rollout.
+	assert.Equal(t, forced.Spec, afterForce.Spec, "waiting must preserve the externally forced specification")
+	assert.Equal(t, forced.PreviousSpec, afterForce.PreviousSpec, "waiting must not submit another service update")
+	require.NotNil(t, afterForce.UpdateStatus)
+	assert.Equal(t, dockerswarm.UpdateStateCompleted, afterForce.UpdateStatus.State)
+	runningBefore, tasksAfterForce := realSwarmTaskIDs(t, ctx, swarmService, afterForce.ID)
+
+	// Once convergence is complete, idempotency also includes a stable object
+	// version and the exact same running and historical task identities.
+	deployFixture(t, ctx, stackDeployer, stack, composePath)
+	repeatedForce, err := swarmService.Services.Inspect(ctx, stack+"_check")
+	require.NoError(t, err)
+	assert.Equal(t, afterForce.Version.Index, repeatedForce.Version.Index)
+	assert.Equal(t, afterForce.Spec, repeatedForce.Spec)
+	runningRepeated, tasksRepeated := realSwarmTaskIDs(t, ctx, swarmService, repeatedForce.ID)
+	assert.Equal(t, runningBefore, runningRepeated)
+	assert.Equal(t, tasksAfterForce, tasksRepeated)
 
 	// Immutable network option changes do not block application deployment.
 	networkBefore, err := swarmService.Networks.Get(ctx, stack+"_default")
