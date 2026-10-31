@@ -73,7 +73,7 @@ type Runner struct {
 	stateStore        modelstore.Store
 	networkReconciler *networkloop.Coordinator
 	stackReconciler   stackloop.StackReconciler
-	deployments      DeploymentQueue
+	deployments       DeploymentQueue
 	stackPlanner      *stackplan.Planner
 	puller            *gitpull.Puller
 	tracer            trace.Tracer
