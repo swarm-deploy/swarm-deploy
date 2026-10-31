@@ -59,9 +59,9 @@ name and options.
 After applying all eligible repairs, swarm-deploy reloads the stack services with one
 Docker API request and analyzes them again. The verified Swarm state is authoritative:
 the service becomes `Synced` whenever verification confirms convergence, even if the
-Docker CLI returned an error after applying the change. Persistent drift or an unavailable
+native Docker API application returned an error after applying the change. Persistent drift or an unavailable
 verification read leaves the service `OutOfSync`, with details in `SyncError`;
-the CLI error remains in logs and tracing.
+the application error remains in logs and tracing.
 
 Verification covers the complete desired stack. Drift first observed during that read is
 recorded and emits the normal transition event, but is not repaired until the next

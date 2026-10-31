@@ -37,15 +37,7 @@ func TestDeployStackOnRealSwarm(t *testing.T) {
 
 	stack := fmt.Sprintf("sdreconcile%d", time.Now().UnixNano())
 	dir := t.TempDir()
-	wrapperPath := filepath.Join(dir, "docker-wrapper.sh")
-	// Any Docker CLI invocation is a regression: deployments must use the API.
-	wrapper := `#!/bin/sh
-echo "unexpected Docker CLI invocation: $*" >&2
-exit 97
-`
-	require.NoError(t, os.WriteFile(wrapperPath, []byte(wrapper), 0o700))
-
-	swarmService := swarm.NewSwarm(dockerClient, wrapperPath)
+	swarmService := swarm.NewSwarm(dockerClient)
 	stackDeployer := deployer.NewDeployer(100*time.Millisecond, 2*time.Minute, dockerClient, swarmService, nil, deployer.NewSecretResolver(fs.NewLocalFileSystem(), deployer.PlaintextDecoder{}))
 	composePath := filepath.Join(dir, "compose.yaml")
 	t.Cleanup(func() {

@@ -12,7 +12,6 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/initjob"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/networks"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/services"
-	stackpkg "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/stack"
 	waiterpkg "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/waiter"
 	"github.com/swarm-deploy/swarm-deploy/internal/registry"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/tracing"
@@ -25,7 +24,7 @@ import (
 const deployerTracerName = "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer"
 
 const (
-	binaryTimeout             = 2 * time.Minute
+	serviceApplyTimeout       = 2 * time.Minute
 	defaultServiceWaitTimeout = 10 * time.Minute
 )
 
@@ -40,16 +39,13 @@ type serviceWaitExecutor interface {
 
 // Deployer coordinates deployment execution components through two explicit pipelines.
 type Deployer struct {
-	// Compatibility fields remain injectable for existing constructor and package tests.
-	stackDeployArgs []string
-	runner          Runner
-	resources       *resourceReconciler
-	secretResolver  *SecretResolver
-	initJobRunner   initJobExecutor
-	serviceWaiter   serviceWaitExecutor
-	converter       *converter.Converter
-	networks        *networks.Reconciler
-	serviceApplier  *services.Applier
+	resources      *resourceReconciler
+	secretResolver *SecretResolver
+	initJobRunner  initJobExecutor
+	serviceWaiter  serviceWaitExecutor
+	converter      *converter.Converter
+	networks       *networks.Reconciler
+	serviceApplier *services.Applier
 
 	deployStackPipe   *pipe.Pipeline[*deployStackPayload]
 	deployServicePipe *pipe.Pipeline[*deployServicePayload]
@@ -66,10 +62,8 @@ func NewDeployer(
 	secretResolver *SecretResolver,
 ) StackDeployer {
 	d := &Deployer{
-		stackDeployArgs: defaultStackDeployArgs(),
-		runner:          swarmService.BinaryRunner,
-		secretResolver:  secretResolver,
-		resources:       newResourceReconciler(swarmService),
+		secretResolver: secretResolver,
+		resources:      newResourceReconciler(swarmService),
 		initJobRunner: initjob.NewInitJobRunner(
 			dockerClient,
 			swarmService,
@@ -89,8 +83,6 @@ func NewDeployer(
 	d.attachPipelines()
 	return d
 }
-
-func defaultStackDeployArgs() []string { return stackpkg.DefaultDeployArgs() }
 
 // DeployStack runs the full stack deployment pipeline.
 func (d *Deployer) DeployStack(

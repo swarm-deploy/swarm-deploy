@@ -45,8 +45,9 @@ when an existing Docker Secret will be reused. The resource reconciler receives
 only resolved bytes and does not know their encryption format. Init Jobs and
 regular services use the resulting Docker Secret IDs.
 
-The Docker CLI receives external references for **all API-managed Secrets**,
-including plaintext and driver-backed Secrets, preserving names and mount options.
+The Converter resolves **all API-managed Secrets**, including plaintext and
+driver-backed Secrets, into ID/name references in final Docker service specs,
+preserving names and mount options.
 Mutable labels of reused API-managed Secrets are synchronized through the Docker
 API only when their `com.docker.stack.namespace` matches the current stack.
 Conflicting or missing ownership fails reconciliation without changing Secret

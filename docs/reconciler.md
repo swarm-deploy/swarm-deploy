@@ -15,7 +15,7 @@ The current pipeline is:
 5. Add the swarm-deploy managed label.
 6. [Rotate configs and secrets when enabled](./secrets-rotation.md).
 7. Write a rendered Compose file when the desired state was mutated.
-8. Deploy the stack when the source digest changed or the desired state was mutated. When init jobs are declared, their configs and secrets are reconciled before the jobs run; regular services are then deployed by `docker stack deploy`, which performs its own resource lookup.
+8. Submit the effective in-memory desired state to Deployments when the source digest changed or the desired state was mutated. Deployments validates desired state, reconciles networks, reconciles configs/secrets, converts Compose to Docker API specs, runs Init Jobs, captures the service baseline, applies services through the Docker API, and waits for convergence.
 9. Load live Swarm state.
 10. [Prune managed orphaned services when applicable](./prune.md).
 11. [Analyze drift](./drift.md).
@@ -95,6 +95,10 @@ swarm-deploy may mutate the loaded source Compose before deployment. Today this 
 - adding the managed-service label;
 - rotating config and secret object names.
 
-When any of these steps changes the desired state, swarm-deploy writes a rendered Compose file and deploys that rendered form.
+When any of these steps changes the desired state, swarm-deploy retains a temporary rendered Compose artifact. Native deployment consumes the effective in-memory desired state, not that file.
 
-This distinction is important: the source Compose in Git is the declarative input, while the rendered Compose is the effective desired state sent to Docker.
+The source Compose in Git is the declarative input. The prepared in-memory definition is the effective desired state converted into Docker API specs. The rendered artifact path remains in execution tracing for compatibility and is cleaned up after synchronous reconciliation. The shared preparation also normalizes source paths and projects API-managed secret references for single-service remediation; removing this infrastructure is a separate refactor.
+
+## Configuration compatibility
+
+`swarm.command` has been removed: Deployments uses the Docker API and no longer accepts a Docker executable setting. Remove it from existing YAML configuration, along with obsolete `swarm.stackDeployArgs` entries. No migration is required. The `swarm.initJobPollEvery` and `swarm.initJobMaxDuration` settings and their defaults are unchanged. The runtime image no longer installs Docker CLI; CA certificates and timezone data remain included.

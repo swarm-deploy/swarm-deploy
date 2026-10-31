@@ -208,7 +208,7 @@ func TestTailBufferKeepsExactLastBytes(t *testing.T) {
 
 func newTestInitJobRunner(pollInterval, timeout time.Duration, dockerClient *client.Client) *InitJobRunner {
 	runner := &InitJobRunner{
-		dockerClient: dockerClient, swarmService: swarmclient.NewSwarm(dockerClient, ""),
+		dockerClient: dockerClient, swarmService: swarmclient.NewSwarm(dockerClient),
 		authManager: &registry.NopAuthManager{}, metrics: &metrics.NopDeploys{},
 		pollInterval: pollInterval, timeout: timeout,
 		deleteTasks: make(chan initJobDeleteTask, initJobDeleteTasksBuffer),

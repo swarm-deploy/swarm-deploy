@@ -80,7 +80,7 @@ func TestReconcileAgeSecrets(t *testing.T) {
 	}
 }
 
-func TestReconcileAgeSecretFailuresDoNotReachCLI(t *testing.T) {
+func TestReconcileAgeSecretFailuresDoNotApplyServices(t *testing.T) {
 	identity, err := age.GenerateX25519Identity()
 	require.NoError(t, err)
 	for _, tt := range []struct {
@@ -105,12 +105,14 @@ func TestReconcileAgeSecretFailuresDoNotReachCLI(t *testing.T) {
 				secrets.EXPECT().List(gomock.Any(), gomock.Any()).Return(nil, nil)
 				secrets.EXPECT().Create(gomock.Any(), gomock.Any()).Return("", errors.New("private-marker "+identity.String()))
 			}
-			runner := NewMockRunner(ctrl)
-			d := &Deployer{secretResolver: newTestSecretResolverWithIdentity(tt.key), resources: newResourceReconciler(&swarm.Swarm{Secrets: secrets}), runner: runner,
+
+			d := &Deployer{secretResolver: newTestSecretResolverWithIdentity(tt.key), resources: newResourceReconciler(&swarm.Swarm{Secrets: secrets}),
 				serviceWaiter: newSuccessfulServiceWaiter(t)}
-			wireNativeTestDeployer(t, d)
+			serviceManager := swarm.NewMockServiceManager(ctrl)
+			wireNativeTestDeployerWithServiceManager(t, d, serviceManager, false)
 			_, err := d.DeployStack(t.Context(), "app", filepath.Join(dir, "compose.yaml"), "unused", compose.Compose{
-				Secrets: compose.Secrets{"password": {File: "password.age", Driver: tt.driver}},
+				Services: minimalCompose("api").Services,
+				Secrets:  compose.Secrets{"password": {File: "password.age", Driver: tt.driver}},
 			})
 			require.ErrorContains(t, err, tt.want)
 			assert.NotContains(t, err.Error(), "private-marker")

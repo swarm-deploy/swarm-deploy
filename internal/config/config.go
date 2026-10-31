@@ -78,7 +78,7 @@ type Spec struct {
 	Web WebSpec `yaml:"web"`
 	// HealthServer contains health and metrics server settings.
 	HealthServer HealthServerSpec `yaml:"healthServer"`
-	// Swarm contains docker stack deploy execution settings.
+	// Swarm contains Init Job polling and execution settings.
 	Swarm SwarmSpec `yaml:"swarm"`
 	// SecretRotation controls secret/config name rotation strategy.
 	SecretRotation SecretRotationSpec `yaml:"secretRotation"`
@@ -225,8 +225,6 @@ type EndpointSpec struct {
 }
 
 type SwarmSpec struct {
-	// Command is executable used to invoke Docker CLI.
-	Command string `yaml:"command"`
 	// InitJobPollEvery is polling interval for init jobs.
 	InitJobPollEvery specw.Duration `yaml:"initJobPollEvery"`
 	// InitJobMaxDuration is maximum execution time for init jobs.
@@ -387,9 +385,6 @@ func (c *Config) applyAssistantDefaults() {
 }
 
 func (c *Config) applySwarmDefaults() {
-	if c.Spec.Swarm.Command == "" {
-		c.Spec.Swarm.Command = "docker"
-	}
 	if c.Spec.Swarm.InitJobPollEvery.Value <= 0 {
 		c.Spec.Swarm.InitJobPollEvery.Value = defaultInitJobPollEvery
 	}

@@ -11,7 +11,6 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/initjob"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/resources"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/secrets"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/stack"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/waiter"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
@@ -36,7 +35,6 @@ type (
 	SecretResolver          = secrets.SecretResolver
 	PlaintextDecoder        = secrets.PlaintextDecoder
 	AgeDecoder              = secrets.AgeDecoder
-	Runner                  = stack.Runner
 	ServiceState            = waiter.ServiceState
 	ServiceProgress         = waiter.ServiceProgress
 	ServiceProgressCallback = waiter.ServiceProgressCallback

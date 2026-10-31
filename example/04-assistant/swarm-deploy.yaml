@@ -162,15 +162,8 @@ containers:
 #       # Optional path to a file containing x-api-key.
 #       xApiKeyPath: /run/secrets/otel-x-api-key
 
-# Docker stack deploy execution settings.
+# Swarm Init Job settings.
 swarm:
-  # Docker CLI command.
-  command: docker
-  # Stack deploy command arguments.
-  stackDeployArgs:
-    - stack
-    - deploy
-    - --with-registry-auth
   # Init job polling interval.
   initJobPollEvery: 2s
   # Maximum init job duration.
