@@ -532,13 +532,19 @@ onUnmounted(() => {
                       <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m6 3 5 5-5 5" /></svg>
                     </button>
                     <strong>{{ service.name || service.full_name }}</strong>
-                    <button v-if="service.mode === 'replicated'" type="button" class="button-ghost realtime-scale-button" :aria-label="`Scale ${service.name || service.full_name}`" @click.stop="openScale(service, $event)">Scale</button>
                   </span>
                   <small v-if="service.full_name !== service.name">{{ service.full_name }}</small>
                 </div>
               </td>
               <td data-label="Stack"><span :class="{ 'realtime-standalone': !service.stack }">{{ service.stack || "Standalone" }}</span></td>
-              <td class="realtime-replicas" data-label="Replicas"><strong :class="{ 'realtime-replicas-running--degraded': serviceRuntimeState(service) === 'degraded' }">{{ service.replicas.running }}</strong><span>/</span>{{ service.replicas.desired }}</td>
+              <td class="realtime-replicas" data-label="Replicas">
+                <div class="realtime-replicas-content">
+                  <span class="realtime-replica-count"><strong :class="{ 'realtime-replicas-running--degraded': serviceRuntimeState(service) === 'degraded' }">{{ service.replicas.running }}</strong><span>/</span>{{ service.replicas.desired }}</span>
+                  <button v-if="service.mode === 'replicated'" type="button" class="realtime-scale-button" :aria-label="`Scale ${service.name || service.full_name}`" title="Scale service" @click.stop="openScale(service, $event)">
+                    <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M10 2h4v4m0-4L9 7M6 14H2v-4m0 4 5-5" /></svg>
+                  </button>
+                </div>
+              </td>
               <td data-label="State"><AppStatusBadge class="realtime-state" :variant="stateVariant(serviceRuntimeState(service))" dot>{{ stateLabel(serviceRuntimeState(service)) }}</AppStatusBadge></td>
               <td data-label="Updated"><time :datetime="service.updated_at" :title="formatDate(service.updated_at)">{{ formatRelativeTime(service.updated_at) }}</time></td>
             </tr>
@@ -629,11 +635,14 @@ onUnmounted(() => {
             <button type="button" class="button-ghost" aria-label="Increase replicas" :disabled="scalePending || scaleInput === Number.MAX_SAFE_INTEGER" @click="stepScale(1)">+</button>
           </div>
           <p id="realtime-scale-hint" class="meta">Enter a non-negative whole number.</p>
-          <p class="realtime-scale-warning" role="note">Manual scaling may be overwritten by the next GitOps synchronization.</p>
+          <p class="form-helper" role="note">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 11v6m0-10h.01" /></svg>
+            <span>Manual scaling may be overwritten by the next GitOps synchronization.</span>
+          </p>
           <p v-if="scaleError" class="realtime-scale-error" role="alert">{{ scaleError }}</p>
           <div class="realtime-scale-actions">
             <button type="button" class="button-ghost" :disabled="scalePending" @click="closeScale">Cancel</button>
-            <button type="submit" :disabled="!canScale">{{ scalePending ? "Scaling..." : "Scale" }}</button>
+            <button type="submit" class="button-primary" :disabled="!canScale">{{ scalePending ? "Scaling..." : "Scale" }}</button>
           </div>
         </div>
       </form>
@@ -644,15 +653,20 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-.realtime-scale-button { margin-left: auto; padding: 3px 8px; font-size: .75rem; flex-shrink: 0; }
+.realtime-scale-button { display: inline-grid; place-items: center; flex: 0 0 auto; width: 24px; height: 24px; border: 0; border-radius: 4px; padding: 0; background: transparent; color: var(--control-primary); transform: none; filter: none; }
+.realtime-scale-button:hover:not(:disabled) { background: var(--surface-hover); transform: none; filter: none; }
+.realtime-scale-button:focus-visible { outline: 2px solid var(--accent-focus); outline-offset: 2px; }
+.realtime-scale-button svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
 .realtime-scale-card { width: min(440px, 94vw); }
 .realtime-scale-summary { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px 16px; margin: 0 0 6px; font-size: .84rem; }
 .realtime-scale-summary dt { color: var(--muted); }
 .realtime-scale-summary dd { margin: 0; overflow-wrap: anywhere; }
-.realtime-scale-input { display: flex; gap: 8px; }
-.realtime-scale-input input { min-width: 0; width: 100%; }
-.realtime-scale-input button { min-width: 36px; }
-.realtime-scale-warning { margin: 0; padding: 10px; background: var(--surface-hover); border: 1px solid var(--line); border-radius: 6px; color: var(--muted); font-size: .82rem; }
+.realtime-scale-input { display: flex; align-items: center; gap: 6px; }
+.realtime-scale-input input { min-width: 0; width: 100%; height: 32px; border: 1px solid var(--border-default); border-radius: 6px; background: var(--surface-input); color: var(--text); padding: 4px 8px; font: inherit; font-size: .84rem; appearance: textfield; }
+.realtime-scale-input input::-webkit-inner-spin-button, .realtime-scale-input input::-webkit-outer-spin-button { appearance: none; margin: 0; }
+.realtime-scale-input input:focus-visible { border-color: var(--accent-border); outline: 2px solid var(--accent-focus); outline-offset: 1px; }
+.realtime-scale-input button { display: inline-grid; place-items: center; flex: 0 0 28px; width: 28px; height: 28px; min-width: 0; padding: 0; border-radius: 4px; font-size: 16px; line-height: 1; transform: none; filter: none; }
+.realtime-scale-modal button:disabled { cursor: not-allowed; opacity: .58; }
 .realtime-scale-error { margin: 0; color: var(--error); overflow-wrap: anywhere; }
 .realtime-scale-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
 
@@ -716,7 +730,8 @@ onUnmounted(() => {
 .realtime-replicas { font-variant-numeric: tabular-nums; white-space: nowrap; }
 .realtime-replicas strong { color: var(--text); }
 .realtime-replicas .realtime-replicas-running--degraded { color: var(--warning); }
-.realtime-replicas span { margin-inline: 3px; color: var(--muted); }
+.realtime-replicas-content { display: inline-flex; align-items: center; gap: 6px; }
+.realtime-replica-count > span { margin-inline: 3px; color: var(--muted); }
 .realtime-state { border: 0; padding: 0; }
 .realtime-service-row time { color: var(--muted); font-size: .76rem; white-space: nowrap; }
 .realtime-task-row > td { height: auto !important; padding: 0 !important; background: transparent; }

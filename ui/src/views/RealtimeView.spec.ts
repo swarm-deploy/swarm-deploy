@@ -360,6 +360,12 @@ describe("Realtime service scaling", () => {
     ] });
     const wrapper = await mountView();
     expect(wrapper.findAll(".realtime-scale-button")).toHaveLength(4);
+    expect(wrapper.findAll(".realtime-service-name-cell .realtime-scale-button")).toHaveLength(0);
+    for (const button of wrapper.findAll(".realtime-replicas .realtime-scale-button")) {
+      expect(button.text()).toBe("");
+      expect(button.find("svg").exists()).toBe(true);
+      expect(button.attributes("title")).toBe("Scale service");
+    }
     expect(wrapper.find('[aria-label="Scale proxy"]').exists()).toBe(true);
     for (const row of wrapper.findAll(".realtime-service-row")) {
       if (["global", "replicated-job", "global-job"].some((mode) => row.text().includes(mode))) {
