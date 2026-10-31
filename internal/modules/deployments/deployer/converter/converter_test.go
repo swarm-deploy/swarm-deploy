@@ -480,6 +480,12 @@ volumes: {data: {name: explicitly-named}}
 	assert.Equal(t, os.FileMode(0o1777), container.Mounts[2].TmpfsOptions.Mode)
 }
 
+func TestCommandWordsUnescapesComposeDollar(t *testing.T) {
+	words, err := commandWords(compose.NewCommand([]string{"sh", "-ec", "echo $$(date)"}))
+	require.NoError(t, err)
+	assert.Equal(t, []string{"sh", "-ec", "echo $(date)"}, words)
+}
+
 func TestConvertInitJobNetworkDependencies(t *testing.T) {
 	converter, networks, _, _ := newTestConverter(t)
 	networks.EXPECT().Get(gomock.Any(), "demo_backend").Return(existingNetwork("demo_backend"), nil)

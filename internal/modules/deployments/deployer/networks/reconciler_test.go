@@ -96,6 +96,19 @@ func TestReconcileAcceptsConcurrentCreationAfterCreateFailure(t *testing.T) {
 	require.NoError(t, New(manager).Reconcile(context.Background(), "demo", []converter.NetworkSpec{planned}))
 }
 
+func TestReconcileWaitsForCreatedNetworkMetadata(t *testing.T) {
+	manager := swarm.NewMockNetworkManager(gomock.NewController(t))
+	planned := managedPlan("default", "demo_default")
+	first := manager.EXPECT().Get(gomock.Any(), "demo_default").Return(swarm.Network{}, swarm.ErrNetworkNotFound)
+	created := manager.EXPECT().Create(gomock.Any(), planned.Spec).After(first).Return("network-id", nil)
+	pending := compatibleNetwork("demo_default")
+	pending.Driver = ""
+	manager.EXPECT().Get(gomock.Any(), "demo_default").After(created).Return(pending, nil)
+	manager.EXPECT().Get(gomock.Any(), "demo_default").Return(compatibleNetwork("demo_default"), nil)
+
+	require.NoError(t, New(manager).Reconcile(t.Context(), "demo", []converter.NetworkSpec{planned}))
+}
+
 func managedPlan(alias, name string) converter.NetworkSpec {
 	return converter.NetworkSpec{Alias: alias, Spec: swarm.CreateNetworkRequest{
 		Name: name, Driver: "overlay", Attachable: true,

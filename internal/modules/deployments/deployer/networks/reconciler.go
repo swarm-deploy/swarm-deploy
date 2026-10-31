@@ -5,10 +5,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/converter"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/labelsdict"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
+)
+
+const (
+	createdNetworkInspectAttempts = 40
+	createdNetworkInspectDelay    = 50 * time.Millisecond
 )
 
 // Reconciler creates missing Compose-owned networks and validates existing networks.
@@ -44,14 +50,44 @@ func (r *Reconciler) reconcile(ctx context.Context, stackName string, desired co
 	}
 
 	_, createErr := r.manager.Create(ctx, desired.Spec)
+	if createErr == nil {
+		return r.waitForCreatedNetwork(ctx, stackName, desired)
+	}
+
 	current, inspectErr := r.manager.Get(ctx, desired.Spec.Name)
 	if inspectErr == nil {
 		return validateNetwork(stackName, desired, current)
 	}
-	if createErr != nil {
-		return fmt.Errorf("create network %s: %w", desired.Spec.Name, createErr)
+	return fmt.Errorf("create network %s: %w", desired.Spec.Name, createErr)
+}
+
+func (r *Reconciler) waitForCreatedNetwork(
+	ctx context.Context,
+	stackName string,
+	desired converter.NetworkSpec,
+) error {
+	var lastErr error
+	for attempt := 0; attempt < createdNetworkInspectAttempts; attempt++ {
+		current, err := r.manager.Get(ctx, desired.Spec.Name)
+		if err == nil {
+			err = validateNetwork(stackName, desired, current)
+		}
+		if err == nil {
+			return nil
+		}
+		lastErr = err
+		if attempt == createdNetworkInspectAttempts-1 {
+			break
+		}
+		timer := time.NewTimer(createdNetworkInspectDelay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return fmt.Errorf("wait for created network %s: %w", desired.Spec.Name, ctx.Err())
+		case <-timer.C:
+		}
 	}
-	return fmt.Errorf("inspect created network %s: %w", desired.Spec.Name, inspectErr)
+	return fmt.Errorf("validate created network %s: %w", desired.Spec.Name, lastErr)
 }
 
 func validateNetwork(stackName string, desired converter.NetworkSpec, current swarm.Network) error {
