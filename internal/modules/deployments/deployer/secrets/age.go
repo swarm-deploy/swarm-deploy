@@ -1,4 +1,4 @@
-package deployer
+package secrets
 
 import (
 	"bytes"
@@ -27,6 +27,9 @@ func (*AgeDecoder) Matches(path string) bool {
 
 // Docker Engine limits the plaintext payload of a secret to 500 KiB.
 const maxSecretSize = 500 * 1024
+
+// MaxSecretSize is Docker Engine's plaintext secret payload limit.
+const MaxSecretSize = maxSecretSize
 
 // Decode authenticates and decrypts the complete secret payload in memory.
 func (d *AgeDecoder) Decode(ciphertext []byte) ([]byte, error) {

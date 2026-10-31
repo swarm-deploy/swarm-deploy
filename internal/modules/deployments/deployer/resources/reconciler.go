@@ -1,4 +1,5 @@
-package deployer
+// Package resources reconciles Compose configs and secrets with Docker Swarm.
+package resources
 
 import (
 	"context"
@@ -12,47 +13,62 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 
-type resolvedResources struct {
-	configs map[string]ResolvedResource
-	secrets map[string]ResolvedResource
+// Resolved contains Docker resource references indexed by Compose alias.
+type Resolved struct {
+	Configs map[string]ResolvedResource
+	Secrets map[string]ResolvedResource
 }
 
-type resourceReconciler struct {
+// ResolvedResource identifies an existing Docker Swarm config or secret.
+type ResolvedResource struct {
+	ID   string
+	Name string
+}
+
+// Reconciler creates or resolves the configs and secrets required by a deployment.
+type Reconciler struct {
 	configs swarm.ConfigManager
 	secrets swarm.SecretManager
 }
 
-func newResourceReconciler(swarmService *swarm.Swarm) *resourceReconciler {
-	return &resourceReconciler{
+// New creates a resource reconciler from the Swarm service facade.
+func New(swarmService *swarm.Swarm) *Reconciler {
+	return &Reconciler{
 		configs: swarmService.Configs,
 		secrets: swarmService.Secrets,
 	}
 }
 
-func (r *resourceReconciler) Reconcile(
+// NewWithManagers creates a resource reconciler from its direct dependencies.
+func NewWithManagers(configs swarm.ConfigManager, secrets swarm.SecretManager) *Reconciler {
+	return &Reconciler{configs: configs, secrets: secrets}
+}
+
+// Reconcile resolves configs first and secrets second, preserving the existing ordering.
+func (r *Reconciler) Reconcile(
 	ctx context.Context,
 	stackName string,
 	configs compose.Configs,
 	secrets compose.Secrets,
 	secretData map[string][]byte,
-) (resolvedResources, error) {
+) (Resolved, error) {
 	resolvedConfigs, err := r.reconcileConfigs(ctx, stackName, configs)
 	if err != nil {
-		return resolvedResources{}, err
+		return Resolved{}, err
 	}
 
 	resolvedSecrets, err := r.reconcileSecrets(ctx, stackName, secrets, secretData)
 	if err != nil {
-		return resolvedResources{}, err
+		return Resolved{}, err
 	}
 
-	return resolvedResources{
-		configs: resolvedConfigs,
-		secrets: resolvedSecrets,
+	return Resolved{
+		Configs: resolvedConfigs,
+		Secrets: resolvedSecrets,
 	}, nil
 }
 
-func (r *resourceReconciler) reconcileConfigs(
+func (r *Reconciler) reconcileConfigs(
 	ctx context.Context,
 	stackName string,
 	objects compose.Configs,
@@ -97,7 +113,7 @@ func (r *resourceReconciler) reconcileConfigs(
 	return resolved, nil
 }
 
-func (r *resourceReconciler) reconcileSecrets(
+func (r *Reconciler) reconcileSecrets(
 	ctx context.Context,
 	stackName string,
 	objects compose.Secrets,

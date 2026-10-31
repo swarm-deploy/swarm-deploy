@@ -6,7 +6,15 @@ import (
 	"context"
 	"time"
 
+	"github.com/docker/docker/client"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/initjob"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/resources"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/secrets"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/stack"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/waiter"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
+	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 
 // Result contains observable results produced while deploying one stack.
@@ -16,35 +24,57 @@ type Result struct {
 }
 
 // InitJobStatus describes the outcome of one Init Job execution.
-type InitJobStatus string
-
-const (
-	// InitJobSucceeded means the Docker task completed successfully.
-	InitJobSucceeded InitJobStatus = "succeeded"
-	// InitJobFailed means the Docker task completed with a known failure.
-	InitJobFailed InitJobStatus = "failed"
-	// InitJobInterrupted means execution ended before a complete outcome was observed.
-	InitJobInterrupted InitJobStatus = "interrupted"
+type (
+	InitJobMetrics          = initjob.Metrics
+	InitJobRunner           = initjob.InitJobRunner
+	InitJobStatus           = initjob.Status
+	InitJobResult           = initjob.Result
+	InitJobSpec             = initjob.Spec
+	JobFailedError          = initjob.JobFailedError
+	ResolvedResource        = resources.ResolvedResource
+	SecretDecoder           = secrets.SecretDecoder
+	SecretResolver          = secrets.SecretResolver
+	PlaintextDecoder        = secrets.PlaintextDecoder
+	AgeDecoder              = secrets.AgeDecoder
+	Runner                  = stack.Runner
+	ServiceState            = waiter.ServiceState
+	ServiceProgress         = waiter.ServiceProgress
+	ServiceProgressCallback = waiter.ServiceProgressCallback
+	ServiceWaitRequest      = waiter.ServiceWaitRequest
+	ServiceWaiter           = waiter.ServiceWaiter
 )
 
-// InitJobResult contains the observable result of one Init Job execution.
-type InitJobResult struct {
-	// ServiceName identifies the service declaring the Init Job.
-	ServiceName string
-	// JobName identifies the Init Job within the service.
-	JobName string
-	// Status is the observed execution outcome.
-	Status InitJobStatus
-	// StartedAt is recorded immediately before Docker service creation.
-	StartedAt time.Time
-	// FinishedAt is recorded when execution stops, before log collection.
-	FinishedAt time.Time
-	// Logs contains original bounded Docker output.
-	Logs []byte
-	// LogsAvailable distinguishes unavailable logs from successfully retrieved empty output.
-	LogsAvailable bool
-	// LogsTruncated reports that only the last bounded portion of output was retained.
-	LogsTruncated bool
+const (
+	InitJobSucceeded   = initjob.Succeeded
+	InitJobFailed      = initjob.Failed
+	InitJobInterrupted = initjob.Interrupted
+	ServicePending     = waiter.ServicePending
+	ServiceReady       = waiter.ServiceReady
+	ServiceFailed      = waiter.ServiceFailed
+)
+
+func NewSecretResolver(fileSystem fs.FileSystem, decoders ...SecretDecoder) *SecretResolver {
+	return secrets.NewSecretResolver(fileSystem, decoders...)
+}
+
+func NewAgeDecoder(identity []byte) *AgeDecoder { return secrets.NewAgeDecoder(identity) }
+
+func NewInitJobRunner(
+	dockerClient *client.Client,
+	swarmService *swarm.Swarm,
+	pollInterval time.Duration,
+	timeout time.Duration,
+	metrics InitJobMetrics,
+) *initjob.InitJobRunner {
+	return initjob.NewInitJobRunner(dockerClient, swarmService, pollInterval, timeout, metrics)
+}
+
+func NewServiceWaiter(
+	services swarm.ServiceManager,
+	pollInterval time.Duration,
+	timeout time.Duration,
+) *ServiceWaiter {
+	return waiter.NewServiceWaiter(services, pollInterval, timeout)
 }
 
 // StackDeployer reconciles one stack via deploy command execution.

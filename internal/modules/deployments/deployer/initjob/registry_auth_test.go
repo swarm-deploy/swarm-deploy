@@ -1,4 +1,4 @@
-package deployer
+package initjob
 
 import (
 	"encoding/base64"

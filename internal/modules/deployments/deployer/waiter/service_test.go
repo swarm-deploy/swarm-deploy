@@ -1,4 +1,4 @@
-package deployer
+package waiter
 
 import (
 	"context"
