@@ -77,9 +77,9 @@ func NewServiceWaiter(
 	return waiter.NewServiceWaiter(services, pollInterval, timeout)
 }
 
-// StackDeployer reconciles one stack via deploy command execution.
+// StackDeployer reconciles one stack through native Docker API execution.
 type StackDeployer interface {
-	// DeployStack reconciles init-job resources from sourceComposePath and applies deployComposePath.
+	// DeployStack reconciles resources from sourceComposePath and applies the prepared desired stack.
 	DeployStack(
 		ctx context.Context,
 		stackName,

@@ -8,9 +8,13 @@ import (
 	pipe "github.com/artarts36/gopipe"
 	"github.com/docker/docker/client"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/converter"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/initjob"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/networks"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/services"
 	stackpkg "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/stack"
 	waiterpkg "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/waiter"
+	"github.com/swarm-deploy/swarm-deploy/internal/registry"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/tracing"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	"go.opentelemetry.io/otel"
@@ -43,8 +47,10 @@ type Deployer struct {
 	secretResolver  *SecretResolver
 	initJobRunner   initJobExecutor
 	serviceWaiter   serviceWaitExecutor
+	converter       *converter.Converter
+	networks        *networks.Reconciler
+	serviceApplier  *services.Applier
 
-	stackApplier      *stackpkg.Applier
 	deployStackPipe   *pipe.Pipeline[*deployStackPayload]
 	deployServicePipe *pipe.Pipeline[*deployServicePayload]
 	pipelineOnce      sync.Once
@@ -76,6 +82,9 @@ func NewDeployer(
 			initJobPoll,
 			defaultServiceWaitTimeout,
 		),
+		converter:      converter.New(swarmService.Networks, swarmService.Configs, swarmService.Secrets),
+		networks:       networks.New(swarmService.Networks),
+		serviceApplier: services.New(swarmService.Services, registry.NewAuthManager()),
 	}
 	d.attachPipelines()
 	return d
@@ -130,7 +139,6 @@ func (d *Deployer) DeployService(
 		desired:           desired,
 		deploy:            deploy,
 	}
-	defer payload.cleanup()
 
 	ctx, span := otel.GetTracerProvider().Tracer(deployerTracerName).Start(
 		ctx, deployServiceOperationName, oteltrace.WithAttributes(serviceTraceAttributes(payload)...),

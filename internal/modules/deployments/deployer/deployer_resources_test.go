@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	dockerswarm "github.com/docker/docker/api/types/swarm"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
@@ -88,12 +89,14 @@ func TestDeployStackReconcilesResourcesWithAndWithoutInitJobs(t *testing.T) {
 					}).Return("secret-id", nil))
 				}
 
-				service := compose.Service{Name: "api"}
+				service := compose.Service{Name: "api", Image: "alpine:3"}
 				if withInitJobs {
 					service.InitJobs = []compose.InitJob{{Name: "migrate"}, {Name: "seed"}}
 					for _, job := range service.InitJobs {
 						calls = append(calls, jobs.EXPECT().Run(gomock.Any(), InitJobSpec{
 							StackName: "demo", ServiceName: "api", Job: job,
+							DefaultNetwork:  []string{"default"},
+							NetworkTargets:  map[string]string{"default": "network-demo_default"},
 							ResolvedConfigs: map[string]ResolvedResource{"app": {ID: "config-id", Name: configName}},
 							ResolvedSecrets: map[string]ResolvedResource{"password": {ID: "secret-id", Name: secretName}},
 						}).Return(InitJobResult{
@@ -102,7 +105,6 @@ func TestDeployStackReconcilesResourcesWithAndWithoutInitJobs(t *testing.T) {
 					}
 				}
 				deployPath := filepath.Join(dir, "rendered", "compose.yaml")
-				calls = append(calls, runner.EXPECT().Run(gomock.Any(), "stack", "deploy", "-c", deployPath, "demo").Return("", nil))
 				for i := 1; i < len(calls); i++ {
 					calls[i].After(calls[i-1])
 				}
@@ -112,6 +114,7 @@ func TestDeployStackReconcilesResourcesWithAndWithoutInitJobs(t *testing.T) {
 					resources:     &resourceReconciler{configs: configs, secrets: secrets},
 					serviceWaiter: newSuccessfulServiceWaiter(t),
 				}
+				wireNativeTestDeployer(t, deployer)
 				_, err := deployer.DeployStack(t.Context(), "demo", filepath.Join(dir, "compose.yaml"), deployPath, compose.Compose{
 					Services: []compose.Service{service}, Configs: compose.Configs{"app": config}, Secrets: compose.Secrets{"password": secret},
 				})
@@ -146,7 +149,7 @@ func TestDeployStackResourceFailuresStopDeployment(t *testing.T) {
 				jobs := NewMockInitJobExecutor(ctrl)
 				runner := NewMockRunner(ctrl)
 				dir := t.TempDir()
-				desired := compose.Compose{Services: []compose.Service{{Name: "api"}}}
+				desired := compose.Compose{Services: []compose.Service{{Name: "api", Image: "alpine:3"}}}
 				if withInitJobs {
 					desired.Services[0].InitJobs = []compose.InitJob{{Name: "migrate"}}
 				}
@@ -184,6 +187,7 @@ func TestDeployStackResourceFailuresStopDeployment(t *testing.T) {
 					resources:     &resourceReconciler{configs: configs, secrets: secrets},
 					serviceWaiter: newSuccessfulServiceWaiter(t),
 				}
+				wireNativeTestDeployer(t, deployer)
 				_, err := deployer.DeployStack(context.Background(), "demo", filepath.Join(dir, "compose.yaml"), "rendered.yaml", desired)
 				require.ErrorContains(t, err, "")
 				assert.ErrorContains(t, err, tt.errorMatch)
@@ -207,7 +211,7 @@ func TestDeployStackDeployFailureKeepsReconciledResources(t *testing.T) {
 			deployErr := errors.New("deploy failed")
 			desired := compose.Compose{
 				Configs:  compose.Configs{"app": {Data: []byte("data")}},
-				Services: []compose.Service{{Name: "api"}},
+				Services: []compose.Service{{Name: "api", Image: "alpine:3"}},
 			}
 			gomock.InOrder(
 				configs.EXPECT().List(gomock.Any(), gomock.Any()).Return(nil, nil),
@@ -219,15 +223,18 @@ func TestDeployStackDeployFailureKeepsReconciledResources(t *testing.T) {
 					StartedAt: time.Now(), FinishedAt: time.Now(), Status: InitJobSucceeded,
 				}, nil)
 			}
-			runner.EXPECT().Run(gomock.Any(), "stack", "deploy", "-c", "rendered.yaml", "demo").Return("", deployErr)
 			deployer := &Deployer{secretResolver: newTestSecretResolver(),
 				stackDeployArgs: []string{"stack", "deploy"}, runner: runner, initJobRunner: jobs,
 				resources:     &resourceReconciler{configs: configs, secrets: secrets},
 				serviceWaiter: newSuccessfulServiceWaiter(t),
 			}
+			serviceManager := swarm.NewMockServiceManager(ctrl)
+			serviceManager.EXPECT().Inspect(gomock.Any(), "demo_api").Return(dockerswarm.Service{}, swarm.ErrServiceNotFound)
+			serviceManager.EXPECT().Create(gomock.Any(), gomock.Any(), gomock.Any()).Return("", deployErr)
+			wireNativeTestDeployerWithServiceManager(t, deployer, serviceManager, false)
 			result, err := deployer.DeployStack(t.Context(), "demo", "compose.yaml", "rendered.yaml", desired)
 			require.ErrorIs(t, err, deployErr)
-			assert.ErrorContains(t, err, "deploy stack demo")
+			assert.ErrorContains(t, err, "create service api")
 			if withInitJobs {
 				require.Len(t, result.InitJobs, 1)
 			} else {

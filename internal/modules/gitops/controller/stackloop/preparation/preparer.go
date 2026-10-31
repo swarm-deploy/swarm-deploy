@@ -152,6 +152,14 @@ func (p *Preparer) attachPipeline(provider trace.TracerProvider) {
 		},
 	})
 
+	p.pipeline.Add(pipe.Step[*preparationPayload]{
+		Name: "prepare bind mount paths",
+		Run: func(_ context.Context, payload *preparationPayload) error {
+			normalizeBindMountPaths(filepath.Dir(payload.prepared.Desired.Path), payload.prepared.Desired.Compose.Services)
+			return nil
+		},
+	})
+
 	if p.cfg.Spec.Containers.Downward != nil {
 		p.pipeline.Add(pipe.Step[*preparationPayload]{
 			Name: "add downward",
@@ -403,8 +411,21 @@ func (p *Preparer) normalizeRenderedObjectFilePaths(file *compose.File) {
 	baseDir := filepath.Dir(file.Path)
 	normalizeConfigFilePaths(baseDir, file.Compose.Configs)
 	normalizeSecretFilePaths(baseDir, file.Compose.Secrets)
+	normalizeBindMountPaths(baseDir, file.Compose.Services)
 	for index, service := range file.Compose.Services {
 		file.Compose.Services[index].EnvFiles = normalizeEnvFiles(p.git.WorkingDir(), baseDir, service.EnvFiles)
+	}
+}
+
+func normalizeBindMountPaths(baseDir string, services compose.Services) {
+	for serviceIndex := range services {
+		for _, volume := range services[serviceIndex].Volumes.Volumes {
+			if volume == nil || volume.Type != compose.ServiceVolumeTypeBind || volume.Source == "" ||
+				filepath.IsAbs(volume.Source) {
+				continue
+			}
+			volume.Source = filepath.Clean(filepath.Join(baseDir, volume.Source))
+		}
 	}
 }
 

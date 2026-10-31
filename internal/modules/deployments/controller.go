@@ -50,7 +50,7 @@ type ExecuteRequest struct {
 	Commit string
 	// Desired is the effective desired state persisted for comparison and history.
 	Desired compose.File
-	// DeployComposePath is the rendered Compose file passed to Docker stack deploy.
+	// DeployComposePath identifies the prepared Compose artifact retained for tracing and compatibility.
 	DeployComposePath string
 	// SourceChanged reports whether GitOps observed a new source digest.
 	SourceChanged bool

@@ -10,6 +10,7 @@ import (
 
 	pipe "github.com/artarts36/gopipe"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/converter"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/initjob"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/secrets"
 	stackpkg "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/stack"
@@ -26,12 +27,16 @@ const (
 	deployServicePipelineName  = "gopipe.DeployService"
 
 	stepReconcileResources = "reconcile resources"
+	stepValidateDesired    = "validate desired state"
+	stepReconcileNetworks  = "reconcile networks"
+	stepConvertStack       = "convert stack"
 	stepRunInitJobs        = "run init jobs"
 	stepCaptureBaseline    = "capture service baseline"
 	stepApplyStack         = "apply stack"
 	stepApplyService       = "apply service"
 	stepWaitConvergence    = "wait for service convergence"
 	stepPrepareService     = "prepare single-service compose"
+	defaultNetworkAlias    = "default"
 )
 
 // FailedStep returns the execution pipeline step that produced err, when available.
@@ -51,9 +56,6 @@ func ConvergenceFailed(err error) bool { return FailedStep(err) == stepWaitConve
 
 func (d *Deployer) attachPipelines() {
 	d.pipelineOnce.Do(func() {
-		if d.stackApplier == nil {
-			d.stackApplier = stackpkg.NewApplier(d.runner, d.stackDeployArgs)
-		}
 		d.deployStackPipe = d.newDeployStackPipeline()
 		d.deployServicePipe = d.newDeployServicePipeline()
 	})
@@ -62,9 +64,14 @@ func (d *Deployer) attachPipelines() {
 func (d *Deployer) newDeployStackPipeline() *pipe.Pipeline[*deployStackPayload] {
 	pipeline := pipe.NewPipelineWithConfig[*deployStackPayload](pipelineConfig(deployStackPipelineName))
 	attrs := pipe.Attributes[*deployStackPayload]{Trace: stackTraceAttributes}
+	pipeline.Add(pipe.Step[*deployStackPayload]{Name: stepValidateDesired, Attributes: attrs, Run: d.validateStack})
+	pipeline.Add(pipe.Step[*deployStackPayload]{
+		Name: stepReconcileNetworks, Attributes: attrs, Run: d.reconcileStackNetworks,
+	})
 	pipeline.Add(pipe.Step[*deployStackPayload]{
 		Name: stepReconcileResources, Attributes: attrs, Run: d.reconcileStackResources,
 	})
+	pipeline.Add(pipe.Step[*deployStackPayload]{Name: stepConvertStack, Attributes: attrs, Run: d.convertStack})
 	pipeline.Add(pipe.Step[*deployStackPayload]{Name: stepRunInitJobs, Attributes: attrs, Run: d.runStackInitJobs})
 	pipeline.Add(pipe.Step[*deployStackPayload]{Name: stepCaptureBaseline, Attributes: attrs, Run: d.captureStackBaseline})
 	pipeline.Add(pipe.Step[*deployStackPayload]{Name: stepApplyStack, Attributes: attrs, Run: d.applyStack})
@@ -76,9 +83,14 @@ func (d *Deployer) newDeployServicePipeline() *pipe.Pipeline[*deployServicePaylo
 	pipeline := pipe.NewPipelineWithConfig[*deployServicePayload](pipelineConfig(deployServicePipelineName))
 	attrs := pipe.Attributes[*deployServicePayload]{Trace: serviceTraceAttributes}
 	pipeline.Add(pipe.Step[*deployServicePayload]{Name: stepPrepareService, Attributes: attrs, Run: d.prepareService})
+	pipeline.Add(pipe.Step[*deployServicePayload]{Name: stepValidateDesired, Attributes: attrs, Run: d.validateService})
+	pipeline.Add(pipe.Step[*deployServicePayload]{
+		Name: stepReconcileNetworks, Attributes: attrs, Run: d.reconcileServiceNetworks,
+	})
 	pipeline.Add(pipe.Step[*deployServicePayload]{
 		Name: stepReconcileResources, Attributes: attrs, Run: d.reconcileServiceResources,
 	})
+	pipeline.Add(pipe.Step[*deployServicePayload]{Name: stepConvertStack, Attributes: attrs, Run: d.convertService})
 	pipeline.Add(pipe.Step[*deployServicePayload]{
 		Name: stepCaptureBaseline, Attributes: attrs, Run: d.captureServiceBaseline,
 	})
@@ -87,14 +99,34 @@ func (d *Deployer) newDeployServicePipeline() *pipe.Pipeline[*deployServicePaylo
 	return pipeline
 }
 
+func (d *Deployer) validateStack(_ context.Context, payload *deployStackPayload) error {
+	return safePipelineError(d.converter.Validate(payload.stackName, payload.desired))
+}
+
+func (d *Deployer) reconcileStackNetworks(ctx context.Context, payload *deployStackPayload) error {
+	planned, err := d.converter.PlanNetworks(payload.stackName, payload.desired)
+	if err == nil {
+		err = d.networks.Reconcile(ctx, payload.stackName, planned)
+	}
+	return safePipelineError(err)
+}
+
 func (d *Deployer) reconcileStackResources(ctx context.Context, payload *deployStackPayload) error {
 	resolved, err := d.reconcileResources(ctx, payload.stackName, payload.sourceComposePath, payload.desired)
 	payload.resolved = resolved
 	return safePipelineError(err)
 }
 
+func (d *Deployer) convertStack(ctx context.Context, payload *deployStackPayload) error {
+	converted, err := d.converter.Convert(ctx, payload.stackName, payload.desired)
+	payload.converted = converted
+	return safePipelineError(err)
+}
+
 func (d *Deployer) runStackInitJobs(ctx context.Context, payload *deployStackPayload) error {
-	results, err := d.runInitJobs(ctx, payload.stackName, payload.desired.Services, payload.resolved)
+	results, err := d.runInitJobs(
+		ctx, payload.stackName, payload.desired.Services, payload.resolved, payload.converted.Networks,
+	)
 	payload.result.InitJobs = results
 	return safePipelineError(err)
 }
@@ -106,30 +138,49 @@ func (d *Deployer) captureStackBaseline(ctx context.Context, payload *deployStac
 func (d *Deployer) applyStack(ctx context.Context, payload *deployStackPayload) error {
 	applyCtx, cancel := payload.stageContext(ctx)
 	defer cancel()
-	return safePipelineError(d.stackApplier.Apply(applyCtx, payload.stackName, payload.deployComposePath))
+	affected, err := d.serviceApplier.Apply(applyCtx, payload.stackName, payload.converted.Services)
+	payload.affected = affected
+	return safePipelineError(err)
 }
 
 func (d *Deployer) waitForStack(ctx context.Context, payload *deployStackPayload) error {
 	waitCtx, cancel := payload.stageContext(ctx)
 	defer cancel()
-	serviceNames := make([]string, 0, len(payload.desired.Services))
-	for _, service := range payload.desired.Services {
-		serviceNames = append(serviceNames, service.Name)
+	if len(payload.affected) == 0 {
+		return nil
 	}
 	return safePipelineError(d.wait(waitCtx, waiterpkg.ServiceWaitRequest{
-		StackName: payload.stackName, ServiceNames: serviceNames, Baseline: payload.baseline, OnlyAffected: true,
+		StackName: payload.stackName, ServiceNames: payload.affected, Baseline: payload.baseline, OnlyAffected: true,
 	}))
 }
 
 func (d *Deployer) prepareService(_ context.Context, payload *deployServicePayload) error {
-	prepared, err := stackpkg.PrepareService(payload.desired, payload.deploy, payload.serviceName)
+	prepared, err := stackpkg.SingleServiceCompose(payload.desired, payload.serviceName)
 	payload.prepared = prepared
 	return safePipelineError(err)
 }
 
+func (d *Deployer) validateService(_ context.Context, payload *deployServicePayload) error {
+	return safePipelineError(d.converter.Validate(payload.stackName, payload.prepared))
+}
+
+func (d *Deployer) reconcileServiceNetworks(ctx context.Context, payload *deployServicePayload) error {
+	planned, err := d.converter.PlanNetworks(payload.stackName, payload.prepared)
+	if err == nil {
+		err = d.networks.Reconcile(ctx, payload.stackName, planned)
+	}
+	return safePipelineError(err)
+}
+
 func (d *Deployer) reconcileServiceResources(ctx context.Context, payload *deployServicePayload) error {
-	resolved, err := d.reconcileResources(ctx, payload.stackName, payload.sourceComposePath, payload.prepared.Desired)
+	resolved, err := d.reconcileResources(ctx, payload.stackName, payload.sourceComposePath, payload.prepared)
 	payload.resolved = resolved
+	return safePipelineError(err)
+}
+
+func (d *Deployer) convertService(ctx context.Context, payload *deployServicePayload) error {
+	converted, err := d.converter.Convert(ctx, payload.stackName, payload.prepared)
+	payload.converted = converted
 	return safePipelineError(err)
 }
 
@@ -140,14 +191,19 @@ func (d *Deployer) captureServiceBaseline(ctx context.Context, payload *deploySe
 func (d *Deployer) applyService(ctx context.Context, payload *deployServicePayload) error {
 	applyCtx, cancel := payload.stageContext(ctx)
 	defer cancel()
-	return safePipelineError(d.stackApplier.Apply(applyCtx, payload.stackName, payload.prepared.Path))
+	affected, err := d.serviceApplier.Apply(applyCtx, payload.stackName, payload.converted.Services)
+	payload.affected = affected
+	return safePipelineError(err)
 }
 
 func (d *Deployer) waitForService(ctx context.Context, payload *deployServicePayload) error {
 	waitCtx, cancel := payload.stageContext(ctx)
 	defer cancel()
+	if len(payload.affected) == 0 {
+		return nil
+	}
 	return safePipelineError(d.wait(waitCtx, waiterpkg.ServiceWaitRequest{
-		StackName: payload.stackName, ServiceNames: []string{payload.serviceName}, Baseline: payload.baseline,
+		StackName: payload.stackName, ServiceNames: payload.affected, Baseline: payload.baseline,
 		OnlyAffected: false,
 	}))
 }
@@ -238,12 +294,22 @@ func (d *Deployer) runInitJobs(
 	stackName string,
 	services []compose.Service,
 	resolved resolvedResources,
+	networks []converter.NetworkSpec,
 ) ([]InitJobResult, error) {
 	result := make([]InitJobResult, 0)
+	networkTargets := make(map[string]string, len(networks))
+	for _, network := range networks {
+		networkTargets[network.Alias] = network.ID
+	}
 	for _, service := range services {
 		for _, job := range service.InitJobs {
+			defaultNetworks := service.Networks.GetAliases()
+			if len(defaultNetworks) == 0 {
+				defaultNetworks = []string{defaultNetworkAlias}
+			}
 			execution, err := d.initJobRunner.Run(ctx, initjob.Spec{
-				StackName: stackName, ServiceName: service.Name, DefaultNetwork: service.Networks.GetNames(),
+				StackName: stackName, ServiceName: service.Name, DefaultNetwork: defaultNetworks,
+				NetworkTargets: networkTargets,
 				ServiceSecrets: service.Secrets, ServiceConfigs: service.Configs,
 				ResolvedSecrets: resolved.secrets, ResolvedConfigs: resolved.configs, Job: job,
 			})
