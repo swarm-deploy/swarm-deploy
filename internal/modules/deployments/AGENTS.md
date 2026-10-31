@@ -15,6 +15,9 @@ The Deployments module owns:
 - Deployment history queries.
 - Stack and service deployment execution.
 - Docker CLI invocation, Init Jobs, and resource reconciliation.
+- Synchronous execution orchestration and error classification.
+- Post-apply live-state observation and deployment-specific pruning.
+- Startup recovery of interrupted Attempts.
 - Deployment secret resolution and execution tracing.
 
 ## Boundaries
@@ -24,12 +27,12 @@ The module MUST NOT:
 - Depend on GitOps.
 - Perform Git synchronization.
 - Implement GitOps reconciliation or drift detection.
-- Decide deployment completion outcomes or orchestrate reconciliation.
 - Introduce its own transaction infrastructure.
 
-GitOps decides when and how a deployment completes. Startup recovery orchestration and the broader reconciliation
-lifecycle remain in GitOps; Deployments persists the selected outcome atomically with consumer-owned projections and
-completion event publication.
+Deployments decides and persists terminal Attempt outcomes, owns interrupted-execution recovery, and publishes
+completion events transactionally. GitOps prepares effective desired state, submits synchronous execution requests,
+and maintains its runtime projection by consuming deployment events. Deployments never updates consumer projections
+through callbacks.
 
 ## Persistence Rules
 

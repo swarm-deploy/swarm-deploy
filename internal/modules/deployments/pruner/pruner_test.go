@@ -37,6 +37,7 @@ func TestServicePrunerPrune(t *testing.T) {
 		stackServices  []swarm.StackService
 		removeCalls    []removeExpectation
 		expectedPruned []string
+		wantError      bool
 	}{
 		{
 			name:    "removes managed orphan services",
@@ -166,6 +167,7 @@ func TestServicePrunerPrune(t *testing.T) {
 				},
 			},
 			expectedPruned: []string{},
+			wantError:      true,
 		},
 	}
 
@@ -195,7 +197,11 @@ func TestServicePrunerPrune(t *testing.T) {
 				},
 			)
 
-			require.NoError(t, err, "prune services")
+			if tt.wantError {
+				require.Error(t, err, "prune services")
+			} else {
+				require.NoError(t, err, "prune services")
+			}
 			assert.Equal(t, tt.expectedPruned, prunedServices, "unexpected pruned services")
 		})
 	}
@@ -218,6 +224,7 @@ func TestServicePrunerTracing(t *testing.T) {
 		expectedChildStatus  codes.Code
 		expectedParentPruned bool
 		expectedParentStatus codes.Code
+		wantError            bool
 	}{
 		{
 			name: "records successful prune",
@@ -273,6 +280,7 @@ func TestServicePrunerTracing(t *testing.T) {
 			expectedChildEvents:  []string{"exception"},
 			expectedChildStatus:  codes.Error,
 			expectedParentStatus: codes.Error,
+			wantError:            true,
 		},
 		{
 			name: "records event publication failure",
@@ -289,7 +297,8 @@ func TestServicePrunerTracing(t *testing.T) {
 			expectedChildEvents:  []string{"Service pruned", "exception"},
 			expectedChildStatus:  codes.Error,
 			expectedParentPruned: true,
-			expectedParentStatus: codes.Unset,
+			expectedParentStatus: codes.Error,
+			wantError:            true,
 		},
 	}
 
@@ -328,7 +337,11 @@ func TestServicePrunerTracing(t *testing.T) {
 			})
 			parent.End()
 
-			require.NoError(t, err, "prune services")
+			if tt.wantError {
+				require.Error(t, err, "prune services")
+			} else {
+				require.NoError(t, err, "prune services")
+			}
 			assert.Equal(t, tt.expectedPruned, prunedServices, "unexpected pruned services")
 
 			spans := recorder.Ended()

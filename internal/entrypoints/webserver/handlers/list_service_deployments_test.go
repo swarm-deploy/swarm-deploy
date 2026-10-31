@@ -13,8 +13,6 @@ import (
 	deploymentstore "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/modelstore"
 	eventbus "github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/outbox"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/deployment"
-	gitopsmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/storage"
 )
 
@@ -25,26 +23,25 @@ func TestListServiceDeploymentsReadsDeploymentStore(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	publisher := eventbus.NewOutboxDispatcher(outbox.New(db))
-	svc := deployment.NewService(db, publisher)
-	creation := deployments.NewService(db, publisher)
+	svc := deployments.NewService(db, publisher)
 	h := &handler{deployments: deploymentstore.NewStore(db)}
 
 	file := func(services ...compose.Service) compose.File {
 		return compose.File{Compose: compose.Compose{Services: services}}
 	}
 	start := func(stack, commit string, services ...compose.Service) *deploymentmodel.Attempt {
-		attempt, startErr := creation.StartIfChanged(ctx, stack, commit, file(services...), true, svc.ProjectInterruption)
+		attempt, startErr := svc.StartIfChanged(ctx, stack, commit, file(services...), true)
 		require.NoError(t, startErr)
 		require.NotNil(t, attempt)
 		return attempt
 	}
 
 	first := start("payments", "sha-1", compose.Service{Name: "api", Image: "registry.example.com/api:v1"})
-	require.NoError(t, svc.Fail(ctx, first.ID, gitopsmodel.Stack{}, "apply_failed"))
+	require.NoError(t, svc.Complete(ctx, first.ID, deployments.Completion{Outcome: deployments.CompletionApplyFailed}))
 	worker := start("payments", "worker-only", compose.Service{Name: "worker", Image: "worker:v1"})
-	require.NoError(t, svc.Fail(ctx, worker.ID, gitopsmodel.Stack{}, "apply_failed"))
+	require.NoError(t, svc.Complete(ctx, worker.ID, deployments.Completion{Outcome: deployments.CompletionApplyFailed}))
 	changed := start("payments", "sha-2", compose.Service{Name: "api", Image: "registry.example.com/api:v2"})
-	require.NoError(t, svc.Fail(ctx, changed.ID, gitopsmodel.Stack{}, "apply_failed"))
+	require.NoError(t, svc.Complete(ctx, changed.ID, deployments.Completion{Outcome: deployments.CompletionApplyFailed}))
 	replicas := uint64(2)
 	unchanged := start("payments", "sha-3", compose.Service{
 		Name: "api", Image: "registry.example.com/api:v2", Deploy: compose.ServiceDeploy{Replicas: &replicas},

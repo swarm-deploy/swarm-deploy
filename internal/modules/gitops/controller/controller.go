@@ -15,14 +15,12 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/configstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/gitpull"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/networkloop"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackloop"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackplan"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/deployment"
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/modelstore"
@@ -62,7 +60,7 @@ type Controller struct {
 	cfg         *config.Config
 	configStore *configstore.ConfigStore
 	git         gitx.Repository
-	deployer    deployer.StackDeployer
+	deployments deployments.Executor
 	metrics     *metrics.Group
 	event       dispatcher.Dispatcher
 
@@ -79,7 +77,6 @@ type Controller struct {
 	tickerMu     sync.Mutex
 	tickers      []*time.Ticker
 	ownership    *controllerOwnership
-	recovery     *deployment.Service
 	shutdownWait time.Duration
 
 	tracer trace.Tracer
@@ -96,8 +93,7 @@ func New(
 	configStore *configstore.ConfigStore,
 	git gitx.Repository,
 	swarmService *swarm.Swarm,
-	creation *deployments.Service,
-	deployer deployer.StackDeployer,
+	deploymentExecutor deployments.Executor,
 	metricGroup *metrics.Group,
 	eventDispatcher dispatcher.Dispatcher,
 	stateStore modelstore.Store,
@@ -108,7 +104,7 @@ func New(
 		cfg:         cfg,
 		configStore: configStore,
 		git:         git,
-		deployer:    deployer,
+		deployments: deploymentExecutor,
 		metrics:     metricGroup,
 		event:       eventDispatcher,
 		stateStore:  stateStore,
@@ -118,8 +114,7 @@ func New(
 		stackReconciler: stackloop.NewStackReconciler(
 			cfg,
 			git,
-			creation,
-			deployer,
+			deploymentExecutor,
 			swarmService,
 			eventDispatcher,
 			metricGroup.Deploys,
@@ -135,7 +130,6 @@ func New(
 		),
 		reconcileCh:  make(chan reconcileTask, 1),
 		ownership:    newControllerOwnership(cfg.Spec.DataDir),
-		recovery:     deployment.NewService(db, eventDispatcher),
 		shutdownWait: gracefulReconciliationShutdownTimeout,
 		tracer:       otel.Tracer("github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller"),
 	}
@@ -167,8 +161,8 @@ func (c *Controller) Run(ctx context.Context) error {
 		defer c.releaseOwnership(ctx, handle)
 		c.cleanupRenderedComposeFiles(ctx)
 	}
-	if c.recovery != nil {
-		if err := c.recovery.InterruptRunning(ctx); err != nil {
+	if c.deployments != nil {
+		if err := c.deployments.Recover(ctx); err != nil {
 			return fmt.Errorf("recover orphaned deployments: %w", err)
 		}
 	}

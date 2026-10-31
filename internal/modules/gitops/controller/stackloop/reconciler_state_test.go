@@ -23,11 +23,10 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer"
 	deploymentmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/model"
 	deploymentstore "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/modelstore"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/pruner"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackloop/drift"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackloop/pruner"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/deployment"
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/modelstore"
@@ -67,7 +66,6 @@ func TestReconcileUpdatesStateOnSuccess(t *testing.T) {
 			},
 		},
 		git:            repository,
-		deployer:       stackDeployer,
 		event:          eventDispatcher,
 		deployMetrics:  deployMetrics,
 		stateStore:     stateStore,
@@ -78,8 +76,9 @@ func TestReconcileUpdatesStateOnSuccess(t *testing.T) {
 		serviceManager: serviceManager,
 	}
 	reconciler.db = db
-	reconciler.deployments = deployment.NewService(db, reconciler.event)
-	reconciler.creation = deployments.NewService(db, reconciler.event)
+	reconciler.executor = deployments.NewController(
+		deployments.NewService(db, reconciler.event), stackDeployer, serviceManager, reconciler.pruner, reconciler.deployMetrics,
+	)
 	reconciler.attachPipeline()
 
 	err := reconciler.Reconcile(context.Background(), ReconciliationRequest{
@@ -131,7 +130,6 @@ func TestReconcileUpdatesStateOnFailure(t *testing.T) {
 			},
 		},
 		git:            repository,
-		deployer:       stackDeployer,
 		event:          eventDispatcher,
 		deployMetrics:  &metrics.NopDeploys{},
 		stateStore:     stateStore,
@@ -141,8 +139,9 @@ func TestReconcileUpdatesStateOnFailure(t *testing.T) {
 		composeRotator: NewRotator(fs.NewLocalFileSystem()),
 	}
 	reconciler.db = db
-	reconciler.deployments = deployment.NewService(db, reconciler.event)
-	reconciler.creation = deployments.NewService(db, reconciler.event)
+	reconciler.executor = deployments.NewController(
+		deployments.NewService(db, reconciler.event), stackDeployer, serviceManager, reconciler.pruner, reconciler.deployMetrics,
+	)
 	reconciler.attachPipeline()
 
 	err := reconciler.Reconcile(context.Background(), ReconciliationRequest{
@@ -199,7 +198,7 @@ func TestReconcileSeparatesPostApplyOutcomes(t *testing.T) {
 			actual: deploymentmodel.ActualStateUnknown, expectedError: true,
 		},
 		{
-			name: "prune failure is best effort",
+			name: "prune failure completes cleanup as failed",
 			setupServices: func(manager *swarm.MockServiceManager) {
 				manager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "app"}).Return([]swarm.StackService{{
 					ID: "old-id", Name: "old", Labels: map[string]string{
@@ -208,9 +207,9 @@ func TestReconcileSeparatesPostApplyOutcomes(t *testing.T) {
 				}}, nil)
 				manager.EXPECT().Remove(gomock.Any(), "old-id").Return(assert.AnError)
 			},
-			status: deploymentmodel.Succeeded, phase: deploymentmodel.PhaseCompleted,
-			verification: deploymentmodel.StageSkipped, cleanup: deploymentmodel.StageSucceeded,
-			actual: deploymentmodel.ActualStateObserved, expectedObservedTime: true,
+			status: deploymentmodel.Failed, phase: deploymentmodel.PhaseCleanup,
+			verification: deploymentmodel.StageSkipped, cleanup: deploymentmodel.StageFailed,
+			actual: deploymentmodel.ActualStateObserved, expectedObservedTime: true, expectedError: true,
 		},
 	}
 	for _, tt := range tests {
@@ -229,14 +228,16 @@ func TestReconcileSeparatesPostApplyOutcomes(t *testing.T) {
 				Sync: config.SyncSpec{Policy: config.SyncPolicySpec{Prune: true}}}}
 			eventDispatcher := &dispatcher.NopDispatcher{}
 			reconciler := &Reconciler{
-				cfg: cfg, git: repository, deployer: stackDeployer, event: eventDispatcher,
+				cfg: cfg, git: repository, event: eventDispatcher,
 				deployMetrics: &metrics.NopDeploys{}, stateStore: stateStore, fileSystem: fs.NewLocalFileSystem(),
 				pruner:        pruner.NewServicePruner(serviceManager, eventDispatcher, cfg.Spec.Sync.Policy),
 				composeLoader: compose.NewFileLoader(), composeRotator: NewRotator(fs.NewLocalFileSystem()), serviceManager: serviceManager,
 			}
 			reconciler.db = db
-			reconciler.deployments = deployment.NewService(db, eventDispatcher)
-			reconciler.creation = deployments.NewService(db, eventDispatcher)
+			reconciler.executor = deployments.NewController(
+				deployments.NewService(db, reconciler.event), stackDeployer,
+				serviceManager, reconciler.pruner, reconciler.deployMetrics,
+			)
 			reconciler.attachPipeline()
 			err := reconciler.Reconcile(context.Background(), ReconciliationRequest{
 				Stack: config.StackSpec{Name: "app", ComposeFile: "app.yaml"}, Commit: "commit",
@@ -326,7 +327,6 @@ secrets:
 	reconciler := &Reconciler{
 		cfg:             cfg,
 		git:             repository,
-		deployer:        stackDeployer,
 		event:           &dispatcher.NopDispatcher{},
 		deployMetrics:   &metrics.NopDeploys{},
 		stateStore:      stateStore,
@@ -341,8 +341,9 @@ secrets:
 		resourceCleaner: cleaner,
 	}
 	reconciler.db = db
-	reconciler.deployments = deployment.NewService(db, reconciler.event)
-	reconciler.creation = deployments.NewService(db, reconciler.event)
+	reconciler.executor = deployments.NewController(
+		deployments.NewService(db, reconciler.event), stackDeployer, serviceManager, reconciler.pruner, reconciler.deployMetrics,
+	)
 	reconciler.attachPipeline()
 
 	err := reconciler.Reconcile(context.Background(), ReconciliationRequest{
@@ -398,7 +399,6 @@ func TestReconcileReadsPreviousDigestFromStateStore(t *testing.T) {
 			},
 		},
 		git:            repository,
-		deployer:       stackDeployer,
 		event:          eventDispatcher,
 		deployMetrics:  deployMetrics,
 		stateStore:     stateStore,
@@ -411,8 +411,9 @@ func TestReconcileReadsPreviousDigestFromStateStore(t *testing.T) {
 		configManager:  configManager,
 	}
 	reconciler.db = db
-	reconciler.deployments = deployment.NewService(db, reconciler.event)
-	reconciler.creation = deployments.NewService(db, reconciler.event)
+	reconciler.executor = deployments.NewController(
+		deployments.NewService(db, reconciler.event), stackDeployer, serviceManager, reconciler.pruner, reconciler.deployMetrics,
+	)
 	reconciler.attachPipeline()
 
 	reconcileErr := reconciler.Reconcile(context.Background(), ReconciliationRequest{
@@ -509,7 +510,6 @@ configs:
 			},
 		},
 		git:            repository,
-		deployer:       stackDeployer,
 		event:          eventDispatcher,
 		deployMetrics:  deployMetrics,
 		stateStore:     stateStore,
@@ -520,8 +520,9 @@ configs:
 		serviceManager: serviceManager,
 	}
 	reconciler.db = db
-	reconciler.deployments = deployment.NewService(db, reconciler.event)
-	reconciler.creation = deployments.NewService(db, reconciler.event)
+	reconciler.executor = deployments.NewController(
+		deployments.NewService(db, reconciler.event), stackDeployer, serviceManager, reconciler.pruner, reconciler.deployMetrics,
+	)
 	reconciler.attachPipeline()
 
 	reconcileErr := reconciler.Reconcile(context.Background(), ReconciliationRequest{
@@ -611,7 +612,6 @@ secrets:
 			},
 		},
 		git:            repository,
-		deployer:       stackDeployer,
 		event:          eventDispatcher,
 		deployMetrics:  &metrics.NopDeploys{},
 		stateStore:     stateStore,
@@ -622,8 +622,9 @@ secrets:
 		serviceManager: serviceManager,
 	}
 	reconciler.db = db
-	reconciler.deployments = deployment.NewService(db, reconciler.event)
-	reconciler.creation = deployments.NewService(db, reconciler.event)
+	reconciler.executor = deployments.NewController(
+		deployments.NewService(db, reconciler.event), stackDeployer, serviceManager, reconciler.pruner, reconciler.deployMetrics,
+	)
 	reconciler.attachPipeline()
 
 	reconcileErr := reconciler.Reconcile(context.Background(), ReconciliationRequest{
@@ -701,7 +702,6 @@ services:
 			},
 		},
 		git:              repository,
-		deployer:         stackDeployer,
 		event:            &dispatcher.NopDispatcher{},
 		deployMetrics:    &metrics.NopDeploys{},
 		stateStore:       stateStore,
@@ -713,8 +713,9 @@ services:
 		serviceManager:   serviceManager,
 	}
 	reconciler.db = db
-	reconciler.deployments = deployment.NewService(db, reconciler.event)
-	reconciler.creation = deployments.NewService(db, reconciler.event)
+	reconciler.executor = deployments.NewController(
+		deployments.NewService(db, reconciler.event), stackDeployer, serviceManager, reconciler.pruner, reconciler.deployMetrics,
+	)
 	reconciler.attachPipeline()
 
 	reconcileErr := reconciler.Reconcile(context.Background(), ReconciliationRequest{
@@ -779,7 +780,6 @@ services:
 			},
 		},
 		git:            repository,
-		deployer:       stackDeployer,
 		event:          &dispatcher.NopDispatcher{},
 		deployMetrics:  &metrics.NopDeploys{},
 		stateStore:     stateStore,
@@ -790,8 +790,9 @@ services:
 		serviceManager: serviceManager,
 	}
 	reconciler.db = db
-	reconciler.deployments = deployment.NewService(db, reconciler.event)
-	reconciler.creation = deployments.NewService(db, reconciler.event)
+	reconciler.executor = deployments.NewController(
+		deployments.NewService(db, reconciler.event), stackDeployer, serviceManager, reconciler.pruner, reconciler.deployMetrics,
+	)
 	reconciler.attachPipeline()
 
 	reconcileErr := reconciler.Reconcile(context.Background(), ReconciliationRequest{
@@ -856,7 +857,6 @@ services:
 			},
 		},
 		git:            repository,
-		deployer:       stackDeployer,
 		event:          &dispatcher.NopDispatcher{},
 		deployMetrics:  &metrics.NopDeploys{},
 		stateStore:     stateStore,
@@ -868,8 +868,9 @@ services:
 		serviceManager: serviceManager,
 	}
 	reconciler.db = db
-	reconciler.deployments = deployment.NewService(db, reconciler.event)
-	reconciler.creation = deployments.NewService(db, reconciler.event)
+	reconciler.executor = deployments.NewController(
+		deployments.NewService(db, reconciler.event), stackDeployer, serviceManager, reconciler.pruner, reconciler.deployMetrics,
+	)
 	reconciler.attachPipeline()
 
 	reconcileErr := reconciler.Reconcile(context.Background(), ReconciliationRequest{
@@ -989,7 +990,6 @@ func TestReconcilePrunesServicesWithoutNewDeployment(t *testing.T) {
 					},
 				},
 				git:            repository,
-				deployer:       stackDeployer,
 				event:          eventDispatcher,
 				deployMetrics:  deployMetrics,
 				stateStore:     stateStore,
@@ -1000,8 +1000,9 @@ func TestReconcilePrunesServicesWithoutNewDeployment(t *testing.T) {
 				serviceManager: serviceManager,
 			}
 			reconciler.db = db
-			reconciler.deployments = deployment.NewService(db, reconciler.event)
-			reconciler.creation = deployments.NewService(db, reconciler.event)
+			reconciler.executor = deployments.NewController(
+				deployments.NewService(db, reconciler.event), stackDeployer, serviceManager, reconciler.pruner, reconciler.deployMetrics,
+			)
 			reconciler.attachPipeline()
 
 			reconcileErr := reconciler.Reconcile(context.Background(), ReconciliationRequest{
@@ -1099,8 +1100,10 @@ func TestReconcileServiceMissedEventOnDrift(t *testing.T) {
 				serviceManager: serviceManager,
 			}
 			reconciler.db = db
-			reconciler.deployments = deployment.NewService(db, reconciler.event)
-			reconciler.creation = deployments.NewService(db, reconciler.event)
+			reconciler.executor = deployments.NewController(
+				deployments.NewService(db, reconciler.event), deployer.NewMockStackDeployer(ctrl),
+				serviceManager, reconciler.pruner, reconciler.deployMetrics,
+			)
 			reconciler.attachPipeline()
 
 			reconcileErr := reconciler.Reconcile(context.Background(), ReconciliationRequest{
@@ -1221,7 +1224,7 @@ func TestReconcileSelfHealsMissingService(t *testing.T) {
 					DataDir: filepath.Join(repoDir, ".data"),
 					Sync:    config.SyncSpec{Policy: config.SyncPolicySpec{SelfHeal: true}},
 				}},
-				git: repository, deployer: stackDeployer, event: eventDispatcher,
+				git: repository, event: eventDispatcher,
 				deployMetrics: metricGroup.Deploys, stateStore: stateStore,
 				fileSystem:    fs.NewLocalFileSystem(),
 				pruner:        pruner.NewServicePruner(serviceManager, eventDispatcher, config.SyncPolicySpec{}),
@@ -1229,8 +1232,9 @@ func TestReconcileSelfHealsMissingService(t *testing.T) {
 				driftAnalyzer: drift.NewAnalyzer(), serviceManager: serviceManager,
 			}
 			reconciler.db = db
-			reconciler.deployments = deployment.NewService(db, reconciler.event)
-			reconciler.creation = deployments.NewService(db, reconciler.event)
+			reconciler.executor = deployments.NewController(
+				deployments.NewService(db, reconciler.event), stackDeployer, serviceManager, reconciler.pruner, reconciler.deployMetrics,
+			)
 			reconciler.attachPipeline()
 
 			err = reconciler.Reconcile(context.Background(), ReconciliationRequest{
@@ -1318,7 +1322,7 @@ func TestReconcileSelfHealsReplicaDriftAfterVerification(t *testing.T) {
 			DataDir: filepath.Join(repoDir, ".data"),
 			Sync:    config.SyncSpec{Policy: config.SyncPolicySpec{SelfHeal: true}},
 		}},
-		git: repository, deployer: stackDeployer, event: eventDispatcher,
+		git: repository, event: eventDispatcher,
 		deployMetrics: &metrics.NopDeploys{}, stateStore: stateStore,
 		fileSystem:    fs.NewLocalFileSystem(),
 		pruner:        pruner.NewServicePruner(serviceManager, eventDispatcher, config.SyncPolicySpec{}),
@@ -1326,8 +1330,9 @@ func TestReconcileSelfHealsReplicaDriftAfterVerification(t *testing.T) {
 		driftAnalyzer: drift.NewAnalyzer(), serviceManager: serviceManager,
 	}
 	reconciler.db = db
-	reconciler.deployments = deployment.NewService(db, reconciler.event)
-	reconciler.creation = deployments.NewService(db, reconciler.event)
+	reconciler.executor = deployments.NewController(
+		deployments.NewService(db, reconciler.event), stackDeployer, serviceManager, reconciler.pruner, reconciler.deployMetrics,
+	)
 	reconciler.attachPipeline()
 
 	require.NoError(t, reconciler.Reconcile(context.Background(), ReconciliationRequest{

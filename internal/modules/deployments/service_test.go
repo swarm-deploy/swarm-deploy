@@ -56,24 +56,24 @@ func TestStartIfChangedCreatesNoopsAndRetries(t *testing.T) {
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			attempt, err := service.StartIfChanged(
-				t.Context(), testCase.name, "commit", desiredServices("api"), testCase.sourceChanged, nil,
+				t.Context(), testCase.name, "commit", desiredServices("api"), testCase.sourceChanged,
 			)
 			require.NoError(t, err)
 			assert.Equal(t, testCase.wantAttempt, attempt != nil)
 		})
 	}
 
-	first, err := service.StartIfChanged(t.Context(), "retry", "first", desiredServices("api"), true, nil)
+	first, err := service.StartIfChanged(t.Context(), "retry", "first", desiredServices("api"), true)
 	require.NoError(t, err)
 	require.NotNil(t, first)
-	unchanged, err := service.StartIfChanged(t.Context(), "retry", "second", desiredServices("api"), true, nil)
+	unchanged, err := service.StartIfChanged(t.Context(), "retry", "second", desiredServices("api"), true)
 	require.NoError(t, err)
 	assert.Nil(t, unchanged)
 
 	require.NoError(t, db.WithinTransaction(t.Context(), func(ctx context.Context) error {
-		return service.Complete(ctx, first.ID, Completion{Outcome: CompletionProcessInterrupted}, nil)
+		return service.Complete(ctx, first.ID, Completion{Outcome: CompletionProcessInterrupted})
 	}))
-	retry, err := service.StartIfChanged(t.Context(), "retry", "third", desiredServices("api"), true, nil)
+	retry, err := service.StartIfChanged(t.Context(), "retry", "third", desiredServices("api"), true)
 	require.NoError(t, err)
 	require.NotNil(t, retry)
 	assert.Equal(t, first.DeploymentID, retry.DeploymentID)
@@ -91,21 +91,14 @@ func TestStartIfChangedSupersedesAndPublishesAtomically(t *testing.T) {
 	store := deploymentstore.NewStore(db)
 
 	first, err := service.StartIfChanged(
-		t.Context(), "app", "first", desiredServices("api", "worker"), true, nil,
+		t.Context(), "app", "first", desiredServices("api", "worker"), true,
 	)
 	require.NoError(t, err)
-	projected := false
 	second, err := service.StartIfChanged(
 		t.Context(), "app", "second", desiredServices("api"), true,
-		func(_ context.Context, deployment deploymentmodel.Deployment) error {
-			projected = true
-			assert.Equal(t, first.DeploymentID, deployment.ID)
-			return nil
-		},
 	)
 	require.NoError(t, err)
 	require.NotNil(t, second)
-	assert.True(t, projected)
 
 	previous, err := store.Get(t.Context(), first.DeploymentID)
 	require.NoError(t, err)
@@ -121,15 +114,15 @@ func TestStartIfChangedUsesSuccessfulBaselineForSemanticChanges(t *testing.T) {
 	store := deploymentstore.NewStore(db)
 
 	baselineAttempt, err := service.StartIfChanged(
-		t.Context(), "app", "baseline", desiredServices("api"), true, nil,
+		t.Context(), "app", "baseline", desiredServices("api"), true,
 	)
 	require.NoError(t, err)
 	require.NoError(t, service.Complete(t.Context(), baselineAttempt.ID, Completion{
 		Outcome: CompletionSucceeded,
-	}, nil))
+	}))
 
 	target, err := service.StartIfChanged(
-		t.Context(), "app", "target", desiredServices("api", "worker"), true, nil,
+		t.Context(), "app", "target", desiredServices("api", "worker"), true,
 	)
 	require.NoError(t, err)
 	stored, err := store.Get(t.Context(), target.DeploymentID)
@@ -140,10 +133,10 @@ func TestStartIfChangedUsesSuccessfulBaselineForSemanticChanges(t *testing.T) {
 	assert.NotZero(t, stored.Summary.Added)
 
 	require.NoError(t, db.WithinTransaction(t.Context(), func(ctx context.Context) error {
-		return service.Complete(ctx, target.ID, Completion{Outcome: CompletionProcessInterrupted}, nil)
+		return service.Complete(ctx, target.ID, Completion{Outcome: CompletionProcessInterrupted})
 	}))
 	retry, err := service.StartIfChanged(
-		t.Context(), "app", "retry", desiredServices("api", "worker"), true, nil,
+		t.Context(), "app", "retry", desiredServices("api", "worker"), true,
 	)
 	require.NoError(t, err)
 	assert.Equal(t, target.DeploymentID, retry.DeploymentID)
@@ -159,13 +152,13 @@ func TestStartIfChangedRollsBackSupersessionWhenPublicationFails(t *testing.T) {
 	store := deploymentstore.NewStore(db)
 
 	first, err := service.StartIfChanged(
-		t.Context(), "app", "first", desiredServices("api", "worker"), true, nil,
+		t.Context(), "app", "first", desiredServices("api", "worker"), true,
 	)
 	require.NoError(t, err)
 	_, err = db.Exec(t.Context(), "CREATE TRIGGER reject_service_removal BEFORE INSERT ON outbox_events WHEN NEW.event_type='ServiceRemovedFromDesired' BEGIN SELECT RAISE(ABORT, 'outbox unavailable'); END")
 	require.NoError(t, err)
 
-	_, err = service.StartIfChanged(t.Context(), "app", "second", desiredServices("api"), true, nil)
+	_, err = service.StartIfChanged(t.Context(), "app", "second", desiredServices("api"), true)
 	require.Error(t, err)
 	latest, _, err := store.Latest(t.Context(), "app")
 	require.NoError(t, err)
@@ -179,13 +172,13 @@ func TestStartIfChangedRollsBackInterruptionWhenDeploymentPersistenceFails(t *te
 	subscribe(t, db, bus, events.TypeNameDeployInterrupted)
 	store := deploymentstore.NewStore(db)
 
-	first, err := service.StartIfChanged(t.Context(), "app", "first", desiredServices("api"), true, nil)
+	first, err := service.StartIfChanged(t.Context(), "app", "first", desiredServices("api"), true)
 	require.NoError(t, err)
 	_, err = db.Exec(t.Context(), `CREATE TRIGGER reject_deployment BEFORE INSERT ON deployments
 		WHEN NEW."commit"='second' BEGIN SELECT RAISE(ABORT, 'deployment unavailable'); END`)
 	require.NoError(t, err)
 
-	_, err = service.StartIfChanged(t.Context(), "app", "second", desiredServices("worker"), true, nil)
+	_, err = service.StartIfChanged(t.Context(), "app", "second", desiredServices("worker"), true)
 	require.Error(t, err)
 	latest, _, err := store.Latest(t.Context(), "app")
 	require.NoError(t, err)

@@ -18,8 +18,6 @@ import (
 	deploymentstore "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/modelstore"
 	eventbus "github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/outbox"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/deployment"
-	gitopsmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/storage"
 )
 
@@ -29,10 +27,9 @@ func TestDeploymentAPIReadsAttemptsWithoutHistory(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close()
 	publisher := eventbus.NewOutboxDispatcher(outbox.New(db))
-	svc := deployment.NewService(db, publisher)
-	creation := deployments.NewService(db, publisher)
+	svc := deployments.NewService(db, publisher)
 	replicas := uint64(3)
-	attempt, err := creation.StartIfChanged(ctx, "app", "sha", compose.File{Compose: compose.Compose{Services: compose.Services{{
+	attempt, err := svc.StartIfChanged(ctx, "app", "sha", compose.File{Compose: compose.Compose{Services: compose.Services{{
 		Name: "api", Image: "image:1",
 		Command:     compose.NewCommand([]string{"sh", "-c", "app --password api-command-secret"}),
 		Healthcheck: &compose.ServiceHealth{Test: compose.NewCommand([]string{"CMD-SHELL", "check health-secret"})},
@@ -47,7 +44,7 @@ func TestDeploymentAPIReadsAttemptsWithoutHistory(t *testing.T) {
 		Name: "batch", Image: "batch:1", Deploy: compose.ServiceDeploy{Mode: "replicated-job", Extra: map[string]interface{}{
 			"max_concurrent": 2, "total_completions": 5,
 		}},
-	}}}}, true, svc.ProjectInterruption)
+	}}}}, true)
 	require.NoError(t, err)
 	h := &handler{deployments: deploymentstore.NewStore(db)}
 	response, err := h.ListDeployments(ctx, generated.ListDeploymentsParams{Stack: []string{"app"}})
@@ -70,8 +67,10 @@ func TestDeploymentAPIReadsAttemptsWithoutHistory(t *testing.T) {
 		Status: deploymentmodel.InitJobFailed, StartedAt: now, FinishedAt: now.Add(time.Second),
 		LogsAvailable: false,
 	}))
-	require.NoError(t, svc.FailApplyWithError(ctx, attempt.ID, gitopsmodel.Stack{}, "apply_failed",
-		errors.New("update service api: pull https://user:password@registry.example/image: image not found")))
+	require.NoError(t, svc.Complete(ctx, attempt.ID, deployments.Completion{
+		Outcome:    deployments.CompletionApplyFailed,
+		Diagnostic: errors.New("update service api: pull https://user:password@registry.example/image: image not found"),
+	}))
 	detail, err := h.GetDeployment(ctx, generated.GetDeploymentParams{ID: attempt.DeploymentID})
 	require.NoError(t, err)
 	require.Len(t, detail.Attempts, 1)
@@ -186,7 +185,7 @@ func TestDeploymentFiltersUsesAllRecordedStacks(t *testing.T) {
 	} {
 		_, err := creation.StartIfChanged(ctx, tc.stack, tc.commit, compose.File{Compose: compose.Compose{
 			Services: compose.Services{{Name: tc.service, Image: "image:1"}},
-		}}, true, nil)
+		}}, true)
 		require.NoError(t, err)
 	}
 	filters, err := h.GetDeploymentFilters(ctx)

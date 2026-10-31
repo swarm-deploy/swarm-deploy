@@ -8,18 +8,17 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/pruner"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 	"github.com/swarm-deploy/swarm-deploy/internal/storage"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 
-// Module contains deployment creation and execution services exposed to consumers.
+// Module contains deployment lifecycle and execution services exposed to consumers.
 type Module struct {
-	// Creation owns deployment and attempt creation.
-	Creation *Service
-	// Deployer executes stack and service deployments.
-	Deployer deployer.StackDeployer
+	// Controller owns synchronous deployment execution, completion, and recovery.
+	Controller *Controller
 }
 
 // Container supplies dependencies required by the Deployments module.
@@ -53,8 +52,15 @@ func InitModule(_ context.Context, cfg *config.Config, cnt Container) (*Module, 
 		),
 	)
 
-	return &Module{
-		Creation: NewService(cnt.GetStorage(), cnt.GetEventModule().Dispatcher),
-		Deployer: stackDeployer,
-	}, nil
+	lifecycle := NewService(cnt.GetStorage(), cnt.GetEventModule().Dispatcher)
+	controller := NewController(
+		lifecycle,
+		stackDeployer,
+		cnt.GetSwarm().Services,
+		pruner.NewServicePruner(
+			cnt.GetSwarm().Services, cnt.GetEventModule().Dispatcher, cfg.Spec.Sync.Policy,
+		),
+		cnt.GetMetrics().Deploys,
+	)
+	return &Module{Controller: controller}, nil
 }
