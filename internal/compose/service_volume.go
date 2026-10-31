@@ -38,6 +38,9 @@ type ServiceVolume struct {
 
 	Extra map[string]interface{} `yaml:",inline" json:"Extra"`
 
+	// UnsupportedModes preserves unconverted short-syntax options for strict consumers.
+	UnsupportedModes []string `yaml:"-" json:"UnsupportedModes,omitempty"`
+
 	isString bool
 }
 
@@ -112,6 +115,7 @@ func (sv *ServiceVolumes) UnmarshalYAML(root *yaml.Node) error {
 		volume.Consistency = schema.Consistency
 		volume.Bind = schema.Bind
 		volume.Volume = schema.Volume
+		volume.Tmpfs = schema.Tmpfs
 		volume.Extra = schema.Extra
 
 		sv.Volumes = append(sv.Volumes, volume)
@@ -194,13 +198,21 @@ func (sv *ServiceVolume) UnmarshalString(raw string) error {
 		for _, mode := range strings.Split(parts[2], ",") {
 			mode = strings.ToLower(mode)
 
-			if mode == "ro" {
+			switch {
+			case mode == "ro":
 				sv.ReadOnly = true
-			} else if slices.Contains(mount.Propagations, mount.Propagation(mode)) {
-				sv.Bind = &ServiceVolumeBind{
-					Propagation: mount.Propagation(mode),
-				}
+			case mode == "rw":
+				sv.ReadOnly = false
+			case slices.Contains([]string{"consistent", "cached", "delegated"}, mode):
+				sv.Consistency = mount.Consistency(mode)
+			case mode == "nocopy":
+				sv.Volume = &ServiceVolumeVolume{Nocopy: true}
+			case slices.Contains(mount.Propagations, mount.Propagation(mode)):
+				sv.Bind = &ServiceVolumeBind{Propagation: mount.Propagation(mode)}
+			default:
+				sv.UnsupportedModes = append(sv.UnsupportedModes, mode)
 			}
+
 		}
 	default:
 		return fmt.Errorf("invalid service volume format: %q", raw)

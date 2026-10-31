@@ -10,6 +10,7 @@ require (
 	github.com/artarts36/go-entrypoint v0.3.1
 	github.com/artarts36/gopipe v0.2.1
 	github.com/artarts36/specw v0.2.0
+	github.com/anmitsu/go-shlex v0.0.0-20200514113438-38f4b401e2be
 	github.com/avast/retry-go/v5 v5.0.0
 	github.com/cappuccinotm/slogx v1.4.2
 	github.com/containerd/errdefs v1.0.0

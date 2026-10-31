@@ -76,3 +76,6 @@ func (r ObjectRef) MarshalYAML() (interface{}, error) {
 		Extra:  r.Extra,
 	}, nil
 }
+
+// IsShortForm reports whether the reference used scalar Compose syntax.
+func (r ObjectRef) IsShortForm() bool { return r.isString }

@@ -70,3 +70,6 @@ func (c *Command) UnmarshalJSON(data []byte) error {
 	c.isList = value.IsList
 	return nil
 }
+
+// IsList reports whether the command uses exec/list syntax.
+func (c Command) IsList() bool { return c.isList }
