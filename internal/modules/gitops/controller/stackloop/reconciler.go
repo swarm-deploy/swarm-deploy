@@ -227,7 +227,7 @@ func (r *Reconciler) processResult(
 
 	result := model.Stack{
 		SourceDigest: desired.Digest, LastCommit: req.Commit, Status: model.NewStackStatus(serviceStates),
-		LastDeployAt: prevState.LastDeployAt, Services: serviceStates,
+		LastDeployAt: prevState.LastDeployAt, StateUpdatedAt: now.UTC(), Services: serviceStates,
 	}
 	if payload.Attempt != nil {
 		result.LastDeployAt = now
@@ -235,11 +235,6 @@ func (r *Reconciler) processResult(
 	err := r.persistResult(ctx, req, prevState, payload, result)
 	if err != nil {
 		return fmt.Errorf("persist stack result: %w", err)
-	}
-	if payload.Attempt != nil {
-		for name := range serviceStates {
-			r.deployMetrics.RecordDeploy(req.Stack.Name, name, "success")
-		}
 	}
 	if len(payload.RemediationErr) > 0 {
 		return fmt.Errorf("self-heal drift: %w", errors.Join(payload.RemediationErr...))
@@ -265,6 +260,7 @@ func (r *Reconciler) recordFailure(
 		if err := r.stateStore.Update(ctx, func(runtime *model.Runtime) {
 			state := runtime.Stacks[stackName]
 			state.LastCommit, state.LastError = commit, "preparation_failed"
+			state.StateUpdatedAt = time.Now().UTC()
 			if state.Services == nil {
 				state.Services = map[string]model.Service{}
 			}
@@ -298,6 +294,7 @@ func (r *Reconciler) recordPipelineFailure(
 		// completion event update its runtime projection.
 		failed := prev
 		failed.LastCommit, failed.LastError = req.Commit, pl.ExecutionError
+		failed.StateUpdatedAt = time.Now().UTC()
 		if failed.LastError == "" {
 			failed.LastError = "apply_failed"
 		}
