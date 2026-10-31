@@ -35,22 +35,6 @@ func TestBuildInitJobNameUsesFallbackForEmptyJobName(t *testing.T) {
 	assert.True(t, strings.HasPrefix(initjob.BuildName("stack-name", "service-name", ""), "job-"))
 }
 
-func TestDefaultStackDeployArgsRemainCompatibleButAreNotExecuted(t *testing.T) {
-	args := defaultStackDeployArgs()
-	assert.Contains(t, args, "--with-registry-auth")
-	assert.Contains(t, args, "--detach=true")
-
-	runner := NewMockRunner(gomock.NewController(t))
-	deployer := &Deployer{
-		secretResolver: newTestSecretResolver(), runner: runner,
-		initJobRunner: &fakeInitJobExecutor{}, serviceWaiter: newSuccessfulServiceWaiter(t),
-	}
-	wireNativeTestDeployer(t, deployer)
-	_, err := deployer.DeployStack(t.Context(), "demo", "source.yaml", "rendered.yaml", minimalCompose("api"))
-	require.NoError(t, err)
-	// Any Docker CLI invocation would be an unexpected gomock call.
-}
-
 func TestDeployStackRunsInitJobsBeforeNativeServiceApplication(t *testing.T) {
 	events := make([]string, 0, 3)
 	jobs := &fakeInitJobExecutor{events: &events}
@@ -398,24 +382,6 @@ func nativeMinimalServiceSpec(name string) dockerswarm.ServiceSpec {
 		Mode:         dockerswarm.ServiceMode{Replicated: &dockerswarm.ReplicatedService{}},
 		EndpointSpec: &dockerswarm.EndpointSpec{},
 	}
-}
-
-type fakeRunner struct {
-	calls  [][]string
-	events *[]string
-	err    error
-	onRun  func([]string) error
-}
-
-func (r *fakeRunner) Run(_ context.Context, args ...string) (string, error) {
-	r.calls = append(r.calls, append([]string(nil), args...))
-	if r.events != nil {
-		*r.events = append(*r.events, "deploy")
-	}
-	if r.onRun != nil {
-		return "", r.onRun(args)
-	}
-	return "", r.err
 }
 
 type fakeInitJobExecutor struct {

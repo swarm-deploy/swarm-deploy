@@ -1480,15 +1480,8 @@ docker secret create git_ssh_passphrase ./id_ed25519.passphrase</pre>
         lines.push(`  file: ${yamlString(stacksFile)}`);
 
         lines.push("");
-        lines.push("# Docker stack deploy execution settings.");
+        lines.push("# Swarm Init Job settings.");
         lines.push("swarm:");
-        lines.push("  # Docker CLI command.");
-        lines.push("  command: docker");
-        lines.push("  # Stack deploy command arguments.");
-        lines.push("  stackDeployArgs:");
-        lines.push("    - stack");
-        lines.push("    - deploy");
-        lines.push("    - --with-registry-auth");
         lines.push("  # Init job polling interval.");
         lines.push("  initJobPollEvery: 2s");
         lines.push("  # Maximum init job duration.");

@@ -159,6 +159,18 @@ jobs:
           SWARM_DEPLOY_E2E: '1'
         run: go test -count=1 -timeout=10m -v ./e2e
 
+      - name: Build production image
+        run: docker build -t swarm-deploy:runtime-test .
+
+      - name: Verify runtime without Docker CLI
+        run: |
+          docker run --rm --entrypoint /bin/sh swarm-deploy:runtime-test -ec '
+            if command -v docker; then exit 1; fi
+            test -s /etc/ssl/certs/ca-certificates.crt
+            test -d /usr/share/zoneinfo
+            /usr/local/bin/swarm-deploy -help
+          '
+
       - name: Collect Swarm diagnostics on failure
         if: failure()
         run: |

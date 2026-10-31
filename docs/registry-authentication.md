@@ -2,8 +2,11 @@
 
 swarm-deploy needs Docker registry credentials when it deploys images from private registries.
 
-Stack deployments are executed with `docker stack deploy --with-registry-auth`. The Docker CLI runs inside the
-swarm-deploy container, so credentials available only on the host are not automatically visible to swarm-deploy.
+Stack deployments create and update services through the Docker API. The native
+service applier obtains registry credentials from `internal/registry.AuthManager`
+and passes them in Docker service create/update options. Docker CLI is not needed
+inside the container. Credentials available only on the host are not automatically
+visible to swarm-deploy.
 
 The same registry authentication is also used when swarm-deploy:
 

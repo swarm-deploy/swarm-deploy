@@ -161,7 +161,7 @@ does not interpolate. Only `FileLoader.Load` builds interpolated effective model
 Interpolation diagnostics omit input values and custom
 required-variable messages to keep them out of logs and traces.
 
-## Native apply behavior and remaining cleanup
+## Native apply behavior
 
 Deployment-owned networks are created or validated before Init Jobs. External
 networks must already exist and are never modified. Named volumes remain mount
@@ -184,6 +184,14 @@ treated as equivalent to the original tag to avoid needless rollouts. Consequent
 moving a registry tag without a Compose/image-policy change is not itself a signal
 to refresh that service in this deployment path.
 
-The legacy Docker binary configuration and inactive CLI helper remain temporarily
-for the planned PR 3 cleanup. They are not reachable from the active full-stack or
-single-service deployment pipelines.
+The full-stack pipeline is: validate desired state → reconcile networks → reconcile
+configs/secrets → convert Compose to Docker API specs → run Init Jobs → capture
+service baseline → apply services through Docker API → wait for convergence.
+Single-service remediation uses the same native components and projects the target
+service and its referenced networks, configs, secrets and volumes without running Init Jobs.
+
+Docker CLI execution helpers and the `swarm.command` configuration have been removed.
+The runtime image contains no Docker CLI binary. The Docker CLI Go template and
+interpolation packages remain library dependencies for source compatibility; they
+do not execute a Docker binary. Registry configuration still uses `config.json`
+and `DOCKER_AUTH_CONFIG` (see [registry authentication](./registry-authentication.md)).

@@ -37,15 +37,8 @@ func TestDeployStackOnRealSwarm(t *testing.T) {
 
 	stack := fmt.Sprintf("sdreconcile%d", time.Now().UnixNano())
 	dir := t.TempDir()
-	wrapperPath := filepath.Join(dir, "docker-wrapper.sh")
-	// Any Docker CLI invocation is a regression: deployments must use the API.
-	wrapper := `#!/bin/sh
-echo "unexpected Docker CLI invocation: $*" >&2
-exit 97
-`
-	require.NoError(t, os.WriteFile(wrapperPath, []byte(wrapper), 0o700))
-
-	swarmService := swarm.NewSwarm(dockerClient, wrapperPath)
+	forbidDeploymentDockerCLI(t)
+	swarmService := swarm.NewSwarm(dockerClient)
 	stackDeployer := deployer.NewDeployer(100*time.Millisecond, 2*time.Minute, dockerClient, swarmService, nil, deployer.NewSecretResolver(fs.NewLocalFileSystem(), deployer.PlaintextDecoder{}))
 	composePath := filepath.Join(dir, "compose.yaml")
 	t.Cleanup(func() {
@@ -105,6 +98,24 @@ exit 97
 	assert.NotEqual(t, secretID1, secretID2, "rotated secret must be a different Docker object")
 	assert.NotEqual(t, configID1, configID2, "rotated config must be a different Docker object")
 	waitForRealSwarmTask(t, ctx, dockerPath, stack+"_check", "mounted-v2")
+}
+
+// forbidDeploymentDockerCLI guards PATH-based execution while test administration
+// continues to use the absolute Docker binary resolved before this call.
+func forbidDeploymentDockerCLI(t *testing.T) {
+	t.Helper()
+	dir := t.TempDir()
+	logPath := filepath.Join(dir, "invocations")
+	wrapper := `#!/bin/sh
+echo "unexpected Docker CLI invocation: $*" >> "$SWARM_DEPLOY_TEST_DOCKER_CLI_LOG"
+exit 97
+`
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "docker"), []byte(wrapper), 0o700))
+	t.Setenv("SWARM_DEPLOY_TEST_DOCKER_CLI_LOG", logPath)
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Cleanup(func() {
+		assert.NoFileExists(t, logPath, "deployment must not invoke Docker CLI, even if its error is ignored")
+	})
 }
 
 func realSwarmTaskIDs(t *testing.T, ctx context.Context, service *swarm.Swarm, serviceID string) ([]string, []string) {

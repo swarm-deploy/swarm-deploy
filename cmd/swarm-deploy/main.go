@@ -177,7 +177,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	cnt.Swarm = swarm.NewSwarm(dockerClient, cfg.Spec.Swarm.Command)
+	cnt.Swarm = swarm.NewSwarm(dockerClient)
 	cnt.DockerClient = dockerClient
 	cnt.TaskLogs = logparser.NewService(cnt.Swarm.Services)
 

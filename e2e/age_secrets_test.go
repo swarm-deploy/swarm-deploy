@@ -96,13 +96,8 @@ secretRotation:
 			require.NoError(t, err)
 			t.Cleanup(func() { assert.NoError(t, db.Close()) })
 
-			// Any Docker CLI invocation is a regression: deployments must use the API.
-			wrapperPath := filepath.Join(dir, "docker-wrapper.sh")
-			require.NoError(t, os.WriteFile(wrapperPath, []byte(`#!/bin/sh
-echo "unexpected Docker CLI invocation: $*" >&2
-exit 97
-`), 0o700))
-			swarmService := swarm.NewSwarm(dockerClient, wrapperPath)
+			forbidDeploymentDockerCLI(t)
+			swarmService := swarm.NewSwarm(dockerClient)
 			fileSystem := sharedfs.NewLocalFileSystem()
 			stackDeployer := deployer.NewDeployer(100*time.Millisecond, time.Minute, dockerClient, swarmService, &metrics.NopDeploys{},
 				deployer.NewSecretResolver(fileSystem, deployer.NewAgeDecoder(cfg.Spec.SecretRotation.Age.IdentityFile.Content), deployer.PlaintextDecoder{}))

@@ -1,64 +1,11 @@
+// Package stack projects Compose definitions for single-service remediation.
 package stack
 
 import (
 	"fmt"
-	"os"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
-	"go.yaml.in/yaml/v3"
 )
-
-// PreparedService owns the temporary Compose file for one selected service.
-type PreparedService struct {
-	Desired compose.Compose
-	Path    string
-}
-
-// PrepareService selects one service and writes its deploy Compose to a temporary file.
-func PrepareService(desired, deploy compose.Compose, serviceName string) (*PreparedService, error) {
-	serviceDesired, err := SingleServiceCompose(desired, serviceName)
-	if err != nil {
-		return nil, err
-	}
-	serviceDeploy, err := SingleServiceCompose(deploy, serviceName)
-	if err != nil {
-		return nil, err
-	}
-
-	payload, err := yaml.Marshal(serviceDeploy)
-	if err != nil {
-		return nil, fmt.Errorf("marshal single service compose: %w", err)
-	}
-
-	file, err := os.CreateTemp("", "swarm-deploy-single-service-*.yaml")
-	if err != nil {
-		return nil, fmt.Errorf("create temporary compose file: %w", err)
-	}
-	path := file.Name()
-	if _, err = file.Write(payload); err != nil {
-		_ = file.Close()
-		removeTemporaryCompose(path)
-		return nil, fmt.Errorf("write temporary compose file: %w", err)
-	}
-	if err = file.Close(); err != nil {
-		removeTemporaryCompose(path)
-		return nil, fmt.Errorf("close temporary compose file: %w", err)
-	}
-
-	return &PreparedService{Desired: serviceDesired, Path: path}, nil
-}
-
-// Cleanup removes the temporary Compose file.
-func (p *PreparedService) Cleanup() {
-	if p != nil && p.Path != "" {
-		removeTemporaryCompose(p.Path)
-	}
-}
-
-func removeTemporaryCompose(path string) {
-	// #nosec G703 -- path is returned by os.CreateTemp and retained without user modification.
-	_ = os.Remove(path)
-}
 
 // SingleServiceCompose selects a service and only its referenced top-level objects.
 func SingleServiceCompose(desired compose.Compose, serviceName string) (compose.Compose, error) {

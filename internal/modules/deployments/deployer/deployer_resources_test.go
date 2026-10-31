@@ -37,7 +37,7 @@ func TestDeployStackReconcilesResourcesWithAndWithoutInitJobs(t *testing.T) {
 				configs := swarm.NewMockConfigManager(ctrl)
 				secrets := swarm.NewMockSecretManager(ctrl)
 				jobs := NewMockInitJobExecutor(ctrl)
-				runner := NewMockRunner(ctrl)
+
 				dir := t.TempDir()
 				config := &compose.Config{Alias: "app", Name: tt.configName, External: tt.external}
 				secret := &compose.Secret{Alias: "password", Name: tt.secretName, External: tt.external}
@@ -110,7 +110,7 @@ func TestDeployStackReconcilesResourcesWithAndWithoutInitJobs(t *testing.T) {
 				}
 
 				deployer := &Deployer{secretResolver: newTestSecretResolver(),
-					stackDeployArgs: []string{"stack", "deploy"}, runner: runner, initJobRunner: jobs,
+					initJobRunner: jobs,
 					resources:     &resourceReconciler{configs: configs, secrets: secrets},
 					serviceWaiter: newSuccessfulServiceWaiter(t),
 				}
@@ -147,7 +147,7 @@ func TestDeployStackResourceFailuresStopDeployment(t *testing.T) {
 				configs := swarm.NewMockConfigManager(ctrl)
 				secrets := swarm.NewMockSecretManager(ctrl)
 				jobs := NewMockInitJobExecutor(ctrl)
-				runner := NewMockRunner(ctrl)
+
 				dir := t.TempDir()
 				desired := compose.Compose{Services: []compose.Service{{Name: "api", Image: "alpine:3"}}}
 				if withInitJobs {
@@ -183,7 +183,7 @@ func TestDeployStackResourceFailuresStopDeployment(t *testing.T) {
 					}
 				}
 				deployer := &Deployer{secretResolver: newTestSecretResolver(),
-					stackDeployArgs: []string{"stack", "deploy"}, runner: runner, initJobRunner: jobs,
+					initJobRunner: jobs,
 					resources:     &resourceReconciler{configs: configs, secrets: secrets},
 					serviceWaiter: newSuccessfulServiceWaiter(t),
 				}
@@ -207,7 +207,7 @@ func TestDeployStackDeployFailureKeepsReconciledResources(t *testing.T) {
 			configs := swarm.NewMockConfigManager(ctrl)
 			secrets := swarm.NewMockSecretManager(ctrl)
 			jobs := NewMockInitJobExecutor(ctrl)
-			runner := NewMockRunner(ctrl)
+
 			deployErr := errors.New("deploy failed")
 			desired := compose.Compose{
 				Configs:  compose.Configs{"app": {Data: []byte("data")}},
@@ -224,7 +224,7 @@ func TestDeployStackDeployFailureKeepsReconciledResources(t *testing.T) {
 				}, nil)
 			}
 			deployer := &Deployer{secretResolver: newTestSecretResolver(),
-				stackDeployArgs: []string{"stack", "deploy"}, runner: runner, initJobRunner: jobs,
+				initJobRunner: jobs,
 				resources:     &resourceReconciler{configs: configs, secrets: secrets},
 				serviceWaiter: newSuccessfulServiceWaiter(t),
 			}

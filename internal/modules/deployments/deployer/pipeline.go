@@ -227,7 +227,7 @@ func safePipelineError(err error) error {
 }
 
 func (d *Deployer) captureBaseline(ctx context.Context, stackName string, payload *applyPayload) error {
-	payload.deadline = time.Now().Add(binaryTimeout)
+	payload.deadline = time.Now().Add(serviceApplyTimeout)
 	if parentDeadline, ok := ctx.Deadline(); ok && parentDeadline.Before(payload.deadline) {
 		payload.deadline = parentDeadline
 	}
