@@ -12,14 +12,14 @@ import (
 
 	pipe "github.com/artarts36/gopipe"
 	"github.com/distribution/reference"
-	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
-	"go.opentelemetry.io/otel/trace"
 	downward "github.com/swarm-deploy/downward/go"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/labelsdict"
+	"go.opentelemetry.io/otel/trace"
 )
 
 const (
