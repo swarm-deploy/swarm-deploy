@@ -1,6 +1,7 @@
 package compose
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
@@ -10,6 +11,15 @@ import (
 	"github.com/docker/cli/cli/compose/template"
 	"go.yaml.in/yaml/v3"
 )
+
+// Referenced-file errors may contain an interpolated path or parser input.
+// Do not retain those errors as wrapped causes when process values were used.
+func interpolationSafeError(err error, interpolated bool, message string) error {
+	if interpolated {
+		return errors.New(message)
+	}
+	return err
+}
 
 // interpolateSyntax processes source YAML values exactly once, before decoding
 // models or reading env/config/secret payloads. Keys are never interpolated.

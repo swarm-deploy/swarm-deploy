@@ -105,7 +105,7 @@ func TestCheckImagePolicyValidatesInitJobs(t *testing.T) {
 			assert.Equal(t, `x-init-deploy-jobs["migrate"].image`, validationErr.Issues[0].Field)
 			assert.Equal(t, testCase.code, validationErr.Issues[0].Code)
 			assert.Contains(t, validationErr.Issues[0].Message, `init job "migrate"`)
-			assert.Contains(t, validationErr.Issues[0].Message, testCase.image)
+			assert.NotContains(t, validationErr.Issues[0].Message, testCase.image)
 		})
 	}
 }
