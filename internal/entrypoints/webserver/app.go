@@ -192,6 +192,7 @@ func NewApplication(
 		assistantService,
 		gitopsModule.Deployments,
 		taskLogs,
+		eventModule.Dispatcher,
 	)
 
 	apiHandler, err := generated.NewServer(h, h, generated.WithErrorHandler(handlers.HandleHTTPError))

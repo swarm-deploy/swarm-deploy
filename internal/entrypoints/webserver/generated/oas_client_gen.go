@@ -177,6 +177,14 @@ type Invoker interface {
 	//
 	// GET /api/v1/swarm/services
 	ListSwarmServices(ctx context.Context) (*SwarmServicesResponse, error)
+	// ScaleSwarmService invokes scaleSwarmService operation.
+	//
+	// Updates live replicated services, including standalone services, without waiting for tasks. GitOps
+	// synchronization may overwrite this change. Invalid input or unsupported modes return 400, missing
+	// services return 404, concurrent updates return 409, and Docker errors return 500.
+	//
+	// PUT /api/v1/swarm/services/{serviceID}/replicas
+	ScaleSwarmService(ctx context.Context, request *ScaleSwarmServiceRequest, params ScaleSwarmServiceParams) error
 	// Search invokes search operation.
 	//
 	// GET /api/v1/search
@@ -3851,6 +3859,104 @@ func (c *Client) sendListSwarmServices(ctx context.Context) (res *SwarmServicesR
 
 	stage = "DecodeResponse"
 	result, err := decodeListSwarmServicesResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// ScaleSwarmService invokes scaleSwarmService operation.
+//
+// Updates live replicated services, including standalone services, without waiting for tasks. GitOps
+// synchronization may overwrite this change. Invalid input or unsupported modes return 400, missing
+// services return 404, concurrent updates return 409, and Docker errors return 500.
+//
+// PUT /api/v1/swarm/services/{serviceID}/replicas
+func (c *Client) ScaleSwarmService(ctx context.Context, request *ScaleSwarmServiceRequest, params ScaleSwarmServiceParams) error {
+	_, err := c.sendScaleSwarmService(ctx, request, params)
+	return err
+}
+
+func (c *Client) sendScaleSwarmService(ctx context.Context, request *ScaleSwarmServiceRequest, params ScaleSwarmServiceParams) (res *ScaleSwarmServiceNoContent, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("scaleSwarmService"),
+		semconv.HTTPRequestMethodKey.String("PUT"),
+		semconv.URLTemplateKey.String("/api/v1/swarm/services/{serviceID}/replicas"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ScaleSwarmServiceOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/api/v1/swarm/services/"
+	{
+		// Encode "serviceID" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "serviceID",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.StringToString(params.ServiceID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = "/replicas"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "PUT", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeScaleSwarmServiceRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer body.Close()
+
+	stage = "DecodeResponse"
+	result, err := decodeScaleSwarmServiceResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}

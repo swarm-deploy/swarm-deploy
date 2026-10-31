@@ -29,5 +29,6 @@ To run only the mock API:
 npm run mock:api
 ```
 
-The generated mock is stateless. Mutation endpoints return the response declared by OpenAPI, but
-they do not change data returned by later requests.
+Generated mock endpoints are stateless unless overridden in `scripts/mock-api.mjs`.
+Realtime service scaling updates the in-memory configured and desired replica counts for visual
+verification; running task counts remain unchanged to represent asynchronous Swarm convergence.

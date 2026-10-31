@@ -72,6 +72,8 @@ paths:
     $ref: './resources/services.yaml#/paths/~1api~1v1~1stacks~1{stack}~1services~1{service}'
   /api/v1/swarm/services:
     $ref: './resources/services.yaml#/paths/~1api~1v1~1swarm~1services'
+  /api/v1/swarm/services/{serviceID}/replicas:
+    $ref: './resources/services.yaml#/paths/~1api~1v1~1swarm~1services~1{serviceID}~1replicas'
   /api/v1/swarm/services/{serviceIDOrName}/tasks:
     $ref: './resources/services.yaml#/paths/~1api~1v1~1swarm~1services~1{serviceIDOrName}~1tasks'
   /api/v1/swarm/tasks/{taskID}:

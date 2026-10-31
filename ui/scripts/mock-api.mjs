@@ -172,6 +172,7 @@ const tasksByService = {
 };
 
 for (const service of swarmServices) {
+  if (service.mode === "replicated") service.configured_replicas = service.replicas.desired;
   tasksByService[service.full_name] = tasksByService[service.id] || [];
 }
 
@@ -285,6 +286,18 @@ const mockSecretManagers = [
 ];
 
 const failNextSecretManagerSync = new Set();
+
+app.put("/api/v1/swarm/services/:serviceID/replicas", async (context) => {
+  const service = swarmServices.find((item) => item.id === context.req.param("serviceID"));
+  if (!service) return context.json({ error_message: "service not found" }, 404);
+  if (service.mode !== "replicated") return context.json({ error_message: "only replicated services can be scaled" }, 400);
+  const { replicas } = await context.req.json();
+  if (!Number.isSafeInteger(replicas) || replicas < 0) return context.json({ error_message: "invalid replicas" }, 400);
+  service.configured_replicas = replicas;
+  service.replicas.desired = replicas;
+  service.updated_at = new Date().toISOString();
+  return context.body(null, 204);
+});
 
 app.get("/api/v1/swarm/services", (context) => context.json({ services: swarmServices }));
 

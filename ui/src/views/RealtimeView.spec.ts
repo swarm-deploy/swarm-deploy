@@ -7,16 +7,17 @@ const apiMocks = vi.hoisted(() => ({
   fetchSwarmServices: vi.fn(),
   fetchSwarmServiceTasks: vi.fn(),
   fetchSwarmTask: vi.fn(),
+  scaleSwarmService: vi.fn(),
 }));
 
 vi.mock("../api/services", () => apiMocks);
 vi.mock("../components/services/TaskLogsModal.vue", () => ({ default: { template: "<div />" } }));
 
 const services = [
-  { id: "one", name: "api", full_name: "infra_api", stack: "infra", image: "example/api:v1", mode: "replicated", replicas: { running: 2, desired: 2 }, updated_at: "2026-10-28T20:00:00Z" },
-  { id: "two", name: "worker", full_name: "infra_worker", stack: "infra", image: "example/worker:v1", mode: "replicated", replicas: { running: 1, desired: 2 }, updated_at: "2026-10-28T20:00:00Z" },
-  { id: "three", name: "reports", full_name: "ops_reports", stack: "ops", image: "example/reports:v1", mode: "replicated", replicas: { running: 0, desired: 0 }, updated_at: "2026-10-28T20:00:00Z" },
-  { id: "four", name: "proxy", full_name: "proxy", stack: "", image: "example/proxy:v1", mode: "replicated", replicas: { running: 3, desired: 2 }, updated_at: "2026-10-28T20:00:00Z" },
+  { id: "one", name: "api", full_name: "infra_api", stack: "infra", image: "example/api:v1", mode: "replicated", configured_replicas: 4, replicas: { running: 2, desired: 2 }, updated_at: "2026-10-28T20:00:00Z" },
+  { id: "two", name: "worker", full_name: "infra_worker", stack: "infra", image: "example/worker:v1", mode: "replicated", configured_replicas: 2, replicas: { running: 1, desired: 2 }, updated_at: "2026-10-28T20:00:00Z" },
+  { id: "three", name: "reports", full_name: "ops_reports", stack: "ops", image: "example/reports:v1", mode: "replicated", configured_replicas: 2, replicas: { running: 0, desired: 0 }, updated_at: "2026-10-28T20:00:00Z" },
+  { id: "four", name: "proxy", full_name: "proxy", stack: "", image: "example/proxy:v1", mode: "replicated", configured_replicas: 2, replicas: { running: 3, desired: 2 }, updated_at: "2026-10-28T20:00:00Z" },
 ];
 
 const taskError = "connection refused while opening docker socket on worker-1";
@@ -52,6 +53,7 @@ describe("RealtimeView", () => {
     window.localStorage.clear();
     apiMocks.fetchSwarmServices.mockResolvedValue({ services });
     apiMocks.fetchSwarmServiceTasks.mockResolvedValue({ tasks });
+    apiMocks.scaleSwarmService.mockResolvedValue(undefined);
     apiMocks.fetchSwarmTask.mockImplementation(async (id: string) => taskDetails(id));
   });
 
@@ -332,6 +334,162 @@ describe("RealtimeView", () => {
     document.dispatchEvent(new Event("visibilitychange"));
     await flushPromises();
     expect(apiMocks.fetchSwarmServices.mock.calls.length).toBeGreaterThan(1);
+    wrapper.unmount();
+  });
+});
+
+
+describe("Realtime service scaling", () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+    apiMocks.fetchSwarmServices.mockResolvedValue({ services });
+    apiMocks.fetchSwarmServiceTasks.mockResolvedValue({ tasks });
+    apiMocks.fetchSwarmTask.mockImplementation(async (id: string) => taskDetails(id));
+    apiMocks.scaleSwarmService.mockResolvedValue(undefined);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.clearAllMocks();
+  });
+
+  it("shows Scale only for replicated services, including standalone services", async () => {
+    apiMocks.fetchSwarmServices.mockResolvedValueOnce({ services: [
+      ...services,
+      ...["global", "replicated-job", "global-job"].map((mode) => ({ ...services[0], id: mode, full_name: mode, mode })),
+    ] });
+    const wrapper = await mountView();
+    expect(wrapper.findAll(".realtime-scale-button")).toHaveLength(4);
+    expect(wrapper.find('[aria-label="Scale proxy"]').exists()).toBe(true);
+    for (const row of wrapper.findAll(".realtime-service-row")) {
+      if (["global", "replicated-job", "global-job"].some((mode) => row.text().includes(mode))) {
+        expect(row.find(".realtime-scale-button").exists()).toBe(false);
+      }
+    }
+    wrapper.unmount();
+  });
+
+  it("opens with the configured count instead of task counts without expanding the row", async () => {
+    const wrapper = await mountView();
+    await wrapper.get('[aria-label="Scale api"]').trigger("click");
+    expect(apiMocks.fetchSwarmServiceTasks).not.toHaveBeenCalled();
+    expect(wrapper.find(".realtime-task-row").exists()).toBe(false);
+    const modal = wrapper.get('[role="dialog"]');
+    expect(modal.text()).toContain("api");
+    expect(modal.text()).toContain("infra");
+    expect(modal.text()).toContain("Manual scaling may be overwritten by the next GitOps synchronization.");
+    expect(wrapper.get<HTMLInputElement>("#realtime-scale-replicas").element.value).toBe("4");
+    expect(modal.get('button[type="submit"]').attributes("disabled")).toBeDefined();
+    await modal.get('[aria-label="Close scaling modal"]').trigger("click");
+    expect(wrapper.find('[role="dialog"]').exists()).toBe(false);
+    wrapper.unmount();
+  });
+
+  it("displays Standalone for services outside stacks", async () => {
+    const wrapper = await mountView();
+    await wrapper.get('[aria-label="Scale proxy"]').trigger("click");
+    expect(wrapper.get('[role="dialog"]').text()).toContain("Standalone");
+    wrapper.unmount();
+  });
+
+  it.each(["", "-1", "1.5", "invalid", "9007199254740992"])("rejects invalid replicas: %s", async (value) => {
+    const wrapper = await mountView();
+    await wrapper.get('[aria-label="Scale api"]').trigger("click");
+    await wrapper.get("#realtime-scale-replicas").setValue(value);
+    expect(wrapper.get('button[type="submit"]').attributes("disabled")).toBeDefined();
+    await wrapper.get("form").trigger("submit");
+    expect(apiMocks.scaleSwarmService).not.toHaveBeenCalled();
+    wrapper.unmount();
+  });
+
+  it("supports increment/decrement and scales to zero while preserving filters, tasks and details", async () => {
+    const wrapper = await mountView();
+    await wrapper.get('input[type="search"]').setValue("infra_api");
+    await wrapper.get(".realtime-service-row").trigger("click");
+    await flushPromises();
+    await wrapper.findAll(".realtime-task-select")[0].trigger("click");
+    await flushPromises();
+    await wrapper.get('[aria-label="Scale api"]').trigger("click");
+    await wrapper.get('[aria-label="Increase replicas"]').trigger("click");
+    expect(wrapper.get<HTMLInputElement>("#realtime-scale-replicas").element.value).toBe("5");
+    await wrapper.get('[aria-label="Decrease replicas"]').trigger("click");
+    expect(wrapper.get('button[type="submit"]').attributes("disabled")).toBeDefined();
+    await wrapper.get("#realtime-scale-replicas").setValue("0");
+    expect(wrapper.get('[aria-label="Decrease replicas"]').attributes("disabled")).toBeDefined();
+    apiMocks.fetchSwarmServices.mockResolvedValueOnce({ services: services.map((service) => (
+      service.id === "one" ? { ...service, configured_replicas: 0, replicas: { running: 2, desired: 0 } } : service
+    )) });
+    await wrapper.get("form").trigger("submit");
+    await flushPromises();
+    expect(apiMocks.scaleSwarmService).toHaveBeenCalledExactlyOnceWith("one", 0);
+    expect(wrapper.find('[role="dialog"]').exists()).toBe(false);
+    expect(apiMocks.fetchSwarmServices).toHaveBeenCalledTimes(2);
+    expect(apiMocks.fetchSwarmServiceTasks).toHaveBeenCalledTimes(2);
+    expect(wrapper.get<HTMLInputElement>('input[type="search"]').element.value).toBe("infra_api");
+    expect(wrapper.findAll(".realtime-service-row")).toHaveLength(1);
+    expect(wrapper.findAll(".realtime-task-row")).toHaveLength(2);
+    expect(wrapper.get(".realtime-replicas").text()).toBe("2/0");
+    expect(wrapper.get(".realtime-task-panel").text()).toContain("task-current");
+    wrapper.unmount();
+  });
+
+  it("keeps errors in the modal and prevents repeated submissions while loading", async () => {
+    let reject!: (reason: Error) => void;
+    apiMocks.scaleSwarmService.mockImplementationOnce(() => new Promise((_resolve, fail) => { reject = fail; }));
+    const wrapper = await mountView();
+    await wrapper.get('[aria-label="Scale api"]').trigger("click");
+    await wrapper.get("#realtime-scale-replicas").setValue("5");
+    await wrapper.get("form").trigger("submit");
+    expect(wrapper.get('button[type="submit"]').text()).toBe("Scaling...");
+    expect(wrapper.get('button[type="submit"]').attributes("disabled")).toBeDefined();
+    expect(wrapper.get("#realtime-scale-replicas").attributes("disabled")).toBeDefined();
+    await wrapper.get("form").trigger("submit");
+    expect(apiMocks.scaleSwarmService).toHaveBeenCalledTimes(1);
+    reject(new Error("service changed; refresh and retry"));
+    await flushPromises();
+    expect(wrapper.get('[role="dialog"] [role="alert"]').text()).toContain("service changed");
+    expect(wrapper.get('button[type="submit"]').attributes("disabled")).toBeUndefined();
+    expect(apiMocks.fetchSwarmServices).toHaveBeenCalledTimes(1);
+    wrapper.unmount();
+  });
+
+  it("ignores old service and task polls after a successful mutation and continues polling", async () => {
+    vi.useFakeTimers();
+    const wrapper = await mountView();
+    await wrapper.findAll(".realtime-service-row")[0].trigger("click");
+    await flushPromises();
+    let resolveOldServices!: (value: { services: typeof services }) => void;
+    let resolveOldTasks!: (value: { tasks: typeof tasks }) => void;
+    apiMocks.fetchSwarmServiceTasks.mockImplementationOnce(() => new Promise((resolve) => { resolveOldTasks = resolve; }));
+    await vi.advanceTimersByTimeAsync(5_000);
+    await flushPromises();
+    // An old task poll remains in flight when scaling succeeds.
+    await wrapper.get('[aria-label="Scale api"]').trigger("click");
+    await wrapper.get("#realtime-scale-replicas").setValue("5");
+    apiMocks.fetchSwarmServices.mockResolvedValueOnce({ services: services.map((service) => ({ ...service, configured_replicas: 5 })) });
+    await wrapper.get("form").trigger("submit");
+    await flushPromises();
+    resolveOldTasks({ tasks: [] });
+    await flushPromises();
+    expect(wrapper.findAll(".realtime-task-row")).toHaveLength(2);
+
+    apiMocks.fetchSwarmServices.mockImplementationOnce(() => new Promise((resolve) => { resolveOldServices = resolve; }));
+    await vi.advanceTimersByTimeAsync(5_000);
+    await wrapper.get('[aria-label="Scale api"]').trigger("click");
+    await wrapper.get("#realtime-scale-replicas").setValue("6");
+    const latest = services.map((service) => ({ ...service, configured_replicas: 6, replicas: { running: 2, desired: 6 } }));
+    apiMocks.fetchSwarmServices.mockResolvedValueOnce({ services: latest });
+    await wrapper.get("form").trigger("submit");
+    await flushPromises();
+    resolveOldServices({ services });
+    await flushPromises();
+    expect(wrapper.findAll(".realtime-replicas")[0].text()).toBe("2/6");
+    await wrapper.get('[aria-label="Scale api"]').trigger("click");
+    expect(wrapper.get<HTMLInputElement>("#realtime-scale-replicas").element.value).toBe("6");
+    const calls = apiMocks.fetchSwarmServices.mock.calls.length;
+    await vi.advanceTimersByTimeAsync(5_000);
+    await flushPromises();
+    expect(apiMocks.fetchSwarmServices).toHaveBeenCalledTimes(calls + 1);
     wrapper.unmount();
   });
 });

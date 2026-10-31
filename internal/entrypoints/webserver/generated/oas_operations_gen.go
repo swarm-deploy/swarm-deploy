@@ -42,6 +42,7 @@ const (
 	ListStacksOperation                 OperationName = "ListStacks"
 	ListSwarmServiceTasksOperation      OperationName = "ListSwarmServiceTasks"
 	ListSwarmServicesOperation          OperationName = "ListSwarmServices"
+	ScaleSwarmServiceOperation          OperationName = "ScaleSwarmService"
 	SearchOperation                     OperationName = "Search"
 	SyncSecretManagerOperation          OperationName = "SyncSecretManager"
 	TriggerSyncOperation                OperationName = "TriggerSync"

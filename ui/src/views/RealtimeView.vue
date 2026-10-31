@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 
-import { fetchSwarmServices, fetchSwarmServiceTasks, fetchSwarmTask } from "../api/services";
+import { fetchSwarmServices, fetchSwarmServiceTasks, fetchSwarmTask, scaleSwarmService } from "../api/services";
 import type { ServiceRealtimeTask, SwarmService, SwarmTaskDetails } from "../api/types";
 import AppMultiSelect from "../components/common/AppMultiSelect.vue";
 import AppStatusBadge from "../components/common/AppStatusBadge.vue";
@@ -64,6 +64,85 @@ const taskDetailsError = ref("");
 const logsTaskID = ref("");
 const logsOpen = ref(false);
 const copiedErrorTaskID = ref("");
+const scalingService = ref<SwarmService | null>(null);
+const scaleInput = ref<number | string>("");
+const scalePending = ref(false);
+const scaleError = ref("");
+const scaleInputElement = ref<HTMLInputElement | null>(null);
+let scaleTrigger: HTMLElement | null = null;
+
+const validScaleInput = computed(() => (
+  typeof scaleInput.value === "number" && Number.isSafeInteger(scaleInput.value) && scaleInput.value >= 0
+));
+const canScale = computed(() => (
+  validScaleInput.value && scaleInput.value !== scalingService.value?.configured_replicas && !scalePending.value
+));
+
+async function openScale(service: SwarmService, event: MouseEvent): Promise<void> {
+  scalingService.value = service;
+  scaleInput.value = service.configured_replicas ?? "";
+  scaleError.value = "";
+  scaleTrigger = event.currentTarget instanceof HTMLElement ? event.currentTarget : null;
+  await nextTick();
+  scaleInputElement.value?.focus();
+  scaleInputElement.value?.select();
+}
+
+function closeScale(): void {
+  if (scalePending.value) return;
+  scalingService.value = null;
+  scaleTrigger?.focus();
+}
+
+function stepScale(delta: number): void {
+  const current = validScaleInput.value ? Number(scaleInput.value) : 0;
+  scaleInput.value = Math.min(Number.MAX_SAFE_INTEGER, Math.max(0, current + delta));
+}
+
+function handleScaleKeydown(event: KeyboardEvent): void {
+  if (event.key === "Escape") {
+    event.preventDefault();
+    closeScale();
+  }
+  if (event.key !== "Tab" || !(event.currentTarget instanceof HTMLElement)) return;
+  const controls = [...event.currentTarget.querySelectorAll<HTMLElement>("button:not(:disabled), input:not(:disabled)")];
+  if (controls.length === 0) {
+    event.preventDefault();
+    return;
+  }
+  const first = controls[0];
+  const last = controls[controls.length - 1];
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault();
+    last?.focus();
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault();
+    first?.focus();
+  }
+}
+
+async function submitScale(): Promise<void> {
+  if (!scalingService.value || !canScale.value) return;
+  const serviceID = scalingService.value.id;
+  scalePending.value = true;
+  scaleError.value = "";
+  try {
+    await scaleSwarmService(serviceID, Number(scaleInput.value));
+    if (disposed) return;
+    scalePending.value = false;
+    closeScale();
+    // Supersede pre-mutation polls, including task requests for expanded rows.
+    for (const [id, state] of Object.entries(tasksByService.value)) {
+      taskRequests.set(id, (taskRequests.get(id) ?? 0) + 1);
+      state.loading = false;
+    }
+    await loadServices(true);
+  } catch (reason) {
+    if (!disposed) scaleError.value = errorMessage(reason);
+  } finally {
+    if (!disposed) scalePending.value = false;
+  }
+}
 
 let pollingTimer: number | undefined;
 let copiedErrorResetTimer: number | undefined;
@@ -207,8 +286,8 @@ async function refreshExpandedTasks(): Promise<void> {
   await Promise.all(expanded.map((service) => loadTasks(service)));
 }
 
-async function loadServices(): Promise<void> {
-  if (refreshing.value || disposed) return;
+async function loadServices(force = false): Promise<void> {
+  if ((refreshing.value && !force) || disposed) return;
   const current = ++serviceRequest;
   refreshing.value = true;
   refreshError.value = "";
@@ -356,7 +435,7 @@ onUnmounted(() => {
           class="button-ghost realtime-refresh-button"
           :disabled="refreshing"
           :aria-busy="refreshing"
-          @click="loadServices"
+          @click="loadServices()"
         >
           <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M16.5 6.5V2.8m0 0h-3.7m3.7 0-2.2 2.1a6.5 6.5 0 1 0 1.4 6.9" /></svg>
           Refresh
@@ -428,7 +507,7 @@ onUnmounted(() => {
         <AppTableEmpty v-if="initialLoading && services.length === 0" message="Loading Swarm services..." />
         <AppTableEmpty v-else-if="refreshError && services.length === 0" role="alert">
           Failed to load Swarm services: {{ refreshError }}
-          <button type="button" class="button-ghost" @click="loadServices">Retry</button>
+          <button type="button" class="button-ghost" @click="loadServices()">Retry</button>
         </AppTableEmpty>
         <AppTableEmpty v-else-if="services.length === 0" message="No Swarm services found." />
         <AppTableEmpty v-else-if="filteredServices.length === 0" message="No services match the current filters." />
@@ -453,6 +532,7 @@ onUnmounted(() => {
                       <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m6 3 5 5-5 5" /></svg>
                     </button>
                     <strong>{{ service.name || service.full_name }}</strong>
+                    <button v-if="service.mode === 'replicated'" type="button" class="button-ghost realtime-scale-button" :aria-label="`Scale ${service.name || service.full_name}`" @click.stop="openScale(service, $event)">Scale</button>
                   </span>
                   <small v-if="service.full_name !== service.name">{{ service.full_name }}</small>
                 </div>
@@ -529,11 +609,53 @@ onUnmounted(() => {
       />
     </div>
 
+    <div v-if="scalingService" class="modal realtime-scale-modal" @keydown="handleScaleKeydown">
+      <div class="modal-overlay" @click="closeScale" />
+      <form class="modal-card realtime-scale-card" role="dialog" aria-modal="true" aria-labelledby="realtime-scale-title" :aria-busy="scalePending" @submit.prevent="submitScale">
+        <div class="modal-header">
+          <h2 id="realtime-scale-title">Scale service</h2>
+          <button type="button" class="modal-close" aria-label="Close scaling modal" :disabled="scalePending" @click="closeScale">×</button>
+        </div>
+        <div class="modal-body">
+          <dl class="realtime-scale-summary">
+            <dt>Service</dt><dd>{{ scalingService.name || scalingService.full_name }}</dd>
+            <dt>Stack</dt><dd>{{ stackLabel(scalingService.stack) }}</dd>
+            <dt>Configured replicas</dt><dd>{{ scalingService.configured_replicas ?? "Unavailable" }}</dd>
+          </dl>
+          <label for="realtime-scale-replicas">Desired replicas</label>
+          <div class="realtime-scale-input">
+            <button type="button" class="button-ghost" aria-label="Decrease replicas" :disabled="scalePending || scaleInput === 0" @click="stepScale(-1)">−</button>
+            <input id="realtime-scale-replicas" ref="scaleInputElement" v-model.number="scaleInput" type="number" min="0" step="1" :max="Number.MAX_SAFE_INTEGER" required :disabled="scalePending" :aria-invalid="!validScaleInput" aria-describedby="realtime-scale-hint" />
+            <button type="button" class="button-ghost" aria-label="Increase replicas" :disabled="scalePending || scaleInput === Number.MAX_SAFE_INTEGER" @click="stepScale(1)">+</button>
+          </div>
+          <p id="realtime-scale-hint" class="meta">Enter a non-negative whole number.</p>
+          <p class="realtime-scale-warning" role="note">Manual scaling may be overwritten by the next GitOps synchronization.</p>
+          <p v-if="scaleError" class="realtime-scale-error" role="alert">{{ scaleError }}</p>
+          <div class="realtime-scale-actions">
+            <button type="button" class="button-ghost" :disabled="scalePending" @click="closeScale">Cancel</button>
+            <button type="submit" :disabled="!canScale">{{ scalePending ? "Scaling..." : "Scale" }}</button>
+          </div>
+        </div>
+      </form>
+    </div>
+
     <TaskLogsModal :open="logsOpen" :task-id="logsTaskID" @close="logsOpen = false" />
   </section>
 </template>
 
 <style scoped>
+.realtime-scale-button { margin-left: auto; padding: 3px 8px; font-size: .75rem; flex-shrink: 0; }
+.realtime-scale-card { width: min(440px, 94vw); }
+.realtime-scale-summary { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px 16px; margin: 0 0 6px; font-size: .84rem; }
+.realtime-scale-summary dt { color: var(--muted); }
+.realtime-scale-summary dd { margin: 0; overflow-wrap: anywhere; }
+.realtime-scale-input { display: flex; gap: 8px; }
+.realtime-scale-input input { min-width: 0; width: 100%; }
+.realtime-scale-input button { min-width: 36px; }
+.realtime-scale-warning { margin: 0; padding: 10px; background: var(--surface-hover); border: 1px solid var(--line); border-radius: 6px; color: var(--muted); font-size: .82rem; }
+.realtime-scale-error { margin: 0; color: var(--error); overflow-wrap: anywhere; }
+.realtime-scale-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
+
 .realtime-page { display: grid; gap: 16px; min-width: 0; }
 .realtime-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; min-width: 0; }
 .realtime-heading { display: grid; gap: 4px; min-width: 0; }
