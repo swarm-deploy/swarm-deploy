@@ -126,6 +126,6 @@ func TestProjectionSuccessRestoresServicesAndSourceDigest(t *testing.T) {
 	stack := state.Stacks["app"]
 	assert.Equal(t, "source-compose-digest", stack.SourceDigest)
 	assert.Empty(t, stack.LastError)
-	assert.Equal(t, gitopsmodel.SyncStatusSynced, stack.Services["api"].SyncStatus)
+	assert.Equal(t, gitopsmodel.SyncStatus(gitopsmodel.SyncStatusSynced), stack.Services["api"].SyncStatus)
 	assert.Empty(t, stack.Services["api"].SyncError)
 }
