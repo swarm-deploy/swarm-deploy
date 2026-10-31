@@ -76,5 +76,7 @@ type ServiceDeployPlacement struct {
 }
 
 type ServiceDeployPlacementPreference struct {
-	Spread string `yaml:"spread,omitempty" json:"spread,omitempty"`
+	// Extra preserves unsupported placement preferences for validation.
+	Extra  map[string]interface{} `yaml:",inline" json:"Extra,omitempty"`
+	Spread string                 `yaml:"spread,omitempty" json:"spread,omitempty"`
 }

@@ -14,6 +14,10 @@ type Service struct {
 	Name    string  `yaml:"-" json:"name"`
 	Image   string  `yaml:"image" json:"image"`
 	Command Command `yaml:"command,omitempty" json:"command,omitempty"`
+	// Entrypoint overrides the image entrypoint.
+	Entrypoint Command `yaml:"entrypoint,omitempty" json:"entrypoint,omitempty"`
+	// StopGracePeriod is the time Docker gives a task to exit before forcefully stopping it.
+	StopGracePeriod string `yaml:"stop_grace_period,omitempty" json:"stop_grace_period,omitempty"`
 	// CapAdd lists Linux capabilities added to the service containers.
 	CapAdd []string `yaml:"cap_add,omitempty" json:"cap_add,omitempty"`
 	// CapDrop lists Linux capabilities removed from the service containers.
@@ -37,18 +41,22 @@ type Service struct {
 }
 
 type ServiceHealth struct {
-	Test          Command `yaml:"test,omitempty" json:"test,omitempty"`
-	Interval      string  `yaml:"interval,omitempty" json:"interval,omitempty"`
-	Timeout       string  `yaml:"timeout,omitempty" json:"timeout,omitempty"`
-	Retries       *uint64 `yaml:"retries,omitempty" json:"retries,omitempty"`
-	StartPeriod   string  `yaml:"start_period,omitempty" json:"start_period,omitempty"`
-	StartInterval string  `yaml:"start_interval,omitempty" json:"start_interval,omitempty"`
-	Disable       bool    `yaml:"disable,omitempty" json:"disable,omitempty"`
+	// Extra preserves unsupported healthcheck fields for validation.
+	Extra         map[string]interface{} `yaml:",inline" json:"Extra,omitempty"`
+	Test          Command                `yaml:"test,omitempty" json:"test,omitempty"`
+	Interval      string                 `yaml:"interval,omitempty" json:"interval,omitempty"`
+	Timeout       string                 `yaml:"timeout,omitempty" json:"timeout,omitempty"`
+	Retries       *uint64                `yaml:"retries,omitempty" json:"retries,omitempty"`
+	StartPeriod   string                 `yaml:"start_period,omitempty" json:"start_period,omitempty"`
+	StartInterval string                 `yaml:"start_interval,omitempty" json:"start_interval,omitempty"`
+	Disable       bool                   `yaml:"disable,omitempty" json:"disable,omitempty"`
 }
 
 type ServiceLogging struct {
-	Driver  string            `yaml:"driver,omitempty" json:"driver,omitempty"`
-	Options map[string]string `yaml:"options,omitempty" json:"options,omitempty"`
+	// Extra preserves unsupported logging fields for validation.
+	Extra   map[string]interface{} `yaml:",inline" json:"Extra,omitempty"`
+	Driver  string                 `yaml:"driver,omitempty" json:"driver,omitempty"`
+	Options map[string]string      `yaml:"options,omitempty" json:"options,omitempty"`
 }
 
 // SelfHealPolicy returns the service-level self-heal policy and whether it was specified.
