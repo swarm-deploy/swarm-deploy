@@ -2,6 +2,7 @@ package deployer
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"testing"
@@ -97,6 +98,50 @@ func TestPipelineErrorIsTraceSafeAndPreservesCause(t *testing.T) {
 	assert.ErrorIs(t, err, cause)
 	assert.NotContains(t, err.Error(), "private-value")
 	assert.Contains(t, err.Error(), "token=****")
+}
+
+func TestDeployPipelinesShareInterpolatedDesiredState(t *testing.T) {
+	t.Setenv("SD_TEST_TAG", "3")
+	t.Setenv("SD_TEST_TEXT", "$$HOME ${SD_TEST_TAG}")
+	loader := compose.NewFileLoaderWithReader(func(context.Context, string) ([]byte, error) {
+		return []byte(`services:
+  api:
+    image: 'alpine:${SD_TEST_TAG}'
+    command: ['sh', '-c', 'echo $$HOME $$(date) $$$$ ${SD_TEST_TEXT}']
+    entrypoint: ['/bin/${SD_TEST_SHELL:-sh}']
+    environment: {ESCAPED: '$$HOME', INSERTED: '${SD_TEST_TEXT}'}
+    healthcheck: {test: [CMD-SHELL, 'test -n "$$HOME"']}
+`), nil
+	})
+	file, err := loader.Load(t.Context(), "source.yaml")
+	require.NoError(t, err)
+	// Persisted snapshots contain effective values. Remediation must not expand
+	// them again, even if the process environment changed in the meantime.
+	payload, err := json.Marshal(file.Compose)
+	require.NoError(t, err)
+	var restored compose.Compose
+	require.NoError(t, json.Unmarshal(payload, &restored))
+	t.Setenv("SD_TEST_TAG", "changed")
+	manager := swarm.NewMockServiceManager(gomock.NewController(t))
+	manager.EXPECT().Inspect(gomock.Any(), "demo_api").Return(dockerswarm.Service{}, swarm.ErrServiceNotFound).Times(2)
+	var applied []dockerswarm.ServiceSpec
+	manager.EXPECT().Create(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, spec dockerswarm.ServiceSpec, _ dockerswarm.ServiceCreateOptions) (string, error) {
+			applied = append(applied, spec)
+			return "api-id", nil
+		}).Times(2)
+	deployer := &Deployer{secretResolver: newTestSecretResolver(), serviceWaiter: newSuccessfulServiceWaiter(t)}
+	wireNativeTestDeployerWithServiceManager(t, deployer, manager, false)
+	_, err = deployer.DeployStack(t.Context(), "demo", "source.yaml", "rendered.yaml", file.Compose)
+	require.NoError(t, err)
+	_, err = deployer.DeployService(t.Context(), "demo", "source.yaml", "api", restored, restored)
+	require.NoError(t, err)
+	require.Len(t, applied, 2)
+	assert.Equal(t, applied[0], applied[1])
+	container := applied[0].TaskTemplate.ContainerSpec
+	assert.Equal(t, "alpine:3", container.Image)
+	assert.Equal(t, []string{"sh", "-c", "echo $HOME $(date) $$ $$HOME ${SD_TEST_TAG}"}, container.Args)
+	assert.ElementsMatch(t, []string{"ESCAPED=$HOME", "INSERTED=$$HOME ${SD_TEST_TAG}"}, container.Env)
 }
 
 func runMinimalStack(t *testing.T, deployer *Deployer) error {

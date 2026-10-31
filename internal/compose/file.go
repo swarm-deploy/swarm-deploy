@@ -86,8 +86,15 @@ func (l *fileLoader) Load(ctx context.Context, path string) (*File, error) {
 		return nil, &ParseComposeError{FilePath: path, Err: err}
 	}
 
+	interpolated, err := interpolateSyntax(&syntax)
+	if err != nil {
+		return nil, &ValidateComposeError{FilePath: path, Issues: decodeIssues(err)}
+	}
 	schema := Compose{}
 	if err = syntax.Decode(&schema); err != nil {
+		if interpolated {
+			err = fmt.Errorf("invalid Compose value after interpolation")
+		}
 		return nil, &ValidateComposeError{FilePath: path, Issues: decodeIssues(err), Err: err}
 	}
 

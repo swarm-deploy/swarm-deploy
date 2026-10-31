@@ -126,7 +126,38 @@ Compatibility assertions use Docker CLI v28.3.3's
 [volume conversion](https://github.com/docker/cli/blob/v28.3.3/cli/compose/convert/volume.go)
 and [stack labels/network conversion](https://github.com/docker/cli/blob/v28.3.3/cli/compose/convert/compose.go)
 as references. Unit tests do not execute Docker CLI or require a cluster. No
-Docker CLI/Compose library is added to the runtime dependency graph.
+complete Docker CLI/Compose loader is added to the runtime dependency graph.
+
+## Source interpolation
+
+`internal/compose` interpolates source YAML values once, before model decoding,
+resource payload reads and GitOps image-policy checks. It uses Docker CLI
+v28.3.3's `cli/compose/template` and `cli/compose/interpolation` packages directly;
+the Converter receives effective values and never interpolates or unescapes them.
+Full-stack deployment and single-service remediation (including JSON snapshots)
+therefore use the same values, independently of subsequent process-environment changes.
+
+The supported stack-CLI expressions are `$VAR`, `${VAR}`, `${VAR:-default}`,
+`${VAR-default}`, `${VAR:?error}`, `${VAR?error}`, and `$$`. Unset simple variables
+become empty strings. Defaults distinguish unset from empty variables. Inserted
+values and defaults are not recursively expanded; nested expansions and newer
+Compose operators such as `${VAR:+value}` are not added. Mapping keys are literal.
+Scalar commands are interpolated before shell tokenization; list argument
+boundaries remain intact, including `$$(...)` shell commands.
+
+The interpolation environment is the controller process environment, as with the
+previous stack CLI. Service `environment` and `env_file` are not interpolation
+sources, and `.env` files are not loaded automatically. Env-file payloads remain
+literal, with later files taking precedence and explicit `environment` overriding
+them (including empty values). Config and secret payloads are never interpolated.
+The controller's `x-init-deploy-jobs` extension retains its existing literal
+command/environment semantics; those jobs have always executed directly rather
+than through the stack CLI, so their `$()` shell expressions remain untouched.
+
+Source digests still hash source YAML and referenced payloads, not process
+environment values. Changing only the controller environment is not itself a
+source-change trigger. Interpolation diagnostics omit input values and custom
+required-variable messages to keep them out of logs and traces.
 
 ## Native apply behavior and remaining cleanup
 

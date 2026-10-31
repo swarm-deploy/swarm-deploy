@@ -88,9 +88,6 @@ func commandWords(command compose.Command) ([]string, error) {
 			return nil, err
 		}
 	}
-	for index := range words {
-		words[index] = strings.ReplaceAll(words[index], "$$", "$")
-	}
 	return words, nil
 }
 

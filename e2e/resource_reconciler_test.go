@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -63,12 +64,36 @@ exit 97
 	deployFixture(t, ctx, stackDeployer, stack, composePath)
 	secretID1, configID1 := inspectRealSwarmResources(t, ctx, dockerClient, dockerPath, stack, stack+"_password", stack+"_settings")
 	waitForRealSwarmTask(t, ctx, dockerPath, stack+"_check", "mounted-v1")
+	serviceBefore, err := swarmService.Services.Inspect(ctx, stack+"_check")
+	require.NoError(t, err)
+	runningBefore, tasksBefore := realSwarmTaskIDs(t, ctx, swarmService, serviceBefore.ID)
 
 	// Deploying the same stack again must reuse IDs and keep the task healthy.
 	deployFixture(t, ctx, stackDeployer, stack, composePath)
 	secretIDAgain, configIDAgain := inspectRealSwarmResources(t, ctx, dockerClient, dockerPath, stack, stack+"_password", stack+"_settings")
 	assert.Equal(t, secretID1, secretIDAgain, "unchanged secret must be reused")
 	assert.Equal(t, configID1, configIDAgain, "unchanged config must be reused")
+	serviceAgain, err := swarmService.Services.Inspect(ctx, stack+"_check")
+	require.NoError(t, err)
+	assert.Equal(t, serviceBefore.ID, serviceAgain.ID)
+	assert.Equal(t, serviceBefore.Version.Index, serviceAgain.Version.Index, "unchanged deploy must not update the service")
+	assert.Equal(t, serviceBefore.UpdateStatus, serviceAgain.UpdateStatus, "unchanged deploy must not start a rolling update")
+	runningAgain, tasksAgain := realSwarmTaskIDs(t, ctx, swarmService, serviceAgain.ID)
+	assert.Equal(t, runningBefore, runningAgain, "running tasks must not be replaced")
+	assert.Equal(t, tasksBefore, tasksAgain, "unchanged deploy must not schedule any new tasks")
+
+	// Change only the container command, keeping the same secret/config IDs.
+	writeRealSwarmFixture(t, dir, composePath, "", "", "secret-v1", "config-v1", "spec-updated")
+	deployFixture(t, ctx, stackDeployer, stack, composePath)
+	serviceUpdated, err := swarmService.Services.Inspect(ctx, stack+"_check")
+	require.NoError(t, err)
+	assert.Equal(t, serviceBefore.ID, serviceUpdated.ID)
+	assert.Greater(t, serviceUpdated.Version.Index, serviceAgain.Version.Index)
+	require.NotNil(t, serviceUpdated.Spec.TaskTemplate.ContainerSpec)
+	assert.Contains(t, serviceUpdated.Spec.TaskTemplate.ContainerSpec.Args[2], "spec-updated")
+	waitForRealSwarmTask(t, ctx, dockerPath, stack+"_check", "spec-updated")
+	runningUpdated, _ := realSwarmTaskIDs(t, ctx, swarmService, serviceUpdated.ID)
+	assert.NotEqual(t, runningBefore, runningUpdated, "a real task specification change must replace the task")
 
 	// Simulate the names produced by hash-based rotation and verify that
 	// new resource versions are created and mounted in the new task.
@@ -80,6 +105,23 @@ exit 97
 	assert.NotEqual(t, secretID1, secretID2, "rotated secret must be a different Docker object")
 	assert.NotEqual(t, configID1, configID2, "rotated config must be a different Docker object")
 	waitForRealSwarmTask(t, ctx, dockerPath, stack+"_check", "mounted-v2")
+}
+
+func realSwarmTaskIDs(t *testing.T, ctx context.Context, service *swarm.Swarm, serviceID string) ([]string, []string) {
+	t.Helper()
+	tasks, err := service.Services.ListTasks(ctx, serviceID)
+	require.NoError(t, err)
+	var running, all []string
+	for _, task := range tasks {
+		all = append(all, task.ID)
+		if task.CurrentState == swarm.TaskStateRunning && task.DesiredState == swarm.TaskStateRunning {
+			running = append(running, task.ID)
+		}
+	}
+	require.Len(t, running, 1, "fixture must have exactly one healthy running task")
+	slices.Sort(running)
+	slices.Sort(all)
+	return running, all
 }
 
 func writeRealSwarmFixture(t *testing.T, dir, composePath, secretName, configName, secretValue, configValue, marker string) {
