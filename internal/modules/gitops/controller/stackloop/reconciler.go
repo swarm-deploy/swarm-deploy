@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"path/filepath"
 	"sync"
 	"time"
 
@@ -18,65 +17,58 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackloop/drift"
-	gitx "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackloop/preparation"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
-	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 	"github.com/swarm-deploy/swarm-deploy/internal/storage"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 
 // Reconciler applies a desired stack state to swarm.
 type Reconciler struct {
-	db               storage.Database
-	executor         deployments.Executor
-	cfg              *config.Config
-	git              gitx.Repository
-	event            dispatcher.Dispatcher
-	deployMetrics    metrics.Deploys
-	stateStore       modelstore.Store
-	fileSystem       fs.FileSystem
-	pruner           *pruner.ServicePruner
-	composeLoader    compose.FileLoader
-	envFilePopulator *compose.EnvFilePopulator
-	composeRotator   *Rotator
-	pipeline         *pipe.Pipeline[*pipelinePayload]
-	driftAnalyzer    *drift.Analyzer
-	serviceManager   swarm.ServiceManager
-	secretManager    swarm.SecretManager
-	configManager    swarm.ConfigManager
-	resourceCleaner  *rotatedResourceCleaner
-	reconcileMu      sync.Mutex
+	db              storage.Database
+	executor        deployments.Executor
+	cfg             *config.Config
+	event           dispatcher.Dispatcher
+	deployMetrics   metrics.Deploys
+	stateStore      modelstore.Store
+	pruner          *pruner.ServicePruner
+	preparer        *preparation.Preparer
+	composeRotator  *Rotator
+	pipeline        *pipe.Pipeline[*pipelinePayload]
+	driftAnalyzer   *drift.Analyzer
+	serviceManager  swarm.ServiceManager
+	secretManager   swarm.SecretManager
+	configManager   swarm.ConfigManager
+	resourceCleaner *rotatedResourceCleaner
+	reconcileMu     sync.Mutex
 }
 
 // New builds a stack reconciler loop.
 func New(
 	cfg *config.Config,
-	gitSync gitx.Repository,
 	executor deployments.Executor,
 	swarmService *swarm.Swarm,
 	eventDispatcher dispatcher.Dispatcher,
 	deployMetrics metrics.Deploys,
 	stateStore modelstore.Store,
-	fileSystem fs.FileSystem,
+	preparer *preparation.Preparer,
+	composeRotator *Rotator,
 	db storage.Database,
 ) *Reconciler {
 	reconciler := &Reconciler{db: db, executor: executor,
-		cfg:              cfg,
-		git:              gitSync,
-		event:            eventDispatcher,
-		deployMetrics:    deployMetrics,
-		stateStore:       stateStore,
-		fileSystem:       fileSystem,
-		composeLoader:    compose.NewFileLoaderWithReader(fileSystem.ReadFile),
-		envFilePopulator: compose.NewEnvFilePopulator(),
-		composeRotator:   NewRotator(fileSystem),
-		pruner:           pruner.NewServicePruner(swarmService.Services, eventDispatcher, cfg.Spec.Sync.Policy),
-		driftAnalyzer:    drift.NewAnalyzer(),
-		serviceManager:   swarmService.Services,
-		secretManager:    swarmService.Secrets,
-		configManager:    swarmService.Configs,
+		cfg:            cfg,
+		event:          eventDispatcher,
+		deployMetrics:  deployMetrics,
+		stateStore:     stateStore,
+		preparer:       preparer,
+		composeRotator: composeRotator,
+		pruner:         pruner.NewServicePruner(swarmService.Services, eventDispatcher, cfg.Spec.Sync.Policy),
+		driftAnalyzer:  drift.NewAnalyzer(),
+		serviceManager: swarmService.Services,
+		secretManager:  swarmService.Secrets,
+		configManager:  swarmService.Configs,
 	}
 	reconciler.resourceCleaner = newRotatedResourceCleaner(
 		reconciler.secretManager,
@@ -91,8 +83,7 @@ func New(
 
 // Cleanup runs rotated config/secret cleanup for one stack without performing reconciliation.
 func (r *Reconciler) Cleanup(ctx context.Context, stack config.StackSpec) error {
-	composePath := filepath.Join(r.git.WorkingDir(), stack.ComposeFile)
-	desired, err := r.composeLoader.Load(ctx, composePath)
+	desired, err := r.preparer.Load(ctx, stack)
 	if err != nil {
 		return fmt.Errorf("load compose for cleanup: %w", err)
 	}
@@ -131,8 +122,7 @@ func (r *Reconciler) Reconcile(
 	r.reconcileMu.Lock()
 	defer r.reconcileMu.Unlock()
 
-	composePath := filepath.Join(r.git.WorkingDir(), req.Stack.ComposeFile)
-	desiredState, err := r.composeLoader.Load(ctx, composePath)
+	desiredState, err := r.preparer.Load(ctx, req.Stack)
 	if err != nil {
 		persistErr := r.recordFailure(ctx, req.Stack.Name, req.Commit, nil, err)
 
@@ -144,16 +134,24 @@ func (r *Reconciler) Reconcile(
 		return readErr
 	}
 
+	prepared, err := r.preparer.Prepare(ctx, preparation.Request{
+		Stack: req.Stack, Desired: desiredState, SourceChanged: !hasPrev || prev.SourceDigest != desiredState.Digest,
+	})
+	if err != nil {
+		persistErr := r.recordFailure(ctx, req.Stack.Name, req.Commit, desiredState.Compose.Services, err)
+		return wrapReconcileError("prepare compose", desiredState.Compose.Services, errors.Join(err, persistErr))
+	}
+	defer r.preparer.Cleanup(ctx, prepared)
+
 	pl := &pipelinePayload{
 		Stack:             req.Stack,
 		Commit:            req.Commit,
 		IsNewDigest:       !hasPrev || prev.SourceDigest != desiredState.Digest,
 		IsManualSync:      req.IsManual,
 		HasPreviousDrift:  stackHasDrift(prev),
-		Desired:           desiredState,
-		DeployComposePath: desiredState.Path,
+		Desired:           prepared.Desired,
+		DeployComposePath: prepared.DeployComposePath,
 	}
-	defer r.cleanupRenderedComposeFile(ctx, pl)
 
 	err = r.pipeline.Run(ctx, pl)
 	if err != nil {

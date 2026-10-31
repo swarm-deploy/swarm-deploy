@@ -2,11 +2,7 @@ package stackloop
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	"log/slog"
-	"os"
-	"path/filepath"
 	"time"
 
 	pipe "github.com/artarts36/gopipe"
@@ -21,11 +17,6 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 
-const (
-	renderedComposeDirectoryMode = 0o755
-	renderedComposeFileMode      = 0o600
-)
-
 type pipelinePayload struct {
 	// Attempt is persisted before any external apply.
 	Attempt          *deploymentmodel.Attempt
@@ -35,10 +26,8 @@ type pipelinePayload struct {
 	IsManualSync     bool
 	HasPreviousDrift bool
 
-	Desired             *compose.File
-	DesiredMutated      bool
-	DeployComposePath   string
-	RenderedComposePath string
+	Desired           *compose.File
+	DeployComposePath string
 
 	LiveServices   []swarm.StackService
 	ObservedAt     time.Time
@@ -55,52 +44,6 @@ func (r *Reconciler) attachPipeline() {
 	r.pipeline = pipe.NewPipelineWithConfig[*pipelinePayload](pipe.Config{
 		PipelineName: "sync stack",
 		Logger:       faults.NewSafeLogger(slog.Default()),
-	})
-
-	if r.cfg.Spec.Sync.Policy.Image.Enabled() {
-		r.pipeline.Add(pipe.Step[*pipelinePayload]{
-			Name: "check image policy",
-			Run:  r.checkImagePolicy,
-		})
-	}
-
-	r.pipeline.Add(pipe.Step[*pipelinePayload]{
-		Name: "populate environment",
-		When: pipe.When(func(payload *pipelinePayload) bool {
-			for _, service := range payload.Desired.Compose.Services {
-				if len(service.EnvFiles) > 0 {
-					return true
-				}
-			}
-
-			return false
-		}),
-		Run: r.populateEnvironment,
-	})
-
-	if r.cfg.Spec.Containers.Downward != nil {
-		r.pipeline.Add(pipe.Step[*pipelinePayload]{
-			Name: "add downward",
-			Run:  r.addDownward,
-		})
-	}
-
-	r.pipeline.Add(pipe.Step[*pipelinePayload]{
-		Name: "add managed label",
-		Run:  r.addManagedLabel,
-	})
-
-	if r.cfg.Spec.SecretRotation.Enabled {
-		r.pipeline.Add(pipe.Step[*pipelinePayload]{
-			Name: "rotate secrets/configs",
-			Run:  r.rotateSecrets,
-		})
-	}
-
-	r.pipeline.Add(pipe.Step[*pipelinePayload]{
-		Name: "write rendered compose",
-		When: pipe.When(needsRenderedCompose),
-		Run:  r.writeRenderedCompose,
 	})
 
 	r.pipeline.Add(pipe.Step[*pipelinePayload]{
@@ -156,207 +99,6 @@ func (r *Reconciler) executeDeployment(ctx context.Context, payload *pipelinePay
 	payload.PrunedServices = result.PrunedServices
 	payload.ExecutionError = result.ErrorCode
 	return err
-}
-
-func (r *Reconciler) populateEnvironment(_ context.Context, payload *pipelinePayload) error {
-	changed := r.envFilePopulator.Populate(payload.Desired)
-
-	if changed {
-		payload.DesiredMutated = true
-	}
-
-	return nil
-}
-
-func (r *Reconciler) addManagedLabel(_ context.Context, payload *pipelinePayload) error {
-	changed := false
-
-	for i, service := range payload.Desired.Compose.Services {
-		serviceChanged := service.Deploy.Labels.Add(labelsdict.ServiceManagedLabelKey, labelsdict.ServiceManagedLabelValue)
-
-		if serviceChanged {
-			payload.Desired.Compose.Services[i] = service
-			changed = true
-		}
-	}
-	if changed {
-		payload.DesiredMutated = true
-	}
-
-	return nil
-}
-
-func (r *Reconciler) rotateSecrets(ctx context.Context, payload *pipelinePayload) error {
-	// Rotation mutates secret/config object names in the in-memory compose model.
-	// We keep digest based on original source, but deploy a rendered, rotated file.
-	changed, err := r.composeRotator.Rotate(
-		ctx, payload.Desired,
-		payload.Stack.Name,
-		r.cfg.Spec.SecretRotation.HashLength,
-		r.cfg.Spec.SecretRotation.IncludePath,
-	)
-	if err != nil {
-		return err
-	}
-
-	if changed {
-		payload.DesiredMutated = true
-	}
-
-	return nil
-}
-
-func (r *Reconciler) writeRenderedCompose(ctx context.Context, payload *pipelinePayload) error {
-	renderedDir := filepath.Join(r.cfg.Spec.DataDir, "rendered")
-	// Persist rendered files under data dir so deploy step can use a stable path.
-	if err := r.fileSystem.CreateDirectory(ctx, renderedDir, renderedComposeDirectoryMode); err != nil {
-		return fmt.Errorf("create rendered dir: %w", err)
-	}
-
-	rendered := stackDeployCompose(payload.Desired, payload.Stack.Name)
-	r.normalizeRenderedObjectFilePaths(rendered)
-
-	content, err := rendered.MarshalYAML()
-	if err != nil {
-		return fmt.Errorf("failed to marshal desired compose yaml: %w", err)
-	}
-
-	target := filepath.Join(renderedDir, payload.Stack.Name+".yaml")
-	payload.RenderedComposePath = target
-	err = r.fileSystem.WriteFile(ctx, target, content, renderedComposeFileMode)
-	if err != nil {
-		return fmt.Errorf("write rendered compose %s: %w", target, err)
-	}
-
-	payload.DeployComposePath = target
-
-	return nil
-}
-
-func (r *Reconciler) cleanupRenderedComposeFile(ctx context.Context, payload *pipelinePayload) {
-	if payload.RenderedComposePath == "" {
-		return
-	}
-	if err := r.fileSystem.RemoveFile(ctx, payload.RenderedComposePath); err != nil && !errors.Is(err, os.ErrNotExist) {
-		slog.WarnContext(ctx, "failed to clean up rendered compose file", "path", payload.RenderedComposePath, "err", err)
-	}
-}
-
-func needsRenderedCompose(payload *pipelinePayload) bool {
-	if payload.DesiredMutated {
-		return true
-	}
-	for _, secret := range payload.Desired.Compose.Secrets {
-		if !secret.External {
-			return true
-		}
-	}
-
-	for _, service := range payload.Desired.Compose.Services {
-		if len(service.InitJobs) > 0 {
-			return true
-		}
-	}
-
-	return false
-}
-
-func stackDeployCompose(desired *compose.File, stackName string) *compose.File {
-	rendered := *desired
-	rendered.Compose = desired.Compose
-	rendered.Compose.Services = append(compose.Services(nil), desired.Compose.Services...)
-	rendered.Compose.Configs = cloneObjects(desired.Compose.Configs)
-	rendered.Compose.Secrets = cloneObjects(desired.Compose.Secrets)
-
-	// The API reconciler owns secret creation. Docker CLI receives references
-	// for all API-managed secrets, independently of their source format.
-	for alias, secret := range rendered.Compose.Secrets {
-		if secret.External {
-			continue
-		}
-		name := secret.Name
-		if name == "" {
-			name = stackName + "_" + alias
-		}
-		rendered.Compose.Secrets[alias] = &compose.Secret{Name: name, External: true}
-	}
-
-	for i := range rendered.Compose.Services {
-		rendered.Compose.Services[i].InitJobs = nil
-	}
-
-	return &rendered
-}
-
-func cloneObjects[T any, Objects ~map[string]*T](objects Objects) Objects {
-	if objects == nil {
-		return nil
-	}
-
-	cloned := make(Objects, len(objects))
-	for alias, object := range objects {
-		if object == nil {
-			cloned[alias] = nil
-			continue
-		}
-
-		objectCopy := *object
-		cloned[alias] = &objectCopy
-	}
-
-	return cloned
-}
-
-func (r *Reconciler) normalizeRenderedObjectFilePaths(file *compose.File) {
-	baseDir := filepath.Dir(file.Path)
-
-	normalizeConfigFilePaths(baseDir, file.Compose.Configs)
-	normalizeSecretFilePaths(baseDir, file.Compose.Secrets)
-
-	repoDir := r.git.WorkingDir()
-
-	for i, service := range file.Compose.Services {
-		file.Compose.Services[i].EnvFiles = normalizeEnvFiles(repoDir, baseDir, service.EnvFiles)
-	}
-}
-
-func normalizeEnvFiles(repoDir, baseDir string, envFiles compose.EnvFiles) compose.EnvFiles {
-	result := make(compose.EnvFiles, len(envFiles))
-
-	for i, file := range envFiles {
-		result[i] = file
-		if isRelativeFromRepoRoot(file.Path) {
-			result[i].Path = filepath.Join(repoDir, file.Path)
-		} else {
-			result[i].Path = filepath.Join(baseDir, file.Path)
-		}
-	}
-
-	return result
-}
-
-func isRelativeFromRepoRoot(path string) bool {
-	return filepath.IsAbs(path)
-}
-
-func normalizeConfigFilePaths(baseDir string, objects compose.Configs) {
-	for _, object := range objects {
-		if object.External || object.File == "" || filepath.IsAbs(object.File) {
-			continue
-		}
-
-		object.File = filepath.Clean(filepath.Join(baseDir, object.File))
-	}
-}
-
-func normalizeSecretFilePaths(baseDir string, objects compose.Secrets) {
-	for _, object := range objects {
-		if object.External || object.File == "" || filepath.IsAbs(object.File) {
-			continue
-		}
-
-		object.File = filepath.Clean(filepath.Join(baseDir, object.File))
-	}
 }
 
 func (r *Reconciler) loadLiveState(ctx context.Context, payload *pipelinePayload) error {

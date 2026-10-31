@@ -19,6 +19,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/pruner"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackloop/preparation"
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
@@ -46,24 +47,16 @@ func TestReconcileRemovesRenderedComposeAfterEarlyPipelineFailure(t *testing.T) 
 	require.NoError(t, writeComposeFile(repoDir), "write compose")
 	repository.EXPECT().WorkingDir().Return(repoDir).AnyTimes()
 
-	reconciler := &Reconciler{
-		cfg:              &config.Config{Spec: config.Spec{DataDir: filepath.Join(repoDir, ".data")}},
-		git:              repository,
-		event:            &dispatcher.NopDispatcher{},
-		deployMetrics:    &metrics.NopDeploys{},
-		stateStore:       stateStore,
-		fileSystem:       fileSystem,
-		composeLoader:    compose.NewFileLoader(),
-		composeRotator:   NewRotator(fileSystem),
-		envFilePopulator: compose.NewEnvFilePopulator(),
-	}
+	cfg := &config.Config{Spec: config.Spec{DataDir: filepath.Join(repoDir, ".data")}}
+	rotator := NewRotator(fileSystem)
+	reconciler := &Reconciler{cfg: cfg, event: &dispatcher.NopDispatcher{},
+		deployMetrics: &metrics.NopDeploys{}, stateStore: stateStore, composeRotator: rotator,
+		preparer: preparation.New(cfg, repository, fileSystem, rotator)}
 	reconciler.db = db
 	reconciler.pipeline = pipe.NewPipelineWithConfig[*pipelinePayload](pipe.Config{
 		PipelineName: "test early failure",
 		Logger:       faults.NewSafeLogger(slog.Default()),
 	})
-	reconciler.pipeline.Add(pipe.Step[*pipelinePayload]{Name: "add managed label", Run: reconciler.addManagedLabel})
-	reconciler.pipeline.Add(pipe.Step[*pipelinePayload]{Name: "write rendered compose", Run: reconciler.writeRenderedCompose})
 	reconciler.pipeline.Add(pipe.Step[*pipelinePayload]{
 		Name: "fail after render",
 		Run: func(context.Context, *pipelinePayload) error {
@@ -83,7 +76,7 @@ func TestReconcileRemovesRenderedComposeAfterEarlyPipelineFailure(t *testing.T) 
 	for _, span := range spanRecorder.Ended() {
 		spanNames = append(spanNames, span.Name())
 	}
-	assert.ElementsMatch(t, []string{"fs.CreateDirectory", "fs.WriteFile", "fs.RemoveFile"}, spanNames)
+	assert.ElementsMatch(t, []string{"fs.ReadFile", "fs.CreateDirectory", "fs.WriteFile", "fs.RemoveFile"}, spanNames)
 }
 
 func TestRenderedComposeCleanupFailureDoesNotFailReconciliation(t *testing.T) {
@@ -115,18 +108,14 @@ func TestRenderedComposeCleanupFailureDoesNotFailReconciliation(t *testing.T) {
 	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
 	t.Cleanup(func() { slog.SetDefault(previousLogger) })
 
-	reconciler := &Reconciler{
-		cfg:            &config.Config{Spec: config.Spec{DataDir: dataDir}},
-		git:            repository,
-		event:          &dispatcher.NopDispatcher{},
-		deployMetrics:  &metrics.NopDeploys{},
-		stateStore:     stateStore,
-		fileSystem:     fs.NewLocalFileSystem(),
+	filesystem := fs.NewLocalFileSystem()
+	cfg := &config.Config{Spec: config.Spec{DataDir: dataDir}}
+	rotator := NewRotator(filesystem)
+	reconciler := &Reconciler{cfg: cfg, event: &dispatcher.NopDispatcher{},
+		deployMetrics: &metrics.NopDeploys{}, stateStore: stateStore,
 		pruner:         pruner.NewServicePruner(serviceManager, &dispatcher.NopDispatcher{}, config.SyncPolicySpec{}),
-		composeLoader:  compose.NewFileLoader(),
-		composeRotator: NewRotator(fs.NewLocalFileSystem()),
-		serviceManager: serviceManager,
-	}
+		composeRotator: rotator, serviceManager: serviceManager,
+		preparer: preparation.New(cfg, repository, filesystem, rotator)}
 	reconciler.db = db
 	reconciler.executor = deployments.NewController(
 		deployments.NewService(db, reconciler.event), stackDeployer, serviceManager,

@@ -27,6 +27,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackloop/drift"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackloop/preparation"
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/modelstore"
@@ -64,14 +65,10 @@ func TestReconcileUpdatesStateOnSuccess(t *testing.T) {
 			Spec: config.Spec{
 				DataDir: filepath.Join(repoDir, ".data"),
 			},
-		},
-		git:            repository,
-		event:          eventDispatcher,
+		}, event: eventDispatcher,
 		deployMetrics:  deployMetrics,
 		stateStore:     stateStore,
-		fileSystem:     fs.NewLocalFileSystem(),
 		pruner:         pruner.NewServicePruner(serviceManager, eventDispatcher, config.SyncPolicySpec{}),
-		composeLoader:  compose.NewFileLoader(),
 		composeRotator: NewRotator(fs.NewLocalFileSystem()),
 		serviceManager: serviceManager,
 	}
@@ -79,6 +76,7 @@ func TestReconcileUpdatesStateOnSuccess(t *testing.T) {
 	reconciler.executor = deployments.NewController(
 		deployments.NewService(db, reconciler.event), stackDeployer, serviceManager, reconciler.pruner, reconciler.deployMetrics,
 	)
+	reconciler.preparer = preparation.New(reconciler.cfg, repository, fs.NewLocalFileSystem(), reconciler.composeRotator)
 	reconciler.attachPipeline()
 
 	err := reconciler.Reconcile(context.Background(), ReconciliationRequest{
@@ -128,20 +126,17 @@ func TestReconcileUpdatesStateOnFailure(t *testing.T) {
 			Spec: config.Spec{
 				DataDir: filepath.Join(repoDir, ".data"),
 			},
-		},
-		git:            repository,
-		event:          eventDispatcher,
+		}, event: eventDispatcher,
 		deployMetrics:  &metrics.NopDeploys{},
 		stateStore:     stateStore,
-		fileSystem:     fs.NewLocalFileSystem(),
 		pruner:         pruner.NewServicePruner(serviceManager, eventDispatcher, config.SyncPolicySpec{}),
-		composeLoader:  compose.NewFileLoader(),
 		composeRotator: NewRotator(fs.NewLocalFileSystem()),
 	}
 	reconciler.db = db
 	reconciler.executor = deployments.NewController(
 		deployments.NewService(db, reconciler.event), stackDeployer, serviceManager, reconciler.pruner, reconciler.deployMetrics,
 	)
+	reconciler.preparer = preparation.New(reconciler.cfg, repository, fs.NewLocalFileSystem(), reconciler.composeRotator)
 	reconciler.attachPipeline()
 
 	err := reconciler.Reconcile(context.Background(), ReconciliationRequest{
@@ -228,16 +223,15 @@ func TestReconcileSeparatesPostApplyOutcomes(t *testing.T) {
 				Sync: config.SyncSpec{Policy: config.SyncPolicySpec{Prune: true}}}}
 			eventDispatcher := &dispatcher.NopDispatcher{}
 			reconciler := &Reconciler{
-				cfg: cfg, git: repository, event: eventDispatcher,
-				deployMetrics: &metrics.NopDeploys{}, stateStore: stateStore, fileSystem: fs.NewLocalFileSystem(),
-				pruner:        pruner.NewServicePruner(serviceManager, eventDispatcher, cfg.Spec.Sync.Policy),
-				composeLoader: compose.NewFileLoader(), composeRotator: NewRotator(fs.NewLocalFileSystem()), serviceManager: serviceManager,
+				cfg: cfg, event: eventDispatcher,
+				deployMetrics: &metrics.NopDeploys{}, stateStore: stateStore, pruner: pruner.NewServicePruner(serviceManager, eventDispatcher, cfg.Spec.Sync.Policy),
 			}
 			reconciler.db = db
 			reconciler.executor = deployments.NewController(
 				deployments.NewService(db, reconciler.event), stackDeployer,
 				serviceManager, reconciler.pruner, reconciler.deployMetrics,
 			)
+			reconciler.preparer = preparation.New(reconciler.cfg, repository, fs.NewLocalFileSystem(), reconciler.composeRotator)
 			reconciler.attachPipeline()
 			err := reconciler.Reconcile(context.Background(), ReconciliationRequest{
 				Stack: config.StackSpec{Name: "app", ComposeFile: "app.yaml"}, Commit: "commit",
@@ -325,14 +319,10 @@ secrets:
 	cleaner := newRotatedResourceCleaner(secretManager, configManager, cfg.Spec.SecretRotation.Cleanup)
 	cleaner.now = func() time.Time { return now }
 	reconciler := &Reconciler{
-		cfg:             cfg,
-		git:             repository,
-		event:           &dispatcher.NopDispatcher{},
+		cfg: cfg, event: &dispatcher.NopDispatcher{},
 		deployMetrics:   &metrics.NopDeploys{},
 		stateStore:      stateStore,
-		fileSystem:      fs.NewLocalFileSystem(),
 		pruner:          pruner.NewServicePruner(serviceManager, &dispatcher.NopDispatcher{}, config.SyncPolicySpec{}),
-		composeLoader:   compose.NewFileLoader(),
 		composeRotator:  NewRotator(fs.NewLocalFileSystem()),
 		driftAnalyzer:   drift.NewAnalyzer(),
 		serviceManager:  serviceManager,
@@ -344,6 +334,7 @@ secrets:
 	reconciler.executor = deployments.NewController(
 		deployments.NewService(db, reconciler.event), stackDeployer, serviceManager, reconciler.pruner, reconciler.deployMetrics,
 	)
+	reconciler.preparer = preparation.New(reconciler.cfg, repository, fs.NewLocalFileSystem(), reconciler.composeRotator)
 	reconciler.attachPipeline()
 
 	err := reconciler.Reconcile(context.Background(), ReconciliationRequest{
@@ -397,14 +388,10 @@ func TestReconcileReadsPreviousDigestFromStateStore(t *testing.T) {
 					},
 				},
 			},
-		},
-		git:            repository,
-		event:          eventDispatcher,
+		}, event: eventDispatcher,
 		deployMetrics:  deployMetrics,
 		stateStore:     stateStore,
-		fileSystem:     fs.NewLocalFileSystem(),
 		pruner:         pruner.NewServicePruner(serviceManager, eventDispatcher, config.SyncPolicySpec{}),
-		composeLoader:  loader,
 		composeRotator: NewRotator(fs.NewLocalFileSystem()),
 		serviceManager: serviceManager,
 		secretManager:  secretManager,
@@ -414,6 +401,7 @@ func TestReconcileReadsPreviousDigestFromStateStore(t *testing.T) {
 	reconciler.executor = deployments.NewController(
 		deployments.NewService(db, reconciler.event), stackDeployer, serviceManager, reconciler.pruner, reconciler.deployMetrics,
 	)
+	reconciler.preparer = preparation.New(reconciler.cfg, repository, fs.NewLocalFileSystem(), reconciler.composeRotator)
 	reconciler.attachPipeline()
 
 	reconcileErr := reconciler.Reconcile(context.Background(), ReconciliationRequest{
@@ -508,14 +496,10 @@ configs:
 					HashLength: 8,
 				},
 			},
-		},
-		git:            repository,
-		event:          eventDispatcher,
+		}, event: eventDispatcher,
 		deployMetrics:  deployMetrics,
 		stateStore:     stateStore,
-		fileSystem:     fs.NewLocalFileSystem(),
 		pruner:         pruner.NewServicePruner(serviceManager, eventDispatcher, config.SyncPolicySpec{}),
-		composeLoader:  loader,
 		composeRotator: NewRotator(fs.NewLocalFileSystem()),
 		serviceManager: serviceManager,
 	}
@@ -523,6 +507,7 @@ configs:
 	reconciler.executor = deployments.NewController(
 		deployments.NewService(db, reconciler.event), stackDeployer, serviceManager, reconciler.pruner, reconciler.deployMetrics,
 	)
+	reconciler.preparer = preparation.New(reconciler.cfg, repository, fs.NewLocalFileSystem(), reconciler.composeRotator)
 	reconciler.attachPipeline()
 
 	reconcileErr := reconciler.Reconcile(context.Background(), ReconciliationRequest{
@@ -610,14 +595,10 @@ secrets:
 			Spec: config.Spec{
 				DataDir: filepath.Join(repoDir, ".data"),
 			},
-		},
-		git:            repository,
-		event:          eventDispatcher,
+		}, event: eventDispatcher,
 		deployMetrics:  &metrics.NopDeploys{},
 		stateStore:     stateStore,
-		fileSystem:     fs.NewLocalFileSystem(),
 		pruner:         pruner.NewServicePruner(serviceManager, eventDispatcher, config.SyncPolicySpec{}),
-		composeLoader:  compose.NewFileLoader(),
 		composeRotator: NewRotator(fs.NewLocalFileSystem()),
 		serviceManager: serviceManager,
 	}
@@ -625,6 +606,7 @@ secrets:
 	reconciler.executor = deployments.NewController(
 		deployments.NewService(db, reconciler.event), stackDeployer, serviceManager, reconciler.pruner, reconciler.deployMetrics,
 	)
+	reconciler.preparer = preparation.New(reconciler.cfg, repository, fs.NewLocalFileSystem(), reconciler.composeRotator)
 	reconciler.attachPipeline()
 
 	reconcileErr := reconciler.Reconcile(context.Background(), ReconciliationRequest{
@@ -692,30 +674,23 @@ services:
 		Return(deployer.Result{}, nil)
 	serviceManager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "app"}).Return(nil, nil)
 
-	readFile := func(_ context.Context, path string) ([]byte, error) {
-		return os.ReadFile(path)
-	}
 	reconciler := &Reconciler{
 		cfg: &config.Config{
 			Spec: config.Spec{
 				DataDir: filepath.Join(repoDir, ".data"),
 			},
-		},
-		git:              repository,
-		event:            &dispatcher.NopDispatcher{},
-		deployMetrics:    &metrics.NopDeploys{},
-		stateStore:       stateStore,
-		fileSystem:       fs.NewLocalFileSystem(),
-		pruner:           pruner.NewServicePruner(serviceManager, &dispatcher.NopDispatcher{}, config.SyncPolicySpec{}),
-		composeLoader:    compose.NewFileLoaderWithReader(readFile),
-		envFilePopulator: compose.NewEnvFilePopulator(),
-		composeRotator:   NewRotator(fs.NewLocalFileSystem()),
-		serviceManager:   serviceManager,
+		}, event: &dispatcher.NopDispatcher{},
+		deployMetrics:  &metrics.NopDeploys{},
+		stateStore:     stateStore,
+		pruner:         pruner.NewServicePruner(serviceManager, &dispatcher.NopDispatcher{}, config.SyncPolicySpec{}),
+		composeRotator: NewRotator(fs.NewLocalFileSystem()),
+		serviceManager: serviceManager,
 	}
 	reconciler.db = db
 	reconciler.executor = deployments.NewController(
 		deployments.NewService(db, reconciler.event), stackDeployer, serviceManager, reconciler.pruner, reconciler.deployMetrics,
 	)
+	reconciler.preparer = preparation.New(reconciler.cfg, repository, fs.NewLocalFileSystem(), reconciler.composeRotator)
 	reconciler.attachPipeline()
 
 	reconcileErr := reconciler.Reconcile(context.Background(), ReconciliationRequest{
@@ -778,14 +753,10 @@ services:
 					Downward: &struct{}{},
 				},
 			},
-		},
-		git:            repository,
-		event:          &dispatcher.NopDispatcher{},
+		}, event: &dispatcher.NopDispatcher{},
 		deployMetrics:  &metrics.NopDeploys{},
 		stateStore:     stateStore,
-		fileSystem:     fs.NewLocalFileSystem(),
 		pruner:         pruner.NewServicePruner(serviceManager, &dispatcher.NopDispatcher{}, config.SyncPolicySpec{}),
-		composeLoader:  compose.NewFileLoader(),
 		composeRotator: NewRotator(fs.NewLocalFileSystem()),
 		serviceManager: serviceManager,
 	}
@@ -793,6 +764,7 @@ services:
 	reconciler.executor = deployments.NewController(
 		deployments.NewService(db, reconciler.event), stackDeployer, serviceManager, reconciler.pruner, reconciler.deployMetrics,
 	)
+	reconciler.preparer = preparation.New(reconciler.cfg, repository, fs.NewLocalFileSystem(), reconciler.composeRotator)
 	reconciler.attachPipeline()
 
 	reconcileErr := reconciler.Reconcile(context.Background(), ReconciliationRequest{
@@ -855,14 +827,10 @@ services:
 					Downward: &struct{}{},
 				},
 			},
-		},
-		git:            repository,
-		event:          &dispatcher.NopDispatcher{},
+		}, event: &dispatcher.NopDispatcher{},
 		deployMetrics:  &metrics.NopDeploys{},
 		stateStore:     stateStore,
-		fileSystem:     fs.NewLocalFileSystem(),
 		pruner:         pruner.NewServicePruner(serviceManager, &dispatcher.NopDispatcher{}, config.SyncPolicySpec{}),
-		composeLoader:  compose.NewFileLoader(),
 		composeRotator: NewRotator(fs.NewLocalFileSystem()),
 		driftAnalyzer:  drift.NewAnalyzer(),
 		serviceManager: serviceManager,
@@ -871,6 +839,7 @@ services:
 	reconciler.executor = deployments.NewController(
 		deployments.NewService(db, reconciler.event), stackDeployer, serviceManager, reconciler.pruner, reconciler.deployMetrics,
 	)
+	reconciler.preparer = preparation.New(reconciler.cfg, repository, fs.NewLocalFileSystem(), reconciler.composeRotator)
 	reconciler.attachPipeline()
 
 	reconcileErr := reconciler.Reconcile(context.Background(), ReconciliationRequest{
@@ -890,41 +859,6 @@ services:
 		Commit: "commit-downward-3",
 	})
 	require.NoError(t, reconcileErr, "second reconcile")
-}
-
-func TestAddDownwardPreservesExistingVariableAndAddsMissingOnes(t *testing.T) {
-	reconciler := &Reconciler{}
-	payload := &pipelinePayload{
-		Stack: config.StackSpec{
-			Name: "app",
-		},
-		IsNewDigest: true,
-		Desired: &compose.File{
-			Compose: compose.Compose{
-				Services: compose.Services{
-					{
-						Name:  "api",
-						Image: "nginx:latest",
-						Environment: compose.Environment{
-							Map: map[string]string{
-								downward.EnvServiceName: "custom-service",
-							},
-						},
-					},
-				},
-			},
-		},
-	}
-
-	err := reconciler.addDownward(context.Background(), payload)
-
-	require.NoError(t, err, "add downward")
-	assert.True(t, payload.DesiredMutated, "expected missing downward variables to mutate desired state")
-
-	environment := payload.Desired.Compose.Services[0].Environment.Map
-	assert.Equal(t, "custom-service", environment[downward.EnvServiceName], "explicit downward value must win")
-	assert.Equal(t, "app", environment[downward.EnvStackName], "expected stack name")
-	assert.Equal(t, "{{.Task.ID}}", environment[downward.EnvTaskID], "expected missing downward variable")
 }
 
 func TestReconcilePrunesServicesWithoutNewDeployment(t *testing.T) {
@@ -988,14 +922,10 @@ func TestReconcilePrunesServicesWithoutNewDeployment(t *testing.T) {
 							},
 						},
 					},
-				},
-				git:            repository,
-				event:          eventDispatcher,
+				}, event: eventDispatcher,
 				deployMetrics:  deployMetrics,
 				stateStore:     stateStore,
-				fileSystem:     fs.NewLocalFileSystem(),
 				pruner:         pruner.NewServicePruner(serviceManager, eventDispatcher, config.SyncPolicySpec{Prune: tc.globalPrune}),
-				composeLoader:  loader,
 				composeRotator: NewRotator(fs.NewLocalFileSystem()),
 				serviceManager: serviceManager,
 			}
@@ -1003,6 +933,7 @@ func TestReconcilePrunesServicesWithoutNewDeployment(t *testing.T) {
 			reconciler.executor = deployments.NewController(
 				deployments.NewService(db, reconciler.event), stackDeployer, serviceManager, reconciler.pruner, reconciler.deployMetrics,
 			)
+			reconciler.preparer = preparation.New(reconciler.cfg, repository, fs.NewLocalFileSystem(), reconciler.composeRotator)
 			reconciler.attachPipeline()
 
 			reconcileErr := reconciler.Reconcile(context.Background(), ReconciliationRequest{
@@ -1087,14 +1018,10 @@ func TestReconcileServiceMissedEventOnDrift(t *testing.T) {
 					Spec: config.Spec{
 						DataDir: filepath.Join(repoDir, ".data"),
 					},
-				},
-				git:            repository,
-				event:          eventDispatcher,
+				}, event: eventDispatcher,
 				deployMetrics:  &metrics.NopDeploys{},
 				stateStore:     stateStore,
-				fileSystem:     fs.NewLocalFileSystem(),
 				pruner:         pruner.NewServicePruner(serviceManager, eventDispatcher, config.SyncPolicySpec{}),
-				composeLoader:  loader,
 				composeRotator: NewRotator(fs.NewLocalFileSystem()),
 				driftAnalyzer:  drift.NewAnalyzer(),
 				serviceManager: serviceManager,
@@ -1104,6 +1031,7 @@ func TestReconcileServiceMissedEventOnDrift(t *testing.T) {
 				deployments.NewService(db, reconciler.event), deployer.NewMockStackDeployer(ctrl),
 				serviceManager, reconciler.pruner, reconciler.deployMetrics,
 			)
+			reconciler.preparer = preparation.New(reconciler.cfg, repository, fs.NewLocalFileSystem(), reconciler.composeRotator)
 			reconciler.attachPipeline()
 
 			reconcileErr := reconciler.Reconcile(context.Background(), ReconciliationRequest{
@@ -1223,18 +1151,16 @@ func TestReconcileSelfHealsMissingService(t *testing.T) {
 				cfg: &config.Config{Spec: config.Spec{
 					DataDir: filepath.Join(repoDir, ".data"),
 					Sync:    config.SyncSpec{Policy: config.SyncPolicySpec{SelfHeal: true}},
-				}},
-				git: repository, event: eventDispatcher,
+				}}, event: eventDispatcher,
 				deployMetrics: metricGroup.Deploys, stateStore: stateStore,
-				fileSystem:    fs.NewLocalFileSystem(),
 				pruner:        pruner.NewServicePruner(serviceManager, eventDispatcher, config.SyncPolicySpec{}),
-				composeLoader: loader, composeRotator: NewRotator(fs.NewLocalFileSystem()),
 				driftAnalyzer: drift.NewAnalyzer(), serviceManager: serviceManager,
 			}
 			reconciler.db = db
 			reconciler.executor = deployments.NewController(
 				deployments.NewService(db, reconciler.event), stackDeployer, serviceManager, reconciler.pruner, reconciler.deployMetrics,
 			)
+			reconciler.preparer = preparation.New(reconciler.cfg, repository, fs.NewLocalFileSystem(), reconciler.composeRotator)
 			reconciler.attachPipeline()
 
 			err = reconciler.Reconcile(context.Background(), ReconciliationRequest{
@@ -1321,18 +1247,16 @@ func TestReconcileSelfHealsReplicaDriftAfterVerification(t *testing.T) {
 		cfg: &config.Config{Spec: config.Spec{
 			DataDir: filepath.Join(repoDir, ".data"),
 			Sync:    config.SyncSpec{Policy: config.SyncPolicySpec{SelfHeal: true}},
-		}},
-		git: repository, event: eventDispatcher,
+		}}, event: eventDispatcher,
 		deployMetrics: &metrics.NopDeploys{}, stateStore: stateStore,
-		fileSystem:    fs.NewLocalFileSystem(),
 		pruner:        pruner.NewServicePruner(serviceManager, eventDispatcher, config.SyncPolicySpec{}),
-		composeLoader: loader, composeRotator: NewRotator(fs.NewLocalFileSystem()),
 		driftAnalyzer: drift.NewAnalyzer(), serviceManager: serviceManager,
 	}
 	reconciler.db = db
 	reconciler.executor = deployments.NewController(
 		deployments.NewService(db, reconciler.event), stackDeployer, serviceManager, reconciler.pruner, reconciler.deployMetrics,
 	)
+	reconciler.preparer = preparation.New(reconciler.cfg, repository, fs.NewLocalFileSystem(), reconciler.composeRotator)
 	reconciler.attachPipeline()
 
 	require.NoError(t, reconciler.Reconcile(context.Background(), ReconciliationRequest{
