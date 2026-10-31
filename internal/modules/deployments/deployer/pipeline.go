@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"regexp"
+	"time"
 
 	pipe "github.com/artarts36/gopipe"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
@@ -14,10 +15,16 @@ import (
 	waiterpkg "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/waiter"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/tracing"
+	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	oteltrace "go.opentelemetry.io/otel/trace"
 )
 
 const (
+	deployStackPipelineName   = "deployer.DeployStack"
+	deployServicePipelineName = "deployer.DeployService"
+
 	stepReconcileResources = "reconcile resources"
 	stepRunInitJobs        = "run init jobs"
 	stepCaptureBaseline    = "capture service baseline"
@@ -38,16 +45,8 @@ func (d *Deployer) attachPipelines() {
 }
 
 func (d *Deployer) newDeployStackPipeline() *pipe.Pipeline[*deployStackPayload] {
-	pipeline := pipe.NewPipelineWithConfig[*deployStackPayload](pipe.Config{
-		PipelineName: "deployer.DeployStack",
-		Logger:       faults.NewSafeLogger(slog.Default()),
-	})
-	attrs := pipe.Attributes[*deployStackPayload]{Trace: func(payload *deployStackPayload) []attribute.KeyValue {
-		return []attribute.KeyValue{
-			tracing.ResourceStackName.String(payload.stackName),
-			tracing.ResourceComposePath.String(payload.deployComposePath),
-		}
-	}}
+	pipeline := pipe.NewPipelineWithConfig[*deployStackPayload](pipelineConfig(deployStackPipelineName))
+	attrs := pipe.Attributes[*deployStackPayload]{Trace: stackTraceAttributes}
 	pipeline.Add(pipe.Step[*deployStackPayload]{
 		Name: stepReconcileResources, Attributes: attrs, Run: d.reconcileStackResources,
 	})
@@ -59,16 +58,8 @@ func (d *Deployer) newDeployStackPipeline() *pipe.Pipeline[*deployStackPayload] 
 }
 
 func (d *Deployer) newDeployServicePipeline() *pipe.Pipeline[*deployServicePayload] {
-	pipeline := pipe.NewPipelineWithConfig[*deployServicePayload](pipe.Config{
-		PipelineName: "deployer.DeployService",
-		Logger:       faults.NewSafeLogger(slog.Default()),
-	})
-	attrs := pipe.Attributes[*deployServicePayload]{Trace: func(payload *deployServicePayload) []attribute.KeyValue {
-		return []attribute.KeyValue{
-			tracing.ResourceStackName.String(payload.stackName),
-			tracing.ResourceServiceName.String(payload.serviceName),
-		}
-	}}
+	pipeline := pipe.NewPipelineWithConfig[*deployServicePayload](pipelineConfig(deployServicePipelineName))
+	attrs := pipe.Attributes[*deployServicePayload]{Trace: serviceTraceAttributes}
 	pipeline.Add(pipe.Step[*deployServicePayload]{Name: stepPrepareService, Attributes: attrs, Run: d.prepareService})
 	pipeline.Add(pipe.Step[*deployServicePayload]{
 		Name: stepReconcileResources, Attributes: attrs, Run: d.reconcileServiceResources,
@@ -97,16 +88,20 @@ func (d *Deployer) captureStackBaseline(ctx context.Context, payload *deployStac
 	return safePipelineError(d.captureBaseline(ctx, payload.stackName, &payload.applyPayload))
 }
 
-func (d *Deployer) applyStack(_ context.Context, payload *deployStackPayload) error {
-	return safePipelineError(d.stackApplier.Apply(payload.ctx, payload.stackName, payload.deployComposePath))
+func (d *Deployer) applyStack(ctx context.Context, payload *deployStackPayload) error {
+	applyCtx, cancel := payload.stageContext(ctx)
+	defer cancel()
+	return safePipelineError(d.stackApplier.Apply(applyCtx, payload.stackName, payload.deployComposePath))
 }
 
-func (d *Deployer) waitForStack(_ context.Context, payload *deployStackPayload) error {
+func (d *Deployer) waitForStack(ctx context.Context, payload *deployStackPayload) error {
+	waitCtx, cancel := payload.stageContext(ctx)
+	defer cancel()
 	serviceNames := make([]string, 0, len(payload.desired.Services))
 	for _, service := range payload.desired.Services {
 		serviceNames = append(serviceNames, service.Name)
 	}
-	return safePipelineError(d.wait(payload.ctx, waiterpkg.ServiceWaitRequest{
+	return safePipelineError(d.wait(waitCtx, waiterpkg.ServiceWaitRequest{
 		StackName: payload.stackName, ServiceNames: serviceNames, Baseline: payload.baseline, OnlyAffected: true,
 	}))
 }
@@ -127,12 +122,16 @@ func (d *Deployer) captureServiceBaseline(ctx context.Context, payload *deploySe
 	return safePipelineError(d.captureBaseline(ctx, payload.stackName, &payload.applyPayload))
 }
 
-func (d *Deployer) applyService(_ context.Context, payload *deployServicePayload) error {
-	return safePipelineError(d.stackApplier.Apply(payload.ctx, payload.stackName, payload.prepared.Path))
+func (d *Deployer) applyService(ctx context.Context, payload *deployServicePayload) error {
+	applyCtx, cancel := payload.stageContext(ctx)
+	defer cancel()
+	return safePipelineError(d.stackApplier.Apply(applyCtx, payload.stackName, payload.prepared.Path))
 }
 
-func (d *Deployer) waitForService(_ context.Context, payload *deployServicePayload) error {
-	return safePipelineError(d.wait(payload.ctx, waiterpkg.ServiceWaitRequest{
+func (d *Deployer) waitForService(ctx context.Context, payload *deployServicePayload) error {
+	waitCtx, cancel := payload.stageContext(ctx)
+	defer cancel()
+	return safePipelineError(d.wait(waitCtx, waiterpkg.ServiceWaitRequest{
 		StackName: payload.stackName, ServiceNames: []string{payload.serviceName}, Baseline: payload.baseline,
 		OnlyAffected: false,
 	}))
@@ -157,11 +156,101 @@ func safePipelineError(err error) error {
 }
 
 func (d *Deployer) captureBaseline(ctx context.Context, stackName string, payload *applyPayload) error {
-	payload.ctx, payload.cancel = context.WithTimeout(ctx, binaryTimeout)
-	baseline, err := d.serviceWaiter.Snapshot(payload.ctx, stackName)
+	payload.deadline = time.Now().Add(binaryTimeout)
+	if parentDeadline, ok := ctx.Deadline(); ok && parentDeadline.Before(payload.deadline) {
+		payload.deadline = parentDeadline
+	}
+	baselineCtx, cancel := payload.stageContext(ctx)
+	defer cancel()
+	baseline, err := d.serviceWaiter.Snapshot(baselineCtx, stackName)
 	payload.baseline = baseline
 	return err
 }
+
+func pipelineConfig(name string) pipe.Config {
+	return pipe.Config{
+		PipelineName: name,
+		Logger:       faults.NewSafeLogger(slog.Default()),
+		TracerProvider: pipelineTracerProvider{
+			TracerProvider: otel.GetTracerProvider(),
+			pipelineName:   name,
+		},
+	}
+}
+
+// runDeploymentPipeline starts the deployment operation span that gopipe reuses as its pipeline span.
+func runDeploymentPipeline[Payload any](
+	ctx context.Context,
+	pipeline *pipe.Pipeline[Payload],
+	name string,
+	attrs []attribute.KeyValue,
+	payload Payload,
+) error {
+	tracer := otel.GetTracerProvider().Tracer(
+		"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer",
+	)
+	ctx, span := tracer.Start(ctx, name, oteltrace.WithAttributes(attrs...))
+	defer span.End()
+
+	err := pipeline.Run(ctx, payload)
+	if err == nil {
+		span.SetStatus(codes.Ok, "")
+	}
+	return err
+}
+
+func stackTraceAttributes(payload *deployStackPayload) []attribute.KeyValue {
+	return []attribute.KeyValue{
+		tracing.ResourceStackName.String(payload.stackName),
+		tracing.ResourceComposePath.String(payload.deployComposePath),
+	}
+}
+
+func serviceTraceAttributes(payload *deployServicePayload) []attribute.KeyValue {
+	return []attribute.KeyValue{
+		tracing.ResourceStackName.String(payload.stackName),
+		tracing.ResourceServiceName.String(payload.serviceName),
+	}
+}
+
+type pipelineTracerProvider struct {
+	oteltrace.TracerProvider
+	pipelineName string
+}
+
+func (p pipelineTracerProvider) Tracer(name string, options ...oteltrace.TracerOption) oteltrace.Tracer {
+	return pipelineTracer{
+		Tracer:       p.TracerProvider.Tracer(name, options...),
+		pipelineName: p.pipelineName,
+	}
+}
+
+type pipelineTracer struct {
+	oteltrace.Tracer
+	pipelineName string
+}
+
+func (t pipelineTracer) Start(
+	ctx context.Context,
+	spanName string,
+	opts ...oteltrace.SpanStartOption,
+) (context.Context, oteltrace.Span) {
+	if spanName != t.pipelineName {
+		return t.Tracer.Start(ctx, spanName, opts...)
+	}
+
+	span := oteltrace.SpanFromContext(ctx)
+	config := oteltrace.NewSpanStartConfig(opts...)
+	span.SetAttributes(config.Attributes()...)
+	// The caller owns the operation span and ends it after Pipeline.Run returns.
+	return ctx, nonEndingSpan{Span: span}
+}
+
+type nonEndingSpan struct {
+	oteltrace.Span
+}
+
+func (nonEndingSpan) End(...oteltrace.SpanEndOption) {}
 
 func (d *Deployer) wait(ctx context.Context, request waiterpkg.ServiceWaitRequest) error {
 	if err := d.serviceWaiter.Wait(ctx, request); err != nil {

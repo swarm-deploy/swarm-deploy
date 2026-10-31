@@ -92,9 +92,10 @@ func (d *Deployer) DeployStack(
 		deployComposePath: deployComposePath,
 		desired:           desired,
 	}
-	defer payload.cancelApply()
 
-	err := d.deployStackPipe.Run(ctx, payload)
+	err := runDeploymentPipeline(
+		ctx, d.deployStackPipe, deployStackPipelineName, stackTraceAttributes(payload), payload,
+	)
 	return payload.result, err
 }
 
@@ -117,6 +118,8 @@ func (d *Deployer) DeployService(
 	}
 	defer payload.cleanup()
 
-	err := d.deployServicePipe.Run(ctx, payload)
+	err := runDeploymentPipeline(
+		ctx, d.deployServicePipe, deployServicePipelineName, serviceTraceAttributes(payload), payload,
+	)
 	return payload.result, err
 }

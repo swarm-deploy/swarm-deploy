@@ -2,6 +2,7 @@ package deployer
 
 import (
 	"context"
+	"time"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	stackpkg "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/stack"
@@ -9,15 +10,12 @@ import (
 )
 
 type applyPayload struct {
-	ctx      context.Context
-	cancel   context.CancelFunc
+	deadline time.Time
 	baseline []swarm.StackService
 }
 
-func (p *applyPayload) cancelApply() {
-	if p.cancel != nil {
-		p.cancel()
-	}
+func (p *applyPayload) stageContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithDeadline(ctx, p.deadline)
 }
 
 type deployStackPayload struct {
@@ -43,7 +41,6 @@ type deployServicePayload struct {
 }
 
 func (p *deployServicePayload) cleanup() {
-	p.cancelApply()
 	if p.prepared != nil {
 		p.prepared.Cleanup()
 	}

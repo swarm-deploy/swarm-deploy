@@ -121,6 +121,53 @@ func TestDeployStackSharesApplyDeadlineAcrossSnapshotCLIAndWaiter(t *testing.T) 
 	assert.Less(t, waitRemaining, cliRemaining, "CLI execution must consume convergence time")
 }
 
+func TestDeployServiceSharesApplyDeadlineAcrossSnapshotCLIAndWaiter(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	waiter := NewMockServiceWaitExecutor(ctrl)
+	runner := NewMockRunner(ctrl)
+
+	var snapshotDeadline time.Time
+	waiter.EXPECT().Snapshot(gomock.Any(), "demo").DoAndReturn(
+		func(ctx context.Context, _ string) ([]swarm.StackService, error) {
+			var ok bool
+			snapshotDeadline, ok = ctx.Deadline()
+			require.True(t, ok, "snapshot must use the bounded apply context")
+			return nil, nil
+		},
+	)
+
+	var cliDeadline time.Time
+	runner.EXPECT().Run(gomock.Any(), "stack", "deploy", "-c", gomock.Any(), "demo").DoAndReturn(
+		func(ctx context.Context, _ ...string) (string, error) {
+			var ok bool
+			cliDeadline, ok = ctx.Deadline()
+			require.True(t, ok, "CLI must use the bounded apply context")
+			return "", nil
+		},
+	)
+
+	var waitDeadline time.Time
+	waiter.EXPECT().Wait(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(ctx context.Context, _ ServiceWaitRequest) error {
+			var ok bool
+			waitDeadline, ok = ctx.Deadline()
+			require.True(t, ok, "waiter must use the bounded apply context")
+			return nil
+		},
+	)
+
+	d := &Deployer{
+		secretResolver: newTestSecretResolver(), stackDeployArgs: []string{"stack", "deploy"},
+		runner: runner, initJobRunner: NewMockInitJobExecutor(ctrl), serviceWaiter: waiter,
+	}
+	desired := compose.Compose{Services: compose.Services{{Name: "api"}}}
+
+	_, err := d.DeployService(context.Background(), "demo", "source.yaml", "api", desired, desired)
+	require.NoError(t, err)
+	assert.True(t, snapshotDeadline.Equal(cliDeadline), "snapshot and CLI must share one absolute deadline")
+	assert.True(t, cliDeadline.Equal(waitDeadline), "CLI and waiter must share one absolute deadline")
+}
+
 func TestDeployStackConvergenceTimeoutPreservesDiagnostics(t *testing.T) {
 	manager := swarm.NewMockServiceManager(gomock.NewController(t))
 	replicas := uint64(1)
