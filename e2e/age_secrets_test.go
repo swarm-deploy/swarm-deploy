@@ -14,12 +14,12 @@ import (
 	"time"
 
 	"filippo.io/age"
+	dockernetwork "github.com/docker/docker/api/types/network"
 	dockerswarm "github.com/docker/docker/api/types/swarm"
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/errdefs"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments"
@@ -36,11 +36,10 @@ import (
 	sharedfs "github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 	"github.com/swarm-deploy/swarm-deploy/internal/storage"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
-	"go.yaml.in/yaml/v3"
 )
 
 // TestAgeSecretsOnRealSwarm runs the production GitOps reconciler, renderer,
-// rotation, Docker API, Docker CLI and actual tasks. No Docker APIs are mocked.
+// rotation, Docker API and actual tasks. No Docker APIs are mocked.
 func TestAgeSecretsOnRealSwarm(t *testing.T) {
 	if os.Getenv("SWARM_DEPLOY_E2E") != "1" {
 		t.Skip("set SWARM_DEPLOY_E2E=1 to run against a real initialized Docker Swarm")
@@ -61,6 +60,15 @@ func TestAgeSecretsOnRealSwarm(t *testing.T) {
 				defer cleanupCancel()
 				_, cleanupErr := exec.CommandContext(cleanupCtx, dockerPath, "stack", "rm", stack).CombinedOutput()
 				assert.NoError(t, cleanupErr)
+				assert.Eventually(t, func() bool {
+					_, _, serviceErr := dockerClient.ServiceInspectWithRaw(
+						cleanupCtx, stack+"_check", dockerswarm.ServiceInspectOptions{},
+					)
+					_, networkErr := dockerClient.NetworkInspect(
+						cleanupCtx, stack+"_default", dockernetwork.InspectOptions{},
+					)
+					return errdefs.IsNotFound(serviceErr) && errdefs.IsNotFound(networkErr)
+				}, 20*time.Second, 100*time.Millisecond, "stack resources must be removed before the next case")
 			})
 			identity, err := age.GenerateX25519Identity()
 			require.NoError(t, err)
@@ -88,20 +96,12 @@ secretRotation:
 			require.NoError(t, err)
 			t.Cleanup(func() { assert.NoError(t, db.Close()) })
 
-			// Capture the actual CLI input before the reconciler removes it.
-			capture := filepath.Join(dir, "cli-input.yaml")
+			// Any Docker CLI invocation is a regression: deployments must use the API.
 			wrapperPath := filepath.Join(dir, "docker-wrapper.sh")
 			require.NoError(t, os.WriteFile(wrapperPath, []byte(`#!/bin/sh
-set -eu
-previous=''
-for arg in "$@"; do
-  if [ "$previous" = '-c' ]; then cp "$arg" "$SWARM_AGE_CAPTURE"; fi
-  previous="$arg"
-done
-exec "$SWARM_AGE_DOCKER" "$@"
+echo "unexpected Docker CLI invocation: $*" >&2
+exit 97
 `), 0o700))
-			t.Setenv("SWARM_AGE_CAPTURE", capture)
-			t.Setenv("SWARM_AGE_DOCKER", dockerPath)
 			swarmService := swarm.NewSwarm(dockerClient, wrapperPath)
 			fileSystem := sharedfs.NewLocalFileSystem()
 			stackDeployer := deployer.NewDeployer(100*time.Millisecond, time.Minute, dockerClient, swarmService, &metrics.NopDeploys{},
@@ -125,16 +125,7 @@ exec "$SWARM_AGE_DOCKER" "$@"
 			require.NoError(t, r.Reconcile(ctx, req))
 			waitForRealSwarmTask(t, ctx, dockerPath, stack+"_check", "mounted-age-v1")
 			firstName, firstID := inspectAgeSwarmSecret(t, ctx, dockerClient, stack)
-			cliBytes, err := os.ReadFile(capture)
-			require.NoError(t, err)
-			var cli compose.Compose
-			require.NoError(t, yaml.Unmarshal(cliBytes, &cli))
-			assert.True(t, cli.Secrets["password"].External)
-			assert.Equal(t, firstName, cli.Secrets["password"].Name)
-			assert.Empty(t, cli.Secrets["password"].File)
-			assert.True(t, cli.Secrets["plain"].External)
-			assert.NotContains(t, string(cliBytes), "password.age")
-			assert.NotContains(t, string(cliBytes), "x-init-deploy-jobs")
+			beforeInitFailure := inspectAgeSwarmService(t, ctx, dockerClient, stack)
 			// A deliberately failing init job must prevent regular service deployment,
 			// even though the same valid secret already exists in Swarm.
 			brokenInit := strings.Replace(string(initialManifest), `command: ["test `, `command: ["false && test `, 1)
@@ -143,9 +134,8 @@ exec "$SWARM_AGE_DOCKER" "$@"
 			req.Commit = "init-failure"
 			err = r.Reconcile(ctx, req)
 			require.ErrorContains(t, err, "init job")
-			afterInitFailure, err := os.ReadFile(capture)
-			require.NoError(t, err)
-			assert.Equal(t, cliBytes, afterInitFailure)
+			afterInitFailure := inspectAgeSwarmService(t, ctx, dockerClient, stack)
+			assert.Equal(t, beforeInitFailure.Version.Index, afterInitFailure.Version.Index)
 			require.NoError(t, os.WriteFile(composePath, initialManifest, 0o600))
 			req.Commit = "v1"
 
@@ -184,7 +174,7 @@ exec "$SWARM_AGE_DOCKER" "$@"
 			}
 
 			// The original manifest and ciphertext remain untouched; persisted
-			// desired state, SQLite/WAL, captured CLI YAML and rendered files
+			// desired state, SQLite/WAL and rendered files
 			// must contain neither age plaintext nor the private key.
 			assertAgeFilesSafe(t, dir, identityPath, identity.String())
 			store := deploymentstore.NewStore(db)
@@ -206,12 +196,11 @@ exec "$SWARM_AGE_DOCKER" "$@"
 			require.NoError(t, err)
 			assert.Contains(t, string(original), "file: ./password.age")
 
-			// Invalid ciphertext must fail before invoking the Docker CLI and
-			// leave the currently running stack and existing secrets intact.
+			// Invalid ciphertext must fail before mutating Docker and leave the
+			// currently running stack and existing secrets intact.
 			before, err := swarmService.Secrets.List(ctx, swarm.ListSecretsFilter{StackName: stack})
 			require.NoError(t, err)
-			lastCLI, err := os.ReadFile(capture)
-			require.NoError(t, err)
+			serviceBeforeInvalid := inspectAgeSwarmService(t, ctx, dockerClient, stack)
 			require.NoError(t, os.WriteFile(filepath.Join(dir, "password.age"), []byte("invalid-ciphertext-marker"), 0o600))
 			// Keep the same Compose name: validation must also run when Docker would reuse the Secret.
 			req.Commit = "invalid"
@@ -221,9 +210,8 @@ exec "$SWARM_AGE_DOCKER" "$@"
 			after, err := swarmService.Secrets.List(ctx, swarm.ListSecretsFilter{StackName: stack})
 			require.NoError(t, err)
 			assert.Equal(t, before, after)
-			unchangedCLI, err := os.ReadFile(capture)
-			require.NoError(t, err)
-			assert.Equal(t, lastCLI, unchangedCLI, "Docker CLI must not run after decryption failure")
+			serviceAfterInvalid := inspectAgeSwarmService(t, ctx, dockerClient, stack)
+			assert.Equal(t, serviceBeforeInvalid.Version.Index, serviceAfterInvalid.Version.Index)
 			assertAgeFilesSafe(t, dir, identityPath, identity.String())
 		})
 	}
@@ -266,8 +254,7 @@ secrets:
 
 func inspectAgeSwarmSecret(t *testing.T, ctx context.Context, docker *client.Client, stack string) (string, string) {
 	t.Helper()
-	service, _, err := docker.ServiceInspectWithRaw(ctx, stack+"_check", dockerswarm.ServiceInspectOptions{})
-	require.NoError(t, err)
+	service := inspectAgeSwarmService(t, ctx, docker, stack)
 	refs := service.Spec.TaskTemplate.ContainerSpec.Secrets
 	require.Len(t, refs, 2)
 	for _, ref := range refs {
@@ -282,6 +269,13 @@ func inspectAgeSwarmSecret(t *testing.T, ctx context.Context, docker *client.Cli
 	}
 	t.Fatal("password mount not found")
 	return "", ""
+}
+
+func inspectAgeSwarmService(t *testing.T, ctx context.Context, docker *client.Client, stack string) dockerswarm.Service {
+	t.Helper()
+	service, _, err := docker.ServiceInspectWithRaw(ctx, stack+"_check", dockerswarm.ServiceInspectOptions{})
+	require.NoError(t, err)
+	return service
 }
 
 func assertAgeFilesSafe(t *testing.T, dir, identityPath, privateKey string) {

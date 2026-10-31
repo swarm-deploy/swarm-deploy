@@ -35,10 +35,10 @@ func TestSecretResolverValidatesReusedSecrets(t *testing.T) {
 			secrets.EXPECT().List(gomock.Any(), swarm.ListSecretsFilter{Names: []string{"existing-password"}}).
 				Return([]swarm.Secret{{ID: "existing-id", Name: "existing-password", Labels: map[string]string{"com.docker.stack.namespace": "app"}}}, nil)
 			runner := NewMockRunner(ctrl)
-			runner.EXPECT().Run(gomock.Any(), "-c", "rendered.yaml", "app").Return("", nil)
 			d := &Deployer{resources: newResourceReconciler(&swarm.Swarm{Secrets: secrets}),
 				secretResolver: newTestSecretResolverWithIdentity([]byte(identity.String())), runner: runner,
 				serviceWaiter: newSuccessfulServiceWaiter(t)}
+			wireNativeTestDeployer(t, d)
 			desired := compose.Compose{Secrets: compose.Secrets{"password": {Name: "existing-password", File: "password.age"}}}
 			_, err = d.DeployStack(t.Context(), "app", filepath.Join(dir, "compose.yaml"), "rendered.yaml", desired)
 			require.NoError(t, err)

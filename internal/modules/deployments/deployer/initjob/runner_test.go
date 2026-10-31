@@ -62,6 +62,19 @@ func TestBuildInitServiceSpecMapsCommandToArgsWithoutEntrypoint(t *testing.T) {
 	assert.Equal(t, []string{"./bin/migrate", "up"}, serviceSpec.TaskTemplate.ContainerSpec.Args)
 }
 
+func TestBuildInitServiceSpecUsesReconciledComposeNetworkTargets(t *testing.T) {
+	runner := &InitJobRunner{}
+	serviceSpec, err := runner.buildInitServiceSpec(context.Background(), InitJobSpec{
+		StackName:      "demo",
+		ServiceName:    "api",
+		DefaultNetwork: []string{"default"},
+		NetworkTargets: map[string]string{"default": "network-id"},
+		Job:            compose.InitJob{Name: "migrate", Image: "alpine:3"},
+	}, "migrate-test")
+	require.NoError(t, err)
+	assert.Equal(t, []swarm.NetworkAttachmentConfig{{Target: "network-id"}}, serviceSpec.TaskTemplate.Networks)
+}
+
 func TestBuildInitServiceSpecUsesResolvedResourceIDs(t *testing.T) {
 	runner := &InitJobRunner{swarmService: &swarmclient.Swarm{}}
 
@@ -164,7 +177,9 @@ func TestInitJobRunnerCollectsLogsAfterTimeoutWithDetachedBoundedContext(t *test
 		client.WithHost(server.URL), client.WithHTTPClient(server.Client()), client.WithVersion("1.48"),
 	)
 	require.NoError(t, err)
-	runner := newTestInitJobRunner(50*time.Millisecond, 5*time.Millisecond, dockerClient)
+	// Leave enough time for service creation even on a loaded test runner; the
+	// always-running task still guarantees that the job reaches its timeout.
+	runner := newTestInitJobRunner(10*time.Millisecond, 100*time.Millisecond, dockerClient)
 
 	execution, runErr := runner.Run(t.Context(), InitJobSpec{
 		StackName: "app", ServiceName: "api",

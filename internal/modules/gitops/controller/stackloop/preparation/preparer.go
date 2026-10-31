@@ -152,6 +152,14 @@ func (p *Preparer) attachPipeline(provider trace.TracerProvider) {
 		},
 	})
 
+	p.pipeline.Add(pipe.Step[*preparationPayload]{
+		Name: "prepare bind mount paths",
+		Run: func(_ context.Context, payload *preparationPayload) error {
+			normalizeBindMountPaths(filepath.Dir(payload.prepared.Desired.Path), payload.prepared.Desired.Compose.Services)
+			return nil
+		},
+	})
+
 	if p.cfg.Spec.Containers.Downward != nil {
 		p.pipeline.Add(pipe.Step[*preparationPayload]{
 			Name: "add downward",
@@ -244,13 +252,13 @@ func checkImagePolicy(policy config.ImagePolicySpec, desired *compose.File) erro
 	for _, service := range desired.Compose.Services {
 		if code := imagePolicyViolation(policy, service.Image); code != "" {
 			issues = append(issues, compose.ValidationIssue{ResourceType: "service", ResourceName: service.Name,
-				Field: "image", Code: code, Message: imagePolicyViolationMessage(code, service.Image)})
+				Field: "image", Code: code, Message: imagePolicyViolationMessage(code)})
 		}
 		for _, job := range service.InitJobs {
 			if code := imagePolicyViolation(policy, job.Image); code != "" {
 				issues = append(issues, compose.ValidationIssue{ResourceType: "service", ResourceName: service.Name,
 					Field: fmt.Sprintf("x-init-deploy-jobs[%q].image", job.Name), Code: code,
-					Message: fmt.Sprintf("init job %q: %s", job.Name, imagePolicyViolationMessage(code, job.Image))})
+					Message: fmt.Sprintf("init job %q: %s", job.Name, imagePolicyViolationMessage(code))})
 			}
 		}
 	}
@@ -296,16 +304,16 @@ func ImagePolicyViolation(policy config.ImagePolicySpec, image string) string {
 	return imagePolicyViolation(policy, image)
 }
 
-func imagePolicyViolationMessage(code, image string) string {
+func imagePolicyViolationMessage(code string) string {
 	switch code {
 	case imageViolationInvalid:
-		return fmt.Sprintf("image reference %q is invalid", image)
+		return "image reference is invalid"
 	case imageViolationRequired:
-		return fmt.Sprintf("image %q must have an explicit tag or digest", image)
+		return "image must have an explicit tag or digest"
 	case imageViolationLatest:
-		return fmt.Sprintf("image %q must not use the latest tag", image)
+		return "image must not use the latest tag"
 	case imageViolationOnlySHA:
-		return fmt.Sprintf("image %q must use a digest", image)
+		return "image must use a digest"
 	default:
 		return "image policy rejected the service image"
 	}
@@ -403,8 +411,21 @@ func (p *Preparer) normalizeRenderedObjectFilePaths(file *compose.File) {
 	baseDir := filepath.Dir(file.Path)
 	normalizeConfigFilePaths(baseDir, file.Compose.Configs)
 	normalizeSecretFilePaths(baseDir, file.Compose.Secrets)
+	normalizeBindMountPaths(baseDir, file.Compose.Services)
 	for index, service := range file.Compose.Services {
 		file.Compose.Services[index].EnvFiles = normalizeEnvFiles(p.git.WorkingDir(), baseDir, service.EnvFiles)
+	}
+}
+
+func normalizeBindMountPaths(baseDir string, services compose.Services) {
+	for serviceIndex := range services {
+		for _, volume := range services[serviceIndex].Volumes.Volumes {
+			if volume == nil || volume.Type != compose.ServiceVolumeTypeBind || volume.Source == "" ||
+				filepath.IsAbs(volume.Source) {
+				continue
+			}
+			volume.Source = filepath.Clean(filepath.Join(baseDir, volume.Source))
+		}
 	}
 }
 

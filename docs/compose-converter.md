@@ -2,8 +2,9 @@
 
 The `internal/modules/deployments/deployer/converter` package converts a complete,
 prepared `compose.Compose` into final Docker `swarm.ServiceSpec` values and network
-specifications. It is the first part of the v0.15.0 migration away from
-`docker stack deploy`. It is deliberately **not wired into deployment execution**.
+specifications. The deployment pipeline uses this result to reconcile networks,
+run Init Jobs against resolved resources, and create or update services through
+the Docker API without invoking `docker stack deploy`.
 
 ```go
 converter := converter.New(swarmService.Networks, swarmService.Configs, swarmService.Secrets)
@@ -87,13 +88,11 @@ pointers with the returned specs.
 network, config or secret is missing. It does not substitute names for IDs,
 select an older rotated resource, or return partial ServiceSpecs.
 
-The future apply pipeline must reconcile Compose networks and run the existing
-config/secret reconciliation **before** final conversion, including on first
-deployment. Network reconciliation must also precede Init Jobs that need those
-networks. A future integration can reuse the package's network-spec conversion
-when adding that reconciliation; this PR introduces no partial-plan API and no
-reconciler. After resources exist, the same Convert call produces final specs
-without any Deployer enrichment.
+The apply pipeline validates the stack, uses `PlanNetworks` to reconcile
+Compose-owned networks, and runs the existing config/secret reconciliation
+**before** final conversion, including on first deployment. Network reconciliation
+also precedes Init Jobs, which receive the reconciled network IDs. After resources
+exist, the same `Convert` call produces final specs without Deployer enrichment.
 
 ## Validation and limitations
 
@@ -127,17 +126,64 @@ Compatibility assertions use Docker CLI v28.3.3's
 [volume conversion](https://github.com/docker/cli/blob/v28.3.3/cli/compose/convert/volume.go)
 and [stack labels/network conversion](https://github.com/docker/cli/blob/v28.3.3/cli/compose/convert/compose.go)
 as references. Unit tests do not execute Docker CLI or require a cluster. No
-Docker CLI/Compose library is added to the runtime dependency graph.
+complete Docker CLI/Compose loader is added to the runtime dependency graph.
 
-## Follow-up to replace Docker CLI
+## Source interpolation
 
-1. Reconcile Compose-owned networks before Init Jobs/final conversion, reusing
-   this package's network naming/spec logic. Retain the existing config/secret
-   reconciler and ensure its resolved metadata can be reused to avoid rereads.
-2. Add service create/update/remove operations through `internal/swarm`, including
-   version conflicts and pruning. Consume the final ServiceSpecs as returned.
-3. Reuse `internal/registry.AuthManager` for Docker operation options. Registry
-   authentication is not a ServiceSpec field; image digest/platform discovery is
-   also separate from Compose conversion and remains future work.
-4. Wire the API executor into Deployer while retaining InitJobRunner and
-   ServiceWaiter, verify real-cluster compatibility, then remove CLI configuration.
+`internal/compose` interpolates source YAML values once, before model decoding,
+resource payload reads and GitOps image-policy checks. It uses Docker CLI
+v28.3.3's `cli/compose/template` and `cli/compose/interpolation` packages directly;
+the Converter receives effective values and never interpolates or unescapes them.
+Full-stack deployment and single-service remediation (including JSON snapshots)
+therefore use the same values, independently of subsequent process-environment changes.
+
+The supported stack-CLI expressions are `$VAR`, `${VAR}`, `${VAR:-default}`,
+`${VAR-default}`, `${VAR:?error}`, `${VAR?error}`, and `$$`. Unset simple variables
+become empty strings. Defaults distinguish unset from empty variables. Inserted
+values and defaults are not recursively expanded; nested expansions and newer
+Compose operators such as `${VAR:+value}` are not added. Mapping keys are literal.
+Scalar commands are interpolated before shell tokenization; list argument
+boundaries remain intact, including `$$(...)` shell commands.
+
+The interpolation environment is the controller process environment, as with the
+previous stack CLI. Service `environment` and `env_file` are not interpolation
+sources, and `.env` files are not loaded automatically. Env-file payloads remain
+literal, with later files taking precedence and explicit `environment` overriding
+them (including empty values). Config and secret payloads are never interpolated.
+The controller's `x-init-deploy-jobs` extension retains its existing literal
+command/environment semantics; those jobs have always executed directly rather
+than through the stack CLI, so their `$()` shell expressions remain untouched.
+
+Source digests still hash source YAML and referenced payloads, not process
+environment values. Changing only the controller environment is not itself a
+source-change trigger. The raw `compose.Parse` API used for Git source diffs
+does not interpolate. Only `FileLoader.Load` builds interpolated effective models.
+Interpolation diagnostics omit input values and custom
+required-variable messages to keep them out of logs and traces.
+
+## Native apply behavior and remaining cleanup
+
+Deployment-owned networks are created or validated before Init Jobs. External
+networks must already exist and are never modified. Named volumes remain mount
+specifications in each service, so Swarm workers create ordinary volumes locally;
+the deployment path never creates, migrates, prunes, or deletes volumes.
+
+Services are inspected by exact Docker name, ownership-checked, and compared after
+normalizing Docker defaults, empty collections, registry-resolved image digests,
+and registry-populated platforms. Changed services use optimistic versioned
+updates with bounded conflict retries. Partial application is retained for the
+next reconciliation rather than rolled back.
+
+Registry credentials come from `internal/registry.AuthManager` and are passed only
+in Docker create/update options. Docker's `QueryRegistry` behavior performs digest
+and platform resolution. The deployment code does not implement separate manifest
+resolution or platform selection, so registry availability and daemon resolution
+behavior remain operational dependencies. When an inspected service retains the
+same `com.docker.stack.image` tag, its daemon-resolved digest/platform metadata is
+treated as equivalent to the original tag to avoid needless rollouts. Consequently,
+moving a registry tag without a Compose/image-policy change is not itself a signal
+to refresh that service in this deployment path.
+
+The legacy Docker binary configuration and inactive CLI helper remain temporarily
+for the planned PR 3 cleanup. They are not reachable from the active full-stack or
+single-service deployment pipelines.

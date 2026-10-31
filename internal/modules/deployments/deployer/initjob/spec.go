@@ -21,47 +21,10 @@ func (r *InitJobRunner) buildInitServiceSpec(
 	containerSpec := &dockerswarm.ContainerSpec{
 		Image: spec.Job.Image, Command: spec.Job.Entrypoint, Args: spec.Job.Command,
 	}
-	if len(spec.Job.Environment.Map) > 0 {
-		containerSpec.Env = make([]string, 0, len(spec.Job.Environment.Map))
-		for key, val := range spec.Job.Environment.Map {
-			containerSpec.Env = append(containerSpec.Env, fmt.Sprintf("%s=%s", key, val))
-		}
-	}
-
-	networks := spec.Job.Networks.GetNames()
-	if len(networks) == 0 {
-		networks = spec.DefaultNetwork
-	}
-	networks = uniqueStrings(networks)
-	networkAttachments := make([]dockerswarm.NetworkAttachmentConfig, 0, len(networks))
-	for _, network := range networks {
-		target := r.resolveNetworkTarget(ctx, spec.StackName, network)
-		if target != "" {
-			networkAttachments = append(networkAttachments, dockerswarm.NetworkAttachmentConfig{Target: target})
-		}
-	}
-
-	for _, secret := range mergeObjectRefs(spec.ServiceSecrets, spec.Job.Secrets) {
-		ref := resolvedSecretReference(secret, spec.ResolvedSecrets)
-		if ref == nil {
-			var err error
-			ref, err = r.swarmService.Secrets.ResolveReference(ctx, secret.Source, secret.Target)
-			if err != nil {
-				return dockerswarm.ServiceSpec{}, err
-			}
-		}
-		containerSpec.Secrets = append(containerSpec.Secrets, ref)
-	}
-	for _, cfg := range mergeObjectRefs(spec.ServiceConfigs, spec.Job.Configs) {
-		ref := resolvedConfigReference(cfg, spec.ResolvedConfigs)
-		if ref == nil {
-			var err error
-			ref, err = r.swarmService.Configs.ResolveReference(ctx, cfg.Source, cfg.Target)
-			if err != nil {
-				return dockerswarm.ServiceSpec{}, err
-			}
-		}
-		containerSpec.Configs = append(containerSpec.Configs, ref)
+	containerSpec.Env = initJobEnvironment(spec.Job.Environment.Map)
+	networkAttachments := r.initJobNetworks(ctx, spec)
+	if err := r.addInitJobObjects(ctx, spec, containerSpec); err != nil {
+		return dockerswarm.ServiceSpec{}, err
 	}
 
 	replicas := uint64(1)
@@ -74,6 +37,76 @@ func (r *InitJobRunner) buildInitServiceSpec(
 			RestartPolicy: &dockerswarm.RestartPolicy{Condition: dockerswarm.RestartPolicyConditionNone}},
 		Mode: dockerswarm.ServiceMode{Replicated: &dockerswarm.ReplicatedService{Replicas: &replicas}},
 	}, nil
+}
+
+func initJobEnvironment(environment map[string]string) []string {
+	if len(environment) == 0 {
+		return nil
+	}
+	env := make([]string, 0, len(environment))
+	for key, value := range environment {
+		env = append(env, fmt.Sprintf("%s=%s", key, value))
+	}
+	return env
+}
+
+func (r *InitJobRunner) initJobNetworks(ctx context.Context, spec Spec) []dockerswarm.NetworkAttachmentConfig {
+	networks := networkAliases(spec.Job.Networks)
+	if len(networks) == 0 {
+		networks = spec.DefaultNetwork
+	}
+
+	attachments := make([]dockerswarm.NetworkAttachmentConfig, 0, len(networks))
+	for _, network := range uniqueStrings(networks) {
+		target := spec.NetworkTargets[network]
+		if target == "" {
+			target = r.resolveNetworkTarget(ctx, spec.StackName, network)
+		}
+		if target != "" {
+			attachments = append(attachments, dockerswarm.NetworkAttachmentConfig{Target: target})
+		}
+	}
+	return attachments
+}
+
+func (r *InitJobRunner) addInitJobObjects(
+	ctx context.Context,
+	spec Spec,
+	containerSpec *dockerswarm.ContainerSpec,
+) error {
+	for _, secret := range mergeObjectRefs(spec.ServiceSecrets, spec.Job.Secrets) {
+		ref := resolvedSecretReference(secret, spec.ResolvedSecrets)
+		if ref == nil {
+			var err error
+			ref, err = r.swarmService.Secrets.ResolveReference(ctx, secret.Source, secret.Target)
+			if err != nil {
+				return err
+			}
+		}
+		containerSpec.Secrets = append(containerSpec.Secrets, ref)
+	}
+	for _, cfg := range mergeObjectRefs(spec.ServiceConfigs, spec.Job.Configs) {
+		ref := resolvedConfigReference(cfg, spec.ResolvedConfigs)
+		if ref == nil {
+			var err error
+			ref, err = r.swarmService.Configs.ResolveReference(ctx, cfg.Source, cfg.Target)
+			if err != nil {
+				return err
+			}
+		}
+		containerSpec.Configs = append(containerSpec.Configs, ref)
+	}
+	return nil
+}
+
+func networkAliases(networks *compose.ServiceNetworks) []string {
+	if networks == nil {
+		return nil
+	}
+	if aliases := networks.GetAliases(); len(aliases) > 0 {
+		return aliases
+	}
+	return networks.GetNames()
 }
 
 func resolvedSecretReference(

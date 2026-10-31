@@ -42,6 +42,57 @@ func newServiceManager(dockerClient *client.Client) *serviceManager {
 	}
 }
 
+// Inspect returns the complete Docker service, including its specification and version.
+func (m *serviceManager) Inspect(ctx context.Context, serviceIDOrName string) (dockerswarm.Service, error) {
+	service, _, err := m.dockerClient.ServiceInspectWithRaw(
+		ctx, serviceIDOrName, dockerswarm.ServiceInspectOptions{},
+	)
+	if err != nil {
+		if isNotFoundErr(err) {
+			return dockerswarm.Service{}, ErrServiceNotFound
+		}
+		return dockerswarm.Service{}, fmt.Errorf("inspect service %s: %w", serviceIDOrName, err)
+	}
+	return service, nil
+}
+
+// Create creates a Docker Swarm service and returns its identifier.
+func (m *serviceManager) Create(
+	ctx context.Context,
+	spec dockerswarm.ServiceSpec,
+	options dockerswarm.ServiceCreateOptions,
+) (string, error) {
+	response, err := m.dockerClient.ServiceCreate(ctx, spec, options)
+	if err != nil {
+		if cerrdefs.IsConflict(err) {
+			return "", fmt.Errorf("create service %s: %w", spec.Name, ErrServiceConflict)
+		}
+		return "", fmt.Errorf("create service %s: %w", spec.Name, err)
+	}
+	return response.ID, nil
+}
+
+// Update replaces a Docker Swarm service specification using optimistic versioning.
+func (m *serviceManager) Update(
+	ctx context.Context,
+	serviceID string,
+	version dockerswarm.Version,
+	spec dockerswarm.ServiceSpec,
+	options dockerswarm.ServiceUpdateOptions,
+) error {
+	_, err := m.dockerClient.ServiceUpdate(ctx, serviceID, version, spec, options)
+	if err != nil {
+		if cerrdefs.IsConflict(err) {
+			return fmt.Errorf("update service %s: %w", spec.Name, ErrServiceConflict)
+		}
+		if isNotFoundErr(err) {
+			return fmt.Errorf("update service %s: %w", spec.Name, ErrServiceNotFound)
+		}
+		return fmt.Errorf("update service %s: %w", spec.Name, err)
+	}
+	return nil
+}
+
 // GetReplicas returns desired replicas count for a stack service.
 func (m *serviceManager) GetReplicas(
 	ctx context.Context,

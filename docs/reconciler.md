@@ -8,7 +8,7 @@ A reconciliation run loads the configured Compose file, computes its effective d
 
 The current pipeline is:
 
-1. Load Compose.
+1. Load Compose and interpolate source YAML values using Docker stack CLI semantics (see [source interpolation](./compose-converter.md#source-interpolation)).
 2. [Check image policy when at least one image rule is enabled](./image-policy.md).
 3. Populate service environment from `env_file`.
 4. [Inject Downward metadata when enabled](./downward.md).

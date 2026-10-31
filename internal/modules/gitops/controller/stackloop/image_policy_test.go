@@ -105,7 +105,7 @@ func TestCheckImagePolicyValidatesInitJobs(t *testing.T) {
 			assert.Equal(t, `x-init-deploy-jobs["migrate"].image`, validationErr.Issues[0].Field)
 			assert.Equal(t, testCase.code, validationErr.Issues[0].Code)
 			assert.Contains(t, validationErr.Issues[0].Message, `init job "migrate"`)
-			assert.Contains(t, validationErr.Issues[0].Message, testCase.image)
+			assert.NotContains(t, validationErr.Issues[0].Message, testCase.image)
 		})
 	}
 }
@@ -138,21 +138,21 @@ func TestCheckImagePolicyReturnsAllStructuredIssues(t *testing.T) {
 	require.Len(t, validationErr.Issues, 4)
 	assert.Equal(t, compose.ValidationIssue{
 		ResourceType: "service", ResourceName: "api", Field: "image", Code: preparation.ImageViolationLatest,
-		Message: `image "nginx:latest" must not use the latest tag`,
+		Message: `image must not use the latest tag`,
 	}, validationErr.Issues[0])
 	assert.Equal(t, compose.ValidationIssue{
 		ResourceType: "service", ResourceName: "api", Field: `x-init-deploy-jobs["migrate"].image`,
 		Code:    preparation.ImageViolationLatest,
-		Message: `init job "migrate": image "example/migrate:latest" must not use the latest tag`,
+		Message: `init job "migrate": image must not use the latest tag`,
 	}, validationErr.Issues[1])
 	assert.Equal(t, compose.ValidationIssue{
 		ResourceType: "service", ResourceName: "worker", Field: "image", Code: preparation.ImageViolationLatest,
-		Message: `image "registry.example/worker" must not use the latest tag`,
+		Message: `image must not use the latest tag`,
 	}, validationErr.Issues[2])
 	assert.Equal(t, compose.ValidationIssue{
 		ResourceType: "service", ResourceName: "worker", Field: `x-init-deploy-jobs["seed"].image`,
 		Code:    preparation.ImageViolationLatest,
-		Message: `init job "seed": image "example/seed" must not use the latest tag`,
+		Message: `init job "seed": image must not use the latest tag`,
 	}, validationErr.Issues[3])
 	assert.Contains(t, validationErr.Error(), `service "api": image:`)
 	assert.Contains(t, validationErr.Error(), `service "api": x-init-deploy-jobs["migrate"].image:`)

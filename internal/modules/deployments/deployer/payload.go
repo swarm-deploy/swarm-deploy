@@ -5,13 +5,14 @@ import (
 	"time"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
-	stackpkg "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/stack"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/converter"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 
 type applyPayload struct {
 	deadline time.Time
 	baseline []swarm.StackService
+	affected []string
 }
 
 func (p *applyPayload) stageContext(ctx context.Context) (context.Context, context.CancelFunc) {
@@ -24,6 +25,7 @@ type deployStackPayload struct {
 	sourceComposePath string
 	deployComposePath string
 	desired           compose.Compose
+	converted         *converter.StackSpec
 	resolved          resolvedResources
 	result            Result
 }
@@ -35,13 +37,8 @@ type deployServicePayload struct {
 	serviceName       string
 	desired           compose.Compose
 	deploy            compose.Compose
-	prepared          *stackpkg.PreparedService
+	prepared          compose.Compose
+	converted         *converter.StackSpec
 	resolved          resolvedResources
 	result            Result
-}
-
-func (p *deployServicePayload) cleanup() {
-	if p.prepared != nil {
-		p.prepared.Cleanup()
-	}
 }

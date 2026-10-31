@@ -71,6 +71,53 @@ func TestConvertMinimalAndEmpty(t *testing.T) {
 	}
 }
 
+func TestPlanNetworksUsesConverterNamingWithoutDockerReads(t *testing.T) {
+	converter, _, _, _ := newTestConverter(t)
+	planned, err := converter.PlanNetworks("demo", parseStack(t, `
+services:
+  app:
+    image: nginx:alpine
+    networks: [backend, edge]
+networks:
+  backend:
+    driver_opts: {encrypted: ''}
+    attachable: true
+  edge:
+    name: shared-edge
+    external: true
+`))
+	require.NoError(t, err)
+	require.Len(t, planned, 2)
+	assert.Equal(t, NetworkSpec{Alias: "backend", Spec: swarm.CreateNetworkRequest{
+		Name: "demo_backend", Driver: "overlay", Attachable: true,
+		Options: map[string]string{"encrypted": ""},
+		Labels:  map[string]string{"com.docker.stack.namespace": "demo"},
+	}}, planned[0])
+	assert.Equal(t, NetworkSpec{Alias: "edge", External: true,
+		Spec: swarm.CreateNetworkRequest{Name: "shared-edge"}}, planned[1])
+}
+
+func TestPlanNetworksIncludesImplicitDefaultNeededByInitJob(t *testing.T) {
+	converter, _, _, _ := newTestConverter(t)
+	planned, err := converter.PlanNetworks("demo", parseStack(t, `
+services:
+  app:
+    image: nginx:alpine
+    networks: [backend]
+    x-init-deploy-jobs:
+      - name: migrate
+        image: alpine:3
+        networks: [default]
+networks:
+  backend: {}
+`))
+	require.NoError(t, err)
+	require.Len(t, planned, 2)
+	assert.Equal(t, "backend", planned[0].Alias)
+	assert.Equal(t, "default", planned[1].Alias)
+	assert.Equal(t, "demo_default", planned[1].Spec.Name)
+}
+
 const completeStack = `
 version: '3.8'
 x-meta: {owner: test}
@@ -431,6 +478,12 @@ volumes: {data: {name: explicitly-named}}
 	assert.Equal(t, "subdir", container.Mounts[0].VolumeOptions.Subpath)
 	assert.True(t, container.Mounts[1].VolumeOptions.NoCopy)
 	assert.Equal(t, os.FileMode(0o1777), container.Mounts[2].TmpfsOptions.Mode)
+}
+
+func TestCommandWordsPreservesEffectiveDollar(t *testing.T) {
+	words, err := commandWords(compose.NewCommand([]string{"sh", "-ec", "echo $$(date)"}))
+	require.NoError(t, err)
+	assert.Equal(t, []string{"sh", "-ec", "echo $$(date)"}, words)
 }
 
 func TestConvertInitJobNetworkDependencies(t *testing.T) {

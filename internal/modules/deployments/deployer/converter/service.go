@@ -74,14 +74,21 @@ func convertService(
 }
 
 func commandWords(command compose.Command) ([]string, error) {
-	if command.IsList() || len(command.Args) == 0 {
-		return slices.Clone(command.Args), nil
-	}
-	if len(command.Args) != 1 {
+	var words []string
+	switch {
+	case command.IsList() || len(command.Args) == 0:
+		words = slices.Clone(command.Args)
+	case len(command.Args) != 1:
 		return nil, fmt.Errorf("invalid scalar command")
+	default:
+		var err error
+		// Compose scalar commands use shell tokenization, without invoking a shell.
+		words, err = shlex.Split(command.Args[0], true)
+		if err != nil {
+			return nil, err
+		}
 	}
-	// Compose scalar commands use shell tokenization, without invoking a shell.
-	return shlex.Split(command.Args[0], true)
+	return words, nil
 }
 
 func capabilities(add, drop []string) ([]string, []string) {

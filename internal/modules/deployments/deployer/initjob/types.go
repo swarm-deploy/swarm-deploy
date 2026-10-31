@@ -35,9 +35,11 @@ type Result struct {
 
 // Spec contains the deployment context required to execute one Init Job.
 type Spec struct {
-	StackName       string
-	ServiceName     string
-	DefaultNetwork  []string
+	StackName      string
+	ServiceName    string
+	DefaultNetwork []string
+	// NetworkTargets maps Compose network aliases to reconciled Docker network IDs.
+	NetworkTargets  map[string]string
 	ServiceSecrets  []compose.ObjectRef
 	ServiceConfigs  []compose.ObjectRef
 	ResolvedSecrets map[string]resources.ResolvedResource

@@ -108,6 +108,7 @@ func TestReconcileAgeSecretFailuresDoNotReachCLI(t *testing.T) {
 			runner := NewMockRunner(ctrl)
 			d := &Deployer{secretResolver: newTestSecretResolverWithIdentity(tt.key), resources: newResourceReconciler(&swarm.Swarm{Secrets: secrets}), runner: runner,
 				serviceWaiter: newSuccessfulServiceWaiter(t)}
+			wireNativeTestDeployer(t, d)
 			_, err := d.DeployStack(t.Context(), "app", filepath.Join(dir, "compose.yaml"), "unused", compose.Compose{
 				Secrets: compose.Secrets{"password": {File: "password.age", Driver: tt.driver}},
 			})

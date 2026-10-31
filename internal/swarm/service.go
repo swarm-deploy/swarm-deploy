@@ -11,6 +11,9 @@ import (
 // ErrServiceNotFound means that service does not exist in swarm.
 var ErrServiceNotFound = errors.New("service not found")
 
+// ErrServiceConflict means that a service create or update conflicted with concurrent Docker state.
+var ErrServiceConflict = errors.New("service conflict")
+
 // ErrTaskNotFound means that task does not exist in swarm.
 var ErrTaskNotFound = errors.New("task not found")
 

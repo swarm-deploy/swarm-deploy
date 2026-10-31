@@ -22,11 +22,11 @@ type StackSpec struct {
 	Services []dockerswarm.ServiceSpec
 }
 
-// NetworkSpec describes a stack network and its existing Docker identity.
+// NetworkSpec describes a stack network and, after conversion, its existing Docker identity.
 type NetworkSpec struct {
 	// Alias is the Compose network key.
 	Alias string
-	// ID identifies the already reconciled Docker network.
+	// ID identifies the already reconciled Docker network; plans leave it empty.
 	ID string
 	// External marks networks that must not be managed as stack-owned resources.
 	External bool
@@ -46,11 +46,34 @@ func New(networks swarm.NetworkManager, configs swarm.ConfigManager, secrets swa
 	return &Converter{networks: networks, configs: configs, secrets: secrets}
 }
 
+// Validate checks whether desired can be converted without reading or changing Docker state.
+func (*Converter) Validate(stackName string, desired compose.Compose) error {
+	return validateStack(stackName, desired)
+}
+
+// PlanNetworks returns the desired network specifications without reading or changing Docker state.
+// The result uses the same naming, default-network, labels, and option conversion as Convert.
+func (c *Converter) PlanNetworks(stackName string, desired compose.Compose) ([]NetworkSpec, error) {
+	if err := c.Validate(stackName, desired); err != nil {
+		return nil, err
+	}
+	definitions := networkDefinitions(desired)
+	result := make([]NetworkSpec, 0, len(definitions))
+	for _, alias := range sortedKeys(definitions) {
+		definition := definitions[alias]
+		name := resourceName(stackName, alias, definition.Name, definition.External)
+		result = append(result, NetworkSpec{
+			Alias: alias, External: definition.External, Spec: networkSpec(stackName, name, definition),
+		})
+	}
+	return result, nil
+}
+
 // Convert builds final specifications. Missing resources produce an error and no partial result.
 // Prepared Compose must already contain interpolated values, populated env files and rotated names.
 // The caller must reconcile networks/configs/secrets before calling Convert, including on first deploy.
 func (c *Converter) Convert(ctx context.Context, stackName string, desired compose.Compose) (*StackSpec, error) {
-	if err := validateStack(stackName, desired); err != nil {
+	if err := c.Validate(stackName, desired); err != nil {
 		return nil, err
 	}
 	networks, err := c.convertNetworks(ctx, stackName, desired)

@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -20,7 +21,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 
-// TestDeployStackOnRealSwarm exercises the actual Docker Engine, Docker CLI, and a
+// TestDeployStackOnRealSwarm exercises the actual Docker Engine API and a
 // running Swarm task. It must not be replaced with a mocked Docker API fixture.
 func TestDeployStackOnRealSwarm(t *testing.T) {
 	if os.Getenv("SWARM_DEPLOY_E2E") != "1" {
@@ -36,27 +37,13 @@ func TestDeployStackOnRealSwarm(t *testing.T) {
 
 	stack := fmt.Sprintf("sdreconcile%d", time.Now().UnixNano())
 	dir := t.TempDir()
-	preflightLog := filepath.Join(dir, "preflight.log")
 	wrapperPath := filepath.Join(dir, "docker-wrapper.sh")
-	// The wrapper inspects real Swarm resources BEFORE it invokes docker stack deploy.
-	// A regression that lets Docker CLI create resources instead of the reconciler
-	// must fail here, rather than accidentally pass after Docker CLI creates them.
+	// Any Docker CLI invocation is a regression: deployments must use the API.
 	wrapper := `#!/bin/sh
-set -eu
-if [ "$1" = "stack" ] && [ "$2" = "deploy" ]; then
-  "$SWARM_E2E_REAL_DOCKER" secret inspect "$SWARM_E2E_SECRET_NAME" >/dev/null
-  "$SWARM_E2E_REAL_DOCKER" config inspect "$SWARM_E2E_CONFIG_NAME" >/dev/null
-  printf '%s %s\n' "$SWARM_E2E_SECRET_NAME" "$SWARM_E2E_CONFIG_NAME" >> "$SWARM_E2E_PREFLIGHT_LOG"
-fi
-exec "$SWARM_E2E_REAL_DOCKER" "$@"
+echo "unexpected Docker CLI invocation: $*" >&2
+exit 97
 `
 	require.NoError(t, os.WriteFile(wrapperPath, []byte(wrapper), 0o700))
-	absDockerPath, err := filepath.Abs(dockerPath)
-	require.NoError(t, err)
-	t.Setenv("SWARM_E2E_REAL_DOCKER", absDockerPath)
-	t.Setenv("SWARM_E2E_PREFLIGHT_LOG", preflightLog)
-	t.Setenv("SWARM_E2E_SECRET_NAME", stack+"_password")
-	t.Setenv("SWARM_E2E_CONFIG_NAME", stack+"_settings")
 
 	swarmService := swarm.NewSwarm(dockerClient, wrapperPath)
 	stackDeployer := deployer.NewDeployer(100*time.Millisecond, 2*time.Minute, dockerClient, swarmService, nil, deployer.NewSecretResolver(fs.NewLocalFileSystem(), deployer.PlaintextDecoder{}))
@@ -77,33 +64,64 @@ exec "$SWARM_E2E_REAL_DOCKER" "$@"
 	deployFixture(t, ctx, stackDeployer, stack, composePath)
 	secretID1, configID1 := inspectRealSwarmResources(t, ctx, dockerClient, dockerPath, stack, stack+"_password", stack+"_settings")
 	waitForRealSwarmTask(t, ctx, dockerPath, stack+"_check", "mounted-v1")
+	serviceBefore, err := swarmService.Services.Inspect(ctx, stack+"_check")
+	require.NoError(t, err)
+	runningBefore, tasksBefore := realSwarmTaskIDs(t, ctx, swarmService, serviceBefore.ID)
 
 	// Deploying the same stack again must reuse IDs and keep the task healthy.
 	deployFixture(t, ctx, stackDeployer, stack, composePath)
 	secretIDAgain, configIDAgain := inspectRealSwarmResources(t, ctx, dockerClient, dockerPath, stack, stack+"_password", stack+"_settings")
 	assert.Equal(t, secretID1, secretIDAgain, "unchanged secret must be reused")
 	assert.Equal(t, configID1, configIDAgain, "unchanged config must be reused")
+	serviceAgain, err := swarmService.Services.Inspect(ctx, stack+"_check")
+	require.NoError(t, err)
+	assert.Equal(t, serviceBefore.ID, serviceAgain.ID)
+	assert.Equal(t, serviceBefore.Version.Index, serviceAgain.Version.Index, "unchanged deploy must not update the service")
+	assert.Equal(t, serviceBefore.UpdateStatus, serviceAgain.UpdateStatus, "unchanged deploy must not start a rolling update")
+	runningAgain, tasksAgain := realSwarmTaskIDs(t, ctx, swarmService, serviceAgain.ID)
+	assert.Equal(t, runningBefore, runningAgain, "running tasks must not be replaced")
+	assert.Equal(t, tasksBefore, tasksAgain, "unchanged deploy must not schedule any new tasks")
+
+	// Change only the container command, keeping the same secret/config IDs.
+	writeRealSwarmFixture(t, dir, composePath, "", "", "secret-v1", "config-v1", "spec-updated")
+	deployFixture(t, ctx, stackDeployer, stack, composePath)
+	serviceUpdated, err := swarmService.Services.Inspect(ctx, stack+"_check")
+	require.NoError(t, err)
+	assert.Equal(t, serviceBefore.ID, serviceUpdated.ID)
+	assert.Greater(t, serviceUpdated.Version.Index, serviceAgain.Version.Index)
+	require.NotNil(t, serviceUpdated.Spec.TaskTemplate.ContainerSpec)
+	assert.Contains(t, serviceUpdated.Spec.TaskTemplate.ContainerSpec.Args[2], "spec-updated")
+	waitForRealSwarmTask(t, ctx, dockerPath, stack+"_check", "spec-updated")
+	runningUpdated, _ := realSwarmTaskIDs(t, ctx, swarmService, serviceUpdated.ID)
+	assert.NotEqual(t, runningBefore, runningUpdated, "a real task specification change must replace the task")
 
 	// Simulate the names produced by hash-based rotation and verify that
 	// new resource versions are created and mounted in the new task.
 	rotatedSecretName := stack + "-password-v2"
 	rotatedConfigName := stack + "-settings-v2"
-	t.Setenv("SWARM_E2E_SECRET_NAME", rotatedSecretName)
-	t.Setenv("SWARM_E2E_CONFIG_NAME", rotatedConfigName)
 	writeRealSwarmFixture(t, dir, composePath, rotatedSecretName, rotatedConfigName, "secret-v2", "config-v2", "mounted-v2")
 	deployFixture(t, ctx, stackDeployer, stack, composePath)
 	secretID2, configID2 := inspectRealSwarmResources(t, ctx, dockerClient, dockerPath, stack, rotatedSecretName, rotatedConfigName)
 	assert.NotEqual(t, secretID1, secretID2, "rotated secret must be a different Docker object")
 	assert.NotEqual(t, configID1, configID2, "rotated config must be a different Docker object")
 	waitForRealSwarmTask(t, ctx, dockerPath, stack+"_check", "mounted-v2")
-	preflights, err := os.ReadFile(preflightLog)
+}
+
+func realSwarmTaskIDs(t *testing.T, ctx context.Context, service *swarm.Swarm, serviceID string) ([]string, []string) {
+	t.Helper()
+	tasks, err := service.Services.ListTasks(ctx, serviceID)
 	require.NoError(t, err)
-	assert.Equal(t, []string{
-		stack + "_password " + stack + "_settings",
-		stack + "_password " + stack + "_settings",
-		rotatedSecretName + " " + rotatedConfigName,
-	}, strings.Split(strings.TrimSpace(string(preflights)), "\n"),
-		"all three deployments must have resources ready before Docker CLI starts")
+	var running, all []string
+	for _, task := range tasks {
+		all = append(all, task.ID)
+		if task.CurrentState == swarm.TaskStateRunning && task.DesiredState == swarm.TaskStateRunning {
+			running = append(running, task.ID)
+		}
+	}
+	require.Len(t, running, 1, "fixture must have exactly one healthy running task")
+	slices.Sort(running)
+	slices.Sort(all)
+	return running, all
 }
 
 func writeRealSwarmFixture(t *testing.T, dir, composePath, secretName, configName, secretValue, configValue, marker string) {
