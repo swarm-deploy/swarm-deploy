@@ -85,10 +85,10 @@ func New(
 		networkCoordinator, stackReconciler, puller, deployQueue,
 	)
 	return &Controller{
-		deployments: deploymentExecutor,
-		scheduler:   scheduler.New(cfg, runner, deployQueue),
-		deployQueue: deployQueue,
-		event:       eventDispatcher,
+		deployments:  deploymentExecutor,
+		scheduler:    scheduler.New(cfg, runner, deployQueue),
+		deployQueue:  deployQueue,
+		event:        eventDispatcher,
 		cleaner:      preparer,
 		ownership:    newControllerOwnership(cfg.Spec.DataDir),
 		shutdownWait: gracefulReconciliationShutdownTimeout,

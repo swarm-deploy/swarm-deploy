@@ -128,6 +128,7 @@ func (r *Reconciler) pruneOrphanedServices(ctx context.Context, payload *pipelin
 	return nil
 }
 
+//nolint:unparam // Best-effort cleanup keeps the existing caller error contract.
 func (r *Reconciler) cleanRotatedResources(ctx context.Context, payload *pipelinePayload) error {
 	desiredConfigs, desiredSecrets, err := r.composeRotator.DesiredResourceNames(
 		ctx, payload.Desired,
