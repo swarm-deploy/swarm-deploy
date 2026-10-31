@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -464,4 +465,119 @@ func TestConvertRejectsIncorrectNetworkMetadata(t *testing.T) {
 			require.ErrorContains(t, err, "networks.default")
 		})
 	}
+}
+
+func TestConvertPreservesObjectRefSyntaxThroughJSON(t *testing.T) {
+	converter, networks, configs, secrets := newTestConverter(t)
+	networks.EXPECT().Get(gomock.Any(), "demo_default").
+		Return(existingNetwork("demo_default"), nil).Times(2)
+	configs.EXPECT().List(gomock.Any(), swarm.ListConfigsFilter{Names: []string{"demo_explicit", "demo_settings"}}).
+		Return([]swarm.Config{
+			{ID: "config-a", Name: "demo_settings"},
+			{ID: "config-b", Name: "demo_explicit"},
+		}, nil).Times(2)
+	secrets.EXPECT().List(gomock.Any(), swarm.ListSecretsFilter{Names: []string{"demo_token"}}).
+		Return([]swarm.Secret{{ID: "secret-a", Name: "demo_token"}}, nil).Times(2)
+
+	desired := parseStack(t, `
+services:
+  app:
+    image: alpine
+    configs:
+      - settings
+      - {source: explicit, target: /run/secrets/explicit}
+    secrets:
+      - token
+configs: {settings: {}, explicit: {}}
+secrets: {token: {}}
+`)
+	require.True(t, desired.Services[0].Configs[0].IsShortForm())
+	require.False(t, desired.Services[0].Configs[1].IsShortForm())
+	before, err := converter.Convert(context.Background(), "demo", desired)
+	require.NoError(t, err)
+
+	payload, err := json.Marshal(desired)
+	require.NoError(t, err)
+	var restored compose.Compose
+	require.NoError(t, json.Unmarshal(payload, &restored))
+	require.True(t, restored.Services[0].Configs[0].IsShortForm())
+	require.False(t, restored.Services[0].Configs[1].IsShortForm())
+
+	after, err := converter.Convert(context.Background(), "demo", restored)
+	require.NoError(t, err)
+	assert.Equal(t, before, after)
+	require.Len(t, after.Services[0].TaskTemplate.ContainerSpec.Configs, 2)
+	byName := map[string]string{}
+	for _, ref := range after.Services[0].TaskTemplate.ContainerSpec.Configs {
+		byName[ref.ConfigName] = ref.File.Name
+	}
+	assert.Equal(t, "/settings", byName["demo_settings"])
+	assert.Equal(t, "/run/secrets/explicit", byName["demo_explicit"])
+	require.Len(t, after.Services[0].TaskTemplate.ContainerSpec.Secrets, 1)
+	assert.Equal(t, "token", after.Services[0].TaskTemplate.ContainerSpec.Secrets[0].File.Name)
+}
+
+func TestConvertStopGracePeriod(t *testing.T) {
+	thirtySeconds := 30 * time.Second
+	zero := time.Duration(0)
+	for _, tc := range []struct {
+		name, value string
+		expected    *time.Duration
+		error       bool
+	}{
+		{name: "unspecified"},
+		{name: "thirty seconds", value: "30s", expected: &thirtySeconds},
+		{name: "explicit zero", value: "0s", expected: &zero},
+		{name: "invalid duration", value: "invalid", error: true},
+		{name: "negative duration", value: "-1s", error: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			converter, networks, _, _ := newTestConverter(t)
+			networks.EXPECT().Get(gomock.Any(), "demo_default").
+				Return(existingNetwork("demo_default"), nil)
+			desired := parseStack(t, "services: {app: {image: alpine, stop_grace_period: '"+tc.value+"'}}")
+			result, err := converter.Convert(context.Background(), "demo", desired)
+			if tc.error {
+				require.ErrorContains(t, err, "stop_grace_period")
+				assert.Nil(t, result)
+				return
+			}
+			require.NoError(t, err)
+			actual := result.Services[0].TaskTemplate.ContainerSpec.StopGracePeriod
+			if tc.expected == nil {
+				assert.Nil(t, actual)
+			} else {
+				require.NotNil(t, actual)
+				assert.Equal(t, *tc.expected, *actual)
+			}
+		})
+	}
+}
+
+func TestConvertProjectComposeExample(t *testing.T) {
+	// Read the actual repository example to catch unsupported fields in supported Swarm options.
+	raw, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "..", "example", "01-basic", "docker-compose.yaml"))
+	require.NoError(t, err)
+	desired := parseStack(t, string(raw))
+	require.Len(t, desired.Services, 1)
+	// The legacy service-level restart option is ignored by docker stack deploy.
+	// It is deliberately still rejected by the strict converter; remove only that option.
+	require.Contains(t, desired.Services[0].Extra, "restart")
+	delete(desired.Services[0].Extra, "restart")
+
+	converter, networks, configs, _ := newTestConverter(t)
+	networks.EXPECT().Get(gomock.Any(), "demo_default").
+		Return(existingNetwork("demo_default"), nil)
+	configs.EXPECT().List(gomock.Any(), swarm.ListConfigsFilter{Names: []string{"demo_swarm-deploy"}}).
+		Return([]swarm.Config{{ID: "cfg-1", Name: "demo_swarm-deploy"}}, nil)
+
+	result, err := converter.Convert(context.Background(), "demo", desired)
+	require.NoError(t, err)
+	require.Len(t, result.Services, 1)
+	spec := result.Services[0]
+	require.NotNil(t, spec.TaskTemplate.ContainerSpec.StopGracePeriod)
+	assert.Equal(t, 30*time.Second, *spec.TaskTemplate.ContainerSpec.StopGracePeriod)
+	assert.Equal(t, "demo_swarm-deploy", spec.Name)
+	require.Len(t, spec.TaskTemplate.ContainerSpec.Configs, 1)
+	assert.Equal(t, "cfg-1", spec.TaskTemplate.ContainerSpec.Configs[0].ConfigID)
 }

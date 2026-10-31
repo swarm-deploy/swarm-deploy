@@ -78,6 +78,7 @@ func TestConvertInvalidAndUnsupportedOptions(t *testing.T) {
 		{"tmpfs source", "services: {app: {image: alpine, volumes: [{type: tmpfs, source: sensitive, target: /tmp}]}}", "tmpfs"},
 		{"tmpfs size", "services: {app: {image: alpine, volumes: [{type: tmpfs, target: /tmp, tmpfs: {size: sensitive}}]}}", "tmpfs.size"},
 		{"logging without driver", "services: {app: {image: alpine, logging: {options: {max-size: 10m}}}}", "logging.options"},
+		{"bad stop grace period", "services: {app: {image: alpine, stop_grace_period: invalid}}", "stop_grace_period"},
 		{"bad command quoting", `services: {app: {image: alpine, command: "echo 'sensitive"}}`, "command"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

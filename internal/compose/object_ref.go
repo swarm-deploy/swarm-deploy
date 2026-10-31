@@ -19,7 +19,9 @@ type ObjectRef struct {
 
 	Extra map[string]interface{} `yaml:",inline" json:"Extra"`
 
-	isString bool
+	// ShortForm retains the scalar Compose syntax across JSON snapshots.
+	// Configs use a different default target from long-form references.
+	ShortForm bool `yaml:"-" json:"short_form,omitempty"`
 }
 
 type objectRef struct {
@@ -36,7 +38,7 @@ func (r *ObjectRef) UnmarshalYAML(n *yaml.Node) error {
 	if n.Kind == yaml.ScalarNode {
 		r.Source = n.Value
 		r.Target = "/run/secrets/" + n.Value
-		r.isString = true
+		r.ShortForm = true
 
 		return nil
 	}
@@ -63,7 +65,7 @@ func (r *ObjectRef) UnmarshalYAML(n *yaml.Node) error {
 }
 
 func (r ObjectRef) MarshalYAML() (interface{}, error) {
-	if r.isString {
+	if r.ShortForm {
 		return r.Source, nil
 	}
 
@@ -78,4 +80,4 @@ func (r ObjectRef) MarshalYAML() (interface{}, error) {
 }
 
 // IsShortForm reports whether the reference used scalar Compose syntax.
-func (r ObjectRef) IsShortForm() bool { return r.isString }
+func (r ObjectRef) IsShortForm() bool { return r.ShortForm }

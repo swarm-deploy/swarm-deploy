@@ -21,6 +21,13 @@ func convertService(
 	}}
 	spec.Labels["com.docker.stack.image"] = service.Image
 	container := &dockerswarm.ContainerSpec{Image: service.Image, Labels: stackLabels(stackName, service.Labels.Map)}
+	if service.StopGracePeriod != "" {
+		grace, err := duration(service.StopGracePeriod)
+		if err != nil {
+			return spec, fmt.Errorf("stop_grace_period: %w", err)
+		}
+		container.StopGracePeriod = &grace
+	}
 	var err error
 	container.Args, err = commandWords(service.Command)
 	if err != nil {

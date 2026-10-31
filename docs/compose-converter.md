@@ -35,7 +35,7 @@ spec, err := converter.Convert(ctx, stackName, preparedCompose)
 ## Resources and supported fields
 
 Services support image, scalar/list command and entrypoint, environment, container
-and service labels, capabilities, healthchecks (including start interval), ports,
+and service labels, capabilities, healthchecks (including start interval), stop grace period, ports,
 VIP/DNSRR endpoints, network aliases and attachment driver options, mounts,
 config/secret files, logging, replicated/global modes, replicas, placement,
 CPU/memory limits and reservations, PID limits, restart policies, and update and
@@ -67,7 +67,7 @@ size/mode are supported. External volumes carry no creation options and are not
 inspected on the manager: ordinary Swarm volumes belong to individual nodes.
 
 Config and secret references contain the actual ID/name, target, UID/GID and
-file mode (default `0444`, UID/GID `0`). Short-form config targets are `/<alias>`;
+file mode (default `0444`, UID/GID `0`). Short-form config references retain their syntax across JSON snapshots, so their\ntargets are unchanged after serialization. Short-form config targets are `/<alias>`;
 short-form secrets use the alias under Docker's secret directory. This accounts
 for the existing shared ObjectRef parser's secret-style short-form target without
 changing its behavior for existing consumers.
