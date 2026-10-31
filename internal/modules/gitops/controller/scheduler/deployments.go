@@ -57,16 +57,7 @@ func (q *DeploymentQueue) Enqueue(ctx context.Context, req stackloop.Reconciliat
 		q.mu.Unlock()
 		return errors.New("deployment queue stopped")
 	}
-	if existing, ok := q.pending[req.Stack.Name]; ok && existing.request.Commit == req.Commit {
-		q.mu.Unlock()
-		return nil
-	}
-	if q.running[req.Stack.Name] == req.Commit {
-		if _, pending := q.pending[req.Stack.Name]; !pending {
-			q.mu.Unlock()
-			return nil
-		}
-	}
+	// Do not deduplicate by commit SHA: referenced files may change at the same revision.
 	q.mu.Unlock()
 
 	folder, err := snapshotCheckout(ctx, sourceDir, q.snapshots)
