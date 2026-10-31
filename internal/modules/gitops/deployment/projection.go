@@ -65,6 +65,12 @@ func (s *ProjectionSubscriber) project(
 		return nil
 	}
 	return s.runtime.Update(ctx, func(runtime *gitopsmodel.Runtime) {
+		// Deployment events can arrive after a newer GitOps reconciliation that
+		// did not create an Attempt (for example, a preparation failure).
+		current := runtime.Stacks[deployment.Stack]
+		if !current.StateUpdatedAt.IsZero() && !projectionTime(attempt).After(current.StateUpdatedAt) {
+			return
+		}
 		projectRuntime(runtime, deployment, attempt, desired, status, errorCode)
 	})
 }
@@ -78,7 +84,8 @@ func projectRuntime(
 	errorCode string,
 ) {
 	state := runtime.Stacks[deployment.Stack]
-	state.SourceDigest = desired.Digest
+	state.SourceDigest = desired.Definition.Digest
+	state.StateUpdatedAt = projectionTime(attempt)
 	state.LastCommit = deployment.Commit
 	state.LastError = errorCode
 	state.LastDeployAt = attempt.StartedAt
@@ -86,10 +93,7 @@ func projectRuntime(
 		state.Services = map[string]gitopsmodel.Service{}
 	}
 	for _, service := range desired.Definition.Compose.Services {
-		current, exists := state.Services[service.Name]
-		if exists && status == deploymentmodel.Succeeded {
-			continue
-		}
+		current := state.Services[service.Name]
 		current.Image = service.Image
 		current.SyncAt = projectionTime(attempt)
 		current.SyncError = errorCode
