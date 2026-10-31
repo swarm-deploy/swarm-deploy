@@ -83,6 +83,11 @@ func New(
 
 // Cleanup runs rotated config/secret cleanup for one stack without performing reconciliation.
 func (r *Reconciler) Cleanup(ctx context.Context, stack config.StackSpec) error {
+	// Do not delete rotated resources during an active deployment.
+	if !r.reconcileMu.TryLock() {
+		return nil
+	}
+	defer r.reconcileMu.Unlock()
 	desired, err := r.preparer.Load(ctx, stack)
 	if err != nil {
 		return fmt.Errorf("load compose for cleanup: %w", err)
