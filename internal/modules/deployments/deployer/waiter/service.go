@@ -1,4 +1,5 @@
-package deployer
+// Package waiter observes Docker Swarm service convergence after detached applies.
+package waiter
 
 import (
 	"context"

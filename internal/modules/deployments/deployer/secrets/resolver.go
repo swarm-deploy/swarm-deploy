@@ -1,10 +1,12 @@
-package deployer
+// Package secrets loads and decodes transient deployment secret payloads.
+package secrets
 
 import (
 	"bytes"
 	"context"
 	"fmt"
 	"path/filepath"
+	"sort"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
@@ -46,7 +48,7 @@ func (r *SecretResolver) Resolve(
 	objects compose.Secrets,
 ) (map[string][]byte, error) {
 	resolved := make(map[string][]byte, len(objects))
-	for _, alias := range sortedObjectAliases(objects) {
+	for _, alias := range sortedAliases(objects) {
 		object := objects[alias]
 		if object.External {
 			continue
@@ -56,7 +58,7 @@ func (r *SecretResolver) Resolve(
 		}
 		data, err := r.resolveFile(ctx, sourceComposePath, object)
 		if err != nil {
-			clearSecretData(resolved)
+			Clear(resolved)
 			return nil, fmt.Errorf("read secret %s: %w", dockerSecretName(stackName, alias, object), err)
 		}
 		resolved[alias] = data
@@ -91,8 +93,28 @@ func (r *SecretResolver) resolveFile(
 	return nil, fmt.Errorf("no decoder for secret file")
 }
 
-func clearSecretData(data map[string][]byte) {
+// Clear overwrites all transient plaintext buffers in place.
+func Clear(data map[string][]byte) {
 	for _, value := range data {
 		clear(value)
 	}
+}
+
+func sortedAliases(objects compose.Secrets) []string {
+	aliases := make([]string, 0, len(objects))
+	for alias := range objects {
+		aliases = append(aliases, alias)
+	}
+	sort.Strings(aliases)
+	return aliases
+}
+
+func dockerSecretName(stackName, alias string, object *compose.Secret) string {
+	if object.Name != "" {
+		return object.Name
+	}
+	if object.External {
+		return alias
+	}
+	return stackName + "_" + alias
 }

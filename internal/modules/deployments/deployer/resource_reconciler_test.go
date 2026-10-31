@@ -439,39 +439,6 @@ func TestResourceReconcilerDoesNotCreateMissingExternalResource(t *testing.T) {
 	}
 }
 
-func TestBuildInitServiceSpecUsesResolvedResourceIDs(t *testing.T) {
-	runner := &InitJobRunner{swarmService: &swarm.Swarm{}}
-
-	spec, err := runner.buildInitServiceSpec(context.Background(), InitJobSpec{
-		StackName:   "demo",
-		ServiceName: "api",
-		ServiceConfigs: []compose.ObjectRef{{
-			Source: "app-config",
-			Target: "/etc/app/config.yaml",
-		}},
-		ServiceSecrets: []compose.ObjectRef{{Source: "db-password"}},
-		ResolvedConfigs: map[string]ResolvedResource{
-			"app-config": {ID: "config-id", Name: "demo_app-config"},
-		},
-		ResolvedSecrets: map[string]ResolvedResource{
-			"db-password": {ID: "secret-id", Name: "demo_db-password"},
-		},
-		Job: compose.InitJob{Image: "example/migrate:latest"},
-	}, "migrate")
-	require.NoError(t, err, "build init job spec")
-
-	container := spec.TaskTemplate.ContainerSpec
-	require.Len(t, container.Configs, 1, "expected config reference")
-	assert.Equal(t, "config-id", container.Configs[0].ConfigID)
-	assert.Equal(t, "demo_app-config", container.Configs[0].ConfigName)
-	require.Len(t, container.Secrets, 1, "expected secret reference")
-	assert.Equal(t, "secret-id", container.Secrets[0].SecretID)
-	assert.Equal(t, "demo_db-password", container.Secrets[0].SecretName)
-	assert.Equal(t, "/run/secrets/db-password", container.Secrets[0].File.Name)
-	assert.Equal(t, "0", container.Secrets[0].File.UID)
-	assert.Equal(t, "0", container.Secrets[0].File.GID)
-}
-
 func newDockerTestClient(t *testing.T, server *httptest.Server) *client.Client {
 	t.Helper()
 

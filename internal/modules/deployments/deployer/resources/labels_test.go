@@ -1,4 +1,4 @@
-package deployer
+package resources
 
 import (
 	"errors"
@@ -39,7 +39,7 @@ func TestReconcileSecretLabelsBeforeExternalRendering(t *testing.T) {
 				}
 				secrets.EXPECT().UpdateLabels(gomock.Any(), "id", resourceLabels("app", object.Labels.Map)).Return(updateErr)
 			}
-			r := newResourceReconciler(&swarm.Swarm{Secrets: secrets})
+			r := New(&swarm.Swarm{Secrets: secrets})
 			resolved, err := r.Reconcile(t.Context(), "app", nil, compose.Secrets{"password": object}, nil)
 			if scenario == "update error" {
 				require.Error(t, err)
@@ -47,7 +47,7 @@ func TestReconcileSecretLabelsBeforeExternalRendering(t *testing.T) {
 				return
 			}
 			require.NoError(t, err)
-			assert.Equal(t, ResolvedResource{ID: "id", Name: "existing"}, resolved.secrets["password"])
+			assert.Equal(t, ResolvedResource{ID: "id", Name: "existing"}, resolved.Secrets["password"])
 		})
 	}
 }
@@ -74,15 +74,15 @@ func TestReconcileSecretOwnershipConflicts(t *testing.T) {
 				// Even the earlier owned resource must not be updated if a later one conflicts.
 				objects["a"] = &compose.Secret{Name: "a-owned"}
 			}
-			r := newResourceReconciler(&swarm.Swarm{Secrets: secrets})
+			r := New(&swarm.Swarm{Secrets: secrets})
 			resolved, err := r.Reconcile(t.Context(), "app", nil, objects, nil)
 			if !test.external {
 				require.ErrorContains(t, err, "ownership conflict")
-				assert.Nil(t, resolved.secrets)
+				assert.Nil(t, resolved.Secrets)
 				return
 			}
 			require.NoError(t, err)
-			assert.Equal(t, ResolvedResource{ID: "conflict", Name: "z-shared"}, resolved.secrets["shared"])
+			assert.Equal(t, ResolvedResource{ID: "conflict", Name: "z-shared"}, resolved.Secrets["shared"])
 			// No Create, UpdateLabels or Remove calls are allowed in any scenario.
 		})
 	}
@@ -108,7 +108,7 @@ func TestSecretAPIFailuresPreserveTemporaryClassification(t *testing.T) {
 					}}, nil)
 					secrets.EXPECT().UpdateLabels(gomock.Any(), "existing", resourceLabels("app", nil)).Return(apiErr)
 				}
-				r := newResourceReconciler(&swarm.Swarm{Secrets: secrets})
+				r := New(&swarm.Swarm{Secrets: secrets})
 				_, err := r.Reconcile(t.Context(), "app", nil, compose.Secrets{"password": object}, map[string][]byte{"password": []byte("private-payload-marker")})
 				require.ErrorContains(t, err, operation+" secret app-password: Docker API request failed")
 				var classified faults.Error
