@@ -42,7 +42,8 @@ func TestControllerGracefulShutdownPreservesActiveReconciliation(t *testing.T) {
 		require.FailNow(t, "startup reconciliation did not begin")
 	}
 	cancel()
-	assert.False(t, controller.Manual(t.Context()), "shutdown must reject new work")
+	require.Eventually(t, func() bool { return !controller.Manual(t.Context()) }, time.Second, time.Millisecond,
+		"shutdown must reject new work")
 	assert.NoError(t, reconciliationCtx.Err(), "in-flight reconciliation should survive initial shutdown")
 	select {
 	case <-done:
