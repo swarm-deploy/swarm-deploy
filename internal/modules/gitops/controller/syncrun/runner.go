@@ -73,7 +73,7 @@ type Runner struct {
 	stateStore        modelstore.Store
 	networkReconciler *networkloop.Coordinator
 	stackReconciler   stackloop.StackReconciler
-	deployments DeploymentQueue
+	deployments      DeploymentQueue
 	stackPlanner      *stackplan.Planner
 	puller            *gitpull.Puller
 	tracer            trace.Tracer
@@ -92,7 +92,9 @@ func New(
 	deployments ...DeploymentQueue,
 ) *Runner {
 	var queue DeploymentQueue
-	if len(deployments) > 0 { queue = deployments[0] }
+	if len(deployments) > 0 {
+		queue = deployments[0]
+	}
 	return &Runner{
 		configStore: configStore, git: git, metrics: metricGroup, event: eventDispatcher,
 		stateStore: stateStore, networkReconciler: networkReconciler,
@@ -242,7 +244,9 @@ func (r *Runner) syncStacks(
 	for _, stackCfg := range stacks {
 		request := stackloop.ReconciliationRequest{Stack: stackCfg, Commit: commit, IsManual: reason == TriggerManual}
 		var err error
-		if r.deployments == nil { err = r.stackReconciler.Reconcile(ctx, request) } else {
+		if r.deployments == nil {
+			err = r.stackReconciler.Reconcile(ctx, request)
+		} else {
 			err = r.deployments.Enqueue(ctx, request, r.git.WorkingDir())
 		}
 		if err == nil {

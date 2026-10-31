@@ -47,7 +47,7 @@ type renderedCleaner interface {
 type Controller struct {
 	deployments  deployments.Executor
 	scheduler    *scheduler.Scheduler
-	deployQueue *scheduler.DeploymentQueue
+	deployQueue  *scheduler.DeploymentQueue
 	event        dispatcher.Dispatcher
 	cleaner      renderedCleaner
 	ownership    *controllerOwnership
@@ -85,10 +85,10 @@ func New(
 		networkCoordinator, stackReconciler, puller, deployQueue,
 	)
 	return &Controller{
-		deployments:  deploymentExecutor,
-		scheduler:    scheduler.New(cfg, runner, deployQueue),
+		deployments: deploymentExecutor,
+		scheduler:   scheduler.New(cfg, runner, deployQueue),
 		deployQueue: deployQueue,
-		event:        eventDispatcher,
+		event:       eventDispatcher,
 		cleaner:      preparer,
 		ownership:    newControllerOwnership(cfg.Spec.DataDir),
 		shutdownWait: gracefulReconciliationShutdownTimeout,
@@ -127,7 +127,9 @@ func (c *Controller) Run(ctx context.Context) error {
 		}
 	}
 	if c.deployQueue != nil {
-		if err := c.deployQueue.CleanupStale(); err != nil { return fmt.Errorf("cleanup stale deployment snapshots: %w", err) }
+		if err := c.deployQueue.CleanupStale(); err != nil {
+			return fmt.Errorf("cleanup stale deployment snapshots: %w", err)
+		}
 	}
 	if c.deployments != nil {
 		if err := c.deployments.Recover(ctx); err != nil {

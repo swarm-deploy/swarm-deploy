@@ -27,20 +27,22 @@ type Runner interface {
 
 // Scheduler owns the reconciliation queue and all GitOps periodic triggers.
 type Scheduler struct {
-	cfg      *config.Config
-	runner   Runner
-	queue    chan syncrun.Task
+	cfg         *config.Config
+	runner      Runner
+	queue       chan syncrun.Task
 	deployments *DeploymentQueue
-	shutdown atomic.Bool
-	active   atomic.Bool
-	tickerMu sync.Mutex
-	tickers  []*time.Ticker
+	shutdown    atomic.Bool
+	active      atomic.Bool
+	tickerMu    sync.Mutex
+	tickers     []*time.Ticker
 }
 
 // New creates a scheduler preserving the single-slot, non-blocking queue.
 func New(cfg *config.Config, syncRunner Runner, deployments ...*DeploymentQueue) *Scheduler {
 	s := &Scheduler{cfg: cfg, runner: syncRunner, queue: make(chan syncrun.Task, queueCapacity)}
-	if len(deployments) > 0 { s.deployments = deployments[0] }
+	if len(deployments) > 0 {
+		s.deployments = deployments[0]
+	}
 	return s
 }
 
@@ -48,8 +50,14 @@ func New(cfg *config.Config, syncRunner Runner, deployments ...*DeploymentQueue)
 func (s *Scheduler) Run(ctx, reconciliationCtx context.Context) error {
 	if s.deployments != nil {
 		workerDone := make(chan struct{})
-		go func() { defer close(workerDone); s.deployments.Run(reconciliationCtx) }()
-		defer func() { s.deployments.Stop(); <-workerDone }()
+		go func() {
+			defer close(workerDone)
+			s.deployments.Run(reconciliationCtx)
+		}()
+		defer func() {
+			s.deployments.Stop()
+			<-workerDone
+		}()
 	}
 	s.active.Store(true)
 	defer s.active.Store(false)
@@ -100,7 +108,9 @@ func (s *Scheduler) Run(ctx, reconciliationCtx context.Context) error {
 func (s *Scheduler) Shutdown() {
 	s.shutdown.Store(true)
 	s.stopTickers()
-	if s.deployments != nil { s.deployments.Stop() }
+	if s.deployments != nil {
+		s.deployments.Stop()
+	}
 }
 
 // Schedule queues a task without blocking, rejecting requests while inactive or shutting down.

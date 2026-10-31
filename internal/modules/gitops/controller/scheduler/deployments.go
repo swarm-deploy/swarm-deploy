@@ -95,8 +95,8 @@ func (q *DeploymentQueue) Enqueue(ctx context.Context, req stackloop.Reconciliat
 	q.mu.Unlock()
 
 	if exists {
-		if err := os.RemoveAll(previous.folder); err != nil {
-			slog.WarnContext(ctx, "remove superseded deployment snapshot", "err", err)
+		if removeErr := os.RemoveAll(previous.folder); removeErr != nil {
+			slog.WarnContext(ctx, "remove superseded deployment snapshot", "err", removeErr)
 		}
 	}
 	return nil
