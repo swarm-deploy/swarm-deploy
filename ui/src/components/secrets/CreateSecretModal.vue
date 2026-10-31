@@ -443,7 +443,7 @@ onUnmounted(() => {
         </div>
         <p v-if="jsonError" id="create-secret-json-error" class="create-secret-inline-error">Invalid JSON: {{ jsonError }}</p>
 
-        <p v-if="destination === 'cloud'" class="create-secret-helper">
+        <p v-if="destination === 'cloud'" class="create-secret-helper form-helper">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 11v6m0-10h.01" /></svg>
           <span>The secret is created in the external provider first, then synchronized into Docker Swarm.</span>
         </p>
@@ -456,7 +456,7 @@ onUnmounted(() => {
 
         <div class="create-secret-actions">
           <button type="button" class="button-ghost" :disabled="pending" @click="close">Cancel</button>
-          <button type="submit" class="create-secret-submit" :disabled="!formValid || pending">{{ submitLabel }}</button>
+          <button type="submit" class="create-secret-submit button-primary" :disabled="!formValid || pending">{{ submitLabel }}</button>
         </div>
       </form>
 
@@ -550,8 +550,8 @@ onUnmounted(() => {
         </a>
 
         <div class="create-secret-result-actions">
-          <button type="button" :class="resultState === 'success' ? 'create-secret-submit' : 'button-ghost'" :disabled="pending" @click="close">Done</button>
-          <button v-if="resultState === 'partial'" type="button" class="create-secret-submit" :disabled="pending" @click="retrySync">
+          <button type="button" :class="resultState === 'success' ? 'create-secret-submit button-primary' : 'button-ghost'" :disabled="pending" @click="close">Done</button>
+          <button v-if="resultState === 'partial'" type="button" class="create-secret-submit button-primary" :disabled="pending" @click="retrySync">
             {{ submissionStage === "retrying" ? "Retrying Sync…" : "Retry Sync" }}
           </button>
         </div>
@@ -607,8 +607,6 @@ onUnmounted(() => {
 .create-secret-json-highlight :deep(.shj-syn-str) { color: var(--syntax-string); }
 .create-secret-json-highlight :deep(.shj-syn-num), .create-secret-json-highlight :deep(.shj-syn-bool), .create-secret-json-highlight :deep(.shj-syn-type) { color: var(--syntax-number); }
 .create-secret-json-highlight :deep(.shj-syn-var) { color: var(--syntax-variable); }
-.create-secret-helper { display: flex; align-items: flex-start; gap: 8px; margin: 1px 2px 0; color: var(--muted); font-size: .76rem; line-height: 1.4; }
-.create-secret-helper svg { flex: 0 0 auto; width: 17px; height: 17px; color: var(--muted); }
 .create-secret-stage { display: flex; align-items: center; gap: 7px; margin: 0 2px; color: var(--muted); font-size: .78rem; }
 .create-secret-spinner { display: inline-block; width: 14px; height: 14px; flex: 0 0 auto; border: 2px solid var(--border-strong); border-top-color: var(--info); border-radius: 50%; animation: create-secret-spin .75s linear infinite; }
 .create-secret-inline-error { margin: -2px 0 0; color: var(--error); font-size: .78rem; overflow-wrap: anywhere; }
@@ -616,9 +614,6 @@ onUnmounted(() => {
 .create-secret-notice--warning { color: var(--warning); }
 .create-secret-actions { display: flex; justify-content: flex-end; gap: 9px; padding-top: 1px; }
 .create-secret-actions button { min-width: 104px; min-height: 38px; padding: 8px 14px; }
-.create-secret-submit { border-color: var(--accent-border); border-radius: 6px; background: var(--control-primary); font-weight: 600; box-shadow: none; }
-.create-secret-submit:hover:not(:disabled) { background: var(--control-primary-hover); filter: none; }
-.create-secret-submit:focus-visible { outline: 2px solid var(--accent-focus); outline-offset: 2px; box-shadow: none; }
 .create-secret-result { gap: 14px; overflow-y: auto; padding: 22px 28px 16px; }
 .create-secret-result-summary { display: grid; justify-items: center; gap: 10px; text-align: center; }
 .create-secret-result-summary > div { min-width: 0; }

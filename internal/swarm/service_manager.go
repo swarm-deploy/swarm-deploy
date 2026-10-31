@@ -150,23 +150,61 @@ func (m *serviceManager) Scale(
 	serviceRef ServiceReference,
 	replicas uint64,
 ) error {
-	service, fullServiceName, err := m.inspect(ctx, serviceRef)
+	service, _, err := m.inspect(ctx, serviceRef)
 	if err != nil {
 		return err
 	}
-	if service.Spec.Mode.Replicated == nil || service.Spec.Mode.Replicated.Replicas == nil {
-		return fmt.Errorf("service %s is not replicated mode", fullServiceName)
+	_, err = m.scale(ctx, service, replicas)
+	return err
+}
+
+// ScaleByID scales a live service by Docker ID, including standalone services.
+func (m *serviceManager) ScaleByID(ctx context.Context, serviceID string, replicas uint64) (ServiceScaleResult, error) {
+	service, _, err := m.inspectService(ctx, serviceID)
+	if err != nil {
+		return ServiceScaleResult{}, err
+	}
+	return m.scale(ctx, service, replicas)
+}
+
+func (m *serviceManager) scale(
+	ctx context.Context,
+	service dockerswarm.Service,
+	replicas uint64,
+) (ServiceScaleResult, error) {
+	mode := service.Spec.Mode
+	if mode.Replicated == nil || mode.Global != nil || mode.ReplicatedJob != nil || mode.GlobalJob != nil {
+		return ServiceScaleResult{}, ErrServiceModeUnsupported
+	}
+
+	result := ServiceScaleResult{Stack: service.Spec.Labels[stackNamespaceLabelKey]}
+	result.Service = stackServiceNameFromFullName(result.Stack, service.Spec.Name)
+	if mode.Replicated.Replicas != nil {
+		result.PreviousReplicas = *mode.Replicated.Replicas
+	}
+	if result.PreviousReplicas == replicas {
+		return result, nil
 	}
 
 	spec := service.Spec
-	spec.Mode.Replicated.Replicas = &replicas
+	replicated := *mode.Replicated
+	replicated.Replicas = &replicas
+	spec.Mode.Replicated = &replicated
 
-	_, err = m.dockerClient.ServiceUpdate(ctx, service.ID, service.Version, spec, dockerswarm.ServiceUpdateOptions{})
+	_, err := m.dockerClient.ServiceUpdate(ctx, service.ID, service.Version, spec, dockerswarm.ServiceUpdateOptions{})
 	if err != nil {
-		return fmt.Errorf("update service %s replicas to %d: %w", fullServiceName, replicas, err)
+		switch {
+		case isNotFoundErr(err):
+			return ServiceScaleResult{}, ErrServiceNotFound
+		// Some Docker versions expose SwarmKit sequence conflicts as HTTP 500.
+		case cerrdefs.IsConflict(err), strings.Contains(err.Error(), "update out of sequence"):
+			return ServiceScaleResult{}, ErrServiceUpdateConflict
+		default:
+			return ServiceScaleResult{}, fmt.Errorf("update service %s replicas to %d: %w", service.ID, replicas, err)
+		}
 	}
 
-	return nil
+	return result, nil
 }
 
 const (
@@ -918,7 +956,13 @@ func (m *serviceManager) inspect(
 	ctx context.Context,
 	serviceRef ServiceReference,
 ) (dockerswarm.Service, string, error) {
-	fullServiceName := serviceRef.Name()
+	return m.inspectService(ctx, serviceRef.Name())
+}
+
+func (m *serviceManager) inspectService(
+	ctx context.Context,
+	fullServiceName string,
+) (dockerswarm.Service, string, error) {
 	service, _, err := m.dockerClient.ServiceInspectWithRaw(ctx, fullServiceName, dockerswarm.ServiceInspectOptions{})
 	if err != nil {
 		if isNotFoundErr(err) {

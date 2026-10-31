@@ -7,6 +7,7 @@ import (
 	alertstore "github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant"
 	deploymentstore "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/modelstore"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/history"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller"
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
@@ -28,6 +29,7 @@ type handler struct {
 	stateStore       modelstore.ReadStore
 	control          *controller.Controller
 	serviceInspector swarm.ServiceManager
+	eventDispatcher  dispatcher.Dispatcher
 	taskLogs         *logparser.Service
 	secrets          secretstore.Store
 	secretRelations  *secretservice.Resolver
@@ -65,6 +67,7 @@ func New(
 	assistantService assistant.Assistant,
 	deployments *deploymentstore.Store,
 	taskLogs *logparser.Service,
+	eventDispatcher dispatcher.Dispatcher,
 ) *handler {
 	return &handler{deployments: deployments,
 		stackProvider:    stackProvider,
@@ -72,6 +75,7 @@ func New(
 		control:          control,
 		serviceInspector: swarmService.Services,
 		taskLogs:         taskLogs,
+		eventDispatcher:  eventDispatcher,
 		secrets:          secrets,
 		secretRelations:  secretservice.NewResolver(services, secrets),
 		secretManagers:   secretManagers,

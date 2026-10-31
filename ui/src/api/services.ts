@@ -23,3 +23,11 @@ export function fetchSwarmServiceTasks(serviceIDOrName: string): Promise<Service
 export function fetchSwarmTask(taskID: string): Promise<SwarmTaskDetails> {
   return apiRequest<SwarmTaskDetails>(`/api/v1/swarm/tasks/${encodeURIComponent(taskID)}`);
 }
+
+export function scaleSwarmService(serviceID: string, replicas: number): Promise<void> {
+  return apiRequest<void>(`/api/v1/swarm/services/${encodeURIComponent(serviceID)}/replicas`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ replicas }),
+  });
+}

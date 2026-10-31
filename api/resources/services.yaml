@@ -44,6 +44,29 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/SwarmServicesResponse'
+  /api/v1/swarm/services/{serviceID}/replicas:
+    put:
+      operationId: scaleSwarmService
+      description: >-
+        Updates live replicated services, including standalone services, without waiting for tasks.
+        GitOps synchronization may overwrite this change. Invalid input or unsupported modes return
+        400, missing services return 404, concurrent updates return 409, and Docker errors return 500.
+      parameters:
+        - in: path
+          name: serviceID
+          required: true
+          schema:
+            type: string
+            minLength: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ScaleSwarmServiceRequest'
+      responses:
+        '204':
+          description: Docker accepted the configured replica count.
   /api/v1/swarm/services/{serviceIDOrName}/tasks:
     get:
       operationId: listSwarmServiceTasks
@@ -382,6 +405,14 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/ServiceRealtimeTask'
+    ScaleSwarmServiceRequest:
+      type: object
+      required: [replicas]
+      properties:
+        replicas:
+          type: integer
+          format: int64
+          minimum: 0
     SwarmServiceReplicas:
       type: object
       required: [running, desired]
@@ -413,6 +444,11 @@ components:
           type: string
         replicas:
           $ref: '#/components/schemas/SwarmServiceReplicas'
+        configured_replicas:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Configured ServiceSpec replica count, present only for replicated services.
         updated_at:
           type: string
           format: date-time

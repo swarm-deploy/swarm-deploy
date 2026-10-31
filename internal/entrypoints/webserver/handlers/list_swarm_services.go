@@ -21,7 +21,7 @@ func (h *handler) ListSwarmServices(ctx context.Context) (*generated.SwarmServic
 
 	mapped := make([]generated.SwarmService, 0, len(services))
 	for _, service := range services {
-		mapped = append(mapped, generated.SwarmService{
+		item := generated.SwarmService{
 			ID:       service.ID,
 			Name:     service.Name,
 			FullName: service.FullName,
@@ -33,7 +33,11 @@ func (h *handler) ListSwarmServices(ctx context.Context) (*generated.SwarmServic
 				Desired: toInt64FromUint64(service.DesiredTasks),
 			},
 			UpdatedAt: service.UpdatedAt,
-		})
+		}
+		if service.Mode == "replicated" && service.Replicas != nil {
+			item.ConfiguredReplicas.SetTo(toInt64FromUint64(*service.Replicas))
+		}
+		mapped = append(mapped, item)
 	}
 
 	return &generated.SwarmServicesResponse{Services: mapped}, nil
