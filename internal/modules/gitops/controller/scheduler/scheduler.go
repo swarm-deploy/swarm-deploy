@@ -9,10 +9,7 @@ import (
 	"time"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/syncrun"
-	"github.com/swarm-deploy/swarm-deploy/internal/security"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -32,7 +29,6 @@ type Runner interface {
 type Scheduler struct {
 	cfg      *config.Config
 	runner   Runner
-	event    dispatcher.Dispatcher
 	queue    chan syncrun.Task
 	shutdown atomic.Bool
 	active   atomic.Bool
@@ -41,8 +37,8 @@ type Scheduler struct {
 }
 
 // New creates a scheduler preserving the single-slot, non-blocking queue.
-func New(cfg *config.Config, syncRunner Runner, eventDispatcher dispatcher.Dispatcher) *Scheduler {
-	return &Scheduler{cfg: cfg, runner: syncRunner, event: eventDispatcher, queue: make(chan syncrun.Task, queueCapacity)}
+func New(cfg *config.Config, syncRunner Runner) *Scheduler {
+	return &Scheduler{cfg: cfg, runner: syncRunner, queue: make(chan syncrun.Task, queueCapacity)}
 }
 
 // Run starts periodic triggers and processes queued tasks serially.
@@ -63,7 +59,7 @@ func (s *Scheduler) Run(ctx, reconciliationCtx context.Context) error {
 	defer stopCleanupTicker()
 
 	slog.InfoContext(ctx, "[controller] trigger startup sync")
-	s.schedule(ctx, syncrun.Task{Reason: syncrun.TriggerStartup})
+	s.Schedule(ctx, syncrun.Task{Reason: syncrun.TriggerStartup})
 	for {
 		if s.shutdown.Load() {
 			return nil
@@ -82,7 +78,7 @@ func (s *Scheduler) Run(ctx, reconciliationCtx context.Context) error {
 			}
 		case <-reconcileTicker.C:
 			if !s.shutdown.Load() {
-				s.schedule(ctx, syncrun.Task{Reason: syncrun.TriggerInterval})
+				s.Schedule(ctx, syncrun.Task{Reason: syncrun.TriggerInterval})
 			}
 		case <-tickerC(cleanupTicker):
 			if !s.shutdown.Load() {
@@ -92,25 +88,14 @@ func (s *Scheduler) Run(ctx, reconciliationCtx context.Context) error {
 	}
 }
 
-// Manual queues a manual synchronization when the scheduler is active.
-func (s *Scheduler) Manual(ctx context.Context) bool {
-	user, _ := security.UserFromContext(ctx)
-	return s.schedule(ctx, syncrun.Task{TriggeredBy: user.Name, Reason: syncrun.TriggerManual})
-}
-
-// Webhook queues a webhook synchronization and publishes the existing receipt event.
-func (s *Scheduler) Webhook(ctx context.Context) (bool, error) {
-	queued := s.schedule(ctx, syncrun.Task{Reason: syncrun.TriggerWebhook})
-	return queued, s.event.Publish(ctx, &events.WebhookReceived{Queued: queued})
-}
-
 // Shutdown rejects new work and stops periodic triggers.
 func (s *Scheduler) Shutdown() {
 	s.shutdown.Store(true)
 	s.stopTickers()
 }
 
-func (s *Scheduler) schedule(ctx context.Context, task syncrun.Task) bool {
+// Schedule queues a task without blocking, rejecting requests while inactive or shutting down.
+func (s *Scheduler) Schedule(ctx context.Context, task syncrun.Task) bool {
 	if s.shutdown.Load() || !s.active.Load() {
 		return false
 	}

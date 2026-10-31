@@ -10,14 +10,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/syncrun"
-	"github.com/swarm-deploy/swarm-deploy/internal/security"
 	"go.uber.org/mock/gomock"
 )
 
-func TestWebhookPreservesQueueFullAndShutdownBehavior(t *testing.T) {
+func TestSchedulePreservesQueueFullAndShutdownBehavior(t *testing.T) {
 	for _, test := range []struct {
 		name, state string
 		wantQueued  bool
@@ -25,25 +22,21 @@ func TestWebhookPreservesQueueFullAndShutdownBehavior(t *testing.T) {
 		{name: "queued", wantQueued: true},
 		{name: "queue full", state: "full"},
 		{name: "shutting down", state: "shutdown"},
+		{name: "inactive", state: "inactive"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			ctrl := gomock.NewController(t)
-			eventsMock := dispatcher.NewMockDispatcher(ctrl)
-			eventsMock.EXPECT().Publish(gomock.Any(), gomock.Any()).Do(func(_ context.Context, event events.Event) {
-				received, ok := event.(*events.WebhookReceived)
-				require.True(t, ok)
-				assert.Equal(t, test.wantQueued, received.Queued)
-			})
-			scheduler := New(testConfig(), NewMockRunner(ctrl), eventsMock)
-			scheduler.active.Store(true)
+			scheduler := New(testConfig(), NewMockRunner(ctrl))
+			if test.state != "inactive" {
+				scheduler.active.Store(true)
+			}
 			if test.state == "full" {
 				scheduler.queue <- syncrun.Task{Reason: syncrun.TriggerInterval}
 			}
 			if test.state == "shutdown" {
 				scheduler.Shutdown()
 			}
-			queued, err := scheduler.Webhook(t.Context())
-			require.NoError(t, err)
+			queued := scheduler.Schedule(t.Context(), syncrun.Task{Reason: syncrun.TriggerWebhook})
 			assert.Equal(t, test.wantQueued, queued)
 			if queued {
 				assert.Equal(t, syncrun.TriggerWebhook, (<-scheduler.queue).Reason)
@@ -52,12 +45,13 @@ func TestWebhookPreservesQueueFullAndShutdownBehavior(t *testing.T) {
 	}
 }
 
-func TestManualQueuesAuthenticatedUser(t *testing.T) {
+func TestSchedulePreservesTaskMetadata(t *testing.T) {
 	ctrl := gomock.NewController(t)
-	scheduler := New(testConfig(), NewMockRunner(ctrl), &dispatcher.NopDispatcher{})
+	scheduler := New(testConfig(), NewMockRunner(ctrl))
 	scheduler.active.Store(true)
-	ctx := security.ContextWithUser(t.Context(), security.User{Name: "alice"})
-	require.True(t, scheduler.Manual(ctx))
+	require.True(t, scheduler.Schedule(t.Context(), syncrun.Task{
+		TriggeredBy: "alice", Reason: syncrun.TriggerManual,
+	}))
 	task := <-scheduler.queue
 	assert.Equal(t, syncrun.TriggerManual, task.Reason)
 	assert.Equal(t, "alice", task.TriggeredBy)
@@ -84,7 +78,7 @@ func TestRunSchedulesPeriodicPollReconciliationAndCleanup(t *testing.T) {
 	cfg.Spec.Sync.PollInterval.Value = time.Millisecond
 	cfg.Spec.SecretRotation.Cleanup.Enabled = true
 	cfg.Spec.SecretRotation.Cleanup.Interval.Value = time.Millisecond
-	scheduler := New(cfg, runner, &dispatcher.NopDispatcher{})
+	scheduler := New(cfg, runner)
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan error, 1)
 	go func() { done <- scheduler.Run(ctx, context.WithoutCancel(ctx)) }()
@@ -111,7 +105,7 @@ func TestRunTriggersStartupAndWaitsForActiveReconciliation(t *testing.T) {
 		<-release
 	})
 
-	scheduler := New(testConfig(), runner, &dispatcher.NopDispatcher{})
+	scheduler := New(testConfig(), runner)
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan error, 1)
 	go func() { done <- scheduler.Run(ctx, context.WithoutCancel(ctx)) }()
@@ -128,7 +122,7 @@ func TestRunTriggersStartupAndWaitsForActiveReconciliation(t *testing.T) {
 	}
 	close(release)
 	require.NoError(t, <-done)
-	assert.False(t, scheduler.Manual(t.Context()), "shutdown must reject new tasks")
+	assert.False(t, scheduler.Schedule(t.Context(), syncrun.Task{Reason: syncrun.TriggerManual}), "shutdown must reject new tasks")
 }
 
 func testConfig() *config.Config {

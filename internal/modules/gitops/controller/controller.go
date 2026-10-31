@@ -12,6 +12,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/gitpull"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/networkloop"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/scheduler"
@@ -20,6 +21,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/syncrun"
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/modelstore"
+	"github.com/swarm-deploy/swarm-deploy/internal/security"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 	"github.com/swarm-deploy/swarm-deploy/internal/storage"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
@@ -45,6 +47,7 @@ type renderedCleaner interface {
 type Controller struct {
 	deployments  deployments.Executor
 	scheduler    *scheduler.Scheduler
+	event        dispatcher.Dispatcher
 	cleaner      renderedCleaner
 	ownership    *controllerOwnership
 	shutdownWait time.Duration
@@ -78,7 +81,8 @@ func New(
 	)
 	return &Controller{
 		deployments:  deploymentExecutor,
-		scheduler:    scheduler.New(cfg, runner, eventDispatcher),
+		scheduler:    scheduler.New(cfg, runner),
+		event:        eventDispatcher,
 		cleaner:      preparer,
 		ownership:    newControllerOwnership(cfg.Spec.DataDir),
 		shutdownWait: gracefulReconciliationShutdownTimeout,
@@ -126,12 +130,14 @@ func (c *Controller) Run(ctx context.Context) error {
 
 // Manual requests a non-blocking manual synchronization.
 func (c *Controller) Manual(ctx context.Context) bool {
-	return c.scheduler.Manual(ctx)
+	user, _ := security.UserFromContext(ctx)
+	return c.scheduler.Schedule(ctx, syncrun.Task{TriggeredBy: user.Name, Reason: syncrun.TriggerManual})
 }
 
-// Webhook requests a non-blocking webhook synchronization.
+// Webhook requests a non-blocking webhook synchronization and records the receipt.
 func (c *Controller) Webhook(ctx context.Context) (bool, error) {
-	return c.scheduler.Webhook(ctx)
+	queued := c.scheduler.Schedule(ctx, syncrun.Task{Reason: syncrun.TriggerWebhook})
+	return queued, c.event.Publish(ctx, &events.WebhookReceived{Queued: queued})
 }
 
 func (c *Controller) watchShutdown(
