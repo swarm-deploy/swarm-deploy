@@ -17,7 +17,12 @@ func SingleServiceCompose(desired compose.Compose, serviceName string) (compose.
 		desired.Services = compose.Services{service}
 		desired.Networks = selectNetworks(desired.Networks, service.Networks)
 		desired.Secrets = selectObjects(desired.Secrets, service.Secrets)
-		desired.Configs = selectObjects(desired.Configs, service.Configs)
+		configRefs := service.Configs
+		if service.CredentialSpec != nil && service.CredentialSpec.Config != "" {
+			configRefs = append(append([]compose.ObjectRef{}, configRefs...),
+				compose.ObjectRef{Source: service.CredentialSpec.Config})
+		}
+		desired.Configs = selectObjects(desired.Configs, configRefs)
 		desired.Volumes = selectVolumes(desired.Volumes, service.Volumes)
 		return desired, nil
 	}

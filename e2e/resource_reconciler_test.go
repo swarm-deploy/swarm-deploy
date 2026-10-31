@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	dockerswarm "github.com/docker/docker/api/types/swarm"
 	"github.com/docker/docker/client"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -74,6 +75,34 @@ func TestDeployStackOnRealSwarm(t *testing.T) {
 	assert.Equal(t, runningBefore, runningAgain, "running tasks must not be replaced")
 	assert.Equal(t, tasksBefore, tasksAgain, "unchanged deploy must not schedule any new tasks")
 
+	// An external force update must be waited for, without resetting ForceUpdate
+	// or issuing a second update of the unchanged Compose service.
+	output, err := exec.CommandContext(ctx, dockerPath, "service", "update", "--detach=true", "--force", stack+"_check").CombinedOutput()
+	require.NoError(t, err, "force update: %s", output)
+	forced, err := swarmService.Services.Inspect(ctx, stack+"_check")
+	require.NoError(t, err)
+	require.Greater(t, forced.Spec.TaskTemplate.ForceUpdate, uint64(0))
+	deployFixture(t, ctx, stackDeployer, stack, composePath)
+	afterForce, err := swarmService.Services.Inspect(ctx, stack+"_check")
+	require.NoError(t, err)
+	assert.Equal(t, forced.Version.Index, afterForce.Version.Index)
+	assert.Equal(t, forced.Spec.TaskTemplate.ForceUpdate, afterForce.Spec.TaskTemplate.ForceUpdate)
+	runningBefore, _ = realSwarmTaskIDs(t, ctx, swarmService, afterForce.ID)
+
+	// Immutable network option changes do not block application deployment.
+	networkBefore, err := swarmService.Networks.Get(ctx, stack+"_default")
+	require.NoError(t, err)
+	prepared, err := compose.NewFileLoader().Load(ctx, composePath)
+	require.NoError(t, err)
+	prepared.Compose.Networks = map[string]compose.Network{"default": {
+		Attachable: true, IPAM: &compose.NetworkIPAM{Config: []compose.NetworkIPAMPool{{Subnet: "10.249.0.0/24"}}},
+	}, "unused": {External: true, Name: "must-not-exist"}}
+	_, err = stackDeployer.DeployStack(ctx, stack, composePath, composePath, prepared.Compose)
+	require.NoError(t, err)
+	networkAfter, err := swarmService.Networks.Get(ctx, stack+"_default")
+	require.NoError(t, err)
+	assert.Equal(t, networkBefore.ID, networkAfter.ID)
+
 	// Change only the container command, keeping the same secret/config IDs.
 	writeRealSwarmFixture(t, dir, composePath, "", "", "secret-v1", "config-v1", "spec-updated")
 	deployFixture(t, ctx, stackDeployer, stack, composePath)
@@ -97,6 +126,67 @@ func TestDeployStackOnRealSwarm(t *testing.T) {
 	assert.NotEqual(t, secretID1, secretID2, "rotated secret must be a different Docker object")
 	assert.NotEqual(t, configID1, configID2, "rotated config must be a different Docker object")
 	waitForRealSwarmTask(t, ctx, dockerPath, stack+"_check", "mounted-v2")
+	// Retry an already accepted failed rollout. A retry must observe the paused
+	// update and must not turn it into success by skipping ServiceWaiter.
+	prepared, err = compose.NewFileLoader().Load(ctx, composePath)
+	require.NoError(t, err)
+	failing := prepared.Compose
+	failing.Services[0].Command = compose.NewCommand([]string{"sh", "-c", "exit 1"})
+	failing.Services[0].Deploy.UpdateConfig = &compose.ServiceDeployUpdateConfig{Monitor: "1s", FailureAction: "pause"}
+	failing.Services[0].Deploy.RestartPolicy = &compose.ServiceDeployRestartPolicy{Condition: "none"}
+	_, err = stackDeployer.DeployStack(ctx, stack, composePath, composePath, failing)
+	require.Error(t, err)
+	require.True(t, deployer.ConvergenceFailed(err))
+	failed, err := swarmService.Services.Inspect(ctx, stack+"_check")
+	require.NoError(t, err)
+	require.NotNil(t, failed.UpdateStatus)
+	require.Equal(t, dockerswarm.UpdateStatePaused, failed.UpdateStatus.State)
+	_, retryErr := stackDeployer.DeployStack(ctx, stack, composePath, composePath, failing)
+	require.Error(t, retryErr)
+	assert.True(t, deployer.ConvergenceFailed(retryErr))
+	retried, err := swarmService.Services.Inspect(ctx, stack+"_check")
+	require.NoError(t, err)
+	assert.Equal(t, failed.Version.Index, retried.Version.Index, "retry must not send ServiceUpdate")
+	deployFixture(t, ctx, stackDeployer, stack, composePath)
+
+	t.Run("mutable registry tag", func(t *testing.T) {
+		registry := os.Getenv("SWARM_DEPLOY_E2E_REGISTRY")
+		if registry == "" {
+			t.Skip("set SWARM_DEPLOY_E2E_REGISTRY to a pushable registry reachable by Swarm nodes")
+		}
+		image := strings.TrimSuffix(registry, "/") + "/" + stack
+		push := func(source, tag string) {
+			for _, args := range [][]string{{"pull", source}, {"tag", source, image + ":" + tag}, {"push", image + ":" + tag}} {
+				output, err := exec.CommandContext(ctx, dockerPath, args...).CombinedOutput()
+				require.NoError(t, err, "docker %v: %s", args, output)
+			}
+		}
+		push("busybox:1.36", "moving")
+		prepared, err := compose.NewFileLoader().Load(ctx, composePath)
+		require.NoError(t, err)
+		desired := prepared.Compose
+		desired.Services[0].Image = image + ":moving"
+		_, err = stackDeployer.DeployStack(ctx, stack, composePath, composePath, desired)
+		require.NoError(t, err)
+		pinned, err := swarmService.Services.Inspect(ctx, stack+"_check")
+		require.NoError(t, err)
+		require.Contains(t, pinned.Spec.TaskTemplate.ContainerSpec.Image, "@sha256:")
+		push("busybox:1.37", "moving")
+		desired.Services[0].Environment.Map = map[string]string{"UNRELATED": "change"}
+		_, err = stackDeployer.DeployStack(ctx, stack, composePath, composePath, desired)
+		require.NoError(t, err)
+		unchanged, err := swarmService.Services.Inspect(ctx, stack+"_check")
+		require.NoError(t, err)
+		assert.Equal(t, pinned.Spec.TaskTemplate.ContainerSpec.Image, unchanged.Spec.TaskTemplate.ContainerSpec.Image)
+		push("busybox:1.37", "next")
+		desired.Services[0].Image = image + ":next"
+		_, err = stackDeployer.DeployStack(ctx, stack, composePath, composePath, desired)
+		require.NoError(t, err)
+		updated, err := swarmService.Services.Inspect(ctx, stack+"_check")
+		require.NoError(t, err)
+		assert.NotEqual(t, pinned.Spec.TaskTemplate.ContainerSpec.Image, updated.Spec.TaskTemplate.ContainerSpec.Image)
+	})
+
 }
 
 func realSwarmTaskIDs(t *testing.T, ctx context.Context, service *swarm.Swarm, serviceID string) ([]string, []string) {
@@ -132,6 +222,11 @@ func writeRealSwarmFixture(t *testing.T, dir, composePath, secretName, configNam
 	manifest := fmt.Sprintf(`services:
   check:
     image: busybox:1.36
+    user: '1000:1000'
+    working_dir: /tmp
+    hostname: compat-check
+    read_only: true
+    tmpfs: /tmp
     command: ["sh", "-ec", "grep -qx '%s' /run/secrets/password && grep -qx '%s' /etc/app.conf && echo %s && sleep 120"]
     secrets:
       - password

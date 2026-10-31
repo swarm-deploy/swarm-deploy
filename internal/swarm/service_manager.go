@@ -8,10 +8,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
 
 	"github.com/avast/retry-go/v5"
 	cerrdefs "github.com/containerd/errdefs"
@@ -69,6 +72,7 @@ func (m *serviceManager) Create(
 		}
 		return "", fmt.Errorf("create service %s: %w", spec.Name, err)
 	}
+	logServiceWarnings(ctx, spec.Name, response.Warnings)
 	return response.ID, nil
 }
 
@@ -80,7 +84,7 @@ func (m *serviceManager) Update(
 	spec dockerswarm.ServiceSpec,
 	options dockerswarm.ServiceUpdateOptions,
 ) error {
-	_, err := m.dockerClient.ServiceUpdate(ctx, serviceID, version, spec, options)
+	response, err := m.dockerClient.ServiceUpdate(ctx, serviceID, version, spec, options)
 	if err != nil {
 		if cerrdefs.IsConflict(err) {
 			return fmt.Errorf("update service %s: %w", spec.Name, ErrServiceConflict)
@@ -90,7 +94,15 @@ func (m *serviceManager) Update(
 		}
 		return fmt.Errorf("update service %s: %w", spec.Name, err)
 	}
+	logServiceWarnings(ctx, spec.Name, response.Warnings)
 	return nil
+}
+
+func logServiceWarnings(ctx context.Context, service string, warnings []string) {
+	for _, warning := range warnings {
+		slog.WarnContext(ctx, "Docker service warning", "service", service,
+			"warning", faults.SafeDiagnostic(errors.New(warning)))
+	}
 }
 
 // GetReplicas returns desired replicas count for a stack service.
@@ -150,12 +162,15 @@ func (m *serviceManager) ListServices(ctx context.Context, filter ListServicesFi
 
 		runningTasks := uint64(0)
 		desiredTasks := uint64(0)
+		completedTasks := uint64(0)
 		if service.ServiceStatus != nil {
 			runningTasks = service.ServiceStatus.RunningTasks
 			desiredTasks = service.ServiceStatus.DesiredTasks
+			completedTasks = service.ServiceStatus.CompletedTasks
 		}
 
 		mapped = append(mapped, StackService{
+			CompletedTasks: completedTasks, JobStatus: service.JobStatus,
 			ID:           service.ID,
 			Name:         stackServiceNameFromFullName(stackName, fullName),
 			Stack:        stackName,

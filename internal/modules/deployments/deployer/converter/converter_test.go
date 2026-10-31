@@ -612,10 +612,6 @@ func TestConvertProjectComposeExample(t *testing.T) {
 	require.NoError(t, err)
 	desired := parseStack(t, string(raw))
 	require.Len(t, desired.Services, 1)
-	// The legacy service-level restart option is ignored by docker stack deploy.
-	// It is deliberately still rejected by the strict converter; remove only that option.
-	require.Contains(t, desired.Services[0].Extra, "restart")
-	delete(desired.Services[0].Extra, "restart")
 
 	converter, networks, configs, _ := newTestConverter(t)
 	networks.EXPECT().Get(gomock.Any(), "demo_default").

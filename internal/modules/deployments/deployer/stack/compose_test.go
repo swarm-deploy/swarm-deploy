@@ -96,3 +96,10 @@ func TestSingleServiceComposeSelectsServiceNetworks(t *testing.T) {
 		})
 	}
 }
+
+func TestSingleServicePreservesCredentialConfig(t *testing.T) {
+	desired := compose.Compose{Services: compose.Services{{Name: "api", CredentialSpec: &compose.CredentialSpec{Config: "credential"}}}, Configs: compose.Configs{"credential": {Name: "rotated"}, "unused": {}}}
+	selected, err := SingleServiceCompose(desired, "api")
+	require.NoError(t, err)
+	assert.Equal(t, compose.Configs{"credential": desired.Configs["credential"]}, selected.Configs)
+}

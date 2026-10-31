@@ -15,13 +15,22 @@ func deployment(spec *dockerswarm.ServiceSpec, source compose.ServiceDeploy) err
 	switch source.Mode {
 	case "", "replicated":
 		spec.Mode.Replicated = &dockerswarm.ReplicatedService{Replicas: clonePointer(source.Replicas)}
+	case "replicated-job":
+		spec.Mode.ReplicatedJob = &dockerswarm.ReplicatedJob{
+			MaxConcurrent: clonePointer(source.Replicas), TotalCompletions: clonePointer(source.Replicas),
+		}
+	case "global-job":
+		if source.Replicas != nil {
+			return fmt.Errorf("deploy.replicas: incompatible with global-job mode")
+		}
+		spec.Mode.GlobalJob = &dockerswarm.GlobalJob{}
 	case "global":
 		if source.Replicas != nil {
 			return fmt.Errorf("deploy.replicas: incompatible with global mode")
 		}
 		spec.Mode.Global = &dockerswarm.GlobalService{}
 	default:
-		return fmt.Errorf("deploy.mode: only replicated and global modes are supported")
+		return fmt.Errorf("deploy.mode: expected replicated, global, replicated-job or global-job")
 	}
 	var err error
 	if source.Resources != nil {
@@ -146,6 +155,9 @@ func updatePolicy(
 }
 
 func requirements(source *compose.ServiceDeployResources) (*dockerswarm.ResourceRequirements, error) {
+	if source.Limits != nil && len(source.Limits.GenericResources) > 0 {
+		return nil, fmt.Errorf("deploy.resources.limits.generic_resources: only supported in reservations")
+	}
 	result := &dockerswarm.ResourceRequirements{}
 	if source.Limits != nil {
 		cpus, memory, err := resourceValues(*source.Limits)
@@ -169,6 +181,11 @@ func requirements(source *compose.ServiceDeployResources) (*dockerswarm.Resource
 			return nil, fmt.Errorf("deploy.resources.reservations: %w", err)
 		}
 		result.Reservations = &dockerswarm.Resources{NanoCPUs: cpus, MemoryBytes: memory}
+		generic, genericErr := genericResources(source.Reservations.GenericResources)
+		if genericErr != nil {
+			return nil, genericErr
+		}
+		result.Reservations.GenericResources = generic
 	}
 	return result, nil
 }

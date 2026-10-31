@@ -31,6 +31,7 @@ jobs:
             backend:
               - 'cmd/**'
               - 'internal/**'
+              - 'tools/compatibility/**'
 
   code-lint:
     name: code-lint
@@ -100,6 +101,10 @@ jobs:
       - name: Run full tests
         if: needs.changes.outputs.backend == 'true'
         run: go test ./internal/...
+
+      - name: Compare native converter with Docker CLI v28.3.3
+        if: needs.changes.outputs.backend == 'true'
+        run: make test-compatibility
 
       - name: Test embedded UI
         if: needs.changes.outputs.ui == 'true' && needs.changes.outputs.backend != 'true'

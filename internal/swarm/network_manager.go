@@ -104,6 +104,7 @@ func (m *networkManager) Get(ctx context.Context, name string) (Network, error) 
 func (m *networkManager) Create(ctx context.Context, req CreateNetworkRequest) (string, error) {
 	resp, err := m.dockerClient.NetworkCreate(ctx, req.Name, dockernetwork.CreateOptions{
 		Driver:     req.Driver,
+		IPAM:       req.IPAM,
 		Attachable: req.Attachable,
 		Internal:   req.Internal,
 		Options:    req.Options,

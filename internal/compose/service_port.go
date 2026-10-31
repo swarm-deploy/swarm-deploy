@@ -3,6 +3,9 @@ package compose
 import (
 	"fmt"
 	"strconv"
+	"strings"
+
+	"github.com/docker/go-connections/nat"
 
 	dockerswarm "github.com/docker/docker/api/types/swarm"
 	"go.yaml.in/yaml/v3"
@@ -65,6 +68,14 @@ func (sp *ServicePorts) UnmarshalYAML(root *yaml.Node) error { //nolint:gocognit
 
 			sp.Ports = append(sp.Ports, port)
 		case yaml.ScalarNode:
+			if strings.Contains(node.Value, "-") {
+				ports, err := parsePortRange(node.Value)
+				if err != nil {
+					return fmt.Errorf("parse port range: %w", err)
+				}
+				sp.Ports = append(sp.Ports, ports...)
+				continue
+			}
 			port, err := sp.parseStringView(node.Value)
 			if err != nil {
 				return fmt.Errorf("parse %q: %w", node.Value, err)
@@ -150,4 +161,26 @@ func defaultServicePort(published, target int) ServicePort {
 		Protocol:  dockerswarm.PortConfigProtocolTCP,
 		Mode:      dockerswarm.PortConfigPublishModeIngress,
 	}
+}
+
+func parsePortRange(value string) ([]ServicePort, error) {
+	mappings, err := nat.ParsePortSpec(value)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]ServicePort, 0, len(mappings))
+	for _, mapping := range mappings {
+		published := 0
+		if mapping.Binding.HostPort != "" {
+			published, err = strconv.Atoi(mapping.Binding.HostPort)
+			if err != nil {
+				return nil, err
+			}
+		}
+		port := defaultServicePort(published, mapping.Port.Int())
+		port.Protocol = dockerswarm.PortConfigProtocol(mapping.Port.Proto())
+		port.HostIP = mapping.Binding.HostIP
+		result = append(result, port)
+	}
+	return result, nil
 }

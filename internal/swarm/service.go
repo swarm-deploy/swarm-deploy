@@ -213,6 +213,11 @@ type LogEntry struct {
 
 // StackService is a compact snapshot of a service belonging to a stack.
 type StackService struct {
+	// CompletedTasks is the count completed in the current job iteration.
+	CompletedTasks uint64
+	// JobStatus identifies the current execution of a Swarm job.
+	JobStatus *dockerswarm.JobStatus
+
 	// ID is a Docker service identifier.
 	ID string
 	// Name is a service name without stack prefix.

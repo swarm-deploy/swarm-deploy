@@ -6,9 +6,9 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/anmitsu/go-shlex"
 	"github.com/distribution/reference"
 	dockerswarm "github.com/docker/docker/api/types/swarm"
+	"github.com/google/shlex"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/resources"
 )
@@ -39,7 +39,11 @@ func convertService(
 	}
 	container.CapabilityAdd, container.CapabilityDrop = capabilities(service.CapAdd, service.CapDrop)
 	for _, key := range sortedKeys(service.Environment.Map) {
-		container.Env = append(container.Env, key+"="+service.Environment.Map[key])
+		value := key + "=" + service.Environment.Map[key]
+		if slices.Contains(service.Environment.Unset, key) {
+			value = key
+		}
+		container.Env = append(container.Env, value)
 	}
 	if service.Healthcheck != nil {
 		container.Healthcheck, err = healthcheck(service.Healthcheck)
@@ -52,6 +56,9 @@ func convertService(
 		return spec, err
 	}
 	if err = serviceObjects(container, service, objects); err != nil {
+		return spec, err
+	}
+	if err = containerOptions(container, service, objects); err != nil {
 		return spec, err
 	}
 	spec.TaskTemplate.ContainerSpec = container
@@ -83,7 +90,7 @@ func commandWords(command compose.Command) ([]string, error) {
 	default:
 		var err error
 		// Compose scalar commands use shell tokenization, without invoking a shell.
-		words, err = shlex.Split(command.Args[0], true)
+		words, err = shlex.Split(command.Args[0])
 		if err != nil {
 			return nil, err
 		}
