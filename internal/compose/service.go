@@ -11,17 +11,17 @@ import (
 type Services []Service
 
 type Service struct {
-	Name    string  `yaml:"-" json:"name"`
-	Image   string  `yaml:"image" json:"image"`
-	Command Command `yaml:"command,omitempty" json:"command,omitempty"`
+	Name            string  `yaml:"-" json:"name"`
+	Image           string  `yaml:"image" json:"image"`
+	Command         Command `yaml:"command,omitempty" json:"command,omitempty"`
 	// Entrypoint overrides the image entrypoint.
-	Entrypoint Command `yaml:"entrypoint,omitempty" json:"entrypoint,omitempty"`
+	Entrypoint      Command `yaml:"entrypoint,omitempty" json:"entrypoint,omitempty"`
 	// StopGracePeriod is the time Docker gives a task to exit before forcefully stopping it.
 	StopGracePeriod string `yaml:"stop_grace_period,omitempty" json:"stop_grace_period,omitempty"`
 	// CapAdd lists Linux capabilities added to the service containers.
-	CapAdd []string `yaml:"cap_add,omitempty" json:"cap_add,omitempty"`
+	CapAdd          []string `yaml:"cap_add,omitempty" json:"cap_add,omitempty"`
 	// CapDrop lists Linux capabilities removed from the service containers.
-	CapDrop []string `yaml:"cap_drop,omitempty" json:"cap_drop,omitempty"`
+	CapDrop         []string `yaml:"cap_drop,omitempty" json:"cap_drop,omitempty"`
 
 	Healthcheck *ServiceHealth   `yaml:"healthcheck,omitempty" json:"healthcheck,omitempty"`
 	Ports       ServicePorts     `yaml:"ports,omitempty" json:"ports,omitempty"`
