@@ -2,11 +2,38 @@ package controller
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 )
+
+func TestWaitingControllerDoesNotDeleteActiveRenderedFiles(t *testing.T) {
+	dataDir := t.TempDir()
+	owner := newControllerOwnership(dataDir)
+	owner.retryInterval = time.Millisecond
+	handle, err := owner.acquire(t.Context())
+	require.NoError(t, err)
+	defer handle.release()
+
+	renderedPath := filepath.Join(dataDir, "rendered", "app.yaml")
+	require.NoError(t, os.MkdirAll(filepath.Dir(renderedPath), 0o755))
+	require.NoError(t, os.WriteFile(renderedPath, []byte("active deployment"), 0o600))
+
+	waiter := newControllerOwnership(dataDir)
+	waiter.retryInterval = time.Millisecond
+	controller := &Controller{ownership: waiter, shutdownWait: 10 * time.Millisecond}
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan error, 1)
+	go func() { done <- controller.Run(ctx) }()
+	time.Sleep(20 * time.Millisecond)
+	_, err = os.Stat(renderedPath)
+	require.NoError(t, err, "waiting controller must not clean files owned by active controller")
+	cancel()
+	require.NoError(t, <-done)
+}
 
 func TestControllerOwnershipSerializesInstancesAndRecoversAfterClose(t *testing.T) {
 	tests := []struct {

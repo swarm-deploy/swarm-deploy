@@ -30,6 +30,7 @@ import (
 	eventbus "github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/outbox"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackloop"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackloop/preparation"
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/modelstore"
 	sharedfs "github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
@@ -111,8 +112,11 @@ exec "$SWARM_AGE_DOCKER" "$@"
 				deployments.NewService(db, bus), stackDeployer, swarmService.Services,
 				pruner.NewServicePruner(swarmService.Services, bus, cfg.Spec.Sync.Policy), deployMetrics,
 			)
-			r := stackloop.New(cfg, gitx.NewRepository(cfg.Spec.Git, dir), executor,
-				swarmService, bus, deployMetrics, modelstore.NewSQLStore(db), fileSystem, db)
+			repository := gitx.NewRepository(cfg.Spec.Git, dir)
+			rotator := stackloop.NewRotator(fileSystem)
+			preparer := preparation.New(cfg, repository, fileSystem, rotator)
+			r := stackloop.New(cfg, executor, swarmService, bus, deployMetrics,
+				modelstore.NewSQLStore(db), preparer, rotator, db)
 			req := stackloop.ReconciliationRequest{Stack: config.StackSpec{Name: stack, ComposeFile: "compose.yaml"}, Commit: "v1"}
 			composePath := filepath.Join(dir, "compose.yaml")
 			writeAgeSwarmFixture(t, dir, identity.Recipient(), "age-private-marker-v1", "mounted-age-v1")

@@ -7,9 +7,8 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
-	gitx "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackloop/preparation"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/modelstore"
-	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/tracing"
 	"github.com/swarm-deploy/swarm-deploy/internal/storage"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
@@ -31,24 +30,23 @@ type ReconciliationRequest struct {
 
 func NewStackReconciler(
 	cfg *config.Config,
-	gitSync gitx.Repository,
 	executor deployments.Executor,
 	swarmService *swarm.Swarm,
 	eventDispatcher dispatcher.Dispatcher,
 	deployMetrics metrics.Deploys,
 	stateStore modelstore.Store,
-	filesystem fs.FileSystem,
+	preparer *preparation.Preparer,
+	rotator *Rotator,
 	db storage.Database,
 ) StackReconciler {
 	reconciler := New(
 		cfg,
-		gitSync,
 		executor,
 		swarmService,
 		eventDispatcher,
 		deployMetrics,
 		stateStore,
-		filesystem, db,
+		preparer, rotator, db,
 	)
 
 	tp, tracingEnabled := tracing.GetTracerProvider()

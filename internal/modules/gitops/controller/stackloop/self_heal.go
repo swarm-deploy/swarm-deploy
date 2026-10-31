@@ -27,9 +27,7 @@ type serviceRemediation struct {
 
 func (r *Reconciler) selfHealDrift(ctx context.Context, payload *pipelinePayload) error {
 	payload.Remediations = make(map[string]serviceRemediation)
-	deployFile := stackDeployCompose(payload.Desired, payload.Stack.Name)
-	r.normalizeRenderedObjectFilePaths(deployFile)
-	deployCompose := deployFile.Compose
+	deployCompose := r.preparer.DeploymentCompose(payload.Desired, payload.Stack.Name)
 
 	span := trace.SpanFromContext(ctx)
 

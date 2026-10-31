@@ -1,4 +1,4 @@
-package stackloop
+package preparation
 
 import (
 	"testing"
@@ -42,21 +42,18 @@ func TestAddManagedLabel(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			payload := &pipelinePayload{Desired: &compose.File{Compose: compose.Compose{
+			desired := &compose.File{Compose: compose.Compose{
 				Services: compose.Services{{Name: "api", Deploy: compose.ServiceDeploy{Labels: tt.labels}}},
-			}}}
+			}}
 
-			err := (&Reconciler{}).addManagedLabel(t.Context(), payload)
-
-			require.NoError(t, err)
-			assert.Equal(t, tt.expectedMutated, payload.DesiredMutated)
+			assert.Equal(t, tt.expectedMutated, addManagedLabel(desired))
 			assert.Equal(
 				t,
 				labelsdict.ServiceManagedLabelValue,
-				payload.Desired.Compose.Services[0].Deploy.Labels.Map[labelsdict.ServiceManagedLabelKey],
+				desired.Compose.Services[0].Deploy.Labels.Map[labelsdict.ServiceManagedLabelKey],
 			)
 			if tt.labels.Map["purpose"] != "" {
-				assert.Equal(t, "api", payload.Desired.Compose.Services[0].Deploy.Labels.Map["purpose"])
+				assert.Equal(t, "api", desired.Compose.Services[0].Deploy.Labels.Map["purpose"])
 			}
 		})
 	}
@@ -111,40 +108,26 @@ func TestStackDeployComposeOmitsInitJobsWithoutMutatingDesired(t *testing.T) {
 
 func TestNeedsRenderedCompose(t *testing.T) {
 	t.Run("age without rotation or other mutations", func(t *testing.T) {
-		assert.True(t, needsRenderedCompose(&pipelinePayload{Desired: &compose.File{Compose: compose.Compose{
+		assert.True(t, needsRenderedCompose(&compose.File{Compose: compose.Compose{
 			Secrets: compose.Secrets{"password": {File: "./secrets/password.age"}},
-		}}}))
-	})
-	t.Run("desired mutated", func(t *testing.T) {
-		assert.True(t, needsRenderedCompose(&pipelinePayload{
-			DesiredMutated: true,
-			Desired: &compose.File{
-				Compose: compose.Compose{
-					Services: compose.Services{{Name: "api"}},
-				},
-			},
-		}))
+		}}))
 	})
 
 	t.Run("init job", func(t *testing.T) {
-		assert.True(t, needsRenderedCompose(&pipelinePayload{
-			Desired: &compose.File{
-				Compose: compose.Compose{
-					Services: compose.Services{{
-						Name:     "api",
-						InitJobs: []compose.InitJob{{Name: "migrate", Image: "example/migrate:latest"}},
-					}},
-				},
+		assert.True(t, needsRenderedCompose(&compose.File{
+			Compose: compose.Compose{
+				Services: compose.Services{{
+					Name:     "api",
+					InitJobs: []compose.InitJob{{Name: "migrate", Image: "example/migrate:latest"}},
+				}},
 			},
 		}))
 	})
 
 	t.Run("plain compose", func(t *testing.T) {
-		assert.False(t, needsRenderedCompose(&pipelinePayload{
-			Desired: &compose.File{
-				Compose: compose.Compose{
-					Services: compose.Services{{Name: "api"}},
-				},
+		assert.False(t, needsRenderedCompose(&compose.File{
+			Compose: compose.Compose{
+				Services: compose.Services{{Name: "api"}},
 			},
 		}))
 	})
