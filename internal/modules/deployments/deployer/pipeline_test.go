@@ -26,6 +26,7 @@ func TestDeployPipelinesPreserveTraceHierarchyAndRootAttributes(t *testing.T) {
 	recorder, testTracer := setupPipelineTracing(t)
 	for _, testCase := range []struct {
 		name               string
+		operationName      string
 		pipelineName       string
 		applyStage         string
 		run                func(*Deployer) error
@@ -33,9 +34,10 @@ func TestDeployPipelinesPreserveTraceHierarchyAndRootAttributes(t *testing.T) {
 		wantRootAttributes map[attribute.Key]string
 	}{
 		{
-			name:         "stack",
-			pipelineName: deployStackPipelineName,
-			applyStage:   stepApplyStack,
+			name:          "stack",
+			operationName: deployStackOperationName,
+			pipelineName:  deployStackPipelineName,
+			applyStage:    stepApplyStack,
 			run: func(d *Deployer) error {
 				_, err := d.DeployStack(t.Context(), "demo", "source.yaml", "rendered.yaml", compose.Compose{
 					Services: compose.Services{{Name: "api"}},
@@ -51,9 +53,10 @@ func TestDeployPipelinesPreserveTraceHierarchyAndRootAttributes(t *testing.T) {
 			},
 		},
 		{
-			name:         "service",
-			pipelineName: deployServicePipelineName,
-			applyStage:   stepApplyService,
+			name:          "service",
+			operationName: deployServiceOperationName,
+			pipelineName:  deployServicePipelineName,
+			applyStage:    stepApplyService,
 			run: func(d *Deployer) error {
 				desired := compose.Compose{Services: compose.Services{{Name: "api"}}}
 				_, err := d.DeployService(t.Context(), "demo", "source.yaml", "api", desired, desired)
@@ -107,17 +110,22 @@ func TestDeployPipelinesPreserveTraceHierarchyAndRootAttributes(t *testing.T) {
 			require.NoError(t, testCase.run(d))
 
 			spans := recorder.Ended()[spanOffset:]
-			root := requireSpan(t, spans, testCase.pipelineName)
+			root := requireSpan(t, spans, testCase.operationName)
 			assert.Equal(t, codes.Ok, root.Status().Code)
 			assertSpanAttributes(t, root, testCase.wantRootAttributes)
-			assert.Equal(t, 1, spanCount(spans, testCase.pipelineName), "root span name must be unambiguous")
+			assert.Equal(t, 1, spanCount(spans, testCase.operationName), "operation span must be unique")
+
+			pipeline := requireSpan(t, spans, testCase.pipelineName)
+			assert.Equal(t, codes.Unset, pipeline.Status().Code)
+			assert.Equal(t, root.SpanContext().SpanID(), pipeline.Parent().SpanID(), "pipeline parent")
+			assert.Equal(t, 1, spanCount(spans, testCase.pipelineName), "pipeline span must be unique")
 
 			stageSpans := make(map[string]sdktrace.ReadOnlySpan, len(testCase.wantStages))
 			var previousStage sdktrace.ReadOnlySpan
 			for _, name := range testCase.wantStages {
 				stage := requireSpan(t, spans, name)
 				stageSpans[name] = stage
-				assert.Equal(t, root.SpanContext().SpanID(), stage.Parent().SpanID(), "%s parent", name)
+				assert.Equal(t, pipeline.SpanContext().SpanID(), stage.Parent().SpanID(), "%s parent", name)
 				assertSpanAttributes(t, stage, testCase.wantRootAttributes)
 				if previousStage != nil {
 					assert.False(t, stage.StartTime().Before(previousStage.StartTime()), "%s stage order", name)
@@ -158,7 +166,8 @@ func TestDeployPipelineFailureSetsSafeRootSpanError(t *testing.T) {
 	})
 	require.Error(t, err)
 
-	root := requireSpan(t, recorder.Ended(), deployStackPipelineName)
+	spans := recorder.Ended()
+	root := requireSpan(t, spans, deployStackOperationName)
 	assert.Equal(t, codes.Error, root.Status().Code)
 	assert.NotContains(t, fmt.Sprint(root.Status(), root.Events()), "private-value")
 	assert.Contains(t, fmt.Sprint(root.Status(), root.Events()), "token=****")
@@ -166,6 +175,14 @@ func TestDeployPipelineFailureSetsSafeRootSpanError(t *testing.T) {
 		tracing.ResourceStackName:   "demo",
 		tracing.ResourceComposePath: "rendered.yaml",
 	})
+
+	pipeline := requireSpan(t, spans, deployStackPipelineName)
+	assert.Equal(t, codes.Error, pipeline.Status().Code)
+	assert.Equal(t, root.SpanContext().SpanID(), pipeline.Parent().SpanID())
+	assert.NotContains(t, fmt.Sprint(pipeline.Status(), pipeline.Events()), "private-value")
+	assert.Contains(t, fmt.Sprint(pipeline.Status(), pipeline.Events()), "token=****")
+	assert.Equal(t, 1, spanCount(spans, deployStackOperationName))
+	assert.Equal(t, 1, spanCount(spans, deployStackPipelineName))
 }
 
 func TestDeployStackStepErrorPreservesJobFailureType(t *testing.T) {

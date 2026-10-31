@@ -11,8 +11,14 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/initjob"
 	stackpkg "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/stack"
 	waiterpkg "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/waiter"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/tracing"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/codes"
+	oteltrace "go.opentelemetry.io/otel/trace"
 )
+
+const deployerTracerName = "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer"
 
 const (
 	binaryTimeout             = 2 * time.Minute
@@ -93,9 +99,17 @@ func (d *Deployer) DeployStack(
 		desired:           desired,
 	}
 
-	err := runDeploymentPipeline(
-		ctx, d.deployStackPipe, deployStackPipelineName, stackTraceAttributes(payload), payload,
+	ctx, span := otel.GetTracerProvider().Tracer(deployerTracerName).Start(
+		ctx, deployStackOperationName, oteltrace.WithAttributes(stackTraceAttributes(payload)...),
 	)
+	defer span.End()
+
+	err := d.deployStackPipe.Run(ctx, payload)
+	if err != nil {
+		tracing.FailSpan(span, err)
+	} else {
+		span.SetStatus(codes.Ok, "")
+	}
 	return payload.result, err
 }
 
@@ -118,8 +132,16 @@ func (d *Deployer) DeployService(
 	}
 	defer payload.cleanup()
 
-	err := runDeploymentPipeline(
-		ctx, d.deployServicePipe, deployServicePipelineName, serviceTraceAttributes(payload), payload,
+	ctx, span := otel.GetTracerProvider().Tracer(deployerTracerName).Start(
+		ctx, deployServiceOperationName, oteltrace.WithAttributes(serviceTraceAttributes(payload)...),
 	)
+	defer span.End()
+
+	err := d.deployServicePipe.Run(ctx, payload)
+	if err != nil {
+		tracing.FailSpan(span, err)
+	} else {
+		span.SetStatus(codes.Ok, "")
+	}
 	return payload.result, err
 }

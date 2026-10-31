@@ -15,15 +15,14 @@ import (
 	waiterpkg "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/waiter"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/tracing"
-	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
-	oteltrace "go.opentelemetry.io/otel/trace"
 )
 
 const (
-	deployStackPipelineName   = "deployer.DeployStack"
-	deployServicePipelineName = "deployer.DeployService"
+	deployStackOperationName   = "deployer.DeployStack"
+	deployServiceOperationName = "deployer.DeployService"
+	deployStackPipelineName    = "gopipe.DeployStack"
+	deployServicePipelineName  = "gopipe.DeployService"
 
 	stepReconcileResources = "reconcile resources"
 	stepRunInitJobs        = "run init jobs"
@@ -171,32 +170,7 @@ func pipelineConfig(name string) pipe.Config {
 	return pipe.Config{
 		PipelineName: name,
 		Logger:       faults.NewSafeLogger(slog.Default()),
-		TracerProvider: pipelineTracerProvider{
-			TracerProvider: otel.GetTracerProvider(),
-			pipelineName:   name,
-		},
 	}
-}
-
-// runDeploymentPipeline starts the deployment operation span that gopipe reuses as its pipeline span.
-func runDeploymentPipeline[Payload any](
-	ctx context.Context,
-	pipeline *pipe.Pipeline[Payload],
-	name string,
-	attrs []attribute.KeyValue,
-	payload Payload,
-) error {
-	tracer := otel.GetTracerProvider().Tracer(
-		"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer",
-	)
-	ctx, span := tracer.Start(ctx, name, oteltrace.WithAttributes(attrs...))
-	defer span.End()
-
-	err := pipeline.Run(ctx, payload)
-	if err == nil {
-		span.SetStatus(codes.Ok, "")
-	}
-	return err
 }
 
 func stackTraceAttributes(payload *deployStackPayload) []attribute.KeyValue {
@@ -212,45 +186,6 @@ func serviceTraceAttributes(payload *deployServicePayload) []attribute.KeyValue 
 		tracing.ResourceServiceName.String(payload.serviceName),
 	}
 }
-
-type pipelineTracerProvider struct {
-	oteltrace.TracerProvider
-	pipelineName string
-}
-
-func (p pipelineTracerProvider) Tracer(name string, options ...oteltrace.TracerOption) oteltrace.Tracer {
-	return pipelineTracer{
-		Tracer:       p.TracerProvider.Tracer(name, options...),
-		pipelineName: p.pipelineName,
-	}
-}
-
-type pipelineTracer struct {
-	oteltrace.Tracer
-	pipelineName string
-}
-
-func (t pipelineTracer) Start(
-	ctx context.Context,
-	spanName string,
-	opts ...oteltrace.SpanStartOption,
-) (context.Context, oteltrace.Span) {
-	if spanName != t.pipelineName {
-		return t.Tracer.Start(ctx, spanName, opts...)
-	}
-
-	span := oteltrace.SpanFromContext(ctx)
-	config := oteltrace.NewSpanStartConfig(opts...)
-	span.SetAttributes(config.Attributes()...)
-	// The caller owns the operation span and ends it after Pipeline.Run returns.
-	return ctx, nonEndingSpan{Span: span}
-}
-
-type nonEndingSpan struct {
-	oteltrace.Span
-}
-
-func (nonEndingSpan) End(...oteltrace.SpanEndOption) {}
 
 func (d *Deployer) wait(ctx context.Context, request waiterpkg.ServiceWaitRequest) error {
 	if err := d.serviceWaiter.Wait(ctx, request); err != nil {
