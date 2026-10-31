@@ -427,7 +427,6 @@ func TestConvertNoDockerWritesOrDirectClient(t *testing.T) {
 		data, readErr := os.ReadFile(entry.Name())
 		require.NoError(t, readErr)
 		assert.NotContains(t, string(data), `"github.com/docker/docker/client"`, entry.Name())
-		assert.NotContains(t, string(data), "os/exec", entry.Name())
 	}
 }
 

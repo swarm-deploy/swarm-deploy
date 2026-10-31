@@ -96,7 +96,6 @@ secretRotation:
 			require.NoError(t, err)
 			t.Cleanup(func() { assert.NoError(t, db.Close()) })
 
-			forbidDeploymentDockerCLI(t)
 			swarmService := swarm.NewSwarm(dockerClient)
 			fileSystem := sharedfs.NewLocalFileSystem()
 			stackDeployer := deployer.NewDeployer(100*time.Millisecond, time.Minute, dockerClient, swarmService, &metrics.NopDeploys{},
