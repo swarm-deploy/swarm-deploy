@@ -5,10 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"os"
-	"path/filepath"
-	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
@@ -16,78 +12,45 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/gitpull"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/networkloop"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/scheduler"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackloop"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackplan"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackloop/preparation"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/syncrun"
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/modelstore"
-	"github.com/swarm-deploy/swarm-deploy/internal/security"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
-	"github.com/swarm-deploy/swarm-deploy/internal/shared/tracing"
 	"github.com/swarm-deploy/swarm-deploy/internal/storage"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
-	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
-	"go.opentelemetry.io/otel/trace"
-)
-
-type TriggerReason string
-
-const (
-	TriggerStartup  TriggerReason = "startup"
-	TriggerPoll     TriggerReason = "poll"
-	TriggerInterval TriggerReason = "interval"
-	TriggerWebhook  TriggerReason = "webhook"
-	TriggerManual   TriggerReason = "manual"
 )
 
 const gracefulReconciliationShutdownTimeout = 25 * time.Second
 
+type TriggerReason = syncrun.TriggerReason
+
 const (
-	syncRunResultError        = "error"
-	syncRunResultNoChange     = "no_change"
-	syncRunResultUpdated      = "updated"
-	syncRunResultSuccess      = "success"
-	syncRunResultPartialError = "partial_error"
+	TriggerStartup  = syncrun.TriggerStartup
+	TriggerPoll     = syncrun.TriggerPoll
+	TriggerInterval = syncrun.TriggerInterval
+	TriggerWebhook  = syncrun.TriggerWebhook
+	TriggerManual   = syncrun.TriggerManual
 )
 
+type renderedCleaner interface {
+	CleanupStale(ctx context.Context) error
+}
+
+// Controller owns GitOps lifecycle, process ownership and graceful shutdown.
 type Controller struct {
-	db          storage.Database
-	cfg         *config.Config
-	configStore *configstore.ConfigStore
-	git         gitx.Repository
-	deployments deployments.Executor
-	metrics     *metrics.Group
-	event       dispatcher.Dispatcher
-
-	stateStore        modelstore.Store
-	networkReconciler *networkloop.Reconciler
-	stackReconciler   stackloop.StackReconciler
-	stackPlanner      *stackplan.Planner
-	puller            *gitpull.Puller
-
-	reconcileCh chan reconcileTask
-
-	shuttingDown atomic.Bool
-	active       atomic.Bool
-	tickerMu     sync.Mutex
-	tickers      []*time.Ticker
+	deployments  deployments.Executor
+	scheduler    *scheduler.Scheduler
+	cleaner      renderedCleaner
 	ownership    *controllerOwnership
 	shutdownWait time.Duration
-
-	tracer trace.Tracer
 }
 
-type reconcileTask struct {
-	triggeredBy string
-	reason      TriggerReason
-	spanContext trace.SpanContext
-}
-
+// New assembles the focused GitOps controller components while preserving external entry points.
 func New(
 	cfg *config.Config,
 	configStore *configstore.ConfigStore,
@@ -100,41 +63,29 @@ func New(
 	filesystem fs.FileSystem,
 	db storage.Database,
 ) *Controller {
-	return &Controller{db: db,
-		cfg:         cfg,
-		configStore: configStore,
-		git:         git,
-		deployments: deploymentExecutor,
-		metrics:     metricGroup,
-		event:       eventDispatcher,
-		stateStore:  stateStore,
-		networkReconciler: networkloop.New(
-			swarmService.Networks,
-		),
-		stackReconciler: stackloop.NewStackReconciler(
-			cfg,
-			git,
-			deploymentExecutor,
-			swarmService,
-			eventDispatcher,
-			metricGroup.Deploys,
-			stateStore,
-			filesystem, db,
-		),
-		stackPlanner: stackplan.NewPlanner(git),
-		puller: gitpull.NewPuller(
-			git,
-			gitpull.NewMonitor(db, stateStore, eventDispatcher),
-			metricGroup.Git,
-			cfg.Spec.Git,
-		),
-		reconcileCh:  make(chan reconcileTask, 1),
+	rotator := stackloop.NewRotator(filesystem)
+	preparer := preparation.New(cfg, git, filesystem, rotator)
+	stackReconciler := stackloop.NewStackReconciler(
+		cfg, deploymentExecutor, swarmService, eventDispatcher, metricGroup.Deploys,
+		stateStore, preparer, rotator, db,
+	)
+	puller := gitpull.NewPuller(
+		git, gitpull.NewMonitor(db, stateStore, eventDispatcher), metricGroup.Git, cfg.Spec.Git,
+	)
+	runner := syncrun.New(
+		db, configStore, git, metricGroup, eventDispatcher, stateStore,
+		networkloop.New(swarmService.Networks), stackReconciler, puller,
+	)
+	return &Controller{
+		deployments:  deploymentExecutor,
+		scheduler:    scheduler.New(cfg, runner, eventDispatcher),
+		cleaner:      preparer,
 		ownership:    newControllerOwnership(cfg.Spec.DataDir),
 		shutdownWait: gracefulReconciliationShutdownTimeout,
-		tracer:       otel.Tracer("github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller"),
 	}
 }
 
+// Run acquires controller ownership, starts components and waits for graceful shutdown.
 func (c *Controller) Run(ctx context.Context) error {
 	runDone := make(chan struct{})
 	defer close(runDone)
@@ -159,24 +110,28 @@ func (c *Controller) Run(ctx context.Context) error {
 	}
 	if handle != nil {
 		defer c.releaseOwnership(ctx, handle)
-		c.cleanupRenderedComposeFiles(ctx)
+		if c.cleaner != nil {
+			if err := c.cleaner.CleanupStale(ctx); err != nil {
+				slog.WarnContext(ctx, "failed to clean up rendered compose files", "err", err)
+			}
+		}
 	}
 	if c.deployments != nil {
 		if err := c.deployments.Recover(ctx); err != nil {
 			return fmt.Errorf("recover orphaned deployments: %w", err)
 		}
 	}
-	c.active.Store(true)
-	defer c.active.Store(false)
-
-	return c.runActive(ctx, reconciliationCtx)
+	return c.scheduler.Run(ctx, reconciliationCtx)
 }
 
-func (c *Controller) cleanupRenderedComposeFiles(ctx context.Context) {
-	renderedDir := filepath.Join(c.cfg.Spec.DataDir, "rendered")
-	if err := os.RemoveAll(renderedDir); err != nil {
-		slog.WarnContext(ctx, "failed to clean up rendered compose files", "path", renderedDir, "err", err)
-	}
+// Manual requests a non-blocking manual synchronization.
+func (c *Controller) Manual(ctx context.Context) bool {
+	return c.scheduler.Manual(ctx)
+}
+
+// Webhook requests a non-blocking webhook synchronization.
+func (c *Controller) Webhook(ctx context.Context) (bool, error) {
+	return c.scheduler.Webhook(ctx)
 }
 
 func (c *Controller) watchShutdown(
@@ -185,7 +140,9 @@ func (c *Controller) watchShutdown(
 	go func() {
 		select {
 		case <-ctx.Done():
-			c.requestShutdown()
+			if c.scheduler != nil {
+				c.scheduler.Shutdown()
+			}
 			timer := time.NewTimer(shutdownWait)
 			defer timer.Stop()
 			select {
@@ -199,14 +156,12 @@ func (c *Controller) watchShutdown(
 }
 
 func (c *Controller) acquireOwnership(ctx context.Context) (*ownershipHandle, error) {
-	slog.InfoContext(ctx, "controller waiting for deployment ownership",
-		slog.String("lock_file", c.ownership.path))
+	slog.InfoContext(ctx, "controller waiting for deployment ownership", slog.String("lock_file", c.ownership.path))
 	handle, err := c.ownership.acquire(ctx)
 	if err != nil {
 		return nil, err
 	}
-	slog.InfoContext(ctx, "controller acquired deployment ownership",
-		slog.String("lock_file", c.ownership.path))
+	slog.InfoContext(ctx, "controller acquired deployment ownership", slog.String("lock_file", c.ownership.path))
 	return handle, nil
 }
 
@@ -214,411 +169,4 @@ func (c *Controller) releaseOwnership(ctx context.Context, handle *ownershipHand
 	if err := handle.release(); err != nil {
 		slog.ErrorContext(context.WithoutCancel(ctx), "release controller ownership", "err", err)
 	}
-}
-
-func (c *Controller) runActive(ctx, reconciliationCtx context.Context) error {
-	var pollTicker *time.Ticker
-	if c.cfg.Spec.Sync.Mode == config.SyncModePull || c.cfg.Spec.Sync.Mode == config.SyncModeHybrid {
-		pollTicker = time.NewTicker(c.cfg.Spec.Sync.PollInterval.Value)
-		c.addTicker(pollTicker)
-		defer c.removeTicker(pollTicker)
-	}
-
-	reconcileTicker := time.NewTicker(c.cfg.Spec.Sync.Interval.Value)
-	c.addTicker(reconcileTicker)
-	defer c.removeTicker(reconcileTicker)
-
-	cleanupTicker, stopCleanupTicker := c.newCleanupTicker()
-	defer stopCleanupTicker()
-
-	slog.InfoContext(ctx, "[controller] trigger startup sync")
-
-	c.scheduleReconcile(ctx, reconcileTask{
-		reason: TriggerStartup,
-	})
-
-	for {
-		if c.shuttingDown.Load() {
-			return nil
-		}
-
-		select {
-		case <-ctx.Done():
-			c.requestShutdown()
-			return nil
-		case task := <-c.reconcileCh:
-			if c.shuttingDown.Load() {
-				continue
-			}
-			c.reconcile(reconciliationCtx, task, nil)
-		case <-tickerC(pollTicker):
-			if c.shuttingDown.Load() {
-				continue
-			}
-			c.pollGit(reconciliationCtx)
-		case <-reconcileTicker.C:
-			if c.shuttingDown.Load() {
-				continue
-			}
-			c.scheduleReconcile(ctx, reconcileTask{
-				reason: TriggerInterval,
-			})
-		case <-tickerC(cleanupTicker):
-			c.handleCleanupTick(reconciliationCtx)
-		}
-	}
-}
-
-func (c *Controller) newCleanupTicker() (*time.Ticker, func()) {
-	if !c.cfg.Spec.SecretRotation.Cleanup.Enabled {
-		return nil, func() {}
-	}
-
-	ticker := time.NewTicker(c.cfg.Spec.SecretRotation.Cleanup.Interval.Value)
-	c.addTicker(ticker)
-
-	return ticker, func() {
-		c.removeTicker(ticker)
-	}
-}
-
-func (c *Controller) handleCleanupTick(ctx context.Context) {
-	if c.shuttingDown.Load() {
-		return
-	}
-
-	c.cleanupStacks(ctx)
-}
-
-func (c *Controller) cleanupStacks(ctx context.Context) {
-	for _, stack := range c.configStore.Stacks() {
-		if err := c.stackReconciler.Cleanup(ctx, stack); err != nil {
-			slog.WarnContext(ctx, "[controller] rotated resource cleanup failed",
-				slog.String("stack", stack.Name),
-				slog.Any("error", err),
-			)
-		}
-	}
-}
-
-func (c *Controller) requestShutdown() {
-	c.shuttingDown.Store(true)
-	c.stopTicker()
-}
-
-func (c *Controller) addTicker(ticker *time.Ticker) {
-	c.tickerMu.Lock()
-	defer c.tickerMu.Unlock()
-
-	c.tickers = append(c.tickers, ticker)
-	if c.shuttingDown.Load() {
-		ticker.Stop()
-	}
-}
-
-func (c *Controller) removeTicker(ticker *time.Ticker) {
-	c.tickerMu.Lock()
-	defer c.tickerMu.Unlock()
-
-	ticker.Stop()
-	for i, registeredTicker := range c.tickers {
-		if registeredTicker != ticker {
-			continue
-		}
-		c.tickers = append(c.tickers[:i], c.tickers[i+1:]...)
-		return
-	}
-}
-
-func (c *Controller) stopTicker() {
-	c.tickerMu.Lock()
-	defer c.tickerMu.Unlock()
-
-	for _, ticker := range c.tickers {
-		ticker.Stop()
-	}
-}
-
-func tickerC(t *time.Ticker) <-chan time.Time {
-	if t == nil {
-		return nil
-	}
-	return t.C
-}
-
-func (c *Controller) Manual(ctx context.Context) bool {
-	user, _ := security.UserFromContext(ctx)
-
-	return c.scheduleReconcile(ctx, reconcileTask{
-		triggeredBy: user.Name,
-		reason:      TriggerManual,
-	})
-}
-
-func (c *Controller) Webhook(ctx context.Context) (bool, error) {
-	queued := c.scheduleReconcile(ctx, reconcileTask{
-		reason: TriggerWebhook,
-	})
-
-	err := c.event.Publish(ctx, &events.WebhookReceived{Queued: queued})
-
-	return queued, err
-}
-
-func (c *Controller) scheduleReconcile(ctx context.Context, task reconcileTask) bool {
-	if c.shuttingDown.Load() || (c.ownership != nil && !c.active.Load()) {
-		return false
-	}
-
-	task.spanContext = trace.SpanContextFromContext(ctx)
-
-	select {
-	case c.reconcileCh <- task:
-		return true
-	default:
-		return false
-	}
-}
-
-func (c *Controller) pollGit(ctx context.Context) {
-	ctx, span := c.tracer.Start(
-		ctx,
-		"controller.Poll",
-		trace.WithAttributes(tracing.SyncReason.String(string(TriggerPoll))),
-	)
-	defer span.End()
-
-	gitResult, err := c.puller.Pull(ctx, string(TriggerPoll))
-	if err != nil {
-		tracing.FailSpan(span, err)
-		c.updatePollState(ctx, syncRunResultError, err)
-		return
-	}
-
-	pollResult := syncRunResultNoChange
-	if gitResult.Updated {
-		pollResult = syncRunResultUpdated
-	}
-	c.updatePollState(ctx, pollResult, nil)
-
-	span.AddEvent(
-		"git pull completed",
-		trace.WithAttributes(
-			attribute.Bool("git.updated", gitResult.Updated),
-		),
-	)
-
-	if !gitResult.Updated {
-		return
-	}
-
-	c.reconcile(ctx, reconcileTask{reason: TriggerPoll}, &gitResult)
-}
-
-func (c *Controller) reconcile( //nolint:funlen // reconciliation pipeline
-	ctx context.Context,
-	task reconcileTask,
-	gitResult *gitx.PullResult,
-) {
-	if task.spanContext.IsValid() {
-		ctx = trace.ContextWithSpanContext(ctx, task.spanContext)
-	}
-	ctx, span := c.tracer.Start(
-		ctx,
-		"controller.Sync",
-		trace.WithAttributes(attribute.String("sync.trigger", string(task.reason))),
-	)
-	defer span.End()
-
-	startedAt := time.Now()
-
-	if err := c.publishManualSync(ctx, task); err != nil {
-		tracing.FailSpan(span, err)
-		slog.ErrorContext(ctx, "persist manual sync event", "err", err)
-		c.metrics.Sync.RecordSyncRun(string(task.reason), syncRunResultError, time.Since(startedAt))
-		return
-	}
-
-	resolvedGitResult, err := c.resolveGitState(ctx, task.reason, gitResult)
-	if err != nil {
-		tracing.FailSpan(span, err)
-		c.metrics.Sync.RecordSyncRun(string(task.reason), syncRunResultError, time.Since(startedAt))
-		_ = c.updateState(ctx, func(s *model.Runtime) {
-			s.LastSyncAt = time.Now()
-			s.LastSyncReason = string(task.reason)
-			s.LastSyncResult = syncRunResultError
-			s.LastSyncError = err.Error()
-		})
-		return
-	}
-	gitResult = &resolvedGitResult
-
-	slog.InfoContext(ctx, "[controller] run sync", slog.String("reason", string(task.reason)))
-
-	reloadErr := c.configStore.Reload(ctx, c.git.WorkingDir())
-	if reloadErr != nil {
-		slog.ErrorContext(ctx, "sync failed at configuration reload stage",
-			slog.String("reason", string(task.reason)),
-			slog.Any("err", reloadErr),
-		)
-		c.metrics.Sync.RecordSyncRun(string(task.reason), syncRunResultError, time.Since(startedAt))
-		_ = c.updateState(ctx, func(s *model.Runtime) {
-			s.LastSyncAt = time.Now()
-			s.LastSyncReason = string(task.reason)
-			s.LastSyncResult = syncRunResultError
-			s.LastSyncError = reloadErr.Error()
-			s.GitRevision = gitResult.NewRevision
-		})
-		return
-	}
-	slog.InfoContext(ctx, "[controller] configuration reloaded",
-		slog.Int("stacks", len(c.configStore.Stacks())),
-		slog.Int("networks", len(c.configStore.Networks())),
-	)
-
-	reconcileNetworksErr := c.syncNetworks(ctx, gitResult.NewRevision)
-	if reconcileNetworksErr != nil {
-		slog.ErrorContext(ctx, "sync failed at networks reconcile stage",
-			slog.String("reason", string(task.reason)),
-			slog.String("commit", gitResult.NewRevision),
-			slog.Any("err", reconcileNetworksErr),
-		)
-		c.metrics.Sync.RecordSyncRun(string(task.reason), syncRunResultError, time.Since(startedAt))
-		_ = c.updateState(ctx, func(s *model.Runtime) {
-			s.LastSyncAt = time.Now()
-			s.LastSyncReason = string(task.reason)
-			s.LastSyncResult = syncRunResultError
-			s.LastSyncError = reconcileNetworksErr.Error()
-			s.GitRevision = gitResult.NewRevision
-		})
-		return
-	}
-
-	plan := c.stackPlanner.Plan(ctx, c.configStore.Stacks(), *gitResult)
-	if plan.DiffErr != nil {
-		slog.ErrorContext(ctx, "git diff failed, continue with default stack order",
-			slog.String("reason", string(task.reason)),
-			slog.String("old_revision", gitResult.OldRevision),
-			slog.String("new_revision", gitResult.NewRevision),
-			slog.Any("err", plan.DiffErr),
-		)
-	}
-
-	stackCtx, stackSpan := c.tracer.Start(ctx, "controller.syncStacks", trace.WithAttributes(
-		attribute.Int("stacks.total", len(plan.Stacks)),
-		attribute.Int("stacks.changed", len(plan.Changed)),
-	))
-	defer stackSpan.End()
-	deployErrs := c.syncStacks(stackCtx, plan.Stacks, gitResult.NewRevision, task.reason)
-
-	result := syncRunResultSuccess
-	combinedErr := errors.Join(deployErrs...)
-	if combinedErr != nil {
-		result = syncRunResultPartialError
-		slog.ErrorContext(ctx, "sync finished with errors",
-			slog.String("reason", string(task.reason)),
-			slog.String("commit", gitResult.NewRevision),
-			slog.Any("err", combinedErr),
-		)
-
-		stackSpan.RecordError(combinedErr)
-		stackSpan.SetStatus(codes.Error, combinedErr.Error())
-	} else {
-		stackSpan.SetStatus(codes.Ok, "")
-	}
-
-	persistErr := c.updateState(ctx, func(s *model.Runtime) {
-		s.LastSyncAt = time.Now()
-		s.LastSyncReason = string(task.reason)
-		s.LastSyncResult = result
-		s.LastSyncError = ""
-		if combinedErr != nil {
-			s.LastSyncError = combinedErr.Error()
-		}
-		s.GitRevision = gitResult.NewRevision
-	})
-	if persistErr != nil {
-		result = syncRunResultError
-		tracing.FailSpan(stackSpan, persistErr)
-	}
-	c.metrics.Sync.RecordSyncRun(string(task.reason), result, time.Since(startedAt))
-}
-
-func (c *Controller) syncStacks(
-	ctx context.Context, stacks []config.StackSpec, commit string, reason TriggerReason,
-) []error {
-	var deployErrs []error
-	for _, stackCfg := range stacks {
-		err := c.syncStack(ctx, stackCfg, commit, reason == TriggerManual)
-		if err == nil {
-			continue
-		}
-		deployErrs = append(deployErrs, err)
-		slog.ErrorContext(ctx, "sync failed for stack",
-			slog.String("reason", string(reason)),
-			slog.String("stack", stackCfg.Name),
-			slog.String("commit", commit),
-			slog.Any("err", err),
-		)
-	}
-	return deployErrs
-}
-
-func (c *Controller) resolveGitState(
-	ctx context.Context,
-	reason TriggerReason,
-	gitResult *gitx.PullResult,
-) (gitx.PullResult, error) {
-	if gitResult != nil {
-		return *gitResult, nil
-	}
-
-	if reason == TriggerInterval {
-		revision, err := c.git.Head(ctx)
-		if err != nil {
-			return gitx.PullResult{}, err
-		}
-
-		return gitx.PullResult{
-			OldRevision: revision,
-			NewRevision: revision,
-		}, nil
-	}
-
-	return c.puller.Pull(ctx, string(reason))
-}
-
-func (c *Controller) updatePollState(ctx context.Context, result string, err error) {
-	_ = c.updateState(ctx, func(s *model.Runtime) {
-		s.LastPollAt = time.Now()
-		s.LastPollResult = result
-		s.LastPollError = ""
-		if err != nil {
-			s.LastPollError = err.Error()
-		}
-	})
-}
-
-func (c *Controller) syncStack(
-	ctx context.Context,
-	stackCfg config.StackSpec,
-	commit string,
-	isManual bool,
-) error {
-	err := c.stackReconciler.Reconcile(ctx, stackloop.ReconciliationRequest{
-		Stack:    stackCfg,
-		Commit:   commit,
-		IsManual: isManual,
-	})
-	if err != nil {
-		return fmt.Errorf("stack %s %w", stackCfg.Name, err)
-	}
-	return nil
-}
-
-func (c *Controller) publishManualSync(ctx context.Context, task reconcileTask) error {
-	if task.reason != TriggerManual {
-		return nil
-	}
-	return c.event.Publish(ctx, &events.SyncManualStarted{Username: task.triggeredBy})
 }

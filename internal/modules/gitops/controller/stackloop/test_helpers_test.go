@@ -7,6 +7,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/pruner"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackloop/preparation"
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
@@ -31,7 +32,9 @@ func newTestReconciler(
 		pruner.NewServicePruner(swarmService.Services, eventDispatcher, cfg.Spec.Sync.Policy),
 		deployMetrics,
 	)
+	rotator := NewRotator(fileSystem)
+	preparer := preparation.New(cfg, gitSync, fileSystem, rotator)
 	return New(
-		cfg, gitSync, executor, swarmService, eventDispatcher, deployMetrics, stateStore, fileSystem, db,
+		cfg, executor, swarmService, eventDispatcher, deployMetrics, stateStore, preparer, rotator, db,
 	)
 }
