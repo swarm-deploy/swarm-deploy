@@ -66,6 +66,146 @@ func TestDeployStackWaitsAfterSuccessfulApply(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestDeployStackSharesApplyDeadlineAcrossSnapshotCLIAndWaiter(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	waiter := NewMockServiceWaitExecutor(ctrl)
+	runner := NewMockRunner(ctrl)
+
+	var snapshotDeadline time.Time
+	waiter.EXPECT().Snapshot(gomock.Any(), "demo").DoAndReturn(
+		func(ctx context.Context, _ string) ([]swarm.StackService, error) {
+			var ok bool
+			snapshotDeadline, ok = ctx.Deadline()
+			require.True(t, ok, "snapshot must use the bounded apply context")
+			return nil, nil
+		},
+	)
+
+	var cliDeadline time.Time
+	var cliRemaining time.Duration
+	runner.EXPECT().Run(gomock.Any(), "stack", "deploy", "-c", "rendered.yaml", "demo").DoAndReturn(
+		func(ctx context.Context, _ ...string) (string, error) {
+			var ok bool
+			cliDeadline, ok = ctx.Deadline()
+			require.True(t, ok, "CLI must use the bounded apply context")
+			cliRemaining = time.Until(cliDeadline)
+			time.Sleep(10 * time.Millisecond)
+			return "", nil
+		},
+	)
+
+	var waitDeadline time.Time
+	var waitRemaining time.Duration
+	waiter.EXPECT().Wait(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(ctx context.Context, _ ServiceWaitRequest) error {
+			var ok bool
+			waitDeadline, ok = ctx.Deadline()
+			require.True(t, ok, "waiter must use the bounded apply context")
+			waitRemaining = time.Until(waitDeadline)
+			return nil
+		},
+	)
+
+	d := &Deployer{
+		secretResolver: newTestSecretResolver(), stackDeployArgs: []string{"stack", "deploy"},
+		runner: runner, initJobRunner: NewMockInitJobExecutor(ctrl), serviceWaiter: waiter,
+	}
+
+	_, err := d.DeployStack(context.Background(), "demo", "source.yaml", "rendered.yaml", compose.Compose{
+		Services: compose.Services{{Name: "api"}},
+	})
+	require.NoError(t, err)
+	assert.True(t, snapshotDeadline.Equal(cliDeadline), "snapshot and CLI must share one absolute deadline")
+	assert.True(t, cliDeadline.Equal(waitDeadline), "CLI and waiter must share one absolute deadline")
+	assert.Less(t, waitRemaining, cliRemaining, "CLI execution must consume convergence time")
+}
+
+func TestDeployStackConvergenceTimeoutPreservesDiagnostics(t *testing.T) {
+	manager := swarm.NewMockServiceManager(gomock.NewController(t))
+	service := testReplicatedService("api", "api-id", 1, serviceWaitTestTime, "api:2")
+	manager.EXPECT().ListServices(gomock.Any(), gomock.Any()).Return(nil, nil)
+	manager.EXPECT().ListServices(gomock.Any(), gomock.Any()).Return([]swarm.StackService{service}, nil).AnyTimes()
+	manager.EXPECT().ListTasks(gomock.Any(), "api-id").Return(nil, nil).AnyTimes()
+
+	d := &Deployer{
+		secretResolver: newTestSecretResolver(), stackDeployArgs: []string{"stack", "deploy"},
+		runner: &fakeRunner{}, initJobRunner: &fakeInitJobExecutor{},
+		serviceWaiter: NewServiceWaiter(manager, time.Millisecond, time.Hour),
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+
+	_, err := d.DeployStack(ctx, "demo", "source.yaml", "rendered.yaml", compose.Compose{
+		Services: compose.Services{{Name: "api"}},
+	})
+	require.Error(t, err)
+	assert.ErrorIs(t, err, context.DeadlineExceeded)
+	assert.ErrorContains(t, err, "api (0/1 running")
+	assert.ErrorContains(t, err, "waiting for current tasks")
+}
+
+func TestDeployStackParentCancellationInterruptsConvergence(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	waiter := NewMockServiceWaitExecutor(ctrl)
+	waiter.EXPECT().Snapshot(gomock.Any(), "demo").Return(nil, nil)
+	runner := NewMockRunner(ctrl)
+	runner.EXPECT().Run(gomock.Any(), "stack", "deploy", "-c", "rendered.yaml", "demo").Return("", nil)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	waiter.EXPECT().Wait(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(waitCtx context.Context, _ ServiceWaitRequest) error {
+			cancel()
+			<-waitCtx.Done()
+			return waitCtx.Err()
+		},
+	)
+	d := &Deployer{
+		secretResolver: newTestSecretResolver(), stackDeployArgs: []string{"stack", "deploy"},
+		runner: runner, initJobRunner: NewMockInitJobExecutor(ctrl), serviceWaiter: waiter,
+	}
+
+	_, err := d.DeployStack(ctx, "demo", "source.yaml", "rendered.yaml", compose.Compose{
+		Services: compose.Services{{Name: "api"}},
+	})
+	require.Error(t, err)
+	assert.ErrorIs(t, err, context.Canceled)
+}
+
+func TestDeployStackStartsSharedTimeoutAfterInitJobs(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	initJobs := NewMockInitJobExecutor(ctrl)
+	initJobs.EXPECT().Run(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(ctx context.Context, spec InitJobSpec) (InitJobResult, error) {
+			_, hasDeadline := ctx.Deadline()
+			assert.False(t, hasDeadline, "Init Jobs must run before the apply timeout starts")
+			return InitJobResult{
+				ServiceName: spec.ServiceName, JobName: spec.Job.Name, Status: InitJobSucceeded,
+				StartedAt: time.Now(), FinishedAt: time.Now(),
+			}, nil
+		},
+	)
+	waiter := NewMockServiceWaitExecutor(ctrl)
+	waiter.EXPECT().Snapshot(gomock.Any(), "demo").DoAndReturn(
+		func(ctx context.Context, _ string) ([]swarm.StackService, error) {
+			_, hasDeadline := ctx.Deadline()
+			assert.True(t, hasDeadline, "apply timeout must start before the baseline snapshot")
+			return nil, nil
+		},
+	)
+	waiter.EXPECT().Wait(gomock.Any(), gomock.Any()).Return(nil)
+	runner := NewMockRunner(ctrl)
+	runner.EXPECT().Run(gomock.Any(), "stack", "deploy", "-c", "rendered.yaml", "demo").Return("", nil)
+	d := &Deployer{
+		secretResolver: newTestSecretResolver(), stackDeployArgs: []string{"stack", "deploy"},
+		runner: runner, initJobRunner: initJobs, serviceWaiter: waiter,
+	}
+
+	_, err := d.DeployStack(context.Background(), "demo", "source.yaml", "rendered.yaml", compose.Compose{
+		Services: compose.Services{{Name: "api", InitJobs: []compose.InitJob{{Name: "migrate"}}}},
+	})
+	require.NoError(t, err)
+}
+
 func TestDeployStackDoesNotReturnBeforeServiceConvergence(t *testing.T) {
 	waiter := NewMockServiceWaitExecutor(gomock.NewController(t))
 	waiter.EXPECT().Snapshot(gomock.Any(), "demo").Return(nil, nil)

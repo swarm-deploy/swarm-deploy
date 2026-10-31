@@ -164,7 +164,10 @@ func (d *Deployer) applyCompose(
 	serviceNames []string,
 	onlyAffected bool,
 ) error {
-	baseline, err := d.serviceWaiter.Snapshot(ctx, stackName)
+	applyCtx, cancel := context.WithTimeout(ctx, binaryTimeout)
+	defer cancel()
+
+	baseline, err := d.serviceWaiter.Snapshot(applyCtx, stackName)
 	if err != nil {
 		return err
 	}
@@ -173,14 +176,11 @@ func (d *Deployer) applyCompose(
 	args = append(args, d.stackDeployArgs...)
 	args = append(args, "-c", deployComposePath, stackName)
 
-	commandCtx, cancel := context.WithTimeout(ctx, binaryTimeout)
-	defer cancel()
-
-	if _, err = d.runner.Run(commandCtx, args...); err != nil {
+	if _, err = d.runner.Run(applyCtx, args...); err != nil {
 		return fmt.Errorf("deploy stack %s: %w", stackName, err)
 	}
 
-	if err = d.serviceWaiter.Wait(ctx, ServiceWaitRequest{
+	if err = d.serviceWaiter.Wait(applyCtx, ServiceWaitRequest{
 		StackName: stackName, ServiceNames: serviceNames, Baseline: baseline, OnlyAffected: onlyAffected,
 	}); err != nil {
 		return fmt.Errorf("wait for stack %s service convergence: %w", stackName, err)
