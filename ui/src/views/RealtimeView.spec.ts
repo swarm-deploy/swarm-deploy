@@ -49,6 +49,7 @@ async function mountView() {
 
 describe("RealtimeView", () => {
   beforeEach(() => {
+    window.localStorage.clear();
     apiMocks.fetchSwarmServices.mockResolvedValue({ services });
     apiMocks.fetchSwarmServiceTasks.mockResolvedValue({ tasks });
     apiMocks.fetchSwarmTask.mockImplementation(async (id: string) => taskDetails(id));
@@ -56,7 +57,88 @@ describe("RealtimeView", () => {
 
   afterEach(() => {
     vi.useRealTimers();
+    window.localStorage.clear();
     vi.clearAllMocks();
+  });
+
+  it("renders a compact refresh split control with the default interval", async () => {
+    const wrapper = await mountView();
+
+    expect(wrapper.get(".realtime-refresh-button").text()).toBe("Refresh");
+    expect(wrapper.get(".realtime-refresh-dropdown > summary").text()).toBe("5s");
+    expect(wrapper.find(".realtime-auto-refresh").exists()).toBe(false);
+    expect(wrapper.find(".realtime-refresh-status").exists()).toBe(false);
+    expect(wrapper.get(".realtime-live-indicator").text()).toBe("Live");
+    expect(wrapper.findAll(".realtime-refresh-option").map((option) => option.text())).toEqual([
+      "Off", "5s", "10s", "30s", "1m", "5m", "15m", "30m", "1h",
+    ]);
+    wrapper.unmount();
+  });
+
+  it("disables polling when Off is selected while keeping manual refresh available", async () => {
+    vi.useFakeTimers();
+    const wrapper = await mountView();
+
+    await wrapper.findAll(".realtime-refresh-option")[0].trigger("click");
+    expect(wrapper.get(".realtime-refresh-dropdown > summary").text()).toBe("Off");
+    expect(wrapper.get(".realtime-live-indicator").text()).toBe("Paused");
+    expect(window.localStorage.getItem("realtime.refreshInterval")).toBe("0");
+
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(apiMocks.fetchSwarmServices).toHaveBeenCalledTimes(1);
+
+    await wrapper.get(".realtime-refresh-button").trigger("click");
+    await flushPromises();
+    expect(apiMocks.fetchSwarmServices).toHaveBeenCalledTimes(2);
+    wrapper.unmount();
+  });
+
+  it("reschedules polling immediately when the interval changes", async () => {
+    vi.useFakeTimers();
+    const wrapper = await mountView();
+
+    await wrapper.findAll(".realtime-refresh-option")[2].trigger("click");
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(apiMocks.fetchSwarmServices).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(apiMocks.fetchSwarmServices).toHaveBeenCalledTimes(2);
+
+    await wrapper.findAll(".realtime-refresh-option")[3].trigger("click");
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(apiMocks.fetchSwarmServices).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(apiMocks.fetchSwarmServices).toHaveBeenCalledTimes(3);
+    wrapper.unmount();
+  });
+
+  it("does not start an overlapping refresh while a request is pending", async () => {
+    vi.useFakeTimers();
+    const wrapper = await mountView();
+    let resolveRefresh!: (value: { services: typeof services }) => void;
+    apiMocks.fetchSwarmServices.mockImplementationOnce(() => new Promise((resolve) => {
+      resolveRefresh = resolve;
+    }));
+
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(apiMocks.fetchSwarmServices).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(apiMocks.fetchSwarmServices).toHaveBeenCalledTimes(2);
+
+    resolveRefresh({ services });
+    await flushPromises();
+    wrapper.unmount();
+  });
+
+  it("restores a valid persisted interval and falls back to five seconds for invalid values", async () => {
+    window.localStorage.setItem("realtime.refreshInterval", "60000");
+    const persisted = await mountView();
+    expect(persisted.get(".realtime-refresh-dropdown > summary").text()).toBe("1m");
+    persisted.unmount();
+
+    window.localStorage.setItem("realtime.refreshInterval", "12345");
+    const fallback = await mountView();
+    expect(fallback.get(".realtime-refresh-dropdown > summary").text()).toBe("5s");
+    fallback.unmount();
   });
 
   it("renders all live services, standalone rows, replica counts, and runtime states", async () => {

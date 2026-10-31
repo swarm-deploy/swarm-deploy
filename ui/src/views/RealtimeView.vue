@@ -20,15 +20,41 @@ interface TaskListState {
   error: string;
 }
 
+const REFRESH_INTERVAL_STORAGE_KEY = "realtime.refreshInterval";
+const refreshIntervals = [
+  { label: "Off", value: 0 },
+  { label: "5s", value: 5_000 },
+  { label: "10s", value: 10_000 },
+  { label: "30s", value: 30_000 },
+  { label: "1m", value: 60_000 },
+  { label: "5m", value: 300_000 },
+  { label: "15m", value: 900_000 },
+  { label: "30m", value: 1_800_000 },
+  { label: "1h", value: 3_600_000 },
+] as const;
+
+type RefreshInterval = typeof refreshIntervals[number]["value"];
+
+function readRefreshInterval(): RefreshInterval {
+  try {
+    const stored = window.localStorage.getItem(REFRESH_INTERVAL_STORAGE_KEY);
+    if (stored === null) return 5_000;
+    const value = Number(stored);
+    return refreshIntervals.some((interval) => interval.value === value) ? value as RefreshInterval : 5_000;
+  } catch {
+    return 5_000;
+  }
+}
+
 const services = ref<SwarmService[]>([]);
 const initialLoading = ref(true);
 const refreshing = ref(false);
 const refreshError = ref("");
-const lastSuccessfulRefresh = ref<Date | null>(null);
 const selectedStacks = ref<string[]>([]);
 const stateFilter = ref<RuntimeState | "all">("all");
 const searchQuery = ref("");
-const automaticRefresh = ref(true);
+const refreshInterval = ref<RefreshInterval>(readRefreshInterval());
+const refreshMenu = ref<HTMLDetailsElement | null>(null);
 const expandedServiceIDs = ref(new Set<string>());
 const tasksByService = ref<Record<string, TaskListState>>({});
 const selectedTaskID = ref("");
@@ -72,10 +98,10 @@ const filteredServices = computed(() => {
   });
 });
 
-const lastRefreshLabel = computed(() => {
-  if (!lastSuccessfulRefresh.value) return "Not refreshed yet";
-  return lastSuccessfulRefresh.value.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-});
+const automaticRefresh = computed(() => refreshInterval.value !== 0);
+const refreshIntervalLabel = computed(() => (
+  refreshIntervals.find((interval) => interval.value === refreshInterval.value)?.label ?? "5s"
+));
 
 function errorMessage(reason: unknown): string {
   return reason instanceof Error ? reason.message : "Request failed";
@@ -193,7 +219,6 @@ async function loadServices(): Promise<void> {
     services.value = (Array.isArray(response.services) ? response.services : [])
       .slice()
       .sort((left, right) => left.full_name.localeCompare(right.full_name));
-    lastSuccessfulRefresh.value = new Date();
     await refreshExpandedTasks();
   } catch (reason) {
     if (disposed || current !== serviceRequest) return;
@@ -251,8 +276,8 @@ function openLogs(taskID: string): void {
 
 function startPolling(): void {
   stopPolling();
-  if (!automaticRefresh.value || document.hidden) return;
-  pollingTimer = window.setInterval(() => void loadServices(), 5_000);
+  if (refreshInterval.value === 0 || document.hidden) return;
+  pollingTimer = window.setInterval(() => void loadServices(), refreshInterval.value);
 }
 
 function stopPolling(): void {
@@ -271,10 +296,33 @@ function handleVisibilityChange(): void {
   }
 }
 
-watch(automaticRefresh, startPolling);
+function selectRefreshInterval(interval: RefreshInterval): void {
+  refreshInterval.value = interval;
+  refreshMenu.value?.removeAttribute("open");
+  try {
+    window.localStorage.setItem(REFRESH_INTERVAL_STORAGE_KEY, String(interval));
+  } catch {
+    // Refreshing still works when storage is unavailable.
+  }
+}
+
+function handleDocumentClick(event: MouseEvent): void {
+  if (!(event.target instanceof Node) || refreshMenu.value?.contains(event.target)) return;
+  refreshMenu.value?.removeAttribute("open");
+}
+
+function handleRefreshMenuKeydown(event: KeyboardEvent): void {
+  if (event.key !== "Escape" || !refreshMenu.value?.open) return;
+  event.preventDefault();
+  refreshMenu.value.removeAttribute("open");
+  refreshMenu.value.querySelector("summary")?.focus();
+}
+
+watch(refreshInterval, startPolling);
 
 onMounted(() => {
   document.addEventListener("visibilitychange", handleVisibilityChange);
+  document.addEventListener("click", handleDocumentClick);
   void loadServices();
   startPolling();
 });
@@ -286,6 +334,7 @@ onUnmounted(() => {
   stopPolling();
   if (copiedErrorResetTimer !== undefined) window.clearTimeout(copiedErrorResetTimer);
   document.removeEventListener("visibilitychange", handleVisibilityChange);
+  document.removeEventListener("click", handleDocumentClick);
 });
 </script>
 
@@ -301,22 +350,38 @@ onUnmounted(() => {
         </div>
         <p>Live Docker Swarm services and tasks</p>
       </div>
-      <div class="realtime-refresh-status">
-        <span>Updated {{ lastRefreshLabel }}</span>
+      <div class="realtime-refresh-control">
         <button
           type="button"
-          class="realtime-auto-refresh"
-          role="switch"
-          :aria-checked="automaticRefresh"
-          @click="automaticRefresh = !automaticRefresh"
+          class="button-ghost realtime-refresh-button"
+          :disabled="refreshing"
+          :aria-busy="refreshing"
+          @click="loadServices"
         >
-          <span class="realtime-switch" :class="{ 'realtime-switch--active': automaticRefresh }" aria-hidden="true"><span /></span>
-          Auto 5s
-        </button>
-        <button type="button" class="button-ghost realtime-refresh-button" :disabled="refreshing" @click="loadServices">
           <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M16.5 6.5V2.8m0 0h-3.7m3.7 0-2.2 2.1a6.5 6.5 0 1 0 1.4 6.9" /></svg>
-          {{ refreshing ? "Refreshing" : "Refresh" }}
+          Refresh
         </button>
+        <details ref="refreshMenu" class="realtime-refresh-dropdown" @keydown="handleRefreshMenuKeydown">
+          <summary :aria-label="`Refresh interval: ${refreshIntervalLabel}`">
+            <span>{{ refreshIntervalLabel }}</span>
+            <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4" /></svg>
+          </summary>
+          <div class="realtime-refresh-menu" role="menu" aria-label="Refresh interval">
+            <button
+              v-for="interval in refreshIntervals"
+              :key="interval.value"
+              type="button"
+              class="realtime-refresh-option"
+              :class="{ 'realtime-refresh-option--selected': refreshInterval === interval.value }"
+              role="menuitemradio"
+              :aria-checked="refreshInterval === interval.value"
+              @click="selectRefreshInterval(interval.value)"
+            >
+              <span>{{ interval.label }}</span>
+              <svg v-if="refreshInterval === interval.value" viewBox="0 0 16 16" aria-hidden="true"><path d="m3 8.5 3 3L13 4.8" /></svg>
+            </button>
+          </div>
+        </details>
       </div>
     </header>
 
@@ -478,16 +543,20 @@ onUnmounted(() => {
 .realtime-live-indicator { display: inline-flex; align-items: center; gap: 6px; color: var(--success); font-size: .76rem; font-weight: 600; }
 .realtime-live-indicator > span { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
 .realtime-live-indicator--paused { color: var(--muted); }
-.realtime-refresh-status { display: flex; align-items: center; justify-content: flex-end; gap: 8px; color: var(--muted); font-size: .76rem; }
-.realtime-refresh-status button { font-size: .78rem; font-weight: 600; transform: none; filter: none; }
-.realtime-auto-refresh, .realtime-refresh-button { display: inline-flex; align-items: center; gap: 7px; white-space: nowrap; }
-.realtime-auto-refresh { border: 0; background: transparent; color: inherit; padding: 0; }
-.realtime-refresh-button { min-height: 36px; padding: 7px 10px; border-radius: 7px; }
+.realtime-refresh-control { display: inline-flex; align-items: stretch; justify-self: end; }
+.realtime-refresh-control button, .realtime-refresh-dropdown > summary { font-size: .78rem; font-weight: 600; transform: none; filter: none; }
+.realtime-refresh-button { min-height: 36px; display: inline-flex; align-items: center; gap: 7px; border-radius: 7px 0 0 7px; padding: 7px 10px; white-space: nowrap; }
+.realtime-refresh-button:disabled { cursor: wait; opacity: .65; }
 .realtime-refresh-button svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
-.realtime-switch { position: relative; width: 26px; height: 16px; border: 1px solid var(--border-strong); border-radius: 999px; background: var(--surface-muted-strong); }
-.realtime-switch span { position: absolute; top: 2px; left: 2px; width: 10px; height: 10px; border-radius: 50%; background: var(--muted); transition: transform 120ms ease; }
-.realtime-switch--active { border-color: var(--success-border); background: var(--success-muted); }
-.realtime-switch--active span { background: var(--success); transform: translateX(10px); }
+.realtime-refresh-dropdown { position: relative; }
+.realtime-refresh-dropdown > summary { box-sizing: border-box; min-width: 66px; min-height: 36px; display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-left: -1px; border: 1px solid var(--border-default); border-radius: 0 7px 7px 0; background: var(--surface-control); color: var(--text); padding: 7px 9px 7px 11px; cursor: pointer; list-style: none; }
+.realtime-refresh-dropdown > summary::-webkit-details-marker { display: none; }
+.realtime-refresh-dropdown > summary:hover, .realtime-refresh-dropdown[open] > summary { background: var(--surface-control-strong); }
+.realtime-refresh-dropdown > summary svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.realtime-refresh-menu { position: absolute; z-index: 30; top: calc(100% + 6px); right: 0; width: 150px; max-height: min(360px, calc(100dvh - 128px)); overflow-y: auto; border: 1px solid var(--border-default); border-radius: 8px; background: var(--surface-elevated); box-shadow: var(--shadow-popover); padding: 6px; }
+.realtime-refresh-option { width: 100%; min-height: 32px; display: flex; align-items: center; justify-content: space-between; gap: 12px; border: 0; border-radius: 6px; background: transparent; color: var(--text); padding: 6px 9px; text-align: left; }
+.realtime-refresh-option:hover, .realtime-refresh-option--selected { background: var(--surface-hover-soft); }
+.realtime-refresh-option svg { width: 15px; height: 15px; fill: none; stroke: var(--control-primary); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .realtime-stale-warning, .realtime-inline-error { margin: 0; border: 1px solid var(--warning-border); border-radius: 7px; background: var(--warning-muted); color: var(--warning); padding: 9px 12px; font-size: .8rem; }
 .realtime-filters { min-width: 0; display: grid; grid-template-columns: minmax(240px, 1fr) 180px 170px; gap: 10px; align-items: center; padding: 12px; border: 1px solid var(--border-subtle); border-radius: 10px; background: var(--surface-card-soft); }
 .realtime-search { position: relative; min-width: 0; }
@@ -560,7 +629,7 @@ onUnmounted(() => {
 
 @media (max-width: 900px) {
   .realtime-header { align-items: stretch; flex-direction: column; gap: 10px; }
-  .realtime-refresh-status { justify-content: flex-start; flex-wrap: wrap; }
+  .realtime-refresh-control { align-self: flex-end; }
   .realtime-filters { grid-template-columns: minmax(0, 1fr) minmax(130px, .45fr) minmax(130px, .45fr); }
   .realtime-search { grid-column: 1 / -1; }
   .realtime-workspace--details { grid-template-columns: minmax(0, 1fr); }
@@ -570,6 +639,9 @@ onUnmounted(() => {
 
 @media (max-width: 700px) {
   .realtime-page { gap: 12px; }
+  .realtime-refresh-control { width: 100%; }
+  .realtime-refresh-button { flex: 1 1 auto; justify-content: center; }
+  .realtime-refresh-dropdown { flex: 0 0 auto; }
   .realtime-filters { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); padding: 10px; }
   .realtime-search { grid-column: 1 / -1; }
   .realtime-services-panel :deep(.app-table-wrap) { overflow: visible; }
@@ -598,7 +670,6 @@ onUnmounted(() => {
 }
 
 @media (max-width: 460px) {
-  .realtime-refresh-status > span { flex-basis: 100%; }
   .realtime-filter-field select, .realtime-search input { font-size: 16px; }
 }
 </style>
