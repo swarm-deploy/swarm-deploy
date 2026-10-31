@@ -15,20 +15,8 @@ import (
 // snapshotCheckout takes a private copy of the checkout before another Git pull.
 // Symlinks and Git metadata are excluded to avoid reading outside the checkout.
 func snapshotCheckout(ctx context.Context, source, root string) (string, error) {
-	sourceAbs, err := filepath.Abs(source)
-	if err != nil {
+	if err := checkSnapshotRoot(source, root); err != nil {
 		return "", err
-	}
-	rootAbs, err := filepath.Abs(root)
-	if err != nil {
-		return "", err
-	}
-	rel, err := filepath.Rel(sourceAbs, rootAbs)
-	if err != nil {
-		return "", err
-	}
-	if rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))) {
-		return "", errors.New("deployment snapshot directory must be outside the Git checkout")
 	}
 	if err := os.MkdirAll(root, 0o700); err != nil {
 		return "", err
@@ -41,39 +29,63 @@ func snapshotCheckout(ctx context.Context, source, root string) (string, error) 
 		return "", err
 	}
 	err := filepath.WalkDir(source, func(path string, entry os.DirEntry, readErr error) error {
-		if readErr != nil {
-			return readErr
-		}
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		relative, err := filepath.Rel(source, path)
-		if err != nil {
-			return err
-		}
-		if relative == "." {
-			return nil
-		}
-		if entry.Name() == ".git" && entry.IsDir() {
-			return filepath.SkipDir
-		}
-		if entry.Type()&os.ModeSymlink != 0 {
-			return fmt.Errorf("symlink in Git checkout is unsupported: %s", relative)
-		}
-		destination := filepath.Join(target, relative)
-		if entry.IsDir() {
-			return os.Mkdir(destination, 0o700)
-		}
-		if !entry.Type().IsRegular() {
-			return fmt.Errorf("unsupported checkout file: %s", relative)
-		}
-		return copySnapshotFile(path, destination)
+		return copySnapshotEntry(ctx, source, target, path, entry, readErr)
 	})
 	if err != nil {
 		_ = os.RemoveAll(target)
 		return "", err
 	}
 	return target, nil
+}
+
+func checkSnapshotRoot(source, root string) error {
+	sourceAbs, err := filepath.Abs(source)
+	if err != nil {
+		return err
+	}
+	rootAbs, err := filepath.Abs(root)
+	if err != nil {
+		return err
+	}
+	relative, err := filepath.Rel(sourceAbs, rootAbs)
+	if err != nil {
+		return err
+	}
+	if relative == "." || (relative != ".." &&
+		!strings.HasPrefix(relative, ".."+string(filepath.Separator))) {
+		return errors.New("deployment snapshot directory must be outside the Git checkout")
+	}
+	return nil
+}
+
+func copySnapshotEntry(ctx context.Context, source, target, path string, entry os.DirEntry, readErr error) error {
+	if readErr != nil {
+		return readErr
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	relative, err := filepath.Rel(source, path)
+	if err != nil {
+		return err
+	}
+	if relative == "." {
+		return nil
+	}
+	if entry.Name() == ".git" && entry.IsDir() {
+		return filepath.SkipDir
+	}
+	if entry.Type()&os.ModeSymlink != 0 {
+		return fmt.Errorf("symlink in Git checkout is unsupported: %s", relative)
+	}
+	destination := filepath.Join(target, relative)
+	if entry.IsDir() {
+		return os.Mkdir(destination, 0o700)
+	}
+	if !entry.Type().IsRegular() {
+		return fmt.Errorf("unsupported checkout file: %s", relative)
+	}
+	return copySnapshotFile(path, destination)
 }
 
 func copySnapshotFile(source, destination string) error {
