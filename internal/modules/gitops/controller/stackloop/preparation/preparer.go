@@ -10,7 +10,10 @@ import (
 	"path/filepath"
 	"strings"
 
+	pipe "github.com/artarts36/gopipe"
 	"github.com/distribution/reference"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
+	"go.opentelemetry.io/otel/trace"
 	downward "github.com/swarm-deploy/downward/go"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
@@ -81,13 +84,22 @@ type Preparer struct {
 	composeLoader    compose.FileLoader
 	envFilePopulator *compose.EnvFilePopulator
 	rotator          Rotator
+	pipeline         *pipe.Pipeline[*preparationPayload]
+}
+
+type preparationPayload struct {
+	request  Request
+	prepared *Prepared
+	mutated  bool
 }
 
 // New creates a Compose preparer.
 func New(cfg *config.Config, git gitx.Repository, fileSystem fs.FileSystem, rotator Rotator) *Preparer {
-	return &Preparer{cfg: cfg, git: git, fileSystem: fileSystem,
+	preparer := &Preparer{cfg: cfg, git: git, fileSystem: fileSystem,
 		composeLoader:    compose.NewFileLoaderWithReader(fileSystem.ReadFile),
 		envFilePopulator: compose.NewEnvFilePopulator(), rotator: rotator}
+	preparer.attachPipeline(nil)
+	return preparer
 }
 
 // Load reads and validates the source Compose file without applying effective-state mutations.
@@ -98,36 +110,90 @@ func (p *Preparer) Load(ctx context.Context, stack config.StackSpec) (*compose.F
 // Prepare builds the effective definition and writes a rendered file when deployment requires one.
 func (p *Preparer) Prepare(ctx context.Context, req Request) (*Prepared, error) {
 	prepared := &Prepared{Desired: req.Desired, DeployComposePath: req.Desired.Path}
-	mutated := false
-	if p.cfg.Spec.Sync.Policy.Image.Enabled() {
-		if err := checkImagePolicy(p.cfg.Spec.Sync.Policy.Image, req.Desired); err != nil {
-			return prepared, err
-		}
-	}
-	if p.envFilePopulator.Populate(req.Desired) {
-		mutated = true
-	}
-	if p.cfg.Spec.Containers.Downward != nil && addDownward(req.Desired, req.Stack.Name) && req.SourceChanged {
-		mutated = true
-	}
-	if addManagedLabel(req.Desired) {
-		mutated = true
-	}
-	if p.cfg.Spec.SecretRotation.Enabled {
-		changed, err := p.rotator.Rotate(ctx, req.Desired, req.Stack.Name,
-			p.cfg.Spec.SecretRotation.HashLength, p.cfg.Spec.SecretRotation.IncludePath)
-		if err != nil {
-			return prepared, err
-		}
-		mutated = mutated || changed
-	}
-	if mutated || needsRenderedCompose(req.Desired) {
-		if err := p.writeRenderedCompose(ctx, req.Stack.Name, prepared); err != nil {
-			p.Cleanup(ctx, prepared)
-			return prepared, err
-		}
+	payload := &preparationPayload{request: req, prepared: prepared}
+	if err := p.pipeline.Run(ctx, payload); err != nil {
+		p.Cleanup(ctx, prepared)
+		return prepared, err
 	}
 	return prepared, nil
+}
+
+// Keep preparation in its own pipeline so stage errors, panic isolation, metrics,
+// and step spans retain the behavior they had before extraction from StackReconciler.
+func (p *Preparer) attachPipeline(provider trace.TracerProvider) {
+	p.pipeline = pipe.NewPipelineWithConfig[*preparationPayload](pipe.Config{
+		PipelineName:   "prepare stack",
+		Logger:         faults.NewSafeLogger(slog.Default()),
+		TracerProvider: provider,
+	})
+
+	if p.cfg.Spec.Sync.Policy.Image.Enabled() {
+		p.pipeline.Add(pipe.Step[*preparationPayload]{
+			Name: "check image policy",
+			Run: func(_ context.Context, payload *preparationPayload) error {
+				return checkImagePolicy(p.cfg.Spec.Sync.Policy.Image, payload.prepared.Desired)
+			},
+		})
+	}
+
+	p.pipeline.Add(pipe.Step[*preparationPayload]{
+		Name: "populate environment",
+		When: pipe.When(func(payload *preparationPayload) bool {
+			for _, service := range payload.prepared.Desired.Compose.Services {
+				if len(service.EnvFiles) > 0 {
+					return true
+				}
+			}
+			return false
+		}),
+		Run: func(_ context.Context, payload *preparationPayload) error {
+			payload.mutated = p.envFilePopulator.Populate(payload.prepared.Desired) || payload.mutated
+			return nil
+		},
+	})
+
+	if p.cfg.Spec.Containers.Downward != nil {
+		p.pipeline.Add(pipe.Step[*preparationPayload]{
+			Name: "add downward",
+			Run: func(_ context.Context, payload *preparationPayload) error {
+				changed := addDownward(payload.prepared.Desired, payload.request.Stack.Name)
+				if changed && payload.request.SourceChanged {
+					payload.mutated = true
+				}
+				return nil
+			},
+		})
+	}
+
+	p.pipeline.Add(pipe.Step[*preparationPayload]{
+		Name: "add managed label",
+		Run: func(_ context.Context, payload *preparationPayload) error {
+			payload.mutated = addManagedLabel(payload.prepared.Desired) || payload.mutated
+			return nil
+		},
+	})
+
+	if p.cfg.Spec.SecretRotation.Enabled {
+		p.pipeline.Add(pipe.Step[*preparationPayload]{
+			Name: "rotate secrets/configs",
+			Run: func(ctx context.Context, payload *preparationPayload) error {
+				changed, err := p.rotator.Rotate(ctx, payload.prepared.Desired, payload.request.Stack.Name,
+					p.cfg.Spec.SecretRotation.HashLength, p.cfg.Spec.SecretRotation.IncludePath)
+				payload.mutated = payload.mutated || changed
+				return err
+			},
+		})
+	}
+
+	p.pipeline.Add(pipe.Step[*preparationPayload]{
+		Name: "write rendered compose",
+		When: pipe.When(func(payload *preparationPayload) bool {
+			return payload.mutated || needsRenderedCompose(payload.prepared.Desired)
+		}),
+		Run: func(ctx context.Context, payload *preparationPayload) error {
+			return p.writeRenderedCompose(ctx, payload.request.Stack.Name, payload.prepared)
+		},
+	})
 }
 
 // Cleanup removes a rendered Compose file after synchronous deployment no longer needs it.

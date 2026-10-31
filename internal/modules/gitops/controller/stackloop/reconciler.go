@@ -139,7 +139,11 @@ func (r *Reconciler) Reconcile(
 	})
 	if err != nil {
 		persistErr := r.recordFailure(ctx, req.Stack.Name, req.Commit, desiredState.Compose.Services, err)
-		return wrapReconcileError("prepare compose", desiredState.Compose.Services, errors.Join(err, persistErr))
+		stage := "prepare compose"
+		if stepErr, ok := errors.AsType[*pipe.StepError](err); ok {
+			stage = stepErr.StepName
+		}
+		return wrapReconcileError(stage, desiredState.Compose.Services, errors.Join(err, persistErr))
 	}
 	defer r.preparer.Cleanup(ctx, prepared)
 
