@@ -99,8 +99,8 @@ func New(
 		configStore: configStore, git: git, metrics: metricGroup, event: eventDispatcher,
 		stateStore: stateStore, networkReconciler: networkReconciler,
 		stackReconciler: stackReconciler, stackPlanner: stackplan.NewPlanner(git), puller: puller,
-		deployments:    queue,
-		tracer:         otel.Tracer("github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller"),
+		deployments: queue,
+		tracer:      otel.Tracer("github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller"),
 	}
 }
 
