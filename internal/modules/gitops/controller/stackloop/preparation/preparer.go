@@ -108,26 +108,54 @@ func (p *Preparer) Load(ctx context.Context, stack config.StackSpec) (*compose.F
 }
 
 // LoadFrom loads a stack from an immutable checkout and adjusts source references.
-func (p *Preparer) LoadFrom(ctx context.Context, stack config.StackSpec, snapshot, original string) (*compose.File, error) {
+func (p *Preparer) LoadFrom(
+	ctx context.Context, stack config.StackSpec, snapshot, original string,
+) (*compose.File, error) {
 	reader := func(ctx context.Context, path string) ([]byte, error) {
-		if filepath.IsAbs(path) {
-			rel, err := filepath.Rel(original, path)
-			if err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-				path = filepath.Join(snapshot, rel)
-			}
+		resolved, err := snapshotSourcePath(path, snapshot, original)
+		if err != nil {
+			return nil, err
 		}
-		return p.fileSystem.ReadFile(ctx, path)
+		return p.fileSystem.ReadFile(ctx, resolved)
 	}
-	file, err := compose.NewFileLoaderWithReader(reader).Load(ctx, filepath.Join(snapshot, stack.ComposeFile))
-	if err != nil { return nil, err }
-	for _, obj := range file.Compose.Configs { if obj != nil && filepath.IsAbs(obj.File) { obj.File = readerPath(obj.File, original, snapshot) } }
-	for _, obj := range file.Compose.Secrets { if obj != nil && filepath.IsAbs(obj.File) { obj.File = readerPath(obj.File, original, snapshot) } }
+	loader := compose.NewFileLoaderWithReader(reader)
+	file, err := loader.Load(ctx, filepath.Join(snapshot, stack.ComposeFile))
+	if err != nil {
+		return nil, err
+	}
+	for _, object := range file.Compose.Configs {
+		if object == nil || object.File == "" {
+			continue
+		}
+		object.File, err = snapshotSourcePath(object.File, snapshot, original)
+		if err != nil {
+			return nil, err
+		}
+	}
+	for _, object := range file.Compose.Secrets {
+		if object == nil || object.File == "" {
+			continue
+		}
+		object.File, err = snapshotSourcePath(object.File, snapshot, original)
+		if err != nil {
+			return nil, err
+		}
+	}
 	return file, nil
 }
-func readerPath(path, original, snapshot string) string {
-	rel, err := filepath.Rel(original, path)
-	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) { return path }
-	return filepath.Join(snapshot, rel)
+
+func snapshotSourcePath(path, snapshot, original string) (string, error) {
+	if !filepath.IsAbs(path) {
+		return path, nil
+	}
+	for _, root := range []string{snapshot, original} {
+		rel, err := filepath.Rel(root, path)
+		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			continue
+		}
+		return filepath.Join(snapshot, rel), nil
+	}
+	return "", fmt.Errorf("deployment input references file outside Git checkout: %s", filepath.Base(path))
 }
 
 // Prepare builds the effective definition and writes a rendered file when deployment requires one.
