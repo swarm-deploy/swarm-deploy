@@ -316,7 +316,7 @@ func TestFailuresDistinguishPreApplyChecksFromPartialServiceApply(t *testing.T) 
 			wireNativeTestDeployerWithServiceManager(t, d, manager, false)
 			desired := minimalCompose("api")
 			if preApply {
-				desired.Services[0].Extra = map[string]interface{}{"unsupported_test_option": true}
+				desired.Services[0].Image = ""
 			} else {
 				manager.EXPECT().Inspect(gomock.Any(), "demo_api").Return(dockerswarm.Service{}, swarm.ErrServiceNotFound)
 				manager.EXPECT().Create(gomock.Any(), gomock.Any(), gomock.Any()).Return("", assert.AnError)
