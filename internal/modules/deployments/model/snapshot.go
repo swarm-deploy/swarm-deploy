@@ -90,8 +90,8 @@ func Prepare(file compose.File) (Prepared, error) {
 func normalize(value any) {
 	switch node := value.(type) {
 	case map[string]any:
-		normalizeObjectRefs(node, "secrets")
-		normalizeObjectRefs(node, "configs")
+		normalizeObjectRefs(node, secretsField)
+		normalizeObjectRefs(node, configsField)
 		// Environment.Keys is parser ordering, not container state. EnvFiles have
 		// already been merged into environment and can contain duplicate raw values.
 		delete(node, "Keys")
@@ -108,7 +108,7 @@ func normalize(value any) {
 		for _, child := range node {
 			normalize(child)
 		}
-		for _, listKey := range []string{"Ports", "Volumes", "List", "cap_add", "cap_drop", "secrets", "configs"} {
+		for _, listKey := range []string{"Ports", "Volumes", "List", "cap_add", "cap_drop", secretsField, configsField} {
 			if list, ok := node[listKey].([]any); ok {
 				sort.SliceStable(list, func(i, j int) bool {
 					left, _ := json.Marshal(list[i])
@@ -281,10 +281,10 @@ func publicChange(path string) Change {
 		case "services":
 			change.ResourceType, change.ResourceName = "service", parts[1]
 			change.Field = publicField(parts[2:])
-		case "configs":
+		case configsField:
 			change.ResourceType, change.ResourceName = "config", parts[1]
 			change.Field = publicField(parts[2:])
-		case "secrets":
+		case secretsField:
 			change.ResourceType, change.ResourceName = "secret", parts[1]
 			change.Field = publicField(parts[2:])
 		case "networks":
@@ -294,7 +294,7 @@ func publicChange(path string) Change {
 			change.ResourceType, change.ResourceName = "volume", parts[1]
 			change.Field = publicField(parts[2:])
 		case "resources":
-			if len(parts) >= contentPathParts && (parts[1] == "configs" || parts[1] == "secrets") {
+			if len(parts) >= contentPathParts && (parts[1] == configsField || parts[1] == secretsField) {
 				change.ResourceType = strings.TrimSuffix(parts[1], "s")
 				change.ResourceName = parts[2]
 				change.Field = "content"

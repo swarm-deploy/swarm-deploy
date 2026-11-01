@@ -9,7 +9,11 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 )
 
-const ignoredOptionPathParts = 4
+const (
+	ignoredOptionPathParts = 4
+	configsField           = "configs"
+	secretsField           = "secrets"
+)
 
 // comparisonCompose canonicalizes execution syntax without mutating the parser's input.
 func comparisonCompose(desired compose.Compose) (compose.Compose, error) {
@@ -60,10 +64,10 @@ func normalizeObjectRef(ref map[string]any, key string) {
 	source, _ := ref["source"].(string)
 	target, _ := ref["target"].(string)
 	short, _ := ref["short_form"].(bool)
-	if key == "configs" && (short || target == "") {
+	if key == configsField && (short || target == "") {
 		target = "/" + source
 	}
-	if key == "secrets" {
+	if key == secretsField {
 		if target == "" || short {
 			target = source
 		}
@@ -108,7 +112,7 @@ func ignoredComparisonPath(path string) bool {
 			return true
 		}
 	}
-	if last > 1 && parts[last] == "short_form" && (parts[last-2] == "secrets" || parts[last-2] == "configs") {
+	if last > 1 && parts[last] == "short_form" && (parts[last-2] == secretsField || parts[last-2] == configsField) {
 		return true
 	}
 	return len(parts) >= ignoredOptionPathParts && parts[0] == "services" && parts[2] == "Extra" &&
