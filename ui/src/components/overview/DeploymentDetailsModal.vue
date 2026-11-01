@@ -3,6 +3,7 @@ import yaml from "@speed-highlight/core/languages/yaml.js";
 import { tokenizeWith } from "@speed-highlight/core/tokenize";
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
+import AppModal from "../common/AppModal.vue";
 import { fetchDeploymentInitJobLogs } from "../../api/overview";
 import type { DeploymentAttempt, DeploymentChange, DeploymentInitJobExecution } from "../../api/types";
 import { useAssistantStore } from "../../stores/assistant";
@@ -31,8 +32,7 @@ const store = useOverviewStore();
 const router = useRouter();
 const assistantStore = useAssistantStore();
 const uiStore = useUIStore();
-const dialog = ref<HTMLElement | null>(null);
-const closeButton = ref<HTMLButtonElement | null>(null);
+const modal = ref<InstanceType<typeof AppModal> | null>(null);
 function defaultTab(status?: string): DetailsTab {
   return status === "succeeded" ? "changes" : "attempts";
 }
@@ -74,11 +74,6 @@ function onPointerDown(event: PointerEvent) {
   if (infoOpen.value && !(event.target as Element | null)?.closest(".deployment-info")) dismissInfo();
 }
 
-let returnFocus: HTMLElement | null = null;
-const focusableSelector = [
-  "a[href]", "button:not([disabled])", "input:not([disabled])", "select:not([disabled])",
-  "textarea:not([disabled])", "summary", "[tabindex]:not([tabindex=\"-1\"])",
-].join(", ");
 const detail = computed(() => store.deploymentDetailsData);
 const attempts = computed(() => [...(detail.value?.attempts ?? [])].sort((left, right) =>
   right.number - left.number || Date.parse(right.started_at) - Date.parse(left.started_at),
@@ -317,9 +312,6 @@ function hasLongValue(change: DeploymentChange): boolean {
     return displayValue.length > 48 || displayValue.includes("\n");
   });
 }
-function focusableElements(): HTMLElement[] {
-  return dialog.value ? [...dialog.value.querySelectorAll<HTMLElement>(focusableSelector)] : [];
-}
 function close() { store.closeDeploymentDetailsModal(); }
 async function openStack(event: MouseEvent) {
   if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
@@ -367,45 +359,29 @@ async function explainAttempt(attempt: DeploymentAttempt) {
     attemptDiagnostic(attempt),
   ].join("\n");
 
-  returnFocus = null;
+  modal.value?.forgetReturnFocus();
   close();
   assistantStore.newChat();
   uiStore.openAssistantDrawer();
   await assistantStore.sendMessage(message);
 }
-function onKeydown(event: KeyboardEvent) {
-  if (!store.deploymentDetailsModalOpen || store.commitDetailsModalOpen) return;
-  if (event.key === "Escape") {
+function onEscape(event: KeyboardEvent) {
+  if (infoOpen.value) {
     event.preventDefault();
-    if (infoOpen.value) { dismissInfo(); return; }
-    close();
-    return;
-  }
-  if (event.key !== "Tab") return;
-  const focusable = focusableElements();
-  if (focusable.length === 0) { event.preventDefault(); dialog.value?.focus(); return; }
-  const first = focusable[0];
-  const last = focusable[focusable.length - 1];
-  const activeIndex = focusable.indexOf(document.activeElement as HTMLElement);
-  if (activeIndex === -1 || (event.shiftKey && activeIndex === 0) || (!event.shiftKey && activeIndex === focusable.length - 1)) {
-    event.preventDefault(); (event.shiftKey ? last : first).focus();
+    dismissInfo();
   }
 }
-watch(() => store.deploymentDetailsModalOpen, async (open, wasOpen) => {
+watch(() => store.deploymentDetailsModalOpen, (open, wasOpen) => {
   if (open && !wasOpen) {
-    returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     tabManuallySelected.value = false;
     tabSelectionInitialized.value = Boolean(detail.value);
     activeTab.value = defaultTab(detail.value?.status);
     copiedAttemptID.value = "";
     initJobLogs.value = {};
     dismissInfo();
-    await nextTick(); closeButton.value?.focus();
   } else if (!open && wasOpen) {
     initJobLogs.value = {};
     dismissInfo();
-    if (returnFocus?.isConnected) returnFocus.focus();
-    returnFocus = null;
   }
 });
 watch(detail, (current) => {
@@ -415,293 +391,289 @@ watch(detail, (current) => {
 });
 watch(activeTab, dismissInfo);
 onMounted(() => {
-  document.addEventListener("keydown", onKeydown);
   document.addEventListener("pointerdown", onPointerDown);
 });
 onUnmounted(() => {
-  document.removeEventListener("keydown", onKeydown);
   document.removeEventListener("pointerdown", onPointerDown);
 });
 </script>
 
 <template>
-  <div
-    v-if="store.deploymentDetailsModalOpen"
-    class="modal"
-    :aria-hidden="store.commitDetailsModalOpen"
-    :inert="store.commitDetailsModalOpen || undefined"
+  <AppModal
+    :open="store.deploymentDetailsModalOpen"
+    labelledby="deployment-details-title"
+    card-class="deployment-modal"
+    ref="modal"
+    close-label="Close deployment details"
+    :close-on-escape="!infoOpen"
+    @escape="onEscape"
+    @close="close"
   >
-    <div class="modal-overlay" @click="close" />
-    <div ref="dialog" class="modal-card deployment-modal" role="dialog" aria-modal="true" aria-labelledby="deployment-details-title" tabindex="-1">
-      <button ref="closeButton" class="modal-close" type="button" aria-label="Close deployment details" @click="close">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><path d="m7 7 10 10M17 7 7 17" /></svg>
-      </button>
-      <div class="modal-body deployment-modal-body">
-        <header class="deployment-modal-header">
-          <div class="deployment-heading-row">
-            <div class="deployment-title">
-              <div class="deployment-title-topline">
-                <span class="deployment-modal-eyebrow">Deployment</span>
-                <strong v-if="detail && !store.deploymentDetailsLoading && !store.deploymentDetailsError" class="deployment-status" :class="`deployment-status--${detail.status}`">
-                  <span class="deployment-status-dot" aria-hidden="true" />
-                  {{ statusLabel }}
-                </strong>
-              </div>
-              <h2 id="deployment-details-title">{{ detail?.stack || "Deployment" }}</h2>
+    <div class="modal-body deployment-modal-body">
+      <header class="deployment-modal-header">
+        <div class="deployment-heading-row">
+          <div class="deployment-title">
+            <div class="deployment-title-topline">
+              <span class="deployment-modal-eyebrow">Deployment</span>
+              <strong v-if="detail && !store.deploymentDetailsLoading && !store.deploymentDetailsError" class="deployment-status" :class="`deployment-status--${detail.status}`">
+                <span class="deployment-status-dot" aria-hidden="true" />
+                {{ statusLabel }}
+              </strong>
             </div>
+            <h2 id="deployment-details-title">{{ detail?.stack || "Deployment" }}</h2>
           </div>
-          <dl v-if="detail && !store.deploymentDetailsLoading && !store.deploymentDetailsError" class="deployment-metadata">
-            <div class="deployment-metadata-item"><dt><DeploymentIcon name="stack" />Stack</dt><dd><RouterLink v-if="detail.stack?.trim()" v-slot="{ href }" custom :to="{ name: 'stack-details', params: { stack: detail.stack } }"><a class="deployment-stack-link" :href="href" @click="openStack">{{ detail.stack }}</a></RouterLink><span v-else>—</span></dd></div>
-            <div class="deployment-metadata-item"><dt><DeploymentIcon name="commit" />Commit</dt><dd><button v-if="detail.commit" type="button" class="deployment-commit-link" @click="openCommit">{{ shortCommitHash(detail.commit) }}<span aria-hidden="true">↗</span></button><span v-else>—</span></dd></div>
-            <div class="deployment-metadata-item"><dt><DeploymentIcon name="calendar" />Started</dt><dd><span class="deployment-date-desktop">{{ formatDate(detail.started_at) }}</span><span class="deployment-date-mobile">{{ formatCompactDate(detail.started_at) }}</span></dd></div>
-            <div class="deployment-metadata-item"><dt><DeploymentIcon name="calendar" />Finished</dt><dd><span class="deployment-date-desktop">{{ detail.finished_at ? formatDate(detail.finished_at) : detail.status === "running" ? "In progress" : "—" }}</span><span class="deployment-date-mobile">{{ detail.finished_at ? formatCompactDate(detail.finished_at) : detail.status === "running" ? "In progress" : "—" }}</span></dd></div>
-            <div class="deployment-metadata-item"><dt><DeploymentIcon name="clock" />Duration</dt><dd>{{ duration }}</dd></div>
-            <div class="deployment-metadata-item"><dt><DeploymentIcon name="config" />Stage</dt><dd>{{ detail.phase }}</dd></div>
-          </dl>
-        </header>
-        <main class="deployment-modal-content" :class="{ 'deployment-modal-content--compact': detail?.status === 'succeeded' || detail?.status === 'running' }">
-          <p v-if="store.deploymentDetailsLoading" role="status" class="meta">Loading deployment details...</p>
-          <div v-else-if="store.deploymentDetailsError" role="alert" class="deployment-state-message">
-            <p>Could not load deployment details: {{ store.deploymentDetailsError }}</p>
-            <button type="button" @click="store.openDeploymentDetailsModal(store.deploymentDetailsID)">Retry</button>
+        </div>
+        <dl v-if="detail && !store.deploymentDetailsLoading && !store.deploymentDetailsError" class="deployment-metadata">
+          <div class="deployment-metadata-item"><dt><DeploymentIcon name="stack" />Stack</dt><dd><RouterLink v-if="detail.stack?.trim()" v-slot="{ href }" custom :to="{ name: 'stack-details', params: { stack: detail.stack } }"><a class="deployment-stack-link" :href="href" @click="openStack">{{ detail.stack }}</a></RouterLink><span v-else>—</span></dd></div>
+          <div class="deployment-metadata-item"><dt><DeploymentIcon name="commit" />Commit</dt><dd><button v-if="detail.commit" type="button" class="deployment-commit-link" @click="openCommit">{{ shortCommitHash(detail.commit) }}<span aria-hidden="true">↗</span></button><span v-else>—</span></dd></div>
+          <div class="deployment-metadata-item"><dt><DeploymentIcon name="calendar" />Started</dt><dd><span class="deployment-date-desktop">{{ formatDate(detail.started_at) }}</span><span class="deployment-date-mobile">{{ formatCompactDate(detail.started_at) }}</span></dd></div>
+          <div class="deployment-metadata-item"><dt><DeploymentIcon name="calendar" />Finished</dt><dd><span class="deployment-date-desktop">{{ detail.finished_at ? formatDate(detail.finished_at) : detail.status === "running" ? "In progress" : "—" }}</span><span class="deployment-date-mobile">{{ detail.finished_at ? formatCompactDate(detail.finished_at) : detail.status === "running" ? "In progress" : "—" }}</span></dd></div>
+          <div class="deployment-metadata-item"><dt><DeploymentIcon name="clock" />Duration</dt><dd>{{ duration }}</dd></div>
+          <div class="deployment-metadata-item"><dt><DeploymentIcon name="config" />Stage</dt><dd>{{ detail.phase }}</dd></div>
+        </dl>
+      </header>
+      <main class="deployment-modal-content" :class="{ 'deployment-modal-content--compact': detail?.status === 'succeeded' || detail?.status === 'running' }">
+        <p v-if="store.deploymentDetailsLoading" role="status" class="meta">Loading deployment details...</p>
+        <div v-else-if="store.deploymentDetailsError" role="alert" class="deployment-state-message">
+          <p>Could not load deployment details: {{ store.deploymentDetailsError }}</p>
+          <button type="button" @click="store.openDeploymentDetailsModal(store.deploymentDetailsID)">Retry</button>
+        </div>
+        <p v-else-if="!detail" class="meta">Deployment details are unavailable.</p>
+        <template v-else>
+        <section
+          v-if="detail.status === 'failed' || detail.status === 'interrupted' || detail.status === 'superseded'"
+          class="deployment-outcome"
+          :class="`deployment-outcome--${detail.status}`"
+          aria-labelledby="deployment-outcome-title"
+        >
+          <span class="deployment-outcome-icon"><DeploymentIcon :name="statusIcon" /></span>
+          <div>
+            <strong id="deployment-outcome-title">{{ statusTitle }}</strong>
+            <p>{{ statusDescription }}</p>
+            <p class="deployment-diagnostic">{{ failureReason }}</p>
+            <span v-if="detail.reason" class="deployment-code">Code: {{ detail.reason }}</span>
           </div>
-          <p v-else-if="!detail" class="meta">Deployment details are unavailable.</p>
+        </section>
+
+        <AppTabs
+          class="deployment-tabs"
+          :model-value="activeTab"
+          :tabs="tabs"
+          label="Deployment detail views"
+          density="compact"
+          @update:model-value="selectTab"
+        >
+          <template #tab="{ tab, active }">
+            {{ tab.label }}
+            <span
+              v-if="tab.value === 'attempts'"
+              class="deployment-tab-count"
+              :class="{ 'deployment-tab-count--active': active }"
+            >{{ attemptCount }}</span>
+          </template>
+        </AppTabs>
+
+        <section
+          v-if="activeTab === 'attempts'"
+          id="deployment-attempts-panel"
+          class="deployment-tab-panel deployment-attempts-panel"
+          role="tabpanel"
+          aria-labelledby="deployment-attempts-tab"
+        >
+          <p v-if="attempts.length === 0" class="meta">No deployment attempts were recorded.</p>
           <template v-else>
-          <section
-            v-if="detail.status === 'failed' || detail.status === 'interrupted' || detail.status === 'superseded'"
-            class="deployment-outcome"
-            :class="`deployment-outcome--${detail.status}`"
-            aria-labelledby="deployment-outcome-title"
-          >
-            <span class="deployment-outcome-icon"><DeploymentIcon :name="statusIcon" /></span>
-            <div>
-              <strong id="deployment-outcome-title">{{ statusTitle }}</strong>
-              <p>{{ statusDescription }}</p>
-              <p class="deployment-diagnostic">{{ failureReason }}</p>
-              <span v-if="detail.reason" class="deployment-code">Code: {{ detail.reason }}</span>
+            <div class="deployment-attempt-columns" aria-hidden="true">
+              <span />
+              <span>Started</span>
+              <span>Stage</span>
+              <span>Duration</span>
+              <span />
             </div>
-          </section>
-
-          <AppTabs
-            class="deployment-tabs"
-            :model-value="activeTab"
-            :tabs="tabs"
-            label="Deployment detail views"
-            density="compact"
-            @update:model-value="selectTab"
-          >
-            <template #tab="{ tab, active }">
-              {{ tab.label }}
-              <span
-                v-if="tab.value === 'attempts'"
-                class="deployment-tab-count"
-                :class="{ 'deployment-tab-count--active': active }"
-              >{{ attemptCount }}</span>
-            </template>
-          </AppTabs>
-
-          <section
-            v-if="activeTab === 'attempts'"
-            id="deployment-attempts-panel"
-            class="deployment-tab-panel deployment-attempts-panel"
-            role="tabpanel"
-            aria-labelledby="deployment-attempts-tab"
-          >
-            <p v-if="attempts.length === 0" class="meta">No deployment attempts were recorded.</p>
-            <template v-else>
-              <div class="deployment-attempt-columns" aria-hidden="true">
-                <span />
-                <span>Started</span>
-                <span>Stage</span>
-                <span>Duration</span>
-                <span />
-              </div>
-              <div class="deployment-attempt-list">
-                <component
-                  :is="attemptExpandable(attempt) ? 'details' : 'div'"
-                  v-for="attempt in attempts"
-                  :key="attempt.id"
-                  class="deployment-attempt-row"
-                  :class="{ 'deployment-attempt-row--static': !attemptExpandable(attempt) }"
-                >
-                  <component :is="attemptExpandable(attempt) ? 'summary' : 'div'" class="deployment-attempt-summary">
-                    <span class="deployment-attempt-status" :class="`deployment-attempt-status--${attempt.status}`" role="img" :aria-label="`${attempt.status} attempt`" />
-                    <time :datetime="attempt.started_at">{{ formatDate(attempt.started_at) }}</time>
-                    <span class="deployment-attempt-stage">{{ sectionLabel(attempt.phase) }}</span>
-                    <span class="deployment-attempt-duration">{{ attemptDuration(attempt) }}</span>
-                    <svg v-if="attemptExpandable(attempt)" class="deployment-chevron" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m7 4 6 6-6 6" /></svg>
-                  </component>
-                  <div v-if="attemptExpandable(attempt)" class="deployment-attempt-details">
-                    <section v-if="attempt.init_jobs?.length" class="deployment-init-jobs" aria-label="Init Job executions">
-                      <h4>Init Jobs</h4>
-                      <div v-for="execution in attempt.init_jobs" :key="execution.ordinal" class="deployment-init-job">
-                        <div class="deployment-init-job-summary">
-                          <span class="deployment-init-job-identity">
-                            <span class="deployment-init-job-title">
-                              <strong>{{ execution.job_name }}</strong>
-                              <span class="deployment-attempt-status" :class="`deployment-attempt-status--${execution.status}`" role="img" :aria-label="`${execution.status} Init Job`" />
-                            </span>
-                            <small>{{ execution.service_name }}</small>
-                          </span>
-                          <span class="deployment-attempt-duration">{{ initJobDuration(execution) }}</span>
-                          <span v-if="execution.logs_truncated" class="deployment-init-job-badge">Last 64 KiB</span>
-                          <button
-                            v-if="execution.logs_available"
-                            type="button"
-                            class="deployment-init-job-logs-button"
-                            :aria-label="`${initJobLogState(attempt, execution)?.open ? 'Hide' : 'View'} logs for Init Job ${execution.job_name}`"
-                            :aria-expanded="Boolean(initJobLogState(attempt, execution)?.open)"
-                            :title="initJobLogState(attempt, execution)?.open ? 'Hide logs' : 'View logs'"
-                            @click.stop="toggleInitJobLogs(attempt, execution)"
-                          >
-                            <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
-                              <path d="M3 2.5A1.5 1.5 0 0 1 4.5 1h5.8c.4 0 .78.16 1.06.44l1.2 1.2c.28.28.44.66.44 1.06v9.8A1.5 1.5 0 0 1 11.5 15h-7A1.5 1.5 0 0 1 3 13.5v-11Zm1.5-.5a.5.5 0 0 0-.5.5v11a.5.5 0 0 0 .5.5h7a.5.5 0 0 0 .5-.5V4H10.5A1.5 1.5 0 0 1 9 2.5V2H4.5ZM10 2.2v.3a.5.5 0 0 0 .5.5h1.3L10 2.2ZM5.5 6a.5.5 0 0 1 .5-.5h4a.5.5 0 0 1 0 1H6a.5.5 0 0 1-.5-.5Zm0 2.25a.5.5 0 0 1 .5-.5h4a.5.5 0 0 1 0 1H6a.5.5 0 0 1-.5-.5Zm0 2.25A.5.5 0 0 1 6 10h2.5a.5.5 0 0 1 0 1H6a.5.5 0 0 1-.5-.5Z" fill="currentColor" />
-                            </svg>
-                          </button>
-                          <span v-else class="deployment-init-job-unavailable">Logs unavailable</span>
-                        </div>
-                        <div v-if="initJobLogState(attempt, execution)?.open" class="deployment-init-job-logs">
-                          <p v-if="initJobLogState(attempt, execution)?.loading" class="meta">Loading logs...</p>
-                          <p v-else-if="initJobLogState(attempt, execution)?.error" role="alert">{{ initJobLogState(attempt, execution)?.error }}</p>
-                          <p v-else-if="!initJobLogState(attempt, execution)?.logs" class="meta">Log output is empty.</p>
-                          <pre v-else><code>{{ initJobLogState(attempt, execution)?.logs }}</code></pre>
-                        </div>
-                      </div>
-                    </section>
-                    <div v-if="attempt.status !== 'succeeded'" class="deployment-attempt-details-heading">
-                      <strong>Diagnostics</strong>
-                      <div class="deployment-attempt-details-actions">
-                        <button type="button" class="button-ghost" :disabled="!assistantStore.enabled || assistantStore.pending" @click="explainAttempt(attempt)">Explain</button>
-                        <button type="button" class="button-ghost" @click="copyAttemptDiagnostic(attempt)">{{ copiedAttemptID === attempt.id ? "Copied" : "Copy" }}</button>
-                      </div>
-                    </div>
-                    <pre v-if="attempt.status !== 'succeeded'"><code>{{ attemptDiagnostic(attempt) }}</code></pre>
-                  </div>
+            <div class="deployment-attempt-list">
+              <component
+                :is="attemptExpandable(attempt) ? 'details' : 'div'"
+                v-for="attempt in attempts"
+                :key="attempt.id"
+                class="deployment-attempt-row"
+                :class="{ 'deployment-attempt-row--static': !attemptExpandable(attempt) }"
+              >
+                <component :is="attemptExpandable(attempt) ? 'summary' : 'div'" class="deployment-attempt-summary">
+                  <span class="deployment-attempt-status" :class="`deployment-attempt-status--${attempt.status}`" role="img" :aria-label="`${attempt.status} attempt`" />
+                  <time :datetime="attempt.started_at">{{ formatDate(attempt.started_at) }}</time>
+                  <span class="deployment-attempt-stage">{{ sectionLabel(attempt.phase) }}</span>
+                  <span class="deployment-attempt-duration">{{ attemptDuration(attempt) }}</span>
+                  <svg v-if="attemptExpandable(attempt)" class="deployment-chevron" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m7 4 6 6-6 6" /></svg>
                 </component>
-              </div>
-            </template>
-          </section>
-
-          <section
-            v-else-if="activeTab === 'changes'"
-            id="deployment-changes-panel"
-            class="deployment-tab-panel"
-            role="tabpanel"
-            aria-labelledby="deployment-changes-tab"
-          >
-            <template v-if="changeState === 'initial'">
-              <h3>Initial snapshot</h3>
-              <p class="deployment-note">First recorded desired-state snapshot. No previous snapshot is available for comparison.</p>
-              <div class="deployment-counts" aria-label="Recorded resource counts">
-                <span><DeploymentIcon name="service" /><strong>{{ pluralize(detail.resources.services, "service") }}</strong></span>
-                <span><DeploymentIcon name="network" /><strong>{{ pluralize(detail.resources.networks, "network") }}</strong></span>
-                <span><DeploymentIcon name="secret" /><strong>{{ pluralize(detail.resources.secrets, "secret") }}</strong></span>
-                <span><DeploymentIcon name="config" /><strong>{{ pluralize(detail.resources.configs, "config") }}</strong></span>
-                <span v-if="detail.resources.volumes"><DeploymentIcon name="volume" /><strong>{{ pluralize(detail.resources.volumes, "volume") }}</strong></span>
-              </div>
-              <div class="deployment-initial-resources">
-                <details v-for="section in initialResourceSections" :key="section.key" class="deployment-resource-section" :open="section.key === 'service'">
-                  <summary>
-                    <svg class="deployment-chevron" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m7 4 6 6-6 6" /></svg>
-                    <DeploymentIcon :name="section.key" />
-                    <strong>{{ section.label }}</strong>
-                    <span class="deployment-resource-count">{{ section.count }}</span>
-                  </summary>
-                  <div v-if="section.key === 'service' && initialServices.length" class="deployment-service-table-wrap">
-                    <table class="deployment-service-table">
-                      <thead><tr><th>Name</th><th>Image</th><th>Replicas</th></tr></thead>
-                      <tbody><tr v-for="service in initialServices" :key="service.name"><td><span class="deployment-table-name"><DeploymentIcon name="service" />{{ service.name }}</span></td><td :title="service.image">{{ service.image }}</td><td>{{ service.replicas }}</td></tr></tbody>
-                    </table>
-                  </div>
-                  <ul v-else-if="section.groups.length" class="deployment-resource-list">
-                    <li v-for="group in section.groups" :key="group.name"><DeploymentIcon :name="section.key" /><span>{{ group.name }}</span></li>
-                  </ul>
-                  <p v-else class="deployment-resource-empty">Detailed {{ section.label.toLowerCase() }} data is unavailable for this snapshot.</p>
-                </details>
-              </div>
-            </template>
-            <template v-else-if="changeState === 'unavailable'">
-              <h3>Changes unavailable</h3>
-              <p class="deployment-note">A previous desired snapshot could not be used for this comparison. Inspect the recorded configuration instead.</p>
-            </template>
-            <template v-else-if="changeState === 'none'">
-              <h3>No configuration changes</h3>
-              <p class="deployment-note">The recorded desired state matches its comparison snapshot.</p>
-              <p class="meta">{{ comparison }}</p>
-            </template>
-            <template v-else>
-              <div class="deployment-changes-heading">
-                <div class="deployment-info-heading">
-                  <h3>Desired Changes</h3>
-                  <div class="deployment-info" @pointerenter="showInfo('changes', $event)" @pointerleave="hideInfo('changes', $event)">
-                    <button type="button" class="deployment-info-button" aria-label="About desired changes" :aria-expanded="infoOpen === 'changes'" :aria-describedby="infoOpen === 'changes' ? 'deployment-changes-tooltip' : undefined" @click.stop="toggleInfo('changes')">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 11v5M12 8h.01" stroke-linecap="round" /></svg>
-                    </button>
-                    <div v-if="infoOpen === 'changes'" id="deployment-changes-tooltip" class="deployment-info-tooltip" role="tooltip">{{ comparison }} These entries do not confirm runtime convergence.</div>
-                  </div>
-                </div>
-              </div>
-              <p class="meta">{{ detail.summary.added }} added · {{ detail.summary.changed }} changed · {{ detail.summary.removed }} removed<template v-if="detail.summary.redacted"> · {{ detail.summary.redacted }} masked</template></p>
-              <template v-for="group in groups" :key="`${group.type}/${group.name}`">
-                <div v-if="group.operation === 'removed'" class="deployment-resource deployment-resource--removed">
-                  <div class="deployment-resource-heading">
-                    <span><DeploymentIcon :name="resourceIcon(group.type)" /><span><span class="deployment-resource-type">{{ group.type }}</span><strong>{{ group.name }}</strong></span></span>
-                    <span class="deployment-resource-operation deployment-resource-operation--removed">Removed</span>
-                  </div>
-                </div>
-                <details v-else class="deployment-resource" open>
-                  <summary class="deployment-resource-heading"><span><svg class="deployment-chevron" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m7 4 6 6-6 6" /></svg><DeploymentIcon :name="resourceIcon(group.type)" /><span><span class="deployment-resource-type">{{ group.type }}</span><strong>{{ group.name }}</strong></span></span><span class="deployment-resource-operation" :class="`deployment-resource-operation--${group.operation}`">{{ group.operation }}</span></summary>
-                  <section v-for="section in group.sections" :key="section.name" class="deployment-change-section">
-                    <h4>{{ sectionLabel(section.name) }}</h4>
-                    <div
-                      v-for="(change, index) in section.changes"
-                      :key="`${change.field}-${index}`"
-                      class="deployment-change"
-                      :class="{ 'deployment-change--long': hasLongValue(change) }"
-                    >
-                      <strong class="deployment-field">{{ fieldLabel(change, section.name) }}</strong>
-                      <div class="deployment-diff-values">
-                        <div v-if="change.operation !== 'added'" class="deployment-diff-line deployment-diff-line--before"><span aria-hidden="true">−</span><code>{{ value(change.before, change.redacted) }}</code></div>
-                        <div v-if="change.operation !== 'removed'" class="deployment-diff-line deployment-diff-line--after"><span aria-hidden="true">+</span><code>{{ value(change.after, change.redacted) }}</code></div>
+                <div v-if="attemptExpandable(attempt)" class="deployment-attempt-details">
+                  <section v-if="attempt.init_jobs?.length" class="deployment-init-jobs" aria-label="Init Job executions">
+                    <h4>Init Jobs</h4>
+                    <div v-for="execution in attempt.init_jobs" :key="execution.ordinal" class="deployment-init-job">
+                      <div class="deployment-init-job-summary">
+                        <span class="deployment-init-job-identity">
+                          <span class="deployment-init-job-title">
+                            <strong>{{ execution.job_name }}</strong>
+                            <span class="deployment-attempt-status" :class="`deployment-attempt-status--${execution.status}`" role="img" :aria-label="`${execution.status} Init Job`" />
+                          </span>
+                          <small>{{ execution.service_name }}</small>
+                        </span>
+                        <span class="deployment-attempt-duration">{{ initJobDuration(execution) }}</span>
+                        <span v-if="execution.logs_truncated" class="deployment-init-job-badge">Last 64 KiB</span>
+                        <button
+                          v-if="execution.logs_available"
+                          type="button"
+                          class="deployment-init-job-logs-button"
+                          :aria-label="`${initJobLogState(attempt, execution)?.open ? 'Hide' : 'View'} logs for Init Job ${execution.job_name}`"
+                          :aria-expanded="Boolean(initJobLogState(attempt, execution)?.open)"
+                          :title="initJobLogState(attempt, execution)?.open ? 'Hide logs' : 'View logs'"
+                          @click.stop="toggleInitJobLogs(attempt, execution)"
+                        >
+                          <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+                            <path d="M3 2.5A1.5 1.5 0 0 1 4.5 1h5.8c.4 0 .78.16 1.06.44l1.2 1.2c.28.28.44.66.44 1.06v9.8A1.5 1.5 0 0 1 11.5 15h-7A1.5 1.5 0 0 1 3 13.5v-11Zm1.5-.5a.5.5 0 0 0-.5.5v11a.5.5 0 0 0 .5.5h7a.5.5 0 0 0 .5-.5V4H10.5A1.5 1.5 0 0 1 9 2.5V2H4.5ZM10 2.2v.3a.5.5 0 0 0 .5.5h1.3L10 2.2ZM5.5 6a.5.5 0 0 1 .5-.5h4a.5.5 0 0 1 0 1H6a.5.5 0 0 1-.5-.5Zm0 2.25a.5.5 0 0 1 .5-.5h4a.5.5 0 0 1 0 1H6a.5.5 0 0 1-.5-.5Zm0 2.25A.5.5 0 0 1 6 10h2.5a.5.5 0 0 1 0 1H6a.5.5 0 0 1-.5-.5Z" fill="currentColor" />
+                          </svg>
+                        </button>
+                        <span v-else class="deployment-init-job-unavailable">Logs unavailable</span>
+                      </div>
+                      <div v-if="initJobLogState(attempt, execution)?.open" class="deployment-init-job-logs">
+                        <p v-if="initJobLogState(attempt, execution)?.loading" class="meta">Loading logs...</p>
+                        <p v-else-if="initJobLogState(attempt, execution)?.error" role="alert">{{ initJobLogState(attempt, execution)?.error }}</p>
+                        <p v-else-if="!initJobLogState(attempt, execution)?.logs" class="meta">Log output is empty.</p>
+                        <pre v-else><code>{{ initJobLogState(attempt, execution)?.logs }}</code></pre>
                       </div>
                     </div>
                   </section>
-                </details>
-              </template>
-            </template>
-          </section>
+                  <div v-if="attempt.status !== 'succeeded'" class="deployment-attempt-details-heading">
+                    <strong>Diagnostics</strong>
+                    <div class="deployment-attempt-details-actions">
+                      <button type="button" class="button-ghost" :disabled="!assistantStore.enabled || assistantStore.pending" @click="explainAttempt(attempt)">Explain</button>
+                      <button type="button" class="button-ghost" @click="copyAttemptDiagnostic(attempt)">{{ copiedAttemptID === attempt.id ? "Copied" : "Copy" }}</button>
+                    </div>
+                  </div>
+                  <pre v-if="attempt.status !== 'succeeded'"><code>{{ attemptDiagnostic(attempt) }}</code></pre>
+                </div>
+              </component>
+            </div>
+          </template>
+        </section>
 
-          <section
-            v-else
-            id="deployment-configuration-panel"
-            class="deployment-tab-panel"
-            role="tabpanel"
-            aria-labelledby="deployment-configuration-tab"
-          >
-            <div class="deployment-configuration-heading">
+        <section
+          v-else-if="activeTab === 'changes'"
+          id="deployment-changes-panel"
+          class="deployment-tab-panel"
+          role="tabpanel"
+          aria-labelledby="deployment-changes-tab"
+        >
+          <template v-if="changeState === 'initial'">
+            <h3>Initial snapshot</h3>
+            <p class="deployment-note">First recorded desired-state snapshot. No previous snapshot is available for comparison.</p>
+            <div class="deployment-counts" aria-label="Recorded resource counts">
+              <span><DeploymentIcon name="service" /><strong>{{ pluralize(detail.resources.services, "service") }}</strong></span>
+              <span><DeploymentIcon name="network" /><strong>{{ pluralize(detail.resources.networks, "network") }}</strong></span>
+              <span><DeploymentIcon name="secret" /><strong>{{ pluralize(detail.resources.secrets, "secret") }}</strong></span>
+              <span><DeploymentIcon name="config" /><strong>{{ pluralize(detail.resources.configs, "config") }}</strong></span>
+              <span v-if="detail.resources.volumes"><DeploymentIcon name="volume" /><strong>{{ pluralize(detail.resources.volumes, "volume") }}</strong></span>
+            </div>
+            <div class="deployment-initial-resources">
+              <details v-for="section in initialResourceSections" :key="section.key" class="deployment-resource-section" :open="section.key === 'service'">
+                <summary>
+                  <svg class="deployment-chevron" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m7 4 6 6-6 6" /></svg>
+                  <DeploymentIcon :name="section.key" />
+                  <strong>{{ section.label }}</strong>
+                  <span class="deployment-resource-count">{{ section.count }}</span>
+                </summary>
+                <div v-if="section.key === 'service' && initialServices.length" class="deployment-service-table-wrap">
+                  <table class="deployment-service-table">
+                    <thead><tr><th>Name</th><th>Image</th><th>Replicas</th></tr></thead>
+                    <tbody><tr v-for="service in initialServices" :key="service.name"><td><span class="deployment-table-name"><DeploymentIcon name="service" />{{ service.name }}</span></td><td :title="service.image">{{ service.image }}</td><td>{{ service.replicas }}</td></tr></tbody>
+                  </table>
+                </div>
+                <ul v-else-if="section.groups.length" class="deployment-resource-list">
+                  <li v-for="group in section.groups" :key="group.name"><DeploymentIcon :name="section.key" /><span>{{ group.name }}</span></li>
+                </ul>
+                <p v-else class="deployment-resource-empty">Detailed {{ section.label.toLowerCase() }} data is unavailable for this snapshot.</p>
+              </details>
+            </div>
+          </template>
+          <template v-else-if="changeState === 'unavailable'">
+            <h3>Changes unavailable</h3>
+            <p class="deployment-note">A previous desired snapshot could not be used for this comparison. Inspect the recorded configuration instead.</p>
+          </template>
+          <template v-else-if="changeState === 'none'">
+            <h3>No configuration changes</h3>
+            <p class="deployment-note">The recorded desired state matches its comparison snapshot.</p>
+            <p class="meta">{{ comparison }}</p>
+          </template>
+          <template v-else>
+            <div class="deployment-changes-heading">
               <div class="deployment-info-heading">
-                <h3>Configuration Snapshot</h3>
-                <div class="deployment-info" @pointerenter="showInfo('configuration', $event)" @pointerleave="hideInfo('configuration', $event)">
-                  <button type="button" class="deployment-info-button" aria-label="About configuration snapshot" :aria-expanded="infoOpen === 'configuration'" :aria-describedby="infoOpen === 'configuration' ? 'deployment-configuration-tooltip' : undefined" @click.stop="toggleInfo('configuration')">
+                <h3>Desired Changes</h3>
+                <div class="deployment-info" @pointerenter="showInfo('changes', $event)" @pointerleave="hideInfo('changes', $event)">
+                  <button type="button" class="deployment-info-button" aria-label="About desired changes" :aria-expanded="infoOpen === 'changes'" :aria-describedby="infoOpen === 'changes' ? 'deployment-changes-tooltip' : undefined" @click.stop="toggleInfo('changes')">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 11v5M12 8h.01" stroke-linecap="round" /></svg>
                   </button>
-                  <div v-if="infoOpen === 'configuration'" id="deployment-configuration-tooltip" class="deployment-info-tooltip" role="tooltip">Sensitive values are masked before storage.</div>
+                  <div v-if="infoOpen === 'changes'" id="deployment-changes-tooltip" class="deployment-info-tooltip" role="tooltip">{{ comparison }} These entries do not confirm runtime convergence.</div>
                 </div>
               </div>
-              <button v-if="configuration" type="button" class="button-ghost" @click="copyConfiguration">{{ copyLabel }}</button>
             </div>
-            <p v-if="!configuration" class="meta">Recorded configuration is unavailable.</p>
-            <div v-else class="deployment-yaml manifest-code shj-lang-yaml shj-block" aria-label="Recorded desired configuration YAML" v-html="configurationHtml" />
-          </section>
+            <p class="meta">{{ detail.summary.added }} added · {{ detail.summary.changed }} changed · {{ detail.summary.removed }} removed<template v-if="detail.summary.redacted"> · {{ detail.summary.redacted }} masked</template></p>
+            <template v-for="group in groups" :key="`${group.type}/${group.name}`">
+              <div v-if="group.operation === 'removed'" class="deployment-resource deployment-resource--removed">
+                <div class="deployment-resource-heading">
+                  <span><DeploymentIcon :name="resourceIcon(group.type)" /><span><span class="deployment-resource-type">{{ group.type }}</span><strong>{{ group.name }}</strong></span></span>
+                  <span class="deployment-resource-operation deployment-resource-operation--removed">Removed</span>
+                </div>
+              </div>
+              <details v-else class="deployment-resource" open>
+                <summary class="deployment-resource-heading"><span><svg class="deployment-chevron" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m7 4 6 6-6 6" /></svg><DeploymentIcon :name="resourceIcon(group.type)" /><span><span class="deployment-resource-type">{{ group.type }}</span><strong>{{ group.name }}</strong></span></span><span class="deployment-resource-operation" :class="`deployment-resource-operation--${group.operation}`">{{ group.operation }}</span></summary>
+                <section v-for="section in group.sections" :key="section.name" class="deployment-change-section">
+                  <h4>{{ sectionLabel(section.name) }}</h4>
+                  <div
+                    v-for="(change, index) in section.changes"
+                    :key="`${change.field}-${index}`"
+                    class="deployment-change"
+                    :class="{ 'deployment-change--long': hasLongValue(change) }"
+                  >
+                    <strong class="deployment-field">{{ fieldLabel(change, section.name) }}</strong>
+                    <div class="deployment-diff-values">
+                      <div v-if="change.operation !== 'added'" class="deployment-diff-line deployment-diff-line--before"><span aria-hidden="true">−</span><code>{{ value(change.before, change.redacted) }}</code></div>
+                      <div v-if="change.operation !== 'removed'" class="deployment-diff-line deployment-diff-line--after"><span aria-hidden="true">+</span><code>{{ value(change.after, change.redacted) }}</code></div>
+                    </div>
+                  </div>
+                </section>
+              </details>
+            </template>
           </template>
-        </main>
-      </div>
+        </section>
+
+        <section
+          v-else
+          id="deployment-configuration-panel"
+          class="deployment-tab-panel"
+          role="tabpanel"
+          aria-labelledby="deployment-configuration-tab"
+        >
+          <div class="deployment-configuration-heading">
+            <div class="deployment-info-heading">
+              <h3>Configuration Snapshot</h3>
+              <div class="deployment-info" @pointerenter="showInfo('configuration', $event)" @pointerleave="hideInfo('configuration', $event)">
+                <button type="button" class="deployment-info-button" aria-label="About configuration snapshot" :aria-expanded="infoOpen === 'configuration'" :aria-describedby="infoOpen === 'configuration' ? 'deployment-configuration-tooltip' : undefined" @click.stop="toggleInfo('configuration')">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 11v5M12 8h.01" stroke-linecap="round" /></svg>
+                </button>
+                <div v-if="infoOpen === 'configuration'" id="deployment-configuration-tooltip" class="deployment-info-tooltip" role="tooltip">Sensitive values are masked before storage.</div>
+              </div>
+            </div>
+            <button v-if="configuration" type="button" class="button-ghost" @click="copyConfiguration">{{ copyLabel }}</button>
+          </div>
+          <p v-if="!configuration" class="meta">Recorded configuration is unavailable.</p>
+          <div v-else class="deployment-yaml manifest-code shj-lang-yaml shj-block" aria-label="Recorded desired configuration YAML" v-html="configurationHtml" />
+        </section>
+        </template>
+      </main>
     </div>
-  </div>
+  </AppModal>
 </template>
 
 <style scoped>
-.deployment-modal {
+:deep(.deployment-modal) {
   width: min(1440px, calc(100vw - 64px));
   max-width: calc(100vw - 64px);
   min-width: 0;
@@ -1010,7 +982,7 @@ summary.deployment-resource-heading { cursor: pointer; }
   .deployment-metadata-item:nth-child(4) { padding-left: 0; border-left: 0; }
 }
 @media (max-width: 700px) {
-  .deployment-modal {
+  :deep(.deployment-modal) {
     width: calc(100vw - 12px);
     max-width: calc(100vw - 12px);
     height: calc(100dvh - 12px);
