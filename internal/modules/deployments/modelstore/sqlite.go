@@ -329,6 +329,7 @@ type summaryRow struct {
 }
 
 type deploymentDetails struct {
+	// UnresolvedServices retains verification obligations across desired-state deployments.
 	UnresolvedServices []string                          `json:"unresolved_services"`
 	ErrorDiagnostic    string                            `json:"error_diagnostic,omitempty"`
 	Retryable          bool                              `json:"retryable,omitempty"`

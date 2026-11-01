@@ -29,11 +29,12 @@ type pipelinePayload struct {
 	Desired           *compose.File
 	DeployComposePath string
 
-	LiveServices      []swarm.StackService
-	ObservedAt        time.Time
-	PrunedServices    []string
-	ExecutionError    string
-	RetryDeferred     bool
+	LiveServices   []swarm.StackService
+	ObservedAt     time.Time
+	PrunedServices []string
+	ExecutionError string
+	RetryDeferred  bool
+	// ProtectedServices cannot be remediated automatically while retry is deferred.
 	ProtectedServices []string
 	CleanupResult     rotatedCleanupResult
 	Drift             map[string]drift.ServiceDrift
