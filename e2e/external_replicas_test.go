@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -26,6 +27,10 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 
+// Give each fixture a distinct subnet in the benchmark address range. Reusing
+// Swarm auto-allocated pools before worker-side overlay teardown can reject tasks.
+var externalSubnetSequence atomic.Uint32
+
 // All mutations use internal/swarm managers backed by the real Engine. No test
 // doubles or production hooks are used, including for external scheduler writes.
 type externalSwarmFixture struct {
@@ -33,6 +38,7 @@ type externalSwarmFixture struct {
 	sw          *swarm.Swarm
 	deployer    deployer.StackDeployer
 	stack, path string
+	subnet      string
 }
 
 func newExternalSwarmFixture(t *testing.T) *externalSwarmFixture {
@@ -46,7 +52,8 @@ func newExternalSwarmFixture(t *testing.T) *externalSwarmFixture {
 	require.NoError(t, err)
 	t.Cleanup(func() { assert.NoError(t, cli.Close()) })
 	f := &externalSwarmFixture{ctx: ctx, sw: swarm.NewSwarm(cli),
-		stack: fmt.Sprintf("sdexternal%d", time.Now().UnixNano()), path: filepath.Join(t.TempDir(), "compose.yaml")}
+		stack: fmt.Sprintf("sdexternal%d", time.Now().UnixNano()), path: filepath.Join(t.TempDir(), "compose.yaml"),
+		subnet: fmt.Sprintf("198.18.%d.0/24", externalSubnetSequence.Add(1))}
 	f.deployer = deployer.NewDeployer(100*time.Millisecond, 40*time.Second, cli, f.sw, nil,
 		deployer.NewSecretResolver(fs.NewLocalFileSystem(), deployer.PlaintextDecoder{}))
 	t.Cleanup(func() {
@@ -64,6 +71,11 @@ func newExternalSwarmFixture(t *testing.T) *externalSwarmFixture {
 		}
 		output, cleanupErr := exec.CommandContext(cleanupCtx, "docker", "stack", "rm", f.stack).CombinedOutput()
 		assert.NoError(t, cleanupErr, "stack cleanup: %s", output)
+		assert.Eventually(t, func() bool {
+			remaining, listErr := f.sw.Services.ListServices(cleanupCtx, swarm.ListServicesFilter{Stack: f.stack})
+			_, networkErr := f.sw.Networks.Get(cleanupCtx, f.stack+"_default")
+			return listErr == nil && len(remaining) == 0 && errors.Is(networkErr, swarm.ErrNetworkNotFound)
+		}, 20*time.Second, 100*time.Millisecond, "all stack resources must be removed")
 	})
 	return f
 }
@@ -83,7 +95,12 @@ func (f *externalSwarmFixture) load(t *testing.T, replicas uint64, command, extr
         org.swarm-deploy.service.sync.policy.selfHeal: "false"
         org.swarm-deploy.service.sync.policy.replicasManaged: "false"
 %s
-`, command, replicas, extra)
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: %s
+`, command, replicas, extra, f.subnet)
 	require.NoError(t, os.WriteFile(f.path, []byte(manifest), 0o600))
 	file, err := compose.NewFileLoader().Load(f.ctx, f.path)
 	require.NoError(t, err)
@@ -221,7 +238,14 @@ func (f *externalSwarmFixture) unchanged(t *testing.T, before dockerswarm.Servic
 		if before.UpdateStatus != nil && after.UpdateStatus != nil {
 			require.Equal(t, before.UpdateStatus.StartedAt, after.UpdateStatus.StartedAt, "no new rollout")
 		}
-		require.Equal(t, ids, taskIDs(f.tasks(t, "job")), "no additional execution or task replacement")
+		observedIDs := taskIDs(f.tasks(t, "job"))
+		if *before.Spec.Mode.Replicated.Replicas == 0 {
+			// Docker may garbage-collect shutdown history while the service is
+			// idle. New task identities are still forbidden.
+			require.Subset(t, ids, observedIDs, "no unscheduled execution during idle update")
+		} else {
+			require.Equal(t, ids, observedIDs, "no additional execution or task replacement")
+		}
 		select {
 		case <-f.ctx.Done():
 			t.Fatal(f.ctx.Err())
@@ -344,7 +368,7 @@ func TestExternalActiveAndIdleUpdateOnRealSwarm(t *testing.T) {
 	require.Zero(t, *accepted.Spec.Mode.Replicated.Replicas)
 	require.Equal(t, uint64(42), accepted.Spec.TaskTemplate.ForceUpdate)
 	require.Contains(t, accepted.Spec.TaskTemplate.ContainerSpec.Env, "CHANGED=yes")
-	require.Equal(t, ids, taskIDs(f.tasks(t, "job")), "idle template update must not schedule any task")
+	require.Subset(t, ids, taskIDs(f.tasks(t, "job")), "idle template update must not schedule any task")
 	f.unchanged(t, accepted, ids)
 	f.deploy(t, desired, deployer.StackOptions{})
 	f.unchanged(t, accepted, ids)
