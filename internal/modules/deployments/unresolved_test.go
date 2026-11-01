@@ -2,6 +2,7 @@ package deployments
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -220,4 +221,48 @@ func TestUnresolvedMetadataSurvivesDatabaseReopen(t *testing.T) {
 	stored, err := deploymentstore.NewStore(db).Get(t.Context(), next.DeploymentID)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"a"}, stored.UnresolvedServices)
+}
+
+func TestPreApplyFailuresRetainOnlyExistingRolloutObligations(t *testing.T) {
+	for _, outcome := range []CompletionOutcome{CompletionInitJobFailed, CompletionPolicyRejected} {
+		for _, unresolved := range []bool{false, true} {
+			t.Run(fmt.Sprint(outcome, unresolved), func(t *testing.T) {
+				db, lifecycle, bus := openService(t)
+				file := desiredServices("a", "b")
+				first, err := lifecycle.StartIfChanged(t.Context(), "app", "one", file, true)
+				require.NoError(t, err)
+				completion := Completion{Outcome: CompletionSucceeded}
+				var want []string
+				if unresolved {
+					completion = Completion{Outcome: CompletionConvergenceFailed, UnresolvedServices: []string{"a"}}
+					want = []string{"a"}
+				}
+				require.NoError(t, lifecycle.Complete(t.Context(), first.ID, completion))
+				file.Compose.Services[1].Image = "example/b:2"
+				second, err := lifecycle.StartIfChanged(t.Context(), "app", "two", file, true)
+				require.NoError(t, err)
+				require.NoError(t, lifecycle.Complete(t.Context(), second.ID, Completion{Outcome: outcome}))
+				stored, _, err := deploymentstore.NewStore(db).Latest(t.Context(), "app")
+				require.NoError(t, err)
+				assert.ElementsMatch(t, want, stored.UnresolvedServices)
+				assert.Equal(t, deploymentmodel.Failed, stored.Status)
+				ctrl := gomock.NewController(t)
+				manager := swarm.NewMockServiceManager(ctrl)
+				controller := NewController(NewService(db, bus), deployer.NewMockStackDeployer(ctrl), manager,
+					pruner.NewServicePruner(manager, bus, config.SyncPolicySpec{}), &metrics.NopDeploys{})
+				deferred, err := controller.Execute(t.Context(), ExecuteRequest{Stack: config.StackSpec{Name: "app"}, Desired: file})
+				require.NoError(t, err)
+				assert.True(t, deferred.RetryDeferred)
+				assert.Nil(t, deferred.Attempt)
+				assert.ElementsMatch(t, []string{"a", "b"}, deferred.UnresolvedServices, "self-heal cannot bypass a failed pre-apply check")
+				// A later digest must not demand new tasks from unaffected healthy services.
+				file.Compose.Services[1].Image = "example/b:3"
+				third, err := NewService(db, bus).StartIfChanged(t.Context(), "app", "three", file, true)
+				require.NoError(t, err)
+				stored, err = deploymentstore.NewStore(db).Get(t.Context(), third.DeploymentID)
+				require.NoError(t, err)
+				assert.ElementsMatch(t, want, stored.UnresolvedServices)
+			})
+		}
+	}
 }

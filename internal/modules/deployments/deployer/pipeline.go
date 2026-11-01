@@ -145,6 +145,8 @@ func (d *Deployer) captureStackBaseline(ctx context.Context, payload *deployStac
 }
 
 func (d *Deployer) applyStack(ctx context.Context, payload *deployStackPayload) error {
+	// Once service apply begins, a failure may leave partially accepted updates.
+	payload.result.UnresolvedServices = nil
 	applyCtx, cancel := payload.stageContext(ctx)
 	defer cancel()
 	changed, err := d.serviceApplier.Apply(applyCtx, payload.stackName, payload.converted.Services,

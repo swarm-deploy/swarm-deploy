@@ -144,7 +144,7 @@ func (c *Controller) Execute(ctx context.Context, req ExecuteRequest) (ExecuteRe
 		result.Status, result.ErrorCode = latest.Status, latest.ErrorCode
 		result.RetryDeferred = latest.Status == deploymentmodel.Failed || latest.Status == deploymentmodel.Interrupted
 		if result.RetryDeferred {
-			result.UnresolvedServices = unresolvedServices(latest, req.Desired)
+			result.UnresolvedServices = deferredServices(latest, req.Desired)
 		}
 		return result, nil
 	}
@@ -379,4 +379,12 @@ func (c *Controller) stackOptions(
 		RetryFailedUpdates: attempt.Number > 1,
 		UnresolvedServices: current.UnresolvedServices,
 	}}, nil
+}
+
+func deferredServices(latest deploymentmodel.Deployment, desired compose.File) []string {
+	if latest.Phase == deploymentmodel.PhaseApply {
+		// Single-service remediation must not bypass pre-apply checks such as Init Jobs.
+		return desiredServiceNames(desired)
+	}
+	return unresolvedServices(latest, desired)
 }

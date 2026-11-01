@@ -99,6 +99,7 @@ func (d *Deployer) DeployStack(
 		sourceComposePath: sourceComposePath,
 		deployComposePath: deployComposePath,
 		desired:           desired,
+		result:            Result{UnresolvedServices: []string{}},
 	}
 
 	if len(options) > 0 {

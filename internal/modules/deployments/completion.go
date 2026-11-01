@@ -138,7 +138,7 @@ func (s *Service) complete(
 
 func (completion Completion) state() (completionState, error) {
 	state := completionState{
-		unresolvedServices: completion.UnresolvedServices,
+		unresolvedServices: completion.rolloutObligations(),
 		errorCode:          completion.ErrorCode(),
 		diagnostic:         faults.SafeError(completion.Diagnostic),
 		observedAt:         completion.ObservedAt,
@@ -259,4 +259,14 @@ func (s *Service) publishCompletion(
 	default:
 		return fmt.Errorf("unsupported completion status %q", state.status)
 	}
+}
+
+func (completion Completion) rolloutObligations() []string {
+	// A failed pre-apply check has not created a new failed service generation.
+	// Keep inherited obligations, but do not require replacement of healthy tasks.
+	if completion.UnresolvedServices == nil &&
+		(completion.Outcome == CompletionInitJobFailed || completion.Outcome == CompletionPolicyRejected) {
+		return []string{}
+	}
+	return completion.UnresolvedServices
 }

@@ -271,3 +271,28 @@ func TestAcceptedUnchangedRolloutIsVerified(t *testing.T) {
 		})
 	}
 }
+
+func TestFailuresDistinguishPreApplyChecksFromPartialServiceApply(t *testing.T) {
+	for _, preApply := range []bool{false, true} {
+		t.Run(fmt.Sprint(preApply), func(t *testing.T) {
+			manager := swarm.NewMockServiceManager(gomock.NewController(t))
+			d := &Deployer{secretResolver: newTestSecretResolver()}
+			wireNativeTestDeployerWithServiceManager(t, d, manager, false)
+			desired := minimalCompose("api")
+			if preApply {
+				desired.Services[0].Extra = map[string]interface{}{"unsupported_test_option": true}
+			} else {
+				manager.EXPECT().Inspect(gomock.Any(), "demo_api").Return(dockerswarm.Service{}, swarm.ErrServiceNotFound)
+				manager.EXPECT().Create(gomock.Any(), gomock.Any(), gomock.Any()).Return("", assert.AnError)
+			}
+			result, err := d.DeployStack(t.Context(), "demo", "source.yaml", "rendered.yaml", desired)
+			require.Error(t, err)
+			if preApply {
+				require.NotNil(t, result.UnresolvedServices, "known pre-apply failure cannot invent a failed service generation")
+				assert.Empty(t, result.UnresolvedServices)
+			} else {
+				assert.Nil(t, result.UnresolvedServices, "partial service apply needs conservative verification")
+			}
+		})
+	}
+}
