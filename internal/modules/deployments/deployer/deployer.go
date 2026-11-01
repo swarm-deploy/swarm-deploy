@@ -91,6 +91,7 @@ func (d *Deployer) DeployStack(
 	sourceComposePath,
 	deployComposePath string,
 	desired compose.Compose,
+	options ...StackOptions,
 ) (Result, error) {
 	d.attachPipelines()
 	payload := &deployStackPayload{
@@ -98,6 +99,10 @@ func (d *Deployer) DeployStack(
 		sourceComposePath: sourceComposePath,
 		deployComposePath: deployComposePath,
 		desired:           desired,
+	}
+
+	if len(options) > 0 {
+		payload.retryFailedUpdates = options[0].RetryFailedUpdates
 	}
 
 	ctx, span := otel.GetTracerProvider().Tracer(deployerTracerName).Start(

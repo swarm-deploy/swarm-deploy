@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -30,6 +31,9 @@ const (
 var serviceWaiterTracer = otel.Tracer(
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/servicewaiter",
 )
+
+// ErrConvergenceFailed identifies an observed terminal Swarm failure, rather than an observation error.
+var ErrConvergenceFailed = errors.New("service convergence failed")
 
 // ServiceState describes the current convergence state of a service.
 type ServiceState string
@@ -70,6 +74,9 @@ type ServiceWaitRequest struct {
 	ServiceNames []string
 	// Baseline is the stack service snapshot captured immediately before apply.
 	Baseline []swarm.StackService
+	// AppliedServices contains services actually created or updated by this apply.
+	// These must become visible before their tasks or update status can satisfy verification.
+	AppliedServices []string
 	// OnlyAffected excludes unchanged services from a full-stack wait.
 	OnlyAffected bool
 	// Progress receives de-duplicated convergence transitions when configured.
@@ -132,6 +139,9 @@ func (w *ServiceWaiter) wait(
 	baseline := servicesByName(request.Baseline)
 	candidates := uniqueSortedNames(request.ServiceNames)
 	targets := initialTargets(candidates, baseline, request.OnlyAffected)
+	if len(candidates) == 0 {
+		return nil
+	}
 	ticker := time.NewTicker(w.pollInterval)
 	defer ticker.Stop()
 
@@ -175,13 +185,13 @@ func (w *ServiceWaiter) poll(
 		return true, nil
 	}
 
-	return w.observeTargets(ctx, span, request.Progress, baseline, currentByName, targets, state)
+	return w.observeTargets(ctx, span, request, baseline, currentByName, targets, state)
 }
 
 func (w *ServiceWaiter) observeTargets(
 	ctx context.Context,
 	span trace.Span,
-	callback ServiceProgressCallback,
+	request ServiceWaitRequest,
 	baseline map[string]swarm.StackService,
 	current map[string]swarm.StackService,
 	targets map[string]struct{},
@@ -191,13 +201,23 @@ func (w *ServiceWaiter) observeTargets(
 	state.converged = 0
 	allReady := true
 	for _, name := range sortedTargetNames(targets) {
+		if slices.Contains(request.AppliedServices, name) && baseline[name].ID != "" &&
+			!serviceChanged(baseline[name], current[name]) {
+			// Docker may briefly return the pre-apply snapshot. Neither old running
+			// tasks nor an old paused update describes the accepted service version.
+			state.emit(span, request.Progress, ServiceProgress{
+				Name: name, State: ServicePending, Message: "waiting for applied service version",
+			})
+			allReady = false
+			continue
+		}
 		progress, err := w.observeService(ctx, name, baseline[name], current[name])
-		state.emit(span, callback, progress)
+		state.emit(span, request.Progress, progress)
 		if err != nil {
 			return false, err
 		}
 		if progress.State == ServiceFailed {
-			return false, fmt.Errorf("service %s failed to converge: %s", name, progress.Message)
+			return false, fmt.Errorf("%w: service %s failed to converge: %s", ErrConvergenceFailed, name, progress.Message)
 		}
 		if progress.State == ServiceReady {
 			state.converged++
@@ -317,6 +337,11 @@ func (w *ServiceWaiter) observeService(
 	desired := serviceDesiredTasks(service)
 	progress := ServiceProgress{ServiceID: service.ID, Name: name, State: ServicePending, Desired: desired}
 	if message, failed := terminalUpdateFailure(service.UpdateStatus); failed {
+		if baseline.ID == service.ID && serviceChanged(baseline, service) &&
+			reflect.DeepEqual(baseline.UpdateStatus, service.UpdateStatus) {
+			progress.Message = "waiting for current update status; previous update was " + service.UpdateStatus.State
+			return progress, nil
+		}
 		progress.State = ServiceFailed
 		progress.Message = message
 		// Preserve the terminal failure even if fetching supplementary diagnostics fails.

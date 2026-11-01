@@ -12,6 +12,7 @@ import (
 type applyPayload struct {
 	deadline time.Time
 	baseline []swarm.StackService
+	changed  []string
 }
 
 func (p *applyPayload) stageContext(ctx context.Context) (context.Context, context.CancelFunc) {
@@ -20,13 +21,14 @@ func (p *applyPayload) stageContext(ctx context.Context) (context.Context, conte
 
 type deployStackPayload struct {
 	applyPayload
-	stackName         string
-	sourceComposePath string
-	deployComposePath string
-	desired           compose.Compose
-	converted         *converter.StackSpec
-	resolved          resolvedResources
-	result            Result
+	stackName          string
+	sourceComposePath  string
+	deployComposePath  string
+	desired            compose.Compose
+	converted          *converter.StackSpec
+	resolved           resolvedResources
+	result             Result
+	retryFailedUpdates bool
 }
 
 type deployServicePayload struct {

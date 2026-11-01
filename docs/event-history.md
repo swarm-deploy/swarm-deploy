@@ -51,6 +51,11 @@ The table above describes public event types, not a promise that every
 signal appears in user history. `DeployFailed`, preparation failures, and interrupted attempts are internal
 deployment lifecycle facts consumed by Deployment Model and Alert Management; they are
 not public event names and are not available under `notifications.events`.
+Known terminal service convergence failures publish internal `DeployFailed` with
+`error_code=convergence_failed` and `stage=verification`; observation failures and
+verification interruptions publish `DeployInterrupted` with `verification_unknown`.
+Retry-deferred scheduler cycles publish neither event and do not increase alert
+occurrences. These remain internal facts, excluded from Event History.
 Deployment failures, node disconnections, and unresolved service drift feed Alert Management.
 Success, reconnection, and confirmed drift recovery resolve the respective open incident. New SQLite history records use the safe event codec,
 which omits raw prompts, logs and error strings.

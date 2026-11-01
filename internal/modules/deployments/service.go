@@ -48,15 +48,26 @@ func NewService(db storage.Database, publisher Publisher, options ...ServiceOpti
 	return service
 }
 
+const automaticRetryDelay = time.Minute
+const maximumRetryDelay = time.Hour
+const retryBackoffMultiplier = 2
+
+// StartOptions controls an explicit retry of a persisted unsuccessful deployment.
+type StartOptions struct {
+	// ManualRetry bypasses failure classification and automatic retry backoff.
+	ManualRetry bool
+}
+
 // StartIfChanged creates an attempt before the caller begins external apply.
-// Unchanged successful or currently running desired state returns nil. Failed and
-// interrupted state receives a new attempt on the existing Deployment.
+// Unchanged non-retryable failures are suppressed. Transient failures are retried
+// indefinitely with capped exponential backoff. Manual retries bypass both.
 func (s *Service) StartIfChanged(
 	ctx context.Context,
 	stack string,
 	commit string,
 	file compose.File,
 	sourceChanged bool,
+	options ...StartOptions,
 ) (*deploymentmodel.Attempt, error) {
 	desired, err := deploymentmodel.Prepare(file)
 	if err != nil {
@@ -65,7 +76,8 @@ func (s *Service) StartIfChanged(
 	var result *deploymentmodel.Attempt
 	err = s.db.WithinTransaction(ctx, func(ctx context.Context) error {
 		var startErr error
-		result, startErr = s.startPrepared(ctx, stack, commit, desired, sourceChanged)
+		manualRetry := len(options) > 0 && options[0].ManualRetry
+		result, startErr = s.startPrepared(ctx, stack, commit, desired, sourceChanged, manualRetry)
 		return startErr
 	})
 	if err != nil {
@@ -79,7 +91,7 @@ func (s *Service) startPrepared(
 	stack string,
 	commit string,
 	desired deploymentmodel.Prepared,
-	sourceChanged bool,
+	sourceChanged, manualRetry bool,
 ) (*deploymentmodel.Attempt, error) {
 	latest, latestDesired, err := s.store.Latest(ctx, stack)
 	if errors.Is(err, deploymentstore.ErrNotFound) {
@@ -92,7 +104,7 @@ func (s *Service) startPrepared(
 		return nil, err
 	}
 	if latestDesired.Digest == desired.Digest {
-		return s.startExisting(ctx, latest)
+		return s.startExisting(ctx, latest, manualRetry)
 	}
 	removedServices := desiredServiceRemovals(latestDesired.Definition, desired.Definition)
 	if err = s.supersedePrevious(ctx, latest); err != nil {
@@ -130,11 +142,15 @@ func desiredServiceRemovals(previous, current compose.File) []string {
 func (s *Service) startExisting(
 	ctx context.Context,
 	latest deploymentmodel.Deployment,
+	manualRetry bool,
 ) (*deploymentmodel.Attempt, error) {
 	switch latest.Status {
 	case deploymentmodel.Succeeded, deploymentmodel.Running:
 		return nil, nil //nolint:nilnil // Nil attempt explicitly means no deployment execution.
 	case deploymentmodel.Failed, deploymentmodel.Interrupted:
+		if !manualRetry && !s.automaticRetryAllowed(latest) {
+			return nil, nil //nolint:nilnil // A suppressed retry does not execute or publish completion events.
+		}
 		attempt := newAttempt(latest.ID, latest.AttemptCount+1, s.now())
 		if err := s.store.StartAttempt(ctx, latest, attempt); err != nil {
 			return nil, err
@@ -145,6 +161,19 @@ func (s *Service) startExisting(
 	default:
 		return nil, fmt.Errorf("unsupported deployment status %q", latest.Status)
 	}
+}
+
+// automaticRetryAllowed relies only on persisted details and caps delay without
+// capping attempt count or overflowing the duration calculation.
+func (s *Service) automaticRetryAllowed(latest deploymentmodel.Deployment) bool {
+	if !latest.Retryable || latest.FinishedAt == nil {
+		return false
+	}
+	delay := automaticRetryDelay
+	for attempt := 1; attempt < latest.AttemptCount && delay < maximumRetryDelay; attempt++ {
+		delay = min(delay*retryBackoffMultiplier, maximumRetryDelay)
+	}
+	return !s.now().Before(latest.FinishedAt.Add(delay))
 }
 
 func (s *Service) supersedePrevious(

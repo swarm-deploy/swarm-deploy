@@ -116,3 +116,59 @@ func TestExternalForceUpdateDoesNotUpdateUnchangedService(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, changed)
 }
+
+func TestRetryFailedUpdatesOnlyRestartsTerminalFailures(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		state         dockerswarm.UpdateState
+		retry, update bool
+	}{
+		{name: "periodic unchanged paused", state: dockerswarm.UpdateStatePaused},
+		{name: "manual paused", state: dockerswarm.UpdateStatePaused, retry: true, update: true},
+		{name: "manual rollback paused", state: dockerswarm.UpdateStateRollbackPaused, retry: true, update: true},
+		{name: "manual healthy", state: dockerswarm.UpdateStateCompleted, retry: true},
+		{name: "manual in progress", state: dockerswarm.UpdateStateUpdating, retry: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			manager := swarm.NewMockServiceManager(gomock.NewController(t))
+			desired := serviceSpec("api", "alpine:3")
+			current := service("api-id", 4, cloneSpec(desired))
+			current.Spec.TaskTemplate.ForceUpdate = 7
+			current.UpdateStatus = &dockerswarm.UpdateStatus{State: tc.state}
+			manager.EXPECT().Inspect(gomock.Any(), "demo_api").Return(current, nil)
+			if tc.update {
+				manager.EXPECT().Update(gomock.Any(), "api-id", current.Version, gomock.Any(), gomock.Any()).DoAndReturn(
+					func(_ any, _ string, _ dockerswarm.Version, spec dockerswarm.ServiceSpec, _ dockerswarm.ServiceUpdateOptions) error {
+						assert.Equal(t, uint64(8), spec.TaskTemplate.ForceUpdate)
+						return nil
+					})
+			}
+			changed, err := New(manager, &registry.NopAuthManager{}).Apply(t.Context(), "demo", []dockerswarm.ServiceSpec{desired}, ApplyOptions{RetryFailedUpdates: tc.retry})
+			require.NoError(t, err)
+			assert.Equal(t, tc.update, len(changed) > 0)
+			assert.Zero(t, desired.TaskTemplate.ForceUpdate)
+		})
+	}
+}
+
+func TestRetryRebasesForceUpdateAfterVersionConflict(t *testing.T) {
+	manager := swarm.NewMockServiceManager(gomock.NewController(t))
+	desired := serviceSpec("api", "alpine:3")
+	current := service("api-id", 4, cloneSpec(desired))
+	current.Spec.TaskTemplate.ForceUpdate = 7
+	current.UpdateStatus = &dockerswarm.UpdateStatus{State: dockerswarm.UpdateStatePaused}
+	manager.EXPECT().Inspect(gomock.Any(), "demo_api").Return(current, nil)
+	manager.EXPECT().Update(gomock.Any(), "api-id", current.Version, gomock.Any(), gomock.Any()).Return(swarm.ErrServiceConflict)
+	newer := current
+	newer.Version.Index++
+	newer.Spec.TaskTemplate.ForceUpdate = 8
+	manager.EXPECT().Inspect(gomock.Any(), "demo_api").Return(newer, nil)
+	manager.EXPECT().Update(gomock.Any(), "api-id", newer.Version, gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ any, _ string, _ dockerswarm.Version, spec dockerswarm.ServiceSpec, _ dockerswarm.ServiceUpdateOptions) error {
+			assert.Equal(t, uint64(9), spec.TaskTemplate.ForceUpdate)
+			return nil
+		})
+	changed, err := New(manager, &registry.NopAuthManager{}).Apply(t.Context(), "demo", []dockerswarm.ServiceSpec{desired}, ApplyOptions{RetryFailedUpdates: true})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"api"}, changed)
+}

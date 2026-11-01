@@ -12,7 +12,7 @@ were all present; the CLI infrastructure remains removed.
 | 1: command/entrypoint | Use the same `google/shlex` parser as CLI. Preserve empty arguments, quotes, escapes and comments; list arguments are not tokenized. No repeated interpolation. |
 | 2: ForceUpdate | Preserve the current counter for comparison and every submitted update, including optimistic-conflict retries. |
 | 3: image drift | Stack image labels alone no longer establish equivalence. Check normalized repository, tag and explicit digest. |
-| 4: convergence retry | Wait for every converted service even when no ServiceUpdate was necessary. An unchanged paused/failed rollout cannot become a successful attempt by skipping the waiter. |
+| 4: convergence retry | Verify services actually created or updated by the native applier. Unrelated unchanged services retain their historical update status without blocking an apply. Unchanged known failed deployments remain failed until explicit retry; retries restart terminal failed updates before verification. |
 | 5: Compose fields | Add the service options below, job modes, discrete generic reservations and network IPAM. Fix the examples without stripping unsupported fields in tests. |
 | 6: registry resolution | Consistent `changed` policy, preserving the resolved image/platforms on unrelated changes. Registry auth still comes from AuthManager; SDK handles resolution. |
 | 7: networks | Plan only referenced networks, including Init Job references and implicit default. Reuse existing stack-owned immutable networks. Accept predefined external host/none networks; arbitrary external local bridge networks remain invalid. |
@@ -71,8 +71,9 @@ capabilities, placement constraints and network attachments/aliases independentl
 of order. Docker defaults and runtime ForceUpdate remain normalized. Command
 arguments, DNS order and duplicate environment names retain their ordering.
 
-The waiter still checks every converted service, including unchanged services
-and paused updates. Terminal errors also include the latest failed/rejected task
+The waiter checks actual applied services and accepted updates still in progress.
+Explicit retries also reverify unchanged accepted specifications. Terminal errors
+include the latest failed/rejected task
 ID, state, runtime error and exit code where available. A task lookup failure
 does not replace or suppress an already observed terminal update failure.
 
@@ -133,7 +134,7 @@ resources, and explicitly test environment and CLI field limitations.
 `SWARM_DEPLOY_E2E=1 go test -count=1 -timeout=10m -v ./e2e` uses the existing real
 Swarm infrastructure. The extended stack scenario checks unchanged service/task
 identity, external `docker service update --force`, a failed/paused rollout and
-retry without mutation, recovery, representative container options, immutable
+explicit retry with a new task generation, recovery, representative container options, immutable
 network reuse, and unused external networks. Existing rotation tests remain.
 Set `SWARM_DEPLOY_E2E_REGISTRY` to a pushable registry prefix reachable by Swarm
 nodes to also push two BusyBox versions under a mutable tag, verify unrelated
@@ -143,3 +144,36 @@ Live Swarm and registry scenarios could not run in the implementation environmen
 there is no Docker executable or Docker socket. E2E compiles and skips without
 its opt-in flag. Windows credential/isolation behavior also requires a compatible
 Windows Swarm node and has conversion coverage only.
+
+## Convergence failures and retries
+
+A terminal Swarm update failure (paused, failed, or rollback) produces a failed
+Attempt at verification with `convergence_failed`. Docker API observation errors,
+timeouts, and cancellations retain an interrupted, `verification_unknown` outcome.
+Diagnostics retain the service, update state, and available task ID/exit code,
+with existing sanitization.
+
+The native applier supplies the exact created/updated service names to the waiter.
+The waiter waits for the applied service version and a fresh rollout status before
+accepting running tasks. Old running tasks do not satisfy a new task generation.
+Unrelated unchanged services, including historical paused updates, are excluded.
+Accepted updates still in progress are verified even when their specs are unchanged.
+With no mutations or active updates, stack apply is a no-op rather than a health check.
+
+Periodic reconciliation does not retry an unchanged non-retryable failure,
+including `convergence_failed` and `policy_rejected`. Transient failures (such
+as interrupted verification or explicitly classified temporary infrastructure
+errors) are retried indefinitely with exponential delays of 1, 2, 4, ...
+minutes, capped at 1 hour. The retry classification, persisted Attempt count,
+and finish time preserve the delay across restarts. Unclassified apply, Init Job,
+and cleanup failures are not assumed to be temporary.
+Deferred cycles do not self-heal, prune, overwrite the GitOps failure projection,
+or publish deployment completion events. Alert occurrences therefore count real
+failed Attempts rather than scheduler ticks.
+
+A new effective desired digest starts a new Deployment with fresh retry state. Manual Sync
+retries a failed/interrupted deployment regardless of automatic retry backoff. During
+retry, terminal failed services receive a new `ForceUpdate` generation, including
+when the accepted ServiceSpec is already equal to desired. Retries reverify accepted unchanged specifications too, so interrupted observation
+cannot turn an unfinished rollout into a successful no-op. Healthy unchanged
+services keep their tasks. No automatic attempt limit, new configuration, or database schema is required.

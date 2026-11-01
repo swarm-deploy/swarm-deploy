@@ -37,8 +37,16 @@ func New(manager swarm.ServiceManager, authManager registry.AuthManager) *Applie
 	return &Applier{manager: manager, authManager: authManager}
 }
 
+// ApplyOptions controls recovery when a deployment is retried.
+type ApplyOptions struct {
+	// RetryFailedUpdates forces a new task generation only for services with terminal update failures.
+	RetryFailedUpdates bool
+}
+
 // Apply reconciles services in deterministic name order and returns changed service names.
-func (a *Applier) Apply(ctx context.Context, stackName string, specs []dockerswarm.ServiceSpec) ([]string, error) {
+func (a *Applier) Apply(
+	ctx context.Context, stackName string, specs []dockerswarm.ServiceSpec, options ...ApplyOptions,
+) ([]string, error) {
 	desired := slices.Clone(specs)
 	slices.SortFunc(desired, func(left, right dockerswarm.ServiceSpec) int {
 		if left.Name < right.Name {
@@ -50,9 +58,10 @@ func (a *Applier) Apply(ctx context.Context, stackName string, specs []dockerswa
 		return 0
 	})
 
+	retryFailed := len(options) > 0 && options[0].RetryFailedUpdates
 	changed := make([]string, 0, len(desired))
 	for _, spec := range desired {
-		serviceName, serviceChanged, err := a.apply(ctx, stackName, spec)
+		serviceName, serviceChanged, err := a.apply(ctx, stackName, spec, retryFailed)
 		if err != nil {
 			return changed, err
 		}
@@ -65,16 +74,17 @@ func (a *Applier) Apply(ctx context.Context, stackName string, specs []dockerswa
 
 func (a *Applier) apply(
 	ctx context.Context, stackName string, desired dockerswarm.ServiceSpec,
+	retryFailed bool,
 ) (string, bool, error) {
 	displayName := serviceName(stackName, desired.Name)
 	current, created, err := a.inspectOrCreate(ctx, stackName, displayName, desired)
 	if err != nil || created {
 		return displayName, created, err
 	}
-	if serviceSpecsEqual(current.Spec, desired) {
+	if serviceSpecsEqual(current.Spec, desired) && (!retryFailed || !failedUpdate(current)) {
 		return displayName, false, nil
 	}
-	err = a.update(ctx, stackName, displayName, desired, current)
+	err = a.update(ctx, stackName, displayName, desired, current, retryFailed)
 	if err != nil {
 		return displayName, false, err
 	}
@@ -115,11 +125,15 @@ func (a *Applier) update(
 	displayName string,
 	desired dockerswarm.ServiceSpec,
 	current dockerswarm.Service,
+	retryFailed bool,
 ) error {
 	for attempt := 0; attempt < serviceUpdateAttempts; attempt++ {
 		// Rebase runtime-owned values on every optimistic retry.
 		applied := cloneSpec(desired)
 		applied.TaskTemplate.ForceUpdate = current.Spec.TaskTemplate.ForceUpdate
+		if retryFailed && failedUpdate(current) {
+			applied.TaskTemplate.ForceUpdate++
+		}
 		reused := normalizeImageResolution(&current.Spec, &applied)
 		options, err := a.updateOptions(applied)
 		if err != nil {
@@ -140,7 +154,7 @@ func (a *Applier) update(
 		if err = validateOwnership(stackName, desired.Name, current); err != nil {
 			return err
 		}
-		if serviceSpecsEqual(current.Spec, desired) {
+		if serviceSpecsEqual(current.Spec, desired) && (!retryFailed || !failedUpdate(current)) {
 			return nil
 		}
 	}
@@ -149,6 +163,18 @@ func (a *Applier) update(
 		displayName,
 		serviceUpdateAttempts,
 	)
+}
+
+func failedUpdate(service dockerswarm.Service) bool {
+	if service.UpdateStatus == nil {
+		return false
+	}
+	switch string(service.UpdateStatus.State) {
+	case "failed", "paused", "rollback_started", "rollback_paused", "rollback_completed":
+		return true
+	default:
+		return false
+	}
 }
 
 func (a *Applier) createOptions(spec dockerswarm.ServiceSpec) (dockerswarm.ServiceCreateOptions, error) {

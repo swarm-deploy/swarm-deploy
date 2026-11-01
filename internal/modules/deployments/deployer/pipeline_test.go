@@ -194,15 +194,14 @@ func assertSpanAttributes(t *testing.T, span sdktrace.ReadOnlySpan, expected map
 	}
 }
 
-func TestRetryUnchangedPausedServiceStillFailsConvergence(t *testing.T) {
+func TestUnchangedHistoricalPausedServiceIsNotAnAppliedTarget(t *testing.T) {
 	for _, single := range []bool{false, true} {
 		t.Run(fmt.Sprint(single), func(t *testing.T) {
 			manager := swarm.NewMockServiceManager(gomock.NewController(t))
 			current := nativeMinimalServiceSpec("api")
 			observed := swarm.StackService{ID: "service-id", Name: "api", Mode: "replicated", Replicas: current.Mode.Replicated.Replicas, ServiceSpec: current, DesiredTasks: 1, UpdateStatus: &swarm.ServiceUpdateStatus{State: "paused"}}
-			manager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "demo"}).Return([]swarm.StackService{observed}, nil).Times(2)
+			manager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "demo"}).Return([]swarm.StackService{observed}, nil)
 			manager.EXPECT().Inspect(gomock.Any(), "demo_api").Return(dockerswarm.Service{ID: "service-id", Spec: current, UpdateStatus: &dockerswarm.UpdateStatus{State: dockerswarm.UpdateStatePaused}}, nil)
-			manager.EXPECT().ListTasks(gomock.Any(), "service-id").Return(nil, nil)
 			d := &Deployer{secretResolver: newTestSecretResolver(), serviceWaiter: waiterpkg.NewServiceWaiter(manager, time.Millisecond, time.Second)}
 			wireNativeTestDeployerWithServiceManager(t, d, manager, false)
 			var err error
@@ -211,9 +210,64 @@ func TestRetryUnchangedPausedServiceStillFailsConvergence(t *testing.T) {
 			} else {
 				_, err = d.DeployStack(t.Context(), "demo", "source.yaml", "rendered.yaml", minimalCompose("api"))
 			}
-			require.ErrorContains(t, err, "paused")
-			assert.True(t, ConvergenceFailed(err))
+			require.NoError(t, err)
 			// gomock permits no update: desired ServiceSpec was already accepted.
+		})
+	}
+}
+
+func TestRetryPausedStackActuallyAppliesNewTaskGeneration(t *testing.T) {
+	manager := swarm.NewMockServiceManager(gomock.NewController(t))
+	now := time.Now().UTC()
+	current := nativeMinimalServiceSpec("api")
+	current.TaskTemplate.ForceUpdate = 7
+	before := swarm.StackService{ID: "service-id", Name: "api", Mode: "replicated", DesiredTasks: 1, Replicas: current.Mode.Replicated.Replicas, ServiceSpec: current, UpdatedAt: now.Add(-time.Hour), UpdateStatus: &swarm.ServiceUpdateStatus{State: "paused", StartedAt: now.Add(-time.Hour)}}
+	after := before
+	after.UpdatedAt = now
+	after.ServiceSpec = nativeMinimalServiceSpec("api")
+	after.ServiceSpec.TaskTemplate.ForceUpdate = 8
+	after.UpdateStatus = &swarm.ServiceUpdateStatus{State: "completed", StartedAt: now}
+	manager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "demo"}).Return([]swarm.StackService{before}, nil)
+	manager.EXPECT().Inspect(gomock.Any(), "demo_api").Return(dockerswarm.Service{ID: "service-id", Spec: current, UpdateStatus: &dockerswarm.UpdateStatus{State: dockerswarm.UpdateStatePaused}}, nil)
+	manager.EXPECT().Update(gomock.Any(), "service-id", gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, _ string, _ dockerswarm.Version, spec dockerswarm.ServiceSpec, _ dockerswarm.ServiceUpdateOptions) error {
+			assert.Equal(t, after.ServiceSpec.TaskTemplate.ForceUpdate, spec.TaskTemplate.ForceUpdate)
+			return nil
+		})
+	manager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "demo"}).Return([]swarm.StackService{after}, nil)
+	manager.EXPECT().ListTasks(gomock.Any(), "service-id").Return([]swarm.ServiceTask{{ID: "new-task", DesiredState: swarm.TaskStateRunning, CurrentState: swarm.TaskStateRunning, CreatedAt: now}}, nil)
+	d := &Deployer{secretResolver: newTestSecretResolver(), serviceWaiter: waiterpkg.NewServiceWaiter(manager, time.Millisecond, time.Second)}
+	wireNativeTestDeployerWithServiceManager(t, d, manager, false)
+	_, err := d.DeployStack(t.Context(), "demo", "source.yaml", "rendered.yaml", minimalCompose("api"), StackOptions{RetryFailedUpdates: true})
+	require.NoError(t, err)
+}
+
+func TestAcceptedUnchangedRolloutIsVerified(t *testing.T) {
+	for _, retry := range []bool{false, true} {
+		t.Run(fmt.Sprint(retry), func(t *testing.T) {
+			manager := swarm.NewMockServiceManager(gomock.NewController(t))
+			now := time.Now().UTC()
+			current := nativeMinimalServiceSpec("api")
+			before := swarm.StackService{
+				ID: "service-id", Name: "api", Mode: "replicated", DesiredTasks: 1, ServiceSpec: current,
+				UpdatedAt: now.Add(-time.Minute), UpdateStatus: &swarm.ServiceUpdateStatus{State: "updating", StartedAt: now.Add(-time.Minute)},
+			}
+			manager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "demo"}).Return([]swarm.StackService{before}, nil).Times(2)
+			manager.EXPECT().Inspect(gomock.Any(), "demo_api").Return(dockerswarm.Service{ID: "service-id", Spec: current, UpdateStatus: &dockerswarm.UpdateStatus{State: dockerswarm.UpdateStateUpdating}}, nil)
+			// Even a satisfied running count cannot complete an in-progress update.
+			task := swarm.ServiceTask{ID: "task", DesiredState: swarm.TaskStateRunning, CurrentState: swarm.TaskStateRunning, CreatedAt: now}
+			manager.EXPECT().ListTasks(gomock.Any(), "service-id").Return([]swarm.ServiceTask{task}, nil).Times(2)
+			after := before
+			after.UpdateStatus = &swarm.ServiceUpdateStatus{State: "completed", StartedAt: now.Add(-time.Minute), CompletedAt: now}
+			manager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "demo"}).Return([]swarm.StackService{after}, nil)
+			d := &Deployer{secretResolver: newTestSecretResolver(), serviceWaiter: waiterpkg.NewServiceWaiter(manager, time.Millisecond, time.Second)}
+			wireNativeTestDeployerWithServiceManager(t, d, manager, false)
+			var options []StackOptions
+			if retry {
+				options = append(options, StackOptions{RetryFailedUpdates: true})
+			}
+			_, err := d.DeployStack(t.Context(), "demo", "source.yaml", "rendered.yaml", minimalCompose("api"), options...)
+			require.NoError(t, err)
 		})
 	}
 }

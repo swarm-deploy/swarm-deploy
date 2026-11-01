@@ -75,6 +75,12 @@ func NewServiceWaiter(
 	return waiter.NewServiceWaiter(services, pollInterval, timeout)
 }
 
+// StackOptions controls recovery during a deployment retry.
+type StackOptions struct {
+	// RetryFailedUpdates restarts services whose accepted specification has a terminal update failure.
+	RetryFailedUpdates bool
+}
+
 // StackDeployer reconciles one stack through native Docker API execution.
 type StackDeployer interface {
 	// DeployStack reconciles resources from sourceComposePath and applies the prepared desired stack.
@@ -84,6 +90,7 @@ type StackDeployer interface {
 		sourceComposePath,
 		deployComposePath string,
 		desired compose.Compose,
+		options ...StackOptions,
 	) (Result, error)
 	// DeployService reconciles resources and applies one service without pruning the rest of the stack.
 	DeployService(

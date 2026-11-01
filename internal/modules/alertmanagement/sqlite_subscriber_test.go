@@ -601,7 +601,7 @@ func TestDeploymentCompletionOutboxPreservesAlertThresholds(t *testing.T) {
 					service := deployments.NewService(db, bus)
 					attempt, startErr := service.StartIfChanged(ctx, "app", fmt.Sprint(i), compose.File{
 						Compose: compose.Compose{Services: compose.Services{{Name: "api", Image: "api:1"}}},
-					}, true)
+					}, true, deployments.StartOptions{ManualRetry: true})
 					require.NoError(t, startErr)
 					if i == 0 {
 						deploymentID = attempt.DeploymentID
@@ -662,4 +662,67 @@ func TestDeploymentCompletionOutboxPreservesAlertThresholds(t *testing.T) {
 			})
 		}
 	}
+}
+
+func TestConvergenceFailureSkippedTicksDoNotIncreaseOccurrencesAndRecoveryResolves(t *testing.T) {
+	ctx := t.Context()
+	dir := t.TempDir()
+	db, err := storage.OpenSQLite(ctx, dir)
+	require.NoError(t, err)
+	bus := eventbus.NewOutboxDispatcher(outbox.New(db))
+	repo := modelstore.NewSQLStore(db)
+	subscriber := newTestSQLSubscriber(repo)
+	for _, typ := range []events.TypeName{events.TypeNameDeployFailed, events.TypeNameDeploySuccess} {
+		require.NoError(t, bus.Subscribe(typ, "alerts", subscriber))
+	}
+	desired := compose.File{Compose: compose.Compose{Services: compose.Services{{Name: "api", Image: "api:1"}}}}
+	lifecycle := deployments.NewService(db, bus)
+	attempt, err := lifecycle.StartIfChanged(ctx, "app", "first", desired, true)
+	require.NoError(t, err)
+	for number := 1; number <= 2; number++ {
+		require.NoError(t, lifecycle.Complete(ctx, attempt.ID, deployments.Completion{Outcome: deployments.CompletionConvergenceFailed, Diagnostic: errors.New("service api paused; task failed-task exit_code=1")}))
+		processed, err := bus.ProcessNext(ctx)
+		require.NoError(t, err)
+		require.True(t, processed)
+		for range 10 {
+			skipped, err := lifecycle.StartIfChanged(ctx, "app", "tick", desired, true)
+			require.NoError(t, err)
+			assert.Nil(t, skipped)
+			processed, err := bus.ProcessNext(ctx)
+			require.NoError(t, err)
+			assert.False(t, processed)
+		}
+		alerts, err := repo.List(ctx, modelstore.ListFilter{})
+		require.NoError(t, err)
+		require.Len(t, alerts, 1)
+		assert.EqualValues(t, number, alerts[0].Occurrences)
+		assert.Equal(t, "Synchronization failed", alerts[0].Title)
+		assert.Equal(t, "convergence_failed", alerts[0].ErrorCode)
+		assert.Equal(t, "verification", alerts[0].FailureStage)
+		// Reopen storage before the explicit retry. Neither suppression nor alert
+		// correlation can depend on a process-local counter.
+		require.NoError(t, db.Close())
+		db, err = storage.OpenSQLite(ctx, dir)
+		require.NoError(t, err)
+		bus = eventbus.NewOutboxDispatcher(outbox.New(db))
+		repo = modelstore.NewSQLStore(db)
+		subscriber = newTestSQLSubscriber(repo)
+		for _, typ := range []events.TypeName{events.TypeNameDeployFailed, events.TypeNameDeploySuccess} {
+			require.NoError(t, bus.Subscribe(typ, "alerts", subscriber))
+		}
+		lifecycle = deployments.NewService(db, bus)
+		attempt, err = lifecycle.StartIfChanged(ctx, "app", "manual", desired, false, deployments.StartOptions{ManualRetry: true})
+		require.NoError(t, err)
+		require.NotNil(t, attempt)
+	}
+	require.NoError(t, lifecycle.Complete(ctx, attempt.ID, deployments.Completion{Outcome: deployments.CompletionSucceeded}))
+	processed, err := bus.ProcessNext(ctx)
+	require.NoError(t, err)
+	require.True(t, processed)
+	alerts, err := repo.List(ctx, modelstore.ListFilter{})
+	require.NoError(t, err)
+	require.Len(t, alerts, 1)
+	assert.Equal(t, model.AlertStatusResolved, alerts[0].Status)
+	assert.EqualValues(t, 2, alerts[0].Occurrences)
+	require.NoError(t, db.Close())
 }

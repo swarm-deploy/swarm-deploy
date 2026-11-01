@@ -15,6 +15,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/waiter"
 	deploymentmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/model"
 	deploymentstore "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/pruner"
@@ -111,6 +112,12 @@ func TestControllerExecuteClassifiesAndPersistsFailures(t *testing.T) {
 		wantInitJob bool
 	}{
 		{
+			name: "known paused update",
+			deployErr: &pipe.StepError{StepName: "wait for service convergence",
+				Err: fmt.Errorf("service api paused; failed-task exit_code=1: %w", waiter.ErrConvergenceFailed)},
+			wantStatus: deploymentmodel.Failed, wantPhase: deploymentmodel.PhaseVerification, wantCode: "convergence_failed",
+		},
+		{
 			name: "apply", deployErr: errors.New("apply failed"),
 			wantStatus: deploymentmodel.Failed, wantPhase: deploymentmodel.PhaseApply, wantCode: "apply_failed",
 		},
@@ -202,10 +209,12 @@ func TestControllerExecuteRetriesAndSupersedesThroughCanonicalLifecycle(t *testi
 		Return(deployer.Result{}, errors.New("failed"))
 	failed, err := controller.Execute(t.Context(), executionRequest("api:1"))
 	require.Error(t, err)
-	stackDeployer.EXPECT().DeployStack(gomock.Any(), "app", "app.yaml", "rendered.yaml", gomock.Any()).
+	stackDeployer.EXPECT().DeployStack(gomock.Any(), "app", "app.yaml", "rendered.yaml", gomock.Any(), deployer.StackOptions{RetryFailedUpdates: true}).
 		Return(deployer.Result{}, nil)
 	services.EXPECT().ListServices(gomock.Any(), gomock.Any()).Return(nil, nil)
-	retry, err := controller.Execute(t.Context(), executionRequest("api:1"))
+	reqRetry := executionRequest("api:1")
+	reqRetry.ManualRetry = true
+	retry, err := controller.Execute(t.Context(), reqRetry)
 	require.NoError(t, err)
 	assert.Equal(t, failed.Attempt.DeploymentID, retry.Attempt.DeploymentID)
 	assert.Equal(t, 2, retry.Attempt.Number)

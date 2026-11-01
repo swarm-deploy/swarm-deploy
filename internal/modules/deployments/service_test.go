@@ -73,7 +73,7 @@ func TestStartIfChangedCreatesNoopsAndRetries(t *testing.T) {
 	require.NoError(t, db.WithinTransaction(t.Context(), func(ctx context.Context) error {
 		return service.Complete(ctx, first.ID, Completion{Outcome: CompletionProcessInterrupted})
 	}))
-	retry, err := service.StartIfChanged(t.Context(), "retry", "third", desiredServices("api"), true)
+	retry, err := service.StartIfChanged(t.Context(), "retry", "third", desiredServices("api"), true, StartOptions{ManualRetry: true})
 	require.NoError(t, err)
 	require.NotNil(t, retry)
 	assert.Equal(t, first.DeploymentID, retry.DeploymentID)
@@ -136,7 +136,7 @@ func TestStartIfChangedUsesSuccessfulBaselineForSemanticChanges(t *testing.T) {
 		return service.Complete(ctx, target.ID, Completion{Outcome: CompletionProcessInterrupted})
 	}))
 	retry, err := service.StartIfChanged(
-		t.Context(), "app", "retry", desiredServices("api", "worker"), true,
+		t.Context(), "app", "retry", desiredServices("api", "worker"), true, StartOptions{ManualRetry: true},
 	)
 	require.NoError(t, err)
 	assert.Equal(t, target.DeploymentID, retry.DeploymentID)

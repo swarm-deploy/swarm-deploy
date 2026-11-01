@@ -13,6 +13,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/waiter"
 	deploymentmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/model"
 	deploymentstore "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/pruner"
@@ -52,6 +53,8 @@ type ExecuteRequest struct {
 	Desired compose.File
 	// DeployComposePath identifies the prepared Compose artifact retained for tracing and compatibility.
 	DeployComposePath string
+	// ManualRetry explicitly retries a failed desired state, bypassing automatic backoff.
+	ManualRetry bool
 	// SourceChanged reports whether GitOps observed a new source digest.
 	SourceChanged bool
 }
@@ -74,6 +77,8 @@ type ExecuteServiceRequest struct {
 type ExecuteResult struct {
 	// Attempt is nil when the desired state did not require a new execution.
 	Attempt *deploymentmodel.Attempt
+	// RetryDeferred reports that persisted failure/backoff prevented execution. No reconciliation writes should follow.
+	RetryDeferred bool
 	// LiveServices is the post-apply stack observation.
 	LiveServices []swarm.StackService
 	// ObservedAt is set after live state was read successfully.
@@ -123,15 +128,28 @@ func (c *Controller) Execute(ctx context.Context, req ExecuteRequest) (ExecuteRe
 		return ExecuteResult{}, fmt.Errorf("recover deployment completion: %w", err)
 	}
 	attempt, err := c.lifecycle.StartIfChanged(
-		ctx, req.Stack.Name, req.Commit, req.Desired, req.SourceChanged,
+		ctx, req.Stack.Name, req.Commit, req.Desired, req.SourceChanged, StartOptions{ManualRetry: req.ManualRetry},
 	)
 	result := ExecuteResult{Attempt: attempt}
-	if err != nil || attempt == nil {
+	if err != nil {
 		return result, err
 	}
+	if attempt == nil {
+		latest, _, latestErr := c.lifecycle.store.Latest(ctx, req.Stack.Name)
+		if latestErr != nil && !errors.Is(latestErr, deploymentstore.ErrNotFound) {
+			return result, latestErr
+		}
+		result.Status, result.ErrorCode = latest.Status, latest.ErrorCode
+		result.RetryDeferred = latest.Status == deploymentmodel.Failed || latest.Status == deploymentmodel.Interrupted
+		return result, nil
+	}
 
+	var options []deployer.StackOptions
+	if attempt.Number > 1 {
+		options = append(options, deployer.StackOptions{RetryFailedUpdates: true})
+	}
 	deployResult, deployErr := c.deployer.DeployStack(
-		ctx, req.Stack.Name, req.Desired.Path, req.DeployComposePath, req.Desired.Compose,
+		ctx, req.Stack.Name, req.Desired.Path, req.DeployComposePath, req.Desired.Compose, options...,
 	)
 	c.persistInitJobs(ctx, attempt.ID, deployResult.InitJobs)
 	if deployErr != nil {
@@ -265,6 +283,9 @@ func (c *Controller) record(req ExecuteRequest, status string) {
 
 func classifyExecutionFailure(err error) Completion {
 	if deployer.ConvergenceFailed(err) {
+		if errors.Is(err, waiter.ErrConvergenceFailed) {
+			return Completion{Outcome: CompletionConvergenceFailed, Diagnostic: err}
+		}
 		return Completion{Outcome: CompletionVerificationInterrupted, Diagnostic: err}
 	}
 	if deployer.InitJobsFailed(err) {

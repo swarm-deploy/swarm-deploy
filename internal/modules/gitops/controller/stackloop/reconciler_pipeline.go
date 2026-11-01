@@ -33,6 +33,7 @@ type pipelinePayload struct {
 	ObservedAt     time.Time
 	PrunedServices []string
 	ExecutionError string
+	RetryDeferred  bool
 	CleanupResult  rotatedCleanupResult
 	Drift          map[string]drift.ServiceDrift
 	RemainingDrift map[string]drift.ServiceDrift
@@ -53,20 +54,20 @@ func (r *Reconciler) attachPipeline() {
 
 	r.pipeline.Add(pipe.Step[*pipelinePayload]{
 		Name: "load live state",
-		When: pipe.When(func(payload *pipelinePayload) bool { return payload.Attempt == nil }),
+		When: pipe.When(func(payload *pipelinePayload) bool { return payload.Attempt == nil && !payload.RetryDeferred }),
 		Run:  r.loadLiveState,
 	})
 
 	r.pipeline.Add(pipe.Step[*pipelinePayload]{
 		Name: "prune orphaned services",
-		When: pipe.When(func(payload *pipelinePayload) bool { return payload.Attempt == nil }),
+		When: pipe.When(func(payload *pipelinePayload) bool { return payload.Attempt == nil && !payload.RetryDeferred }),
 		Run:  r.pruneOrphanedServices,
 	})
 
 	r.pipeline.Add(pipe.Step[*pipelinePayload]{
 		Name: "analyze drift",
 		When: pipe.When(func(payload *pipelinePayload) bool {
-			return payload.Attempt == nil || payload.IsManualSync || payload.HasPreviousDrift
+			return !payload.RetryDeferred && (payload.Attempt == nil || payload.IsManualSync || payload.HasPreviousDrift)
 		}),
 		Run: r.analyzeDrift,
 	})
@@ -74,7 +75,7 @@ func (r *Reconciler) attachPipeline() {
 	r.pipeline.Add(pipe.Step[*pipelinePayload]{
 		Name: "self-heal drift",
 		When: pipe.When(func(payload *pipelinePayload) bool {
-			return payload.Attempt == nil && len(payload.Drift) > 0
+			return payload.Attempt == nil && !payload.RetryDeferred && len(payload.Drift) > 0
 		}),
 		Run: r.selfHealDrift,
 	})
@@ -91,13 +92,14 @@ func (r *Reconciler) attachPipeline() {
 func (r *Reconciler) executeDeployment(ctx context.Context, payload *pipelinePayload) error {
 	result, err := r.executor.Execute(ctx, deployments.ExecuteRequest{
 		Stack: payload.Stack, Commit: payload.Commit, Desired: *payload.Desired,
-		DeployComposePath: payload.DeployComposePath, SourceChanged: payload.IsNewDigest,
+		DeployComposePath: payload.DeployComposePath, SourceChanged: payload.IsNewDigest, ManualRetry: payload.IsManualSync,
 	})
 	payload.Attempt = result.Attempt
 	payload.LiveServices = result.LiveServices
 	payload.ObservedAt = result.ObservedAt
 	payload.PrunedServices = result.PrunedServices
 	payload.ExecutionError = result.ErrorCode
+	payload.RetryDeferred = result.RetryDeferred
 	return err
 }
 
