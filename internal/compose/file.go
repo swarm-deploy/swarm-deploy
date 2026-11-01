@@ -199,14 +199,19 @@ func (*fileLoader) linkServices(compose *Compose, baseDir string) []ValidationIs
 	for ind, service := range compose.Services {
 		resolveNetworkAliases(service.Networks, compose.Networks)
 
-		if _, _, err := service.SelfHealPolicy(); err != nil {
-			issues = append(issues, ValidationIssue{
-				ResourceType: "service",
-				ResourceName: service.Name,
-				Field:        "deploy.labels." + labelsdict.ServiceSyncPolicySelfHealLabelKey,
-				Code:         IssueCodeInvalidValue,
-				Message:      err.Error(),
-			})
+		for _, label := range []string{
+			labelsdict.ServiceSyncPolicySelfHealLabelKey,
+			labelsdict.ServiceSyncPolicySelfHealReplicasLabelKey,
+		} {
+			if _, _, err := service.booleanPolicy(label); err != nil {
+				issues = append(issues, ValidationIssue{
+					ResourceType: "service",
+					ResourceName: service.Name,
+					Field:        "deploy.labels." + label,
+					Code:         IssueCodeInvalidValue,
+					Message:      err.Error(),
+				})
+			}
 		}
 
 		for configIndex := range service.Configs {
