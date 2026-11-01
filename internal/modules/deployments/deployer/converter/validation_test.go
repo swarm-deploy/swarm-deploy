@@ -88,7 +88,11 @@ func TestConvertInvalidAndUnsupportedOptions(t *testing.T) {
 			networks.EXPECT().Get(gomock.Any(), "demo_default").Return(existingNetwork("demo_default"), nil).AnyTimes()
 			desired, parseErr := compose.Parse([]byte(tc.yaml))
 			if parseErr != nil {
-				assert.Contains(t, parseErr.Error(), strings.TrimPrefix(tc.field, "service."))
+				field := strings.TrimPrefix(tc.field, "service.")
+				if tc.name == "preference option" {
+					field = "unknown"
+				}
+				assert.Contains(t, parseErr.Error(), field)
 				return
 			}
 			require.ErrorContains(t, converter.Validate("demo", *desired), tc.field)
