@@ -3,6 +3,7 @@ package preparation
 import (
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -23,7 +24,7 @@ func TestPrepareRecoversStepPanicWithStage(t *testing.T) {
 	// A missing rotator deliberately causes a panic inside the rotation step.
 	preparer := New(cfg, nil, fs.NewLocalFileSystem(), nil)
 	_, err := preparer.Prepare(t.Context(), Request{
-		Stack: config.StackSpec{Name: "app"},
+		Stack:   config.StackSpec{Name: "app"},
 		Desired: &compose.File{Path: "/app/compose.yaml"},
 	})
 	var stepErr *pipe.StepError
@@ -56,7 +57,6 @@ func TestPrepareRecordsOriginalStepSpans(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	defer preparer.Cleanup(t.Context(), prepared)
 
 	var names []string
 	for _, span := range spans.Ended() {
@@ -64,8 +64,7 @@ func TestPrepareRecordsOriginalStepSpans(t *testing.T) {
 	}
 	assert.Contains(t, names, "prepare stack")
 	assert.Contains(t, names, "add managed label")
-	assert.Contains(t, names, "write rendered compose")
-	assert.FileExists(t, prepared.RenderedComposePath)
+	assert.Equal(t, labelsdict.ServiceManagedLabelValue, prepared.Compose.Services[0].Deploy.Labels.Map[labelsdict.ServiceManagedLabelKey])
 }
 
 func TestPrepareKeepsExistingManagedLabelWithoutRendering(t *testing.T) {
@@ -84,8 +83,7 @@ func TestPrepareKeepsExistingManagedLabelWithoutRendering(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	assert.Equal(t, "/repo/app.yaml", prepared.DeployComposePath)
-	assert.Empty(t, prepared.RenderedComposePath)
+	assert.Equal(t, "/repo/app.yaml", prepared.Path)
 }
 
 func TestPreparePreservesValidationErrorType(t *testing.T) {
@@ -104,4 +102,36 @@ func TestPreparePreservesValidationErrorType(t *testing.T) {
 	var stepErr *pipe.StepError
 	require.ErrorAs(t, err, &stepErr)
 	assert.Equal(t, "check image policy", stepErr.StepName)
+}
+
+func TestImagePolicyUsesInterpolatedSource(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "compose.yaml"),
+		[]byte("services: {api: {image: 'nginx:${SD_TEST_TAG}'}}"), 0o600))
+	cfg := &config.Config{Spec: config.Spec{DataDir: filepath.Join(dir, "data"), Sync: config.SyncSpec{
+		Policy: config.SyncPolicySpec{Image: config.ImagePolicySpec{Tag: config.ImageTagPolicySpec{NoLatest: true}}},
+	}}}
+	repository := gitx.NewRepository(config.GitSpec{}, dir)
+	for _, tag := range []string{"1.27", "latest", "private value"} {
+		t.Run(tag, func(t *testing.T) {
+			t.Setenv("SD_TEST_TAG", tag)
+			preparer := New(cfg, repository, fs.NewLocalFileSystem(), nil)
+			source, err := preparer.Load(t.Context(), config.StackSpec{ComposeFile: "compose.yaml"})
+			require.NoError(t, err)
+			assert.Equal(t, "nginx:"+tag, source.Compose.Services[0].Image)
+			err = ValidateImagePolicy(cfg.Spec.Sync.Policy.Image, source)
+			if tag != "1.27" {
+				var validation *compose.ValidateComposeError
+				require.ErrorAs(t, err, &validation)
+				code := ImageViolationLatest
+				if tag == "private value" {
+					code = ImageViolationInvalid
+				}
+				assert.Equal(t, code, validation.Issues[0].Code)
+				assert.NotContains(t, err.Error(), "nginx:"+tag)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
 }

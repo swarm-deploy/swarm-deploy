@@ -15,6 +15,8 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/services"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/waiter"
 	deploymentmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/model"
 	deploymentstore "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/pruner"
@@ -82,7 +84,10 @@ func TestControllerExecuteCompletesSuccessAndAvoidsDuplicateExecution(t *testing
 		pruner.NewServicePruner(services, bus, config.SyncPolicySpec{}), &metrics.NopDeploys{},
 	)
 	req := executionRequest("api:1")
-	stackDeployer.EXPECT().DeployStack(gomock.Any(), "app", "app.yaml", "rendered.yaml", gomock.Any()).
+	stackDeployer.EXPECT().DeployStack(gomock.Any(), gomock.Cond(func(req deployer.StackRequest) bool {
+		return req.StackName == "app" &&
+			req.SourceComposePath == "app.yaml"
+	})).
 		Return(deployer.Result{}, nil)
 	services.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "app"}).Return(nil, nil)
 
@@ -110,6 +115,17 @@ func TestControllerExecuteClassifiesAndPersistsFailures(t *testing.T) {
 		wantCode    string
 		wantInitJob bool
 	}{
+		{
+			name: "known paused update",
+			deployErr: &pipe.StepError{StepName: "wait for service convergence",
+				Err: fmt.Errorf("service api paused; failed-task exit_code=1: %w", waiter.ErrConvergenceFailed)},
+			wantStatus: deploymentmodel.Failed, wantPhase: deploymentmodel.PhaseVerification, wantCode: "convergence_failed",
+		},
+		{
+			name: "blocked external job", deployErr: &pipe.StepError{StepName: "apply stack",
+				Err: fmt.Errorf("%w: service job requires zero replicas", services.ErrUpdateBlocked)},
+			wantStatus: deploymentmodel.Failed, wantPhase: deploymentmodel.PhaseApply, wantCode: "apply_failed",
+		},
 		{
 			name: "apply", deployErr: errors.New("apply failed"),
 			wantStatus: deploymentmodel.Failed, wantPhase: deploymentmodel.PhaseApply, wantCode: "apply_failed",
@@ -165,7 +181,10 @@ func TestControllerExecuteClassifiesAndPersistsFailures(t *testing.T) {
 				lifecycle, stackDeployer, services,
 				pruner.NewServicePruner(services, bus, config.SyncPolicySpec{Prune: true}), &metrics.NopDeploys{},
 			)
-			stackDeployer.EXPECT().DeployStack(gomock.Any(), "app", "app.yaml", "rendered.yaml", gomock.Any()).
+			stackDeployer.EXPECT().DeployStack(gomock.Any(), gomock.Cond(func(req deployer.StackRequest) bool {
+				return req.StackName == "app" &&
+					req.SourceComposePath == "app.yaml"
+			})).
 				Return(testCase.result, testCase.deployErr)
 			if testCase.deployErr == nil {
 				testCase.setupLive(services)
@@ -198,14 +217,23 @@ func TestControllerExecuteRetriesAndSupersedesThroughCanonicalLifecycle(t *testi
 		pruner.NewServicePruner(services, bus, config.SyncPolicySpec{}), &metrics.NopDeploys{},
 	)
 
-	stackDeployer.EXPECT().DeployStack(gomock.Any(), "app", "app.yaml", "rendered.yaml", gomock.Any()).
+	stackDeployer.EXPECT().DeployStack(gomock.Any(), gomock.Cond(func(req deployer.StackRequest) bool {
+		return req.StackName == "app" &&
+			req.SourceComposePath == "app.yaml"
+	})).
 		Return(deployer.Result{}, errors.New("failed"))
 	failed, err := controller.Execute(t.Context(), executionRequest("api:1"))
 	require.Error(t, err)
-	stackDeployer.EXPECT().DeployStack(gomock.Any(), "app", "app.yaml", "rendered.yaml", gomock.Any()).
+	stackDeployer.EXPECT().DeployStack(gomock.Any(), gomock.Cond(func(req deployer.StackRequest) bool {
+		return req.StackName == "app" &&
+			req.SourceComposePath == "app.yaml" &&
+			gomock.Eq(deployer.StackOptions{RetryFailedUpdates: true, UnresolvedServices: []string{"api"}}).Matches(req.Options)
+	})).
 		Return(deployer.Result{}, nil)
 	services.EXPECT().ListServices(gomock.Any(), gomock.Any()).Return(nil, nil)
-	retry, err := controller.Execute(t.Context(), executionRequest("api:1"))
+	reqRetry := executionRequest("api:1")
+	reqRetry.ManualRetry = true
+	retry, err := controller.Execute(t.Context(), reqRetry)
 	require.NoError(t, err)
 	assert.Equal(t, failed.Attempt.DeploymentID, retry.Attempt.DeploymentID)
 	assert.Equal(t, 2, retry.Attempt.Number)
@@ -216,7 +244,11 @@ func TestControllerExecuteRetriesAndSupersedesThroughCanonicalLifecycle(t *testi
 	req := executionRequest("worker:1")
 	req.Stack.Name = "other"
 	req.Commit = "two"
-	stackDeployer.EXPECT().DeployStack(gomock.Any(), "other", "app.yaml", "rendered.yaml", gomock.Any()).
+	stackDeployer.EXPECT().DeployStack(gomock.Any(), gomock.Cond(func(req deployer.StackRequest) bool {
+		return req.StackName == "other" &&
+			req.SourceComposePath == "app.yaml" &&
+			gomock.Eq(deployer.StackOptions{UnresolvedServices: []string{"api"}}).Matches(req.Options)
+	})).
 		Return(deployer.Result{}, nil)
 	services.EXPECT().ListServices(gomock.Any(), gomock.Any()).Return(nil, nil)
 	newer, err := controller.Execute(t.Context(), req)
@@ -278,6 +310,6 @@ func executionRequest(image string) ExecuteRequest {
 		Desired: compose.File{Path: "app.yaml", Digest: image, Compose: compose.Compose{
 			Services: compose.Services{{Name: "api", Image: image}},
 		}},
-		DeployComposePath: "rendered.yaml", SourceChanged: true,
+		SourceChanged: true,
 	}
 }

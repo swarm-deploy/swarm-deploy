@@ -1,6 +1,11 @@
 package faults
 
-import "errors"
+import (
+	"context"
+	"errors"
+
+	cerrdefs "github.com/containerd/errdefs"
+)
 
 // SanitizeError replaces all original diagnostics with a trusted message while
 // preserving Temporary classification. It does not retain or unwrap the cause,
@@ -10,7 +15,9 @@ func SanitizeError(err error, diagnostic string) error {
 		return nil
 	}
 	var classified Error
-	temporary := errors.As(err, &classified) && classified.Temporary()
+	temporary := errors.Is(err, context.DeadlineExceeded) ||
+		cerrdefs.IsUnavailable(err) ||
+		(errors.As(err, &classified) && classified.Temporary())
 	return sanitizedError{diagnostic: diagnostic, temporary: temporary}
 }
 

@@ -105,7 +105,7 @@ func TestCheckImagePolicyValidatesInitJobs(t *testing.T) {
 			assert.Equal(t, `x-init-deploy-jobs["migrate"].image`, validationErr.Issues[0].Field)
 			assert.Equal(t, testCase.code, validationErr.Issues[0].Code)
 			assert.Contains(t, validationErr.Issues[0].Message, `init job "migrate"`)
-			assert.Contains(t, validationErr.Issues[0].Message, testCase.image)
+			assert.NotContains(t, validationErr.Issues[0].Message, testCase.image)
 		})
 	}
 }
@@ -138,21 +138,21 @@ func TestCheckImagePolicyReturnsAllStructuredIssues(t *testing.T) {
 	require.Len(t, validationErr.Issues, 4)
 	assert.Equal(t, compose.ValidationIssue{
 		ResourceType: "service", ResourceName: "api", Field: "image", Code: preparation.ImageViolationLatest,
-		Message: `image "nginx:latest" must not use the latest tag`,
+		Message: `image must not use the latest tag`,
 	}, validationErr.Issues[0])
 	assert.Equal(t, compose.ValidationIssue{
 		ResourceType: "service", ResourceName: "api", Field: `x-init-deploy-jobs["migrate"].image`,
 		Code:    preparation.ImageViolationLatest,
-		Message: `init job "migrate": image "example/migrate:latest" must not use the latest tag`,
+		Message: `init job "migrate": image must not use the latest tag`,
 	}, validationErr.Issues[1])
 	assert.Equal(t, compose.ValidationIssue{
 		ResourceType: "service", ResourceName: "worker", Field: "image", Code: preparation.ImageViolationLatest,
-		Message: `image "registry.example/worker" must not use the latest tag`,
+		Message: `image must not use the latest tag`,
 	}, validationErr.Issues[2])
 	assert.Equal(t, compose.ValidationIssue{
 		ResourceType: "service", ResourceName: "worker", Field: `x-init-deploy-jobs["seed"].image`,
 		Code:    preparation.ImageViolationLatest,
-		Message: `init job "seed": image "example/seed" must not use the latest tag`,
+		Message: `init job "seed": image must not use the latest tag`,
 	}, validationErr.Issues[3])
 	assert.Contains(t, validationErr.Error(), `service "api": image:`)
 	assert.Contains(t, validationErr.Error(), `service "api": x-init-deploy-jobs["migrate"].image:`)
@@ -228,7 +228,7 @@ func TestImagePolicyViolationLifecycle(t *testing.T) {
 
 	require.NoError(t, os.WriteFile(filepath.Join(repoDir, "app.yaml"),
 		[]byte("services:\n  api:\n    image: nginx:1.27\n"), 0o600))
-	stackDeployer.EXPECT().DeployStack(gomock.Any(), "app", gomock.Any(), gomock.Any(), gomock.Any()).Return(deployer.Result{}, nil)
+	stackDeployer.EXPECT().DeployStack(gomock.Any(), gomock.Cond(func(req deployer.StackRequest) bool { return req.StackName == "app" })).Return(deployer.Result{}, nil)
 	serviceManager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "app"}).Return([]swarm.StackService{}, nil)
 	require.NoError(t, reconciler.Reconcile(ctx, ReconciliationRequest{
 		Stack: config.StackSpec{Name: "app", ComposeFile: "app.yaml"}, Commit: "fixed",
@@ -266,7 +266,7 @@ func TestImagePolicyDisabledPreservesDeployment(t *testing.T) {
       - name: migrate
         image: example/migrate:latest
 `), 0o600))
-	stackDeployer.EXPECT().DeployStack(gomock.Any(), "app", gomock.Any(), gomock.Any(), gomock.Any()).Return(deployer.Result{}, nil)
+	stackDeployer.EXPECT().DeployStack(gomock.Any(), gomock.Cond(func(req deployer.StackRequest) bool { return req.StackName == "app" })).Return(deployer.Result{}, nil)
 	serviceManager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "app"}).Return([]swarm.StackService{}, nil)
 
 	reconciler := newTestReconciler(&config.Config{Spec: config.Spec{DataDir: filepath.Join(t.TempDir(), "data")}}, repository,

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"sync"
 	"time"
 
@@ -135,7 +136,7 @@ func (r *Reconciler) Reconcile(
 	}
 
 	prepared, err := r.preparer.Prepare(ctx, preparation.Request{
-		Stack: req.Stack, Desired: desiredState, SourceChanged: !hasPrev || prev.SourceDigest != desiredState.Digest,
+		Stack: req.Stack, Desired: desiredState,
 	})
 	if err != nil {
 		persistErr := r.recordFailure(ctx, req.Stack.Name, req.Commit, desiredState.Compose.Services, err)
@@ -145,21 +146,22 @@ func (r *Reconciler) Reconcile(
 		}
 		return wrapReconcileError(stage, desiredState.Compose.Services, errors.Join(err, persistErr))
 	}
-	defer r.preparer.Cleanup(ctx, prepared)
 
 	pl := &pipelinePayload{
-		Stack:             req.Stack,
-		Commit:            req.Commit,
-		IsNewDigest:       !hasPrev || prev.SourceDigest != desiredState.Digest,
-		IsManualSync:      req.IsManual,
-		HasPreviousDrift:  stackHasDrift(prev),
-		Desired:           prepared.Desired,
-		DeployComposePath: prepared.DeployComposePath,
+		Stack:            req.Stack,
+		Commit:           req.Commit,
+		IsNewDigest:      !hasPrev || prev.SourceDigest != desiredState.Digest,
+		IsManualSync:     req.IsManual,
+		HasPreviousDrift: stackHasDrift(prev),
+		Desired:          prepared,
 	}
 
 	err = r.pipeline.Run(ctx, pl)
 	if err != nil {
 		pipeErr, _ := errors.AsType[*pipe.StepError](err)
+		if pl.RetryDeferred {
+			return wrapReconcileError(pipeErr.StepName, nil, err)
+		}
 
 		return r.recordPipelineFailure(ctx, req, prev, pl, pipeErr)
 	}
@@ -224,12 +226,19 @@ func (r *Reconciler) processResult(
 			}
 		}
 
+		if payload.RetryDeferred && slices.Contains(payload.ProtectedServices, service.Name) {
+			state = prevState.Services[service.Name]
+		}
 		serviceStates[service.Name] = state
 	}
 
 	result := model.Stack{
 		SourceDigest: desired.Digest, LastCommit: req.Commit, Status: model.NewStackStatus(serviceStates),
 		LastDeployAt: prevState.LastDeployAt, StateUpdatedAt: now.UTC(), Services: serviceStates,
+	}
+	if payload.RetryDeferred {
+		result.LastError = prevState.LastError
+		result.LastCommit = prevState.LastCommit
 	}
 	if payload.Attempt != nil {
 		result.LastDeployAt = now
@@ -349,6 +358,9 @@ func (r *Reconciler) publishDriftEvents(
 	payload *pipelinePayload,
 ) error {
 	for _, service := range payload.Desired.Compose.Services {
+		if payload.RetryDeferred && slices.Contains(payload.ProtectedServices, service.Name) {
+			continue
+		}
 		if err := r.publishServiceDriftEvents(ctx, req, prevState, payload, service.Name); err != nil {
 			return err
 		}

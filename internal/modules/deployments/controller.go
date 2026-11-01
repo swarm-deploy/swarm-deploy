@@ -13,6 +13,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/waiter"
 	deploymentmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/model"
 	deploymentstore "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/pruner"
@@ -50,8 +51,8 @@ type ExecuteRequest struct {
 	Commit string
 	// Desired is the effective desired state persisted for comparison and history.
 	Desired compose.File
-	// DeployComposePath is the rendered Compose file passed to Docker stack deploy.
-	DeployComposePath string
+	// ManualRetry explicitly retries a failed desired state, bypassing automatic backoff.
+	ManualRetry bool
 	// SourceChanged reports whether GitOps observed a new source digest.
 	SourceChanged bool
 }
@@ -66,14 +67,16 @@ type ExecuteServiceRequest struct {
 	ServiceName string
 	// Desired contains the effective desired stack.
 	Desired compose.Compose
-	// Deploy contains the rendered stack used for Docker apply.
-	Deploy compose.Compose
 }
 
 // ExecuteResult contains observations produced by a synchronous stack execution.
 type ExecuteResult struct {
 	// Attempt is nil when the desired state did not require a new execution.
 	Attempt *deploymentmodel.Attempt
+	// RetryDeferred reports that failure/backoff prevented a stack deployment retry.
+	RetryDeferred bool
+	// UnresolvedServices must not be automatically retried by independent self-heal.
+	UnresolvedServices []string
 	// LiveServices is the post-apply stack observation.
 	LiveServices []swarm.StackService
 	// ObservedAt is set after live state was read successfully.
@@ -123,19 +126,39 @@ func (c *Controller) Execute(ctx context.Context, req ExecuteRequest) (ExecuteRe
 		return ExecuteResult{}, fmt.Errorf("recover deployment completion: %w", err)
 	}
 	attempt, err := c.lifecycle.StartIfChanged(
-		ctx, req.Stack.Name, req.Commit, req.Desired, req.SourceChanged,
+		ctx, req.Stack.Name, req.Commit, req.Desired, req.SourceChanged, StartOptions{ManualRetry: req.ManualRetry},
 	)
 	result := ExecuteResult{Attempt: attempt}
-	if err != nil || attempt == nil {
+	if err != nil {
 		return result, err
 	}
+	if attempt == nil {
+		latest, _, latestErr := c.lifecycle.store.Latest(ctx, req.Stack.Name)
+		if latestErr != nil && !errors.Is(latestErr, deploymentstore.ErrNotFound) {
+			return result, latestErr
+		}
+		result.Status, result.ErrorCode = latest.Status, latest.ErrorCode
+		result.RetryDeferred = latest.Status == deploymentmodel.Failed || latest.Status == deploymentmodel.Interrupted
+		if result.RetryDeferred {
+			result.UnresolvedServices = deferredServices(latest, req.Desired)
+		}
+		return result, nil
+	}
 
-	deployResult, deployErr := c.deployer.DeployStack(
-		ctx, req.Stack.Name, req.Desired.Path, req.DeployComposePath, req.Desired.Compose,
-	)
+	options, err := c.stackOptions(ctx, *attempt)
+	if err != nil {
+		return result, err
+	}
+	deployResult, deployErr := c.deployer.DeployStack(ctx, deployer.StackRequest{
+		StackName:         req.Stack.Name,
+		SourceComposePath: req.Desired.Path,
+		Desired:           req.Desired.Compose,
+		Options:           options,
+	})
 	c.persistInitJobs(ctx, attempt.ID, deployResult.InitJobs)
 	if deployErr != nil {
 		completion := classifyExecutionFailure(deployErr)
+		completion.Verification = deployResult.Verification
 		result.Status, result.ErrorCode = completionStatus(completion), completion.ErrorCode()
 		completeErr := c.complete(ctx, req.Stack.Name, attempt.ID, completion)
 		c.record(req, "failed")
@@ -144,7 +167,10 @@ func (c *Controller) Execute(ctx context.Context, req ExecuteRequest) (ExecuteRe
 
 	live, observeErr := c.services.ListServices(ctx, swarm.ListServicesFilter{Stack: req.Stack.Name})
 	if observeErr != nil {
-		completion := Completion{Outcome: CompletionVerificationInterrupted, Diagnostic: observeErr}
+		completion := Completion{
+			Outcome: CompletionVerificationInterrupted, Diagnostic: observeErr,
+			Verification: deployResult.Verification,
+		}
 		result.Status, result.ErrorCode = deploymentmodel.Interrupted, completion.ErrorCode()
 		completeErr := c.complete(ctx, req.Stack.Name, attempt.ID, completion)
 		c.record(req, "failed")
@@ -160,6 +186,7 @@ func (c *Controller) Execute(ctx context.Context, req ExecuteRequest) (ExecuteRe
 	if cleanupErr != nil {
 		completion := Completion{
 			Outcome: CompletionCleanupFailed, Diagnostic: cleanupErr, ObservedAt: &result.ObservedAt,
+			Verification: deployResult.Verification,
 		}
 		result.Status, result.ErrorCode = deploymentmodel.Failed, completion.ErrorCode()
 		completeErr := c.complete(ctx, req.Stack.Name, attempt.ID, completion)
@@ -178,9 +205,12 @@ func (c *Controller) Execute(ctx context.Context, req ExecuteRequest) (ExecuteRe
 
 // ExecuteService runs one synchronous service remediation through the owned Deployer.
 func (c *Controller) ExecuteService(ctx context.Context, req ExecuteServiceRequest) (deployer.Result, error) {
-	return c.deployer.DeployService(
-		ctx, req.StackName, req.SourceComposePath, req.ServiceName, req.Desired, req.Deploy,
-	)
+	return c.deployer.DeployService(ctx, deployer.ServiceRequest{
+		StackName:         req.StackName,
+		SourceComposePath: req.SourceComposePath,
+		ServiceName:       req.ServiceName,
+		Desired:           req.Desired,
+	})
 }
 
 // Recover interrupts Attempts that were still running when the previous process stopped.
@@ -265,6 +295,9 @@ func (c *Controller) record(req ExecuteRequest, status string) {
 
 func classifyExecutionFailure(err error) Completion {
 	if deployer.ConvergenceFailed(err) {
+		if errors.Is(err, waiter.ErrConvergenceFailed) {
+			return Completion{Outcome: CompletionConvergenceFailed, Diagnostic: err}
+		}
 		return Completion{Outcome: CompletionVerificationInterrupted, Diagnostic: err}
 	}
 	if deployer.InitJobsFailed(err) {
@@ -332,4 +365,28 @@ func mayContainCredentials(line string) bool {
 		}
 	}
 	return false
+}
+
+func (c *Controller) stackOptions(
+	ctx context.Context, attempt deploymentmodel.Attempt,
+) (deployer.StackOptions, error) {
+	current, err := c.lifecycle.store.Get(ctx, attempt.DeploymentID)
+	if err != nil {
+		return deployer.StackOptions{}, err
+	}
+	if attempt.Number == 1 && len(current.Verification.UnresolvedServices) == 0 {
+		return deployer.StackOptions{}, nil
+	}
+	return deployer.StackOptions{
+		RetryFailedUpdates: attempt.Number > 1,
+		UnresolvedServices: current.Verification.UnresolvedServices,
+	}, nil
+}
+
+func deferredServices(latest deploymentmodel.Deployment, desired compose.File) []string {
+	if latest.Phase == deploymentmodel.PhaseApply {
+		// Single-service remediation must not bypass pre-apply checks such as Init Jobs.
+		return desiredServiceNames(desired)
+	}
+	return unresolvedServices(latest, desired)
 }

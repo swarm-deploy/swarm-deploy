@@ -17,9 +17,9 @@ type ObjectRef struct {
 	// File is a resolved repository-backed source path. It is runtime metadata and is not serialized.
 	File string `yaml:"-" json:"-"`
 
-	Extra map[string]interface{} `yaml:",inline" json:"Extra"`
-
-	isString bool
+	// ShortForm retains the scalar Compose syntax across JSON snapshots.
+	// Configs use a different default target from long-form references.
+	ShortForm bool `yaml:"-" json:"short_form,omitempty"`
 }
 
 type objectRef struct {
@@ -28,15 +28,13 @@ type objectRef struct {
 	Mode   *os.FileMode `yaml:"mode,omitempty" json:"mode,omitempty"`
 	Gid    string       `yaml:"gid,omitempty" json:"gid,omitempty"`
 	Uid    string       `yaml:"uid,omitempty" json:"uid,omitempty"`
-
-	Extra map[string]interface{} `yaml:",inline" json:"Extra"`
 }
 
 func (r *ObjectRef) UnmarshalYAML(n *yaml.Node) error {
 	if n.Kind == yaml.ScalarNode {
 		r.Source = n.Value
 		r.Target = "/run/secrets/" + n.Value
-		r.isString = true
+		r.ShortForm = true
 
 		return nil
 	}
@@ -57,13 +55,12 @@ func (r *ObjectRef) UnmarshalYAML(n *yaml.Node) error {
 	r.Mode = schema.Mode
 	r.Gid = schema.Gid
 	r.Uid = schema.Uid
-	r.Extra = schema.Extra
 
 	return nil
 }
 
 func (r ObjectRef) MarshalYAML() (interface{}, error) {
-	if r.isString {
+	if r.ShortForm {
 		return r.Source, nil
 	}
 
@@ -73,6 +70,8 @@ func (r ObjectRef) MarshalYAML() (interface{}, error) {
 		Gid:    r.Gid,
 		Uid:    r.Uid,
 		Mode:   r.Mode,
-		Extra:  r.Extra,
 	}, nil
 }
+
+// IsShortForm reports whether the reference used scalar Compose syntax.
+func (r ObjectRef) IsShortForm() bool { return r.ShortForm }

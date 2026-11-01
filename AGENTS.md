@@ -3,7 +3,7 @@
 - This project implements Continuous Deployment for Docker Swarm
 
 ## Projects Rules
-- Before starting any coding task, load and follow all files in `.cursor/rules/*.md`
+- Before starting any coding task, inspect `.cursor/rules/*.md` frontmatter and load and follow only the rules applicable to the files being changed.
 - Treat frontmatter as policy:
 - `apply: always` means rule is always active.
 - `apply: by file patterns` + `globs` means apply only to matching files.

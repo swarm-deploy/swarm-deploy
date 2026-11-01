@@ -86,16 +86,40 @@ func (l *fileLoader) Load(ctx context.Context, path string) (*File, error) {
 		return nil, &ParseComposeError{FilePath: path, Err: err}
 	}
 
+	interpolated, err := interpolateSyntax(&syntax)
+	if err != nil {
+		return nil, &ValidateComposeError{FilePath: path, Issues: decodeIssues(err)}
+	}
+	ignored, validateErr := validateComposeSyntax(&syntax)
+	if validateErr != nil {
+		if interpolated {
+			validateErr = fmt.Errorf("unsupported Compose option after interpolation")
+		}
+		return nil, &ValidateComposeError{FilePath: path, Issues: decodeIssues(validateErr), Err: validateErr}
+	}
 	schema := Compose{}
 	if err = syntax.Decode(&schema); err != nil {
+		if interpolated {
+			err = fmt.Errorf("invalid Compose value after interpolation")
+		}
 		return nil, &ValidateComposeError{FilePath: path, Issues: decodeIssues(err), Err: err}
+	}
+	setIgnoredOptions(&schema, ignored)
+	for i := range schema.Services {
+		schema.Services[i].Environment.resolve(os.LookupEnv)
 	}
 
 	if issues := l.linkServices(&schema, filepath.Dir(path)); len(issues) > 0 {
+		if interpolated {
+			for i := range issues {
+				issues[i].Message = "invalid Compose value after interpolation"
+			}
+		}
 		return nil, &ValidateComposeError{FilePath: path, Issues: issues}
 	}
 
 	if err = l.loadEnvFiles(ctx, filepath.Dir(path), schema.Services); err != nil {
+		err = interpolationSafeError(err, interpolated, "invalid or unreadable env_file")
 		return nil, fmt.Errorf("load env files: %w", err)
 	}
 
@@ -105,6 +129,7 @@ func (l *fileLoader) Load(ctx context.Context, path string) (*File, error) {
 		setConfigData,
 	)
 	if err != nil {
+		err = interpolationSafeError(err, interpolated, "invalid or unreadable config file")
 		return nil, fmt.Errorf("load config files: %w", err)
 	}
 
@@ -114,6 +139,7 @@ func (l *fileLoader) Load(ctx context.Context, path string) (*File, error) {
 		nil,
 	)
 	if err != nil {
+		err = interpolationSafeError(err, interpolated, "invalid or unreadable secret file")
 		return nil, fmt.Errorf("load secret files: %w", err)
 	}
 
@@ -202,8 +228,13 @@ func (*fileLoader) linkServices(compose *Compose, baseDir string) []ValidationIs
 		for _, label := range []string{
 			labelsdict.ServiceSyncPolicySelfHealLabelKey,
 			labelsdict.ServiceSyncPolicySelfHealReplicasLabelKey,
+			labelsdict.ServiceSyncPolicyReplicasManagedLabelKey,
 		} {
-			if _, _, err := service.booleanPolicy(label); err != nil {
+			_, _, err := service.booleanPolicy(label)
+			if label == labelsdict.ServiceSyncPolicyReplicasManagedLabelKey {
+				_, _, err = service.ReplicasManagedPolicy()
+			}
+			if err != nil {
 				issues = append(issues, ValidationIssue{
 					ResourceType: "service",
 					ResourceName: service.Name,

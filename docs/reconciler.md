@@ -8,19 +8,18 @@ A reconciliation run loads the configured Compose file, computes its effective d
 
 The current pipeline is:
 
-1. Load Compose.
+1. Load Compose and interpolate source YAML values using Docker stack CLI semantics (see [source interpolation](./compose-converter.md#source-interpolation)).
 2. [Check image policy when at least one image rule is enabled](./image-policy.md).
 3. Populate service environment from `env_file`.
 4. [Inject Downward metadata when enabled](./downward.md).
 5. Add the swarm-deploy managed label.
 6. [Rotate configs and secrets when enabled](./secrets-rotation.md).
-7. Write a rendered Compose file when the desired state was mutated.
-8. Deploy the stack when the source digest changed or the desired state was mutated. When init jobs are declared, their configs and secrets are reconciled before the jobs run; regular services are then deployed by `docker stack deploy`, which performs its own resource lookup.
-9. Load live Swarm state.
-10. [Prune managed orphaned services when applicable](./prune.md).
-11. [Analyze drift](./drift.md).
-12. Reapply drifted services when their [self-heal policy](./drift.md#self-heal-policy) is enabled, without Init Jobs.
-13. Reload stack services once and verify every attempted repair against actual Swarm state.
+7. Submit the effective in-memory desired state to Deployments when the source digest changed or the desired state was mutated. Deployments validates desired state, reconciles networks, reconciles configs/secrets, converts Compose to Docker API specs, runs Init Jobs, captures the service baseline, applies services through the Docker API, and waits for convergence.
+8. Load live Swarm state.
+9. [Prune managed orphaned services when applicable](./prune.md).
+10. [Analyze drift](./drift.md).
+11. Reapply drifted services when their [self-heal policy](./drift.md#self-heal-policy) is enabled, without Init Jobs.
+12. Reload stack services once and verify every attempted repair against actual Swarm state.
 
 Some steps are conditional. For example, the image policy step is absent when every image rule is disabled, and environment population runs only when at least one desired service declares `env_file`.
 
@@ -95,6 +94,12 @@ swarm-deploy may mutate the loaded source Compose before deployment. Today this 
 - adding the managed-service label;
 - rotating config and secret object names.
 
-When any of these steps changes the desired state, swarm-deploy writes a rendered Compose file and deploys that rendered form.
+The source Compose in Git is the declarative input. Preparation produces an effective
+in-memory definition, which both stack deployments and single-service remediation
+submit directly to Deployments. No intermediate Compose file is written or read.
+Execution traces identify the original source Compose path. Legacy rendered files
+from older versions are removed after the controller acquires ownership.
 
-This distinction is important: the source Compose in Git is the declarative input, while the rendered Compose is the effective desired state sent to Docker.
+## Configuration compatibility
+
+`swarm.command` has been removed: Deployments uses the Docker API and no longer accepts a Docker executable setting. Remove it from existing YAML configuration, along with obsolete `swarm.stackDeployArgs` entries. No migration is required. The `swarm.initJobPollEvery` and `swarm.initJobMaxDuration` settings and their defaults are unchanged. The runtime image no longer installs Docker CLI; CA certificates and timezone data remain included.

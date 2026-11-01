@@ -24,12 +24,10 @@ type Swarm struct {
 	Networks NetworkManager
 	// Plugins manages Docker plugins.
 	Plugins *PluginManager
-	// BinaryRunner executes docker CLI commands.
-	BinaryRunner *BinaryRunner
 }
 
-func NewSwarm(dockerClient *client.Client, command string) *Swarm {
-	swarm := newSwarm(dockerClient, command)
+func NewSwarm(dockerClient *client.Client) *Swarm {
+	swarm := newSwarm(dockerClient)
 
 	tp, tracingEnabled := tracing.GetTracerProvider()
 	if !tracingEnabled {
@@ -41,17 +39,16 @@ func NewSwarm(dockerClient *client.Client, command string) *Swarm {
 	return swarm
 }
 
-func newSwarm(dockerClient *client.Client, command string) *Swarm {
+func newSwarm(dockerClient *client.Client) *Swarm {
 	return &Swarm{
-		Events:       newEvents(dockerClient),
-		Services:     newServiceManager(dockerClient),
-		Images:       newImageManager(dockerClient),
-		Secrets:      newSecretManager(dockerClient),
-		Configs:      newConfigManager(dockerClient),
-		Nodes:        newNodeManager(dockerClient),
-		Networks:     newNetworkManager(dockerClient),
-		Plugins:      newPluginManager(dockerClient),
-		BinaryRunner: newBinaryRunner(command),
+		Events:   newEvents(dockerClient),
+		Services: newServiceManager(dockerClient),
+		Images:   newImageManager(dockerClient),
+		Secrets:  newSecretManager(dockerClient),
+		Configs:  newConfigManager(dockerClient),
+		Nodes:    newNodeManager(dockerClient),
+		Networks: newNetworkManager(dockerClient),
+		Plugins:  newPluginManager(dockerClient),
 	}
 }
 

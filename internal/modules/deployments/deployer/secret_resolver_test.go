@@ -34,13 +34,17 @@ func TestSecretResolverValidatesReusedSecrets(t *testing.T) {
 			secrets := swarm.NewMockSecretManager(ctrl)
 			secrets.EXPECT().List(gomock.Any(), swarm.ListSecretsFilter{Names: []string{"existing-password"}}).
 				Return([]swarm.Secret{{ID: "existing-id", Name: "existing-password", Labels: map[string]string{"com.docker.stack.namespace": "app"}}}, nil)
-			runner := NewMockRunner(ctrl)
-			runner.EXPECT().Run(gomock.Any(), "-c", "rendered.yaml", "app").Return("", nil)
+
 			d := &Deployer{resources: newResourceReconciler(&swarm.Swarm{Secrets: secrets}),
-				secretResolver: newTestSecretResolverWithIdentity([]byte(identity.String())), runner: runner,
-				serviceWaiter: newSuccessfulServiceWaiter(t)}
+				secretResolver: newTestSecretResolverWithIdentity([]byte(identity.String())),
+				serviceWaiter:  newSuccessfulServiceWaiter(t)}
+			wireNativeTestDeployer(t, d)
 			desired := compose.Compose{Secrets: compose.Secrets{"password": {Name: "existing-password", File: "password.age"}}}
-			_, err = d.DeployStack(t.Context(), "app", filepath.Join(dir, "compose.yaml"), "rendered.yaml", desired)
+			_, err = d.DeployStack(t.Context(), StackRequest{
+				StackName:         "app",
+				SourceComposePath: filepath.Join(dir, "compose.yaml"),
+				Desired:           desired,
+			})
 			require.NoError(t, err)
 			switch scenario {
 			case "corrupt file":
@@ -52,11 +56,15 @@ func TestSecretResolverValidatesReusedSecrets(t *testing.T) {
 			case "missing identity":
 				d.secretResolver = newTestSecretResolver()
 			}
-			_, err = d.DeployStack(t.Context(), "app", filepath.Join(dir, "compose.yaml"), "rendered.yaml", desired)
+			_, err = d.DeployStack(t.Context(), StackRequest{
+				StackName:         "app",
+				SourceComposePath: filepath.Join(dir, "compose.yaml"),
+				Desired:           desired,
+			})
 			require.Error(t, err)
 			assert.NotContains(t, err.Error(), "private-corrupt-marker")
 			assert.NotContains(t, err.Error(), identity.String())
-			// No additional API, Init Job or Docker CLI calls are expected.
+			// No additional API or Init Job calls are expected.
 		})
 	}
 }

@@ -41,6 +41,21 @@ func (m *MockServiceManager) EXPECT() *MockServiceManagerMockRecorder {
 	return m.recorder
 }
 
+// Create mocks base method.
+func (m *MockServiceManager) Create(ctx context.Context, spec swarm.ServiceSpec, options swarm.ServiceCreateOptions) (string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Create", ctx, spec, options)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Create indicates an expected call of Create.
+func (mr *MockServiceManagerMockRecorder) Create(ctx, spec, options any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Create", reflect.TypeOf((*MockServiceManager)(nil).Create), ctx, spec, options)
+}
+
 // Get mocks base method.
 func (m *MockServiceManager) Get(ctx context.Context, serviceRef ServiceReference) (Service, error) {
 	m.ctrl.T.Helper()
@@ -99,6 +114,21 @@ func (m *MockServiceManager) GetTask(ctx context.Context, taskID string) (Servic
 func (mr *MockServiceManagerMockRecorder) GetTask(ctx, taskID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetTask", reflect.TypeOf((*MockServiceManager)(nil).GetTask), ctx, taskID)
+}
+
+// Inspect mocks base method.
+func (m *MockServiceManager) Inspect(ctx context.Context, serviceIDOrName string) (swarm.Service, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Inspect", ctx, serviceIDOrName)
+	ret0, _ := ret[0].(swarm.Service)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Inspect indicates an expected call of Inspect.
+func (mr *MockServiceManagerMockRecorder) Inspect(ctx, serviceIDOrName any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Inspect", reflect.TypeOf((*MockServiceManager)(nil).Inspect), ctx, serviceIDOrName)
 }
 
 // ListServices mocks base method.
@@ -218,6 +248,20 @@ func (m *MockServiceManager) TaskLogs(ctx context.Context, taskID string, option
 func (mr *MockServiceManagerMockRecorder) TaskLogs(ctx, taskID, options any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "TaskLogs", reflect.TypeOf((*MockServiceManager)(nil).TaskLogs), ctx, taskID, options)
+}
+
+// Update mocks base method.
+func (m *MockServiceManager) Update(ctx context.Context, serviceID string, version swarm.Version, spec swarm.ServiceSpec, options swarm.ServiceUpdateOptions) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Update", ctx, serviceID, version, spec, options)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Update indicates an expected call of Update.
+func (mr *MockServiceManagerMockRecorder) Update(ctx, serviceID, version, spec, options any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Update", reflect.TypeOf((*MockServiceManager)(nil).Update), ctx, serviceID, version, spec, options)
 }
 
 // MockImageManager is a mock of ImageManager interface.

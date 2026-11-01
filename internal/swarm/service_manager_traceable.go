@@ -4,11 +4,67 @@ import (
 	"context"
 	"time"
 
+	dockerswarm "github.com/docker/docker/api/types/swarm"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/tracing"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 )
+
+func (t traceableServiceManager) Inspect(ctx context.Context, serviceIDOrName string) (dockerswarm.Service, error) {
+	ctx, span := t.tracer.Start(ctx, "swarm.InspectService", trace.WithAttributes(
+		tracing.ResourceServiceID.String(serviceIDOrName),
+	))
+	defer span.End()
+	service, err := t.serviceManager.Inspect(ctx, serviceIDOrName)
+	if err != nil {
+		tracing.FailSpan(span, err)
+		return dockerswarm.Service{}, err
+	}
+	span.SetAttributes(tracing.ResourceServiceID.String(service.ID))
+	span.SetStatus(codes.Ok, "")
+	return service, nil
+}
+
+func (t traceableServiceManager) Create(
+	ctx context.Context,
+	spec dockerswarm.ServiceSpec,
+	options dockerswarm.ServiceCreateOptions,
+) (string, error) {
+	ctx, span := t.tracer.Start(ctx, "swarm.CreateService", trace.WithAttributes(
+		tracing.ResourceServiceName.String(spec.Name),
+	))
+	defer span.End()
+	id, err := t.serviceManager.Create(ctx, spec, options)
+	if err != nil {
+		tracing.FailSpan(span, err)
+		return "", err
+	}
+	span.SetAttributes(tracing.ResourceServiceID.String(id))
+	span.SetStatus(codes.Ok, "")
+	return id, nil
+}
+
+func (t traceableServiceManager) Update(
+	ctx context.Context,
+	serviceID string,
+	version dockerswarm.Version,
+	spec dockerswarm.ServiceSpec,
+	options dockerswarm.ServiceUpdateOptions,
+) error {
+	ctx, span := t.tracer.Start(ctx, "swarm.UpdateService", trace.WithAttributes(
+		tracing.ResourceServiceID.String(serviceID),
+		tracing.ResourceServiceName.String(spec.Name),
+	))
+	defer span.End()
+	err := t.serviceManager.Update(ctx, serviceID, version, spec, options)
+	if err != nil {
+		tracing.FailSpan(span, err)
+		return err
+	}
+	span.SetStatus(codes.Ok, "")
+	return nil
+}
 
 type traceableServiceManager struct {
 	tracer         trace.Tracer

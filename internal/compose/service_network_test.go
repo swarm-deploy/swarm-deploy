@@ -46,18 +46,12 @@ infra:
 					"infra": {
 						Alias:   "infra",
 						Aliases: []string{"my-app"},
-						Extra: map[string]interface{}{
-							"x-key": "val",
-						},
 					},
 				},
 				List: []*ServiceNetwork{
 					{
 						Alias:   "infra",
 						Aliases: []string{"my-app"},
-						Extra: map[string]interface{}{
-							"x-key": "val",
-						},
 					},
 				},
 			},

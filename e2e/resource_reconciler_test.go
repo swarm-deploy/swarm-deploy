@@ -7,10 +7,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	dockerswarm "github.com/docker/docker/api/types/swarm"
 	"github.com/docker/docker/client"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -20,9 +22,10 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 
-// TestDeployStackOnRealSwarm exercises the actual Docker Engine, Docker CLI, and a
-// running Swarm task. It must not be replaced with a mocked Docker API fixture.
-func TestDeployStackOnRealSwarm(t *testing.T) {
+// TestDeployStackCompatibilityOnRealSwarm retains specialized native API
+// compatibility and retry regressions. Basic creation, updates, idempotency and
+// production resource rotation are covered by TestRealSwarmGitOpsLifecycle.
+func TestDeployStackCompatibilityOnRealSwarm(t *testing.T) {
 	if os.Getenv("SWARM_DEPLOY_E2E") != "1" {
 		t.Skip("set SWARM_DEPLOY_E2E=1 to run against a real initialized Docker Swarm")
 	}
@@ -36,29 +39,7 @@ func TestDeployStackOnRealSwarm(t *testing.T) {
 
 	stack := fmt.Sprintf("sdreconcile%d", time.Now().UnixNano())
 	dir := t.TempDir()
-	preflightLog := filepath.Join(dir, "preflight.log")
-	wrapperPath := filepath.Join(dir, "docker-wrapper.sh")
-	// The wrapper inspects real Swarm resources BEFORE it invokes docker stack deploy.
-	// A regression that lets Docker CLI create resources instead of the reconciler
-	// must fail here, rather than accidentally pass after Docker CLI creates them.
-	wrapper := `#!/bin/sh
-set -eu
-if [ "$1" = "stack" ] && [ "$2" = "deploy" ]; then
-  "$SWARM_E2E_REAL_DOCKER" secret inspect "$SWARM_E2E_SECRET_NAME" >/dev/null
-  "$SWARM_E2E_REAL_DOCKER" config inspect "$SWARM_E2E_CONFIG_NAME" >/dev/null
-  printf '%s %s\n' "$SWARM_E2E_SECRET_NAME" "$SWARM_E2E_CONFIG_NAME" >> "$SWARM_E2E_PREFLIGHT_LOG"
-fi
-exec "$SWARM_E2E_REAL_DOCKER" "$@"
-`
-	require.NoError(t, os.WriteFile(wrapperPath, []byte(wrapper), 0o700))
-	absDockerPath, err := filepath.Abs(dockerPath)
-	require.NoError(t, err)
-	t.Setenv("SWARM_E2E_REAL_DOCKER", absDockerPath)
-	t.Setenv("SWARM_E2E_PREFLIGHT_LOG", preflightLog)
-	t.Setenv("SWARM_E2E_SECRET_NAME", stack+"_password")
-	t.Setenv("SWARM_E2E_CONFIG_NAME", stack+"_settings")
-
-	swarmService := swarm.NewSwarm(dockerClient, wrapperPath)
+	swarmService := swarm.NewSwarm(dockerClient)
 	stackDeployer := deployer.NewDeployer(100*time.Millisecond, 2*time.Minute, dockerClient, swarmService, nil, deployer.NewSecretResolver(fs.NewLocalFileSystem(), deployer.PlaintextDecoder{}))
 	composePath := filepath.Join(dir, "compose.yaml")
 	t.Cleanup(func() {
@@ -73,55 +54,203 @@ exec "$SWARM_E2E_REAL_DOCKER" "$@"
 	defer cancel()
 
 	// Initial deploy must create real Docker resources without Init Jobs.
-	writeRealSwarmFixture(t, dir, composePath, "", "", "secret-v1", "config-v1", "mounted-v1")
+	writeRealSwarmFixture(t, dir, composePath, "secret-v1", "config-v1", "mounted-v1")
 	deployFixture(t, ctx, stackDeployer, stack, composePath)
-	secretID1, configID1 := inspectRealSwarmResources(t, ctx, dockerClient, dockerPath, stack, stack+"_password", stack+"_settings")
+	inspectRealSwarmResources(t, ctx, dockerClient, dockerPath, stack, stack+"_password", stack+"_settings")
 	waitForRealSwarmTask(t, ctx, dockerPath, stack+"_check", "mounted-v1")
-
-	// Deploying the same stack again must reuse IDs and keep the task healthy.
-	deployFixture(t, ctx, stackDeployer, stack, composePath)
-	secretIDAgain, configIDAgain := inspectRealSwarmResources(t, ctx, dockerClient, dockerPath, stack, stack+"_password", stack+"_settings")
-	assert.Equal(t, secretID1, secretIDAgain, "unchanged secret must be reused")
-	assert.Equal(t, configID1, configIDAgain, "unchanged config must be reused")
-
-	// Simulate the names produced by hash-based rotation and verify that
-	// new resource versions are created and mounted in the new task.
-	rotatedSecretName := stack + "-password-v2"
-	rotatedConfigName := stack + "-settings-v2"
-	t.Setenv("SWARM_E2E_SECRET_NAME", rotatedSecretName)
-	t.Setenv("SWARM_E2E_CONFIG_NAME", rotatedConfigName)
-	writeRealSwarmFixture(t, dir, composePath, rotatedSecretName, rotatedConfigName, "secret-v2", "config-v2", "mounted-v2")
-	deployFixture(t, ctx, stackDeployer, stack, composePath)
-	secretID2, configID2 := inspectRealSwarmResources(t, ctx, dockerClient, dockerPath, stack, rotatedSecretName, rotatedConfigName)
-	assert.NotEqual(t, secretID1, secretID2, "rotated secret must be a different Docker object")
-	assert.NotEqual(t, configID1, configID2, "rotated config must be a different Docker object")
-	waitForRealSwarmTask(t, ctx, dockerPath, stack+"_check", "mounted-v2")
-	preflights, err := os.ReadFile(preflightLog)
+	serviceBefore, err := swarmService.Services.Inspect(ctx, stack+"_check")
 	require.NoError(t, err)
-	assert.Equal(t, []string{
-		stack + "_password " + stack + "_settings",
-		stack + "_password " + stack + "_settings",
-		rotatedSecretName + " " + rotatedConfigName,
-	}, strings.Split(strings.TrimSpace(string(preflights)), "\n"),
-		"all three deployments must have resources ready before Docker CLI starts")
+	runningBefore, tasksBefore := realSwarmTaskIDs(t, ctx, swarmService, serviceBefore.ID)
+
+	t.Run("ignored Swarm options do not roll services", func(t *testing.T) {
+		prepared, err := compose.NewFileLoader().Load(ctx, composePath)
+		require.NoError(t, err)
+		for _, options := range [][]string{
+			{"privileged", "depends_on", "restart"},
+			nil,
+		} {
+			prepared.Compose.Services[0].IgnoredOptions = options
+			_, err = stackDeployer.DeployStack(ctx, deployer.StackRequest{
+				StackName:         stack,
+				SourceComposePath: composePath,
+				Desired:           prepared.Compose,
+			})
+			require.NoError(t, err)
+			current, err := swarmService.Services.Inspect(ctx, serviceBefore.ID)
+			require.NoError(t, err)
+			assert.Equal(t, serviceBefore.Version.Index, current.Version.Index)
+			assert.Equal(t, serviceBefore.Spec, current.Spec)
+			running, tasks := realSwarmTaskIDs(t, ctx, swarmService, current.ID)
+			assert.Equal(t, runningBefore, running)
+			assert.Equal(t, tasksBefore, tasks)
+		}
+	})
+
+	// An external force update must be waited for, without resetting ForceUpdate
+	// or issuing a second update of the unchanged Compose service.
+	output, err := exec.CommandContext(ctx, dockerPath, "service", "update", "--detach=true", "--force", stack+"_check").CombinedOutput()
+	require.NoError(t, err, "force update: %s", output)
+	forced, err := swarmService.Services.Inspect(ctx, stack+"_check")
+	require.NoError(t, err)
+	require.Greater(t, forced.Spec.TaskTemplate.ForceUpdate, uint64(0))
+	deployFixture(t, ctx, stackDeployer, stack, composePath)
+	afterForce, err := swarmService.Services.Inspect(ctx, stack+"_check")
+	require.NoError(t, err)
+	// Swarm advances the object version as this rollout's status progresses.
+	// An application update would replace PreviousSpec as well as potentially
+	// changing Spec, so compare those across the in-flight force rollout.
+	assert.Equal(t, forced.Spec, afterForce.Spec, "waiting must preserve the externally forced specification")
+	assert.Equal(t, forced.PreviousSpec, afterForce.PreviousSpec, "waiting must not submit another service update")
+	require.NotNil(t, afterForce.UpdateStatus)
+	assert.Equal(t, dockerswarm.UpdateStateCompleted, afterForce.UpdateStatus.State)
+	runningBefore, tasksAfterForce := realSwarmTaskIDs(t, ctx, swarmService, afterForce.ID)
+
+	// Once convergence is complete, idempotency also includes a stable object
+	// version and the exact same running and historical task identities.
+	deployFixture(t, ctx, stackDeployer, stack, composePath)
+	repeatedForce, err := swarmService.Services.Inspect(ctx, stack+"_check")
+	require.NoError(t, err)
+	assert.Equal(t, afterForce.Version.Index, repeatedForce.Version.Index)
+	assert.Equal(t, afterForce.Spec, repeatedForce.Spec)
+	runningRepeated, tasksRepeated := realSwarmTaskIDs(t, ctx, swarmService, repeatedForce.ID)
+	assert.Equal(t, runningBefore, runningRepeated)
+	assert.Equal(t, tasksAfterForce, tasksRepeated)
+
+	// Immutable network option changes do not block application deployment.
+	networkBefore, err := swarmService.Networks.Get(ctx, stack+"_default")
+	require.NoError(t, err)
+	prepared, err := compose.NewFileLoader().Load(ctx, composePath)
+	require.NoError(t, err)
+	prepared.Compose.Networks = map[string]compose.Network{"default": {
+		Attachable: true, IPAM: &compose.NetworkIPAM{Config: []compose.NetworkIPAMPool{{Subnet: "10.249.0.0/24"}}},
+	}, "unused": {External: true, Name: "must-not-exist"}}
+	_, err = stackDeployer.DeployStack(ctx, deployer.StackRequest{
+		StackName:         stack,
+		SourceComposePath: composePath,
+		Desired:           prepared.Compose,
+	})
+	require.NoError(t, err)
+	networkAfter, err := swarmService.Networks.Get(ctx, stack+"_default")
+	require.NoError(t, err)
+	assert.Equal(t, networkBefore.ID, networkAfter.ID)
+
+	// Explicitly retry an accepted failed rollout. It must create a new task
+	// generation and verify its real failure, rather than replaying stale diagnostics.
+	prepared, err = compose.NewFileLoader().Load(ctx, composePath)
+	require.NoError(t, err)
+	failing := prepared.Compose
+	failing.Services[0].Command = compose.NewCommand([]string{"sh", "-c", "exit 1"})
+	failing.Services[0].Deploy.UpdateConfig = &compose.ServiceDeployUpdateConfig{Monitor: "1s", FailureAction: "pause"}
+	failing.Services[0].Deploy.RestartPolicy = &compose.ServiceDeployRestartPolicy{Condition: "none"}
+	_, err = stackDeployer.DeployStack(ctx, deployer.StackRequest{
+		StackName:         stack,
+		SourceComposePath: composePath,
+		Desired:           failing,
+	})
+	require.Error(t, err)
+	require.True(t, deployer.ConvergenceFailed(err))
+	failed, err := swarmService.Services.Inspect(ctx, stack+"_check")
+	require.NoError(t, err)
+	require.NotNil(t, failed.UpdateStatus)
+	require.Equal(t, dockerswarm.UpdateStatePaused, failed.UpdateStatus.State)
+	_, retryErr := stackDeployer.DeployStack(ctx, deployer.StackRequest{
+		StackName:         stack,
+		SourceComposePath: composePath,
+		Desired:           failing,
+		Options:           deployer.StackOptions{RetryFailedUpdates: true},
+	})
+	require.Error(t, retryErr)
+	assert.True(t, deployer.ConvergenceFailed(retryErr))
+	assert.ErrorContains(t, retryErr, "latest task failure: id=")
+	assert.ErrorContains(t, retryErr, "state=failed")
+	retried, err := swarmService.Services.Inspect(ctx, stack+"_check")
+	require.NoError(t, err)
+	assert.Greater(t, retried.Version.Index, failed.Version.Index, "retry must send ServiceUpdate")
+	assert.Equal(t, failed.Spec.TaskTemplate.ForceUpdate+1, retried.Spec.TaskTemplate.ForceUpdate)
+	deployFixture(t, ctx, stackDeployer, stack, composePath)
+
+	t.Run("mutable registry tag", func(t *testing.T) {
+		registry := os.Getenv("SWARM_DEPLOY_E2E_REGISTRY")
+		if registry == "" {
+			t.Skip("set SWARM_DEPLOY_E2E_REGISTRY to a pushable registry reachable by Swarm nodes")
+		}
+		image := strings.TrimSuffix(registry, "/") + "/" + stack
+		push := func(source, tag string) {
+			for _, args := range [][]string{{"pull", source}, {"tag", source, image + ":" + tag}, {"push", image + ":" + tag}} {
+				output, err := exec.CommandContext(ctx, dockerPath, args...).CombinedOutput()
+				require.NoError(t, err, "docker %v: %s", args, output)
+			}
+		}
+		push("busybox:1.36", "moving")
+		prepared, err := compose.NewFileLoader().Load(ctx, composePath)
+		require.NoError(t, err)
+		desired := prepared.Compose
+		desired.Services[0].Image = image + ":moving"
+		_, err = stackDeployer.DeployStack(ctx, deployer.StackRequest{
+			StackName:         stack,
+			SourceComposePath: composePath,
+			Desired:           desired,
+		})
+		require.NoError(t, err)
+		pinned, err := swarmService.Services.Inspect(ctx, stack+"_check")
+		require.NoError(t, err)
+		require.Contains(t, pinned.Spec.TaskTemplate.ContainerSpec.Image, "@sha256:")
+		push("busybox:1.37", "moving")
+		desired.Services[0].Environment.Map = map[string]string{"UNRELATED": "change"}
+		_, err = stackDeployer.DeployStack(ctx, deployer.StackRequest{
+			StackName:         stack,
+			SourceComposePath: composePath,
+			Desired:           desired,
+		})
+		require.NoError(t, err)
+		unchanged, err := swarmService.Services.Inspect(ctx, stack+"_check")
+		require.NoError(t, err)
+		assert.Equal(t, pinned.Spec.TaskTemplate.ContainerSpec.Image, unchanged.Spec.TaskTemplate.ContainerSpec.Image)
+		push("busybox:1.37", "next")
+		desired.Services[0].Image = image + ":next"
+		_, err = stackDeployer.DeployStack(ctx, deployer.StackRequest{
+			StackName:         stack,
+			SourceComposePath: composePath,
+			Desired:           desired,
+		})
+		require.NoError(t, err)
+		updated, err := swarmService.Services.Inspect(ctx, stack+"_check")
+		require.NoError(t, err)
+		assert.NotEqual(t, pinned.Spec.TaskTemplate.ContainerSpec.Image, updated.Spec.TaskTemplate.ContainerSpec.Image)
+	})
+
 }
 
-func writeRealSwarmFixture(t *testing.T, dir, composePath, secretName, configName, secretValue, configValue, marker string) {
+func realSwarmTaskIDs(t *testing.T, ctx context.Context, service *swarm.Swarm, serviceID string) ([]string, []string) {
+	t.Helper()
+	tasks, err := service.Services.ListTasks(ctx, serviceID)
+	require.NoError(t, err)
+	var running, all []string
+	for _, task := range tasks {
+		all = append(all, task.ID)
+		if task.CurrentState == swarm.TaskStateRunning && task.DesiredState == swarm.TaskStateRunning {
+			running = append(running, task.ID)
+		}
+	}
+	require.Len(t, running, 1, "fixture must have exactly one healthy running task")
+	slices.Sort(running)
+	slices.Sort(all)
+	return running, all
+}
+
+func writeRealSwarmFixture(t *testing.T, dir, composePath, secretValue, configValue, marker string) {
 	t.Helper()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "password.txt"), []byte(secretValue+"\n"), 0o600))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "settings.txt"), []byte(configValue+"\n"), 0o600))
 
-	secretNameYAML, configNameYAML := "", ""
-	if secretName != "" {
-		secretNameYAML = "    name: " + secretName + "\n"
-	}
-	if configName != "" {
-		configNameYAML = "    name: " + configName + "\n"
-	}
-
 	manifest := fmt.Sprintf(`services:
   check:
     image: busybox:1.36
+    user: '1000:1000'
+    working_dir: /tmp
+    hostname: compat-check
+    read_only: true
+    tmpfs: /tmp
     command: ["sh", "-ec", "grep -qx '%s' /run/secrets/password && grep -qx '%s' /etc/app.conf && echo %s && sleep 120"]
     secrets:
       - password
@@ -130,11 +259,11 @@ func writeRealSwarmFixture(t *testing.T, dir, composePath, secretName, configNam
         target: /etc/app.conf
 configs:
   settings:
-%s    file: ./settings.txt
+    file: ./settings.txt
 secrets:
   password:
-%s    file: ./password.txt
-`, secretValue, configValue, marker, configNameYAML, secretNameYAML)
+    file: ./password.txt
+`, secretValue, configValue, marker)
 	require.NoError(t, os.WriteFile(composePath, []byte(manifest), 0o600))
 }
 
@@ -142,11 +271,15 @@ func deployFixture(t *testing.T, ctx context.Context, stackDeployer deployer.Sta
 	t.Helper()
 	file, err := compose.NewFileLoader().Load(ctx, composePath)
 	require.NoError(t, err)
-	_, err = stackDeployer.DeployStack(ctx, stack, composePath, composePath, file.Compose)
+	_, err = stackDeployer.DeployStack(ctx, deployer.StackRequest{
+		StackName:         stack,
+		SourceComposePath: composePath,
+		Desired:           file.Compose,
+	})
 	require.NoError(t, err)
 }
 
-func inspectRealSwarmResources(t *testing.T, ctx context.Context, dockerClient *client.Client, dockerPath, stack, secretName, configName string) (string, string) {
+func inspectRealSwarmResources(t *testing.T, ctx context.Context, dockerClient *client.Client, dockerPath, stack, secretName, configName string) {
 	t.Helper()
 	secret, _, err := dockerClient.SecretInspectWithRaw(ctx, secretName)
 	require.NoError(t, err)
@@ -174,7 +307,6 @@ func inspectRealSwarmResources(t *testing.T, ctx context.Context, dockerClient *
 	assert.Equal(t, secretName, spec.Secrets[0].SecretName)
 	assert.Equal(t, config.ID, spec.Configs[0].ConfigID)
 	assert.Equal(t, configName, spec.Configs[0].ConfigName)
-	return secret.ID, config.ID
 }
 
 func waitForRealSwarmTask(t *testing.T, ctx context.Context, dockerPath, serviceName, marker string) {

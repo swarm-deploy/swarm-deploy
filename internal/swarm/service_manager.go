@@ -8,10 +8,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
 
 	"github.com/avast/retry-go/v5"
 	cerrdefs "github.com/containerd/errdefs"
@@ -39,6 +42,66 @@ type serviceManager struct {
 func newServiceManager(dockerClient *client.Client) *serviceManager {
 	return &serviceManager{
 		dockerClient: dockerClient,
+	}
+}
+
+// Inspect returns the complete Docker service, including its specification and version.
+func (m *serviceManager) Inspect(ctx context.Context, serviceIDOrName string) (dockerswarm.Service, error) {
+	service, _, err := m.dockerClient.ServiceInspectWithRaw(
+		ctx, serviceIDOrName, dockerswarm.ServiceInspectOptions{},
+	)
+	if err != nil {
+		if isNotFoundErr(err) {
+			return dockerswarm.Service{}, ErrServiceNotFound
+		}
+		return dockerswarm.Service{}, fmt.Errorf("inspect service %s: %w", serviceIDOrName, err)
+	}
+	return service, nil
+}
+
+// Create creates a Docker Swarm service and returns its identifier.
+func (m *serviceManager) Create(
+	ctx context.Context,
+	spec dockerswarm.ServiceSpec,
+	options dockerswarm.ServiceCreateOptions,
+) (string, error) {
+	response, err := m.dockerClient.ServiceCreate(ctx, spec, options)
+	if err != nil {
+		if cerrdefs.IsConflict(err) {
+			return "", fmt.Errorf("create service %s: %w", spec.Name, ErrServiceConflict)
+		}
+		return "", fmt.Errorf("create service %s: %w", spec.Name, err)
+	}
+	logServiceWarnings(ctx, spec.Name, response.Warnings)
+	return response.ID, nil
+}
+
+// Update replaces a Docker Swarm service specification using optimistic versioning.
+func (m *serviceManager) Update(
+	ctx context.Context,
+	serviceID string,
+	version dockerswarm.Version,
+	spec dockerswarm.ServiceSpec,
+	options dockerswarm.ServiceUpdateOptions,
+) error {
+	response, err := m.dockerClient.ServiceUpdate(ctx, serviceID, version, spec, options)
+	if err != nil {
+		if cerrdefs.IsConflict(err) {
+			return fmt.Errorf("update service %s: %w", spec.Name, ErrServiceConflict)
+		}
+		if isNotFoundErr(err) {
+			return fmt.Errorf("update service %s: %w", spec.Name, ErrServiceNotFound)
+		}
+		return fmt.Errorf("update service %s: %w", spec.Name, err)
+	}
+	logServiceWarnings(ctx, spec.Name, response.Warnings)
+	return nil
+}
+
+func logServiceWarnings(ctx context.Context, service string, warnings []string) {
+	for _, warning := range warnings {
+		slog.WarnContext(ctx, "Docker service warning", "service", service,
+			"warning", faults.SafeDiagnostic(errors.New(warning)))
 	}
 }
 
@@ -99,12 +162,15 @@ func (m *serviceManager) ListServices(ctx context.Context, filter ListServicesFi
 
 		runningTasks := uint64(0)
 		desiredTasks := uint64(0)
+		completedTasks := uint64(0)
 		if service.ServiceStatus != nil {
 			runningTasks = service.ServiceStatus.RunningTasks
 			desiredTasks = service.ServiceStatus.DesiredTasks
+			completedTasks = service.ServiceStatus.CompletedTasks
 		}
 
 		mapped = append(mapped, StackService{
+			CompletedTasks: completedTasks, JobStatus: service.JobStatus,
 			ID:           service.ID,
 			Name:         stackServiceNameFromFullName(stackName, fullName),
 			Stack:        stackName,

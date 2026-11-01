@@ -95,8 +95,11 @@ func TestReconcileReplicaDriftPolicy(t *testing.T) {
 			services.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "app"}).Return(initial, nil)
 			if tt.repair {
 				services.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "app"}).Return(live, nil)
-				stackDeployer.EXPECT().DeployService(gomock.Any(), "app", filepath.Join(dir, "app.yaml"),
-					"api", gomock.Any(), gomock.Any()).Return(deployer.Result{}, nil)
+				stackDeployer.EXPECT().DeployService(gomock.Any(), gomock.Cond(func(req deployer.ServiceRequest) bool {
+					return req.StackName == "app" &&
+						req.SourceComposePath == filepath.Join(dir, "app.yaml") &&
+						req.ServiceName == "api"
+				})).Return(deployer.Result{}, nil)
 			}
 			cfg := &config.Config{Spec: config.Spec{
 				DataDir: filepath.Join(dir, ".data"),

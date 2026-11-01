@@ -73,7 +73,7 @@ func TestStartIfChangedCreatesNoopsAndRetries(t *testing.T) {
 	require.NoError(t, db.WithinTransaction(t.Context(), func(ctx context.Context) error {
 		return service.Complete(ctx, first.ID, Completion{Outcome: CompletionProcessInterrupted})
 	}))
-	retry, err := service.StartIfChanged(t.Context(), "retry", "third", desiredServices("api"), true)
+	retry, err := service.StartIfChanged(t.Context(), "retry", "third", desiredServices("api"), true, StartOptions{ManualRetry: true})
 	require.NoError(t, err)
 	require.NotNil(t, retry)
 	assert.Equal(t, first.DeploymentID, retry.DeploymentID)
@@ -109,6 +109,47 @@ func TestStartIfChangedSupersedesAndPublishesAtomically(t *testing.T) {
 	assert.Len(t, publications(t, db, events.TypeNameServiceRemovedFromDesired), 1)
 }
 
+func TestStartIfChangedCarriesUnresolvedServicesFromInterruptedRunningDeployment(t *testing.T) {
+	for _, tc := range []struct {
+		name           string
+		removeWorker   bool
+		wantUnresolved []string
+	}{
+		{name: "unchanged service retained", wantUnresolved: []string{"api", "worker"}},
+		{name: "removed service excluded", removeWorker: true, wantUnresolved: []string{"api"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			db, service, _ := openService(t)
+			store := deploymentstore.NewStore(db)
+
+			first, err := service.StartIfChanged(t.Context(), "app", "first", desiredServices("api", "worker"), true)
+			require.NoError(t, err)
+			require.NotNil(t, first)
+
+			// A new digest supersedes the still-running attempt before it can verify its services.
+			nextDesired := desiredServices("api", "worker")
+			if tc.removeWorker {
+				nextDesired = desiredServices("api")
+			} else {
+				nextDesired.Compose.Services[1].Image = "example/worker:2"
+			}
+			second, err := service.StartIfChanged(t.Context(), "app", "second", nextDesired, true)
+			require.NoError(t, err)
+			require.NotNil(t, second)
+
+			previous, err := store.Get(t.Context(), first.DeploymentID)
+			require.NoError(t, err)
+			assert.Equal(t, deploymentmodel.Superseded, previous.Status)
+			assert.Equal(t, []string{"api", "worker"}, previous.Verification.UnresolvedServices)
+
+			current, err := store.Get(t.Context(), second.DeploymentID)
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantUnresolved, current.Verification.UnresolvedServices,
+				"supersession must inherit interrupted verification obligations")
+		})
+	}
+}
+
 func TestStartIfChangedUsesSuccessfulBaselineForSemanticChanges(t *testing.T) {
 	db, service, _ := openService(t)
 	store := deploymentstore.NewStore(db)
@@ -136,7 +177,7 @@ func TestStartIfChangedUsesSuccessfulBaselineForSemanticChanges(t *testing.T) {
 		return service.Complete(ctx, target.ID, Completion{Outcome: CompletionProcessInterrupted})
 	}))
 	retry, err := service.StartIfChanged(
-		t.Context(), "app", "retry", desiredServices("api", "worker"), true,
+		t.Context(), "app", "retry", desiredServices("api", "worker"), true, StartOptions{ManualRetry: true},
 	)
 	require.NoError(t, err)
 	assert.Equal(t, target.DeploymentID, retry.DeploymentID)

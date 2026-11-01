@@ -26,18 +26,20 @@ type pipelinePayload struct {
 	IsManualSync     bool
 	HasPreviousDrift bool
 
-	Desired           *compose.File
-	DeployComposePath string
+	Desired *compose.File
 
 	LiveServices   []swarm.StackService
 	ObservedAt     time.Time
 	PrunedServices []string
 	ExecutionError string
-	CleanupResult  rotatedCleanupResult
-	Drift          map[string]drift.ServiceDrift
-	RemainingDrift map[string]drift.ServiceDrift
-	Remediations   map[string]serviceRemediation
-	RemediationErr []error
+	RetryDeferred  bool
+	// ProtectedServices cannot be remediated automatically while retry is deferred.
+	ProtectedServices []string
+	CleanupResult     rotatedCleanupResult
+	Drift             map[string]drift.ServiceDrift
+	RemainingDrift    map[string]drift.ServiceDrift
+	Remediations      map[string]serviceRemediation
+	RemediationErr    []error
 }
 
 func (r *Reconciler) attachPipeline() {
@@ -58,8 +60,10 @@ func (r *Reconciler) attachPipeline() {
 	})
 
 	r.pipeline.Add(pipe.Step[*pipelinePayload]{
+		// Keep pruning deferred: the failed apply has not established a complete
+		// desired stack, so removing prior services could interfere with recovery.
 		Name: "prune orphaned services",
-		When: pipe.When(func(payload *pipelinePayload) bool { return payload.Attempt == nil }),
+		When: pipe.When(func(payload *pipelinePayload) bool { return payload.Attempt == nil && !payload.RetryDeferred }),
 		Run:  r.pruneOrphanedServices,
 	})
 
@@ -91,13 +95,15 @@ func (r *Reconciler) attachPipeline() {
 func (r *Reconciler) executeDeployment(ctx context.Context, payload *pipelinePayload) error {
 	result, err := r.executor.Execute(ctx, deployments.ExecuteRequest{
 		Stack: payload.Stack, Commit: payload.Commit, Desired: *payload.Desired,
-		DeployComposePath: payload.DeployComposePath, SourceChanged: payload.IsNewDigest,
+		SourceChanged: payload.IsNewDigest, ManualRetry: payload.IsManualSync,
 	})
 	payload.Attempt = result.Attempt
 	payload.LiveServices = result.LiveServices
 	payload.ObservedAt = result.ObservedAt
 	payload.PrunedServices = result.PrunedServices
 	payload.ExecutionError = result.ErrorCode
+	payload.RetryDeferred = result.RetryDeferred
+	payload.ProtectedServices = result.UnresolvedServices
 	return err
 }
 

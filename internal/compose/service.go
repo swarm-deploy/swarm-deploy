@@ -14,10 +14,49 @@ type Service struct {
 	Name    string  `yaml:"-" json:"name"`
 	Image   string  `yaml:"image" json:"image"`
 	Command Command `yaml:"command,omitempty" json:"command,omitempty"`
+	// Entrypoint overrides the image entrypoint.
+	Entrypoint Command `yaml:"entrypoint,omitempty" json:"entrypoint,omitempty"`
+	// StopGracePeriod is the time Docker gives a task to exit before forcefully stopping it.
+	StopGracePeriod string `yaml:"stop_grace_period,omitempty" json:"stop_grace_period,omitempty"`
 	// CapAdd lists Linux capabilities added to the service containers.
 	CapAdd []string `yaml:"cap_add,omitempty" json:"cap_add,omitempty"`
 	// CapDrop lists Linux capabilities removed from the service containers.
 	CapDrop []string `yaml:"cap_drop,omitempty" json:"cap_drop,omitempty"`
+
+	// User configures the Compose user option.
+	User string `yaml:"user,omitempty" json:"user,omitempty"`
+	// WorkingDir configures the Compose working_dir option.
+	WorkingDir string `yaml:"working_dir,omitempty" json:"working_dir,omitempty"`
+	// Hostname configures the Compose hostname option.
+	Hostname string `yaml:"hostname,omitempty" json:"hostname,omitempty"`
+	// DNS configures the Compose dns option.
+	DNS StringList `yaml:"dns,omitempty" json:"dns,omitempty"`
+	// DNSSearch configures the Compose dns_search option.
+	DNSSearch StringList `yaml:"dns_search,omitempty" json:"dns_search,omitempty"`
+	// ExtraHosts configures the Compose extra_hosts option.
+	ExtraHosts HostsList `yaml:"extra_hosts,omitempty" json:"extra_hosts,omitempty"`
+	// ReadOnly configures the Compose read_only option.
+	ReadOnly bool `yaml:"read_only,omitempty" json:"read_only,omitempty"`
+	// Init configures the Compose init option.
+	Init *bool `yaml:"init,omitempty" json:"init,omitempty"`
+	// TTY configures the Compose tty option.
+	TTY bool `yaml:"tty,omitempty" json:"tty,omitempty"`
+	// StdinOpen configures the Compose stdin_open option.
+	StdinOpen bool `yaml:"stdin_open,omitempty" json:"stdin_open,omitempty"`
+	// StopSignal configures the Compose stop_signal option.
+	StopSignal string `yaml:"stop_signal,omitempty" json:"stop_signal,omitempty"`
+	// Sysctls configures the Compose sysctls option.
+	Sysctls StringMap `yaml:"sysctls,omitempty" json:"sysctls,omitempty"`
+	// Ulimits configures the Compose ulimits option.
+	Ulimits map[string]Ulimit `yaml:"ulimits,omitempty" json:"ulimits,omitempty"`
+	// Tmpfs configures the Compose tmpfs option.
+	Tmpfs StringList `yaml:"tmpfs,omitempty" json:"tmpfs,omitempty"`
+	// Isolation configures the Compose isolation option.
+	Isolation string `yaml:"isolation,omitempty" json:"isolation,omitempty"`
+	// CredentialSpec configures the Compose credential_spec option.
+	CredentialSpec *CredentialSpec `yaml:"credential_spec,omitempty" json:"credential_spec,omitempty"`
+	// OomScoreAdj configures the Compose oom_score_adj option.
+	OomScoreAdj int64 `yaml:"oom_score_adj,omitempty" json:"oom_score_adj,omitempty"`
 
 	Healthcheck *ServiceHealth   `yaml:"healthcheck,omitempty" json:"healthcheck,omitempty"`
 	Ports       ServicePorts     `yaml:"ports,omitempty" json:"ports,omitempty"`
@@ -32,8 +71,8 @@ type Service struct {
 	Deploy      ServiceDeploy  `yaml:"deploy,omitempty" json:"deploy"`
 	Logging     ServiceLogging `yaml:"logging,omitempty" json:"logging,omitempty"`
 	Volumes     ServiceVolumes `yaml:"volumes,omitempty" json:"volumes"`
-
-	Extra map[string]interface{} `yaml:",inline" json:"Extra"`
+	// IgnoredOptions contains tolerated Swarm-ignored source keys; never persisted.
+	IgnoredOptions []string `yaml:"-" json:"-"`
 }
 
 type ServiceHealth struct {
@@ -59,6 +98,15 @@ func (s Service) SelfHealPolicy() (bool, bool, error) {
 // ReplicaDriftPolicy returns the service-level replica drift policy and whether it was specified.
 func (s Service) ReplicaDriftPolicy() (bool, bool, error) {
 	return s.booleanPolicy(labelsdict.ServiceSyncPolicySelfHealReplicasLabelKey)
+}
+
+// ReplicasManagedPolicy returns replica ownership and whether it was specified.
+func (s Service) ReplicasManagedPolicy() (bool, bool, error) {
+	managed, specified, err := s.booleanPolicy(labelsdict.ServiceSyncPolicyReplicasManagedLabelKey)
+	if err == nil && specified && !managed && s.Deploy.Mode != "" && s.Deploy.Mode != "replicated" {
+		err = fmt.Errorf("replicasManaged=false is supported only for replicated services")
+	}
+	return managed, specified, err
 }
 
 func (s Service) booleanPolicy(label string) (bool, bool, error) {
@@ -88,6 +136,10 @@ func (s *Services) UnmarshalYAML(n *yaml.Node) error {
 	for i, cn := range n.Content {
 		if i%2 == 0 {
 			name = cn.Value
+			continue
+		}
+
+		if strings.HasPrefix(name, "x-") {
 			continue
 		}
 

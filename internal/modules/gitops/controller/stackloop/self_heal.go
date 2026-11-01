@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"slices"
 	"time"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
@@ -27,11 +28,13 @@ type serviceRemediation struct {
 
 func (r *Reconciler) selfHealDrift(ctx context.Context, payload *pipelinePayload) error {
 	payload.Remediations = make(map[string]serviceRemediation)
-	deployCompose := r.preparer.DeploymentCompose(payload.Desired, payload.Stack.Name)
 
 	span := trace.SpanFromContext(ctx)
 
 	for _, service := range payload.Desired.Compose.Services {
+		if payload.RetryDeferred && slices.Contains(payload.ProtectedServices, service.Name) {
+			continue
+		}
 		if _, drifted := payload.Drift[service.Name]; !drifted {
 			span.AddEvent("Service skipped: no drift detected", trace.WithAttributes(
 				tracing.ResourceServiceName.String(service.Name),
@@ -40,7 +43,7 @@ func (r *Reconciler) selfHealDrift(ctx context.Context, payload *pipelinePayload
 			continue
 		}
 
-		if err := r.healService(ctx, payload, service, deployCompose); err != nil {
+		if err := r.healService(ctx, payload, service); err != nil {
 			return err
 		}
 	}
@@ -52,7 +55,6 @@ func (r *Reconciler) healService(
 	ctx context.Context,
 	payload *pipelinePayload,
 	service compose.Service,
-	deployCompose compose.Compose,
 ) error {
 	ctx, span := selfHealTracer.Start(ctx, "stackReconciler.HealService", trace.WithAttributes(
 		tracing.ResourceServiceName.String(service.Name),
@@ -86,8 +88,10 @@ func (r *Reconciler) healService(
 
 	remediation := serviceRemediation{attempted: true}
 	_, err = r.executor.ExecuteService(ctx, deployments.ExecuteServiceRequest{
-		StackName: payload.Stack.Name, SourceComposePath: payload.Desired.Path,
-		ServiceName: service.Name, Desired: payload.Desired.Compose, Deploy: deployCompose,
+		StackName:         payload.Stack.Name,
+		SourceComposePath: payload.Desired.Path,
+		ServiceName:       service.Name,
+		Desired:           payload.Desired.Compose,
 	})
 	if err != nil {
 		remediation.applyErr = err

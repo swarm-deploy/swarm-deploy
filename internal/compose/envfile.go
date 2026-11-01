@@ -22,7 +22,7 @@ type EnvFiles []EnvFile
 func (f *EnvFiles) UnmarshalYAML(node *yaml.Node) error {
 	switch node.Kind {
 	case yaml.ScalarNode:
-		if node.Tag == "!!null" {
+		if node.Tag == yamlNullTag {
 			*f = nil
 			return nil
 		}
@@ -110,6 +110,7 @@ func (p *EnvFilePopulator) populateService(service *Service) bool {
 
 	service.Environment = Environment{
 		Map:   effective,
+		Unset: service.Environment.Unset,
 		Keys:  keys,
 		isMap: true,
 	}

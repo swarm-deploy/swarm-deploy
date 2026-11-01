@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
+	"go.uber.org/mock/gomock"
 )
 
 func TestDeployStackReconcilesResourcesBeforeInitJobs(t *testing.T) {
@@ -100,40 +101,38 @@ func TestDeployStackReconcilesResourcesBeforeInitJobs(t *testing.T) {
 
 			dockerClient := newDockerTestClient(t, server)
 			initJobs := &fakeInitJobExecutor{events: &events}
-			runner := &fakeRunner{events: &events}
+
 			deployer := &Deployer{secretResolver: newTestSecretResolver(),
-				stackDeployArgs: []string{"stack", "deploy"},
-				runner:          runner,
-				resources:       newResourceReconciler(swarm.NewSwarm(dockerClient, "")),
-				initJobRunner:   initJobs,
-				serviceWaiter:   newSuccessfulServiceWaiter(t),
+				resources:     newResourceReconciler(swarm.NewSwarm(dockerClient)),
+				initJobRunner: initJobs,
+				serviceWaiter: newSuccessfulServiceWaiter(t),
 			}
+			wireNativeTestDeployer(t, deployer)
 
 			desired := compose.Compose{
 				Configs: tt.configs,
 				Secrets: tt.secrets,
 				Services: []compose.Service{{
 					Name:     "api",
+					Image:    "alpine:3",
 					Configs:  tt.serviceConfig,
 					Secrets:  tt.serviceSecret,
 					InitJobs: []compose.InitJob{{Name: "migrate", Image: "example/migrate:latest"}},
 				}},
 			}
 
-			_, err := deployer.DeployStack(
-				context.Background(),
-				"demo",
-				filepath.Join(dir, "compose.yaml"),
-				filepath.Join(dir, "rendered", "compose.yaml"),
-				desired,
-			)
+			_, err := deployer.DeployStack(context.Background(), StackRequest{
+				StackName:         "demo",
+				SourceComposePath: filepath.Join(dir, "compose.yaml"),
+				Desired:           desired,
+			})
 			require.NoError(t, err, "deploy stack")
 			require.NoError(t, handlerErr, "decode create request")
 			assert.Equal(t, tt.resourceName, createdName)
 			assert.Equal(t, []byte(tt.fileContent), createdData)
 			require.Len(t, initJobs.calls, 1, "expected one init job")
 			assert.Equal(t, ResolvedResource{ID: tt.resourceID, Name: tt.resourceName}, tt.resolved(initJobs.calls[0]))
-			assert.Equal(t, []string{tt.name + "-create", "init:api:migrate", "deploy"}, events, "resource must exist before init job")
+			assert.Equal(t, []string{tt.name + "-create", "init:api:migrate"}, events, "resource must exist before init job")
 		})
 	}
 }
@@ -157,7 +156,7 @@ func TestResourceReconcilerReusesExistingResource(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	resolved, err := newResourceReconciler(swarm.NewSwarm(newDockerTestClient(t, server), "")).Reconcile(
+	resolved, err := newResourceReconciler(swarm.NewSwarm(newDockerTestClient(t, server))).Reconcile(
 		context.Background(),
 		"demo",
 		compose.Configs{"app-config": {Alias: "app-config", File: "unused.yaml"}},
@@ -197,7 +196,7 @@ func TestResourceReconcilerUsesRotatedNameOnce(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	reconciler := newResourceReconciler(swarm.NewSwarm(newDockerTestClient(t, server), ""))
+	reconciler := newResourceReconciler(swarm.NewSwarm(newDockerTestClient(t, server)))
 	objects := compose.Configs{
 		"app-config": {Alias: "app-config", Name: rotatedName, File: "config.yaml", Data: []byte("v2")},
 	}
@@ -234,35 +233,33 @@ func TestDeployStackInitJobFailureDoesNotDeleteResources(t *testing.T) {
 
 	initErr := errors.New("migration failed")
 	initJobs := &fakeInitJobExecutor{errAt: 1, err: initErr}
-	runner := &fakeRunner{}
+
 	deployer := &Deployer{secretResolver: newTestSecretResolver(),
-		stackDeployArgs: []string{"stack", "deploy"},
-		runner:          runner,
-		resources:       newResourceReconciler(swarm.NewSwarm(newDockerTestClient(t, server), "")),
-		initJobRunner:   initJobs,
-		serviceWaiter:   newSuccessfulServiceWaiter(t),
+		resources:     newResourceReconciler(swarm.NewSwarm(newDockerTestClient(t, server))),
+		initJobRunner: initJobs,
+		serviceWaiter: newSuccessfulServiceWaiter(t),
 	}
+	serviceManager := swarm.NewMockServiceManager(gomock.NewController(t))
+	wireNativeTestDeployerWithServiceManager(t, deployer, serviceManager, false)
 	desired := compose.Compose{
 		Configs: compose.Configs{
 			"app-config": {Alias: "app-config", Name: "demo-app-config-new", File: "config.yaml", Data: []byte("new")},
 		},
 		Services: []compose.Service{{
 			Name:     "api",
+			Image:    "alpine:3",
 			Configs:  []compose.ObjectRef{{Source: "app-config"}},
 			InitJobs: []compose.InitJob{{Name: "migrate", Image: "example/migrate:latest"}},
 		}},
 	}
 
-	_, err := deployer.DeployStack(
-		context.Background(),
-		"demo",
-		filepath.Join(dir, "compose.yaml"),
-		filepath.Join(dir, "rendered", "compose.yaml"),
-		desired,
-	)
+	_, err := deployer.DeployStack(context.Background(), StackRequest{
+		StackName:         "demo",
+		SourceComposePath: filepath.Join(dir, "compose.yaml"),
+		Desired:           desired,
+	})
 	require.ErrorIs(t, err, initErr, "init job failure must be preserved")
 	assert.Zero(t, deleteCalls, "old resources must not be pruned when init job fails")
-	assert.Empty(t, runner.calls, "regular services must not deploy after init job failure")
 }
 
 func TestResourceReconcilerListsMultipleResourcesInBulk(t *testing.T) {
@@ -293,7 +290,7 @@ func TestResourceReconcilerListsMultipleResourcesInBulk(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	resolved, err := newResourceReconciler(swarm.NewSwarm(newDockerTestClient(t, server), "")).Reconcile(
+	resolved, err := newResourceReconciler(swarm.NewSwarm(newDockerTestClient(t, server))).Reconcile(
 		context.Background(),
 		"demo",
 		compose.Configs{
@@ -345,7 +342,7 @@ func TestResourceReconcilerPreservesComposeResourceOptions(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	_, err := newResourceReconciler(swarm.NewSwarm(newDockerTestClient(t, server), "")).Reconcile(
+	_, err := newResourceReconciler(swarm.NewSwarm(newDockerTestClient(t, server))).Reconcile(
 		context.Background(),
 		"demo",
 		compose.Configs{
@@ -426,7 +423,7 @@ func TestResourceReconcilerDoesNotCreateMissingExternalResource(t *testing.T) {
 			}))
 			t.Cleanup(server.Close)
 
-			_, err := newResourceReconciler(swarm.NewSwarm(newDockerTestClient(t, server), "")).Reconcile(
+			_, err := newResourceReconciler(swarm.NewSwarm(newDockerTestClient(t, server))).Reconcile(
 				context.Background(),
 				"demo",
 				tt.configs,

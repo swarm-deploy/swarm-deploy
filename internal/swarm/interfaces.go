@@ -8,6 +8,21 @@ import (
 )
 
 type ServiceManager interface {
+	// Inspect returns the complete Docker service, including its specification and version.
+	Inspect(ctx context.Context, serviceIDOrName string) (dockerswarm.Service, error)
+
+	// Create creates a Docker Swarm service and returns its identifier.
+	Create(ctx context.Context, spec dockerswarm.ServiceSpec, options dockerswarm.ServiceCreateOptions) (string, error)
+
+	// Update replaces a Docker Swarm service specification using optimistic versioning.
+	Update(
+		ctx context.Context,
+		serviceID string,
+		version dockerswarm.Version,
+		spec dockerswarm.ServiceSpec,
+		options dockerswarm.ServiceUpdateOptions,
+	) error
+
 	// GetReplicas returns desired replicas count for a stack service.
 	GetReplicas(ctx context.Context, serviceRef ServiceReference) (uint64, error)
 

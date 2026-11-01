@@ -16,6 +16,40 @@ import (
 
 var serviceWaitTestTime = time.Date(2026, time.October, 31, 0, 0, 0, 0, time.UTC)
 
+func TestInitialNonRestartingTaskFailureIsTerminal(t *testing.T) {
+	exit := 23
+	for _, tc := range []struct {
+		name     string
+		exitCode *int
+	}{
+		{name: "nonzero exit code", exitCode: &exit},
+		{name: "exit code unavailable"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			manager := swarm.NewMockServiceManager(gomock.NewController(t))
+			service := testReplicatedService("api", "api-id", 1, serviceWaitTestTime, "busybox:1.36")
+			service.ServiceSpec.TaskTemplate.RestartPolicy = &dockerswarm.RestartPolicy{Condition: dockerswarm.RestartPolicyConditionNone}
+			task := testTask("failed-initial", 1, swarm.TaskStateShutdown, swarm.TaskStateFailed, serviceWaitTestTime.Add(time.Second))
+			task.ExitCode = tc.exitCode
+			task.Error = "task startup failed"
+			manager.EXPECT().ListServices(gomock.Any(), gomock.Any()).Return([]swarm.StackService{service}, nil).AnyTimes()
+			manager.EXPECT().ListTasks(gomock.Any(), service.ID).Return([]swarm.ServiceTask{task}, nil).AnyTimes()
+			_, err := NewServiceWaiter(manager, time.Millisecond, 20*time.Millisecond).Wait(t.Context(), ServiceWaitRequest{
+				StackName: "app", ServiceNames: []string{"api"},
+			})
+			require.ErrorIs(t, err, ErrConvergenceFailed)
+			assert.NotErrorIs(t, err, context.DeadlineExceeded)
+			assert.ErrorContains(t, err, "id=failed-initial state=failed")
+			assert.ErrorContains(t, err, task.Error)
+			if tc.exitCode != nil {
+				assert.ErrorContains(t, err, "exit_code=23")
+			} else {
+				assert.NotContains(t, err.Error(), "exit_code=")
+			}
+		})
+	}
+}
+
 func TestServiceWaiterNewReplicatedServiceConvergesAndReportsTransitions(t *testing.T) {
 	manager := swarm.NewMockServiceManager(gomock.NewController(t))
 	service := testReplicatedService("api", "api-id", 3, serviceWaitTestTime, "api:2")
@@ -25,7 +59,7 @@ func TestServiceWaiterNewReplicatedServiceConvergesAndReportsTransitions(t *test
 	manager.EXPECT().ListTasks(gomock.Any(), "api-id").Return(testRunningTasks(3, serviceWaitTestTime), nil)
 
 	progress := make([]ServiceProgress, 0)
-	err := newTestServiceWaiter(manager).Wait(t.Context(), ServiceWaitRequest{
+	err := waitForTest(newTestServiceWaiter(manager), t.Context(), ServiceWaitRequest{
 		StackName: "app", ServiceNames: []string{"api"},
 		Progress: func(update ServiceProgress) { progress = append(progress, update) },
 	})
@@ -55,8 +89,8 @@ func TestServiceWaiterRollingUpdateIgnoresOldTasks(t *testing.T) {
 	manager.EXPECT().ListTasks(gomock.Any(), "api-id").Return(testRunningTasks(3, serviceWaitTestTime), nil)
 
 	progress := make([]ServiceProgress, 0)
-	err := newTestServiceWaiter(manager).Wait(t.Context(), ServiceWaitRequest{
-		StackName: "app", ServiceNames: []string{"api"}, Baseline: []swarm.StackService{baseline}, OnlyAffected: true,
+	err := waitForTest(newTestServiceWaiter(manager), t.Context(), ServiceWaitRequest{
+		StackName: "app", ServiceNames: []string{"api"}, Baseline: []swarm.StackService{baseline},
 		Progress: func(update ServiceProgress) { progress = append(progress, update) },
 	})
 	require.NoError(t, err)
@@ -82,8 +116,8 @@ func TestServiceWaiterWaitsForUpdateStatusCompletion(t *testing.T) {
 		testRunningTasks(1, serviceWaitTestTime.Add(500*time.Millisecond)), nil,
 	)
 
-	err := newTestServiceWaiter(manager).Wait(t.Context(), ServiceWaitRequest{
-		StackName: "app", ServiceNames: []string{"api"}, Baseline: []swarm.StackService{baseline}, OnlyAffected: true,
+	err := waitForTest(newTestServiceWaiter(manager), t.Context(), ServiceWaitRequest{
+		StackName: "app", ServiceNames: []string{"api"}, Baseline: []swarm.StackService{baseline},
 	})
 	require.NoError(t, err)
 }
@@ -99,7 +133,7 @@ func TestServiceWaiterAllowsFailedTaskReplacement(t *testing.T) {
 	manager.EXPECT().ListTasks(gomock.Any(), "api-id").Return(testRunningTasks(1, serviceWaitTestTime.Add(time.Second)), nil)
 
 	progress := make([]ServiceProgress, 0)
-	err := newTestServiceWaiter(manager).Wait(t.Context(), ServiceWaitRequest{
+	err := waitForTest(newTestServiceWaiter(manager), t.Context(), ServiceWaitRequest{
 		StackName: "app", ServiceNames: []string{"api"},
 		Progress: func(update ServiceProgress) { progress = append(progress, update) },
 	})
@@ -116,8 +150,9 @@ func TestServiceWaiterFailsTerminalUpdateStates(t *testing.T) {
 			service := testReplicatedService("api", "api-id", 1, serviceWaitTestTime, "api:2")
 			service.UpdateStatus = &swarm.ServiceUpdateStatus{State: state, Message: "update failure"}
 			manager.EXPECT().ListServices(gomock.Any(), gomock.Any()).Return([]swarm.StackService{service}, nil)
+			manager.EXPECT().ListTasks(gomock.Any(), "api-id").Return(nil, nil)
 
-			err := newTestServiceWaiter(manager).Wait(t.Context(), ServiceWaitRequest{
+			err := waitForTest(newTestServiceWaiter(manager), t.Context(), ServiceWaitRequest{
 				StackName: "app", ServiceNames: []string{"api"},
 			})
 			require.Error(t, err)
@@ -134,7 +169,7 @@ func TestServiceWaiterReplicatedServiceScaledToZero(t *testing.T) {
 		testTask("old", 1, swarm.TaskStateShutdown, swarm.TaskStateShutdown, serviceWaitTestTime.Add(-time.Minute)),
 	}, nil)
 
-	err := newTestServiceWaiter(manager).Wait(t.Context(), ServiceWaitRequest{StackName: "app", ServiceNames: []string{"api"}})
+	err := waitForTest(newTestServiceWaiter(manager), t.Context(), ServiceWaitRequest{StackName: "app", ServiceNames: []string{"api"}})
 	require.NoError(t, err)
 }
 
@@ -145,8 +180,8 @@ func TestServiceWaiterExistingZeroReplicasAcceptsTaskTemplateUpdateWithoutRollou
 	manager.EXPECT().ListServices(gomock.Any(), gomock.Any()).Return([]swarm.StackService{service}, nil)
 	manager.EXPECT().ListTasks(gomock.Any(), "api-id").Return(nil, nil)
 
-	err := newTestServiceWaiter(manager).Wait(t.Context(), ServiceWaitRequest{
-		StackName: "app", ServiceNames: []string{"api"}, Baseline: []swarm.StackService{baseline}, OnlyAffected: true,
+	err := waitForTest(newTestServiceWaiter(manager), t.Context(), ServiceWaitRequest{
+		StackName: "app", ServiceNames: []string{"api"}, Baseline: []swarm.StackService{baseline},
 	})
 	require.NoError(t, err)
 }
@@ -157,7 +192,7 @@ func TestServiceWaiterExistingUnchangedZeroReplicasConverges(t *testing.T) {
 	manager.EXPECT().ListServices(gomock.Any(), gomock.Any()).Return([]swarm.StackService{service}, nil)
 	manager.EXPECT().ListTasks(gomock.Any(), "api-id").Return(nil, nil)
 
-	err := newTestServiceWaiter(manager).Wait(t.Context(), ServiceWaitRequest{
+	err := waitForTest(newTestServiceWaiter(manager), t.Context(), ServiceWaitRequest{
 		StackName: "app", ServiceNames: []string{"api"}, Baseline: []swarm.StackService{service},
 	})
 	require.NoError(t, err)
@@ -177,8 +212,8 @@ func TestServiceWaiterScaleDownToZeroWaitsForOldTasksToStop(t *testing.T) {
 	manager.EXPECT().ListTasks(gomock.Any(), "api-id").Return([]swarm.ServiceTask{stopped}, nil)
 
 	progress := make([]ServiceProgress, 0)
-	err := newTestServiceWaiter(manager).Wait(t.Context(), ServiceWaitRequest{
-		StackName: "app", ServiceNames: []string{"api"}, Baseline: []swarm.StackService{baseline}, OnlyAffected: true,
+	err := waitForTest(newTestServiceWaiter(manager), t.Context(), ServiceWaitRequest{
+		StackName: "app", ServiceNames: []string{"api"}, Baseline: []swarm.StackService{baseline},
 		Progress: func(update ServiceProgress) { progress = append(progress, update) },
 	})
 	require.NoError(t, err)
@@ -210,8 +245,8 @@ func TestServiceWaiterScalingConverges(t *testing.T) {
 			manager.EXPECT().ListServices(gomock.Any(), gomock.Any()).Return([]swarm.StackService{service}, nil)
 			manager.EXPECT().ListTasks(gomock.Any(), "api-id").Return(tasks, nil)
 
-			err := newTestServiceWaiter(manager).Wait(t.Context(), ServiceWaitRequest{
-				StackName: "app", ServiceNames: []string{"api"}, Baseline: []swarm.StackService{baseline}, OnlyAffected: true,
+			err := waitForTest(newTestServiceWaiter(manager), t.Context(), ServiceWaitRequest{
+				StackName: "app", ServiceNames: []string{"api"}, Baseline: []swarm.StackService{baseline},
 			})
 			require.NoError(t, err)
 		})
@@ -224,7 +259,7 @@ func TestServiceWaiterGlobalServiceConverges(t *testing.T) {
 	manager.EXPECT().ListServices(gomock.Any(), gomock.Any()).Return([]swarm.StackService{service}, nil)
 	manager.EXPECT().ListTasks(gomock.Any(), "agent-id").Return(testRunningTasks(2, serviceWaitTestTime), nil)
 
-	err := newTestServiceWaiter(manager).Wait(t.Context(), ServiceWaitRequest{StackName: "app", ServiceNames: []string{"agent"}})
+	err := waitForTest(newTestServiceWaiter(manager), t.Context(), ServiceWaitRequest{StackName: "app", ServiceNames: []string{"agent"}})
 	require.NoError(t, err)
 }
 
@@ -239,7 +274,7 @@ func TestServiceWaiterNewGlobalServiceWaitsForSchedulerPropagation(t *testing.T)
 	manager.EXPECT().ListTasks(gomock.Any(), "agent-id").Return(testRunningTasks(2, serviceWaitTestTime), nil)
 
 	progress := make([]ServiceProgress, 0)
-	err := newTestServiceWaiter(manager).Wait(t.Context(), ServiceWaitRequest{
+	err := waitForTest(newTestServiceWaiter(manager), t.Context(), ServiceWaitRequest{
 		StackName: "app", ServiceNames: []string{"agent"},
 		Progress: func(update ServiceProgress) { progress = append(progress, update) },
 	})
@@ -264,7 +299,7 @@ func TestServiceWaiterGlobalTasksOverrideLaggingServiceStatus(t *testing.T) {
 	manager.EXPECT().ListServices(gomock.Any(), gomock.Any()).Return([]swarm.StackService{converged}, nil)
 	manager.EXPECT().ListTasks(gomock.Any(), "agent-id").Return(testRunningTasks(2, serviceWaitTestTime), nil)
 
-	err := newTestServiceWaiter(manager).Wait(t.Context(), ServiceWaitRequest{
+	err := waitForTest(newTestServiceWaiter(manager), t.Context(), ServiceWaitRequest{
 		StackName: "app", ServiceNames: []string{"agent"},
 	})
 	require.NoError(t, err)
@@ -278,8 +313,8 @@ func TestServiceWaiterExistingGlobalServiceWithZeroEligibleTasksConverges(t *tes
 	manager.EXPECT().ListServices(gomock.Any(), gomock.Any()).Return([]swarm.StackService{service}, nil)
 	manager.EXPECT().ListTasks(gomock.Any(), "agent-id").Return(nil, nil)
 
-	err := newTestServiceWaiter(manager).Wait(t.Context(), ServiceWaitRequest{
-		StackName: "app", ServiceNames: []string{"agent"}, Baseline: []swarm.StackService{baseline}, OnlyAffected: true,
+	err := waitForTest(newTestServiceWaiter(manager), t.Context(), ServiceWaitRequest{
+		StackName: "app", ServiceNames: []string{"agent"}, Baseline: []swarm.StackService{baseline},
 	})
 	require.NoError(t, err)
 }
@@ -291,7 +326,7 @@ func TestServiceWaiterNewGlobalServiceWithZeroDesiredTasksDoesNotConvergePrematu
 	manager.EXPECT().ListTasks(gomock.Any(), "agent-id").Return(nil, nil).AnyTimes()
 
 	waiter := NewServiceWaiter(manager, time.Millisecond, 4*time.Millisecond)
-	err := waiter.Wait(t.Context(), ServiceWaitRequest{StackName: "app", ServiceNames: []string{"agent"}})
+	err := waitForTest(waiter, t.Context(), ServiceWaitRequest{StackName: "app", ServiceNames: []string{"agent"}})
 	require.Error(t, err)
 	assert.ErrorIs(t, err, context.DeadlineExceeded)
 	assert.ErrorContains(t, err, "waiting for global scheduler to create tasks")
@@ -314,8 +349,8 @@ func TestServiceWaiterUpdatedGlobalServiceDoesNotConvergeBeforeSchedulerPropagat
 	manager.EXPECT().ListTasks(gomock.Any(), "agent-id").Return(testRunningTasks(2, serviceWaitTestTime), nil)
 
 	progress := make([]ServiceProgress, 0)
-	err := newTestServiceWaiter(manager).Wait(t.Context(), ServiceWaitRequest{
-		StackName: "app", ServiceNames: []string{"agent"}, Baseline: []swarm.StackService{baseline}, OnlyAffected: true,
+	err := waitForTest(newTestServiceWaiter(manager), t.Context(), ServiceWaitRequest{
+		StackName: "app", ServiceNames: []string{"agent"}, Baseline: []swarm.StackService{baseline},
 		Progress: func(update ServiceProgress) { progress = append(progress, update) },
 	})
 	require.NoError(t, err)
@@ -340,8 +375,8 @@ func TestServiceWaiterGlobalRollingUpdateConverges(t *testing.T) {
 	manager.EXPECT().ListServices(gomock.Any(), gomock.Any()).Return([]swarm.StackService{completed}, nil)
 	manager.EXPECT().ListTasks(gomock.Any(), "agent-id").Return(testRunningTasks(2, serviceWaitTestTime), nil)
 
-	err := newTestServiceWaiter(manager).Wait(t.Context(), ServiceWaitRequest{
-		StackName: "app", ServiceNames: []string{"agent"}, Baseline: []swarm.StackService{baseline}, OnlyAffected: true,
+	err := waitForTest(newTestServiceWaiter(manager), t.Context(), ServiceWaitRequest{
+		StackName: "app", ServiceNames: []string{"agent"}, Baseline: []swarm.StackService{baseline},
 	})
 	require.NoError(t, err)
 }
@@ -354,7 +389,7 @@ func TestServiceWaiterHandlesInitialPropagationDelay(t *testing.T) {
 	manager.EXPECT().ListTasks(gomock.Any(), "api-id").Return(testRunningTasks(1, serviceWaitTestTime), nil)
 
 	progress := make([]ServiceProgress, 0)
-	err := newTestServiceWaiter(manager).Wait(t.Context(), ServiceWaitRequest{
+	err := waitForTest(newTestServiceWaiter(manager), t.Context(), ServiceWaitRequest{
 		StackName: "app", ServiceNames: []string{"api"},
 		Progress: func(update ServiceProgress) { progress = append(progress, update) },
 	})
@@ -374,7 +409,7 @@ func TestServiceWaiterTimeoutIncludesPartialConvergence(t *testing.T) {
 
 	progress := make([]ServiceProgress, 0)
 	waiter := NewServiceWaiter(manager, time.Millisecond, 4*time.Millisecond)
-	err := waiter.Wait(t.Context(), ServiceWaitRequest{
+	err := waitForTest(waiter, t.Context(), ServiceWaitRequest{
 		StackName: "app", ServiceNames: []string{"api", "worker"},
 		Progress: func(update ServiceProgress) { progress = append(progress, update) },
 	})
@@ -391,31 +426,12 @@ func TestServiceWaiterPropagatesCancellation(t *testing.T) {
 	manager.EXPECT().ListTasks(gomock.Any(), "api-id").Return(nil, nil)
 	ctx, cancel := context.WithCancel(t.Context())
 
-	err := newTestServiceWaiter(manager).Wait(ctx, ServiceWaitRequest{
+	err := waitForTest(newTestServiceWaiter(manager), ctx, ServiceWaitRequest{
 		StackName: "app", ServiceNames: []string{"api"},
 		Progress: func(ServiceProgress) { cancel() },
 	})
 	require.Error(t, err)
 	assert.ErrorIs(t, err, context.Canceled)
-}
-
-func TestServiceWaiterUnchangedUnhealthyServiceDoesNotBlock(t *testing.T) {
-	manager := swarm.NewMockServiceManager(gomock.NewController(t))
-	previousAPI := testReplicatedService("api", "api-id", 1, serviceWaitTestTime.Add(-time.Minute), "api:1")
-	updatedAPI := testReplicatedService("api", "api-id", 1, serviceWaitTestTime, "api:2")
-	updatedAPI.UpdateStatus = &swarm.ServiceUpdateStatus{
-		State: "completed", StartedAt: serviceWaitTestTime, CompletedAt: serviceWaitTestTime.Add(time.Second),
-	}
-	unhealthy := testReplicatedService("worker", "worker-id", 3, serviceWaitTestTime, "worker:1")
-	unhealthy.RunningTasks = 1
-	manager.EXPECT().ListServices(gomock.Any(), gomock.Any()).Return([]swarm.StackService{updatedAPI, unhealthy}, nil)
-	manager.EXPECT().ListTasks(gomock.Any(), "api-id").Return(testRunningTasks(1, serviceWaitTestTime), nil)
-
-	err := newTestServiceWaiter(manager).Wait(t.Context(), ServiceWaitRequest{
-		StackName: "app", ServiceNames: []string{"api", "worker"},
-		Baseline: []swarm.StackService{previousAPI, unhealthy}, OnlyAffected: true,
-	})
-	require.NoError(t, err)
 }
 
 func TestServiceWaiterSingleServiceIgnoresOtherServices(t *testing.T) {
@@ -426,8 +442,8 @@ func TestServiceWaiterSingleServiceIgnoresOtherServices(t *testing.T) {
 	manager.EXPECT().ListServices(gomock.Any(), gomock.Any()).Return([]swarm.StackService{api, worker}, nil)
 	manager.EXPECT().ListTasks(gomock.Any(), "api-id").Return(testRunningTasks(1, serviceWaitTestTime), nil)
 
-	err := newTestServiceWaiter(manager).Wait(t.Context(), ServiceWaitRequest{
-		StackName: "app", ServiceNames: []string{"api"}, OnlyAffected: false,
+	err := waitForTest(newTestServiceWaiter(manager), t.Context(), ServiceWaitRequest{
+		StackName: "app", ServiceNames: []string{"api"},
 	})
 	require.NoError(t, err)
 }
@@ -436,7 +452,7 @@ func TestServiceWaiterReturnsServiceObservationErrors(t *testing.T) {
 	manager := swarm.NewMockServiceManager(gomock.NewController(t))
 	manager.EXPECT().ListServices(gomock.Any(), gomock.Any()).Return(nil, errors.New("manager unavailable"))
 
-	err := newTestServiceWaiter(manager).Wait(t.Context(), ServiceWaitRequest{StackName: "app", ServiceNames: []string{"api"}})
+	err := waitForTest(newTestServiceWaiter(manager), t.Context(), ServiceWaitRequest{StackName: "app", ServiceNames: []string{"api"}})
 	require.Error(t, err)
 	assert.ErrorContains(t, err, "manager unavailable")
 }
@@ -448,7 +464,7 @@ func TestServiceWaiterRetriesTemporaryListServicesError(t *testing.T) {
 	manager.EXPECT().ListServices(gomock.Any(), gomock.Any()).Return([]swarm.StackService{service}, nil)
 	manager.EXPECT().ListTasks(gomock.Any(), "api-id").Return(testRunningTasks(1, serviceWaitTestTime), nil)
 
-	err := newTestServiceWaiter(manager).Wait(t.Context(), ServiceWaitRequest{
+	err := waitForTest(newTestServiceWaiter(manager), t.Context(), ServiceWaitRequest{
 		StackName: "app", ServiceNames: []string{"api"},
 	})
 	require.NoError(t, err)
@@ -462,7 +478,7 @@ func TestServiceWaiterRetriesTemporaryListTasksError(t *testing.T) {
 	manager.EXPECT().ListServices(gomock.Any(), gomock.Any()).Return([]swarm.StackService{service}, nil)
 	manager.EXPECT().ListTasks(gomock.Any(), "api-id").Return(testRunningTasks(1, serviceWaitTestTime), nil)
 
-	err := newTestServiceWaiter(manager).Wait(t.Context(), ServiceWaitRequest{
+	err := waitForTest(newTestServiceWaiter(manager), t.Context(), ServiceWaitRequest{
 		StackName: "app", ServiceNames: []string{"api"},
 	})
 	require.NoError(t, err)
@@ -474,7 +490,7 @@ func TestServiceWaiterPermanentListTasksErrorIsNotRetried(t *testing.T) {
 	manager.EXPECT().ListServices(gomock.Any(), gomock.Any()).Return([]swarm.StackService{service}, nil)
 	manager.EXPECT().ListTasks(gomock.Any(), "api-id").Return(nil, errors.New("permission denied"))
 
-	err := newTestServiceWaiter(manager).Wait(t.Context(), ServiceWaitRequest{
+	err := waitForTest(newTestServiceWaiter(manager), t.Context(), ServiceWaitRequest{
 		StackName: "app", ServiceNames: []string{"api"},
 	})
 	require.Error(t, err)
@@ -486,7 +502,7 @@ func TestServiceWaiterRepeatedTemporaryErrorsEndInTimeoutWithLatestDiagnostic(t 
 	manager.EXPECT().ListServices(gomock.Any(), gomock.Any()).Return(nil, temporaryDockerError()).AnyTimes()
 
 	waiter := NewServiceWaiter(manager, time.Millisecond, 4*time.Millisecond)
-	err := waiter.Wait(t.Context(), ServiceWaitRequest{StackName: "app", ServiceNames: []string{"api"}})
+	err := waitForTest(waiter, t.Context(), ServiceWaitRequest{StackName: "app", ServiceNames: []string{"api"}})
 	require.Error(t, err)
 	assert.ErrorIs(t, err, context.DeadlineExceeded)
 	assert.ErrorContains(t, err, "last Docker API error")
@@ -504,7 +520,7 @@ func TestServiceWaiterContextCancellationDuringTemporaryErrorRetries(t *testing.
 		},
 	)
 
-	err := newTestServiceWaiter(manager).Wait(ctx, ServiceWaitRequest{StackName: "app", ServiceNames: []string{"api"}})
+	err := waitForTest(newTestServiceWaiter(manager), ctx, ServiceWaitRequest{StackName: "app", ServiceNames: []string{"api"}})
 	require.Error(t, err)
 	assert.ErrorIs(t, err, context.Canceled)
 }
@@ -568,4 +584,44 @@ func testTask(
 		ID: id, Slot: slot, DesiredState: desired, CurrentState: current,
 		CreatedAt: createdAt, UpdatedAt: createdAt,
 	}
+}
+
+func TestJobsWaitForCompletion(t *testing.T) {
+	for _, mode := range []string{"replicated-job", "global-job"} {
+		t.Run(mode, func(t *testing.T) {
+			manager := swarm.NewMockServiceManager(gomock.NewController(t))
+			service := swarm.StackService{ID: "job-id", Name: "job", Mode: mode, DesiredTasks: 1, JobStatus: &dockerswarm.JobStatus{}}
+			if mode == "replicated-job" {
+				service.ServiceSpec.Mode.ReplicatedJob = &dockerswarm.ReplicatedJob{}
+			}
+			pending := manager.EXPECT().ListServices(gomock.Any(), gomock.Any()).Return([]swarm.StackService{service}, nil)
+			service.CompletedTasks = 1
+			if mode == "global-job" {
+				service.DesiredTasks = 0
+			}
+			manager.EXPECT().ListServices(gomock.Any(), gomock.Any()).After(pending).Return([]swarm.StackService{service}, nil)
+			var progress []ServiceProgress
+			err := waitForTest(newTestServiceWaiter(manager), t.Context(), ServiceWaitRequest{StackName: "app", ServiceNames: []string{"job"}, Progress: func(p ServiceProgress) { progress = append(progress, p) }})
+			require.NoError(t, err)
+			require.Len(t, progress, 2)
+			assert.Equal(t, ServicePending, progress[0].State)
+			assert.Equal(t, ServiceReady, progress[1].State)
+		})
+	}
+}
+
+func TestGlobalJobPartialCompletionIsNotReady(t *testing.T) {
+	service := swarm.StackService{ID: "job", Mode: "global-job", DesiredTasks: 1, CompletedTasks: 1, JobStatus: &dockerswarm.JobStatus{}}
+	progress := jobProgress(ServiceProgress{State: ServicePending}, swarm.StackService{}, service)
+	assert.Equal(t, uint64(2), progress.Desired)
+	assert.Equal(t, ServicePending, progress.State)
+	service.DesiredTasks = 0
+	progress = jobProgress(ServiceProgress{State: ServicePending}, swarm.StackService{}, service)
+	assert.Equal(t, ServiceReady, progress.State)
+}
+
+// waitForTest keeps error-only scenarios focused on their existing convergence assertions.
+func waitForTest(waiter *ServiceWaiter, ctx context.Context, request ServiceWaitRequest) error {
+	_, err := waiter.Wait(ctx, request)
+	return err
 }

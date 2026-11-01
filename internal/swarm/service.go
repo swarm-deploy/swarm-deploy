@@ -27,6 +27,9 @@ type ServiceScaleResult struct {
 	PreviousReplicas uint64
 }
 
+// ErrServiceConflict means that a service create or update conflicted with concurrent Docker state.
+var ErrServiceConflict = errors.New("service conflict")
+
 // ErrTaskNotFound means that task does not exist in swarm.
 var ErrTaskNotFound = errors.New("task not found")
 
@@ -226,6 +229,11 @@ type LogEntry struct {
 
 // StackService is a compact snapshot of a service belonging to a stack.
 type StackService struct {
+	// CompletedTasks is the count completed in the current job iteration.
+	CompletedTasks uint64
+	// JobStatus identifies the current execution of a Swarm job.
+	JobStatus *dockerswarm.JobStatus
+
 	// ID is a Docker service identifier.
 	ID string
 	// Name is a service name without stack prefix.

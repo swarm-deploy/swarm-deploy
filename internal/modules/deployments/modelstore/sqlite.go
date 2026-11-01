@@ -329,7 +329,10 @@ type summaryRow struct {
 }
 
 type deploymentDetails struct {
+	// UnresolvedServices retains verification obligations across desired-state deployments.
+	UnresolvedServices []string                          `json:"unresolved_services"`
 	ErrorDiagnostic    string                            `json:"error_diagnostic,omitempty"`
+	Retryable          bool                              `json:"retryable,omitempty"`
 	ApplyStatus        deploymentmodel.StageStatus       `json:"apply_status"`
 	VerificationStatus deploymentmodel.StageStatus       `json:"verification_status"`
 	CleanupStatus      deploymentmodel.StageStatus       `json:"cleanup_status"`
@@ -373,7 +376,8 @@ type attemptRow struct {
 
 func detailsFromDeployment(d deploymentmodel.Deployment) deploymentDetails {
 	return deploymentDetails{
-		ErrorDiagnostic: d.ErrorDiagnostic, ApplyStatus: d.ApplyStatus,
+		UnresolvedServices: persistedUnresolvedServices(d.Verification),
+		ErrorDiagnostic:    d.ErrorDiagnostic, Retryable: d.Retryable, ApplyStatus: d.ApplyStatus,
 		VerificationStatus: d.VerificationStatus, CleanupStatus: d.CleanupStatus,
 		ActualStateStatus: d.ActualStateStatus, ObservedAt: d.ObservedAt,
 		ComparisonBasis: d.ComparisonBasis, ComparisonStatus: d.ComparisonStatus,
@@ -416,8 +420,11 @@ func (row deploymentRow) deployment() (deploymentmodel.Deployment, error) {
 	}
 	result := deploymentmodel.Deployment{
 		ID: row.ID, Stack: row.Stack, Commit: row.Commit, Status: projectedStatus(row.Status, row.IsSuperseded),
+		Verification: deploymentmodel.Verification{
+			Known: details.UnresolvedServices != nil, UnresolvedServices: details.UnresolvedServices,
+		},
 		StartedAt: row.StartedAt.UTC(), ErrorCode: row.ErrorCode,
-		ErrorDiagnostic: details.ErrorDiagnostic, Phase: row.Phase,
+		ErrorDiagnostic: details.ErrorDiagnostic, Retryable: details.Retryable, Phase: row.Phase,
 		ApplyStatus: details.ApplyStatus, VerificationStatus: details.VerificationStatus,
 		CleanupStatus: details.CleanupStatus, ActualStateStatus: details.ActualStateStatus,
 		ObservedAt: details.ObservedAt, ComparisonBasis: details.ComparisonBasis,
@@ -475,7 +482,7 @@ func (row attemptRow) attempt() (deploymentmodel.Attempt, error) {
 	result := deploymentmodel.Attempt{
 		ID: row.ID, DeploymentID: row.DeploymentID, Number: row.Number, Status: row.Status,
 		StartedAt: row.StartedAt.UTC(), ErrorCode: row.ErrorCode,
-		ErrorDiagnostic: details.ErrorDiagnostic, Phase: row.Phase,
+		ErrorDiagnostic: details.ErrorDiagnostic, Retryable: details.Retryable, Phase: row.Phase,
 		ApplyStatus: details.ApplyStatus, VerificationStatus: details.VerificationStatus,
 		CleanupStatus: details.CleanupStatus, ActualStateStatus: details.ActualStateStatus,
 		ObservedAt: details.ObservedAt,
@@ -850,6 +857,7 @@ func (s *Store) StartAttempt(ctx context.Context, d deploymentmodel.Deployment, 
 		return err
 	}
 	d.ErrorDiagnostic, d.ApplyStatus = "", deploymentmodel.StageRunning
+	d.Retryable = false
 	d.VerificationStatus, d.CleanupStatus = deploymentmodel.StagePending, deploymentmodel.StagePending
 	d.ActualStateStatus, d.ObservedAt = deploymentmodel.ActualStateUnknown, nil
 	details, _, err := marshalDeploymentPayloads(d)
@@ -910,7 +918,7 @@ func (s *Store) FinishAttempt(
 		return fmt.Errorf("terminal attempt requires finish time")
 	}
 	attemptDetails, err := json.Marshal(deploymentDetails{
-		ErrorDiagnostic: attempt.ErrorDiagnostic, ApplyStatus: attempt.ApplyStatus,
+		ErrorDiagnostic: attempt.ErrorDiagnostic, Retryable: attempt.Retryable, ApplyStatus: attempt.ApplyStatus,
 		VerificationStatus: attempt.VerificationStatus, CleanupStatus: attempt.CleanupStatus,
 		ActualStateStatus: attempt.ActualStateStatus, ObservedAt: attempt.ObservedAt,
 	})
@@ -932,6 +940,7 @@ func (s *Store) FinishAttempt(
 		return err
 	}
 	d.ErrorDiagnostic, d.ApplyStatus = attempt.ErrorDiagnostic, attempt.ApplyStatus
+	d.Retryable = attempt.Retryable
 	d.VerificationStatus, d.CleanupStatus = attempt.VerificationStatus, attempt.CleanupStatus
 	d.ActualStateStatus, d.ObservedAt = attempt.ActualStateStatus, attempt.ObservedAt
 	details, _, err := marshalDeploymentPayloads(d)
@@ -1012,4 +1021,12 @@ func (s *Store) SaveBaseline(ctx context.Context, id string) error {
 	}
 	_, err = s.db.Exec(ctx, query, args...)
 	return err
+}
+
+// Keep the historical null/array wire format solely at the persistence boundary.
+func persistedUnresolvedServices(verification deploymentmodel.Verification) []string {
+	if !verification.Known {
+		return nil
+	}
+	return append([]string{}, verification.UnresolvedServices...)
 }
