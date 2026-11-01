@@ -90,6 +90,13 @@ func (l *fileLoader) Load(ctx context.Context, path string) (*File, error) {
 	if err != nil {
 		return nil, &ValidateComposeError{FilePath: path, Issues: decodeIssues(err)}
 	}
+	ignored, validateErr := validateComposeSyntax(&syntax)
+	if validateErr != nil {
+		if interpolated {
+			validateErr = fmt.Errorf("unsupported Compose option after interpolation")
+		}
+		return nil, &ValidateComposeError{FilePath: path, Issues: decodeIssues(validateErr), Err: validateErr}
+	}
 	schema := Compose{}
 	if err = syntax.Decode(&schema); err != nil {
 		if interpolated {
@@ -97,6 +104,7 @@ func (l *fileLoader) Load(ctx context.Context, path string) (*File, error) {
 		}
 		return nil, &ValidateComposeError{FilePath: path, Issues: decodeIssues(err), Err: err}
 	}
+	setIgnoredOptions(&schema, ignored)
 	for i := range schema.Services {
 		schema.Services[i].Environment.resolve(os.LookupEnv)
 	}

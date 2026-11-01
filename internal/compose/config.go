@@ -24,8 +24,6 @@ type Config struct {
 	Labels Labels `yaml:"labels,omitempty" json:"labels,omitempty"`
 	// External marks a resource managed outside the Compose application.
 	External bool `yaml:"external,omitempty" json:"external"`
-	// Extra preserves unsupported Compose extension fields.
-	Extra map[string]interface{} `yaml:",inline" json:"Extra"`
 }
 
 // Configs contains top-level Compose configs keyed by alias.
@@ -63,8 +61,6 @@ type Secret struct {
 	Labels Labels `yaml:"labels,omitempty" json:"labels,omitempty"`
 	// External marks a resource managed outside the Compose application.
 	External bool `yaml:"external,omitempty" json:"external"`
-	// Extra preserves unsupported Compose extension fields.
-	Extra map[string]interface{} `yaml:",inline" json:"Extra"`
 }
 
 // Secrets contains top-level Compose secrets keyed by alias.

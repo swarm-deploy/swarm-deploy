@@ -8,8 +8,6 @@ type NetworkIPAM struct {
 	Options map[string]string `yaml:"options,omitempty" json:"options,omitempty"`
 	// Config contains address pools.
 	Config []NetworkIPAMPool `yaml:"config,omitempty" json:"config,omitempty"`
-	// Extra retains unsupported fields for validation.
-	Extra map[string]interface{} `yaml:",inline" json:"Extra,omitempty"`
 }
 
 // NetworkIPAMPool describes a network address pool.
@@ -22,6 +20,4 @@ type NetworkIPAMPool struct {
 	Gateway string `yaml:"gateway,omitempty" json:"gateway,omitempty"`
 	// AuxAddresses reserves named addresses in the pool.
 	AuxAddresses map[string]string `yaml:"aux_addresses,omitempty" json:"aux_addresses,omitempty"`
-	// Extra retains unsupported fields for validation.
-	Extra map[string]interface{} `yaml:",inline" json:"Extra,omitempty"`
 }

@@ -68,8 +68,6 @@ type Ulimit struct {
 	Soft int64 `yaml:"soft" json:"soft"`
 	// Hard is the hard limit.
 	Hard int64 `yaml:"hard" json:"hard"`
-	// Extra retains unsupported fields for validation.
-	Extra map[string]interface{} `yaml:",inline" json:"Extra,omitempty"`
 }
 
 // UnmarshalYAML accepts a single limit or separate soft/hard limits.
@@ -93,16 +91,12 @@ type CredentialSpec struct {
 	File string `yaml:"file,omitempty" json:"file,omitempty"`
 	// Registry names a Windows registry credential spec.
 	Registry string `yaml:"registry,omitempty" json:"registry,omitempty"`
-	// Extra retains unsupported fields for validation.
-	Extra map[string]interface{} `yaml:",inline" json:"Extra,omitempty"`
 }
 
 // GenericResource describes a discrete Swarm resource reservation.
 type GenericResource struct {
 	// DiscreteResourceSpec specifies an integer resource count.
 	DiscreteResourceSpec *DiscreteResource `yaml:"discrete_resource_spec" json:"discrete_resource_spec"`
-	// Extra retains unsupported fields for validation.
-	Extra map[string]interface{} `yaml:",inline" json:"Extra,omitempty"`
 }
 
 // DiscreteResource specifies the kind and count of a generic resource.
@@ -111,8 +105,6 @@ type DiscreteResource struct {
 	Kind string `yaml:"kind" json:"kind"`
 	// Value is the nonnegative number to reserve.
 	Value int64 `yaml:"value" json:"value"`
-	// Extra retains unsupported fields for validation.
-	Extra map[string]interface{} `yaml:",inline" json:"Extra,omitempty"`
 }
 
 // HostsList preserves extra_hosts list order and accepts mapping syntax.

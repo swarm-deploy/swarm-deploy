@@ -87,22 +87,6 @@ func normalizeObjectRef(ref map[string]any, key string) {
 	}
 }
 
-func normalizeIgnoredOptions(tree map[string]any) {
-	services, _ := tree["services"].([]any)
-	for _, value := range services {
-		service, _ := value.(map[string]any)
-		extra, _ := service["Extra"].(map[string]any)
-		for option := range extra {
-			if compose.IsSwarmIgnoredOption(option) {
-				delete(extra, option)
-			}
-		}
-		if len(extra) == 0 {
-			service["Extra"] = nil
-		}
-	}
-}
-
 func ignoredComparisonPath(path string) bool {
 	parts := strings.Split(path, "/")
 	last := len(parts) - 1

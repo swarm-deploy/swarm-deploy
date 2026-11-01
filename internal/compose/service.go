@@ -71,27 +71,23 @@ type Service struct {
 	Deploy      ServiceDeploy  `yaml:"deploy,omitempty" json:"deploy"`
 	Logging     ServiceLogging `yaml:"logging,omitempty" json:"logging,omitempty"`
 	Volumes     ServiceVolumes `yaml:"volumes,omitempty" json:"volumes"`
-
-	Extra map[string]interface{} `yaml:",inline" json:"Extra"`
+	// IgnoredOptions contains tolerated Swarm-ignored source keys; never persisted.
+	IgnoredOptions []string `yaml:"-" json:"-"`
 }
 
 type ServiceHealth struct {
-	// Extra preserves unsupported healthcheck fields for validation.
-	Extra         map[string]interface{} `yaml:",inline" json:"Extra,omitempty"`
-	Test          Command                `yaml:"test,omitempty" json:"test,omitempty"`
-	Interval      string                 `yaml:"interval,omitempty" json:"interval,omitempty"`
-	Timeout       string                 `yaml:"timeout,omitempty" json:"timeout,omitempty"`
-	Retries       *uint64                `yaml:"retries,omitempty" json:"retries,omitempty"`
-	StartPeriod   string                 `yaml:"start_period,omitempty" json:"start_period,omitempty"`
-	StartInterval string                 `yaml:"start_interval,omitempty" json:"start_interval,omitempty"`
-	Disable       bool                   `yaml:"disable,omitempty" json:"disable,omitempty"`
+	Test          Command `yaml:"test,omitempty" json:"test,omitempty"`
+	Interval      string  `yaml:"interval,omitempty" json:"interval,omitempty"`
+	Timeout       string  `yaml:"timeout,omitempty" json:"timeout,omitempty"`
+	Retries       *uint64 `yaml:"retries,omitempty" json:"retries,omitempty"`
+	StartPeriod   string  `yaml:"start_period,omitempty" json:"start_period,omitempty"`
+	StartInterval string  `yaml:"start_interval,omitempty" json:"start_interval,omitempty"`
+	Disable       bool    `yaml:"disable,omitempty" json:"disable,omitempty"`
 }
 
 type ServiceLogging struct {
-	// Extra preserves unsupported logging fields for validation.
-	Extra   map[string]interface{} `yaml:",inline" json:"Extra,omitempty"`
-	Driver  string                 `yaml:"driver,omitempty" json:"driver,omitempty"`
-	Options map[string]string      `yaml:"options,omitempty" json:"options,omitempty"`
+	Driver  string            `yaml:"driver,omitempty" json:"driver,omitempty"`
+	Options map[string]string `yaml:"options,omitempty" json:"options,omitempty"`
 }
 
 // SelfHealPolicy returns the service-level self-heal policy and whether it was specified.
@@ -131,6 +127,10 @@ func (s *Services) UnmarshalYAML(n *yaml.Node) error {
 	for i, cn := range n.Content {
 		if i%2 == 0 {
 			name = cn.Value
+			continue
+		}
+
+		if strings.HasPrefix(name, "x-") {
 			continue
 		}
 

@@ -78,12 +78,11 @@ func TestDeployStackOnRealSwarm(t *testing.T) {
 	t.Run("ignored Swarm options do not roll services", func(t *testing.T) {
 		prepared, err := compose.NewFileLoader().Load(ctx, composePath)
 		require.NoError(t, err)
-		for _, options := range []map[string]interface{}{
-			{"privileged": true, "depends_on": []string{"unused"}, "restart": "always"},
-			{"privileged": false, "depends_on": map[string]interface{}{"unused": map[string]interface{}{"condition": "service_healthy"}}, "restart": "on-failure"},
+		for _, options := range [][]string{
+			{"privileged", "depends_on", "restart"},
 			nil,
 		} {
-			prepared.Compose.Services[0].Extra = options
+			prepared.Compose.Services[0].IgnoredOptions = options
 			_, err = stackDeployer.DeployStack(ctx, deployer.StackRequest{
 				StackName:         stack,
 				SourceComposePath: composePath,

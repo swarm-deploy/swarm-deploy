@@ -24,8 +24,6 @@ type ServicePort struct {
 	AppProtocol string                            `yaml:"app_protocol,omitempty" json:"app_protocol,omitempty"`
 	Mode        dockerswarm.PortConfigPublishMode `yaml:"mode,omitempty" json:"mode,omitempty"`
 	HostIP      string                            `yaml:"host_ip,omitempty" json:"host_ip,omitempty"`
-
-	Extra map[string]interface{} `yaml:",inline" json:"Extra"`
 }
 
 func (sp *ServicePorts) UnmarshalYAML(root *yaml.Node) error { //nolint:gocognit // not need

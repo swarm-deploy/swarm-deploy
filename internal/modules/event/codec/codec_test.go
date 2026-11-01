@@ -24,7 +24,6 @@ func TestSensitiveFieldsAreNeverPersisted(t *testing.T) {
 	const secret = "super-private-token"
 	service := compose.Service{Name: "api", Image: "nginx:stable",
 		Environment: compose.Environment{Map: map[string]string{"TOKEN": secret}},
-		Extra:       map[string]any{"password": secret},
 	}
 	for _, event := range []events.Event{
 		&events.DeploySuccess{DeployEvent: events.DeployEvent{Services: []compose.Service{service}}},

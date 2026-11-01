@@ -42,9 +42,7 @@ func containerOptions(target *dockerswarm.ContainerSpec, service compose.Service
 	}
 	for _, name := range sortedKeys(service.Ulimits) {
 		limit := service.Ulimits[name]
-		if err := unsupported("ulimits."+name, limit.Extra); err != nil {
-			return err
-		}
+
 		if limit.Soft < -1 || limit.Hard < -1 || (limit.Hard != -1 && (limit.Soft == -1 || limit.Soft > limit.Hard)) {
 			return fmt.Errorf("ulimits.%s: invalid soft/hard limits", name)
 		}
@@ -59,9 +57,7 @@ func credentialSpec(
 	if source == nil {
 		return nil
 	}
-	if err := unsupported("credential_spec", source.Extra); err != nil {
-		return err
-	}
+
 	count := 0
 	for _, value := range []string{source.Config, source.File, source.Registry} {
 		if value != "" {
