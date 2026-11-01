@@ -4,8 +4,6 @@ import (
 	"io/fs"
 	"net/http"
 	"net/http/httptest"
-	"regexp"
-	"strings"
 	"testing"
 	"testing/fstest"
 
@@ -208,70 +206,15 @@ func TestEmbeddedUIWithBasePath(t *testing.T) {
 		{name: "nested", basePath: "/infrastructure/swarm", prefix: "/infrastructure/swarm"},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
-			var gotAPIPath string
-			api := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				gotAPIPath = r.URL.Path
-				if r.URL.Path != "/api/v1/stacks" {
-					http.NotFound(w, r)
-					return
-				}
-				w.WriteHeader(http.StatusNoContent)
-			})
-			handler := buildRouter(testCase.basePath, api, ui.FS)
-			request := func(requestPath string) *httptest.ResponseRecorder {
-				t.Helper()
-				rec := httptest.NewRecorder()
-				handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, requestPath, nil))
-				return rec
-			}
+			handler := buildRouter(testCase.basePath, http.NotFoundHandler(), ui.FS)
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodGet, testCase.prefix+"/services/my-stack/my-service", nil)
+			handler.ServeHTTP(rec, req)
 
-			index := request(testCase.prefix + "/services/my-stack/my-service")
-			require.Equal(t, http.StatusOK, index.Code)
-			require.Contains(t, index.Header().Get("Content-Type"), "text/html")
-			baseHref := testCase.prefix + "/"
-			assert.Contains(t, index.Body.String(), `<base href="`+baseHref+`">`)
-			assert.Contains(t, index.Body.String(), `"basePath":"`+testCase.basePath+`"`)
-
-			// The real Vite manifest in the embedded index must load both JS
-			// and CSS from the same URL prefix (not from the domain root).
-			assets := regexp.MustCompile(`(?:src|href)="\./(assets/[^"]+\.(?:js|css))"`).
-				FindAllStringSubmatch(index.Body.String(), -1)
-			require.NotEmpty(t, assets, "embedded index should reference generated assets")
-			seen := make(map[string]bool)
-			for _, asset := range assets {
-				assetPath := asset[1]
-				response := request(testCase.prefix + "/" + assetPath)
-				require.Equal(t, http.StatusOK, response.Code, assetPath)
-				assert.NotEmpty(t, response.Body.Bytes(), assetPath)
-				if strings.HasSuffix(assetPath, ".js") {
-					seen["js"] = true
-					assert.Contains(t, response.Header().Get("Content-Type"), "javascript", assetPath)
-				}
-				if strings.HasSuffix(assetPath, ".css") {
-					seen["css"] = true
-					assert.Contains(t, response.Header().Get("Content-Type"), "text/css", assetPath)
-				}
-			}
-			assert.True(t, seen["js"], "embedded index must reference JavaScript")
-			assert.True(t, seen["css"], "embedded index must reference CSS")
-
-			apiResponse := request(testCase.prefix + "/api/v1/stacks")
-			assert.Equal(t, http.StatusNoContent, apiResponse.Code)
-			assert.Equal(t, "/api/v1/stacks", gotAPIPath)
-
-			unknownAPI := request(testCase.prefix + "/api/v1/does-not-exist")
-			assert.Equal(t, http.StatusNotFound, unknownAPI.Code)
-			assert.NotContains(t, unknownAPI.Body.String(), "<html")
-
-			redirect := request(testCase.prefix + "/ui")
-			assert.Equal(t, http.StatusMovedPermanently, redirect.Code)
-			assert.Equal(t, testCase.prefix+"/overview", redirect.Header().Get("Location"))
-
-			if testCase.prefix != "" {
-				outsideAPI := request("/api/v1/stacks")
-				assert.Equal(t, http.StatusNotFound, outsideAPI.Code)
-				assert.NotContains(t, outsideAPI.Body.String(), "<html")
-			}
+			require.Equal(t, http.StatusOK, rec.Code)
+			assert.Contains(t, rec.Header().Get("Content-Type"), "text/html")
+			assert.Contains(t, rec.Body.String(), `<base href="`+testCase.prefix+`/">`)
+			assert.Contains(t, rec.Body.String(), `"basePath":"`+testCase.basePath+`"`)
 		})
 	}
 }

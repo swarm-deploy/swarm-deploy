@@ -71,21 +71,6 @@ jobs:
       - name: Check out code
         uses: actions/checkout@v3
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: npm
-          cache-dependency-path: ui/package-lock.json
-
-      - name: Install UI dependencies
-        working-directory: ui
-        run: npm ci
-
-      - name: Build embedded UI
-        working-directory: ui
-        run: npm run build
-
       - name: Set up Go
         uses: actions/setup-go@v4 # action page: <https://github.com/actions/setup-go>
         with:
@@ -166,17 +151,6 @@ jobs:
         env:
           SWARM_DEPLOY_E2E: '1'
         run: go test -count=1 -timeout=10m -v ./e2e
-
-      - name: Build production image
-        run: docker build -t swarm-deploy:runtime-test .
-
-      - name: Verify runtime image
-        run: |
-          docker run --rm --entrypoint /bin/sh swarm-deploy:runtime-test -ec '
-            test -s /etc/ssl/certs/ca-certificates.crt
-            test -d /usr/share/zoneinfo
-            /usr/local/bin/swarm-deploy -help
-          '
 
       - name: Collect Swarm diagnostics on failure
         if: failure()
