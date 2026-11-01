@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import yaml from "@speed-highlight/core/languages/yaml.js";
 import { tokenizeWith } from "@speed-highlight/core/tokenize";
-import { computed, onMounted, onUnmounted, ref, watch } from "vue";
+import { computed, ref, watch } from "vue";
 
+import AppModal from "../common/AppModal.vue";
 import { useOverviewStore } from "../../stores/overview";
 import AppTabs from "../common/AppTabs.vue";
 
@@ -67,12 +68,6 @@ function closeStackManifestModal() {
   overviewStore.closeStackManifestModal();
 }
 
-function handleEscape(event: KeyboardEvent) {
-  if (event.key === "Escape" && overviewStore.stackManifestModalOpen) {
-    closeStackManifestModal();
-  }
-}
-
 watch(
   () => overviewStore.stackManifestModalOpen,
   (modalOpen) => {
@@ -81,57 +76,49 @@ watch(
     }
   },
 );
-
-onMounted(() => {
-  document.addEventListener("keydown", handleEscape);
-});
-
-onUnmounted(() => {
-  document.removeEventListener("keydown", handleEscape);
-});
 </script>
 
 <template>
-  <div class="modal" :class="{ hidden: !overviewStore.stackManifestModalOpen }" aria-hidden="true">
-    <div class="modal-overlay" @click="closeStackManifestModal" />
-    <div class="modal-card manifest-modal-card" role="dialog" aria-modal="true" aria-labelledby="stack-manifest-title">
-      <div class="modal-header">
-        <h2 id="stack-manifest-title">{{ modalTitle }}</h2>
-        <button class="modal-close" type="button" aria-label="Close modal" @click="closeStackManifestModal">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><path d="m7 7 10 10M17 7 7 17" /></svg>
-        </button>
-      </div>
+  <AppModal
+    :open="overviewStore.stackManifestModalOpen"
+    labelledby="stack-manifest-title"
+    keep-mounted
+    card-class="manifest-modal-card"
+    @close="closeStackManifestModal"
+  >
+    <template #title>
+      <h2 id="stack-manifest-title">{{ modalTitle }}</h2>
+    </template>
 
-      <div class="modal-body">
-        <p v-if="overviewStore.stackManifestLoading" class="meta">Loading manifest...</p>
-        <p v-else-if="overviewStore.stackManifestError" class="meta">
-          Failed to load manifest: {{ overviewStore.stackManifestError }}
-        </p>
-        <template v-else>
-          <AppTabs
-            class="manifest-tabs"
-            :model-value="activeTab"
-            :tabs="tabs"
-            label="Stack manifest tabs"
-            @update:model-value="setActiveTab"
-          />
+    <div class="modal-body">
+      <p v-if="overviewStore.stackManifestLoading" class="meta">Loading manifest...</p>
+      <p v-else-if="overviewStore.stackManifestError" class="meta">
+        Failed to load manifest: {{ overviewStore.stackManifestError }}
+      </p>
+      <template v-else>
+        <AppTabs
+          class="manifest-tabs"
+          :model-value="activeTab"
+          :tabs="tabs"
+          label="Stack manifest tabs"
+          @update:model-value="setActiveTab"
+        />
 
+        <div
+          id="stack-manifest-panel"
+          class="manifest-viewer"
+          role="tabpanel"
+          :aria-labelledby="`${activeTab}-manifest-tab`"
+        >
+          <p v-if="activeManifest.trim().length === 0" class="meta">{{ activeManifestEmptyMessage }}</p>
           <div
-            id="stack-manifest-panel"
-            class="manifest-viewer"
-            role="tabpanel"
-            :aria-labelledby="`${activeTab}-manifest-tab`"
-          >
-            <p v-if="activeManifest.trim().length === 0" class="meta">{{ activeManifestEmptyMessage }}</p>
-            <div
-              v-else
-              class="manifest-code shj-lang-yaml shj-block"
-              :aria-label="activeManifestLabel"
-              v-html="activeManifestHtml"
-            />
-          </div>
-        </template>
-      </div>
+            v-else
+            class="manifest-code shj-lang-yaml shj-block"
+            :aria-label="activeManifestLabel"
+            v-html="activeManifestHtml"
+          />
+        </div>
+      </template>
     </div>
-  </div>
+  </AppModal>
 </template>
