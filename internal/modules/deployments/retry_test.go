@@ -43,8 +43,8 @@ func TestTerminalFailureSuppressesTicksAcrossRestartButAllowsManualAndChangedDes
 	assert.Equal(t, 1, changed.Number)
 }
 
-func TestAutomaticRetryBackoffAndBudgetArePersisted(t *testing.T) {
-	for _, outcome := range []CompletionOutcome{CompletionApplyFailed, CompletionInitJobFailed, CompletionVerificationInterrupted, CompletionProcessInterrupted, CompletionCleanupFailed} {
+func TestAutomaticRetryBackoffIsCappedAndPersistsAcrossRestart(t *testing.T) {
+	for _, outcome := range []CompletionOutcome{CompletionVerificationInterrupted, CompletionProcessInterrupted} {
 		t.Run(string(outcome), func(t *testing.T) {
 			now := time.Now().UTC()
 			clock := func() time.Time { return now }
@@ -52,13 +52,10 @@ func TestAutomaticRetryBackoffAndBudgetArePersisted(t *testing.T) {
 			desired := desiredServices("api")
 			attempt, err := service.StartIfChanged(t.Context(), "app", "first", desired, true)
 			require.NoError(t, err)
-			for number := 1; number <= maxAutomaticAttempts; number++ {
+			for number := 1; number <= 20; number++ {
 				require.NotNil(t, attempt)
 				assert.Equal(t, number, attempt.Number)
 				completion := Completion{Outcome: outcome}
-				if outcome == CompletionCleanupFailed {
-					completion.ObservedAt = &now
-				}
 				require.NoError(t, service.Complete(t.Context(), attempt.ID, completion))
 				service = NewService(db, bus, WithClock(clock))
 				for range 3 {
@@ -66,15 +63,20 @@ func TestAutomaticRetryBackoffAndBudgetArePersisted(t *testing.T) {
 					require.NoError(t, err)
 					assert.Nil(t, skipped)
 				}
-				now = now.Add(automaticRetryDelay * time.Duration(1<<(number-1)))
+				delay := automaticRetryDelay
+				for i := 1; i < number && delay < maximumRetryDelay; i++ {
+					delay = min(delay*2, maximumRetryDelay)
+				}
+				now = now.Add(delay)
 				attempt, err = service.StartIfChanged(t.Context(), "app", "tick", desired, false)
 				require.NoError(t, err)
 			}
-			assert.Nil(t, attempt, "automatic retries must stop even after restarting the lifecycle service")
+			require.NotNil(t, attempt, "transient errors must remain retryable after many attempts")
+			require.NoError(t, service.Complete(t.Context(), attempt.ID, Completion{Outcome: outcome}))
 			manual, err := service.StartIfChanged(t.Context(), "app", "manual", desired, false, StartOptions{ManualRetry: true})
 			require.NoError(t, err)
 			require.NotNil(t, manual)
-			assert.Equal(t, maxAutomaticAttempts+1, manual.Number)
+			assert.Equal(t, 22, manual.Number)
 			require.NoError(t, service.Complete(t.Context(), manual.ID, Completion{Outcome: CompletionSucceeded}))
 			stored, _, err := deploymentstore.NewStore(db).Latest(t.Context(), "app")
 			require.NoError(t, err)
