@@ -16,6 +16,40 @@ import (
 
 var serviceWaitTestTime = time.Date(2026, time.October, 31, 0, 0, 0, 0, time.UTC)
 
+func TestInitialNonRestartingTaskFailureIsTerminal(t *testing.T) {
+	exit := 23
+	for _, tc := range []struct {
+		name     string
+		exitCode *int
+	}{
+		{name: "nonzero exit code", exitCode: &exit},
+		{name: "exit code unavailable"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			manager := swarm.NewMockServiceManager(gomock.NewController(t))
+			service := testReplicatedService("api", "api-id", 1, serviceWaitTestTime, "busybox:1.36")
+			service.ServiceSpec.TaskTemplate.RestartPolicy = &dockerswarm.RestartPolicy{Condition: dockerswarm.RestartPolicyConditionNone}
+			task := testTask("failed-initial", 1, swarm.TaskStateShutdown, swarm.TaskStateFailed, serviceWaitTestTime.Add(time.Second))
+			task.ExitCode = tc.exitCode
+			task.Error = "task startup failed"
+			manager.EXPECT().ListServices(gomock.Any(), gomock.Any()).Return([]swarm.StackService{service}, nil).AnyTimes()
+			manager.EXPECT().ListTasks(gomock.Any(), service.ID).Return([]swarm.ServiceTask{task}, nil).AnyTimes()
+			_, err := NewServiceWaiter(manager, time.Millisecond, 20*time.Millisecond).Wait(t.Context(), ServiceWaitRequest{
+				StackName: "app", ServiceNames: []string{"api"},
+			})
+			require.ErrorIs(t, err, ErrConvergenceFailed)
+			assert.NotErrorIs(t, err, context.DeadlineExceeded)
+			assert.ErrorContains(t, err, "id=failed-initial state=failed")
+			assert.ErrorContains(t, err, task.Error)
+			if tc.exitCode != nil {
+				assert.ErrorContains(t, err, "exit_code=23")
+			} else {
+				assert.NotContains(t, err.Error(), "exit_code=")
+			}
+		})
+	}
+}
+
 func TestServiceWaiterNewReplicatedServiceConvergesAndReportsTransitions(t *testing.T) {
 	manager := swarm.NewMockServiceManager(gomock.NewController(t))
 	service := testReplicatedService("api", "api-id", 3, serviceWaitTestTime, "api:2")
