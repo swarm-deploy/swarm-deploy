@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import json from "@speed-highlight/core/languages/json.js";
 import { tokenizeWith } from "@speed-highlight/core/tokenize";
-import { computed, onMounted, onUnmounted, ref, watch } from "vue";
+import { computed, onUnmounted, ref, watch } from "vue";
 
+import AppModal from "../common/AppModal.vue";
 import { createExternalSecret, createSecret, syncSecretManager } from "../../api/secrets";
 import type { SecretManagerInfo, SynchronizedSecretIdentity } from "../../api/types";
 import { copyText } from "../../utils/clipboard";
@@ -301,268 +302,257 @@ async function submit(): Promise<void> {
   }
 }
 
-function handleEscape(event: KeyboardEvent): void {
-  if (event.key === "Escape" && props.open) close();
-}
-
-onMounted(() => document.addEventListener("keydown", handleEscape));
 onUnmounted(() => {
-  document.removeEventListener("keydown", handleEscape);
   clearCopiedState();
 });
 </script>
 
 <template>
-  <div v-if="open" class="modal create-secret-modal">
-    <div class="modal-overlay" @click="close" />
-    <div
-      class="modal-card create-secret-dialog"
-      :class="{ 'create-secret-dialog--result': resultVisible }"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="create-secret-title"
-    >
-      <div class="modal-header">
-        <h2 id="create-secret-title">Create Secret</h2>
-        <button class="modal-close" type="button" aria-label="Close modal" :disabled="pending" @click="close">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><path d="m7 7 10 10M17 7 7 17" /></svg>
+  <AppModal
+    :open="open"
+    labelledby="create-secret-title"
+    :card-class="['create-secret-dialog', { 'create-secret-dialog--result': resultVisible }]"
+    class="create-secret-modal"
+    :close-disabled="pending"
+    @close="close"
+  >
+    <template #title>
+      <h2 id="create-secret-title">Create Secret</h2>
+    </template>
+
+    <form v-if="!resultVisible" class="modal-body create-secret-form" @submit.prevent="submit">
+      <AppTabs
+        class="create-secret-tabs"
+        :model-value="destination"
+        :tabs="destinationTabs"
+        label="Secret destination"
+        density="compact"
+        @update:model-value="setDestination"
+      />
+
+      <label v-if="destination === 'docker'" class="create-secret-control">
+        <span class="create-secret-control-icon" title="Name" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 5.5h9.2L20 12l-6.8 6.5H4z" /><circle cx="8" cy="9.5" r="1" /></svg>
+        </span>
+        <input v-model="name" type="text" autocomplete="off" aria-label="Name" placeholder="Secret name" :disabled="pending" required />
+      </label>
+
+      <template v-else>
+        <label class="create-secret-control create-secret-manager-control">
+          <span class="create-secret-control-icon" title="Secret Manager" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="m12 3 8 5-8 5-8-5z" /><path d="m4 12 8 5 8-5M4 16l8 5 8-5" /></svg>
+          </span>
+          <select v-model="selectedManagerKey" aria-label="Secret Manager" :disabled="pending || availableManagers.length === 0" required>
+            <option v-for="manager in availableManagers" :key="managerIdentity(manager)" :value="managerIdentity(manager)">
+              {{ manager.stack }}/{{ manager.service }} — {{ manager.provider?.name }}
+            </option>
+          </select>
+          <span class="create-secret-manager-copy" aria-hidden="true">
+            <strong>{{ selectedManager ? managerIdentity(selectedManager) : "Select Secret Manager" }}</strong>
+            <small v-if="selectedManager?.provider?.name">{{ selectedManager.provider.name }}</small>
+          </span>
+          <span class="create-secret-chevron" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m7 9 5 5 5-5" /></svg>
+          </span>
+        </label>
+
+        <p v-if="availableManagers.length === 0" class="create-secret-notice create-secret-notice--warning">
+          No available, controllable Vault or Cloud.ru Secret Manager was discovered. Docker Swarm creation remains available.
+        </p>
+
+        <PathInput
+          v-model="path"
+          :disabled="pending || !selectedManager"
+          :icon="selectedProviderKind === 'cloudru' ? 'key' : 'path'"
+          required
+        />
+
+        <label v-if="selectedProviderKind === 'vault'" class="create-secret-control">
+          <span class="create-secret-control-icon" title="Key" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="8.5" cy="15.5" r="4" /><path d="m11.5 12.5 8-8m-2 2 2 2m-5 1 2 2" /></svg>
+          </span>
+          <input v-model="key" type="text" autocomplete="off" aria-label="Key" placeholder="Secret key" :disabled="pending" required />
+        </label>
+      </template>
+
+      <label v-if="destination === 'docker' || selectedProviderKind === 'cloudru'" class="create-secret-control">
+        <span class="create-secret-control-icon" title="Description" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M5 4h14v16H5zM8 8h8m-8 4h8m-8 4h5" /></svg>
+        </span>
+        <input v-model="description" type="text" autocomplete="off" aria-label="Description" placeholder="Description (optional)" :disabled="pending" />
+      </label>
+
+      <div class="create-secret-editor" :class="{ 'create-secret-editor--error': Boolean(jsonError) }">
+        <div class="create-secret-editor-toolbar">
+          <span class="create-secret-editor-icon" title="Value" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="m8 7-5 5 5 5m8-10 5 5-5 5m-2-13-4 16" /></svg>
+          </span>
+          <div class="create-secret-value-tools">
+            <div class="create-secret-mode-toggle" aria-label="Value format">
+              <button type="button" :class="{ active: valueMode === 'text' }" :aria-pressed="valueMode === 'text'" @click="setValueMode('text')">Text</button>
+              <button type="button" :class="{ active: valueMode === 'json' }" :aria-pressed="valueMode === 'json'" @click="setValueMode('json')">JSON</button>
+            </div>
+            <span class="create-secret-tool-divider" aria-hidden="true" />
+            <button v-if="valueMode === 'text'" type="button" class="create-secret-small-action" @click="revealValue = !revealValue">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z" /><circle cx="12" cy="12" r="2.5" /></svg>
+              {{ revealValue ? "Hide" : "Reveal" }}
+            </button>
+            <button v-else type="button" class="create-secret-small-action" :disabled="Boolean(jsonError) || value === ''" @click="formatJSON">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M4 4h6v2H6v4H4zm16 0h-6v2h4v4h2zM4 20h6v-2H6v-4H4zm16 0h-6v-2h4v-4h2z" /></svg>
+              Format
+            </button>
+          </div>
+        </div>
+        <textarea
+          v-if="valueMode === 'text'"
+          v-model="value"
+          class="create-secret-value"
+          :class="{ 'create-secret-value--masked': !revealValue }"
+          rows="5"
+          spellcheck="false"
+          autocomplete="new-password"
+          :disabled="pending"
+          aria-label="Value"
+          required
+        />
+        <div v-else class="create-secret-json-editor">
+          <pre ref="jsonHighlight" class="create-secret-json-highlight" aria-hidden="true" v-html="highlightedJSON" />
+          <textarea
+            v-model="value"
+            class="create-secret-value create-secret-value--json"
+            rows="5"
+            spellcheck="false"
+            autocomplete="off"
+            :disabled="pending"
+            aria-label="Value"
+            :aria-invalid="Boolean(jsonError)"
+            :aria-describedby="jsonError ? 'create-secret-json-error' : undefined"
+            required
+            @scroll="syncJSONScroll"
+          />
+        </div>
+      </div>
+      <p v-if="jsonError" id="create-secret-json-error" class="create-secret-inline-error">Invalid JSON: {{ jsonError }}</p>
+
+      <p v-if="destination === 'cloud'" class="create-secret-helper form-helper">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 11v6m0-10h.01" /></svg>
+        <span>The secret is created in the external provider first, then synchronized into Docker Swarm.</span>
+      </p>
+
+      <p v-if="submissionStage === 'creating'" class="create-secret-stage" role="status">
+        <span class="create-secret-spinner" aria-hidden="true" />
+        Creating secret…
+      </p>
+      <p v-if="errorMessage" class="create-secret-inline-error" role="alert">{{ errorMessage }}</p>
+
+      <div class="create-secret-actions">
+        <button type="button" class="button-ghost" :disabled="pending" @click="close">Cancel</button>
+        <button type="submit" class="create-secret-submit button-primary" :disabled="!formValid || pending">{{ submitLabel }}</button>
+      </div>
+    </form>
+
+    <section v-else class="modal-body create-secret-result" aria-live="polite">
+      <div class="create-secret-result-summary">
+        <span
+          class="create-secret-result-icon"
+          :class="`create-secret-result-icon--${resultState}`"
+          aria-hidden="true"
+        >
+          <svg v-if="resultState === 'success'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m5 12 4 4 10-10" /></svg>
+          <svg v-else-if="resultState === 'partial'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M12 4 3.5 19h17Z" /><path d="M12 9v4m0 3h.01" /></svg>
+          <span v-else class="create-secret-spinner" />
+        </span>
+        <div>
+          <h3>{{ resultHeading }}</h3>
+          <p>{{ resultSupportingText }}</p>
+        </div>
+      </div>
+
+      <div class="create-secret-result-secret">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="8.5" cy="15.5" r="4" /><path d="m11.5 12.5 8-8m-2 2 2 2m-5 1 2 2" /></svg>
+        <div>
+          <span>{{ synchronizedSecret ? "Docker Swarm secret" : "External secret path" }}</span>
+          <code>{{ synchronizedSecret?.name || resultExternalPath }}</code>
+          <small v-if="resultState === 'success' && !synchronizedSecret">Docker Swarm resource could not be identified.</small>
+        </div>
+        <button
+          v-if="synchronizedSecret"
+          type="button"
+          class="create-secret-result-copy"
+          :aria-label="secretNameCopied ? 'Docker Swarm secret name copied' : 'Copy Docker Swarm secret name'"
+          :title="secretNameCopied ? 'Copied' : 'Copy Docker Swarm secret name'"
+          @click="copySynchronizedSecretName"
+        >
+          <svg v-if="secretNameCopied" class="create-secret-result-copy-check" viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12.5 4.2 4.2L19 7" /></svg>
+          <svg v-else viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="11" height="11" rx="2" /><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" /></svg>
         </button>
       </div>
 
-      <form v-if="!resultVisible" class="modal-body create-secret-form" @submit.prevent="submit">
-        <AppTabs
-          class="create-secret-tabs"
-          :model-value="destination"
-          :tabs="destinationTabs"
-          label="Secret destination"
-          density="compact"
-          @update:model-value="setDestination"
-        />
-
-        <label v-if="destination === 'docker'" class="create-secret-control">
-          <span class="create-secret-control-icon" title="Name" aria-hidden="true">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 5.5h9.2L20 12l-6.8 6.5H4z" /><circle cx="8" cy="9.5" r="1" /></svg>
-          </span>
-          <input v-model="name" type="text" autocomplete="off" aria-label="Name" placeholder="Secret name" :disabled="pending" required />
-        </label>
-
-        <template v-else>
-          <label class="create-secret-control create-secret-manager-control">
-            <span class="create-secret-control-icon" title="Secret Manager" aria-hidden="true">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="m12 3 8 5-8 5-8-5z" /><path d="m4 12 8 5 8-5M4 16l8 5 8-5" /></svg>
-            </span>
-            <select v-model="selectedManagerKey" aria-label="Secret Manager" :disabled="pending || availableManagers.length === 0" required>
-              <option v-for="manager in availableManagers" :key="managerIdentity(manager)" :value="managerIdentity(manager)">
-                {{ manager.stack }}/{{ manager.service }} — {{ manager.provider?.name }}
-              </option>
-            </select>
-            <span class="create-secret-manager-copy" aria-hidden="true">
-              <strong>{{ selectedManager ? managerIdentity(selectedManager) : "Select Secret Manager" }}</strong>
-              <small v-if="selectedManager?.provider?.name">{{ selectedManager.provider.name }}</small>
-            </span>
-            <span class="create-secret-chevron" aria-hidden="true">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m7 9 5 5 5-5" /></svg>
-            </span>
-          </label>
-
-          <p v-if="availableManagers.length === 0" class="create-secret-notice create-secret-notice--warning">
-            No available, controllable Vault or Cloud.ru Secret Manager was discovered. Docker Swarm creation remains available.
-          </p>
-
-          <PathInput
-            v-model="path"
-            :disabled="pending || !selectedManager"
-            :icon="selectedProviderKind === 'cloudru' ? 'key' : 'path'"
-            required
-          />
-
-          <label v-if="selectedProviderKind === 'vault'" class="create-secret-control">
-            <span class="create-secret-control-icon" title="Key" aria-hidden="true">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="8.5" cy="15.5" r="4" /><path d="m11.5 12.5 8-8m-2 2 2 2m-5 1 2 2" /></svg>
-            </span>
-            <input v-model="key" type="text" autocomplete="off" aria-label="Key" placeholder="Secret key" :disabled="pending" required />
-          </label>
-        </template>
-
-        <label v-if="destination === 'docker' || selectedProviderKind === 'cloudru'" class="create-secret-control">
-          <span class="create-secret-control-icon" title="Description" aria-hidden="true">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M5 4h14v16H5zM8 8h8m-8 4h8m-8 4h5" /></svg>
-          </span>
-          <input v-model="description" type="text" autocomplete="off" aria-label="Description" placeholder="Description (optional)" :disabled="pending" />
-        </label>
-
-        <div class="create-secret-editor" :class="{ 'create-secret-editor--error': Boolean(jsonError) }">
-          <div class="create-secret-editor-toolbar">
-            <span class="create-secret-editor-icon" title="Value" aria-hidden="true">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="m8 7-5 5 5 5m8-10 5 5-5 5m-2-13-4 16" /></svg>
-            </span>
-            <div class="create-secret-value-tools">
-              <div class="create-secret-mode-toggle" aria-label="Value format">
-                <button type="button" :class="{ active: valueMode === 'text' }" :aria-pressed="valueMode === 'text'" @click="setValueMode('text')">Text</button>
-                <button type="button" :class="{ active: valueMode === 'json' }" :aria-pressed="valueMode === 'json'" @click="setValueMode('json')">JSON</button>
-              </div>
-              <span class="create-secret-tool-divider" aria-hidden="true" />
-              <button v-if="valueMode === 'text'" type="button" class="create-secret-small-action" @click="revealValue = !revealValue">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z" /><circle cx="12" cy="12" r="2.5" /></svg>
-                {{ revealValue ? "Hide" : "Reveal" }}
-              </button>
-              <button v-else type="button" class="create-secret-small-action" :disabled="Boolean(jsonError) || value === ''" @click="formatJSON">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M4 4h6v2H6v4H4zm16 0h-6v2h4v4h2zM4 20h6v-2H6v-4H4zm16 0h-6v-2h4v-4h2z" /></svg>
-                Format
-              </button>
-            </div>
-          </div>
-          <textarea
-            v-if="valueMode === 'text'"
-            v-model="value"
-            class="create-secret-value"
-            :class="{ 'create-secret-value--masked': !revealValue }"
-            rows="5"
-            spellcheck="false"
-            autocomplete="new-password"
-            :disabled="pending"
-            aria-label="Value"
-            required
-          />
-          <div v-else class="create-secret-json-editor">
-            <pre ref="jsonHighlight" class="create-secret-json-highlight" aria-hidden="true" v-html="highlightedJSON" />
-            <textarea
-              v-model="value"
-              class="create-secret-value create-secret-value--json"
-              rows="5"
-              spellcheck="false"
-              autocomplete="off"
-              :disabled="pending"
-              aria-label="Value"
-              :aria-invalid="Boolean(jsonError)"
-              :aria-describedby="jsonError ? 'create-secret-json-error' : undefined"
-              required
-              @scroll="syncJSONScroll"
-            />
-          </div>
+      <dl class="create-secret-result-details">
+        <div>
+          <dt>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="m12 3 8 5-8 5-8-5z" /><path d="m4 12 8 5 8-5M4 16l8 5 8-5" /></svg>
+            Secret manager
+          </dt>
+          <dd>
+            <strong>{{ resultProviderName }}</strong>
+            <small>{{ resultManagerIdentity }}</small>
+          </dd>
         </div>
-        <p v-if="jsonError" id="create-secret-json-error" class="create-secret-inline-error">Invalid JSON: {{ jsonError }}</p>
-
-        <p v-if="destination === 'cloud'" class="create-secret-helper form-helper">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 11v6m0-10h.01" /></svg>
-          <span>The secret is created in the external provider first, then synchronized into Docker Swarm.</span>
-        </p>
-
-        <p v-if="submissionStage === 'creating'" class="create-secret-stage" role="status">
-          <span class="create-secret-spinner" aria-hidden="true" />
-          Creating secret…
-        </p>
-        <p v-if="errorMessage" class="create-secret-inline-error" role="alert">{{ errorMessage }}</p>
-
-        <div class="create-secret-actions">
-          <button type="button" class="button-ghost" :disabled="pending" @click="close">Cancel</button>
-          <button type="submit" class="create-secret-submit button-primary" :disabled="!formValid || pending">{{ submitLabel }}</button>
+        <div>
+          <dt>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M20 7v5h-5" /><path d="M4 17v-5h5" /><path d="M6.1 9a7 7 0 0 1 11.5-2L20 9M4 15l2.4 2a7 7 0 0 0 11.5-2" /></svg>
+            Docker Swarm synchronization
+          </dt>
+          <dd>
+            <span
+              class="create-secret-sync-status"
+              :class="`create-secret-sync-status--${resultState}`"
+              role="status"
+            >
+              <span v-if="submissionStage === 'syncing' || submissionStage === 'retrying'" class="create-secret-spinner" aria-hidden="true" />
+              <svg v-else-if="resultState === 'success'" viewBox="0 0 24 24" aria-hidden="true">
+                <circle cx="12" cy="12" r="10" />
+                <path d="m7.5 12 3 3 6-6" />
+              </svg>
+              <svg v-else viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M12 3 2.8 20h18.4Z" />
+                <path d="M12 9v5m0 3h.01" />
+              </svg>
+              {{ syncStatusLabel }}
+            </span>
+          </dd>
         </div>
-      </form>
+      </dl>
 
-      <section v-else class="modal-body create-secret-result" aria-live="polite">
-        <div class="create-secret-result-summary">
-          <span
-            class="create-secret-result-icon"
-            :class="`create-secret-result-icon--${resultState}`"
-            aria-hidden="true"
-          >
-            <svg v-if="resultState === 'success'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m5 12 4 4 10-10" /></svg>
-            <svg v-else-if="resultState === 'partial'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M12 4 3.5 19h17Z" /><path d="M12 9v4m0 3h.01" /></svg>
-            <span v-else class="create-secret-spinner" />
-          </span>
-          <div>
-            <h3>{{ resultHeading }}</h3>
-            <p>{{ resultSupportingText }}</p>
-          </div>
-        </div>
+      <p v-if="resultState === 'partial' && errorMessage" class="create-secret-result-error" role="alert">
+        {{ errorMessage }}
+      </p>
 
-        <div class="create-secret-result-secret">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="8.5" cy="15.5" r="4" /><path d="m11.5 12.5 8-8m-2 2 2 2m-5 1 2 2" /></svg>
-          <div>
-            <span>{{ synchronizedSecret ? "Docker Swarm secret" : "External secret path" }}</span>
-            <code>{{ synchronizedSecret?.name || resultExternalPath }}</code>
-            <small v-if="resultState === 'success' && !synchronizedSecret">Docker Swarm resource could not be identified.</small>
-          </div>
-          <button
-            v-if="synchronizedSecret"
-            type="button"
-            class="create-secret-result-copy"
-            :aria-label="secretNameCopied ? 'Docker Swarm secret name copied' : 'Copy Docker Swarm secret name'"
-            :title="secretNameCopied ? 'Copied' : 'Copy Docker Swarm secret name'"
-            @click="copySynchronizedSecretName"
-          >
-            <svg v-if="secretNameCopied" class="create-secret-result-copy-check" viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12.5 4.2 4.2L19 7" /></svg>
-            <svg v-else viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="11" height="11" rx="2" /><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" /></svg>
-          </button>
-        </div>
+      <a
+        v-if="resultManagerLink"
+        class="create-secret-result-link"
+        :href="resultManagerLink"
+        target="_blank"
+        rel="noopener noreferrer"
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M14 5h5v5" /><path d="m19 5-9 9" /><path d="M19 13v5a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5" /></svg>
+        Open secret in {{ resultProviderName }}
+      </a>
 
-        <dl class="create-secret-result-details">
-          <div>
-            <dt>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="m12 3 8 5-8 5-8-5z" /><path d="m4 12 8 5 8-5M4 16l8 5 8-5" /></svg>
-              Secret manager
-            </dt>
-            <dd>
-              <strong>{{ resultProviderName }}</strong>
-              <small>{{ resultManagerIdentity }}</small>
-            </dd>
-          </div>
-          <div>
-            <dt>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M20 7v5h-5" /><path d="M4 17v-5h5" /><path d="M6.1 9a7 7 0 0 1 11.5-2L20 9M4 15l2.4 2a7 7 0 0 0 11.5-2" /></svg>
-              Docker Swarm synchronization
-            </dt>
-            <dd>
-              <span
-                class="create-secret-sync-status"
-                :class="`create-secret-sync-status--${resultState}`"
-                role="status"
-              >
-                <span v-if="submissionStage === 'syncing' || submissionStage === 'retrying'" class="create-secret-spinner" aria-hidden="true" />
-                <svg v-else-if="resultState === 'success'" viewBox="0 0 24 24" aria-hidden="true">
-                  <circle cx="12" cy="12" r="10" />
-                  <path d="m7.5 12 3 3 6-6" />
-                </svg>
-                <svg v-else viewBox="0 0 24 24" aria-hidden="true">
-                  <path d="M12 3 2.8 20h18.4Z" />
-                  <path d="M12 9v5m0 3h.01" />
-                </svg>
-                {{ syncStatusLabel }}
-              </span>
-            </dd>
-          </div>
-        </dl>
-
-        <p v-if="resultState === 'partial' && errorMessage" class="create-secret-result-error" role="alert">
-          {{ errorMessage }}
-        </p>
-
-        <a
-          v-if="resultManagerLink"
-          class="create-secret-result-link"
-          :href="resultManagerLink"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M14 5h5v5" /><path d="m19 5-9 9" /><path d="M19 13v5a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5" /></svg>
-          Open secret in {{ resultProviderName }}
-        </a>
-
-        <div class="create-secret-result-actions">
-          <button type="button" :class="resultState === 'success' ? 'create-secret-submit button-primary' : 'button-ghost'" :disabled="pending" @click="close">Done</button>
-          <button v-if="resultState === 'partial'" type="button" class="create-secret-submit button-primary" :disabled="pending" @click="retrySync">
-            {{ submissionStage === "retrying" ? "Retrying Sync…" : "Retry Sync" }}
-          </button>
-        </div>
-      </section>
-    </div>
-  </div>
+      <div class="create-secret-result-actions">
+        <button type="button" :class="resultState === 'success' ? 'create-secret-submit button-primary' : 'button-ghost'" :disabled="pending" @click="close">Done</button>
+        <button v-if="resultState === 'partial'" type="button" class="create-secret-submit button-primary" :disabled="pending" @click="retrySync">
+          {{ submissionStage === "retrying" ? "Retrying Sync…" : "Retry Sync" }}
+        </button>
+      </div>
+    </section>
+  </AppModal>
 </template>
 
 <style scoped>
-.create-secret-dialog { width: min(560px, 94vw); display: flex; flex-direction: column; overflow: hidden; }
-.create-secret-dialog--result { width: min(640px, 94vw); }
+:deep(.create-secret-dialog) { width: min(560px, 94vw); display: flex; flex-direction: column; overflow: hidden; }
+:deep(.create-secret-dialog--result) { width: min(640px, 94vw); }
 .create-secret-form { gap: 11px; overflow-y: auto; padding: 0 20px 18px; }
 .create-secret-tabs { flex: 0 0 auto; gap: 0; margin: 0; }
 .create-secret-tabs :deep(.app-tabs-tab) { flex: 1; justify-content: center; border-bottom-width: 2px; border-radius: 0; padding: 12px 8px 10px; font-size: .82rem; }

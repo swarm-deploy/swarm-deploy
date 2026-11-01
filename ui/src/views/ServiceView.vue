@@ -2,6 +2,7 @@
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRoute } from "vue-router";
 
+import AppModal from "../components/common/AppModal.vue";
 import { fetchServiceDeployments, fetchServiceRealtime, fetchServiceStatus } from "../api/overview";
 import { fetchServices, fetchSwarmTask } from "../api/services";
 import type {
@@ -265,11 +266,6 @@ function handleEscape(event: KeyboardEvent): void {
     return;
   }
 
-  if (labelsModalOpen.value) {
-    closeLabelsModal();
-    return;
-  }
-
   if (selectedTaskID.value) {
     closeTaskDetails();
   }
@@ -326,7 +322,6 @@ async function loadServiceDetails() {
     loading.value = false;
   }
 }
-
 
 async function loadServiceRealtime() {
   if (!stackName.value || !serviceName.value) {
@@ -776,8 +771,6 @@ onUnmounted(() => {
           </AppTable>
           </AppPanel>
 
-
-
           <RecentDeploymentsPanel
             id="service-deployments-title"
             class="service-panel service-deployments-card"
@@ -791,28 +784,28 @@ onUnmounted(() => {
       </div>
     </div>
 
-    <div class="modal" :class="{ hidden: !labelsModalOpen }" :aria-hidden="!labelsModalOpen">
-      <div class="modal-overlay" @click="closeLabelsModal" />
-      <div class="modal-card service-labels-modal-card" role="dialog" aria-modal="true" aria-labelledby="service-labels-title">
-        <div class="modal-header">
-          <h2 id="service-labels-title">Service labels</h2>
-          <button class="modal-close" type="button" aria-label="Close modal" @click="closeLabelsModal">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><path d="m7 7 10 10M17 7 7 17" /></svg>
-          </button>
-        </div>
-        <div class="modal-body service-labels-modal-body">
-          <section v-for="group in serviceLabelGroups" :key="group.name" class="service-labels-group">
-            <h3>{{ group.name }}</h3>
-            <dl class="service-labels-list">
-              <div v-for="[key, value] in group.labels" :key="key" class="service-labels-list-item">
-                <dt><code>{{ key }}</code></dt>
-                <dd><code>{{ value }}</code></dd>
-              </div>
-            </dl>
-          </section>
-        </div>
+    <AppModal
+      :open="labelsModalOpen"
+      labelledby="service-labels-title"
+      keep-mounted
+      card-class="service-labels-modal-card"
+      @close="closeLabelsModal"
+    >
+      <template #title>
+        <h2 id="service-labels-title">Service labels</h2>
+      </template>
+      <div class="modal-body service-labels-modal-body">
+        <section v-for="group in serviceLabelGroups" :key="group.name" class="service-labels-group">
+          <h3>{{ group.name }}</h3>
+          <dl class="service-labels-list">
+            <div v-for="[key, value] in group.labels" :key="key" class="service-labels-list-item">
+              <dt><code>{{ key }}</code></dt>
+              <dd><code>{{ value }}</code></dd>
+            </div>
+          </dl>
+        </section>
       </div>
-    </div>
+    </AppModal>
 
     <TaskLogsModal :open="logsModalOpen" :task-id="logsTaskID" @close="closeTaskLogsModal" />
   </section>
