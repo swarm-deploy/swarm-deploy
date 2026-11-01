@@ -4989,6 +4989,24 @@ func (s *RecommendationsResponse) SetRecommendations(val []Recommendation) {
 	s.Recommendations = val
 }
 
+// ScaleSwarmServiceNoContent is response for ScaleSwarmService operation.
+type ScaleSwarmServiceNoContent struct{}
+
+// Ref: #/components/schemas/ScaleSwarmServiceRequest
+type ScaleSwarmServiceRequest struct {
+	Replicas int64 `json:"replicas"`
+}
+
+// GetReplicas returns the value of Replicas.
+func (s *ScaleSwarmServiceRequest) GetReplicas() int64 {
+	return s.Replicas
+}
+
+// SetReplicas sets the value of Replicas.
+func (s *ScaleSwarmServiceRequest) SetReplicas(val int64) {
+	s.Replicas = val
+}
+
 // Ref: #/components/schemas/SearchResponse
 type SearchResponse struct {
 	Results []SearchResult `json:"results"`
@@ -6811,11 +6829,13 @@ type SwarmService struct {
 	Name     string `json:"name"`
 	FullName string `json:"full_name"`
 	// Docker stack namespace, or an empty string for standalone services.
-	Stack     string               `json:"stack"`
-	Image     string               `json:"image"`
-	Mode      string               `json:"mode"`
-	Replicas  SwarmServiceReplicas `json:"replicas"`
-	UpdatedAt time.Time            `json:"updated_at"`
+	Stack    string               `json:"stack"`
+	Image    string               `json:"image"`
+	Mode     string               `json:"mode"`
+	Replicas SwarmServiceReplicas `json:"replicas"`
+	// Configured ServiceSpec replica count, present only for replicated services.
+	ConfiguredReplicas OptInt64  `json:"configured_replicas"`
+	UpdatedAt          time.Time `json:"updated_at"`
 }
 
 // GetID returns the value of ID.
@@ -6851,6 +6871,11 @@ func (s *SwarmService) GetMode() string {
 // GetReplicas returns the value of Replicas.
 func (s *SwarmService) GetReplicas() SwarmServiceReplicas {
 	return s.Replicas
+}
+
+// GetConfiguredReplicas returns the value of ConfiguredReplicas.
+func (s *SwarmService) GetConfiguredReplicas() OptInt64 {
+	return s.ConfiguredReplicas
 }
 
 // GetUpdatedAt returns the value of UpdatedAt.
@@ -6891,6 +6916,11 @@ func (s *SwarmService) SetMode(val string) {
 // SetReplicas sets the value of Replicas.
 func (s *SwarmService) SetReplicas(val SwarmServiceReplicas) {
 	s.Replicas = val
+}
+
+// SetConfiguredReplicas sets the value of ConfiguredReplicas.
+func (s *SwarmService) SetConfiguredReplicas(val OptInt64) {
+	s.ConfiguredReplicas = val
 }
 
 // SetUpdatedAt sets the value of UpdatedAt.

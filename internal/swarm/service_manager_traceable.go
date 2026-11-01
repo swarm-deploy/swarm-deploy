@@ -152,6 +152,26 @@ func (t traceableServiceManager) Scale(ctx context.Context, serviceRef ServiceRe
 	return nil
 }
 
+func (t traceableServiceManager) ScaleByID(
+	ctx context.Context,
+	serviceID string,
+	replicas uint64,
+) (ServiceScaleResult, error) {
+	ctx, span := t.tracer.Start(ctx, "swarm.ScaleServiceByID", trace.WithAttributes(
+		tracing.ResourceServiceID.String(serviceID),
+		tracing.ResourceServiceReplicas.Int64(int64(replicas)), //nolint:gosec // Replicas originate from an int64 API field.
+	))
+	defer span.End()
+
+	result, err := t.serviceManager.ScaleByID(ctx, serviceID, replicas)
+	if err != nil {
+		tracing.FailSpan(span, err)
+		return ServiceScaleResult{}, err
+	}
+	span.SetStatus(codes.Ok, "")
+	return result, nil
+}
+
 func (t traceableServiceManager) Restart(ctx context.Context, serviceRef ServiceReference) (uint64, error) {
 	ctx, span := t.startServiceSpan(ctx, "swarm.RestartService", serviceRef)
 	defer span.End()

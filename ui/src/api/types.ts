@@ -92,6 +92,7 @@ export interface SwarmService {
   image: string;
   mode: string;
   replicas: SwarmServiceReplicas;
+  configured_replicas?: number;
   updated_at: string;
 }
 

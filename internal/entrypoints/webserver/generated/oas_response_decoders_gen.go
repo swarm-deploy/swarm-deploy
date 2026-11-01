@@ -1677,6 +1677,15 @@ func decodeListSwarmServicesResponse(resp *http.Response) (res *SwarmServicesRes
 	return res, validate.UnexpectedStatusCodeWithResponse(resp)
 }
 
+func decodeScaleSwarmServiceResponse(resp *http.Response) (res *ScaleSwarmServiceNoContent, _ error) {
+	switch resp.StatusCode {
+	case 204:
+		// Code 204.
+		return &ScaleSwarmServiceNoContent{}, nil
+	}
+	return res, validate.UnexpectedStatusCodeWithResponse(resp)
+}
+
 func decodeSearchResponse(resp *http.Response) (res *SearchResponse, _ error) {
 	switch resp.StatusCode {
 	case 200:

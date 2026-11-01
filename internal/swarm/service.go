@@ -11,6 +11,22 @@ import (
 // ErrServiceNotFound means that service does not exist in swarm.
 var ErrServiceNotFound = errors.New("service not found")
 
+// ErrServiceModeUnsupported means scaling is unavailable for this service mode.
+var ErrServiceModeUnsupported = errors.New("only replicated services can be scaled")
+
+// ErrServiceUpdateConflict means the service changed during an update.
+var ErrServiceUpdateConflict = errors.New("service changed while updating replicas; refresh and retry")
+
+// ServiceScaleResult describes the service and replica count before a successful scale.
+type ServiceScaleResult struct {
+	// Stack is the Docker stack namespace, or empty for standalone services.
+	Stack string
+	// Service is the service name without the stack prefix.
+	Service string
+	// PreviousReplicas is the configured count read before the update.
+	PreviousReplicas uint64
+}
+
 // ErrServiceConflict means that a service create or update conflicted with concurrent Docker state.
 var ErrServiceConflict = errors.New("service conflict")
 

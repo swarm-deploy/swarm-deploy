@@ -22,6 +22,7 @@ func TestHandlerListSwarmServices(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	serviceInspector := swarm.NewMockServiceManager(ctrl)
 	h := &handler{serviceInspector: serviceInspector}
+	configured := uint64(4)
 	updatedAt := time.Date(2026, time.October, 28, 12, 0, 0, 0, time.UTC)
 	serviceInspector.EXPECT().
 		ListServices(gomock.Any(), swarm.ListServicesFilter{}).
@@ -33,6 +34,7 @@ func TestHandlerListSwarmServices(t *testing.T) {
 				Stack:        "infra",
 				Image:        "postgres:18",
 				Mode:         "replicated",
+				Replicas:     &configured,
 				RunningTasks: 1,
 				DesiredTasks: 1,
 				UpdatedAt:    updatedAt,
@@ -52,6 +54,10 @@ func TestHandlerListSwarmServices(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, response.Services, 2)
 	assert.Equal(t, "infra", response.Services[0].Stack)
+	assert.Equal(t, int64(4), response.Services[0].ConfiguredReplicas.Value)
+	assert.True(t, response.Services[0].ConfiguredReplicas.Set)
+	assert.False(t, response.Services[1].ConfiguredReplicas.Set)
+	assert.Equal(t, int64(1), response.Services[0].Replicas.Desired)
 	assert.Empty(t, response.Services[1].Stack)
 	assert.Equal(t, int64(2), response.Services[1].Replicas.Running)
 	assert.Equal(t, int64(3), response.Services[1].Replicas.Desired)

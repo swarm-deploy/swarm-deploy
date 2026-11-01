@@ -273,6 +273,17 @@ func (UnimplementedHandler) ListSwarmServices(ctx context.Context) (r *SwarmServ
 	return r, ht.ErrNotImplemented
 }
 
+// ScaleSwarmService implements scaleSwarmService operation.
+//
+// Updates live replicated services, including standalone services, without waiting for tasks. GitOps
+// synchronization may overwrite this change. Invalid input or unsupported modes return 400, missing
+// services return 404, concurrent updates return 409, and Docker errors return 500.
+//
+// PUT /api/v1/swarm/services/{serviceID}/replicas
+func (UnimplementedHandler) ScaleSwarmService(ctx context.Context, req *ScaleSwarmServiceRequest, params ScaleSwarmServiceParams) error {
+	return ht.ErrNotImplemented
+}
+
 // Search implements search operation.
 //
 // GET /api/v1/search

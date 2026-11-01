@@ -148,7 +148,8 @@ body {
   opacity: 0.65;
 }
 
-.topbar-sync-button {
+.topbar-sync-button,
+.button-primary {
   border-color: var(--accent-border);
   border-radius: 6px;
   background: var(--control-primary);
@@ -156,12 +157,14 @@ body {
   box-shadow: none;
 }
 
-.topbar-sync-button:hover:not(:disabled) {
+.topbar-sync-button:hover:not(:disabled),
+.button-primary:hover:not(:disabled) {
   background: var(--control-primary-hover);
   filter: none;
 }
 
-.topbar-sync-button:focus-visible {
+.topbar-sync-button:focus-visible,
+.button-primary:focus-visible {
   outline: 2px solid var(--accent-focus);
   outline-offset: 2px;
   box-shadow: none;
@@ -1433,3 +1436,6 @@ body {
     padding-right: 14px;
   }
 }
+
+.form-helper { display: flex; align-items: flex-start; gap: 8px; margin: 1px 2px 0; color: var(--muted); font-size: .76rem; line-height: 1.4; }
+.form-helper svg { flex: 0 0 auto; width: 17px; height: 17px; color: var(--muted); }
