@@ -104,8 +104,14 @@ func (a *Applier) apply(
 		}
 		return displayName, created, err
 	}
-	if SpecsEqual(current.Spec, desired) && (!managed || !retryFailed || !failedUpdate(current)) {
-		return displayName, false, nil
+	if SpecsEqual(current.Spec, desired) {
+		retry, retryErr := a.retryRequired(ctx, current, retryFailed && managed)
+		if retryErr != nil {
+			return displayName, false, retryErr
+		}
+		if !retry {
+			return displayName, false, nil
+		}
 	}
 	err = a.update(ctx, stackName, displayName, desired, current, retryFailed && managed, generations)
 	if err != nil {
@@ -176,7 +182,11 @@ func (a *Applier) update(
 		if err = validateOwnership(stackName, desired.Name, current); err != nil {
 			return err
 		}
-		if SpecsEqual(current.Spec, desired) && (!retryFailed || !failedUpdate(current)) {
+		retry, retryErr := a.retryRequired(ctx, current, retryFailed)
+		if retryErr != nil {
+			return retryErr
+		}
+		if SpecsEqual(current.Spec, desired) && !retry {
 			// A concurrent writer already accepted the expected managed fields.
 			current.UpdatedAt = after
 			recordExternalUpdate(generations, displayName, current.Spec, current)
@@ -197,13 +207,17 @@ func (a *Applier) prepareUpdate(
 	applied := cloneSpec(desired)
 	applied.TaskTemplate.ForceUpdate = current.Spec.TaskTemplate.ForceUpdate
 	managed, _ := ReplicasManaged(desired) // Validated before any Docker mutation.
-	if retryFailed && managed && failedUpdate(current) {
+	retry, err := a.retryRequired(ctx, current, retryFailed && managed)
+	if err != nil {
+		return applied, false, err
+	}
+	if retry {
 		applied.TaskTemplate.ForceUpdate++
 	}
 	reused := normalizeImageResolution(&current.Spec, &applied)
 	if !managed {
 		preserveReplicas(current.Spec, &applied)
-		if err := a.checkUpdateSafety(ctx, name, current, applied); err != nil {
+		if err = a.checkUpdateSafety(ctx, name, current, applied); err != nil {
 			return applied, false, err
 		}
 	}

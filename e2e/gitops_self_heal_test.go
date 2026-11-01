@@ -115,7 +115,12 @@ func (f *lifecycleFixture) verifyReplicaPolicyDoesNotHideMissingService(t *testi
 	assert.NotEqual(t, service.ID, restored.ID)
 	assert.Equal(t, gitopsmodel.SyncStatusSynced, f.syncStatus(t, "job"))
 	require.Empty(t, f.publications(t, events.TypeNameServiceDrifted), "missing is a distinct domain event")
-	require.Len(t, f.publications(t, events.TypeNameServiceMissed), 1)
+	missed := f.publications(t, events.TypeNameServiceMissed)
+	require.Len(t, missed, 1)
+	event, ok := missed[0].Envelope.Event.(*events.ServiceMissed)
+	require.True(t, ok)
+	assert.True(t, event.Resolved)
+	assert.Equal(t, "job", event.ServiceName)
 	f.delivered(t, events.TypeNameServiceMissed, 1)
 	f.delivered(t, events.TypeNameServiceDriftFixed, 1)
 }

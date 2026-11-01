@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"time"
 
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/services"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 
@@ -64,6 +65,13 @@ func evaluateService(
 	}
 
 	progress.Running = countCurrentRunningTasks(tasks, requireCurrentGeneration, cutoff)
+	if service.UpdateStatus == nil {
+		if failed, terminal := services.NonRestartingTaskFailure(service.ServiceSpec, tasks, cutoff); terminal {
+			progress.State = ServiceFailed
+			progress.Message = "task exited with restart disabled" + formatTaskDiagnostic(failed)
+			return progress
+		}
+	}
 	if updatePending(service.UpdateStatus) {
 		progress.Message = updateProgressMessage(service.UpdateStatus)
 		return progress

@@ -24,7 +24,6 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackloop"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackloop/preparation"
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
-	gitopsmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/model"
 	gitopsstore "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 	"github.com/swarm-deploy/swarm-deploy/internal/storage"
@@ -45,9 +44,9 @@ type lifecycleFixture struct {
 	request    stackloop.ReconciliationRequest
 }
 
-func newLifecycleFixture(t *testing.T, prune bool, waitTimeout ...time.Duration) *lifecycleFixture {
+func newLifecycleFixture(t *testing.T, prune bool) *lifecycleFixture {
 	t.Helper()
-	f := &lifecycleFixture{externalSwarmFixture: newExternalSwarmFixture(t, waitTimeout...)}
+	f := &lifecycleFixture{externalSwarmFixture: newExternalSwarmFixture(t)}
 	db, err := storage.OpenSQLite(f.ctx, t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
@@ -93,9 +92,10 @@ func lifecycleService(name, command, policy string) string {
 	return fmt.Sprintf(`  %s:
     image: busybox:1.36
     command: ["sh", "-c", %q]
+    stop_grace_period: 1s
     deploy:
       replicas: 1
-      restart_policy: {condition: none}
+      restart_policy: {condition: none, delay: 100ms}
       update_config: {monitor: 1s, failure_action: pause}
 %s
 `, name, command, policy)
@@ -129,20 +129,19 @@ func (f *lifecycleFixture) delivered(t *testing.T, typ events.TypeName, count in
 	t.Helper()
 	// Drive the real worker synchronously, keeping publication and delivery
 	// separate without background goroutines racing SQLite/fixture teardown.
+	publications := f.publications(t, typ)
+	if len(publications) > 0 {
+		require.Len(t, publications, count)
+	}
 	for range 100 {
 		worked, err := f.bus.ProcessNext(f.ctx)
 		require.NoError(t, err)
 		if !worked {
 			deliveries, listErr := f.outbox.ListDeliveries(f.ctx, outbox.ListDeliveriesFilter{})
 			require.NoError(t, listErr)
-			delivered := 0
-			for _, delivery := range deliveries {
-				if delivery.EventType == typ {
-					require.Equal(t, outbox.DeliveryStatusDelivered, delivery.Status)
-					delivered++
-				}
-			}
-			require.Equal(t, count, delivered)
+			// Successful acknowledgement removes completed publications and
+			// cascades their deliveries; no delivery tombstone is retained.
+			require.Empty(t, deliveries)
 			// Failed/interrupted attempts belong to Deployment History; the
 			// history subscriber intentionally excludes their raw domain events.
 			if typ == events.TypeNameDeployFailed || typ == events.TypeNameDeployInterrupted {
@@ -219,9 +218,9 @@ func (f *lifecycleFixture) unchangedService(t *testing.T, before dockerswarm.Ser
 	}, 5*time.Second, 100*time.Millisecond)
 }
 
-func (f *lifecycleFixture) syncStatus(t *testing.T, name string) gitopsmodel.SyncStatus {
+func (f *lifecycleFixture) syncStatus(t *testing.T, name string) string {
 	t.Helper()
 	state, err := f.state.Read(f.ctx)
 	require.NoError(t, err)
-	return state.Stacks[f.stack].Services[name].SyncStatus
+	return string(state.Stacks[f.stack].Services[name].SyncStatus)
 }

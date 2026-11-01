@@ -3,7 +3,6 @@ package e2e
 import (
 	"strings"
 	"testing"
-	"time"
 
 	dockerswarm "github.com/docker/docker/api/types/swarm"
 	"github.com/stretchr/testify/assert"
@@ -16,7 +15,7 @@ import (
 )
 
 func TestRealSwarmInitialStartupFailureHistoryAndRecovery(t *testing.T) {
-	f := newLifecycleFixture(t, true, 15*time.Second)
+	f := newLifecycleFixture(t, true)
 	desired := f.manifest(t, lifecycleService("job", "exit 23", ""))
 	req := deployments.ExecuteRequest{Stack: f.request.Stack, Desired: desired, Commit: "broken", SourceChanged: true}
 	// Unlike a failed rolling update, initial startup has no UpdateStatus. A
@@ -47,6 +46,7 @@ func TestRealSwarmInitialStartupFailureHistoryAndRecovery(t *testing.T) {
 	assert.Contains(t, failed.ErrorDiagnostic, "exit_code=23")
 	assert.Contains(t, failed.ErrorDiagnostic, "id=")
 	require.Len(t, f.publications(t, events.TypeNameDeployFailed), 1)
+	assertFailedPublication(t, f, failed)
 	assertDeferredExecutions(t, f, req, failed.ID, 1)
 
 	req.ManualRetry = true
@@ -70,6 +70,7 @@ func TestRealSwarmInitialStartupFailureHistoryAndRecovery(t *testing.T) {
 	require.Len(t, again.Attempts, 2)
 	assert.Equal(t, model.Failed, again.Attempts[0].Status)
 	assert.Equal(t, model.Failed, again.Attempts[1].Status)
+	assertFailedPublication(t, f, again)
 	assertDeferredExecutions(t, f, reqWithAutomaticRetry(req), failed.ID, 2)
 
 	req.ManualRetry, req.Commit = false, "working"
@@ -117,8 +118,10 @@ func TestRealSwarmNativeRollbackHistoryRetryAndRecovery(t *testing.T) {
 	assert.Equal(t, original.ID, rolledBack.ID)
 	assert.Equal(t, original.Spec.TaskTemplate.ContainerSpec, rolledBack.Spec.TaskTemplate.ContainerSpec)
 	assert.NotEqual(t, originalIDs, rolledBackIDs, "rollback actually replaced the failed generation")
-	require.NotNil(t, rolledBack.PreviousSpec)
-	assert.Contains(t, rolledBack.PreviousSpec.TaskTemplate.ContainerSpec.Args, "exit 31", "the failed target was submitted")
+	// Swarm clears PreviousSpec on rollback. Persisted diagnostics were captured
+	// from the real failing task before task-history garbage collection.
+	assert.Contains(t, failed.ErrorDiagnostic, "exit_code=31", "the failing target actually ran")
+	assert.Contains(t, failed.ErrorDiagnostic, "state=failed")
 	assert.NotContains(t, rolledBack.Spec.TaskTemplate.ContainerSpec.Args, "exit 31")
 	// The rollback outcome can be observed before or after completion by the
 	// verifier. History must remain failed even once the old version is healthy.
@@ -132,6 +135,7 @@ func TestRealSwarmNativeRollbackHistoryRetryAndRecovery(t *testing.T) {
 		assert.Equal(t, rolledBack.Spec, f.inspect(t, "job").Spec)
 	}
 	require.Len(t, f.publications(t, events.TypeNameDeployFailed), 1)
+	assertFailedPublication(t, f, failed)
 	require.Len(t, f.publications(t, events.TypeNameDeploySuccess), 1, "rollback cannot publish success for desired exit 31")
 
 	f.request.IsManual = true
@@ -141,6 +145,7 @@ func TestRealSwarmNativeRollbackHistoryRetryAndRecovery(t *testing.T) {
 	assert.Equal(t, failed.ID, retried.ID)
 	assert.Equal(t, 2, retried.AttemptCount)
 	assertVerificationFailure(t, retried, model.Failed, "convergence_failed", model.StageFailed)
+	assertFailedPublication(t, f, retried)
 	f.poll(t, "retry rollback completed", func() bool {
 		service := f.inspect(t, "job")
 		return service.UpdateStatus != nil && service.UpdateStatus.State == dockerswarm.UpdateStateRollbackCompleted
@@ -209,4 +214,18 @@ func assertDeferredExecutions(t *testing.T, f *lifecycleFixture, req deployments
 func reqWithAutomaticRetry(req deployments.ExecuteRequest) deployments.ExecuteRequest {
 	req.ManualRetry = false
 	return req
+}
+
+func assertFailedPublication(t *testing.T, f *lifecycleFixture, item model.Deployment) {
+	t.Helper()
+	publications := f.publications(t, events.TypeNameDeployFailed)
+	require.NotEmpty(t, publications)
+	event, ok := publications[len(publications)-1].Envelope.Event.(*events.DeployFailed)
+	require.True(t, ok)
+	assert.Equal(t, item.ID, event.DeploymentID)
+	assert.Equal(t, item.LatestAttemptID, event.AttemptID)
+	assert.Equal(t, item.ErrorCode, event.ErrorCode)
+	assert.Equal(t, string(model.PhaseVerification), event.Stage)
+	require.Error(t, event.Error)
+	assert.Equal(t, item.ErrorDiagnostic, event.Error.Error())
 }

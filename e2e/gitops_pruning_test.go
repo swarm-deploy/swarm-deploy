@@ -30,7 +30,7 @@ func TestRealSwarmGitOpsPruningAndOwnership(t *testing.T) {
 			f.reconcile(t)
 			ids := f.runningIDs(t, "job", 1)
 			before := f.settled(t, "job")
-			f.runningIDs(t, "removed", 1)
+			removedIDs := f.runningIDs(t, "removed", 1)
 			removed := f.settled(t, "removed")
 			// Cover each existing protection independently: an unmanaged service
 			// in this namespace, a service-level prune opt-out, and another stack.
@@ -62,6 +62,12 @@ func TestRealSwarmGitOpsPruningAndOwnership(t *testing.T) {
 				f.reconcile(t)
 			}
 			f.unchangedService(t, before, ids)
+			if !tc.prune {
+				f.unchangedService(t, removed, removedIDs)
+			}
+			state, err := f.state.Read(f.ctx)
+			require.NoError(t, err)
+			assert.NotContains(t, state.Stacks[f.stack].Services, "removed", "runtime reflects the desired service set")
 			for _, service := range protected {
 				current, err := f.sw.Services.Inspect(f.ctx, service.ID)
 				require.NoError(t, err)

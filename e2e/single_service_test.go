@@ -28,7 +28,7 @@ func TestRealSwarmSingleServiceIsolationAndFailure(t *testing.T) {
 	check := "test -s /run/secrets/password && test -s /settings && sleep 600"
 	f.manifest(t, service("job", check)+service("other", check)+objects)
 	f.reconcile(t)
-	f.runningIDs(t, "job", 1)
+	selectedIDs := f.runningIDs(t, "job", 1)
 	ids := f.runningIDs(t, "other", 1)
 	before := f.settled(t, "other")
 	selected := f.settled(t, "job")
@@ -62,6 +62,11 @@ func TestRealSwarmSingleServiceIsolationAndFailure(t *testing.T) {
 	assert.Contains(t, updated.Spec.TaskTemplate.ContainerSpec.Args, "echo selected-v2; "+check)
 	assert.NotEqual(t, selected.Version, updated.Version)
 	assert.NotEmpty(t, newIDs)
+	assert.NotEqual(t, selectedIDs, newIDs, "the selected update must replace its task")
+	require.Len(t, updated.Spec.TaskTemplate.ContainerSpec.Configs, 1)
+	require.Len(t, updated.Spec.TaskTemplate.ContainerSpec.Secrets, 1)
+	assert.Equal(t, config.ID, updated.Spec.TaskTemplate.ContainerSpec.Configs[0].ConfigID)
+	assert.Equal(t, secret.SecretID, updated.Spec.TaskTemplate.ContainerSpec.Secrets[0].SecretID)
 	f.unchangedService(t, before, ids)
 
 	// A real failing rolling update still fails verification in the service
