@@ -103,6 +103,7 @@ func (d *Deployer) DeployStack(
 
 	if len(options) > 0 {
 		payload.retryFailedUpdates = options[0].RetryFailedUpdates
+		payload.unresolvedServices = options[0].UnresolvedServices
 	}
 
 	ctx, span := otel.GetTracerProvider().Tracer(deployerTracerName).Start(

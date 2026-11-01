@@ -136,7 +136,12 @@ func TestDeployStackPassesNoTargetsWhenApplicationIsUnchanged(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	waiter := NewMockServiceWaitExecutor(ctrl)
 	waiter.EXPECT().Snapshot(gomock.Any(), "demo").Return(nil, nil)
-	waiter.EXPECT().Wait(gomock.Any(), ServiceWaitRequest{StackName: "demo", ServiceNames: []string{}, AppliedServices: []string{}}).Return(nil)
+	waiter.EXPECT().Wait(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, req ServiceWaitRequest) error {
+		assert.Equal(t, "demo", req.StackName)
+		assert.Empty(t, req.ServiceNames)
+		assert.Empty(t, req.AppliedServices)
+		return nil
+	})
 	deployer := &Deployer{
 		secretResolver: newTestSecretResolver(), initJobRunner: &fakeInitJobExecutor{}, serviceWaiter: waiter,
 	}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"slices"
 	"time"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
@@ -32,6 +33,9 @@ func (r *Reconciler) selfHealDrift(ctx context.Context, payload *pipelinePayload
 	span := trace.SpanFromContext(ctx)
 
 	for _, service := range payload.Desired.Compose.Services {
+		if payload.RetryDeferred && slices.Contains(payload.ProtectedServices, service.Name) {
+			continue
+		}
 		if _, drifted := payload.Drift[service.Name]; !drifted {
 			span.AddEvent("Service skipped: no drift detected", trace.WithAttributes(
 				tracing.ResourceServiceName.String(service.Name),

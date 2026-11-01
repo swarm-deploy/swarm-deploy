@@ -165,9 +165,27 @@ func (d *Deployer) waitForStack(ctx context.Context, payload *deployStackPayload
 		// Reverify accepted, unchanged services too, without forcing healthy tasks.
 		names = convertedServiceNames(payload.stackName, payload.converted.Services)
 	}
+	for _, name := range payload.unresolvedServices {
+		if !slices.Contains(names, name) {
+			names = append(names, name)
+		}
+	}
+	payload.result.UnresolvedServices = slices.Clone(names)
+	if payload.result.UnresolvedServices == nil {
+		payload.result.UnresolvedServices = []string{}
+	}
 	return safePipelineError(d.wait(waitCtx, waiterpkg.ServiceWaitRequest{
 		StackName: payload.stackName, ServiceNames: names,
 		Baseline: payload.baseline, AppliedServices: payload.changed,
+		UnresolvedServices: payload.unresolvedServices,
+		Progress: func(progress waiterpkg.ServiceProgress) {
+			if progress.State == waiterpkg.ServiceReady {
+				payload.result.UnresolvedServices = slices.DeleteFunc(payload.result.UnresolvedServices,
+					func(name string) bool { return name == progress.Name })
+			} else if !slices.Contains(payload.result.UnresolvedServices, progress.Name) {
+				payload.result.UnresolvedServices = append(payload.result.UnresolvedServices, progress.Name)
+			}
+		},
 	}))
 }
 

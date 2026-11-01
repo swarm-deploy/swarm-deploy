@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"sync"
 	"time"
 
@@ -160,12 +161,11 @@ func (r *Reconciler) Reconcile(
 	err = r.pipeline.Run(ctx, pl)
 	if err != nil {
 		pipeErr, _ := errors.AsType[*pipe.StepError](err)
+		if pl.RetryDeferred {
+			return wrapReconcileError(pipeErr.StepName, nil, err)
+		}
 
 		return r.recordPipelineFailure(ctx, req, prev, pl, pipeErr)
-	}
-
-	if pl.RetryDeferred {
-		return nil
 	}
 
 	if err = r.processResult(ctx, req, prev, desiredState, pl); err != nil {
@@ -228,12 +228,19 @@ func (r *Reconciler) processResult(
 			}
 		}
 
+		if payload.RetryDeferred && slices.Contains(payload.ProtectedServices, service.Name) {
+			state = prevState.Services[service.Name]
+		}
 		serviceStates[service.Name] = state
 	}
 
 	result := model.Stack{
 		SourceDigest: desired.Digest, LastCommit: req.Commit, Status: model.NewStackStatus(serviceStates),
 		LastDeployAt: prevState.LastDeployAt, StateUpdatedAt: now.UTC(), Services: serviceStates,
+	}
+	if payload.RetryDeferred {
+		result.LastError = prevState.LastError
+		result.LastCommit = prevState.LastCommit
 	}
 	if payload.Attempt != nil {
 		result.LastDeployAt = now
@@ -353,6 +360,9 @@ func (r *Reconciler) publishDriftEvents(
 	payload *pipelinePayload,
 ) error {
 	for _, service := range payload.Desired.Compose.Services {
+		if payload.RetryDeferred && slices.Contains(payload.ProtectedServices, service.Name) {
+			continue
+		}
 		if err := r.publishServiceDriftEvents(ctx, req, prevState, payload, service.Name); err != nil {
 			return err
 		}

@@ -209,7 +209,7 @@ func TestControllerExecuteRetriesAndSupersedesThroughCanonicalLifecycle(t *testi
 		Return(deployer.Result{}, errors.New("failed"))
 	failed, err := controller.Execute(t.Context(), executionRequest("api:1"))
 	require.Error(t, err)
-	stackDeployer.EXPECT().DeployStack(gomock.Any(), "app", "app.yaml", "rendered.yaml", gomock.Any(), deployer.StackOptions{RetryFailedUpdates: true}).
+	stackDeployer.EXPECT().DeployStack(gomock.Any(), "app", "app.yaml", "rendered.yaml", gomock.Any(), deployer.StackOptions{RetryFailedUpdates: true, UnresolvedServices: []string{"api"}}).
 		Return(deployer.Result{}, nil)
 	services.EXPECT().ListServices(gomock.Any(), gomock.Any()).Return(nil, nil)
 	reqRetry := executionRequest("api:1")

@@ -29,16 +29,17 @@ type pipelinePayload struct {
 	Desired           *compose.File
 	DeployComposePath string
 
-	LiveServices   []swarm.StackService
-	ObservedAt     time.Time
-	PrunedServices []string
-	ExecutionError string
-	RetryDeferred  bool
-	CleanupResult  rotatedCleanupResult
-	Drift          map[string]drift.ServiceDrift
-	RemainingDrift map[string]drift.ServiceDrift
-	Remediations   map[string]serviceRemediation
-	RemediationErr []error
+	LiveServices      []swarm.StackService
+	ObservedAt        time.Time
+	PrunedServices    []string
+	ExecutionError    string
+	RetryDeferred     bool
+	ProtectedServices []string
+	CleanupResult     rotatedCleanupResult
+	Drift             map[string]drift.ServiceDrift
+	RemainingDrift    map[string]drift.ServiceDrift
+	Remediations      map[string]serviceRemediation
+	RemediationErr    []error
 }
 
 func (r *Reconciler) attachPipeline() {
@@ -54,11 +55,13 @@ func (r *Reconciler) attachPipeline() {
 
 	r.pipeline.Add(pipe.Step[*pipelinePayload]{
 		Name: "load live state",
-		When: pipe.When(func(payload *pipelinePayload) bool { return payload.Attempt == nil && !payload.RetryDeferred }),
+		When: pipe.When(func(payload *pipelinePayload) bool { return payload.Attempt == nil }),
 		Run:  r.loadLiveState,
 	})
 
 	r.pipeline.Add(pipe.Step[*pipelinePayload]{
+		// Keep pruning deferred: the failed apply has not established a complete
+		// desired stack, so removing prior services could interfere with recovery.
 		Name: "prune orphaned services",
 		When: pipe.When(func(payload *pipelinePayload) bool { return payload.Attempt == nil && !payload.RetryDeferred }),
 		Run:  r.pruneOrphanedServices,
@@ -67,7 +70,7 @@ func (r *Reconciler) attachPipeline() {
 	r.pipeline.Add(pipe.Step[*pipelinePayload]{
 		Name: "analyze drift",
 		When: pipe.When(func(payload *pipelinePayload) bool {
-			return !payload.RetryDeferred && (payload.Attempt == nil || payload.IsManualSync || payload.HasPreviousDrift)
+			return payload.Attempt == nil || payload.IsManualSync || payload.HasPreviousDrift
 		}),
 		Run: r.analyzeDrift,
 	})
@@ -75,7 +78,7 @@ func (r *Reconciler) attachPipeline() {
 	r.pipeline.Add(pipe.Step[*pipelinePayload]{
 		Name: "self-heal drift",
 		When: pipe.When(func(payload *pipelinePayload) bool {
-			return payload.Attempt == nil && !payload.RetryDeferred && len(payload.Drift) > 0
+			return payload.Attempt == nil && len(payload.Drift) > 0
 		}),
 		Run: r.selfHealDrift,
 	})
@@ -100,6 +103,7 @@ func (r *Reconciler) executeDeployment(ctx context.Context, payload *pipelinePay
 	payload.PrunedServices = result.PrunedServices
 	payload.ExecutionError = result.ErrorCode
 	payload.RetryDeferred = result.RetryDeferred
+	payload.ProtectedServices = result.UnresolvedServices
 	return err
 }
 
