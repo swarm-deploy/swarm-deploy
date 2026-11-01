@@ -4,11 +4,9 @@ package waiter
 import (
 	"context"
 	"fmt"
-	"strconv"
 	"time"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/tracing"
-	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -18,18 +16,17 @@ func finishServiceWaitSpan(span trace.Span, startedAt time.Time, state waitState
 	if waitErr != nil {
 		outcome = "failed"
 		tracing.FailSpan(span, waitErr)
-		span.SetAttributes(attribute.String(
-			"swarm-deploy.deployment.service_wait.failure_reason",
+		span.SetAttributes(tracing.DeploymentServiceWaitFailureReason.String(
 			boundedDiagnostic(waitErr.Error()),
 		))
 	} else {
 		span.SetStatus(codes.Ok, "")
 	}
 	span.SetAttributes(
-		attribute.Int64("swarm-deploy.deployment.service_wait.duration_ms", time.Since(startedAt).Milliseconds()),
-		attribute.Int("swarm-deploy.deployment.service_wait.observed_services", state.observed),
-		attribute.Int("swarm-deploy.deployment.service_wait.converged_services", state.converged),
-		attribute.String("swarm-deploy.deployment.service_wait.outcome", outcome),
+		tracing.DeploymentServiceWaitDurationMS.Int64( time.Since(startedAt).Milliseconds()),
+		tracing.DeploymentServiceWaitObservedServices.Int( state.observed),
+		tracing.DeploymentServiceWaitConvergedServices.Int( state.converged),
+		tracing.DeploymentServiceWaitOutcome.String( outcome),
 	)
 }
 
@@ -50,10 +47,10 @@ func (s *waitState) emit(span trace.Span, callback ServiceProgressCallback, prog
 	span.AddEvent("service convergence state changed", trace.WithAttributes(
 		tracing.ResourceServiceID.String(progress.ServiceID),
 		tracing.ResourceServiceName.String(progress.Name),
-		attribute.String("swarm-deploy.deployment.service.state", string(progress.State)),
-		attribute.String("swarm-deploy.deployment.service.desired_tasks", strconv.FormatUint(progress.Desired, 10)),
-		attribute.String("swarm-deploy.deployment.service.running_tasks", strconv.FormatUint(progress.Running, 10)),
-		attribute.String("swarm-deploy.deployment.service.message", progress.Message),
+		tracing.DeploymentServiceState.String( string(progress.State)),
+		tracing.DeploymentServiceDesiredTasks.Int64(int64(progress.Desired)),
+		tracing.DeploymentServiceRunningTasks.Int64(int64(progress.Running)),
+		tracing.DeploymentServiceMessage.String( progress.Message),
 	))
 	if callback != nil {
 		callback(progress)
