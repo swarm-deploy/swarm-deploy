@@ -31,7 +31,7 @@ func New(manager swarm.ServiceManager, authManager registry.AuthManager) *Applie
 
 // ApplyOptions controls recovery when a deployment is retried.
 type ApplyOptions struct {
-	// RetryFailedUpdates forces a new task generation only for services with terminal update failures.
+	// RetryFailedUpdates restarts terminal failed updates only when replicas are managed.
 	RetryFailedUpdates bool
 }
 
@@ -52,16 +52,21 @@ func (a *Applier) Apply(
 
 	retryFailed := options.RetryFailedUpdates
 	changed := make([]string, 0, len(desired))
+	var blocked []error
 	for _, spec := range desired {
 		serviceName, serviceChanged, err := a.apply(ctx, stackName, spec, retryFailed)
 		if err != nil {
-			return changed, err
+			if errors.Is(err, ErrUpdateBlocked) {
+				blocked = append(blocked, err)
+				continue
+			}
+			return changed, errors.Join(append(blocked, err)...)
 		}
 		if serviceChanged {
 			changed = append(changed, serviceName)
 		}
 	}
-	return changed, nil
+	return changed, errors.Join(blocked...)
 }
 
 func (a *Applier) apply(
@@ -69,11 +74,14 @@ func (a *Applier) apply(
 	retryFailed bool,
 ) (string, bool, error) {
 	displayName := serviceName(stackName, desired.Name)
+	if _, err := ReplicasManaged(desired); err != nil {
+		return displayName, false, fmt.Errorf("service %s replicas ownership policy: %w", displayName, err)
+	}
 	current, created, err := a.inspectOrCreate(ctx, stackName, displayName, desired)
 	if err != nil || created {
 		return displayName, created, err
 	}
-	if serviceSpecsEqual(current.Spec, desired) && (!retryFailed || !failedUpdate(current)) {
+	if SpecsEqual(current.Spec, desired) && (!retryFailed || !failedUpdate(current)) {
 		return displayName, false, nil
 	}
 	err = a.update(ctx, stackName, displayName, desired, current, retryFailed)
@@ -120,13 +128,10 @@ func (a *Applier) update(
 	retryFailed bool,
 ) error {
 	for attempt := 0; attempt < serviceUpdateAttempts; attempt++ {
-		// Rebase runtime-owned values on every optimistic retry.
-		applied := cloneSpec(desired)
-		applied.TaskTemplate.ForceUpdate = current.Spec.TaskTemplate.ForceUpdate
-		if retryFailed && failedUpdate(current) {
-			applied.TaskTemplate.ForceUpdate++
+		applied, reused, err := a.prepareUpdate(ctx, displayName, desired, current, retryFailed)
+		if err != nil {
+			return err
 		}
-		reused := normalizeImageResolution(&current.Spec, &applied)
 		options, err := a.updateOptions(applied)
 		if err != nil {
 			return fmt.Errorf("service %s registry authentication: %w", displayName, err)
@@ -146,7 +151,7 @@ func (a *Applier) update(
 		if err = validateOwnership(stackName, desired.Name, current); err != nil {
 			return err
 		}
-		if serviceSpecsEqual(current.Spec, desired) && (!retryFailed || !failedUpdate(current)) {
+		if SpecsEqual(current.Spec, desired) && (!retryFailed || !failedUpdate(current)) {
 			return nil
 		}
 	}
@@ -155,6 +160,31 @@ func (a *Applier) update(
 		displayName,
 		serviceUpdateAttempts,
 	)
+}
+
+func (a *Applier) prepareUpdate(
+	ctx context.Context, name string, desired dockerswarm.ServiceSpec, current dockerswarm.Service, retryFailed bool,
+) (dockerswarm.ServiceSpec, bool, error) {
+	// Rebase runtime-owned values on every optimistic retry.
+	applied := cloneSpec(desired)
+	applied.TaskTemplate.ForceUpdate = current.Spec.TaskTemplate.ForceUpdate
+	managed, _ := ReplicasManaged(desired) // Validated before any Docker mutation.
+	if retryFailed && failedUpdate(current) {
+		if managed {
+			applied.TaskTemplate.ForceUpdate++
+		} else if SpecsEqual(current.Spec, desired) {
+			return applied, false, fmt.Errorf("%w: service %s requires external controller recovery; force restart disabled",
+				ErrUpdateBlocked, name)
+		}
+	}
+	reused := normalizeImageResolution(&current.Spec, &applied)
+	if !managed {
+		preserveReplicas(current.Spec, &applied)
+		if err := a.checkUpdateSafety(ctx, name, current, applied); err != nil {
+			return applied, false, err
+		}
+	}
+	return applied, reused, nil
 }
 
 func failedUpdate(service dockerswarm.Service) bool {

@@ -228,6 +228,7 @@ func (*fileLoader) linkServices(compose *Compose, baseDir string) []ValidationIs
 		for _, label := range []string{
 			labelsdict.ServiceSyncPolicySelfHealLabelKey,
 			labelsdict.ServiceSyncPolicySelfHealReplicasLabelKey,
+			labelsdict.ServiceSyncPolicyReplicasManagedLabelKey,
 		} {
 			if _, _, err := service.booleanPolicy(label); err != nil {
 				issues = append(issues, ValidationIssue{

@@ -19,6 +19,8 @@ import (
 
 // Result contains observable results produced while deploying one stack.
 type Result struct {
+	// SpecificationOnlyServices were verified for spec acceptance without checking task health.
+	SpecificationOnlyServices []string
 	// Verification contains the known rollout obligations produced by execution.
 	Verification deploymentmodel.Verification
 	// InitJobs contains completed Init Job executions in execution order.
@@ -83,7 +85,7 @@ func NewServiceWaiter(
 type StackOptions struct {
 	// UnresolvedServices carries prior desired-state failures requiring verification.
 	UnresolvedServices []string
-	// RetryFailedUpdates restarts services whose accepted specification has a terminal update failure.
+	// RetryFailedUpdates restarts terminal failed updates only when replicas are managed.
 	RetryFailedUpdates bool
 }
 

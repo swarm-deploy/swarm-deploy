@@ -60,7 +60,7 @@ func TestApplySkipsDaemonRuntimeAndIsolationDefaults(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, changed) // Any update would be an unexpected gomock call.
 	current.TaskTemplate.ContainerSpec.Isolation = container.IsolationHyperV
-	assert.False(t, serviceSpecsEqual(current, desired), "non-default isolation must remain a real change")
+	assert.False(t, SpecsEqual(current, desired), "non-default isolation must remain a real change")
 	assert.Empty(t, desired.TaskTemplate.Runtime, "comparison must not mutate desired state")
 	assert.Empty(t, desired.TaskTemplate.ContainerSpec.Isolation)
 }

@@ -34,7 +34,7 @@ func TestImageResolutionEquivalence(t *testing.T) {
 			desired := serviceSpec("api", tc.desired)
 			current := cloneSpec(desired) // Always keep identical stack image labels.
 			current.TaskTemplate.ContainerSpec.Image = tc.actual
-			assert.Equal(t, tc.equal, serviceSpecsEqual(current, desired))
+			assert.Equal(t, tc.equal, SpecsEqual(current, desired))
 			assert.Equal(t, tc.desired, desired.TaskTemplate.ContainerSpec.Image)
 		})
 	}
@@ -49,7 +49,7 @@ func TestForceUpdateAndResolvedImageSurviveUnrelatedUpdateAndConflict(t *testing
 			current.TaskTemplate.ForceUpdate = 7
 			current.TaskTemplate.ContainerSpec.Image += "@sha256:" + strings.Repeat("a", 64)
 			current.TaskTemplate.Placement = &dockerswarm.Placement{Platforms: []dockerswarm.Platform{{OS: "linux", Architecture: "amd64"}}}
-			assert.True(t, serviceSpecsEqual(current, desired), "force update alone must not cause mutation")
+			assert.True(t, SpecsEqual(current, desired), "force update alone must not cause mutation")
 			desired.TaskTemplate.ContainerSpec.Env = []string{"CHANGED=yes"}
 			manager.EXPECT().Inspect(gomock.Any(), "demo_api").Return(service("api-id", 1, current), nil)
 			update := func(version, force uint64, result error) {

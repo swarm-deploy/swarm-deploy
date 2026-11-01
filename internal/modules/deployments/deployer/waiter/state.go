@@ -51,6 +51,7 @@ func (s *waitState) emit(span trace.Span, callback ServiceProgressCallback, prog
 		tracing.DeploymentServiceDesiredTasks.Int64(int64(progress.Desired)), //nolint:gosec // Docker task counts fit int64
 		tracing.DeploymentServiceRunningTasks.Int64(int64(progress.Running)), //nolint:gosec // Docker task counts fit int64
 		tracing.DeploymentServiceMessage.String(progress.Message),
+		tracing.DeploymentServiceSpecificationOnly.Bool(progress.SpecificationOnly),
 	))
 	if callback != nil {
 		callback(progress)
@@ -113,6 +114,8 @@ func (s *waitState) result() ServiceWaitResult {
 	for _, name := range sortedTargetNames(s.targets) {
 		if s.last[name].State != ServiceReady {
 			result.UnresolvedServices = append(result.UnresolvedServices, name)
+		} else if s.last[name].SpecificationOnly {
+			result.SpecificationOnlyServices = append(result.SpecificationOnlyServices, name)
 		}
 	}
 	return result

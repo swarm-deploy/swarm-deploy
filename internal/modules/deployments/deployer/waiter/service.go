@@ -11,6 +11,7 @@ import (
 	"time"
 
 	cerrdefs "github.com/containerd/errdefs"
+	dockerswarm "github.com/docker/docker/api/types/swarm"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/tracing"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
@@ -38,7 +39,7 @@ type ServiceState string
 const (
 	// ServicePending means that the service has not converged yet.
 	ServicePending ServiceState = "pending"
-	// ServiceReady means that the service has converged.
+	// ServiceReady means that the requested verification succeeded; see SpecificationOnly.
 	ServiceReady ServiceState = "ready"
 	// ServiceFailed means that the service cannot converge without another update.
 	ServiceFailed ServiceState = "failed"
@@ -56,6 +57,8 @@ type ServiceProgress struct {
 	Desired uint64
 	// Running is the number of current desired-state tasks that are running.
 	Running uint64
+	// SpecificationOnly limits verification to spec acceptance, without checking task health.
+	SpecificationOnly bool
 	// Message contains a bounded convergence diagnostic.
 	Message string
 }
@@ -65,6 +68,8 @@ type ServiceProgressCallback func(ServiceProgress)
 
 // ServiceWaitResult contains the final verification obligations, including targets never observed.
 type ServiceWaitResult struct {
+	// SpecificationOnlyServices lists services verified for spec acceptance rather than task health.
+	SpecificationOnlyServices []string
 	// UnresolvedServices contains every target whose last observed state was not ready.
 	UnresolvedServices []string
 }
@@ -83,6 +88,8 @@ type ServiceWaitRequest struct {
 	AppliedServices []string
 	// UnresolvedServices requires proof of the rollout generation even without a new apply.
 	UnresolvedServices []string
+	// ExpectedSpecs carries converter-produced specifications and their replica ownership policies.
+	ExpectedSpecs map[string]dockerswarm.ServiceSpec
 	// Progress receives de-duplicated convergence transitions when configured.
 	Progress ServiceProgressCallback
 }
@@ -226,7 +233,7 @@ func (w *ServiceWaiter) observeTargets(
 			continue
 		}
 		progress, err := w.observeService(ctx, name, baseline[name], current[name],
-			slices.Contains(request.UnresolvedServices, name))
+			slices.Contains(request.UnresolvedServices, name), request.ExpectedSpecs[name])
 		state.emit(span, request.Progress, progress)
 		if err != nil {
 			return false, errors.Join(append(failures, err)...)

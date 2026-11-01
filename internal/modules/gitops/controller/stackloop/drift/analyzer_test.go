@@ -68,6 +68,7 @@ func TestAnalyzerReplicaDriftPolicy(t *testing.T) {
 	tests := []struct {
 		name      string
 		policy    string
+		managed   string
 		selfHeal  string
 		missing   bool
 		wantDrift bool
@@ -79,6 +80,12 @@ func TestAnalyzerReplicaDriftPolicy(t *testing.T) {
 		{name: "disabled boolean alias", policy: "off"},
 		{name: "missing still detected", policy: "false", missing: true, wantDrift: true},
 		{name: "self heal disabled still detects", selfHeal: "false", wantDrift: true},
+		{name: "external replicas", managed: "false"},
+		{name: "external overrides enabled drift", managed: "off", policy: "true"},
+		{name: "managed replicas default drift", managed: "true", wantDrift: true},
+		{name: "managed replicas disabled drift", managed: "true", policy: "false"},
+		{name: "external missing detected", managed: "false", missing: true, wantDrift: true},
+		{name: "invalid ownership policy", managed: "maybe", wantErr: true},
 		{name: "invalid replica policy", policy: "sometimes", wantErr: true},
 		{name: "invalid replica policy on missing service", policy: "sometimes", missing: true, wantErr: true},
 	}
@@ -87,6 +94,9 @@ func TestAnalyzerReplicaDriftPolicy(t *testing.T) {
 			labels := map[string]string{}
 			if tt.policy != "" {
 				labels[labelsdict.ServiceSyncPolicySelfHealReplicasLabelKey] = tt.policy
+			}
+			if tt.managed != "" {
+				labels[labelsdict.ServiceSyncPolicyReplicasManagedLabelKey] = tt.managed
 			}
 			if tt.selfHeal != "" {
 				labels[labelsdict.ServiceSyncPolicySelfHealLabelKey] = tt.selfHeal

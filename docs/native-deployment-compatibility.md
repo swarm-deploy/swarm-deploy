@@ -181,3 +181,27 @@ retry, terminal failed services receive a new `ForceUpdate` generation, includin
 when the accepted ServiceSpec is already equal to desired. Retries reverify accepted unchanged specifications too, so interrupted observation
 cannot turn an unfinished rollout into a successful no-op. Healthy unchanged
 services keep their tasks. No automatic attempt limit, new configuration, or database schema is required.
+
+## Externally managed replicas
+
+Set the service deploy label `org.swarm-deploy.service.sync.policy.replicasManaged`
+to `"false"` for external replica controllers (default: `true`). Native updates then
+ignore replica-only changes, preserve live replicas and `ForceUpdate`, and rebase
+those values on every optimistic retry. Replica drift is also excluded independently
+of `selfHeal.replicas`; `selfHeal` still controls automatic repairs separately.
+
+Replica ownership alone does not guarantee safe immediate task-template updates.
+Task-recreating changes require zero replicas and no active tasks. A completed job
+with nonzero configured replicas is not idle. Unsafe changes produce per-service
+blocked errors while independent services continue applying; the deployment fails
+at apply rather than claiming success. Retry explicitly during a scheduler-coordinated
+idle window. Unchanged terminal failures need external controller recovery, without
+forcing a new external job generation.
+
+For externally managed replicated services, verification proves expected specification
+acceptance rather than running-task health. It still rejects stale snapshots,
+unapplied specs, old rolling update status and terminal update failures. Progress and
+returned `SpecificationOnlyServices` identify this limited verification; completion or
+absence of job tasks is legitimate. Ordinary replicated/global verification is unchanged.
+See [replica ownership and swarm-cronjob configuration](drift.md#replica-ownership-during-deployments)
+for the policy relationships, recommended labels, and initial creation behavior.

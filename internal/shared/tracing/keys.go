@@ -38,6 +38,8 @@ var (
 	DeploymentServiceRunningTasks = attribute.Key("swarm-deploy.deployment.service.running_tasks")
 	DeploymentServiceMessage      = attribute.Key("swarm-deploy.deployment.service.message")
 
+	DeploymentServiceSpecificationOnly = attribute.Key("swarm-deploy.deployment.service.specification_only")
+
 	DeploymentServiceWaitFailureReason     = attribute.Key("swarm-deploy.deployment.service_wait.failure_reason")
 	DeploymentServiceWaitDurationMS        = attribute.Key("swarm-deploy.deployment.service_wait.duration_ms")
 	DeploymentServiceWaitObservedServices  = attribute.Key("swarm-deploy.deployment.service_wait.observed_services")
