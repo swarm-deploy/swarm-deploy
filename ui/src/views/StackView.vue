@@ -165,6 +165,22 @@ onUnmounted(() => { request++; });
         </div>
       </dl>
 
+      <p v-if="alertsError" class="stack-inline-error" role="alert">Failed to load alerts: {{ alertsError }}</p>
+      <section v-else-if="alerts.length" class="stack-panel stack-alert-panel" aria-labelledby="stack-alerts-title">
+        <header class="overview-summary-panel-header">
+          <div class="service-panel-heading">
+            <span class="overview-summary-panel-icon" aria-hidden="true">
+              <DeploymentIcon name="warning" />
+            </span>
+            <h3 id="stack-alerts-title" class="overview-panel-title">Active Alerts</h3>
+          </div>
+        </header>
+        <button v-for="alert in alerts" :key="alert.id" type="button" class="stack-alert-row"
+          :aria-label="`Open alert: ${alert.title}`" @click="store.openAlertDetailsModal(alert)">
+          <DeploymentIcon name="warning" /><span>{{ alert.title }}</span><time :datetime="alert.updatedAt">{{ formatDate(alert.updatedAt) }}</time>
+        </button>
+      </section>
+
       <div class="stack-content-grid">
         <section class="stack-panel stack-services-panel" aria-labelledby="stack-services-title">
           <header class="overview-summary-panel-header">
@@ -190,14 +206,6 @@ onUnmounted(() => { request++; });
 
       <DeploymentActivityChart :stack="stack.name" />
 
-      <p v-if="alertsError" class="stack-inline-error" role="alert">Failed to load alerts: {{ alertsError }}</p>
-      <section v-else-if="alerts.length" class="stack-panel stack-alert-panel" aria-labelledby="stack-alerts-title">
-        <header class="stack-panel-header"><h3 id="stack-alerts-title">Active Alerts</h3></header>
-        <button v-for="alert in alerts" :key="alert.id" type="button" class="stack-alert-row"
-          :aria-label="`Open alert: ${alert.title}`" @click="store.openAlertDetailsModal(alert)">
-          <DeploymentIcon name="warning" /><span>{{ alert.title }}</span><time :datetime="alert.updatedAt">{{ formatDate(alert.updatedAt) }}</time>
-        </button>
-      </section>
     </template>
   </section>
 </template>
@@ -252,8 +260,6 @@ onUnmounted(() => { request++; });
 .stack-summary-resources strong { color: var(--text); font-size: .9rem; }
 .stack-content-grid { display: grid; grid-template-columns: minmax(0, 2fr) minmax(330px, 1fr); align-items: stretch; gap: 16px; min-width: 0; }
 .stack-panel { min-width: 0; border: 1px solid var(--border-subtle); border-radius: 10px; background: var(--surface-card-soft); overflow: hidden; }
-.stack-panel-header { min-height: 56px; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 16px; border-bottom: 1px solid var(--border-subtle); }
-.stack-panel-header h3 { margin: 0; font-size: 1rem; }
 .stack-services-panel :deep(.app-table th) { height: 44px; background: transparent; }
 .stack-services-panel :deep(.app-table td) { height: 52px; }
 .stack-services-panel :deep(.app-table th), .stack-services-panel :deep(.app-table td) { padding-inline: 16px; }

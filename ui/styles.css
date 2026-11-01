@@ -696,17 +696,18 @@ button:hover,
 
 :root[data-theme="light"] .overview-summary-panel,
 :root[data-theme="light"] .stack-details-page .stack-content-grid > .stack-panel,
+:root[data-theme="light"] .stack-details-page .stack-alert-panel,
 :root[data-theme="light"] .stack-details-page .deployment-activity {
   border-color: var(--border-default);
 }
 
 :root[data-theme="light"] .overview-summary-panel-header-link,
-:root[data-theme="light"] .stack-details-page .stack-services-panel .service-panel-heading {
+:root[data-theme="light"] .stack-details-page .stack-panel .service-panel-heading {
   position: relative;
 }
 
 :root[data-theme="light"] .overview-summary-panel-header-link::after,
-:root[data-theme="light"] .stack-details-page .stack-services-panel .service-panel-heading::after {
+:root[data-theme="light"] .stack-details-page .stack-panel .service-panel-heading::after {
   content: "";
   position: absolute;
   right: 0;

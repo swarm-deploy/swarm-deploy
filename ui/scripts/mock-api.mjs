@@ -391,6 +391,37 @@ app.get("/api/tasks/:task/logs", (context) => streamSSE(context, async (stream) 
   await stream.writeSSE({ event: "eof", data: "{}" });
 }));
 
+// Stack-scoped alerts keep the Stack Details preview deterministic. `storefront` has no alerts.
+const stackAlerts = [
+  {
+    id: "payments-sync-failed", fingerprint: "sync_failed:payments", kind: "sync_failed",
+    resourceType: "stack", resourceId: "payments", status: "open",
+    title: "Stack synchronization failed",
+    message: "Service payments-worker failed its health check during deployment",
+    failureStage: "verification", errorCode: "service_failed",
+    occurrences: 2, openedAt: "2026-10-28T19:44:00Z", updatedAt: "2026-10-28T19:45:03Z",
+    openEventId: "payments-sync-failed-open", latestEventId: "payments-sync-failed-latest",
+  },
+  {
+    id: "sandbox-sync-failed", fingerprint: "sync_failed:sandbox", kind: "sync_failed",
+    resourceType: "stack", resourceId: "sandbox", status: "open",
+    title: "Stack synchronization failed because the API container exited before passing its health check",
+    message: "The API container exited with code 1",
+    failureStage: "apply", errorCode: "apply_failed",
+    occurrences: 1, openedAt: "2026-10-28T19:40:00Z", updatedAt: "2026-10-28T19:40:00Z",
+    openEventId: "sandbox-sync-failed-open", latestEventId: "sandbox-sync-failed-open",
+  },
+];
+
+app.get("/api/v1/alerts", (context) => {
+  const stack = context.req.query("stack");
+  const status = context.req.query("status");
+  const limit = Number.parseInt(context.req.query("limit") || "100", 10);
+  const alerts = stackAlerts.filter((alert) => (!stack || alert.resourceId === stack)
+    && (!status || alert.status === status));
+  return context.json({ alerts: alerts.slice(0, Number.isFinite(limit) ? Math.max(0, limit) : 100) });
+});
+
 app.get("/api/v1/deployments/filters", (context) => {
   console.log(`[mock-api] GET ${context.req.path} (deployment filter fixtures)`);
   return context.json({
