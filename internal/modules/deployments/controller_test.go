@@ -15,6 +15,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/services"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/waiter"
 	deploymentmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/model"
 	deploymentstore "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/modelstore"
@@ -119,6 +120,11 @@ func TestControllerExecuteClassifiesAndPersistsFailures(t *testing.T) {
 			deployErr: &pipe.StepError{StepName: "wait for service convergence",
 				Err: fmt.Errorf("service api paused; failed-task exit_code=1: %w", waiter.ErrConvergenceFailed)},
 			wantStatus: deploymentmodel.Failed, wantPhase: deploymentmodel.PhaseVerification, wantCode: "convergence_failed",
+		},
+		{
+			name: "blocked external job", deployErr: &pipe.StepError{StepName: "apply stack",
+				Err: fmt.Errorf("%w: service job requires zero replicas", services.ErrUpdateBlocked)},
+			wantStatus: deploymentmodel.Failed, wantPhase: deploymentmodel.PhaseApply, wantCode: "apply_failed",
 		},
 		{
 			name: "apply", deployErr: errors.New("apply failed"),

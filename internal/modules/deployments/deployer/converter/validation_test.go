@@ -33,6 +33,7 @@ func TestConvertInvalidAndUnsupportedOptions(t *testing.T) {
 		{"image invalid", "services: {app: {image: 'http://sensitive'}}", "image"},
 		{"unprepared env file", "services: {app: {image: alpine, env_file: env}}", "env_file"},
 		{"mode", "services: {app: {image: alpine, deploy: {mode: unknown}}}", "deploy.mode"},
+		{"global external replica ownership", `services: {app: {image: alpine, deploy: {mode: global, labels: {org.swarm-deploy.service.sync.policy.replicasManaged: "false"}}}}`, "only for replicated services"},
 		{"global replicas", "services: {app: {image: alpine, deploy: {mode: global, replicas: 2}}}", "deploy.replicas"},
 		{"endpoint", "services: {app: {image: alpine, deploy: {endpoint_mode: unknown}}}", "deploy.endpoint_mode"},
 		{"bad cpus", "services: {app: {image: alpine, deploy: {resources: {limits: {cpus: sensitive}}}}}", "cpus"},

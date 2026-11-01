@@ -364,9 +364,16 @@ func TestDeployServiceWaitsOnlyForTarget(t *testing.T) {
 	waiter := NewMockServiceWaitExecutor(ctrl)
 	baseline := []swarm.StackService{{ID: "api-id", Name: "api"}, {ID: "worker-id", Name: "worker"}}
 	waiter.EXPECT().Snapshot(gomock.Any(), "demo").Return(baseline, nil)
-	waiter.EXPECT().Wait(gomock.Any(), ServiceWaitRequest{
-		StackName: "demo", ServiceNames: []string{"api"}, Baseline: baseline, AppliedServices: []string{"api"},
-	}).Return(ServiceWaitResult{}, nil)
+	waiter.EXPECT().Wait(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, request ServiceWaitRequest) (ServiceWaitResult, error) {
+			assert.Equal(t, "demo", request.StackName)
+			assert.Equal(t, []string{"api"}, request.ServiceNames)
+			assert.Equal(t, []string{"api"}, request.AppliedServices)
+			assert.Equal(t, baseline, request.Baseline)
+			require.Len(t, request.ExpectedSpecs, 1)
+			assert.True(t, services.SpecsEqual(nativeMinimalServiceSpec("api"), request.ExpectedSpecs["api"]))
+			return ServiceWaitResult{}, nil
+		})
 	deployer := &Deployer{
 		secretResolver: newTestSecretResolver(), initJobRunner: &fakeInitJobExecutor{}, serviceWaiter: waiter,
 	}

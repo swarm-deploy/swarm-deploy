@@ -6,13 +6,15 @@ import (
 
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/converter"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/services"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 
 type applyPayload struct {
-	deadline time.Time
-	baseline []swarm.StackService
-	changed  []string
+	deadline        time.Time
+	baseline        []swarm.StackService
+	changed         []string
+	externalUpdates map[string]services.UpdateGeneration
 }
 
 func (p *applyPayload) stageContext(ctx context.Context) (context.Context, context.CancelFunc) {

@@ -30,16 +30,16 @@ func TestDriftAlertRecoveryAfterManualReplicaScale(t *testing.T) {
 		wantStatus     alertmodel.AlertStatus
 	}{
 		{
-			name: "regular reconciliation confirms manual recovery",
+			name:           "regular reconciliation confirms manual recovery",
 			actualReplicas: 3, wantFixed: true, wantStatus: alertmodel.AlertStatusResolved,
 		},
 		{
-			name: "deferred retry must not hide confirmed manual recovery",
+			name:           "deferred retry must not hide confirmed manual recovery",
 			actualReplicas: 3, retryDeferred: true, protected: true,
 			wantFixed: true, wantStatus: alertmodel.AlertStatusResolved,
 		},
 		{
-			name: "deferred retry retains alert while replica drift remains",
+			name:           "deferred retry retains alert while replica drift remains",
 			actualReplicas: 2, retryDeferred: true, protected: true,
 			wantStatus: alertmodel.AlertStatusOpen,
 		},
@@ -77,9 +77,9 @@ func TestDriftAlertRecoveryAfterManualReplicaScale(t *testing.T) {
 				Name: "api", Deploy: compose.ServiceDeploy{Replicas: &desiredReplicas},
 			}}}}
 			verified, err := drift.NewAnalyzer().Analyze(drift.AnalyzeRequest{
-				Stack: config.StackSpec{Name: "app"},
+				Stack:   config.StackSpec{Name: "app"},
 				Desired: *desired,
-				Live: []swarm.StackService{{Name: "api", Replicas: &tt.actualReplicas}},
+				Live:    []swarm.StackService{{Name: "api", Replicas: &tt.actualReplicas}},
 			})
 			require.NoError(t, err)
 
@@ -104,7 +104,7 @@ func TestDriftAlertRecoveryAfterManualReplicaScale(t *testing.T) {
 				payload.ProtectedServices = []string{"api"}
 			}
 			reconciler := &Reconciler{event: publisher}
-			previous := model.Stack{Services: map[string]model.Service{
+			previous := model.Stack{DriftedServices: map[string]bool{"api": true}, Services: map[string]model.Service{
 				"api": {SyncStatus: model.SyncStatusOutOfSync},
 			}}
 			require.NoError(t, reconciler.publishDriftEvents(ctx, ReconciliationRequest{

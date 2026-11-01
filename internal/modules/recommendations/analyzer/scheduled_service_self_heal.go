@@ -2,10 +2,13 @@ package analyzer
 
 import (
 	"context"
+	"strings"
 	"time"
 
+	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/recommendations/model"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/labelsdict"
 )
 
 // ScheduledServiceSelfHealAnalyzer recommends disabling self-heal for externally scheduled services.
@@ -43,7 +46,8 @@ func (a *ScheduledServiceSelfHealAnalyzer) Analyze(_ context.Context, stack mode
 		if specified {
 			enabled = policy
 		}
-		if !enabled {
+		changes := scheduledPolicyChanges(service, enabled)
+		if len(changes) == 0 {
 			continue
 		}
 
@@ -54,11 +58,28 @@ func (a *ScheduledServiceSelfHealAnalyzer) Analyze(_ context.Context, stack mode
 			Subject:  model.Subject{Stack: stack.Name, Service: service.Name},
 			Title:    "Disable self-healing for scheduled service",
 			Recommendation: "This service is managed by an external scheduler. Automatic self-healing may interfere " +
-				"with scheduled executions by restoring the desired replica count. " +
-				"Set org.swarm-deploy.service.sync.policy.selfHeal to \"false\" in the service's Compose deploy labels.",
+				"with scheduled executions. For replicated services, deployment replica management may also interfere. " +
+				"Set the remaining deploy labels: " +
+				strings.Join(changes, "; ") + ".",
 			CreatedAt: a.now(),
 		})
 	}
 
 	return recs
+}
+
+func scheduledPolicyChanges(service compose.Service, selfHeal bool) []string {
+	managed, specified, err := service.ReplicasManagedPolicy()
+	if err != nil {
+		return nil
+	}
+	var changes []string
+	if selfHeal {
+		changes = append(changes, labelsdict.ServiceSyncPolicySelfHealLabelKey+`: "false"`)
+	}
+	replicated := service.Deploy.Mode == "" || service.Deploy.Mode == "replicated"
+	if replicated && (!specified || managed) {
+		changes = append(changes, labelsdict.ServiceSyncPolicyReplicasManagedLabelKey+`: "false"`)
+	}
+	return changes
 }
