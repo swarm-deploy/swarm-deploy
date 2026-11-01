@@ -33,6 +33,17 @@ var (
 
 	SyncCommitSha = attribute.Key("swarm-deploy.sync.commit_sha")
 
+	DeploymentServiceState        = attribute.Key("swarm-deploy.deployment.service.state")
+	DeploymentServiceDesiredTasks = attribute.Key("swarm-deploy.deployment.service.desired_tasks")
+	DeploymentServiceRunningTasks = attribute.Key("swarm-deploy.deployment.service.running_tasks")
+	DeploymentServiceMessage      = attribute.Key("swarm-deploy.deployment.service.message")
+
+	DeploymentServiceWaitFailureReason     = attribute.Key("swarm-deploy.deployment.service_wait.failure_reason")
+	DeploymentServiceWaitDurationMS        = attribute.Key("swarm-deploy.deployment.service_wait.duration_ms")
+	DeploymentServiceWaitObservedServices  = attribute.Key("swarm-deploy.deployment.service_wait.observed_services")
+	DeploymentServiceWaitConvergedServices = attribute.Key("swarm-deploy.deployment.service_wait.converged_services")
+	DeploymentServiceWaitOutcome           = attribute.Key("swarm-deploy.deployment.service_wait.outcome")
+
 	EventID             = attribute.Key("swarm-deploy.events.event.id")
 	EventName           = attribute.Key("swarm-deploy.events.event.name")
 	EventSubscriberName = attribute.Key("swarm-deploy.events.subscriber.name")
