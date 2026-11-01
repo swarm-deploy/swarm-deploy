@@ -110,9 +110,11 @@ The converter currently rejects, rather than approximates:
   device reservations or generic resources.
 - Bind host-path creation, relative bind paths, image/cluster/npipe mounts,
   SELinux short mount modes and other unconverted mount options.
-- Unmodeled service fields such as `privileged`, `build`, `depends_on`, hostname,
-  working directory, DNS or stop-signal configuration. They must be added
-  explicitly before migrating stacks that use them.
+- Unmodeled service fields, including `build`. Only explicitly documented
+  compatibility options are ignored: service-level `privileged`, `depends_on`
+  and `restart` are accepted with a non-fatal structured warning and have no
+  effect on Docker service specifications. Use `deploy.restart_policy` for
+  Swarm restart behavior. Dependency ordering is not implemented.
 - CPU quantities beyond signed nanocpu range/precision, invalid durations and
   sizes, nonnumeric file owners, invalid file modes and conflicting options.
 

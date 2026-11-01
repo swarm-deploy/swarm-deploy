@@ -75,6 +75,27 @@ func TestDeployStackOnRealSwarm(t *testing.T) {
 	assert.Equal(t, runningBefore, runningAgain, "running tasks must not be replaced")
 	assert.Equal(t, tasksBefore, tasksAgain, "unchanged deploy must not schedule any new tasks")
 
+	t.Run("ignored Swarm options do not roll services", func(t *testing.T) {
+		prepared, err := compose.NewFileLoader().Load(ctx, composePath)
+		require.NoError(t, err)
+		for _, options := range []map[string]interface{}{
+			{"privileged": true, "depends_on": []string{"unused"}, "restart": "always"},
+			{"privileged": false, "depends_on": map[string]interface{}{"unused": map[string]interface{}{"condition": "service_healthy"}}, "restart": "on-failure"},
+			nil,
+		} {
+			prepared.Compose.Services[0].Extra = options
+			_, err = stackDeployer.DeployStack(ctx, stack, composePath, composePath, prepared.Compose)
+			require.NoError(t, err)
+			current, err := swarmService.Services.Inspect(ctx, serviceBefore.ID)
+			require.NoError(t, err)
+			assert.Equal(t, serviceBefore.Version.Index, current.Version.Index)
+			assert.Equal(t, serviceBefore.Spec, current.Spec)
+			running, tasks := realSwarmTaskIDs(t, ctx, swarmService, current.ID)
+			assert.Equal(t, runningBefore, running)
+			assert.Equal(t, tasksBefore, tasks)
+		}
+	})
+
 	// An external force update must be waited for, without resetting ForceUpdate
 	// or issuing a second update of the unchanged Compose service.
 	output, err := exec.CommandContext(ctx, dockerPath, "service", "update", "--detach=true", "--force", stack+"_check").CombinedOutput()
@@ -160,6 +181,8 @@ func TestDeployStackOnRealSwarm(t *testing.T) {
 	_, retryErr := stackDeployer.DeployStack(ctx, stack, composePath, composePath, failing)
 	require.Error(t, retryErr)
 	assert.True(t, deployer.ConvergenceFailed(retryErr))
+	assert.ErrorContains(t, retryErr, "latest task failure: id=")
+	assert.ErrorContains(t, retryErr, "state=failed")
 	retried, err := swarmService.Services.Inspect(ctx, stack+"_check")
 	require.NoError(t, err)
 	assert.Equal(t, failed.Version.Index, retried.Version.Index, "retry must not send ServiceUpdate")

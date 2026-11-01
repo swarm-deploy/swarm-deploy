@@ -319,6 +319,13 @@ func (w *ServiceWaiter) observeService(
 	if message, failed := terminalUpdateFailure(service.UpdateStatus); failed {
 		progress.State = ServiceFailed
 		progress.Message = message
+		// Preserve the terminal failure even if fetching supplementary diagnostics fails.
+		tasks, err := w.services.ListTasks(ctx, service.ID)
+		if err != nil {
+			progress.Message += "; task diagnostics unavailable"
+		} else {
+			progress.Message += terminalTaskDiagnostic(tasks, service.UpdateStatus.Message)
+		}
 		return progress, nil
 	}
 	if service.Mode == "replicated-job" || service.Mode == "global-job" {
@@ -599,11 +606,29 @@ func taskFailureDiagnostic(tasks []swarm.ServiceTask) string {
 		return ""
 	}
 	sort.Slice(failed, func(i, j int) bool { return failed[i].UpdatedAt.After(failed[j].UpdatedAt) })
-	reason := boundedDiagnostic(failed[0].Error)
-	if reason == "" {
-		reason = string(failed[0].CurrentState)
+	return formatTaskDiagnostic(failed[0])
+}
+
+func terminalTaskDiagnostic(tasks []swarm.ServiceTask, updateMessage string) string {
+	// Swarm can pause after an early successful exit too. Prefer the task Docker
+	// names in its update message over a newer, unrelated historical failure.
+	for _, task := range tasks {
+		if task.ID != "" && strings.Contains(updateMessage, task.ID) {
+			return formatTaskDiagnostic(task)
+		}
 	}
-	return "; latest task failure: " + reason
+	return taskFailureDiagnostic(tasks)
+}
+
+func formatTaskDiagnostic(task swarm.ServiceTask) string {
+	diagnostic := fmt.Sprintf("; latest task failure: id=%s state=%s", task.ID, task.CurrentState)
+	if task.ExitCode != nil {
+		diagnostic += fmt.Sprintf(" exit_code=%d", *task.ExitCode)
+	}
+	if task.Error != "" {
+		diagnostic += ": " + boundedDiagnostic(task.Error)
+	}
+	return diagnostic
 }
 
 func waitInterruptedError(

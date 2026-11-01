@@ -47,12 +47,34 @@ job with no observable target tasks remains pending until the existing timeout,
 like an uninitialized global-service scheduler, rather than reporting success
 immediately on API acceptance.
 
-## Explicitly unsupported
+## Ignored and unsupported options
 
-`build`, `depends_on` and service-level `restart` always produce validation errors,
-even when an image or a deploy restart policy is also supplied. Use
-`deploy.restart_policy`. There is no image building or dependency orchestration.
-Other unsupported Compose options continue to fail validation.
+Service-level `privileged`, `depends_on` (short or long form) and `restart` are
+accepted and ignored, matching the previous Swarm deployment workflow. Each
+present field produces one structured warning with its full Compose path during
+pipeline validation. They do not change the generated ServiceSpec or effective
+desired-state comparison. No dependency ordering or alternative privileged mode
+is implemented. Configure Swarm restarts through `deploy.restart_policy`.
+
+`build` and other unsupported Compose options continue to fail validation.
+
+## Regression checks
+
+Desired-state comparison tokenizes scalar commands/entrypoints with the same
+parser as deployment conversion and normalizes config/secret reference syntax
+and defaults. Parser metadata remains available for loading and conversion but
+is not exposed as `is_list` or `short_form` changes, including when comparing
+against an older persisted baseline. Executable values remain masked.
+
+The native applier compares unordered environment entries (with unique names),
+capabilities, placement constraints and network attachments/aliases independently
+of order. Docker defaults and runtime ForceUpdate remain normalized. Command
+arguments, DNS order and duplicate environment names retain their ordering.
+
+The waiter still checks every converted service, including unchanged services
+and paused updates. Terminal errors also include the latest failed/rejected task
+ID, state, runtime error and exit code where available. A task lookup failure
+does not replace or suppress an already observed terminal update failure.
 
 ## Image policy
 

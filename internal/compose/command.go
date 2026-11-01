@@ -3,7 +3,9 @@ package compose
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 
+	"github.com/google/shlex"
 	"go.yaml.in/yaml/v3"
 )
 
@@ -73,3 +75,14 @@ func (c *Command) UnmarshalJSON(data []byte) error {
 
 // IsList reports whether the command uses exec/list syntax.
 func (c Command) IsList() bool { return c.isList }
+
+// Words returns the effective arguments without invoking a shell.
+func (c Command) Words() ([]string, error) {
+	if c.isList || len(c.Args) == 0 {
+		return slices.Clone(c.Args), nil
+	}
+	if len(c.Args) != 1 {
+		return nil, fmt.Errorf("invalid scalar command")
+	}
+	return shlex.Split(c.Args[0])
+}

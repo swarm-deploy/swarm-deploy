@@ -15,9 +15,7 @@ func TestConvertInvalidAndUnsupportedOptions(t *testing.T) {
 	for _, tc := range []struct{ name, yaml, field string }{
 		{"top option", "include: other.yaml", "compose.include"},
 		{"build", "services: {app: {image: alpine, build: .}}", "service.build"},
-		{"depends on", "services: {app: {image: alpine, depends_on: [db]}}", "service.depends_on"},
-		{"service restart", "services: {app: {image: alpine, restart: always}}", "service.restart"},
-		{"service option", "services: {app: {image: alpine, privileged: true}}", "service.privileged"},
+		{"service option", "services: {app: {image: alpine, devices: [/dev/null]}}", "service.devices"},
 		{"health option", "services: {app: {image: alpine, healthcheck: {unknown: sensitive}}}", "healthcheck.unknown"},
 		{"logging option", "services: {app: {image: alpine, logging: {unknown: sensitive}}}", "logging.unknown"},
 		{"deploy option", "services: {app: {image: alpine, deploy: {unknown: sensitive}}}", "deploy.unknown"},

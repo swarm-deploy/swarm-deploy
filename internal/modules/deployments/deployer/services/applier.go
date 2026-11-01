@@ -195,6 +195,8 @@ func serviceSpecsEqual(current, desired dockerswarm.ServiceSpec) bool {
 	normalizeImageResolution(&current, &desired)
 	normalizeDockerDefaults(&current)
 	normalizeDockerDefaults(&desired)
+	normalizeServiceSets(&current)
+	normalizeServiceSets(&desired)
 	return reflect.DeepEqual(canonicalSpec(current), canonicalSpec(desired))
 }
 
@@ -275,7 +277,10 @@ func normalizeDockerDefaults(spec *dockerswarm.ServiceSpec) {
 		replicas := uint64(1)
 		spec.Mode.Replicated.Replicas = &replicas
 	}
-	if spec.EndpointSpec != nil && spec.EndpointSpec.Mode == "" {
+	if spec.EndpointSpec == nil {
+		spec.EndpointSpec = &dockerswarm.EndpointSpec{}
+	}
+	if spec.EndpointSpec.Mode == "" {
 		spec.EndpointSpec.Mode = dockerswarm.ResolutionModeVIP
 	}
 	if spec.TaskTemplate.ContainerSpec != nil {
