@@ -8,7 +8,6 @@ import (
 
 	"github.com/distribution/reference"
 	dockerswarm "github.com/docker/docker/api/types/swarm"
-	"github.com/google/shlex"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/resources"
 )
@@ -81,21 +80,7 @@ func convertService(
 }
 
 func commandWords(command compose.Command) ([]string, error) {
-	var words []string
-	switch {
-	case command.IsList() || len(command.Args) == 0:
-		words = slices.Clone(command.Args)
-	case len(command.Args) != 1:
-		return nil, fmt.Errorf("invalid scalar command")
-	default:
-		var err error
-		// Compose scalar commands use shell tokenization, without invoking a shell.
-		words, err = shlex.Split(command.Args[0])
-		if err != nil {
-			return nil, err
-		}
-	}
-	return words, nil
+	return command.Words()
 }
 
 func capabilities(add, drop []string) ([]string, []string) {

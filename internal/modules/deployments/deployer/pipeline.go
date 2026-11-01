@@ -102,8 +102,12 @@ func (d *Deployer) newDeployServicePipeline() *pipe.Pipeline[*deployServicePaylo
 	return pipeline
 }
 
-func (d *Deployer) validateStack(_ context.Context, payload *deployStackPayload) error {
-	return safePipelineError(d.converter.Validate(payload.stackName, payload.desired))
+func (d *Deployer) validateStack(ctx context.Context, payload *deployStackPayload) error {
+	if err := d.converter.Validate(payload.stackName, payload.desired); err != nil {
+		return safePipelineError(err)
+	}
+	d.converter.WarnIgnoredOptions(ctx, payload.stackName, payload.desired)
+	return nil
 }
 
 func (d *Deployer) reconcileStackNetworks(ctx context.Context, payload *deployStackPayload) error {
@@ -163,8 +167,12 @@ func (d *Deployer) prepareService(_ context.Context, payload *deployServicePaylo
 	return safePipelineError(err)
 }
 
-func (d *Deployer) validateService(_ context.Context, payload *deployServicePayload) error {
-	return safePipelineError(d.converter.Validate(payload.stackName, payload.prepared))
+func (d *Deployer) validateService(ctx context.Context, payload *deployServicePayload) error {
+	if err := d.converter.Validate(payload.stackName, payload.prepared); err != nil {
+		return safePipelineError(err)
+	}
+	d.converter.WarnIgnoredOptions(ctx, payload.stackName, payload.prepared)
+	return nil
 }
 
 func (d *Deployer) reconcileServiceNetworks(ctx context.Context, payload *deployServicePayload) error {

@@ -17,6 +17,9 @@ func unsupported(field string, extra map[string]interface{}) error {
 		if field == "compose" && key == "version" {
 			continue
 		}
+		if field == "service" && compose.IsSwarmIgnoredOption(key) {
+			continue
+		}
 		return fmt.Errorf("%s.%s: unsupported Compose option", field, key)
 	}
 	return nil

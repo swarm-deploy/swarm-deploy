@@ -34,7 +34,11 @@ func Prepare(file compose.File) (Prepared, error) {
 			resourceDigests["configs/"+name] = fingerprint(config.Data)
 		}
 	}
-	payload, err := json.Marshal(file.Compose)
+	comparison, err := comparisonCompose(file.Compose)
+	if err != nil {
+		return Prepared{}, err
+	}
+	payload, err := json.Marshal(comparison)
 	if err != nil {
 		return Prepared{}, fmt.Errorf("encode effective desired state: %w", err)
 	}
@@ -44,6 +48,7 @@ func Prepare(file compose.File) (Prepared, error) {
 	if err = decoder.Decode(&tree); err != nil {
 		return Prepared{}, err
 	}
+	normalizeIgnoredOptions(tree)
 	normalize(tree)
 	if services, ok := tree["services"].([]any); ok {
 		sort.SliceStable(services, func(i, j int) bool {
@@ -85,6 +90,8 @@ func Prepare(file compose.File) (Prepared, error) {
 func normalize(value any) {
 	switch node := value.(type) {
 	case map[string]any:
+		normalizeObjectRefs(node, secretsField)
+		normalizeObjectRefs(node, configsField)
 		// Environment.Keys is parser ordering, not container state. EnvFiles have
 		// already been merged into environment and can contain duplicate raw values.
 		delete(node, "Keys")
@@ -98,7 +105,10 @@ func normalize(value any) {
 			delete(node, "Names")
 			delete(node, "Aliases")
 		}
-		for _, listKey := range []string{"Ports", "Volumes", "List", "cap_add", "cap_drop", "secrets", "configs"} {
+		for _, child := range node {
+			normalize(child)
+		}
+		for _, listKey := range []string{"Ports", "Volumes", "List", "cap_add", "cap_drop", secretsField, configsField} {
 			if list, ok := node[listKey].([]any); ok {
 				sort.SliceStable(list, func(i, j int) bool {
 					left, _ := json.Marshal(list[i])
@@ -106,9 +116,6 @@ func normalize(value any) {
 					return bytes.Compare(left, right) < 0
 				})
 			}
-		}
-		for _, child := range node {
-			normalize(child)
 		}
 	case []any:
 		for _, child := range node {
@@ -161,6 +168,9 @@ func (p *Prepared) sanitizeOpaque(value any, path string) any {
 	switch node := value.(type) {
 	case map[string]any:
 		for name, child := range node {
+			if name == "IsList" {
+				continue
+			}
 			node[name] = p.sanitizeOpaque(child, joinPath(path, name))
 		}
 		return node
@@ -230,6 +240,10 @@ func Compare(before, after Prepared) []Change {
 	sort.Strings(ordered)
 	changes := []Change{}
 	for _, path := range ordered {
+		// Persisted baselines can still contain parser metadata from older versions.
+		if ignoredComparisonPath(path) {
+			continue
+		}
 		old, hadOld := before.Fields[path]
 		current, hasCurrent := after.Fields[path]
 		if hadOld == hasCurrent && before.Fingerprints[path] == after.Fingerprints[path] {
@@ -267,10 +281,10 @@ func publicChange(path string) Change {
 		case "services":
 			change.ResourceType, change.ResourceName = "service", parts[1]
 			change.Field = publicField(parts[2:])
-		case "configs":
+		case configsField:
 			change.ResourceType, change.ResourceName = "config", parts[1]
 			change.Field = publicField(parts[2:])
-		case "secrets":
+		case secretsField:
 			change.ResourceType, change.ResourceName = "secret", parts[1]
 			change.Field = publicField(parts[2:])
 		case "networks":
@@ -280,7 +294,7 @@ func publicChange(path string) Change {
 			change.ResourceType, change.ResourceName = "volume", parts[1]
 			change.Field = publicField(parts[2:])
 		case "resources":
-			if len(parts) >= contentPathParts && (parts[1] == "configs" || parts[1] == "secrets") {
+			if len(parts) >= contentPathParts && (parts[1] == configsField || parts[1] == secretsField) {
 				change.ResourceType = strings.TrimSuffix(parts[1], "s")
 				change.ResourceName = parts[2]
 				change.Field = "content"

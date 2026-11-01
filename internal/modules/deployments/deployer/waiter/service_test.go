@@ -116,6 +116,7 @@ func TestServiceWaiterFailsTerminalUpdateStates(t *testing.T) {
 			service := testReplicatedService("api", "api-id", 1, serviceWaitTestTime, "api:2")
 			service.UpdateStatus = &swarm.ServiceUpdateStatus{State: state, Message: "update failure"}
 			manager.EXPECT().ListServices(gomock.Any(), gomock.Any()).Return([]swarm.StackService{service}, nil)
+			manager.EXPECT().ListTasks(gomock.Any(), "api-id").Return(nil, nil)
 
 			err := newTestServiceWaiter(manager).Wait(t.Context(), ServiceWaitRequest{
 				StackName: "app", ServiceNames: []string{"api"},
