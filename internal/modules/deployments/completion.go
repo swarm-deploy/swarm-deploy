@@ -130,6 +130,8 @@ func (completion Completion) state() (completionState, error) {
 		var temporary faults.Error
 		state.retryable = errors.Is(completion.Diagnostic, context.DeadlineExceeded) ||
 			(errors.As(completion.Diagnostic, &temporary) && temporary.Temporary())
+	case CompletionSucceeded, CompletionPolicyRejected, CompletionConvergenceFailed:
+		// These outcomes never trigger an automatic retry.
 	}
 	switch completion.Outcome {
 	case CompletionSucceeded:
