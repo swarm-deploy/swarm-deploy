@@ -383,6 +383,11 @@ describe("Realtime service scaling", () => {
     const modal = wrapper.get('[role="dialog"]');
     expect(modal.text()).toContain("api");
     expect(modal.text()).toContain("infra");
+    expect(modal.findAll(".realtime-scale-section-label").map((item) => item.text())).toEqual(["Service details", "Scale"]);
+    expect(modal.find(".realtime-scale-divider").exists()).toBe(true);
+    expect(modal.findAll(".realtime-scale-summary dt").map((item) => item.text())).toEqual(["Service", "Stack", "Current scale"]);
+    expect(modal.findAll(".realtime-scale-summary dd").map((item) => item.text())).toEqual(["api", "infra", "4"]);
+    expect(modal.text()).not.toContain("Enter a non-negative whole number.");
     expect(modal.text()).toContain("Manual scaling may be overwritten by the next GitOps synchronization.");
     expect(wrapper.get<HTMLInputElement>("#realtime-scale-replicas").element.value).toBe("4");
     expect(modal.get('button[type="submit"]').attributes("disabled")).toBeDefined();
