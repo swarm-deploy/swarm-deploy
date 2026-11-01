@@ -266,3 +266,84 @@ func TestPreApplyFailuresRetainOnlyExistingRolloutObligations(t *testing.T) {
 		}
 	}
 }
+
+func TestNativeRetryDoesNotTouchUnrelatedPausedExternalJob(t *testing.T) {
+	db, _, bus := openService(t)
+	ctrl := gomock.NewController(t)
+	manager := swarm.NewMockServiceManager(ctrl)
+	networks := swarm.NewMockNetworkManager(ctrl)
+	configs := swarm.NewMockConfigManager(ctrl)
+	secrets := swarm.NewMockSecretManager(ctrl)
+	networks.EXPECT().Get(gomock.Any(), "app_default").Return(swarm.Network{ID: "network", Name: "app_default", Scope: "swarm", Driver: "overlay", Labels: map[string]string{labelsdict.StackNamespace: "app"}}, nil).AnyTimes()
+	configs.EXPECT().List(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	secrets.EXPECT().List(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	desired := desiredServices("backup", "web")
+	desired.Compose.Services[0].Deploy.Labels = *compose.NewLabels(map[string]string{labelsdict.ServiceSyncPolicyReplicasManagedLabelKey: "false"})
+	converted, err := converter.New(networks, configs, secrets).Convert(t.Context(), "app", desired.Compose)
+	require.NoError(t, err)
+	sw := &swarm.Swarm{Services: manager, Networks: networks, Configs: configs, Secrets: secrets}
+	native := deployer.NewDeployer(time.Millisecond, time.Second, nil, sw, nil, deployer.NewSecretResolver(fs.NewLocalFileSystem(), deployer.PlaintextDecoder{}))
+	create := func() *Controller {
+		return NewController(NewService(db, bus), native, manager, pruner.NewServicePruner(manager, bus, config.SyncPolicySpec{}), &metrics.NopDeploys{})
+	}
+	now := time.Now().UTC()
+	one := uint64(1)
+	backup := swarm.StackService{ID: "backup-id", Name: "backup", Mode: "replicated", Replicas: &one,
+		ServiceSpec: converted.Services[0], CreatedAt: now.Add(-time.Hour), UpdatedAt: now.Add(-time.Minute),
+		UpdateStatus: &swarm.ServiceUpdateStatus{State: "paused", StartedAt: now.Add(-time.Minute)}}
+	backup.ServiceSpec.TaskTemplate.ForceUpdate = 42
+	web := swarm.StackService{ID: "web-id", Name: "web", Mode: "replicated", Replicas: &one,
+		ServiceSpec: converted.Services[1], CreatedAt: now.Add(-time.Hour), UpdatedAt: now.Add(-time.Minute),
+		UpdateStatus: &swarm.ServiceUpdateStatus{State: "updating", StartedAt: now.Add(-time.Minute)}}
+	failed := web
+	failed.UpdatedAt = now
+	failed.UpdateStatus = &swarm.ServiceUpdateStatus{State: "paused", StartedAt: now.Add(-time.Minute)}
+	inspectBackup := func() {
+		manager.EXPECT().Inspect(gomock.Any(), "app_backup").Return(dockerswarm.Service{ID: backup.ID, Spec: backup.ServiceSpec,
+			UpdateStatus: &dockerswarm.UpdateStatus{State: dockerswarm.UpdateStatePaused}}, nil)
+	}
+	manager.EXPECT().ListServices(gomock.Any(), gomock.Any()).Return([]swarm.StackService{backup, web}, nil)
+	inspectBackup()
+	manager.EXPECT().Inspect(gomock.Any(), "app_web").Return(dockerswarm.Service{ID: web.ID, Spec: web.ServiceSpec,
+		UpdateStatus: &dockerswarm.UpdateStatus{State: dockerswarm.UpdateStateUpdating}}, nil)
+	manager.EXPECT().ListServices(gomock.Any(), gomock.Any()).Return([]swarm.StackService{backup, failed}, nil)
+	manager.EXPECT().ListTasks(gomock.Any(), web.ID).Return(nil, nil)
+	req := ExecuteRequest{Stack: config.StackSpec{Name: "app"}, Commit: "one", Desired: desired, SourceChanged: true}
+	first, err := create().Execute(t.Context(), req)
+	require.Error(t, err)
+	require.NotNil(t, first.Attempt)
+	assert.Equal(t, "convergence_failed", first.ErrorCode)
+	stored, err := deploymentstore.NewStore(db).Get(t.Context(), first.Attempt.DeploymentID)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"web"}, stored.Verification.UnresolvedServices)
+	// Reconstruct the controller so retry uses only durable unresolved-service tracking.
+	manager.EXPECT().ListServices(gomock.Any(), gomock.Any()).Return([]swarm.StackService{backup, failed}, nil)
+	inspectBackup()
+	manager.EXPECT().Inspect(gomock.Any(), "app_web").Return(dockerswarm.Service{ID: web.ID, Spec: web.ServiceSpec,
+		UpdateStatus: &dockerswarm.UpdateStatus{State: dockerswarm.UpdateStatePaused}}, nil)
+	recovered := failed
+	recovered.UpdateStatus = &swarm.ServiceUpdateStatus{State: "completed", StartedAt: now.Add(time.Second)}
+	recovered.UpdatedAt = now.Add(2 * time.Second)
+	manager.EXPECT().Update(gomock.Any(), web.ID, gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ any, _ string, _ dockerswarm.Version, spec dockerswarm.ServiceSpec, _ dockerswarm.ServiceUpdateOptions) error {
+			assert.Equal(t, uint64(1), spec.TaskTemplate.ForceUpdate)
+			recovered.ServiceSpec = spec
+			return nil
+		})
+	manager.EXPECT().ListServices(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ any, _ swarm.ListServicesFilter) ([]swarm.StackService, error) {
+			return []swarm.StackService{backup, recovered}, nil
+		}).Times(2)
+	manager.EXPECT().ListTasks(gomock.Any(), web.ID).Return([]swarm.ServiceTask{{ID: "recovered-web",
+		DesiredState: swarm.TaskStateRunning, CurrentState: swarm.TaskStateRunning, CreatedAt: now.Add(time.Second)}}, nil)
+	req.ManualRetry = true
+	retry, err := create().Execute(t.Context(), req)
+	require.NoError(t, err)
+	assert.Equal(t, deploymentmodel.Succeeded, retry.Status)
+	assert.Equal(t, first.Attempt.DeploymentID, retry.Attempt.DeploymentID)
+	assert.Equal(t, 2, retry.Attempt.Number)
+	stored, err = deploymentstore.NewStore(db).Get(t.Context(), first.Attempt.DeploymentID)
+	require.NoError(t, err)
+	assert.Empty(t, stored.Verification.UnresolvedServices)
+	assert.Equal(t, uint64(42), backup.ServiceSpec.TaskTemplate.ForceUpdate)
+}

@@ -45,9 +45,18 @@ func uniqueEnvironmentNames(environment []string) bool {
 	return true
 }
 
-func serviceSpecsEqual(current, desired dockerswarm.ServiceSpec) bool {
+// SpecsEqual compares managed desired fields, allowing Docker defaults and runtime-owned values.
+// Invalid ownership policies never match.
+func SpecsEqual(current, desired dockerswarm.ServiceSpec) bool {
+	managed, err := ReplicasManaged(desired)
+	if err != nil {
+		return false
+	}
 	current = cloneSpec(current)
 	desired = cloneSpec(desired)
+	if !managed {
+		preserveReplicas(current, &desired)
+	}
 	desired.TaskTemplate.ForceUpdate = current.TaskTemplate.ForceUpdate
 	normalizeImageResolution(&current, &desired)
 	normalizeDockerDefaults(&current)

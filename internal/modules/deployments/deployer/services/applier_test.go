@@ -31,7 +31,7 @@ func TestApplyCreatesServicesInDeterministicOrder(t *testing.T) {
 		serviceSpec("worker", "alpine:3"), serviceSpec("api", "nginx:1"),
 	}, ApplyOptions{})
 	require.NoError(t, err)
-	assert.Equal(t, []string{"api", "worker"}, changed)
+	assert.Equal(t, []string{"api", "worker"}, changed.ChangedServices)
 }
 
 func TestApplySkipsSemanticallyUnchangedResolvedImage(t *testing.T) {
@@ -46,7 +46,7 @@ func TestApplySkipsSemanticallyUnchangedResolvedImage(t *testing.T) {
 
 	changed, err := New(manager, &registry.NopAuthManager{}).Apply(t.Context(), "demo", []dockerswarm.ServiceSpec{desired}, ApplyOptions{})
 	require.NoError(t, err)
-	assert.Empty(t, changed)
+	assert.Empty(t, changed.ChangedServices)
 }
 
 func TestApplySkipsDaemonRuntimeAndIsolationDefaults(t *testing.T) {
@@ -58,9 +58,9 @@ func TestApplySkipsDaemonRuntimeAndIsolationDefaults(t *testing.T) {
 	manager.EXPECT().Inspect(gomock.Any(), "demo_api").Return(service("api-id", 7, current), nil)
 	changed, err := New(manager, &registry.NopAuthManager{}).Apply(t.Context(), "demo", []dockerswarm.ServiceSpec{desired}, ApplyOptions{})
 	require.NoError(t, err)
-	assert.Empty(t, changed) // Any update would be an unexpected gomock call.
+	assert.Empty(t, changed.ChangedServices) // Any update would be an unexpected gomock call.
 	current.TaskTemplate.ContainerSpec.Isolation = container.IsolationHyperV
-	assert.False(t, serviceSpecsEqual(current, desired), "non-default isolation must remain a real change")
+	assert.False(t, SpecsEqual(current, desired), "non-default isolation must remain a real change")
 	assert.Empty(t, desired.TaskTemplate.Runtime, "comparison must not mutate desired state")
 	assert.Empty(t, desired.TaskTemplate.ContainerSpec.Isolation)
 }
@@ -84,7 +84,7 @@ func TestApplyUpdatesChangedServiceAndPreservesMounts(t *testing.T) {
 
 	changed, err := New(manager, &registry.NopAuthManager{}).Apply(t.Context(), "demo", []dockerswarm.ServiceSpec{desired}, ApplyOptions{})
 	require.NoError(t, err)
-	assert.Equal(t, []string{"api"}, changed)
+	assert.Equal(t, []string{"api"}, changed.ChangedServices)
 }
 
 func TestApplyRetriesBoundedVersionConflicts(t *testing.T) {
@@ -101,7 +101,7 @@ func TestApplyRetriesBoundedVersionConflicts(t *testing.T) {
 
 	changed, err := New(manager, &registry.NopAuthManager{}).Apply(t.Context(), "demo", []dockerswarm.ServiceSpec{desired}, ApplyOptions{})
 	require.Error(t, err)
-	assert.Empty(t, changed)
+	assert.Empty(t, changed.ChangedServices)
 	assert.ErrorContains(t, err, "version conflict after 3 attempts")
 }
 
@@ -117,7 +117,7 @@ func TestApplyRejectsForeignServiceAndPreservesPartialApplication(t *testing.T) 
 		serviceSpec("api", "nginx:1"), serviceSpec("worker", "alpine:3"),
 	}, ApplyOptions{})
 	require.Error(t, err)
-	assert.Equal(t, []string{"api"}, changed)
+	assert.Equal(t, []string{"api"}, changed.ChangedServices)
 	assert.ErrorContains(t, err, "not owned")
 }
 

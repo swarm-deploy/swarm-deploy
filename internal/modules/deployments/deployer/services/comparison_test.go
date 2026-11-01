@@ -31,7 +31,7 @@ func TestRepeatedApplyIgnoresSetOrderingAndDaemonDefaults(t *testing.T) {
 	for range 3 {
 		changed, err := applier.Apply(t.Context(), "demo", []dockerswarm.ServiceSpec{desired}, ApplyOptions{})
 		require.NoError(t, err)
-		assert.Empty(t, changed) // An unexpected Update call fails via gomock.
+		assert.Empty(t, changed.ChangedServices) // An unexpected Update call fails via gomock.
 	}
 	assert.Equal(t, original, desired, "comparison must not mutate caller-owned slices")
 	for _, tc := range []struct {
@@ -46,7 +46,7 @@ func TestRepeatedApplyIgnoresSetOrderingAndDaemonDefaults(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			changed := cloneSpec(desired)
 			tc.change(&changed)
-			assert.False(t, serviceSpecsEqual(current, changed))
+			assert.False(t, SpecsEqual(current, changed))
 		})
 	}
 }
@@ -79,7 +79,7 @@ func TestComparisonPreservesOrderSensitiveFields(t *testing.T) {
 			before, after := serviceSpec("api", "alpine:3"), serviceSpec("api", "alpine:3")
 			tc.values(before.TaskTemplate.ContainerSpec, false)
 			tc.values(after.TaskTemplate.ContainerSpec, true)
-			assert.False(t, serviceSpecsEqual(before, after))
+			assert.False(t, SpecsEqual(before, after))
 		})
 	}
 }

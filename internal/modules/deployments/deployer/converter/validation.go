@@ -75,6 +75,9 @@ func validateObjects(desired compose.Compose) error {
 }
 
 func validateService(service compose.Service) error {
+	if _, _, err := service.ReplicasManagedPolicy(); err != nil {
+		return err
+	}
 	if err := validateImage(service.Image); err != nil {
 		return err
 	}

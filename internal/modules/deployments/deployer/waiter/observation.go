@@ -5,12 +5,22 @@ import (
 	"context"
 	"fmt"
 
+	dockerswarm "github.com/docker/docker/api/types/swarm"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/services"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 
 func (w *ServiceWaiter) observeService(
 	ctx context.Context, name string, baseline, service swarm.StackService, unresolved bool,
+	expected dockerswarm.ServiceSpec, generation services.UpdateGeneration,
 ) (ServiceProgress, error) {
+	managed, err := services.ReplicasManaged(expected)
+	if err != nil {
+		return ServiceProgress{Name: name, State: ServicePending}, fmt.Errorf("service %s replicas ownership: %w", name, err)
+	}
+	if !managed {
+		return w.observeExternalService(ctx, name, baseline, service, unresolved, expected, generation)
+	}
 	progress := evaluateService(name, baseline, service, nil, unresolved)
 	if service.ID == "" {
 		return progress, nil

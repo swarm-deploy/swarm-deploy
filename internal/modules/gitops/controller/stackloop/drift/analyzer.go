@@ -28,6 +28,11 @@ func (a *Analyzer) Analyze(req AnalyzeRequest) (AnalyzeResponse, error) {
 			return AnalyzeResponse{}, fmt.Errorf("resolve service %s replica drift policy: %w", desiredService.Name, err)
 		}
 
+		managed, ownershipSpecified, err := desiredService.ReplicasManagedPolicy()
+		if err != nil {
+			return AnalyzeResponse{}, fmt.Errorf("resolve service %s replicas ownership policy: %w", desiredService.Name, err)
+		}
+
 		liveService, serviceExists := liveServiceMap[desiredService.Name]
 		if !serviceExists {
 			resp.Drifts[desiredService.Name] = ServiceDrift{
@@ -38,7 +43,7 @@ func (a *Analyzer) Analyze(req AnalyzeRequest) (AnalyzeResponse, error) {
 			continue
 		}
 
-		if (specified && !replicasEnabled) || desiredService.Deploy.Replicas == nil {
+		if (ownershipSpecified && !managed) || (specified && !replicasEnabled) || desiredService.Deploy.Replicas == nil {
 			continue
 		}
 

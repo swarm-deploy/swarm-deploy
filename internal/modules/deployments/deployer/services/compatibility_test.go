@@ -34,7 +34,7 @@ func TestImageResolutionEquivalence(t *testing.T) {
 			desired := serviceSpec("api", tc.desired)
 			current := cloneSpec(desired) // Always keep identical stack image labels.
 			current.TaskTemplate.ContainerSpec.Image = tc.actual
-			assert.Equal(t, tc.equal, serviceSpecsEqual(current, desired))
+			assert.Equal(t, tc.equal, SpecsEqual(current, desired))
 			assert.Equal(t, tc.desired, desired.TaskTemplate.ContainerSpec.Image)
 		})
 	}
@@ -49,7 +49,7 @@ func TestForceUpdateAndResolvedImageSurviveUnrelatedUpdateAndConflict(t *testing
 			current.TaskTemplate.ForceUpdate = 7
 			current.TaskTemplate.ContainerSpec.Image += "@sha256:" + strings.Repeat("a", 64)
 			current.TaskTemplate.Placement = &dockerswarm.Placement{Platforms: []dockerswarm.Platform{{OS: "linux", Architecture: "amd64"}}}
-			assert.True(t, serviceSpecsEqual(current, desired), "force update alone must not cause mutation")
+			assert.True(t, SpecsEqual(current, desired), "force update alone must not cause mutation")
 			desired.TaskTemplate.ContainerSpec.Env = []string{"CHANGED=yes"}
 			manager.EXPECT().Inspect(gomock.Any(), "demo_api").Return(service("api-id", 1, current), nil)
 			update := func(version, force uint64, result error) {
@@ -73,7 +73,7 @@ func TestForceUpdateAndResolvedImageSurviveUnrelatedUpdateAndConflict(t *testing
 			}
 			changed, err := New(manager, &registry.NopAuthManager{}).Apply(t.Context(), "demo", []dockerswarm.ServiceSpec{desired}, ApplyOptions{})
 			require.NoError(t, err)
-			assert.Equal(t, []string{"api"}, changed)
+			assert.Equal(t, []string{"api"}, changed.ChangedServices)
 			assert.Zero(t, desired.TaskTemplate.ForceUpdate)
 		})
 	}
@@ -114,7 +114,7 @@ func TestExternalForceUpdateDoesNotUpdateUnchangedService(t *testing.T) {
 	manager.EXPECT().Inspect(gomock.Any(), "demo_api").Return(service("id", 7, current), nil)
 	changed, err := New(manager, &registry.NopAuthManager{}).Apply(t.Context(), "demo", []dockerswarm.ServiceSpec{desired}, ApplyOptions{})
 	require.NoError(t, err)
-	assert.Empty(t, changed)
+	assert.Empty(t, changed.ChangedServices)
 }
 
 func TestRetryFailedUpdatesOnlyRestartsTerminalFailures(t *testing.T) {
@@ -145,7 +145,7 @@ func TestRetryFailedUpdatesOnlyRestartsTerminalFailures(t *testing.T) {
 			}
 			changed, err := New(manager, &registry.NopAuthManager{}).Apply(t.Context(), "demo", []dockerswarm.ServiceSpec{desired}, ApplyOptions{RetryFailedUpdates: tc.retry})
 			require.NoError(t, err)
-			assert.Equal(t, tc.update, len(changed) > 0)
+			assert.Equal(t, tc.update, len(changed.ChangedServices) > 0)
 			assert.Zero(t, desired.TaskTemplate.ForceUpdate)
 		})
 	}
@@ -170,5 +170,5 @@ func TestRetryRebasesForceUpdateAfterVersionConflict(t *testing.T) {
 		})
 	changed, err := New(manager, &registry.NopAuthManager{}).Apply(t.Context(), "demo", []dockerswarm.ServiceSpec{desired}, ApplyOptions{RetryFailedUpdates: true})
 	require.NoError(t, err)
-	assert.Equal(t, []string{"api"}, changed)
+	assert.Equal(t, []string{"api"}, changed.ChangedServices)
 }

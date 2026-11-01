@@ -152,7 +152,8 @@ func (d *Deployer) applyStack(ctx context.Context, payload *deployStackPayload) 
 	defer cancel()
 	changed, err := d.serviceApplier.Apply(applyCtx, payload.stackName, payload.converted.Services,
 		services.ApplyOptions{RetryFailedUpdates: payload.retryFailedUpdates})
-	payload.changed = changed
+	payload.changed = changed.ChangedServices
+	payload.externalUpdates = changed.ExternalUpdates
 	return safePipelineError(err)
 }
 
@@ -173,11 +174,19 @@ func (d *Deployer) waitForStack(ctx context.Context, payload *deployStackPayload
 			names = append(names, name)
 		}
 	}
+	expected := expectedServiceSpecs(payload.stackName, payload.converted.Services)
+	names = slices.DeleteFunc(names, func(name string) bool {
+		managed, _ := services.ReplicasManaged(expected[name])
+		return !managed && !slices.Contains(payload.changed, name) && !slices.Contains(payload.unresolvedServices, name)
+	})
 	verification, err := d.wait(waitCtx, waiterpkg.ServiceWaitRequest{
 		StackName: payload.stackName, ServiceNames: names,
 		Baseline: payload.baseline, AppliedServices: payload.changed,
+		ExternalUpdates:    payload.externalUpdates,
+		ExpectedSpecs:      expected,
 		UnresolvedServices: payload.unresolvedServices,
 	})
+	payload.result.SpecificationOnlyServices = verification.SpecificationOnlyServices
 	payload.result.Verification = deploymentmodel.Verification{
 		Known: true, UnresolvedServices: verification.UnresolvedServices,
 	}
@@ -228,7 +237,8 @@ func (d *Deployer) applyService(ctx context.Context, payload *deployServicePaylo
 	changed, err := d.serviceApplier.Apply(
 		applyCtx, payload.stackName, payload.converted.Services, services.ApplyOptions{},
 	)
-	payload.changed = changed
+	payload.changed = changed.ChangedServices
+	payload.externalUpdates = changed.ExternalUpdates
 	return safePipelineError(err)
 }
 
@@ -242,7 +252,10 @@ func (d *Deployer) waitForService(ctx context.Context, payload *deployServicePay
 		StackName:    payload.stackName,
 		ServiceNames: verificationServiceNames(payload.stackName, payload.converted.Services, payload.applyPayload),
 		Baseline:     payload.baseline, AppliedServices: payload.changed,
+		ExternalUpdates: payload.externalUpdates,
+		ExpectedSpecs:   expectedServiceSpecs(payload.stackName, payload.converted.Services),
 	})
+	payload.result.SpecificationOnlyServices = verification.SpecificationOnlyServices
 	payload.result.Verification = deploymentmodel.Verification{
 		Known: true, UnresolvedServices: verification.UnresolvedServices,
 	}
@@ -388,4 +401,12 @@ func convertedServiceNames(stackName string, specs []dockerswarm.ServiceSpec) []
 		names = append(names, strings.TrimPrefix(spec.Name, stackName+"_"))
 	}
 	return names
+}
+
+func expectedServiceSpecs(stackName string, specs []dockerswarm.ServiceSpec) map[string]dockerswarm.ServiceSpec {
+	expected := make(map[string]dockerswarm.ServiceSpec, len(specs))
+	for _, spec := range specs {
+		expected[strings.TrimPrefix(spec.Name, stackName+"_")] = spec
+	}
+	return expected
 }

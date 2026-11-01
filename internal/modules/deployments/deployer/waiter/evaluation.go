@@ -9,6 +9,8 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 
+const waitingForUpdateStatus = "waiting for current rolling update status"
+
 func evaluateService(
 	name string,
 	baseline swarm.StackService,
@@ -21,7 +23,9 @@ func evaluateService(
 	}
 
 	desired := serviceDesiredTasks(service)
-	progress := ServiceProgress{ServiceID: service.ID, Name: name, State: ServicePending, Desired: desired}
+	progress := ServiceProgress{
+		ServiceID: service.ID, Name: name, State: ServicePending, Desired: desired,
+	}
 	if message, failed := terminalUpdateFailure(service.UpdateStatus); failed {
 		if baseline.ID == service.ID && serviceChanged(baseline, service) &&
 			reflect.DeepEqual(baseline.UpdateStatus, service.UpdateStatus) {
@@ -55,7 +59,7 @@ func evaluateService(
 	requireCurrentGeneration := requiresTaskGeneration(baseline, service, unresolved)
 	cutoff, generationPending := verificationTaskCutoff(baseline, service, requireCurrentGeneration, unresolved)
 	if generationPending {
-		progress.Message = "waiting for current rolling update status"
+		progress.Message = waitingForUpdateStatus
 		return progress
 	}
 
