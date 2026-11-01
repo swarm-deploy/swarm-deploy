@@ -227,7 +227,9 @@ func (r *Reconciler) processResult(
 		}
 
 		if payload.RetryDeferred && slices.Contains(payload.ProtectedServices, service.Name) {
-			state = prevState.Services[service.Name]
+			if _, unresolved := payload.RemainingDrift[service.Name]; unresolved {
+				state = prevState.Services[service.Name]
+			}
 		}
 		serviceStates[service.Name] = state
 	}
@@ -359,7 +361,9 @@ func (r *Reconciler) publishDriftEvents(
 ) error {
 	for _, service := range payload.Desired.Compose.Services {
 		if payload.RetryDeferred && slices.Contains(payload.ProtectedServices, service.Name) {
-			continue
+			if _, unresolved := payload.RemainingDrift[service.Name]; unresolved {
+				continue
+			}
 		}
 		if err := r.publishServiceDriftEvents(ctx, req, prevState, payload, service.Name); err != nil {
 			return err
