@@ -376,7 +376,7 @@ type attemptRow struct {
 
 func detailsFromDeployment(d deploymentmodel.Deployment) deploymentDetails {
 	return deploymentDetails{
-		UnresolvedServices: d.UnresolvedServices,
+		UnresolvedServices: persistedUnresolvedServices(d.Verification),
 		ErrorDiagnostic:    d.ErrorDiagnostic, Retryable: d.Retryable, ApplyStatus: d.ApplyStatus,
 		VerificationStatus: d.VerificationStatus, CleanupStatus: d.CleanupStatus,
 		ActualStateStatus: d.ActualStateStatus, ObservedAt: d.ObservedAt,
@@ -420,8 +420,10 @@ func (row deploymentRow) deployment() (deploymentmodel.Deployment, error) {
 	}
 	result := deploymentmodel.Deployment{
 		ID: row.ID, Stack: row.Stack, Commit: row.Commit, Status: projectedStatus(row.Status, row.IsSuperseded),
-		UnresolvedServices: details.UnresolvedServices,
-		StartedAt:          row.StartedAt.UTC(), ErrorCode: row.ErrorCode,
+		Verification: deploymentmodel.Verification{
+			Known: details.UnresolvedServices != nil, UnresolvedServices: details.UnresolvedServices,
+		},
+		StartedAt: row.StartedAt.UTC(), ErrorCode: row.ErrorCode,
 		ErrorDiagnostic: details.ErrorDiagnostic, Retryable: details.Retryable, Phase: row.Phase,
 		ApplyStatus: details.ApplyStatus, VerificationStatus: details.VerificationStatus,
 		CleanupStatus: details.CleanupStatus, ActualStateStatus: details.ActualStateStatus,
@@ -1019,4 +1021,12 @@ func (s *Store) SaveBaseline(ctx context.Context, id string) error {
 	}
 	_, err = s.db.Exec(ctx, query, args...)
 	return err
+}
+
+// Keep the historical null/array wire format solely at the persistence boundary.
+func persistedUnresolvedServices(verification deploymentmodel.Verification) []string {
+	if !verification.Known {
+		return nil
+	}
+	return append([]string{}, verification.UnresolvedServices...)
 }

@@ -51,8 +51,6 @@ type ExecuteRequest struct {
 	Commit string
 	// Desired is the effective desired state persisted for comparison and history.
 	Desired compose.File
-	// DeployComposePath identifies the prepared Compose artifact retained for tracing and compatibility.
-	DeployComposePath string
 	// ManualRetry explicitly retries a failed desired state, bypassing automatic backoff.
 	ManualRetry bool
 	// SourceChanged reports whether GitOps observed a new source digest.
@@ -69,8 +67,6 @@ type ExecuteServiceRequest struct {
 	ServiceName string
 	// Desired contains the effective desired stack.
 	Desired compose.Compose
-	// Deploy contains the rendered stack used for Docker apply.
-	Deploy compose.Compose
 }
 
 // ExecuteResult contains observations produced by a synchronous stack execution.
@@ -153,13 +149,16 @@ func (c *Controller) Execute(ctx context.Context, req ExecuteRequest) (ExecuteRe
 	if err != nil {
 		return result, err
 	}
-	deployResult, deployErr := c.deployer.DeployStack(
-		ctx, req.Stack.Name, req.Desired.Path, req.DeployComposePath, req.Desired.Compose, options...,
-	)
+	deployResult, deployErr := c.deployer.DeployStack(ctx, deployer.StackRequest{
+		StackName:         req.Stack.Name,
+		SourceComposePath: req.Desired.Path,
+		Desired:           req.Desired.Compose,
+		Options:           options,
+	})
 	c.persistInitJobs(ctx, attempt.ID, deployResult.InitJobs)
 	if deployErr != nil {
 		completion := classifyExecutionFailure(deployErr)
-		completion.UnresolvedServices = deployResult.UnresolvedServices
+		completion.Verification = deployResult.Verification
 		result.Status, result.ErrorCode = completionStatus(completion), completion.ErrorCode()
 		completeErr := c.complete(ctx, req.Stack.Name, attempt.ID, completion)
 		c.record(req, "failed")
@@ -170,7 +169,7 @@ func (c *Controller) Execute(ctx context.Context, req ExecuteRequest) (ExecuteRe
 	if observeErr != nil {
 		completion := Completion{
 			Outcome: CompletionVerificationInterrupted, Diagnostic: observeErr,
-			UnresolvedServices: deployResult.UnresolvedServices,
+			Verification: deployResult.Verification,
 		}
 		result.Status, result.ErrorCode = deploymentmodel.Interrupted, completion.ErrorCode()
 		completeErr := c.complete(ctx, req.Stack.Name, attempt.ID, completion)
@@ -187,7 +186,7 @@ func (c *Controller) Execute(ctx context.Context, req ExecuteRequest) (ExecuteRe
 	if cleanupErr != nil {
 		completion := Completion{
 			Outcome: CompletionCleanupFailed, Diagnostic: cleanupErr, ObservedAt: &result.ObservedAt,
-			UnresolvedServices: deployResult.UnresolvedServices,
+			Verification: deployResult.Verification,
 		}
 		result.Status, result.ErrorCode = deploymentmodel.Failed, completion.ErrorCode()
 		completeErr := c.complete(ctx, req.Stack.Name, attempt.ID, completion)
@@ -206,9 +205,12 @@ func (c *Controller) Execute(ctx context.Context, req ExecuteRequest) (ExecuteRe
 
 // ExecuteService runs one synchronous service remediation through the owned Deployer.
 func (c *Controller) ExecuteService(ctx context.Context, req ExecuteServiceRequest) (deployer.Result, error) {
-	return c.deployer.DeployService(
-		ctx, req.StackName, req.SourceComposePath, req.ServiceName, req.Desired, req.Deploy,
-	)
+	return c.deployer.DeployService(ctx, deployer.ServiceRequest{
+		StackName:         req.StackName,
+		SourceComposePath: req.SourceComposePath,
+		ServiceName:       req.ServiceName,
+		Desired:           req.Desired,
+	})
 }
 
 // Recover interrupts Attempts that were still running when the previous process stopped.
@@ -367,18 +369,18 @@ func mayContainCredentials(line string) bool {
 
 func (c *Controller) stackOptions(
 	ctx context.Context, attempt deploymentmodel.Attempt,
-) ([]deployer.StackOptions, error) {
+) (deployer.StackOptions, error) {
 	current, err := c.lifecycle.store.Get(ctx, attempt.DeploymentID)
 	if err != nil {
-		return nil, err
+		return deployer.StackOptions{}, err
 	}
-	if attempt.Number == 1 && len(current.UnresolvedServices) == 0 {
-		return nil, nil
+	if attempt.Number == 1 && len(current.Verification.UnresolvedServices) == 0 {
+		return deployer.StackOptions{}, nil
 	}
-	return []deployer.StackOptions{{
+	return deployer.StackOptions{
 		RetryFailedUpdates: attempt.Number > 1,
-		UnresolvedServices: current.UnresolvedServices,
-	}}, nil
+		UnresolvedServices: current.Verification.UnresolvedServices,
+	}, nil
 }
 
 func deferredServices(latest deploymentmodel.Deployment, desired compose.File) []string {

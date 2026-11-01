@@ -585,8 +585,9 @@ func TestConvertStopGracePeriod(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			converter, networks, _, _ := newTestConverter(t)
-			networks.EXPECT().Get(gomock.Any(), "demo_default").
-				Return(existingNetwork("demo_default"), nil)
+			if !tc.error {
+				networks.EXPECT().Get(gomock.Any(), "demo_default").Return(existingNetwork("demo_default"), nil)
+			}
 			desired := parseStack(t, "services: {app: {image: alpine, stop_grace_period: '"+tc.value+"'}}")
 			result, err := converter.Convert(context.Background(), "demo", desired)
 			if tc.error {

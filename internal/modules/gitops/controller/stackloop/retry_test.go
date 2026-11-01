@@ -37,7 +37,7 @@ func TestReconcileDeferredFailureProtectsUnresolvedServiceAndFailureProjection(t
 	swarmService := &swarm.Swarm{Services: manager}
 	reconciler := newTestReconciler(cfg, repository, lifecycle, stackDeployer, swarmService, bus, &metrics.NopDeploys{}, stateStore, fs.NewLocalFileSystem(), db)
 	req := ReconciliationRequest{Stack: config.StackSpec{Name: "app", ComposeFile: "app.yaml"}, Commit: "one"}
-	stackDeployer.EXPECT().DeployStack(gomock.Any(), "app", gomock.Any(), gomock.Any(), gomock.Any()).Return(deployer.Result{}, &pipe.StepError{StepName: "wait for service convergence", Err: fmt.Errorf("api paused: %w", waiter.ErrConvergenceFailed)})
+	stackDeployer.EXPECT().DeployStack(gomock.Any(), gomock.Cond(func(req deployer.StackRequest) bool { return req.StackName == "app" })).Return(deployer.Result{}, &pipe.StepError{StepName: "wait for service convergence", Err: fmt.Errorf("api paused: %w", waiter.ErrConvergenceFailed)})
 	require.Error(t, reconciler.Reconcile(t.Context(), req))
 	before := readSQLState(t, stateStore)
 	assert.Equal(t, "convergence_failed", before.Stacks["app"].LastError)
@@ -55,7 +55,10 @@ func TestReconcileDeferredFailureProtectsUnresolvedServiceAndFailureProjection(t
 	assert.Equal(t, deploymentmodel.Failed, stored.Status)
 	// Live state is observed, but the unresolved api is never automatically applied.
 	req.IsManual = true
-	stackDeployer.EXPECT().DeployStack(gomock.Any(), "app", gomock.Any(), gomock.Any(), gomock.Any(), deployer.StackOptions{RetryFailedUpdates: true, UnresolvedServices: []string{"api"}}).Return(deployer.Result{}, nil)
+	stackDeployer.EXPECT().DeployStack(gomock.Any(), gomock.Cond(func(req deployer.StackRequest) bool {
+		return req.StackName == "app" &&
+			gomock.Eq(deployer.StackOptions{RetryFailedUpdates: true, UnresolvedServices: []string{"api"}}).Matches(req.Options)
+	})).Return(deployer.Result{}, nil)
 	manager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "app"}).Return(nil, nil)
 	require.NoError(t, reconciler.Reconcile(t.Context(), req))
 	retried, _, err := deploymentstore.NewStore(db).Latest(t.Context(), "app")

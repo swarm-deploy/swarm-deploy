@@ -85,7 +85,9 @@ func TestConvertInvalidAndUnsupportedOptions(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			converter, networks, _, _ := newTestConverter(t)
 			networks.EXPECT().Get(gomock.Any(), "demo_default").Return(existingNetwork("demo_default"), nil).AnyTimes()
-			result, err := converter.Convert(context.Background(), "demo", parseStack(t, tc.yaml))
+			desired := parseStack(t, tc.yaml)
+			require.ErrorContains(t, converter.Validate("demo", desired), tc.field)
+			result, err := converter.Convert(context.Background(), "demo", desired)
 			require.ErrorContains(t, err, tc.field)
 			assert.Nil(t, result)
 			assert.NotContains(t, err.Error(), "sensitive")

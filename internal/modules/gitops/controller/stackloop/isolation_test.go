@@ -75,7 +75,7 @@ func TestDeferredDeploymentIsolatesIndependentReconciliation(t *testing.T) {
 			}
 			req := ReconciliationRequest{Stack: config.StackSpec{Name: "app", ComposeFile: "app.yaml"}, Commit: "one"}
 			req.Stack.Sync.Policy.SelfHeal = tc.stack
-			stackDeployer.EXPECT().DeployStack(gomock.Any(), "app", gomock.Any(), gomock.Any(), gomock.Any()).Return(deployer.Result{UnresolvedServices: []string{"a"}}, &pipe.StepError{StepName: "wait for service convergence", Err: waiter.ErrConvergenceFailed})
+			stackDeployer.EXPECT().DeployStack(gomock.Any(), gomock.Cond(func(req deployer.StackRequest) bool { return req.StackName == "app" })).Return(deployer.Result{Verification: deploymentmodel.Verification{Known: true, UnresolvedServices: []string{"a"}}}, &pipe.StepError{StepName: "wait for service convergence", Err: waiter.ErrConvergenceFailed})
 			require.Error(t, create().Reconcile(t.Context(), req))
 			original := readSQLState(t, stateStore).Stacks["app"]
 			failed, _, err := deploymentstore.NewStore(db).Latest(t.Context(), "app")
@@ -93,7 +93,10 @@ func TestDeferredDeploymentIsolatesIndependentReconciliation(t *testing.T) {
 			for range 3 {
 				manager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "app"}).Return(missing, nil)
 				if tc.heal {
-					stackDeployer.EXPECT().DeployService(gomock.Any(), "app", gomock.Any(), "b", gomock.Any(), gomock.Any()).Return(deployer.Result{}, nil)
+					stackDeployer.EXPECT().DeployService(gomock.Any(), gomock.Cond(func(req deployer.ServiceRequest) bool {
+						return req.StackName == "app" &&
+							req.ServiceName == "b"
+					})).Return(deployer.Result{}, nil)
 					manager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "app"}).Return([]swarm.StackService{{Name: "b"}, {Name: "c"}, orphan}, nil)
 				}
 				require.NoError(t, create().Reconcile(t.Context(), req))

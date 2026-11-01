@@ -23,7 +23,7 @@ func TestPausedUpdateIncludesLatestFailedTask(t *testing.T) {
 				{ID: "old-task", CurrentState: swarm.TaskStateFailed, UpdatedAt: serviceWaitTestTime.Add(-time.Minute), Error: "old failure"},
 				{ID: "latest-task", CurrentState: state, UpdatedAt: serviceWaitTestTime, Error: "container startup failed", ExitCode: &exit},
 			}, nil)
-			err := newTestServiceWaiter(manager).Wait(t.Context(), ServiceWaitRequest{
+			err := waitForTest(newTestServiceWaiter(manager), t.Context(), ServiceWaitRequest{
 				StackName: "demo", ServiceNames: []string{"api"}, Baseline: []swarm.StackService{service},
 			})
 			require.Error(t, err)
@@ -41,7 +41,7 @@ func TestPausedUpdateRemainsFailedWhenTaskDiagnosticsUnavailable(t *testing.T) {
 	service.UpdateStatus = &swarm.ServiceUpdateStatus{State: "paused", Message: "original failure"}
 	manager.EXPECT().ListServices(gomock.Any(), gomock.Any()).Return([]swarm.StackService{service}, nil)
 	manager.EXPECT().ListTasks(gomock.Any(), "api-id").Return(nil, errors.New("temporary observation failure"))
-	err := newTestServiceWaiter(manager).Wait(t.Context(), ServiceWaitRequest{StackName: "demo", ServiceNames: []string{"api"}})
+	err := waitForTest(newTestServiceWaiter(manager), t.Context(), ServiceWaitRequest{StackName: "demo", ServiceNames: []string{"api"}})
 	require.ErrorContains(t, err, "original failure")
 	assert.ErrorContains(t, err, "task diagnostics unavailable")
 }

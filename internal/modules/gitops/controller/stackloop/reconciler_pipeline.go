@@ -26,8 +26,7 @@ type pipelinePayload struct {
 	IsManualSync     bool
 	HasPreviousDrift bool
 
-	Desired           *compose.File
-	DeployComposePath string
+	Desired *compose.File
 
 	LiveServices   []swarm.StackService
 	ObservedAt     time.Time
@@ -96,7 +95,7 @@ func (r *Reconciler) attachPipeline() {
 func (r *Reconciler) executeDeployment(ctx context.Context, payload *pipelinePayload) error {
 	result, err := r.executor.Execute(ctx, deployments.ExecuteRequest{
 		Stack: payload.Stack, Commit: payload.Commit, Desired: *payload.Desired,
-		DeployComposePath: payload.DeployComposePath, SourceChanged: payload.IsNewDigest, ManualRetry: payload.IsManualSync,
+		SourceChanged: payload.IsNewDigest, ManualRetry: payload.IsManualSync,
 	})
 	payload.Attempt = result.Attempt
 	payload.LiveServices = result.LiveServices

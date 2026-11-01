@@ -29,7 +29,7 @@ func TestApplyCreatesServicesInDeterministicOrder(t *testing.T) {
 
 	changed, err := New(manager, &registry.NopAuthManager{}).Apply(t.Context(), "demo", []dockerswarm.ServiceSpec{
 		serviceSpec("worker", "alpine:3"), serviceSpec("api", "nginx:1"),
-	})
+	}, ApplyOptions{})
 	require.NoError(t, err)
 	assert.Equal(t, []string{"api", "worker"}, changed)
 }
@@ -44,7 +44,7 @@ func TestApplySkipsSemanticallyUnchangedResolvedImage(t *testing.T) {
 		ID: "api-id", Spec: current, Meta: dockerswarm.Meta{Version: dockerswarm.Version{Index: 7}},
 	}, nil)
 
-	changed, err := New(manager, &registry.NopAuthManager{}).Apply(t.Context(), "demo", []dockerswarm.ServiceSpec{desired})
+	changed, err := New(manager, &registry.NopAuthManager{}).Apply(t.Context(), "demo", []dockerswarm.ServiceSpec{desired}, ApplyOptions{})
 	require.NoError(t, err)
 	assert.Empty(t, changed)
 }
@@ -56,7 +56,7 @@ func TestApplySkipsDaemonRuntimeAndIsolationDefaults(t *testing.T) {
 	current.TaskTemplate.Runtime = dockerswarm.RuntimeContainer
 	current.TaskTemplate.ContainerSpec.Isolation = container.IsolationDefault
 	manager.EXPECT().Inspect(gomock.Any(), "demo_api").Return(service("api-id", 7, current), nil)
-	changed, err := New(manager, &registry.NopAuthManager{}).Apply(t.Context(), "demo", []dockerswarm.ServiceSpec{desired})
+	changed, err := New(manager, &registry.NopAuthManager{}).Apply(t.Context(), "demo", []dockerswarm.ServiceSpec{desired}, ApplyOptions{})
 	require.NoError(t, err)
 	assert.Empty(t, changed) // Any update would be an unexpected gomock call.
 	current.TaskTemplate.ContainerSpec.Isolation = container.IsolationHyperV
@@ -82,7 +82,7 @@ func TestApplyUpdatesChangedServiceAndPreservesMounts(t *testing.T) {
 			return nil
 		})
 
-	changed, err := New(manager, &registry.NopAuthManager{}).Apply(t.Context(), "demo", []dockerswarm.ServiceSpec{desired})
+	changed, err := New(manager, &registry.NopAuthManager{}).Apply(t.Context(), "demo", []dockerswarm.ServiceSpec{desired}, ApplyOptions{})
 	require.NoError(t, err)
 	assert.Equal(t, []string{"api"}, changed)
 }
@@ -99,7 +99,7 @@ func TestApplyRetriesBoundedVersionConflicts(t *testing.T) {
 		)
 	}
 
-	changed, err := New(manager, &registry.NopAuthManager{}).Apply(t.Context(), "demo", []dockerswarm.ServiceSpec{desired})
+	changed, err := New(manager, &registry.NopAuthManager{}).Apply(t.Context(), "demo", []dockerswarm.ServiceSpec{desired}, ApplyOptions{})
 	require.Error(t, err)
 	assert.Empty(t, changed)
 	assert.ErrorContains(t, err, "version conflict after 3 attempts")
@@ -115,7 +115,7 @@ func TestApplyRejectsForeignServiceAndPreservesPartialApplication(t *testing.T) 
 
 	changed, err := New(manager, &registry.NopAuthManager{}).Apply(t.Context(), "demo", []dockerswarm.ServiceSpec{
 		serviceSpec("api", "nginx:1"), serviceSpec("worker", "alpine:3"),
-	})
+	}, ApplyOptions{})
 	require.Error(t, err)
 	assert.Equal(t, []string{"api"}, changed)
 	assert.ErrorContains(t, err, "not owned")
@@ -138,7 +138,7 @@ func TestApplyPassesRegistryAuthenticationWithoutExposingItInSpec(t *testing.T) 
 			return "api-id", nil
 		})
 
-	_, err := New(manager, registry.NewAuthManager()).Apply(t.Context(), "demo", []dockerswarm.ServiceSpec{desired})
+	_, err := New(manager, registry.NewAuthManager()).Apply(t.Context(), "demo", []dockerswarm.ServiceSpec{desired}, ApplyOptions{})
 	require.NoError(t, err)
 }
 
@@ -169,7 +169,7 @@ func TestApplyPassesRegistryAuthenticationOnUpdate(t *testing.T) {
 		return nil
 	})
 
-	_, err := New(manager, registry.NewAuthManager()).Apply(t.Context(), "demo", []dockerswarm.ServiceSpec{desired})
+	_, err := New(manager, registry.NewAuthManager()).Apply(t.Context(), "demo", []dockerswarm.ServiceSpec{desired}, ApplyOptions{})
 	require.NoError(t, err)
 }
 
@@ -179,7 +179,7 @@ func TestApplyReturnsDockerAPIFailureWithServiceOperation(t *testing.T) {
 	manager.EXPECT().Inspect(gomock.Any(), "demo_api").Return(dockerswarm.Service{}, swarm.ErrServiceNotFound)
 	manager.EXPECT().Create(gomock.Any(), desired, gomock.Any()).Return("", errors.New("daemon unavailable"))
 
-	_, err := New(manager, &registry.NopAuthManager{}).Apply(t.Context(), "demo", []dockerswarm.ServiceSpec{desired})
+	_, err := New(manager, &registry.NopAuthManager{}).Apply(t.Context(), "demo", []dockerswarm.ServiceSpec{desired}, ApplyOptions{})
 	require.Error(t, err)
 	assert.ErrorContains(t, err, "create service api")
 }

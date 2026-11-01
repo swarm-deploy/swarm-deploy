@@ -1,15 +1,19 @@
 package deployments
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
+	cerrdefs "github.com/containerd/errdefs"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	deploymentmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/model"
 	deploymentstore "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
 )
 
 func TestTerminalFailureSuppressesTicksAcrossRestartButAllowsManualAndChangedDesired(t *testing.T) {
@@ -88,14 +92,16 @@ func TestAutomaticRetryBackoffIsCappedAndPersistsAcrossRestart(t *testing.T) {
 
 func TestApplyFailuresRetryOnlyWhenExplicitlyTemporary(t *testing.T) {
 	for _, tc := range []struct {
-		name string
-		outcome CompletionOutcome
+		name       string
+		outcome    CompletionOutcome
 		diagnostic error
-		retry bool
+		retry      bool
 	}{
 		{name: "unclassified apply", outcome: CompletionApplyFailed, diagnostic: errors.New("invalid service")},
 		{name: "unclassified init job", outcome: CompletionInitJobFailed, diagnostic: errors.New("exit 1")},
 		{name: "unclassified cleanup", outcome: CompletionCleanupFailed, diagnostic: errors.New("invalid operation")},
+		{name: "sanitized metadata deadline", outcome: CompletionApplyFailed, diagnostic: faults.SanitizeError(fmt.Errorf("private request: %w", context.DeadlineExceeded), "metadata lookup failed"), retry: true},
+		{name: "sanitized metadata unavailable", outcome: CompletionApplyFailed, diagnostic: faults.SanitizeError(fmt.Errorf("private request: %w", cerrdefs.ErrUnavailable), "metadata lookup failed"), retry: true},
 		{name: "temporary apply", outcome: CompletionApplyFailed, diagnostic: retryTestTemporaryError{}, retry: true},
 		{name: "temporary init job", outcome: CompletionInitJobFailed, diagnostic: retryTestTemporaryError{}, retry: true},
 	} {
@@ -106,17 +112,25 @@ func TestApplyFailuresRetryOnlyWhenExplicitlyTemporary(t *testing.T) {
 			attempt, err := service.StartIfChanged(t.Context(), "app", "first", desired, true)
 			require.NoError(t, err)
 			completion := Completion{Outcome: tc.outcome, Diagnostic: tc.diagnostic}
-			if tc.outcome == CompletionCleanupFailed { completion.ObservedAt = &now }
+			if tc.outcome == CompletionCleanupFailed {
+				completion.ObservedAt = &now
+			}
 			require.NoError(t, service.Complete(t.Context(), attempt.ID, completion))
 			service = NewService(db, bus, WithClock(func() time.Time { return now }))
 			now = now.Add(2 * time.Hour)
 			next, err := service.StartIfChanged(t.Context(), "app", "tick", desired, false)
 			require.NoError(t, err)
-			if tc.retry { require.NotNil(t, next); assert.Equal(t, 2, next.Number) } else { assert.Nil(t, next) }
+			if tc.retry {
+				require.NotNil(t, next)
+				assert.Equal(t, 2, next.Number)
+			} else {
+				assert.Nil(t, next)
+			}
 		})
 	}
 }
 
 type retryTestTemporaryError struct{}
-func (retryTestTemporaryError) Error() string { return "temporary unavailable" }
+
+func (retryTestTemporaryError) Error() string   { return "temporary unavailable" }
 func (retryTestTemporaryError) Temporary() bool { return true }

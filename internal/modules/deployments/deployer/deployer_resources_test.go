@@ -104,7 +104,6 @@ func TestDeployStackReconcilesResourcesWithAndWithoutInitJobs(t *testing.T) {
 						}, nil))
 					}
 				}
-				deployPath := filepath.Join(dir, "rendered", "compose.yaml")
 				for i := 1; i < len(calls); i++ {
 					calls[i].After(calls[i-1])
 				}
@@ -115,8 +114,12 @@ func TestDeployStackReconcilesResourcesWithAndWithoutInitJobs(t *testing.T) {
 					serviceWaiter: newSuccessfulServiceWaiter(t),
 				}
 				wireNativeTestDeployer(t, deployer)
-				_, err := deployer.DeployStack(t.Context(), "demo", filepath.Join(dir, "compose.yaml"), deployPath, compose.Compose{
-					Services: []compose.Service{service}, Configs: compose.Configs{"app": config}, Secrets: compose.Secrets{"password": secret},
+				_, err := deployer.DeployStack(t.Context(), StackRequest{
+					StackName:         "demo",
+					SourceComposePath: filepath.Join(dir, "compose.yaml"),
+					Desired: compose.Compose{
+						Services: []compose.Service{service}, Configs: compose.Configs{"app": config}, Secrets: compose.Secrets{"password": secret},
+					},
 				})
 				require.NoError(t, err)
 			})
@@ -188,7 +191,11 @@ func TestDeployStackResourceFailuresStopDeployment(t *testing.T) {
 					serviceWaiter: newSuccessfulServiceWaiter(t),
 				}
 				wireNativeTestDeployer(t, deployer)
-				_, err := deployer.DeployStack(context.Background(), "demo", filepath.Join(dir, "compose.yaml"), "rendered.yaml", desired)
+				_, err := deployer.DeployStack(context.Background(), StackRequest{
+					StackName:         "demo",
+					SourceComposePath: filepath.Join(dir, "compose.yaml"),
+					Desired:           desired,
+				})
 				require.ErrorContains(t, err, "")
 				assert.ErrorContains(t, err, tt.errorMatch)
 				if tt.stage == "list" || (tt.stage == "create" && tt.config) {
@@ -232,7 +239,11 @@ func TestDeployStackDeployFailureKeepsReconciledResources(t *testing.T) {
 			serviceManager.EXPECT().Inspect(gomock.Any(), "demo_api").Return(dockerswarm.Service{}, swarm.ErrServiceNotFound)
 			serviceManager.EXPECT().Create(gomock.Any(), gomock.Any(), gomock.Any()).Return("", deployErr)
 			wireNativeTestDeployerWithServiceManager(t, deployer, serviceManager, false)
-			result, err := deployer.DeployStack(t.Context(), "demo", "compose.yaml", "rendered.yaml", desired)
+			result, err := deployer.DeployStack(t.Context(), StackRequest{
+				StackName:         "demo",
+				SourceComposePath: "compose.yaml",
+				Desired:           desired,
+			})
 			require.ErrorIs(t, err, deployErr)
 			assert.ErrorContains(t, err, "create service api")
 			if withInitJobs {

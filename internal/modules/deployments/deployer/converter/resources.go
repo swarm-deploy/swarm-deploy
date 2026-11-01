@@ -9,6 +9,7 @@ import (
 	dockerswarm "github.com/docker/docker/api/types/swarm"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/resources"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 
@@ -26,7 +27,7 @@ func (c *Converter) resolveObjects(
 	if len(configNames) > 0 {
 		existing, err := c.configs.List(ctx, swarm.ListConfigsFilter{Names: configNames})
 		if err != nil {
-			return result, fmt.Errorf("configs: Docker metadata lookup failed")
+			return result, faults.SanitizeError(err, "configs: Docker metadata lookup failed")
 		}
 		for _, alias := range sortedKeys(desired.Configs) {
 			object := desired.Configs[alias]
@@ -46,7 +47,7 @@ func (c *Converter) resolveObjects(
 	if len(secretNames) > 0 {
 		existing, err := c.secrets.List(ctx, swarm.ListSecretsFilter{Names: secretNames})
 		if err != nil {
-			return result, fmt.Errorf("secrets: Docker metadata lookup failed")
+			return result, faults.SanitizeError(err, "secrets: Docker metadata lookup failed")
 		}
 		for _, alias := range sortedKeys(desired.Secrets) {
 			object := desired.Secrets[alias]

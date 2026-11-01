@@ -140,11 +140,11 @@ func TestStartIfChangedCarriesUnresolvedServicesFromInterruptedRunningDeployment
 			previous, err := store.Get(t.Context(), first.DeploymentID)
 			require.NoError(t, err)
 			assert.Equal(t, deploymentmodel.Superseded, previous.Status)
-			assert.Equal(t, []string{"api", "worker"}, previous.UnresolvedServices)
+			assert.Equal(t, []string{"api", "worker"}, previous.Verification.UnresolvedServices)
 
 			current, err := store.Get(t.Context(), second.DeploymentID)
 			require.NoError(t, err)
-			assert.Equal(t, tc.wantUnresolved, current.UnresolvedServices,
+			assert.Equal(t, tc.wantUnresolved, current.Verification.UnresolvedServices,
 				"supersession must inherit interrupted verification obligations")
 		})
 	}

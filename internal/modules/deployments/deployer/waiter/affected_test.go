@@ -23,7 +23,7 @@ func TestAppliedServiceFailureCannotBeHiddenByOldRunningTask(t *testing.T) {
 	failed.Error = "task: non-zero exit (1)"
 	manager.EXPECT().ListServices(gomock.Any(), gomock.Any()).Return([]swarm.StackService{after}, nil)
 	manager.EXPECT().ListTasks(gomock.Any(), "api-id").Return(append(testRunningTasks(1, serviceWaitTestTime.Add(-time.Hour)), failed), nil)
-	err := newTestServiceWaiter(manager).Wait(t.Context(), ServiceWaitRequest{StackName: "app", ServiceNames: []string{"api"}, AppliedServices: []string{"api"}, Baseline: []swarm.StackService{before}})
+	err := waitForTest(newTestServiceWaiter(manager), t.Context(), ServiceWaitRequest{StackName: "app", ServiceNames: []string{"api"}, AppliedServices: []string{"api"}, Baseline: []swarm.StackService{before}})
 	require.ErrorIs(t, err, ErrConvergenceFailed)
 	for _, detail := range []string{"api", "paused", "failed-task", "exit_code=1", "non-zero exit"} {
 		assert.Contains(t, err.Error(), detail)
@@ -39,7 +39,7 @@ func TestAppliedTargetsExcludeUnrelatedHistoricalFailure(t *testing.T) {
 	unrelated.UpdateStatus = &swarm.ServiceUpdateStatus{State: "paused"}
 	manager.EXPECT().ListServices(gomock.Any(), gomock.Any()).Return([]swarm.StackService{after, unrelated}, nil)
 	manager.EXPECT().ListTasks(gomock.Any(), "api-id").Return(testRunningTasks(1, serviceWaitTestTime), nil)
-	require.NoError(t, newTestServiceWaiter(manager).Wait(t.Context(), ServiceWaitRequest{StackName: "app", ServiceNames: []string{"api"}, AppliedServices: []string{"api"}, Baseline: []swarm.StackService{before, unrelated}}))
+	require.NoError(t, waitForTest(newTestServiceWaiter(manager), t.Context(), ServiceWaitRequest{StackName: "app", ServiceNames: []string{"api"}, AppliedServices: []string{"api"}, Baseline: []swarm.StackService{before, unrelated}}))
 }
 
 func TestAppliedTargetWaitsForFreshServiceAndUpdateStatus(t *testing.T) {
@@ -62,7 +62,7 @@ func TestAppliedTargetWaitsForFreshServiceAndUpdateStatus(t *testing.T) {
 			manager.EXPECT().ListServices(gomock.Any(), gomock.Any()).Return([]swarm.StackService{ready}, nil)
 			manager.EXPECT().ListTasks(gomock.Any(), "api-id").Return(testRunningTasks(1, serviceWaitTestTime), nil)
 			var progress []ServiceProgress
-			err := newTestServiceWaiter(manager).Wait(t.Context(), ServiceWaitRequest{StackName: "app", ServiceNames: []string{"api"}, AppliedServices: []string{"api"}, Baseline: []swarm.StackService{before}, Progress: func(p ServiceProgress) { progress = append(progress, p) }})
+			err := waitForTest(newTestServiceWaiter(manager), t.Context(), ServiceWaitRequest{StackName: "app", ServiceNames: []string{"api"}, AppliedServices: []string{"api"}, Baseline: []swarm.StackService{before}, Progress: func(p ServiceProgress) { progress = append(progress, p) }})
 			require.NoError(t, err)
 			require.Len(t, progress, 3)
 			assert.Equal(t, ServicePending, progress[0].State)
@@ -74,7 +74,7 @@ func TestAppliedTargetWaitsForFreshServiceAndUpdateStatus(t *testing.T) {
 
 func TestNoAppliedServicesIsSuccessfulNoop(t *testing.T) {
 	manager := swarm.NewMockServiceManager(gomock.NewController(t))
-	require.NoError(t, newTestServiceWaiter(manager).Wait(t.Context(), ServiceWaitRequest{StackName: "app", AppliedServices: []string{}}))
+	require.NoError(t, waitForTest(newTestServiceWaiter(manager), t.Context(), ServiceWaitRequest{StackName: "app", AppliedServices: []string{}}))
 }
 
 func TestUnresolvedRolloutNeedsTasksFromDesiredGeneration(t *testing.T) {
@@ -101,7 +101,7 @@ func TestUnresolvedRolloutNeedsTasksFromDesiredGeneration(t *testing.T) {
 					appliedNames = []string{"api"}
 				}
 				var states []ServiceState
-				err := newTestServiceWaiter(manager).Wait(t.Context(), ServiceWaitRequest{
+				err := waitForTest(newTestServiceWaiter(manager), t.Context(), ServiceWaitRequest{
 					AppliedServices: appliedNames,
 					StackName:       "app", ServiceNames: []string{"api"}, UnresolvedServices: []string{"api"}, Baseline: []swarm.StackService{baseline},
 					Progress: func(p ServiceProgress) { states = append(states, p.State) },
@@ -127,7 +127,7 @@ func TestTerminalFailureDoesNotPreventIndependentTargetsFromFinishing(t *testing
 	manager.EXPECT().ListTasks(gomock.Any(), "a-id").Return(nil, nil).Times(2)
 	manager.EXPECT().ListTasks(gomock.Any(), "b-id").Return(testRunningTasks(1, serviceWaitTestTime), nil).Times(2)
 	var bStates []ServiceState
-	err := newTestServiceWaiter(manager).Wait(t.Context(), ServiceWaitRequest{
+	err := waitForTest(newTestServiceWaiter(manager), t.Context(), ServiceWaitRequest{
 		StackName: "app", ServiceNames: []string{"a", "b"}, UnresolvedServices: []string{"a"}, Baseline: []swarm.StackService{failed, pending},
 		Progress: func(p ServiceProgress) {
 			if p.Name == "b" {
@@ -144,7 +144,7 @@ func TestUnresolvedGenerationWithoutUpdateMetadataCannotSucceed(t *testing.T) {
 	accepted := testReplicatedService("api", "api-id", 1, serviceWaitTestTime, "api:2")
 	manager.EXPECT().ListServices(gomock.Any(), gomock.Any()).Return([]swarm.StackService{accepted}, nil).AnyTimes()
 	manager.EXPECT().ListTasks(gomock.Any(), "api-id").Return(testRunningTasks(1, serviceWaitTestTime.Add(-time.Hour)), nil).AnyTimes()
-	err := NewServiceWaiter(manager, time.Millisecond, 5*time.Millisecond).Wait(t.Context(), ServiceWaitRequest{
+	err := waitForTest(NewServiceWaiter(manager, time.Millisecond, 5*time.Millisecond), t.Context(), ServiceWaitRequest{
 		StackName: "app", ServiceNames: []string{"api"}, UnresolvedServices: []string{"api"}, Baseline: []swarm.StackService{accepted},
 	})
 	require.ErrorIs(t, err, context.DeadlineExceeded)
@@ -160,7 +160,7 @@ func TestUnresolvedInitialCreationCanRecoverWithoutUpdateStatus(t *testing.T) {
 			}
 			manager.EXPECT().ListServices(gomock.Any(), gomock.Any()).Return([]swarm.StackService{accepted}, nil).AnyTimes()
 			manager.EXPECT().ListTasks(gomock.Any(), "api-id").Return(testRunningTasks(1, serviceWaitTestTime), nil).AnyTimes()
-			err := NewServiceWaiter(manager, time.Millisecond, 5*time.Millisecond).Wait(t.Context(), ServiceWaitRequest{
+			err := waitForTest(NewServiceWaiter(manager, time.Millisecond, 5*time.Millisecond), t.Context(), ServiceWaitRequest{
 				StackName: "app", ServiceNames: []string{"api"}, UnresolvedServices: []string{"api"}, Baseline: []swarm.StackService{accepted},
 			})
 			if previouslyUpdated {

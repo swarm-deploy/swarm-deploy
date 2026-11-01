@@ -132,7 +132,7 @@ func TestNativeDeploymentCarriesUnresolvedRolloutAcrossDesiredDigests(t *testing
 	assert.Equal(t, "convergence_failed", second.ErrorCode)
 	stored, _, err := deploymentstore.NewStore(db).Latest(t.Context(), "app")
 	require.NoError(t, err)
-	assert.Equal(t, []string{"a"}, stored.UnresolvedServices, "b has genuinely converged and historical was never affected")
+	assert.Equal(t, []string{"a"}, stored.Verification.UnresolvedServices, "b has genuinely converged and historical was never affected")
 	assert.Equal(t, 1, stored.AttemptCount)
 	drain()
 	for range 3 {
@@ -162,7 +162,7 @@ func TestNativeDeploymentCarriesUnresolvedRolloutAcrossDesiredDigests(t *testing
 	assert.Equal(t, deploymentmodel.Succeeded, recovered.Status)
 	stored, _, err = deploymentstore.NewStore(db).Latest(t.Context(), "app")
 	require.NoError(t, err)
-	assert.Empty(t, stored.UnresolvedServices)
+	assert.Empty(t, stored.Verification.UnresolvedServices)
 	original, err := deploymentstore.NewStore(db).Get(t.Context(), first.Attempt.DeploymentID)
 	require.NoError(t, err)
 	assert.Equal(t, deploymentmodel.Failed, original.Attempts[0].Status)
@@ -181,21 +181,21 @@ func TestUnresolvedServicesSurviveIntermediateFailuresAndRemoval(t *testing.T) {
 	file := desiredServices("a", "b")
 	first, err := lifecycle.StartIfChanged(t.Context(), "app", "one", file, true)
 	require.NoError(t, err)
-	require.NoError(t, lifecycle.Complete(t.Context(), first.ID, Completion{Outcome: CompletionConvergenceFailed, UnresolvedServices: []string{"a"}}))
+	require.NoError(t, lifecycle.Complete(t.Context(), first.ID, Completion{Outcome: CompletionConvergenceFailed, Verification: deploymentmodel.Verification{Known: true, UnresolvedServices: []string{"a"}}}))
 	file.Compose.Services[1].Image = "example/b:2"
 	second, err := NewService(db, &dispatcher.NopDispatcher{}).StartIfChanged(t.Context(), "app", "two", file, true)
 	require.NoError(t, err)
-	require.NoError(t, lifecycle.Complete(t.Context(), second.ID, Completion{Outcome: CompletionApplyFailed, UnresolvedServices: []string{}}))
+	require.NoError(t, lifecycle.Complete(t.Context(), second.ID, Completion{Outcome: CompletionApplyFailed, Verification: deploymentmodel.Verification{Known: true, UnresolvedServices: []string{}}}))
 	stored, _, err := deploymentstore.NewStore(db).Latest(t.Context(), "app")
 	require.NoError(t, err)
-	assert.Equal(t, []string{"a"}, stored.UnresolvedServices)
+	assert.Equal(t, []string{"a"}, stored.Verification.UnresolvedServices)
 	// Explicitly removing a from desired releases its obligation.
 	file.Compose.Services = file.Compose.Services[1:]
 	third, err := lifecycle.StartIfChanged(context.Background(), "app", "three", file, true)
 	require.NoError(t, err)
 	stored, err = deploymentstore.NewStore(db).Get(t.Context(), third.DeploymentID)
 	require.NoError(t, err)
-	assert.Empty(t, stored.UnresolvedServices)
+	assert.Empty(t, stored.Verification.UnresolvedServices)
 }
 
 func TestUnresolvedMetadataSurvivesDatabaseReopen(t *testing.T) {
@@ -206,7 +206,7 @@ func TestUnresolvedMetadataSurvivesDatabaseReopen(t *testing.T) {
 	file := desiredServices("a", "b")
 	attempt, err := lifecycle.StartIfChanged(t.Context(), "app", "one", file, true)
 	require.NoError(t, err)
-	require.NoError(t, lifecycle.Complete(t.Context(), attempt.ID, Completion{Outcome: CompletionConvergenceFailed, UnresolvedServices: []string{"a"}}))
+	require.NoError(t, lifecycle.Complete(t.Context(), attempt.ID, Completion{Outcome: CompletionConvergenceFailed, Verification: deploymentmodel.Verification{Known: true, UnresolvedServices: []string{"a"}}}))
 	require.NoError(t, db.Close())
 	db, err = storage.OpenSQLite(t.Context(), dir)
 	require.NoError(t, err)
@@ -220,7 +220,7 @@ func TestUnresolvedMetadataSurvivesDatabaseReopen(t *testing.T) {
 	require.NoError(t, err)
 	stored, err := deploymentstore.NewStore(db).Get(t.Context(), next.DeploymentID)
 	require.NoError(t, err)
-	assert.Equal(t, []string{"a"}, stored.UnresolvedServices)
+	assert.Equal(t, []string{"a"}, stored.Verification.UnresolvedServices)
 }
 
 func TestPreApplyFailuresRetainOnlyExistingRolloutObligations(t *testing.T) {
@@ -234,7 +234,7 @@ func TestPreApplyFailuresRetainOnlyExistingRolloutObligations(t *testing.T) {
 				completion := Completion{Outcome: CompletionSucceeded}
 				var want []string
 				if unresolved {
-					completion = Completion{Outcome: CompletionConvergenceFailed, UnresolvedServices: []string{"a"}}
+					completion = Completion{Outcome: CompletionConvergenceFailed, Verification: deploymentmodel.Verification{Known: true, UnresolvedServices: []string{"a"}}}
 					want = []string{"a"}
 				}
 				require.NoError(t, lifecycle.Complete(t.Context(), first.ID, completion))
@@ -244,7 +244,7 @@ func TestPreApplyFailuresRetainOnlyExistingRolloutObligations(t *testing.T) {
 				require.NoError(t, lifecycle.Complete(t.Context(), second.ID, Completion{Outcome: outcome}))
 				stored, _, err := deploymentstore.NewStore(db).Latest(t.Context(), "app")
 				require.NoError(t, err)
-				assert.ElementsMatch(t, want, stored.UnresolvedServices)
+				assert.ElementsMatch(t, want, stored.Verification.UnresolvedServices)
 				assert.Equal(t, deploymentmodel.Failed, stored.Status)
 				ctrl := gomock.NewController(t)
 				manager := swarm.NewMockServiceManager(ctrl)
@@ -261,7 +261,7 @@ func TestPreApplyFailuresRetainOnlyExistingRolloutObligations(t *testing.T) {
 				require.NoError(t, err)
 				stored, err = deploymentstore.NewStore(db).Get(t.Context(), third.DeploymentID)
 				require.NoError(t, err)
-				assert.ElementsMatch(t, want, stored.UnresolvedServices)
+				assert.ElementsMatch(t, want, stored.Verification.UnresolvedServices)
 			})
 		}
 	}

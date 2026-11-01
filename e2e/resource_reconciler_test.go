@@ -84,7 +84,11 @@ func TestDeployStackOnRealSwarm(t *testing.T) {
 			nil,
 		} {
 			prepared.Compose.Services[0].Extra = options
-			_, err = stackDeployer.DeployStack(ctx, stack, composePath, composePath, prepared.Compose)
+			_, err = stackDeployer.DeployStack(ctx, deployer.StackRequest{
+				StackName:         stack,
+				SourceComposePath: composePath,
+				Desired:           prepared.Compose,
+			})
 			require.NoError(t, err)
 			current, err := swarmService.Services.Inspect(ctx, serviceBefore.ID)
 			require.NoError(t, err)
@@ -134,7 +138,11 @@ func TestDeployStackOnRealSwarm(t *testing.T) {
 	prepared.Compose.Networks = map[string]compose.Network{"default": {
 		Attachable: true, IPAM: &compose.NetworkIPAM{Config: []compose.NetworkIPAMPool{{Subnet: "10.249.0.0/24"}}},
 	}, "unused": {External: true, Name: "must-not-exist"}}
-	_, err = stackDeployer.DeployStack(ctx, stack, composePath, composePath, prepared.Compose)
+	_, err = stackDeployer.DeployStack(ctx, deployer.StackRequest{
+		StackName:         stack,
+		SourceComposePath: composePath,
+		Desired:           prepared.Compose,
+	})
 	require.NoError(t, err)
 	networkAfter, err := swarmService.Networks.Get(ctx, stack+"_default")
 	require.NoError(t, err)
@@ -171,14 +179,23 @@ func TestDeployStackOnRealSwarm(t *testing.T) {
 	failing.Services[0].Command = compose.NewCommand([]string{"sh", "-c", "exit 1"})
 	failing.Services[0].Deploy.UpdateConfig = &compose.ServiceDeployUpdateConfig{Monitor: "1s", FailureAction: "pause"}
 	failing.Services[0].Deploy.RestartPolicy = &compose.ServiceDeployRestartPolicy{Condition: "none"}
-	_, err = stackDeployer.DeployStack(ctx, stack, composePath, composePath, failing)
+	_, err = stackDeployer.DeployStack(ctx, deployer.StackRequest{
+		StackName:         stack,
+		SourceComposePath: composePath,
+		Desired:           failing,
+	})
 	require.Error(t, err)
 	require.True(t, deployer.ConvergenceFailed(err))
 	failed, err := swarmService.Services.Inspect(ctx, stack+"_check")
 	require.NoError(t, err)
 	require.NotNil(t, failed.UpdateStatus)
 	require.Equal(t, dockerswarm.UpdateStatePaused, failed.UpdateStatus.State)
-	_, retryErr := stackDeployer.DeployStack(ctx, stack, composePath, composePath, failing, deployer.StackOptions{RetryFailedUpdates: true})
+	_, retryErr := stackDeployer.DeployStack(ctx, deployer.StackRequest{
+		StackName:         stack,
+		SourceComposePath: composePath,
+		Desired:           failing,
+		Options:           deployer.StackOptions{RetryFailedUpdates: true},
+	})
 	require.Error(t, retryErr)
 	assert.True(t, deployer.ConvergenceFailed(retryErr))
 	assert.ErrorContains(t, retryErr, "latest task failure: id=")
@@ -206,21 +223,33 @@ func TestDeployStackOnRealSwarm(t *testing.T) {
 		require.NoError(t, err)
 		desired := prepared.Compose
 		desired.Services[0].Image = image + ":moving"
-		_, err = stackDeployer.DeployStack(ctx, stack, composePath, composePath, desired)
+		_, err = stackDeployer.DeployStack(ctx, deployer.StackRequest{
+			StackName:         stack,
+			SourceComposePath: composePath,
+			Desired:           desired,
+		})
 		require.NoError(t, err)
 		pinned, err := swarmService.Services.Inspect(ctx, stack+"_check")
 		require.NoError(t, err)
 		require.Contains(t, pinned.Spec.TaskTemplate.ContainerSpec.Image, "@sha256:")
 		push("busybox:1.37", "moving")
 		desired.Services[0].Environment.Map = map[string]string{"UNRELATED": "change"}
-		_, err = stackDeployer.DeployStack(ctx, stack, composePath, composePath, desired)
+		_, err = stackDeployer.DeployStack(ctx, deployer.StackRequest{
+			StackName:         stack,
+			SourceComposePath: composePath,
+			Desired:           desired,
+		})
 		require.NoError(t, err)
 		unchanged, err := swarmService.Services.Inspect(ctx, stack+"_check")
 		require.NoError(t, err)
 		assert.Equal(t, pinned.Spec.TaskTemplate.ContainerSpec.Image, unchanged.Spec.TaskTemplate.ContainerSpec.Image)
 		push("busybox:1.37", "next")
 		desired.Services[0].Image = image + ":next"
-		_, err = stackDeployer.DeployStack(ctx, stack, composePath, composePath, desired)
+		_, err = stackDeployer.DeployStack(ctx, deployer.StackRequest{
+			StackName:         stack,
+			SourceComposePath: composePath,
+			Desired:           desired,
+		})
 		require.NoError(t, err)
 		updated, err := swarmService.Services.Inspect(ctx, stack+"_check")
 		require.NoError(t, err)
@@ -287,7 +316,11 @@ func deployFixture(t *testing.T, ctx context.Context, stackDeployer deployer.Sta
 	t.Helper()
 	file, err := compose.NewFileLoader().Load(ctx, composePath)
 	require.NoError(t, err)
-	_, err = stackDeployer.DeployStack(ctx, stack, composePath, composePath, file.Compose)
+	_, err = stackDeployer.DeployStack(ctx, deployer.StackRequest{
+		StackName:         stack,
+		SourceComposePath: composePath,
+		Desired:           file.Compose,
+	})
 	require.NoError(t, err)
 }
 

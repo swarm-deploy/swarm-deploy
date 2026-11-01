@@ -136,7 +136,7 @@ func (r *Reconciler) Reconcile(
 	}
 
 	prepared, err := r.preparer.Prepare(ctx, preparation.Request{
-		Stack: req.Stack, Desired: desiredState, SourceChanged: !hasPrev || prev.SourceDigest != desiredState.Digest,
+		Stack: req.Stack, Desired: desiredState,
 	})
 	if err != nil {
 		persistErr := r.recordFailure(ctx, req.Stack.Name, req.Commit, desiredState.Compose.Services, err)
@@ -146,16 +146,14 @@ func (r *Reconciler) Reconcile(
 		}
 		return wrapReconcileError(stage, desiredState.Compose.Services, errors.Join(err, persistErr))
 	}
-	defer r.preparer.Cleanup(ctx, prepared)
 
 	pl := &pipelinePayload{
-		Stack:             req.Stack,
-		Commit:            req.Commit,
-		IsNewDigest:       !hasPrev || prev.SourceDigest != desiredState.Digest,
-		IsManualSync:      req.IsManual,
-		HasPreviousDrift:  stackHasDrift(prev),
-		Desired:           prepared.Desired,
-		DeployComposePath: prepared.DeployComposePath,
+		Stack:            req.Stack,
+		Commit:           req.Commit,
+		IsNewDigest:      !hasPrev || prev.SourceDigest != desiredState.Digest,
+		IsManualSync:     req.IsManual,
+		HasPreviousDrift: stackHasDrift(prev),
+		Desired:          prepared,
 	}
 
 	err = r.pipeline.Run(ctx, pl)

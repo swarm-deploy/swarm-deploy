@@ -20,6 +20,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/services"
 	stackpkg "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/stack"
 	waiterpkg "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/waiter"
+	deploymentmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/tracing"
 	"go.opentelemetry.io/otel/attribute"
@@ -146,7 +147,7 @@ func (d *Deployer) captureStackBaseline(ctx context.Context, payload *deployStac
 
 func (d *Deployer) applyStack(ctx context.Context, payload *deployStackPayload) error {
 	// Once service apply begins, a failure may leave partially accepted updates.
-	payload.result.UnresolvedServices = nil
+	payload.result.Verification = deploymentmodel.Verification{}
 	applyCtx, cancel := payload.stageContext(ctx)
 	defer cancel()
 	changed, err := d.serviceApplier.Apply(applyCtx, payload.stackName, payload.converted.Services,
@@ -172,23 +173,15 @@ func (d *Deployer) waitForStack(ctx context.Context, payload *deployStackPayload
 			names = append(names, name)
 		}
 	}
-	payload.result.UnresolvedServices = slices.Clone(names)
-	if payload.result.UnresolvedServices == nil {
-		payload.result.UnresolvedServices = []string{}
-	}
-	return safePipelineError(d.wait(waitCtx, waiterpkg.ServiceWaitRequest{
+	verification, err := d.wait(waitCtx, waiterpkg.ServiceWaitRequest{
 		StackName: payload.stackName, ServiceNames: names,
 		Baseline: payload.baseline, AppliedServices: payload.changed,
 		UnresolvedServices: payload.unresolvedServices,
-		Progress: func(progress waiterpkg.ServiceProgress) {
-			if progress.State == waiterpkg.ServiceReady {
-				payload.result.UnresolvedServices = slices.DeleteFunc(payload.result.UnresolvedServices,
-					func(name string) bool { return name == progress.Name })
-			} else if !slices.Contains(payload.result.UnresolvedServices, progress.Name) {
-				payload.result.UnresolvedServices = append(payload.result.UnresolvedServices, progress.Name)
-			}
-		},
-	}))
+	})
+	payload.result.Verification = deploymentmodel.Verification{
+		Known: true, UnresolvedServices: verification.UnresolvedServices,
+	}
+	return safePipelineError(err)
 }
 
 func (d *Deployer) prepareService(_ context.Context, payload *deployServicePayload) error {
@@ -232,7 +225,9 @@ func (d *Deployer) captureServiceBaseline(ctx context.Context, payload *deploySe
 func (d *Deployer) applyService(ctx context.Context, payload *deployServicePayload) error {
 	applyCtx, cancel := payload.stageContext(ctx)
 	defer cancel()
-	changed, err := d.serviceApplier.Apply(applyCtx, payload.stackName, payload.converted.Services)
+	changed, err := d.serviceApplier.Apply(
+		applyCtx, payload.stackName, payload.converted.Services, services.ApplyOptions{},
+	)
 	payload.changed = changed
 	return safePipelineError(err)
 }
@@ -243,11 +238,15 @@ func (d *Deployer) waitForService(ctx context.Context, payload *deployServicePay
 	if len(payload.converted.Services) == 0 {
 		return nil
 	}
-	return safePipelineError(d.wait(waitCtx, waiterpkg.ServiceWaitRequest{
+	verification, err := d.wait(waitCtx, waiterpkg.ServiceWaitRequest{
 		StackName:    payload.stackName,
 		ServiceNames: verificationServiceNames(payload.stackName, payload.converted.Services, payload.applyPayload),
 		Baseline:     payload.baseline, AppliedServices: payload.changed,
-	}))
+	})
+	payload.result.Verification = deploymentmodel.Verification{
+		Known: true, UnresolvedServices: verification.UnresolvedServices,
+	}
+	return safePipelineError(err)
 }
 
 type pipelineError struct {
@@ -290,7 +289,7 @@ func pipelineConfig(name string) pipe.Config {
 func stackTraceAttributes(payload *deployStackPayload) []attribute.KeyValue {
 	return []attribute.KeyValue{
 		tracing.ResourceStackName.String(payload.stackName),
-		tracing.ResourceComposePath.String(payload.deployComposePath),
+		tracing.ResourceComposePath.String(payload.sourceComposePath),
 	}
 }
 
@@ -301,11 +300,14 @@ func serviceTraceAttributes(payload *deployServicePayload) []attribute.KeyValue 
 	}
 }
 
-func (d *Deployer) wait(ctx context.Context, request waiterpkg.ServiceWaitRequest) error {
-	if err := d.serviceWaiter.Wait(ctx, request); err != nil {
-		return fmt.Errorf("wait for stack %s service convergence: %w", request.StackName, err)
+func (d *Deployer) wait(
+	ctx context.Context, request waiterpkg.ServiceWaitRequest,
+) (waiterpkg.ServiceWaitResult, error) {
+	result, err := d.serviceWaiter.Wait(ctx, request)
+	if err != nil {
+		return result, fmt.Errorf("wait for stack %s service convergence: %w", request.StackName, err)
 	}
-	return nil
+	return result, nil
 }
 
 func (d *Deployer) reconcileResources(
