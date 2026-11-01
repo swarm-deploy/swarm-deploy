@@ -102,7 +102,11 @@ func (s Service) ReplicaDriftPolicy() (bool, bool, error) {
 
 // ReplicasManagedPolicy returns replica ownership and whether it was specified.
 func (s Service) ReplicasManagedPolicy() (bool, bool, error) {
-	return s.booleanPolicy(labelsdict.ServiceSyncPolicyReplicasManagedLabelKey)
+	managed, specified, err := s.booleanPolicy(labelsdict.ServiceSyncPolicyReplicasManagedLabelKey)
+	if err == nil && specified && !managed && s.Deploy.Mode != "" && s.Deploy.Mode != "replicated" {
+		err = fmt.Errorf("replicasManaged=false is supported only for replicated services")
+	}
+	return managed, specified, err
 }
 
 func (s Service) booleanPolicy(label string) (bool, bool, error) {

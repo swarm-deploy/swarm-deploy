@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"time"
 
 	dockerswarm "github.com/docker/docker/api/types/swarm"
 	"github.com/swarm-deploy/swarm-deploy/internal/registry"
@@ -35,10 +36,28 @@ type ApplyOptions struct {
 	RetryFailedUpdates bool
 }
 
-// Apply reconciles services in deterministic name order and returns changed service names.
+// UpdateGeneration records the runtime generation preserved by an accepted external service write.
+type UpdateGeneration struct {
+	// ServiceID identifies the service updated by this apply.
+	ServiceID string
+	// ForceUpdate is the external execution generation preserved in the accepted spec.
+	ForceUpdate uint64
+	// After is the last inspected service timestamp before the successful write.
+	After time.Time
+}
+
+// ApplyResult contains mutations and external generation evidence from this apply.
+type ApplyResult struct {
+	// ChangedServices lists services created or updated by this apply.
+	ChangedServices []string
+	// ExternalUpdates records accepted writes, rebased on optimistic retries.
+	ExternalUpdates map[string]UpdateGeneration
+}
+
+// Apply reconciles services in deterministic name order and returns accepted mutations.
 func (a *Applier) Apply(
 	ctx context.Context, stackName string, specs []dockerswarm.ServiceSpec, options ApplyOptions,
-) ([]string, error) {
+) (ApplyResult, error) {
 	desired := slices.Clone(specs)
 	slices.SortFunc(desired, func(left, right dockerswarm.ServiceSpec) int {
 		if left.Name < right.Name {
@@ -51,40 +70,44 @@ func (a *Applier) Apply(
 	})
 
 	retryFailed := options.RetryFailedUpdates
-	changed := make([]string, 0, len(desired))
+	result := ApplyResult{ChangedServices: make([]string, 0, len(desired)), ExternalUpdates: map[string]UpdateGeneration{}}
 	var blocked []error
 	for _, spec := range desired {
-		serviceName, serviceChanged, err := a.apply(ctx, stackName, spec, retryFailed)
+		serviceName, serviceChanged, err := a.apply(ctx, stackName, spec, retryFailed, result.ExternalUpdates)
 		if err != nil {
 			if errors.Is(err, ErrUpdateBlocked) {
 				blocked = append(blocked, err)
 				continue
 			}
-			return changed, errors.Join(append(blocked, err)...)
+			return result, errors.Join(append(blocked, err)...)
 		}
 		if serviceChanged {
-			changed = append(changed, serviceName)
+			result.ChangedServices = append(result.ChangedServices, serviceName)
 		}
 	}
-	return changed, errors.Join(blocked...)
+	return result, errors.Join(blocked...)
 }
 
 func (a *Applier) apply(
 	ctx context.Context, stackName string, desired dockerswarm.ServiceSpec,
-	retryFailed bool,
+	retryFailed bool, generations map[string]UpdateGeneration,
 ) (string, bool, error) {
 	displayName := serviceName(stackName, desired.Name)
-	if _, err := ReplicasManaged(desired); err != nil {
+	managed, err := ReplicasManaged(desired)
+	if err != nil {
 		return displayName, false, fmt.Errorf("service %s replicas ownership policy: %w", displayName, err)
 	}
 	current, created, err := a.inspectOrCreate(ctx, stackName, displayName, desired)
 	if err != nil || created {
+		if created {
+			recordExternalUpdate(generations, displayName, desired, current)
+		}
 		return displayName, created, err
 	}
-	if SpecsEqual(current.Spec, desired) && (!retryFailed || !failedUpdate(current)) {
+	if SpecsEqual(current.Spec, desired) && (!managed || !retryFailed || !failedUpdate(current)) {
 		return displayName, false, nil
 	}
-	err = a.update(ctx, stackName, displayName, desired, current, retryFailed)
+	err = a.update(ctx, stackName, displayName, desired, current, retryFailed && managed, generations)
 	if err != nil {
 		return displayName, false, err
 	}
@@ -103,8 +126,8 @@ func (a *Applier) inspectOrCreate(
 		if optionsErr != nil {
 			return current, false, fmt.Errorf("service %s registry authentication: %w", displayName, optionsErr)
 		}
-		if _, createErr := a.manager.Create(ctx, desired, options); createErr == nil {
-			return dockerswarm.Service{}, true, nil
+		if id, createErr := a.manager.Create(ctx, desired, options); createErr == nil {
+			return dockerswarm.Service{ID: id, Spec: desired}, true, nil
 		} else if !errors.Is(createErr, swarm.ErrServiceConflict) {
 			return current, false, fmt.Errorf("create service %s: %w", displayName, createErr)
 		}
@@ -125,7 +148,7 @@ func (a *Applier) update(
 	displayName string,
 	desired dockerswarm.ServiceSpec,
 	current dockerswarm.Service,
-	retryFailed bool,
+	retryFailed bool, generations map[string]UpdateGeneration,
 ) error {
 	for attempt := 0; attempt < serviceUpdateAttempts; attempt++ {
 		applied, reused, err := a.prepareUpdate(ctx, displayName, desired, current, retryFailed)
@@ -139,11 +162,13 @@ func (a *Applier) update(
 		options.QueryRegistry = !reused && !digestPinned(applied)
 		err = a.manager.Update(ctx, current.ID, current.Version, applied, options)
 		if err == nil {
+			recordExternalUpdate(generations, displayName, applied, current)
 			return nil
 		}
 		if !errors.Is(err, swarm.ErrServiceConflict) {
 			return fmt.Errorf("update service %s: %w", displayName, err)
 		}
+		after := current.UpdatedAt
 		current, err = a.manager.Inspect(ctx, desired.Name)
 		if err != nil {
 			return fmt.Errorf("reinspect service %s after version conflict: %w", displayName, err)
@@ -152,6 +177,9 @@ func (a *Applier) update(
 			return err
 		}
 		if SpecsEqual(current.Spec, desired) && (!retryFailed || !failedUpdate(current)) {
+			// A concurrent writer already accepted the expected managed fields.
+			current.UpdatedAt = after
+			recordExternalUpdate(generations, displayName, current.Spec, current)
 			return nil
 		}
 	}
@@ -169,13 +197,8 @@ func (a *Applier) prepareUpdate(
 	applied := cloneSpec(desired)
 	applied.TaskTemplate.ForceUpdate = current.Spec.TaskTemplate.ForceUpdate
 	managed, _ := ReplicasManaged(desired) // Validated before any Docker mutation.
-	if retryFailed && failedUpdate(current) {
-		if managed {
-			applied.TaskTemplate.ForceUpdate++
-		} else if SpecsEqual(current.Spec, desired) {
-			return applied, false, fmt.Errorf("%w: service %s requires external controller recovery; force restart disabled",
-				ErrUpdateBlocked, name)
-		}
+	if retryFailed && managed && failedUpdate(current) {
+		applied.TaskTemplate.ForceUpdate++
 	}
 	reused := normalizeImageResolution(&current.Spec, &applied)
 	if !managed {
@@ -234,4 +257,15 @@ func serviceName(stackName, fullName string) string {
 		return fullName[len(prefix):]
 	}
 	return fullName
+}
+
+func recordExternalUpdate(generations map[string]UpdateGeneration, name string,
+	spec dockerswarm.ServiceSpec, current dockerswarm.Service,
+) {
+	managed, _ := ReplicasManaged(spec) // Already validated before Docker mutations.
+	if !managed {
+		generations[name] = UpdateGeneration{
+			ServiceID: current.ID, ForceUpdate: spec.TaskTemplate.ForceUpdate, After: current.UpdatedAt,
+		}
+	}
 }

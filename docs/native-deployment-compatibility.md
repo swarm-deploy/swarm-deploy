@@ -185,7 +185,9 @@ services keep their tasks. No automatic attempt limit, new configuration, or dat
 ## Externally managed replicas
 
 Set the service deploy label `org.swarm-deploy.service.sync.policy.replicasManaged`
-to `"false"` for external replica controllers (default: `true`). Native updates then
+to `"false"` for external replica controllers of **replicated services only**
+(default: `true`). Global and native job modes explicitly reject `false`; they keep
+normal deployment/convergence behavior with the default policy. Native updates then
 ignore replica-only changes, preserve live replicas and `ForceUpdate`, and rebase
 those values on every optimistic retry. Replica drift is also excluded independently
 of `selfHeal.replicas`; `selfHeal` still controls automatic repairs separately.
@@ -195,12 +197,18 @@ Task-recreating changes require zero replicas and no active tasks. A completed j
 with nonzero configured replicas is not idle. Unsafe changes produce per-service
 blocked errors while independent services continue applying; the deployment fails
 at apply rather than claiming success. Retry explicitly during a scheduler-coordinated
-idle window. Unchanged terminal failures need external controller recovery, without
-forcing a new external job generation.
+idle window. Retrying an independent failed service leaves an unchanged external
+job untouched, even if it has a historical terminal execution status. Existing
+unresolved-service obligations still require verification and cannot become
+successful no-ops. No retry forces a new external job generation.
 
 For externally managed replicated services, verification proves expected specification
 acceptance rather than running-task health. It still rejects stale snapshots,
-unapplied specs, old rolling update status and terminal update failures. Progress and
+unapplied specs and old rolling update status. The actual preserved force generation
+and pre-write timestamp are carried from the applier (including conflict retries):
+fresh terminal failures in that generation still fail verification. Later external
+`ForceUpdate` activity cannot fail a matching, fresh managed specification, and an
+unrelated scheduler update never proves acceptance of an unapplied spec. Progress and
 returned `SpecificationOnlyServices` identify this limited verification; completion or
 absence of job tasks is legitimate. Ordinary replicated/global verification is unchanged.
 See [replica ownership and swarm-cronjob configuration](drift.md#replica-ownership-during-deployments)

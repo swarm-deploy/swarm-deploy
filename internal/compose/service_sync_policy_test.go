@@ -106,3 +106,37 @@ func TestLoaderValidatesServiceSyncPolicies(t *testing.T) {
 		})
 	}
 }
+
+func TestReplicaOwnershipRejectsUnsupportedModes(t *testing.T) {
+	for _, mode := range []string{"", "replicated", "global", "replicated-job", "global-job"} {
+		for _, policy := range []string{"false", "off", "true"} {
+			t.Run(mode+"/"+policy, func(t *testing.T) {
+				service := Service{Deploy: ServiceDeploy{Mode: mode, Labels: *NewLabels(map[string]string{
+					labelsdict.ServiceSyncPolicyReplicasManagedLabelKey: policy,
+				})}}
+				_, _, err := service.ReplicasManagedPolicy()
+				unsupported := mode != "" && mode != "replicated" && policy != "true"
+				if unsupported {
+					require.ErrorContains(t, err, "only for replicated services")
+				} else {
+					require.NoError(t, err)
+				}
+				path := filepath.Join(t.TempDir(), "compose.yaml")
+				require.NoError(t, os.WriteFile(path, []byte(fmt.Sprintf(`services:
+  job:
+    image: example/job:1
+    deploy:
+      mode: %s
+      labels:
+        %s: %q
+`, mode, labelsdict.ServiceSyncPolicyReplicasManagedLabelKey, policy)), 0o600))
+				_, err = NewFileLoader().Load(t.Context(), path)
+				if unsupported {
+					require.ErrorContains(t, err, "only for replicated services")
+				} else {
+					require.NoError(t, err)
+				}
+			})
+		}
+	}
+}

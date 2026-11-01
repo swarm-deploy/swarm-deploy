@@ -1,6 +1,7 @@
 package services
 
 import (
+	"fmt"
 	"testing"
 
 	dockerswarm "github.com/docker/docker/api/types/swarm"
@@ -51,7 +52,7 @@ func TestReplicaOwnershipDuringApply(t *testing.T) {
 			}
 			changed, err := New(manager, &registry.NopAuthManager{}).Apply(t.Context(), "demo", []dockerswarm.ServiceSpec{desired}, ApplyOptions{})
 			require.NoError(t, err)
-			assert.Equal(t, tc.update, len(changed) > 0)
+			assert.Equal(t, tc.update, len(changed.ChangedServices) > 0)
 			assert.Zero(t, *desired.Mode.Replicated.Replicas, "caller spec is immutable")
 		})
 	}
@@ -85,18 +86,20 @@ func TestMetadataUpdateRebasesExternalValuesOnConflict(t *testing.T) {
 	}
 	changed, err := New(manager, &registry.NopAuthManager{}).Apply(t.Context(), "demo", []dockerswarm.ServiceSpec{desired}, ApplyOptions{})
 	require.NoError(t, err)
-	assert.Equal(t, []string{"job"}, changed)
+	assert.Equal(t, []string{"job"}, changed.ChangedServices)
+	assert.Equal(t, uint64(8), changed.ExternalUpdates["job"].ForceUpdate, "receipt must use the generation from the successful optimistic retry")
 	assert.Zero(t, *desired.Mode.Replicated.Replicas)
 	assert.Zero(t, desired.TaskTemplate.ForceUpdate)
 }
 
 func TestExternalTaskRecreatingUpdateSafety(t *testing.T) {
 	for _, tc := range []struct {
-		name     string
-		replicas uint64
-		task     swarm.TaskState
-		retry    bool
-		blocked  bool
+		name      string
+		replicas  uint64
+		task      swarm.TaskState
+		retry     bool
+		unchanged bool
+		blocked   bool
 	}{
 		{name: "running job", replicas: 1, task: swarm.TaskStateRunning, blocked: true},
 		{name: "completed job with nonzero replicas", replicas: 1, task: swarm.TaskStateComplete, blocked: true},
@@ -105,7 +108,8 @@ func TestExternalTaskRecreatingUpdateSafety(t *testing.T) {
 		{name: "unknown task state", task: "future-state", blocked: true},
 		{name: "idle with completed task", task: swarm.TaskStateComplete},
 		{name: "idle without tasks"},
-		{name: "retry cannot execute outside schedule", replicas: 1, retry: true, blocked: true},
+		{name: "retry does not execute unchanged job outside schedule", replicas: 1, retry: true, unchanged: true},
+		{name: "retry blocks unsafe changed template", replicas: 1, task: swarm.TaskStateRunning, retry: true, blocked: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			manager := swarm.NewMockServiceManager(gomock.NewController(t))
@@ -115,18 +119,19 @@ func TestExternalTaskRecreatingUpdateSafety(t *testing.T) {
 			current.Spec.TaskTemplate.ForceUpdate = 10
 			if tc.retry {
 				current.UpdateStatus = &dockerswarm.UpdateStatus{State: dockerswarm.UpdateStatePaused}
-			} else {
+			}
+			if !tc.unchanged {
 				desired.TaskTemplate.ContainerSpec.Env = []string{"CHANGED=yes"}
 			}
 			manager.EXPECT().Inspect(gomock.Any(), "demo_job").Return(current, nil)
-			if tc.replicas == 0 {
+			if tc.replicas == 0 && !tc.unchanged {
 				var tasks []swarm.ServiceTask
 				if tc.task != "" {
 					tasks = []swarm.ServiceTask{{CurrentState: tc.task, DesiredState: swarm.TaskStateShutdown}}
 				}
 				manager.EXPECT().ListTasks(gomock.Any(), "id").Return(tasks, nil)
 			}
-			if !tc.blocked {
+			if !tc.blocked && !tc.unchanged {
 				manager.EXPECT().Update(gomock.Any(), "id", current.Version, gomock.Any(), gomock.Any()).DoAndReturn(
 					func(_ any, _ string, _ dockerswarm.Version, spec dockerswarm.ServiceSpec, _ dockerswarm.ServiceUpdateOptions) error {
 						assert.Zero(t, *spec.Mode.Replicated.Replicas)
@@ -138,10 +143,14 @@ func TestExternalTaskRecreatingUpdateSafety(t *testing.T) {
 			if tc.blocked {
 				require.ErrorIs(t, err, ErrUpdateBlocked)
 				assert.ErrorContains(t, err, "service job")
-				assert.Empty(t, changed)
+				assert.Empty(t, changed.ChangedServices)
 			} else {
 				require.NoError(t, err)
-				assert.Equal(t, []string{"job"}, changed)
+				if tc.unchanged {
+					assert.Empty(t, changed.ChangedServices)
+				} else {
+					assert.Equal(t, []string{"job"}, changed.ChangedServices)
+				}
 			}
 		})
 	}
@@ -161,7 +170,7 @@ func TestExternalJobStartsDuringOptimisticRetry(t *testing.T) {
 	manager.EXPECT().Inspect(gomock.Any(), "demo_job").Return(newer, nil)
 	changed, err := New(manager, &registry.NopAuthManager{}).Apply(t.Context(), "demo", []dockerswarm.ServiceSpec{desired}, ApplyOptions{})
 	require.ErrorIs(t, err, ErrUpdateBlocked)
-	assert.Empty(t, changed)
+	assert.Empty(t, changed.ChangedServices)
 }
 
 func TestBlockedExternalJobDoesNotPreventIndependentApply(t *testing.T) {
@@ -175,5 +184,47 @@ func TestBlockedExternalJobDoesNotPreventIndependentApply(t *testing.T) {
 	manager.EXPECT().Create(gomock.Any(), gomock.Any(), gomock.Any()).Return("web-id", nil)
 	changed, err := New(manager, &registry.NopAuthManager{}).Apply(t.Context(), "demo", []dockerswarm.ServiceSpec{desired, serviceSpec("web", "nginx:1")}, ApplyOptions{})
 	require.ErrorIs(t, err, ErrUpdateBlocked)
-	assert.Equal(t, []string{"web"}, changed)
+	assert.Equal(t, []string{"web"}, changed.ChangedServices)
+}
+
+func TestExternalReplicaOwnershipRejectsUnsupportedModeBeforeDockerAccess(t *testing.T) {
+	for _, mode := range []dockerswarm.ServiceMode{
+		{Global: &dockerswarm.GlobalService{}},
+		{ReplicatedJob: &dockerswarm.ReplicatedJob{}},
+		{GlobalJob: &dockerswarm.GlobalJob{}},
+	} {
+		t.Run(fmt.Sprintf("%#v", mode), func(t *testing.T) {
+			manager := swarm.NewMockServiceManager(gomock.NewController(t))
+			spec := externalSpec("job")
+			spec.Mode = mode
+			assert.False(t, SpecsEqual(spec, spec))
+			_, err := New(manager, &registry.NopAuthManager{}).Apply(t.Context(), "demo", []dockerswarm.ServiceSpec{spec}, ApplyOptions{})
+			require.ErrorContains(t, err, "only for replicated services")
+		})
+	}
+}
+
+func TestRetryUnchangedExternalJobAppliesIndependentFailedService(t *testing.T) {
+	manager := swarm.NewMockServiceManager(gomock.NewController(t))
+	job := externalSpec("backup")
+	current := cloneSpec(job)
+	*current.Mode.Replicated.Replicas = 1
+	current.TaskTemplate.ForceUpdate = 42
+	backup := service("backup-id", 1, current)
+	backup.UpdateStatus = &dockerswarm.UpdateStatus{State: dockerswarm.UpdateStatePaused}
+	manager.EXPECT().Inspect(gomock.Any(), "demo_backup").Return(backup, nil)
+	web := serviceSpec("web", "nginx:1")
+	failed := service("web-id", 2, cloneSpec(web))
+	failed.UpdateStatus = &dockerswarm.UpdateStatus{State: dockerswarm.UpdateStatePaused}
+	manager.EXPECT().Inspect(gomock.Any(), "demo_web").Return(failed, nil)
+	manager.EXPECT().Update(gomock.Any(), "web-id", failed.Version, gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ any, _ string, _ dockerswarm.Version, applied dockerswarm.ServiceSpec, _ dockerswarm.ServiceUpdateOptions) error {
+			assert.Equal(t, uint64(1), applied.TaskTemplate.ForceUpdate)
+			return nil
+		})
+	result, err := New(manager, &registry.NopAuthManager{}).Apply(t.Context(), "demo", []dockerswarm.ServiceSpec{web, job}, ApplyOptions{RetryFailedUpdates: true})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"web"}, result.ChangedServices)
+	assert.Empty(t, result.ExternalUpdates)
+	assert.Equal(t, uint64(42), backup.Spec.TaskTemplate.ForceUpdate)
 }

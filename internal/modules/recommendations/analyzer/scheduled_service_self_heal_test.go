@@ -28,6 +28,10 @@ func TestScheduledServiceSelfHealAnalyzer(t *testing.T) {
 		want          int
 		wantSelfHeal  bool
 	}{
+		{name: "replicated scheduled service", global: true, mode: "replicated", cron: "true", want: 1, wantSelfHeal: true},
+		{name: "global scheduled service self heal enabled", global: true, mode: "global", cron: "true", want: 1, wantSelfHeal: true},
+		{name: "global scheduled service self heal disabled", mode: "global", cron: "true"},
+		{name: "global scheduled service explicit managed", global: true, mode: "global", managed: "true", cron: "true", want: 1, wantSelfHeal: true},
 		{name: "replicas disabled only", global: true, managed: "false", cron: "true", want: 1, wantSelfHeal: true},
 		{name: "both disabled", global: true, service: "false", managed: "false", cron: "true"},
 		{name: "effective self heal disabled and replicas disabled", managed: "off", cron: "true"},
@@ -92,7 +96,7 @@ func TestScheduledServiceSelfHealAnalyzer(t *testing.T) {
 			} else {
 				assert.NotContains(t, recs[0].Recommendation, labelsdict.ServiceSyncPolicySelfHealLabelKey+`: "false"`)
 			}
-			if tt.managed == "false" {
+			if tt.managed == "false" || tt.mode == "global" {
 				assert.NotContains(t, recs[0].Recommendation, labelsdict.ServiceSyncPolicyReplicasManagedLabelKey)
 			} else {
 				assert.Contains(t, recs[0].Recommendation, labelsdict.ServiceSyncPolicyReplicasManagedLabelKey)

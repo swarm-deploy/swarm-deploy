@@ -17,6 +17,10 @@ var ErrUpdateBlocked = errors.New("externally managed service update blocked")
 func ReplicasManaged(spec dockerswarm.ServiceSpec) (bool, error) {
 	service := compose.Service{Deploy: compose.ServiceDeploy{Labels: *compose.NewLabels(spec.Labels)}}
 	managed, specified, err := service.ReplicasManagedPolicy()
+	if err == nil && specified && !managed && (spec.Mode.Replicated == nil || spec.Mode.Global != nil ||
+		spec.Mode.ReplicatedJob != nil || spec.Mode.GlobalJob != nil) {
+		err = fmt.Errorf("replicasManaged=false is supported only for replicated services")
+	}
 	return !specified || managed, err
 }
 

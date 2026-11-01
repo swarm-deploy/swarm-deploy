@@ -31,7 +31,7 @@ func TestRepeatedApplyIgnoresSetOrderingAndDaemonDefaults(t *testing.T) {
 	for range 3 {
 		changed, err := applier.Apply(t.Context(), "demo", []dockerswarm.ServiceSpec{desired}, ApplyOptions{})
 		require.NoError(t, err)
-		assert.Empty(t, changed) // An unexpected Update call fails via gomock.
+		assert.Empty(t, changed.ChangedServices) // An unexpected Update call fails via gomock.
 	}
 	assert.Equal(t, original, desired, "comparison must not mutate caller-owned slices")
 	for _, tc := range []struct {

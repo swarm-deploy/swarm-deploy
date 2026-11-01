@@ -12,6 +12,7 @@ import (
 
 	cerrdefs "github.com/containerd/errdefs"
 	dockerswarm "github.com/docker/docker/api/types/swarm"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/services"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/tracing"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
@@ -90,6 +91,8 @@ type ServiceWaitRequest struct {
 	UnresolvedServices []string
 	// ExpectedSpecs carries converter-produced specifications and their replica ownership policies.
 	ExpectedSpecs map[string]dockerswarm.ServiceSpec
+	// ExternalUpdates records actual runtime generations preserved by successful writes.
+	ExternalUpdates map[string]services.UpdateGeneration
 	// Progress receives de-duplicated convergence transitions when configured.
 	Progress ServiceProgressCallback
 }
@@ -233,7 +236,7 @@ func (w *ServiceWaiter) observeTargets(
 			continue
 		}
 		progress, err := w.observeService(ctx, name, baseline[name], current[name],
-			slices.Contains(request.UnresolvedServices, name), request.ExpectedSpecs[name])
+			slices.Contains(request.UnresolvedServices, name), request.ExpectedSpecs[name], request.ExternalUpdates[name])
 		state.emit(span, request.Progress, progress)
 		if err != nil {
 			return false, errors.Join(append(failures, err)...)

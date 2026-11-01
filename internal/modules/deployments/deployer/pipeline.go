@@ -152,7 +152,8 @@ func (d *Deployer) applyStack(ctx context.Context, payload *deployStackPayload) 
 	defer cancel()
 	changed, err := d.serviceApplier.Apply(applyCtx, payload.stackName, payload.converted.Services,
 		services.ApplyOptions{RetryFailedUpdates: payload.retryFailedUpdates})
-	payload.changed = changed
+	payload.changed = changed.ChangedServices
+	payload.externalUpdates = changed.ExternalUpdates
 	return safePipelineError(err)
 }
 
@@ -173,10 +174,16 @@ func (d *Deployer) waitForStack(ctx context.Context, payload *deployStackPayload
 			names = append(names, name)
 		}
 	}
+	expected := expectedServiceSpecs(payload.stackName, payload.converted.Services)
+	names = slices.DeleteFunc(names, func(name string) bool {
+		managed, _ := services.ReplicasManaged(expected[name])
+		return !managed && !slices.Contains(payload.changed, name) && !slices.Contains(payload.unresolvedServices, name)
+	})
 	verification, err := d.wait(waitCtx, waiterpkg.ServiceWaitRequest{
 		StackName: payload.stackName, ServiceNames: names,
 		Baseline: payload.baseline, AppliedServices: payload.changed,
-		ExpectedSpecs:      expectedServiceSpecs(payload.stackName, payload.converted.Services),
+		ExternalUpdates:    payload.externalUpdates,
+		ExpectedSpecs:      expected,
 		UnresolvedServices: payload.unresolvedServices,
 	})
 	payload.result.SpecificationOnlyServices = verification.SpecificationOnlyServices
@@ -230,7 +237,8 @@ func (d *Deployer) applyService(ctx context.Context, payload *deployServicePaylo
 	changed, err := d.serviceApplier.Apply(
 		applyCtx, payload.stackName, payload.converted.Services, services.ApplyOptions{},
 	)
-	payload.changed = changed
+	payload.changed = changed.ChangedServices
+	payload.externalUpdates = changed.ExternalUpdates
 	return safePipelineError(err)
 }
 
@@ -244,7 +252,8 @@ func (d *Deployer) waitForService(ctx context.Context, payload *deployServicePay
 		StackName:    payload.stackName,
 		ServiceNames: verificationServiceNames(payload.stackName, payload.converted.Services, payload.applyPayload),
 		Baseline:     payload.baseline, AppliedServices: payload.changed,
-		ExpectedSpecs: expectedServiceSpecs(payload.stackName, payload.converted.Services),
+		ExternalUpdates: payload.externalUpdates,
+		ExpectedSpecs:   expectedServiceSpecs(payload.stackName, payload.converted.Services),
 	})
 	payload.result.SpecificationOnlyServices = verification.SpecificationOnlyServices
 	payload.result.Verification = deploymentmodel.Verification{

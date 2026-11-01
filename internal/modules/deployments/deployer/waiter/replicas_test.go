@@ -74,9 +74,6 @@ func TestExternalReplicaVerificationWaitsForExpectedSpecAndFreshRollout(t *testi
 				manager.EXPECT().ListServices(gomock.Any(), gomock.Any()).Return([]swarm.StackService{schedulerOnly}, nil),
 				manager.EXPECT().ListServices(gomock.Any(), gomock.Any()).Return([]swarm.StackService{after}, nil),
 			)
-			if historical == "completed" {
-				manager.EXPECT().ListTasks(gomock.Any(), "job-id").Return(nil, nil)
-			}
 			manager.EXPECT().ListServices(gomock.Any(), gomock.Any()).Return([]swarm.StackService{ready}, nil)
 			manager.EXPECT().ListTasks(gomock.Any(), "job-id").Return(nil, nil)
 			var progress []ServiceProgress

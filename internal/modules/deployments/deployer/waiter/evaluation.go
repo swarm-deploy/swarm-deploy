@@ -9,13 +9,14 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 
+const waitingForUpdateStatus = "waiting for current rolling update status"
+
 func evaluateService(
 	name string,
 	baseline swarm.StackService,
 	service swarm.StackService,
 	tasks []swarm.ServiceTask,
 	unresolved bool,
-	specificationOnly bool,
 ) ServiceProgress {
 	if service.ID == "" {
 		return ServiceProgress{Name: name, State: ServicePending, Message: "waiting for service to appear"}
@@ -23,7 +24,7 @@ func evaluateService(
 
 	desired := serviceDesiredTasks(service)
 	progress := ServiceProgress{
-		ServiceID: service.ID, Name: name, State: ServicePending, Desired: desired, SpecificationOnly: specificationOnly,
+		ServiceID: service.ID, Name: name, State: ServicePending, Desired: desired,
 	}
 	if message, failed := terminalUpdateFailure(service.UpdateStatus); failed {
 		if baseline.ID == service.ID && serviceChanged(baseline, service) &&
@@ -35,9 +36,6 @@ func evaluateService(
 		progress.Message = message
 		progress.Message += terminalTaskDiagnostic(tasks, service.UpdateStatus.Message)
 		return progress
-	}
-	if specificationOnly {
-		return specificationProgress(progress, baseline, service, tasks, unresolved)
 	}
 	if service.Mode == "replicated-job" || service.Mode == "global-job" {
 		return jobProgress(progress, baseline, service)
@@ -61,7 +59,7 @@ func evaluateService(
 	requireCurrentGeneration := requiresTaskGeneration(baseline, service, unresolved)
 	cutoff, generationPending := verificationTaskCutoff(baseline, service, requireCurrentGeneration, unresolved)
 	if generationPending {
-		progress.Message = "waiting for current rolling update status"
+		progress.Message = waitingForUpdateStatus
 		return progress
 	}
 
@@ -275,31 +273,4 @@ func verificationTaskCutoff(
 func requiresTaskGeneration(baseline, service swarm.StackService, unresolved bool) bool {
 	return unresolved || baseline.ID == "" || baseline.ID != service.ID ||
 		!reflect.DeepEqual(baseline.ServiceSpec.TaskTemplate, service.ServiceSpec.TaskTemplate)
-}
-
-// specificationProgress verifies only acceptance for externally managed replicated tasks.
-func specificationProgress(
-	progress ServiceProgress, baseline, service swarm.StackService, tasks []swarm.ServiceTask, unresolved bool,
-) ServiceProgress {
-	progress.Running = countCurrentRunningTasks(tasks, false, time.Time{})
-	if baseline.ID == service.ID && service.UpdatedAt.Before(baseline.UpdatedAt) {
-		progress.Message = "waiting for current service metadata"
-		return progress
-	}
-	// An idle service can accept a template without a rolling update. When a rollout
-	// exists, retain the ordinary freshness checks even though running tasks are optional.
-	if progress.Desired > 0 || service.UpdateStatus != nil || unresolved {
-		requireGeneration := requiresTaskGeneration(baseline, service, unresolved)
-		if _, pending := verificationTaskCutoff(baseline, service, requireGeneration, unresolved); pending {
-			progress.Message = "waiting for current rolling update status"
-			return progress
-		}
-	}
-	if updatePending(service.UpdateStatus) {
-		progress.Message = updateProgressMessage(service.UpdateStatus)
-		return progress
-	}
-	progress.State = ServiceReady
-	progress.Message = "service specification accepted; task health not verified (externally managed replicas)"
-	return progress
 }
