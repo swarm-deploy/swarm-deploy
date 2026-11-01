@@ -14,6 +14,9 @@ Service sync statuses are:
 
 ## Self-heal policy
 
+Detection and repair are independent: drift is reported even when self-healing is
+disabled. The existing `selfHeal` boolean controls automatic repair only.
+
 Enable automatic remediation globally:
 
 ```yaml
@@ -48,6 +51,7 @@ services:
 The service label takes precedence over `stacks[].sync.policy.selfHeal`, which takes
 precedence over the global `sync.policy.selfHeal`. Accepted service-label values are
 `true`, `1`, `yes`, `y`, `on`, `false`, `0`, `no`, `n`, and `off` (case-insensitive).
+Whitespace is trimmed. Invalid boolean values are Compose validation errors.
 
 Self-heal reapplies only the drifted service. It does not execute Init Jobs, redeploy or
 prune unrelated services, or reconcile resources not referenced by that service. Referenced
@@ -66,6 +70,46 @@ the CLI error remains in logs and tracing.
 Verification covers the complete desired stack. Drift first observed during that read is
 recorded and emits the normal transition event, but is not repaired until the next
 reconciliation.
+
+## Replica drift policy and scheduled services
+
+The service-level Compose deploy label
+`org.swarm-deploy.service.sync.policy.selfHeal.replicas` controls **replica drift
+detection**, independently of the `selfHeal` repair policy. It accepts the same boolean
+values as the service-level `selfHeal` label.
+
+When absent or `true`, replica comparison stays enabled, preserving existing behavior.
+When `false`, desired and actual replica differences do not make the service
+`OutOfSync` and do not generate replica drift events, alerts, or self-heal attempts.
+Missing services are still detected. The same setting applies to the initial drift
+analysis and the verification after self-heal.
+
+External controllers such as `crazy-max/swarm-cronjob` change replica counts during
+scheduled executions. Disabling self-heal prevents automatic repair from interfering
+with their work; disabling replica drift detection also suppresses expected replica
+differences:
+
+```yaml
+services:
+  scheduled-job:
+    image: example/job:1.0.0
+    deploy:
+      replicas: 0
+      labels:
+        swarm.cronjob.enable: "true"
+        org.swarm-deploy.service.sync.policy.selfHeal: "false"
+        org.swarm-deploy.service.sync.policy.selfHeal.replicas: "false"
+```
+
+The scheduler may temporarily run one or more replicas without replica drift. A missing
+service is still reported but is not automatically repaired because `selfHeal=false`.
+Using only `selfHeal=false` keeps replica drift reporting enabled.
+
+The Recommendations module suggests disabling self-heal when `swarm.cronjob.enable=true` is set
+in Compose deploy labels and the effective service/stack/global self-heal policy is
+enabled. Native Docker job modes alone do not trigger this recommendation. GitOps
+does not interpret scheduler labels; deployment execution and convergence verification
+are unchanged.
 
 ## Events
 
