@@ -569,3 +569,37 @@ func testTask(
 		CreatedAt: createdAt, UpdatedAt: createdAt,
 	}
 }
+
+func TestJobsWaitForCompletion(t *testing.T) {
+	for _, mode := range []string{"replicated-job", "global-job"} {
+		t.Run(mode, func(t *testing.T) {
+			manager := swarm.NewMockServiceManager(gomock.NewController(t))
+			service := swarm.StackService{ID: "job-id", Name: "job", Mode: mode, DesiredTasks: 1, JobStatus: &dockerswarm.JobStatus{}}
+			if mode == "replicated-job" {
+				service.ServiceSpec.Mode.ReplicatedJob = &dockerswarm.ReplicatedJob{}
+			}
+			pending := manager.EXPECT().ListServices(gomock.Any(), gomock.Any()).Return([]swarm.StackService{service}, nil)
+			service.CompletedTasks = 1
+			if mode == "global-job" {
+				service.DesiredTasks = 0
+			}
+			manager.EXPECT().ListServices(gomock.Any(), gomock.Any()).After(pending).Return([]swarm.StackService{service}, nil)
+			var progress []ServiceProgress
+			err := newTestServiceWaiter(manager).Wait(t.Context(), ServiceWaitRequest{StackName: "app", ServiceNames: []string{"job"}, Progress: func(p ServiceProgress) { progress = append(progress, p) }})
+			require.NoError(t, err)
+			require.Len(t, progress, 2)
+			assert.Equal(t, ServicePending, progress[0].State)
+			assert.Equal(t, ServiceReady, progress[1].State)
+		})
+	}
+}
+
+func TestGlobalJobPartialCompletionIsNotReady(t *testing.T) {
+	service := swarm.StackService{ID: "job", Mode: "global-job", DesiredTasks: 1, CompletedTasks: 1, JobStatus: &dockerswarm.JobStatus{}}
+	progress := jobProgress(ServiceProgress{State: ServicePending}, swarm.StackService{}, service)
+	assert.Equal(t, uint64(2), progress.Desired)
+	assert.Equal(t, ServicePending, progress.State)
+	service.DesiredTasks = 0
+	progress = jobProgress(ServiceProgress{State: ServicePending}, swarm.StackService{}, service)
+	assert.Equal(t, ServiceReady, progress.State)
+}

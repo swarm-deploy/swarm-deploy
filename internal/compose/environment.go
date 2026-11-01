@@ -2,6 +2,8 @@ package compose
 
 import (
 	"fmt"
+	"slices"
+	"sort"
 	"strings"
 
 	"github.com/go-faster/errors"
@@ -11,8 +13,11 @@ import (
 const envPairParts = 2
 
 type Environment struct {
-	Map  map[string]string `json:"Map"`
-	Keys []string          `json:"Keys"`
+	// Unset records bare/null keys without an effective value. It survives snapshots
+	// and rendered YAML so deployment never consults the controller environment.
+	Unset []string          `json:"Unset,omitempty"`
+	Map   map[string]string `json:"Map"`
+	Keys  []string          `json:"Keys"`
 
 	isMap bool
 }
@@ -29,6 +34,10 @@ func NewEnvironment(values []string) (*Environment, error) {
 			return nil, fmt.Errorf("environment[%d] %q: %w", i, raw, err)
 		}
 
+		env.Unset = slices.DeleteFunc(env.Unset, func(existing string) bool { return existing == key })
+		if !strings.Contains(raw, "=") {
+			env.Unset = append(env.Unset, key)
+		}
 		env.Map[key] = value
 		env.Keys = append(env.Keys, key)
 	}
@@ -41,23 +50,9 @@ func (e *Environment) UnmarshalYAML(node *yaml.Node) error {
 		return errors.New("environment must be a map or a sequence node")
 	}
 
+	e.Unset = nil
 	if node.Kind == yaml.MappingNode {
-		e.Map = make(map[string]string, len(node.Content)/envPairParts)
-		e.Keys = make([]string, 0, len(node.Content)/envPairParts)
-
-		key := ""
-		for i, child := range node.Content {
-			if i%2 == 0 {
-				key = child.Value
-			} else {
-				e.Map[key] = child.Value
-				e.Keys = append(e.Keys, key)
-			}
-		}
-
-		e.isMap = true
-
-		return nil
+		return e.unmarshalFromMapping(node)
 	}
 
 	return e.unmarshalFromSequence(node)
@@ -65,7 +60,15 @@ func (e *Environment) UnmarshalYAML(node *yaml.Node) error {
 
 func (e Environment) MarshalYAML() (interface{}, error) {
 	if e.isMap {
-		return e.Map, nil
+		values := make(map[string]any, len(e.Map))
+		for key, value := range e.Map {
+			if slices.Contains(e.Unset, key) {
+				values[key] = nil
+			} else {
+				values[key] = value
+			}
+		}
+		return values, nil
 	}
 
 	values := make([]string, len(e.Map))
@@ -73,9 +76,13 @@ func (e Environment) MarshalYAML() (interface{}, error) {
 
 	for k, v := range e.Map {
 		values[i] = k + "=" + v
+		if slices.Contains(e.Unset, k) {
+			values[i] = k
+		}
 		i++
 	}
 
+	sort.Strings(values)
 	return values, nil
 }
 
@@ -91,6 +98,8 @@ func (e *Environment) Clone() *Environment {
 
 	return &Environment{
 		Map:   values,
+		Keys:  slices.Clone(e.Keys),
+		Unset: slices.Clone(e.Unset),
 		isMap: e.isMap,
 	}
 }
@@ -119,6 +128,10 @@ func (e *Environment) unmarshalFromSequence(node *yaml.Node) error {
 			return fmt.Errorf("environment[%d] %q: %w", i, item.Value, err)
 		}
 
+		e.Unset = slices.DeleteFunc(e.Unset, func(existing string) bool { return existing == key })
+		if !strings.Contains(item.Value, "=") {
+			e.Unset = append(e.Unset, key)
+		}
 		mmap[key] = value
 		keys = append(keys, key)
 	}
@@ -135,5 +148,45 @@ func (e *Environment) parseVar(raw string) (string, string, error) {
 		return chunks[0], chunks[1], nil
 	}
 
-	return "", "", errors.New("contains non-pair value")
+	if raw == "" {
+		return "", "", errors.New("contains empty variable name")
+	}
+	return raw, "", nil
+}
+
+// resolve captures effective bare/null values during source preparation only.
+func (e *Environment) resolve(lookup func(string) (string, bool)) {
+	unresolved := make([]string, 0, len(e.Unset))
+	for _, key := range e.Unset {
+		if value, exists := lookup(key); exists {
+			e.Map[key] = value
+		} else {
+			unresolved = append(unresolved, key)
+		}
+	}
+	e.Unset = unresolved
+}
+
+func (e *Environment) unmarshalFromMapping(node *yaml.Node) error {
+	e.Map = make(map[string]string, len(node.Content)/envPairParts)
+	e.Keys = make([]string, 0, len(node.Content)/envPairParts)
+
+	key := ""
+	for i, child := range node.Content {
+		if i%2 == 0 {
+			key = child.Value
+		} else {
+			if child.Tag == "!!null" {
+				e.Unset = append(e.Unset, key)
+				e.Map[key] = ""
+			} else {
+				e.Map[key] = child.Value
+			}
+			e.Keys = append(e.Keys, key)
+		}
+	}
+
+	e.isMap = true
+
+	return nil
 }

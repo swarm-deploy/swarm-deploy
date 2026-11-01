@@ -62,7 +62,7 @@ type ServiceProgress struct {
 // ServiceProgressCallback receives meaningful service convergence transitions.
 type ServiceProgressCallback func(ServiceProgress)
 
-// ServiceWaitRequest defines the services affected by one detached stack apply.
+// ServiceWaitRequest defines the services to observe after a detached stack apply.
 type ServiceWaitRequest struct {
 	// StackName is the Docker stack namespace.
 	StackName string
@@ -102,7 +102,7 @@ func (w *ServiceWaiter) Snapshot(ctx context.Context, stackName string) ([]swarm
 	return services, nil
 }
 
-// Wait blocks until the requested affected services converge or the wait is interrupted.
+// Wait blocks until the requested services converge or the wait is interrupted.
 func (w *ServiceWaiter) Wait(ctx context.Context, request ServiceWaitRequest) (waitErr error) {
 	startedAt := time.Now()
 	waitCtx, cancel := context.WithTimeout(ctx, w.timeout)
@@ -322,9 +322,7 @@ func (w *ServiceWaiter) observeService(
 		return progress, nil
 	}
 	if service.Mode == "replicated-job" || service.Mode == "global-job" {
-		progress.State = ServiceReady
-		progress.Message = "service job mode is outside convergence monitoring scope"
-		return progress, nil
+		return jobProgress(progress, baseline, service), nil
 	}
 	if service.Mode != "replicated" && service.Mode != globalServiceMode {
 		progress.State = ServiceFailed
@@ -553,7 +551,7 @@ func terminalUpdateFailure(status *swarm.ServiceUpdateStatus) (string, bool) {
 		return "", false
 	}
 	switch status.State {
-	case "paused", "rollback_started", "rollback_paused", "rollback_completed":
+	case "failed", "paused", "rollback_started", "rollback_paused", "rollback_completed":
 		message := "service update is " + status.State
 		if diagnostic := boundedDiagnostic(status.Message); diagnostic != "" {
 			message += ": " + diagnostic

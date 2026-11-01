@@ -110,6 +110,7 @@ func (p *EnvFilePopulator) populateService(service *Service) bool {
 
 	service.Environment = Environment{
 		Map:   effective,
+		Unset: service.Environment.Unset,
 		Keys:  keys,
 		isMap: true,
 	}

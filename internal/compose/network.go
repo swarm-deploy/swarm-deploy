@@ -1,6 +1,8 @@
 package compose
 
 type Network struct {
+	// IPAM configures network address allocation.
+	IPAM *NetworkIPAM `yaml:"ipam,omitempty" json:"ipam,omitempty"`
 	// Driver selects the network driver; empty means overlay for stacks.
 	Driver string `yaml:"driver,omitempty" json:"driver,omitempty"`
 	// DriverOpts contains driver-specific network options.

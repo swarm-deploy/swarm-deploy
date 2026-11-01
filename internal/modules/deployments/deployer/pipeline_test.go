@@ -6,6 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"testing"
+	"time"
+
+	waiterpkg "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/waiter"
 
 	pipe "github.com/artarts36/gopipe"
 	dockerswarm "github.com/docker/docker/api/types/swarm"
@@ -188,5 +191,28 @@ func assertSpanAttributes(t *testing.T, span sdktrace.ReadOnlySpan, expected map
 	}
 	for key, value := range expected {
 		assert.Equal(t, value, actual[key], string(key))
+	}
+}
+
+func TestRetryUnchangedPausedServiceStillFailsConvergence(t *testing.T) {
+	for _, single := range []bool{false, true} {
+		t.Run(fmt.Sprint(single), func(t *testing.T) {
+			manager := swarm.NewMockServiceManager(gomock.NewController(t))
+			current := nativeMinimalServiceSpec("api")
+			observed := swarm.StackService{ID: "service-id", Name: "api", Mode: "replicated", Replicas: current.Mode.Replicated.Replicas, ServiceSpec: current, DesiredTasks: 1, UpdateStatus: &swarm.ServiceUpdateStatus{State: "paused"}}
+			manager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "demo"}).Return([]swarm.StackService{observed}, nil).Times(2)
+			manager.EXPECT().Inspect(gomock.Any(), "demo_api").Return(dockerswarm.Service{ID: "service-id", Spec: current, UpdateStatus: &dockerswarm.UpdateStatus{State: dockerswarm.UpdateStatePaused}}, nil)
+			d := &Deployer{secretResolver: newTestSecretResolver(), serviceWaiter: waiterpkg.NewServiceWaiter(manager, time.Millisecond, time.Second)}
+			wireNativeTestDeployerWithServiceManager(t, d, manager, false)
+			var err error
+			if single {
+				_, err = d.DeployService(t.Context(), "demo", "source.yaml", "api", minimalCompose("api"), compose.Compose{})
+			} else {
+				_, err = d.DeployStack(t.Context(), "demo", "source.yaml", "rendered.yaml", minimalCompose("api"))
+			}
+			require.ErrorContains(t, err, "paused")
+			assert.True(t, ConvergenceFailed(err))
+			// gomock permits no update: desired ServiceSpec was already accepted.
+		})
 	}
 }

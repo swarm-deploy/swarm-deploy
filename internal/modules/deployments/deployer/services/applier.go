@@ -10,6 +10,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/distribution/reference"
 	"github.com/docker/docker/api/types/container"
 	dockerswarm "github.com/docker/docker/api/types/swarm"
 	"github.com/swarm-deploy/swarm-deploy/internal/registry"
@@ -115,12 +116,17 @@ func (a *Applier) update(
 	desired dockerswarm.ServiceSpec,
 	current dockerswarm.Service,
 ) error {
-	options, err := a.updateOptions(desired)
-	if err != nil {
-		return fmt.Errorf("service %s registry authentication: %w", displayName, err)
-	}
 	for attempt := 0; attempt < serviceUpdateAttempts; attempt++ {
-		err = a.manager.Update(ctx, current.ID, current.Version, desired, options)
+		// Rebase runtime-owned values on every optimistic retry.
+		applied := cloneSpec(desired)
+		applied.TaskTemplate.ForceUpdate = current.Spec.TaskTemplate.ForceUpdate
+		reused := normalizeImageResolution(&current.Spec, &applied)
+		options, err := a.updateOptions(applied)
+		if err != nil {
+			return fmt.Errorf("service %s registry authentication: %w", displayName, err)
+		}
+		options.QueryRegistry = !reused && !digestPinned(applied)
+		err = a.manager.Update(ctx, current.ID, current.Version, applied, options)
 		if err == nil {
 			return nil
 		}
@@ -147,7 +153,7 @@ func (a *Applier) update(
 
 func (a *Applier) createOptions(spec dockerswarm.ServiceSpec) (dockerswarm.ServiceCreateOptions, error) {
 	auth, err := a.resolveAuth(spec)
-	return dockerswarm.ServiceCreateOptions{EncodedRegistryAuth: auth, QueryRegistry: true}, err
+	return dockerswarm.ServiceCreateOptions{EncodedRegistryAuth: auth, QueryRegistry: !digestPinned(spec)}, err
 }
 
 func (a *Applier) updateOptions(spec dockerswarm.ServiceSpec) (dockerswarm.ServiceUpdateOptions, error) {
@@ -185,6 +191,7 @@ func serviceName(stackName, fullName string) string {
 func serviceSpecsEqual(current, desired dockerswarm.ServiceSpec) bool {
 	current = cloneSpec(current)
 	desired = cloneSpec(desired)
+	desired.TaskTemplate.ForceUpdate = current.TaskTemplate.ForceUpdate
 	normalizeImageResolution(&current, &desired)
 	normalizeDockerDefaults(&current)
 	normalizeDockerDefaults(&desired)
@@ -198,23 +205,72 @@ func cloneSpec(spec dockerswarm.ServiceSpec) dockerswarm.ServiceSpec {
 	return cloned
 }
 
-func normalizeImageResolution(current, desired *dockerswarm.ServiceSpec) {
-	if current.Labels[stackImageLabel] == "" || current.Labels[stackImageLabel] != desired.Labels[stackImageLabel] {
-		return
+// normalizeImageResolution reuses the resolved image only when the actual reference
+// can be the SDK's resolution of the unchanged Compose reference. Labels alone
+// are insufficient evidence: repository, tag and explicit digest must agree.
+func normalizeImageResolution(current, desired *dockerswarm.ServiceSpec) bool {
+	if current.TaskTemplate.ContainerSpec == nil || desired.TaskTemplate.ContainerSpec == nil {
+		return false
 	}
-	if current.TaskTemplate.ContainerSpec != nil && desired.TaskTemplate.ContainerSpec != nil {
-		desired.TaskTemplate.ContainerSpec.Image = current.TaskTemplate.ContainerSpec.Image
+	wanted := desired.TaskTemplate.ContainerSpec.Image
+	actual := current.TaskTemplate.ContainerSpec.Image
+	if current.Labels[stackImageLabel] == "" || current.Labels[stackImageLabel] != desired.Labels[stackImageLabel] ||
+		!resolvedImageMatches(actual, wanted) {
+		return false
 	}
-	if current.TaskTemplate.Placement == nil || len(current.TaskTemplate.Placement.Platforms) == 0 {
-		return
+	desired.TaskTemplate.ContainerSpec.Image = actual
+	if current.TaskTemplate.Placement != nil && len(current.TaskTemplate.Placement.Platforms) > 0 {
+		if desired.TaskTemplate.Placement == nil {
+			desired.TaskTemplate.Placement = &dockerswarm.Placement{}
+		}
+		desired.TaskTemplate.Placement.Platforms = slices.Clone(current.TaskTemplate.Placement.Platforms)
 	}
-	if desired.TaskTemplate.Placement == nil {
-		desired.TaskTemplate.Placement = &dockerswarm.Placement{}
+	return true
+}
+
+func resolvedImageMatches(actual, wanted string) bool {
+	current, err := reference.ParseNormalizedNamed(actual)
+	if err != nil {
+		return false
 	}
-	desired.TaskTemplate.Placement.Platforms = slices.Clone(current.TaskTemplate.Placement.Platforms)
+	desired, err := reference.ParseNormalizedNamed(wanted)
+	if err != nil || current.Name() != desired.Name() {
+		return false
+	}
+	if pinned, ok := desired.(reference.Canonical); ok {
+		resolved, canonical := current.(reference.Canonical)
+		return canonical && pinned.Digest() == resolved.Digest()
+	}
+	desired = reference.TagNameOnly(desired)
+	current = reference.TagNameOnly(current)
+	desiredTag, tagged := desired.(reference.Tagged)
+	currentTag, currentTagged := current.(reference.Tagged)
+	return tagged && currentTagged && desiredTag.Tag() == currentTag.Tag()
+}
+
+func digestPinned(spec dockerswarm.ServiceSpec) bool {
+	if spec.TaskTemplate.ContainerSpec == nil {
+		return false
+	}
+	named, err := reference.ParseNormalizedNamed(spec.TaskTemplate.ContainerSpec.Image)
+	if err != nil {
+		return false
+	}
+	_, pinned := named.(reference.Canonical)
+	return pinned
 }
 
 func normalizeDockerDefaults(spec *dockerswarm.ServiceSpec) {
+	if job := spec.Mode.ReplicatedJob; job != nil {
+		if job.MaxConcurrent == nil {
+			value := uint64(1)
+			job.MaxConcurrent = &value
+		}
+		if job.TotalCompletions == nil {
+			value := *job.MaxConcurrent
+			job.TotalCompletions = &value
+		}
+	}
 	if spec.Mode.Replicated != nil && spec.Mode.Replicated.Replicas == nil {
 		replicas := uint64(1)
 		spec.Mode.Replicated.Replicas = &replicas

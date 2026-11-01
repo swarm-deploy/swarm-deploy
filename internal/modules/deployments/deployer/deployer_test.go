@@ -132,10 +132,11 @@ func TestDeployServiceFailsBeforeDockerWritesWhenServiceIsMissing(t *testing.T) 
 	assert.ErrorContains(t, err, `service "worker" not found`)
 }
 
-func TestDeployStackSkipsWaitWhenApplicationIsUnchanged(t *testing.T) {
+func TestDeployStackWaitsWhenApplicationIsUnchanged(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	waiter := NewMockServiceWaitExecutor(ctrl)
 	waiter.EXPECT().Snapshot(gomock.Any(), "demo").Return(nil, nil)
+	waiter.EXPECT().Wait(gomock.Any(), ServiceWaitRequest{StackName: "demo", ServiceNames: []string{"api"}}).Return(nil)
 	deployer := &Deployer{
 		secretResolver: newTestSecretResolver(), initJobRunner: &fakeInitJobExecutor{}, serviceWaiter: waiter,
 	}

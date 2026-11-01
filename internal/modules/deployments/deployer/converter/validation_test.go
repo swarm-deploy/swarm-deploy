@@ -14,6 +14,9 @@ import (
 func TestConvertInvalidAndUnsupportedOptions(t *testing.T) {
 	for _, tc := range []struct{ name, yaml, field string }{
 		{"top option", "include: other.yaml", "compose.include"},
+		{"build", "services: {app: {image: alpine, build: .}}", "service.build"},
+		{"depends on", "services: {app: {image: alpine, depends_on: [db]}}", "service.depends_on"},
+		{"service restart", "services: {app: {image: alpine, restart: always}}", "service.restart"},
 		{"service option", "services: {app: {image: alpine, privileged: true}}", "service.privileged"},
 		{"health option", "services: {app: {image: alpine, healthcheck: {unknown: sensitive}}}", "healthcheck.unknown"},
 		{"logging option", "services: {app: {image: alpine, logging: {unknown: sensitive}}}", "logging.unknown"},
@@ -21,7 +24,7 @@ func TestConvertInvalidAndUnsupportedOptions(t *testing.T) {
 		{"placement option", "services: {app: {image: alpine, deploy: {placement: {unknown: sensitive}}}}", "placement.unknown"},
 		{"preference option", "services: {app: {image: alpine, deploy: {placement: {preferences: [{unknown: sensitive}]}}}}", "preferences.unknown"},
 		{"resource option", "services: {app: {image: alpine, deploy: {resources: {limits: {devices: sensitive}}}}}", "resources.limits.devices"},
-		{"network ipam", "networks: {backend: {ipam: {driver: default}}}", "networks.backend.ipam"},
+		{"network ipam", "networks: {backend: {ipam: {unknown: sensitive}}}", "networks.backend.ipam"},
 		{"external network options", "networks: {edge: {external: true, driver: overlay}}", "networks.edge"},
 		{"volume option", "volumes: {data: {unknown: sensitive}}", "volumes.data.unknown"},
 		{"external volume options", "volumes: {data: {external: true, driver: local}}", "volumes.data"},
@@ -30,7 +33,7 @@ func TestConvertInvalidAndUnsupportedOptions(t *testing.T) {
 		{"image missing", "services: {app: {}}", "image"},
 		{"image invalid", "services: {app: {image: 'http://sensitive'}}", "image"},
 		{"unprepared env file", "services: {app: {image: alpine, env_file: env}}", "env_file"},
-		{"mode", "services: {app: {image: alpine, deploy: {mode: replicated-job}}}", "deploy.mode"},
+		{"mode", "services: {app: {image: alpine, deploy: {mode: unknown}}}", "deploy.mode"},
 		{"global replicas", "services: {app: {image: alpine, deploy: {mode: global, replicas: 2}}}", "deploy.replicas"},
 		{"endpoint", "services: {app: {image: alpine, deploy: {endpoint_mode: unknown}}}", "deploy.endpoint_mode"},
 		{"bad cpus", "services: {app: {image: alpine, deploy: {resources: {limits: {cpus: sensitive}}}}}", "cpus"},

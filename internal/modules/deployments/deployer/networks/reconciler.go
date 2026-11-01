@@ -91,7 +91,8 @@ func (r *Reconciler) waitForCreatedNetwork(
 }
 
 func validateNetwork(stackName string, desired converter.NetworkSpec, current swarm.Network) error {
-	if current.ID == "" || current.Name != desired.Spec.Name || current.Scope != "swarm" {
+	if current.ID == "" || current.Name != desired.Spec.Name ||
+		!swarm.ServiceNetworkScope(current.Name, current.Scope, desired.External) {
 		return fmt.Errorf("expected an existing swarm network with exact name %s", desired.Spec.Name)
 	}
 	if desired.External {
@@ -100,43 +101,7 @@ func validateNetwork(stackName string, desired converter.NetworkSpec, current sw
 	if owner := current.Labels[labelsdict.StackNamespace]; owner != stackName {
 		return fmt.Errorf("network %s is not owned by stack %s", desired.Spec.Name, stackName)
 	}
-	if current.Driver != desired.Spec.Driver {
-		return fmt.Errorf("network %s has driver %q, desired %q", desired.Spec.Name, current.Driver, desired.Spec.Driver)
-	}
-	if current.Internal != desired.Spec.Internal {
-		return fmt.Errorf(
-			"network %s has internal=%t, desired %t",
-			desired.Spec.Name,
-			current.Internal,
-			desired.Spec.Internal,
-		)
-	}
-	if current.Attachable != desired.Spec.Attachable {
-		return fmt.Errorf(
-			"network %s has attachable=%t, desired %t",
-			desired.Spec.Name,
-			current.Attachable,
-			desired.Spec.Attachable,
-		)
-	}
-	if err := ensureMapContains(current.Labels, desired.Spec.Labels, "label"); err != nil {
-		return fmt.Errorf("network %s: %w", desired.Spec.Name, err)
-	}
-	if err := ensureMapContains(current.Options, desired.Spec.Options, "driver option"); err != nil {
-		return fmt.Errorf("network %s: %w", desired.Spec.Name, err)
-	}
-	return nil
-}
-
-func ensureMapContains(actual, desired map[string]string, kind string) error {
-	for key, desiredValue := range desired {
-		actualValue, exists := actual[key]
-		if !exists {
-			return fmt.Errorf("missing %s %q", kind, key)
-		}
-		if actualValue != desiredValue {
-			return fmt.Errorf("%s %q=%q, desired %q", kind, key, actualValue, desiredValue)
-		}
-	}
+	// Network settings are immutable. Reuse the stack-owned identity, like the
+	// stack CLI, without blocking application updates or recreating the network.
 	return nil
 }

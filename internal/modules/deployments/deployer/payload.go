@@ -12,7 +12,6 @@ import (
 type applyPayload struct {
 	deadline time.Time
 	baseline []swarm.StackService
-	affected []string
 }
 
 func (p *applyPayload) stageContext(ctx context.Context) (context.Context, context.CancelFunc) {
