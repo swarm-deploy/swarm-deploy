@@ -16,7 +16,11 @@ import (
 
 func TestRealSwarmInitialStartupFailureHistoryAndRecovery(t *testing.T) {
 	f := newLifecycleFixture(t, true)
-	desired := f.manifest(t, lifecycleService("job", "exit 23", ""))
+	// A never-healthy startup check holds the task in Starting until exit 23,
+	// preventing a transient Running observation from racing verification.
+	broken := strings.Replace(lifecycleService("job", "sleep 1; exit 23", ""), "    deploy:\n",
+		"    healthcheck: {test: [CMD, 'false'], interval: 1s, timeout: 1s, retries: 30}\n    deploy:\n", 1)
+	desired := f.manifest(t, broken)
 	req := deployments.ExecuteRequest{Stack: f.request.Stack, Desired: desired, Commit: "broken", SourceChanged: true}
 	// Unlike a failed rolling update, initial startup has no UpdateStatus. A
 	// real failed task with restart disabled is still a known convergence failure.
