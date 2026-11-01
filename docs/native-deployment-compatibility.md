@@ -160,19 +160,20 @@ Unrelated unchanged services, including historical paused updates, are excluded.
 Accepted updates still in progress are verified even when their specs are unchanged.
 With no mutations or active updates, stack apply is a no-op rather than a health check.
 
-Periodic reconciliation does not retry an unchanged `convergence_failed` or
-`policy_rejected` deployment. Other apply/Init Job/observation/cleanup
-failures receive at most three automatic Attempts per effective desired state,
-including the initial Attempt, separated by one and two minutes. The persisted
-Attempt count and finish time preserve both the budget and delay across restarts.
+Periodic reconciliation does not retry an unchanged non-retryable failure,
+including `convergence_failed` and `policy_rejected`. Transient failures (such
+as interrupted verification or explicitly classified temporary infrastructure
+errors) are retried indefinitely with exponential delays of 1, 2, 4, ...
+minutes, capped at 1 hour. The retry classification, persisted Attempt count,
+and finish time preserve the delay across restarts. Unclassified apply, Init Job,
+and cleanup failures are not assumed to be temporary.
 Deferred cycles do not self-heal, prune, overwrite the GitOps failure projection,
 or publish deployment completion events. Alert occurrences therefore count real
 failed Attempts rather than scheduler ticks.
 
-A new effective desired digest starts a new Deployment and budget. Manual Sync
-retries a failed/interrupted deployment regardless of its automatic budget. During
+A new effective desired digest starts a new Deployment with fresh retry state. Manual Sync
+retries a failed/interrupted deployment regardless of automatic retry backoff. During
 retry, terminal failed services receive a new `ForceUpdate` generation, including
 when the accepted ServiceSpec is already equal to desired. Retries reverify accepted unchanged specifications too, so interrupted observation
 cannot turn an unfinished rollout into a successful no-op. Healthy unchanged
-services keep their tasks. An exhausted transient failure requires Manual Sync or
-a changed desired state. No new configuration or database schema is required.
+services keep their tasks. No automatic attempt limit, new configuration, or database schema is required.
