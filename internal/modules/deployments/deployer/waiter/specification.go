@@ -77,7 +77,8 @@ func specificationProgress(
 func specificationMetadataPending(
 	baseline, reference, service swarm.StackService, generation services.UpdateGeneration,
 ) bool {
-	return (baseline.ID == service.ID && service.UpdatedAt.Before(baseline.UpdatedAt)) ||
+	return (generation.ServiceID != "" && generation.ServiceID != service.ID) ||
+		(baseline.ID == service.ID && service.UpdatedAt.Before(baseline.UpdatedAt)) ||
 		(reference.ID == service.ID && service.UpdatedAt.Before(reference.UpdatedAt)) ||
 		(generation.ServiceID == service.ID && !service.UpdatedAt.After(generation.After))
 }
@@ -111,7 +112,10 @@ func specificationRolloutPending(
 	}
 	beforeTemplate := expected
 	beforeTemplate.TaskTemplate = baseline.ServiceSpec.TaskTemplate
-	if service.UpdateStatus == nil && serviceDesiredTasks(service) > 0 && !services.SpecsEqual(beforeTemplate, expected) {
+	// Initial creation has no rolling update. Identity, fresh metadata and the
+	// accepted managed spec have already been checked; tasks need not be running.
+	if baseline.ID == service.ID && service.UpdateStatus == nil && serviceDesiredTasks(service) > 0 &&
+		!services.SpecsEqual(beforeTemplate, expected) {
 		return true
 	}
 	return updatePending(service.UpdateStatus)

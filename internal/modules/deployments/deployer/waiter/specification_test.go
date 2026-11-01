@@ -127,3 +127,52 @@ func TestWaiterRejectsExternalOwnershipOnGlobalService(t *testing.T) {
 	assert.Equal(t, []string{"job"}, result.UnresolvedServices)
 	assert.Empty(t, result.SpecificationOnlyServices)
 }
+
+func TestExternalInitialCreation(t *testing.T) {
+	for _, tc := range []struct {
+		name                       string
+		replicas                   uint64
+		tasks                      []swarm.ServiceTask
+		mismatch, wrongID, missing bool
+		want                       ServiceState
+	}{
+		{name: "zero replicas without update status", want: ServiceReady},
+		{name: "one replica without update status", replicas: 1, want: ServiceReady},
+		{name: "task still preparing", replicas: 1, tasks: []swarm.ServiceTask{
+			testTask("starting", 1, swarm.TaskStateRunning, swarm.TaskStatePreparing, serviceWaitTestTime),
+		}, want: ServiceReady},
+		{name: "expected specification never applied", replicas: 1, mismatch: true, want: ServicePending},
+		{name: "different service identity", wrongID: true, want: ServicePending},
+		{name: "service not yet visible", missing: true, want: ServicePending},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			expected := externalService(tc.replicas, serviceWaitTestTime, "job:2")
+			observed := externalService(tc.replicas, serviceWaitTestTime, "job:2")
+			if tc.mismatch {
+				observed.ServiceSpec.TaskTemplate.ContainerSpec.Image = "job:1"
+			}
+			if tc.wrongID {
+				observed.ID = "unrelated-id"
+			}
+			if tc.missing {
+				observed = swarm.StackService{}
+			}
+			manager := swarm.NewMockServiceManager(gomock.NewController(t))
+			manager.EXPECT().ListServices(gomock.Any(), gomock.Any()).Return([]swarm.StackService{observed}, nil).AnyTimes()
+			manager.EXPECT().ListTasks(gomock.Any(), gomock.Any()).Return(tc.tasks, nil).AnyTimes()
+			result, err := NewServiceWaiter(manager, time.Millisecond, 20*time.Millisecond).Wait(t.Context(), ServiceWaitRequest{
+				StackName: "app", ServiceNames: []string{"job"}, AppliedServices: []string{"job"},
+				ExpectedSpecs:   map[string]dockerswarm.ServiceSpec{"job": expected.ServiceSpec},
+				ExternalUpdates: map[string]services.UpdateGeneration{"job": {ServiceID: "job-id"}},
+			})
+			if tc.want == ServiceReady {
+				require.NoError(t, err)
+				assert.Equal(t, []string{"job"}, result.SpecificationOnlyServices)
+			} else {
+				require.ErrorIs(t, err, context.DeadlineExceeded)
+				assert.Equal(t, []string{"job"}, result.UnresolvedServices)
+				assert.Empty(t, result.SpecificationOnlyServices)
+			}
+		})
+	}
+}

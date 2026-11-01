@@ -226,3 +226,52 @@ func TestExternalSchedulerRaceUsesActualAppliedGeneration(t *testing.T) {
 		})
 	}
 }
+
+func TestExternalInitialCreationAndSubsequentDeploy(t *testing.T) {
+	for _, replicas := range []uint64{0, 1} {
+		for _, single := range []bool{false, true} {
+			t.Run(fmt.Sprintf("replicas=%d/single=%t", replicas, single), func(t *testing.T) {
+				manager := swarm.NewMockServiceManager(gomock.NewController(t))
+				manager.EXPECT().ListServices(gomock.Any(), gomock.Any()).Return(nil, nil)
+				manager.EXPECT().Inspect(gomock.Any(), "demo_job").Return(dockerswarm.Service{}, swarm.ErrServiceNotFound)
+				var created dockerswarm.ServiceSpec
+				manager.EXPECT().Create(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+					func(_ any, spec dockerswarm.ServiceSpec, _ dockerswarm.ServiceCreateOptions) (string, error) {
+						created = spec
+						return "job-id", nil
+					})
+				manager.EXPECT().ListServices(gomock.Any(), gomock.Any()).DoAndReturn(
+					func(_ any, _ swarm.ListServicesFilter) ([]swarm.StackService, error) {
+						return []swarm.StackService{{ID: "job-id", Name: "job", Mode: "replicated", Replicas: &replicas,
+							ServiceSpec: created, CreatedAt: time.Now(), UpdatedAt: time.Now()}}, nil
+					}).AnyTimes()
+				manager.EXPECT().ListTasks(gomock.Any(), "job-id").Return(nil, nil).AnyTimes()
+				manager.EXPECT().Inspect(gomock.Any(), "demo_job").DoAndReturn(
+					func(_ any, _ string) (dockerswarm.Service, error) {
+						return dockerswarm.Service{ID: "job-id", Spec: created}, nil
+					}).Times(1)
+				d := &Deployer{secretResolver: newTestSecretResolver(),
+					serviceWaiter: waiterpkg.NewServiceWaiter(manager, time.Millisecond, time.Second)}
+				wireNativeTestDeployerWithServiceManager(t, d, manager, false)
+				desired := minimalCompose("job")
+				desired.Services[0].Deploy.Replicas = &replicas
+				desired.Services[0].Deploy.Labels = *compose.NewLabels(map[string]string{labelsdict.ServiceSyncPolicyReplicasManagedLabelKey: "false"})
+				for attempt := range 2 {
+					var result Result
+					var err error
+					if single {
+						result, err = d.DeployService(t.Context(), ServiceRequest{StackName: "demo", ServiceName: "job", Desired: desired})
+					} else {
+						result, err = d.DeployStack(t.Context(), StackRequest{StackName: "demo", Desired: desired})
+					}
+					require.NoError(t, err)
+					assert.True(t, result.Verification.Known)
+					assert.Empty(t, result.Verification.UnresolvedServices)
+					if attempt == 0 {
+						assert.Equal(t, []string{"job"}, result.SpecificationOnlyServices)
+					}
+				}
+			})
+		}
+	}
+}
