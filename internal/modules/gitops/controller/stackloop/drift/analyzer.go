@@ -23,6 +23,11 @@ func (a *Analyzer) Analyze(req AnalyzeRequest) (AnalyzeResponse, error) {
 	}
 
 	for _, desiredService := range req.Desired.Compose.Services {
+		replicasEnabled, specified, err := desiredService.ReplicaDriftPolicy()
+		if err != nil {
+			return AnalyzeResponse{}, fmt.Errorf("resolve service %s replica drift policy: %w", desiredService.Name, err)
+		}
+
 		liveService, serviceExists := liveServiceMap[desiredService.Name]
 		if !serviceExists {
 			resp.Drifts[desiredService.Name] = ServiceDrift{
@@ -33,7 +38,7 @@ func (a *Analyzer) Analyze(req AnalyzeRequest) (AnalyzeResponse, error) {
 			continue
 		}
 
-		if desiredService.Deploy.Replicas == nil {
+		if (specified && !replicasEnabled) || desiredService.Deploy.Replicas == nil {
 			continue
 		}
 

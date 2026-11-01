@@ -96,7 +96,16 @@ type ServiceLogging struct {
 
 // SelfHealPolicy returns the service-level self-heal policy and whether it was specified.
 func (s Service) SelfHealPolicy() (bool, bool, error) {
-	raw, exists := s.Deploy.Labels.Map[labelsdict.ServiceSyncPolicySelfHealLabelKey]
+	return s.booleanPolicy(labelsdict.ServiceSyncPolicySelfHealLabelKey)
+}
+
+// ReplicaDriftPolicy returns the service-level replica drift policy and whether it was specified.
+func (s Service) ReplicaDriftPolicy() (bool, bool, error) {
+	return s.booleanPolicy(labelsdict.ServiceSyncPolicySelfHealReplicasLabelKey)
+}
+
+func (s Service) booleanPolicy(label string) (bool, bool, error) {
+	raw, exists := s.Deploy.Labels.Map[label]
 	if !exists {
 		return false, false, nil
 	}

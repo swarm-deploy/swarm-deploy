@@ -1,6 +1,9 @@
 package compose
 
 import (
+	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -42,3 +45,56 @@ func TestServiceSelfHealPolicy(t *testing.T) {
 }
 
 func stringPointer(value string) *string { return &value }
+
+func TestServiceReplicaDriftPolicy(t *testing.T) {
+	tests := []struct {
+		value   string
+		want    bool
+		wantErr bool
+	}{
+		{value: "true", want: true}, {value: "1", want: true}, {value: "yes", want: true},
+		{value: "y", want: true}, {value: "on", want: true}, {value: " TRUE ", want: true},
+		{value: "false"}, {value: "0"}, {value: "no"}, {value: "n"}, {value: "off"}, {value: " OFF "},
+		{value: "maybe", wantErr: true}, {value: "", wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.value, func(t *testing.T) {
+			service := Service{Deploy: ServiceDeploy{Labels: *NewLabels(map[string]string{
+				labelsdict.ServiceSyncPolicySelfHealReplicasLabelKey: tt.value,
+			})}}
+			got, specified, err := service.ReplicaDriftPolicy()
+			assert.True(t, specified)
+			if tt.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+	_, specified, err := (Service{}).ReplicaDriftPolicy()
+	require.NoError(t, err)
+	assert.False(t, specified)
+}
+
+func TestLoaderValidatesServiceSyncPolicies(t *testing.T) {
+	for _, label := range []string{labelsdict.ServiceSyncPolicySelfHealLabelKey, labelsdict.ServiceSyncPolicySelfHealReplicasLabelKey} {
+		t.Run(label, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "compose.yaml")
+			require.NoError(t, os.WriteFile(path, []byte(fmt.Sprintf(`services:
+  worker:
+    image: example/job:1.0.0
+    deploy:
+      labels:
+        %s: "maybe"
+`, label)), 0o600))
+			_, err := NewFileLoader().Load(t.Context(), path)
+			var validation *ValidateComposeError
+			require.ErrorAs(t, err, &validation)
+			require.Len(t, validation.Issues, 1)
+			assert.Equal(t, "worker", validation.Issues[0].ResourceName)
+			assert.Equal(t, "deploy.labels."+label, validation.Issues[0].Field)
+			assert.Equal(t, IssueCodeInvalidValue, validation.Issues[0].Code)
+		})
+	}
+}

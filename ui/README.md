@@ -32,3 +32,7 @@ npm run mock:api
 Generated mock endpoints are stateless unless overridden in `scripts/mock-api.mjs`.
 Realtime service scaling updates the in-memory configured and desired replica counts for visual
 verification; running task counts remain unchanged to represent asynchronous Swarm convergence.
+
+Stack Details previews: `/stacks/payments` has an active stack alert, `/stacks/sandbox` has a
+long alert title for responsive checks, and `/stacks/storefront` has no active alerts.
+Alert fixtures respect the `stack`, `status`, and `limit` filters.
