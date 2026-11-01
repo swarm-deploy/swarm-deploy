@@ -163,8 +163,8 @@ func TestDeployStackOnRealSwarm(t *testing.T) {
 	assert.NotEqual(t, secretID1, secretID2, "rotated secret must be a different Docker object")
 	assert.NotEqual(t, configID1, configID2, "rotated config must be a different Docker object")
 	waitForRealSwarmTask(t, ctx, dockerPath, stack+"_check", "mounted-v2")
-	// Retry an already accepted failed rollout. A retry must observe the paused
-	// update and must not turn it into success by skipping ServiceWaiter.
+	// Explicitly retry an accepted failed rollout. It must create a new task
+	// generation and verify its real failure, rather than replaying stale diagnostics.
 	prepared, err = compose.NewFileLoader().Load(ctx, composePath)
 	require.NoError(t, err)
 	failing := prepared.Compose
@@ -178,14 +178,15 @@ func TestDeployStackOnRealSwarm(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, failed.UpdateStatus)
 	require.Equal(t, dockerswarm.UpdateStatePaused, failed.UpdateStatus.State)
-	_, retryErr := stackDeployer.DeployStack(ctx, stack, composePath, composePath, failing)
+	_, retryErr := stackDeployer.DeployStack(ctx, stack, composePath, composePath, failing, deployer.StackOptions{RetryFailedUpdates: true})
 	require.Error(t, retryErr)
 	assert.True(t, deployer.ConvergenceFailed(retryErr))
 	assert.ErrorContains(t, retryErr, "latest task failure: id=")
 	assert.ErrorContains(t, retryErr, "state=failed")
 	retried, err := swarmService.Services.Inspect(ctx, stack+"_check")
 	require.NoError(t, err)
-	assert.Equal(t, failed.Version.Index, retried.Version.Index, "retry must not send ServiceUpdate")
+	assert.Greater(t, retried.Version.Index, failed.Version.Index, "retry must send ServiceUpdate")
+	assert.Equal(t, failed.Spec.TaskTemplate.ForceUpdate+1, retried.Spec.TaskTemplate.ForceUpdate)
 	deployFixture(t, ctx, stackDeployer, stack, composePath)
 
 	t.Run("mutable registry tag", func(t *testing.T) {

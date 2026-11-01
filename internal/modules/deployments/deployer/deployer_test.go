@@ -132,11 +132,11 @@ func TestDeployServiceFailsBeforeDockerWritesWhenServiceIsMissing(t *testing.T) 
 	assert.ErrorContains(t, err, `service "worker" not found`)
 }
 
-func TestDeployStackWaitsWhenApplicationIsUnchanged(t *testing.T) {
+func TestDeployStackPassesNoTargetsWhenApplicationIsUnchanged(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	waiter := NewMockServiceWaitExecutor(ctrl)
 	waiter.EXPECT().Snapshot(gomock.Any(), "demo").Return(nil, nil)
-	waiter.EXPECT().Wait(gomock.Any(), ServiceWaitRequest{StackName: "demo", ServiceNames: []string{"api"}}).Return(nil)
+	waiter.EXPECT().Wait(gomock.Any(), ServiceWaitRequest{StackName: "demo", ServiceNames: []string{}, AppliedServices: []string{}}).Return(nil)
 	deployer := &Deployer{
 		secretResolver: newTestSecretResolver(), initJobRunner: &fakeInitJobExecutor{}, serviceWaiter: waiter,
 	}
@@ -313,7 +313,7 @@ func TestDeployServiceWaitsOnlyForTarget(t *testing.T) {
 	baseline := []swarm.StackService{{ID: "api-id", Name: "api"}, {ID: "worker-id", Name: "worker"}}
 	waiter.EXPECT().Snapshot(gomock.Any(), "demo").Return(baseline, nil)
 	waiter.EXPECT().Wait(gomock.Any(), ServiceWaitRequest{
-		StackName: "demo", ServiceNames: []string{"api"}, Baseline: baseline, OnlyAffected: false,
+		StackName: "demo", ServiceNames: []string{"api"}, Baseline: baseline, AppliedServices: []string{"api"},
 	}).Return(nil)
 	deployer := &Deployer{
 		secretResolver: newTestSecretResolver(), initJobRunner: &fakeInitJobExecutor{}, serviceWaiter: waiter,

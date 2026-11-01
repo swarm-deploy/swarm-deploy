@@ -478,7 +478,7 @@ configs:
 	var renderedCompose *compose.Compose
 	stackDeployer.EXPECT().
 		DeployStack(gomock.Any(), "app", composePath, renderedPath, gomock.Any()).
-		Do(func(_ context.Context, _, _, deployComposePath string, _ compose.Compose) {
+		Do(func(_ context.Context, _, _, deployComposePath string, _ compose.Compose, _ ...deployer.StackOptions) {
 			renderedRaw, readErr := os.ReadFile(deployComposePath)
 			require.NoError(t, readErr, "read rendered compose during deploy")
 			renderedCompose, readErr = compose.Parse(renderedRaw)
@@ -581,7 +581,7 @@ secrets:
 	var renderedCompose *compose.Compose
 	stackDeployer.EXPECT().
 		DeployStack(gomock.Any(), "app", filepath.Join(repoDir, "deploy", "docker-compose.yaml"), renderedPath, gomock.Any()).
-		Do(func(_ context.Context, _, _, deployComposePath string, _ compose.Compose) {
+		Do(func(_ context.Context, _, _, deployComposePath string, _ compose.Compose, _ ...deployer.StackOptions) {
 			renderedRaw, readErr := os.ReadFile(deployComposePath)
 			require.NoError(t, readErr, "read rendered compose during deploy")
 			renderedCompose, readErr = compose.Parse(renderedRaw)
@@ -665,7 +665,7 @@ services:
 	var renderedCompose *compose.Compose
 	stackDeployer.EXPECT().
 		DeployStack(gomock.Any(), "app", filepath.Join(repoDir, "deploy", "compose.yaml"), renderedPath, gomock.Any()).
-		Do(func(_ context.Context, _, _, deployComposePath string, _ compose.Compose) {
+		Do(func(_ context.Context, _, _, deployComposePath string, _ compose.Compose, _ ...deployer.StackOptions) {
 			renderedRaw, readErr := os.ReadFile(deployComposePath)
 			require.NoError(t, readErr, "read rendered compose during deploy")
 			renderedCompose, readErr = compose.Parse(renderedRaw)
@@ -736,7 +736,7 @@ services:
 	var renderedCompose *compose.Compose
 	stackDeployer.EXPECT().
 		DeployStack(gomock.Any(), "app", filepath.Join(repoDir, "app.yaml"), renderedPath, gomock.Any()).
-		Do(func(_ context.Context, _, _, deployComposePath string, _ compose.Compose) {
+		Do(func(_ context.Context, _, _, deployComposePath string, _ compose.Compose, _ ...deployer.StackOptions) {
 			renderedRaw, readErr := os.ReadFile(deployComposePath)
 			require.NoError(t, readErr, "read rendered compose during deploy")
 			renderedCompose, readErr = compose.Parse(renderedRaw)

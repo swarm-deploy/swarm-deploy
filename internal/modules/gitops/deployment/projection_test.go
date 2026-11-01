@@ -32,7 +32,7 @@ func TestProjectionSubscriberIsIdempotentAndRejectsStaleAttempts(t *testing.T) {
 	require.NoError(t, lifecycle.Complete(t.Context(), first.ID, deployments.Completion{
 		Outcome: deployments.CompletionApplyFailed, Diagnostic: errors.New("apply failed"),
 	}))
-	retry, err := lifecycle.StartIfChanged(t.Context(), "app", "retry", projectionDesired("api:1"), true)
+	retry, err := lifecycle.StartIfChanged(t.Context(), "app", "retry", projectionDesired("api:1"), true, deployments.StartOptions{ManualRetry: true})
 	require.NoError(t, err)
 	require.NoError(t, lifecycle.Complete(t.Context(), retry.ID, deployments.Completion{
 		Outcome: deployments.CompletionSucceeded,

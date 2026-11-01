@@ -164,6 +164,10 @@ func (r *Reconciler) Reconcile(
 		return r.recordPipelineFailure(ctx, req, prev, pl, pipeErr)
 	}
 
+	if pl.RetryDeferred {
+		return nil
+	}
+
 	if err = r.processResult(ctx, req, prev, desiredState, pl); err != nil {
 		return err
 	}

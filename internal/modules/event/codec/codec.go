@@ -361,7 +361,7 @@ func (p deploymentFailurePayload) services() []compose.Service {
 func safeFailureCode(err error) string {
 	if err != nil {
 		switch err.Error() {
-		case "policy_rejected", "init_failed", "apply_failed", "prune_failed":
+		case "policy_rejected", "init_failed", "apply_failed", "convergence_failed", "prune_failed":
 			return err.Error()
 		}
 	}

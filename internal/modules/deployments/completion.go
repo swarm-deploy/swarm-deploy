@@ -24,6 +24,8 @@ const (
 	CompletionPolicyRejected CompletionOutcome = "policy_rejected"
 	// CompletionInitJobFailed records an Init Job failure before stack apply.
 	CompletionInitJobFailed CompletionOutcome = "init_failed"
+	// CompletionConvergenceFailed records a known terminal service update failure.
+	CompletionConvergenceFailed CompletionOutcome = "convergence_failed"
 	// CompletionVerificationInterrupted records an unknown verification outcome.
 	CompletionVerificationInterrupted CompletionOutcome = "verification_interrupted"
 	// CompletionCleanupFailed records cleanup failure after observing live state.
@@ -137,13 +139,16 @@ func (completion Completion) state() (completionState, error) {
 		state.apply, state.verification = deploymentmodel.StageFailed, deploymentmodel.StageSkipped
 		state.cleanup, state.actual = deploymentmodel.StageSkipped, deploymentmodel.ActualStateUnknown
 		state.eventStage = string(state.phase)
-	case CompletionVerificationInterrupted:
+	case CompletionConvergenceFailed, CompletionVerificationInterrupted:
 		if completion.ObservedAt != nil {
-			return completionState{}, fmt.Errorf("verification interruption cannot contain an observation timestamp")
+			return completionState{}, fmt.Errorf("verification failure cannot contain an observation timestamp")
 		}
 		state.status, state.phase = deploymentmodel.Interrupted, deploymentmodel.PhaseVerification
 		state.apply, state.verification = deploymentmodel.StageSucceeded, deploymentmodel.StageUnknown
 		state.cleanup, state.actual = deploymentmodel.StageSkipped, deploymentmodel.ActualStateUnknown
+		if completion.Outcome == CompletionConvergenceFailed {
+			state.status, state.verification = deploymentmodel.Failed, deploymentmodel.StageFailed
+		}
 		state.eventStage = string(state.phase)
 	case CompletionCleanupFailed:
 		if completion.ObservedAt == nil {
@@ -177,6 +182,8 @@ func (completion Completion) ErrorCode() string {
 		return "policy_rejected"
 	case CompletionInitJobFailed:
 		return "init_failed"
+	case CompletionConvergenceFailed:
+		return "convergence_failed"
 	case CompletionVerificationInterrupted:
 		return "verification_unknown"
 	case CompletionCleanupFailed:

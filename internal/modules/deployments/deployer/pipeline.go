@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -16,6 +17,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/converter"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/initjob"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/secrets"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/services"
 	stackpkg "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/stack"
 	waiterpkg "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/waiter"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
@@ -145,7 +147,9 @@ func (d *Deployer) captureStackBaseline(ctx context.Context, payload *deployStac
 func (d *Deployer) applyStack(ctx context.Context, payload *deployStackPayload) error {
 	applyCtx, cancel := payload.stageContext(ctx)
 	defer cancel()
-	_, err := d.serviceApplier.Apply(applyCtx, payload.stackName, payload.converted.Services)
+	changed, err := d.serviceApplier.Apply(applyCtx, payload.stackName, payload.converted.Services,
+		services.ApplyOptions{RetryFailedUpdates: payload.retryFailedUpdates})
+	payload.changed = changed
 	return safePipelineError(err)
 }
 
@@ -155,9 +159,15 @@ func (d *Deployer) waitForStack(ctx context.Context, payload *deployStackPayload
 	if len(payload.converted.Services) == 0 {
 		return nil
 	}
+	names := verificationServiceNames(payload.stackName, payload.converted.Services, payload.applyPayload)
+	if payload.retryFailedUpdates {
+		// A prior apply may have succeeded before observation was interrupted.
+		// Reverify accepted, unchanged services too, without forcing healthy tasks.
+		names = convertedServiceNames(payload.stackName, payload.converted.Services)
+	}
 	return safePipelineError(d.wait(waitCtx, waiterpkg.ServiceWaitRequest{
-		StackName: payload.stackName, ServiceNames: convertedServiceNames(payload.stackName, payload.converted.Services),
-		Baseline: payload.baseline, OnlyAffected: false,
+		StackName: payload.stackName, ServiceNames: names,
+		Baseline: payload.baseline, AppliedServices: payload.changed,
 	}))
 }
 
@@ -202,7 +212,8 @@ func (d *Deployer) captureServiceBaseline(ctx context.Context, payload *deploySe
 func (d *Deployer) applyService(ctx context.Context, payload *deployServicePayload) error {
 	applyCtx, cancel := payload.stageContext(ctx)
 	defer cancel()
-	_, err := d.serviceApplier.Apply(applyCtx, payload.stackName, payload.converted.Services)
+	changed, err := d.serviceApplier.Apply(applyCtx, payload.stackName, payload.converted.Services)
+	payload.changed = changed
 	return safePipelineError(err)
 }
 
@@ -213,9 +224,9 @@ func (d *Deployer) waitForService(ctx context.Context, payload *deployServicePay
 		return nil
 	}
 	return safePipelineError(d.wait(waitCtx, waiterpkg.ServiceWaitRequest{
-		StackName: payload.stackName, ServiceNames: convertedServiceNames(payload.stackName, payload.converted.Services),
-		Baseline:     payload.baseline,
-		OnlyAffected: false,
+		StackName:    payload.stackName,
+		ServiceNames: verificationServiceNames(payload.stackName, payload.converted.Services, payload.applyPayload),
+		Baseline:     payload.baseline, AppliedServices: payload.changed,
 	}))
 }
 
@@ -333,6 +344,20 @@ func (d *Deployer) runInitJobs(
 		}
 	}
 	return result, nil
+}
+
+// verificationServiceNames includes actual mutations and accepted updates still in progress.
+// Historical terminal states on unchanged services do not belong to this apply.
+func verificationServiceNames(stackName string, specs []dockerswarm.ServiceSpec, payload applyPayload) []string {
+	names := slices.Clone(payload.changed)
+	candidates := convertedServiceNames(stackName, specs)
+	for _, service := range payload.baseline {
+		if service.UpdateStatus != nil && service.UpdateStatus.State == "updating" &&
+			slices.Contains(candidates, service.Name) && !slices.Contains(names, service.Name) {
+			names = append(names, service.Name)
+		}
+	}
+	return names
 }
 
 func convertedServiceNames(stackName string, specs []dockerswarm.ServiceSpec) []string {

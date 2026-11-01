@@ -181,7 +181,7 @@ func TestGitPullCodecRejectsUnsafePayloads(t *testing.T) {
 }
 
 func TestDeploymentFailureCategorySurvivesCodec(t *testing.T) {
-	for _, code := range []string{"policy_rejected", "init_failed", "apply_failed", "prune_failed"} {
+	for _, code := range []string{"policy_rejected", "init_failed", "apply_failed", "convergence_failed", "prune_failed"} {
 		event := &events.DeployFailed{DeployEvent: events.DeployEvent{StackName: "app"}, Error: errors.New(code)}
 		payload, err := Encode(event)
 		require.NoError(t, err)
