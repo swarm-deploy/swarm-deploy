@@ -2,6 +2,7 @@ package deployments
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -48,6 +49,7 @@ type completionState struct {
 	status       deploymentmodel.Status
 	errorCode    string
 	diagnostic   error
+	retryable    bool
 	phase        deploymentmodel.Phase
 	apply        deploymentmodel.StageStatus
 	verification deploymentmodel.StageStatus
@@ -99,6 +101,7 @@ func (s *Service) complete(
 	finishedAt := s.now().UTC()
 	attempt.Status, attempt.FinishedAt, attempt.ErrorCode = state.status, &finishedAt, state.errorCode
 	attempt.ErrorDiagnostic = faults.SafeDiagnostic(state.diagnostic)
+	attempt.Retryable = state.retryable
 	attempt.Phase, attempt.ApplyStatus = state.phase, state.apply
 	attempt.VerificationStatus, attempt.CleanupStatus = state.verification, state.cleanup
 	attempt.ActualStateStatus, attempt.ObservedAt = state.actual, state.observedAt
@@ -118,6 +121,15 @@ func (completion Completion) state() (completionState, error) {
 		errorCode:  completion.ErrorCode(),
 		diagnostic: faults.SafeError(completion.Diagnostic),
 		observedAt: completion.ObservedAt,
+	}
+	// Persist retry eligibility without changing the stable public failure codes.
+	switch completion.Outcome {
+	case CompletionVerificationInterrupted, CompletionProcessInterrupted:
+		state.retryable = true
+	case CompletionApplyFailed, CompletionInitJobFailed, CompletionCleanupFailed:
+		var temporary faults.Error
+		state.retryable = errors.Is(completion.Diagnostic, context.DeadlineExceeded) ||
+			(errors.As(completion.Diagnostic, &temporary) && temporary.Temporary())
 	}
 	switch completion.Outcome {
 	case CompletionSucceeded:
