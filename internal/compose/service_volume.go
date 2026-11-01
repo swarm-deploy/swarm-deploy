@@ -36,8 +36,6 @@ type ServiceVolume struct {
 	Volume *ServiceVolumeVolume `yaml:"volume,omitempty" json:"Volume"`
 	Tmpfs  *ServiceVolumeTmpfs  `yaml:"tmpfs,omitempty" json:"Tmpfs"`
 
-	Extra map[string]interface{} `yaml:",inline" json:"Extra"`
-
 	// UnsupportedModes preserves unconverted short-syntax options for strict consumers.
 	UnsupportedModes []string `yaml:"-" json:"UnsupportedModes,omitempty"`
 
@@ -47,22 +45,16 @@ type ServiceVolume struct {
 type ServiceVolumeBind struct {
 	CreateHostPath *bool             `yaml:"create_host_path,omitempty" json:"CreateHostPath"`
 	Propagation    mount.Propagation `yaml:"propagation,omitempty" json:"Propagation"`
-
-	Extra map[string]interface{} `yaml:",inline" json:"Extra"`
 }
 
 type ServiceVolumeVolume struct {
 	Nocopy  bool   `yaml:"nocopy" json:"Nocopy"`
 	Subpath string `yaml:"subpath" json:"Subpath"`
-
-	Extra map[string]interface{} `yaml:",inline" json:"Extra"`
 }
 
 type ServiceVolumeTmpfs struct {
 	Mode os.FileMode `yaml:"mode" json:"Mode"`
 	Size string      `yaml:"size" json:"Size"`
-
-	Extra map[string]interface{} `yaml:",inline" json:"Extra"`
 }
 
 type serviceVolumeSchema struct {
@@ -75,8 +67,6 @@ type serviceVolumeSchema struct {
 	Bind   *ServiceVolumeBind   `yaml:"bind,omitempty" json:"Bind"`
 	Volume *ServiceVolumeVolume `yaml:"volume,omitempty" json:"Volume"`
 	Tmpfs  *ServiceVolumeTmpfs  `yaml:"tmpfs,omitempty" json:"Tmpfs"`
-
-	Extra map[string]interface{} `yaml:",inline" json:"Extra"`
 }
 
 func (sv *ServiceVolumes) UnmarshalYAML(root *yaml.Node) error {
@@ -116,7 +106,6 @@ func (sv *ServiceVolumes) UnmarshalYAML(root *yaml.Node) error {
 		volume.Bind = schema.Bind
 		volume.Volume = schema.Volume
 		volume.Tmpfs = schema.Tmpfs
-		volume.Extra = schema.Extra
 
 		sv.Volumes = append(sv.Volumes, volume)
 		sv.Map[volume.Target] = volume
@@ -139,7 +128,6 @@ func (sv ServiceVolume) MarshalYAML() (interface{}, error) {
 		Bind:        sv.Bind,
 		Volume:      sv.Volume,
 		Tmpfs:       sv.Tmpfs,
-		Extra:       sv.Extra,
 	}, nil
 }
 

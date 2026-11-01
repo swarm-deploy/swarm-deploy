@@ -96,6 +96,9 @@ func checkMappedComposeValues(node *yaml.Node, typ reflect.Type, path string, ig
 		return nil
 	}
 	for i := 0; i+1 < len(node.Content); i += 2 {
+		if strings.HasPrefix(node.Content[i].Value, "x-") && typ == reflect.TypeFor[Service]() {
+			continue
+		}
 		if err := checkComposeFields(node.Content[i+1], typ, path+"."+node.Content[i].Value, ignored); err != nil {
 			return err
 		}
@@ -140,4 +143,20 @@ func composeFieldType(typ reflect.Type, key string) (reflect.Type, bool) {
 		}
 	}
 	return nil, false
+}
+
+// setIgnoredOptions attaches non-persistent warnings to the parsed services.
+func setIgnoredOptions(desired *Compose, paths []string) {
+	for _, path := range paths {
+		parts := strings.Split(path, ".")
+		if len(parts) != 4 || parts[0] != "compose" || parts[1] != "services" {
+			continue
+		}
+		for i := range desired.Services {
+			if desired.Services[i].Name == parts[2] {
+				desired.Services[i].IgnoredOptions = append(desired.Services[i].IgnoredOptions, parts[3])
+				break
+			}
+		}
+	}
 }

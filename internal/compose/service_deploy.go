@@ -10,8 +10,6 @@ type ServiceDeploy struct {
 	RestartPolicy  *ServiceDeployRestartPolicy  `yaml:"restart_policy,omitempty" json:"restart_policy,omitempty"`
 	RollbackConfig *ServiceDeployRollbackConfig `yaml:"rollback_config,omitempty" json:"rollback_config,omitempty"`
 	UpdateConfig   *ServiceDeployUpdateConfig   `yaml:"update_config,omitempty" json:"update_config,omitempty"`
-
-	Extra map[string]interface{} `yaml:",inline" json:"Extra"`
 }
 
 type ServiceDeployUpdateOrder string
@@ -28,8 +26,6 @@ type ServiceDeployUpdateConfig struct {
 	Monitor         string                   `yaml:"monitor,omitempty" json:"monitor,omitempty"`
 	MaxFailureRatio *float64                 `yaml:"max_failure_ratio,omitempty" json:"max_failure_ratio,omitempty"`
 	Order           ServiceDeployUpdateOrder `yaml:"order,omitempty" json:"order,omitempty"`
-
-	Extra map[string]interface{} `yaml:",inline" json:"Extra"`
 }
 
 type ServiceDeployRollbackConfig struct {
@@ -39,8 +35,6 @@ type ServiceDeployRollbackConfig struct {
 	Monitor         string   `yaml:"monitor,omitempty" json:"monitor,omitempty"`
 	MaxFailureRatio *float64 `yaml:"max_failure_ratio,omitempty" json:"max_failure_ratio,omitempty"`
 	Order           string   `yaml:"order,omitempty" json:"order,omitempty"`
-
-	Extra map[string]interface{} `yaml:",inline" json:"Extra"`
 }
 
 type ServiceDeployRestartPolicy struct {
@@ -48,15 +42,11 @@ type ServiceDeployRestartPolicy struct {
 	Delay       string  `yaml:"delay,omitempty" json:"delay,omitempty"`
 	MaxAttempts *uint64 `yaml:"max_attempts,omitempty" json:"max_attempts,omitempty"`
 	Window      string  `yaml:"window,omitempty" json:"window,omitempty"`
-
-	Extra map[string]interface{} `yaml:",inline" json:"Extra"`
 }
 
 type ServiceDeployResources struct {
 	Limits       *ServiceDeployResource `yaml:"limits,omitempty" json:"limits,omitempty"`
 	Reservations *ServiceDeployResource `yaml:"reservations,omitempty" json:"reservations,omitempty"`
-
-	Extra map[string]interface{} `yaml:",inline" json:"Extra"`
 }
 
 type ServiceDeployResource struct {
@@ -65,20 +55,14 @@ type ServiceDeployResource struct {
 	Cpus             string            `yaml:"cpus,omitempty" json:"cpus,omitempty"`
 	Memory           string            `yaml:"memory,omitempty" json:"memory,omitempty"`
 	Pids             *uint64           `yaml:"pids,omitempty" json:"pids,omitempty"`
-
-	Extra map[string]interface{} `yaml:",inline" json:"Extra"`
 }
 
 type ServiceDeployPlacement struct {
 	Constraints        []string                           `yaml:"constraints,omitempty" json:"constraints,omitempty"`
 	Preferences        []ServiceDeployPlacementPreference `yaml:"preferences,omitempty" json:"preferences,omitempty"`
 	MaxReplicasPerNode *uint64                            `yaml:"max_replicas_per_node,omitempty" json:"max_replicas_per_node,omitempty"` //nolint:lll // nn
-
-	Extra map[string]interface{} `yaml:",inline" json:"Extra"`
 }
 
 type ServiceDeployPlacementPreference struct {
-	// Extra preserves unsupported placement preferences for validation.
-	Extra  map[string]interface{} `yaml:",inline" json:"Extra,omitempty"`
 	Spread string                 `yaml:"spread,omitempty" json:"spread,omitempty"`
 }

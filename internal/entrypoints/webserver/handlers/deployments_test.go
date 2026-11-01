@@ -41,9 +41,7 @@ func TestDeploymentAPIReadsAttemptsWithoutHistory(t *testing.T) {
 	}, {
 		Name: "metrics", Image: "metrics:1", Deploy: compose.ServiceDeploy{Mode: "global"},
 	}, {
-		Name: "batch", Image: "batch:1", Deploy: compose.ServiceDeploy{Mode: "replicated-job", Extra: map[string]interface{}{
-			"max_concurrent": 2, "total_completions": 5,
-		}},
+		Name: "batch", Image: "batch:1", Deploy: compose.ServiceDeploy{Mode: "replicated-job"},
 	}}}}, true)
 	require.NoError(t, err)
 	h := &handler{deployments: deploymentstore.NewStore(db)}

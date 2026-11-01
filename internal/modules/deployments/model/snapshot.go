@@ -48,7 +48,6 @@ func Prepare(file compose.File) (Prepared, error) {
 	if err = decoder.Decode(&tree); err != nil {
 		return Prepared{}, err
 	}
-	normalizeIgnoredOptions(tree)
 	normalize(tree)
 	if services, ok := tree["services"].([]any); ok {
 		sort.SliceStable(services, func(i, j int) bool {

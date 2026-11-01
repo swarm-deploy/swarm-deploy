@@ -69,15 +69,13 @@ type Service struct {
 	Environment Environment    `yaml:"environment,omitempty" json:"environment,omitempty"`
 	InitJobs    []InitJob      `yaml:"x-init-deploy-jobs,omitempty" json:"init_jobs,omitempty"`
 	Deploy      ServiceDeploy  `yaml:"deploy,omitempty" json:"deploy"`
+	// IgnoredOptions contains tolerated Swarm-ignored source keys; never persisted.
+	IgnoredOptions []string `yaml:"-" json:"-"`
 	Logging     ServiceLogging `yaml:"logging,omitempty" json:"logging,omitempty"`
 	Volumes     ServiceVolumes `yaml:"volumes,omitempty" json:"volumes"`
-
-	Extra map[string]interface{} `yaml:",inline" json:"Extra"`
 }
 
 type ServiceHealth struct {
-	// Extra preserves unsupported healthcheck fields for validation.
-	Extra         map[string]interface{} `yaml:",inline" json:"Extra,omitempty"`
 	Test          Command                `yaml:"test,omitempty" json:"test,omitempty"`
 	Interval      string                 `yaml:"interval,omitempty" json:"interval,omitempty"`
 	Timeout       string                 `yaml:"timeout,omitempty" json:"timeout,omitempty"`
@@ -88,8 +86,6 @@ type ServiceHealth struct {
 }
 
 type ServiceLogging struct {
-	// Extra preserves unsupported logging fields for validation.
-	Extra   map[string]interface{} `yaml:",inline" json:"Extra,omitempty"`
 	Driver  string                 `yaml:"driver,omitempty" json:"driver,omitempty"`
 	Options map[string]string      `yaml:"options,omitempty" json:"options,omitempty"`
 }

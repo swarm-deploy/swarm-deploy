@@ -55,7 +55,7 @@ func TestSingleServiceComposeSelectsServiceNetworks(t *testing.T) {
 		{
 			name: "implicit custom default network", service: compose.Service{Name: "api"},
 			networks: map[string]compose.Network{
-				"default": {Internal: &internal, Extra: map[string]interface{}{"driver": "overlay"}},
+				"default": {Internal: &internal},
 			},
 			want: map[string]compose.Network{
 				"default": {Internal: &internal, Extra: map[string]interface{}{"driver": "overlay"}},
