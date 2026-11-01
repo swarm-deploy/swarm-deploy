@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	cerrdefs "github.com/containerd/errdefs"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	deploymentmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/model"
@@ -100,6 +101,7 @@ func TestApplyFailuresRetryOnlyWhenExplicitlyTemporary(t *testing.T) {
 		{name: "unclassified init job", outcome: CompletionInitJobFailed, diagnostic: errors.New("exit 1")},
 		{name: "unclassified cleanup", outcome: CompletionCleanupFailed, diagnostic: errors.New("invalid operation")},
 		{name: "sanitized metadata deadline", outcome: CompletionApplyFailed, diagnostic: faults.SanitizeError(fmt.Errorf("private request: %w", context.DeadlineExceeded), "metadata lookup failed"), retry: true},
+		{name: "sanitized metadata unavailable", outcome: CompletionApplyFailed, diagnostic: faults.SanitizeError(fmt.Errorf("private request: %w", cerrdefs.ErrUnavailable), "metadata lookup failed"), retry: true},
 		{name: "temporary apply", outcome: CompletionApplyFailed, diagnostic: retryTestTemporaryError{}, retry: true},
 		{name: "temporary init job", outcome: CompletionInitJobFailed, diagnostic: retryTestTemporaryError{}, retry: true},
 	} {

@@ -7,6 +7,7 @@ import (
 	"net"
 	"testing"
 
+	cerrdefs "github.com/containerd/errdefs"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
@@ -24,6 +25,7 @@ func TestMetadataFailuresPreserveRetryClassificationWithoutSensitiveCause(t *tes
 		}{
 			{"temporary", &net.DNSError{Err: "private-value", IsTemporary: true}, true},
 			{"deadline", fmt.Errorf("private-value: %w", context.DeadlineExceeded), true},
+			{"unavailable", fmt.Errorf("private-value: %w", cerrdefs.ErrUnavailable), true},
 			{"permanent", errors.New("private-value"), false},
 		} {
 			t.Run(resource+"/"+failure.name, func(t *testing.T) {
