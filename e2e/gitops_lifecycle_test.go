@@ -112,6 +112,7 @@ func TestRealSwarmGitOpsLifecycle(t *testing.T) {
 		t.Fatal("outbox did not drain within 100 deliveries")
 	}
 	var previousCompose, sha, failedID string
+	var failedDeployment model.Deployment
 	var previousAPI dockerswarm.Service
 	var previousTasks []string
 	var worker, scheduled gitopsServiceSnapshot
@@ -198,7 +199,7 @@ func TestRealSwarmGitOpsLifecycle(t *testing.T) {
 				require.True(t, latest.Verification.Known)
 				require.Equal(t, []string{"api"}, latest.Verification.UnresolvedServices)
 				require.Equal(t, latest.ErrorDiagnostic, latest.Attempts[0].ErrorDiagnostic)
-				failedID = latest.ID
+				failedID, failedDeployment = latest.ID, latest
 				failedService := f.settled(t, "api")
 				require.Equal(t, previousAPI.ID, failedService.ID)
 				require.Contains(t, failedService.Spec.TaskTemplate.ContainerSpec.Args, "sleep 1; exit 23")
@@ -306,9 +307,20 @@ func TestRealSwarmGitOpsLifecycle(t *testing.T) {
 				require.Equal(t, sha, removed[0].Envelope.Event.Details()[events.AttributeCommit])
 				prior, err := f.store.Get(f.ctx, failedID)
 				require.NoError(t, err)
-				require.Equal(t, model.Failed, prior.Status)
+				// History projects an older failure as Superseded when newer
+				// desired state exists. Its immutable failed Attempt and all
+				// failure diagnostics must survive recovery unchanged.
+				require.Equal(t, model.Superseded, prior.Status)
 				require.Equal(t, seenSHAs[4], prior.Commit)
+				require.Equal(t, failedDeployment.LatestAttemptID, prior.LatestAttemptID)
 				require.Equal(t, 1, prior.AttemptCount)
+				require.Equal(t, failedDeployment.Attempts, prior.Attempts)
+				require.Equal(t, model.Failed, prior.Attempts[0].Status)
+				require.Equal(t, failedDeployment.ErrorCode, prior.ErrorCode)
+				require.Equal(t, failedDeployment.ErrorDiagnostic, prior.ErrorDiagnostic)
+				require.Equal(t, failedDeployment.Phase, prior.Phase)
+				require.Equal(t, failedDeployment.VerificationStatus, prior.VerificationStatus)
+				require.Equal(t, failedDeployment.Verification, prior.Verification)
 			}
 			eventType := events.TypeNameDeploySuccess
 			if broken {
