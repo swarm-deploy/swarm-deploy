@@ -62,3 +62,7 @@ apply: by file patterns
 ## Tracing
 
 - To record an error in a span, use `tracing.FailSpan`
+
+- Define application-owned OpenTelemetry span and span-event attribute keys centrally in `internal/shared/tracing/keys.go` using `attribute.Key`.
+- Use the shared `tracing` keys when recording attributes; do not introduce inline string literals for application-owned attribute keys or duplicate existing keys locally.
+- Preserve semantic value types (for example, record counts and durations as numeric attributes instead of strings).
