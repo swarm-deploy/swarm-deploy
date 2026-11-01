@@ -43,10 +43,15 @@ type externalSwarmFixture struct {
 
 func newExternalSwarmFixture(t *testing.T) *externalSwarmFixture {
 	t.Helper()
+	return newExternalSwarmFixtureWithTimeout(t, 2*time.Minute)
+}
+
+func newExternalSwarmFixtureWithTimeout(t *testing.T, timeout time.Duration) *externalSwarmFixture {
+	t.Helper()
 	if os.Getenv("SWARM_DEPLOY_E2E") != "1" {
 		t.Skip("set SWARM_DEPLOY_E2E=1 to run against a real initialized Docker Swarm")
 	}
-	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Minute)
+	ctx, cancel := context.WithTimeout(t.Context(), timeout)
 	t.Cleanup(cancel)
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	require.NoError(t, err)
