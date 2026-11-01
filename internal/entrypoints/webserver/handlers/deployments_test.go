@@ -119,7 +119,7 @@ func TestDeploymentAPIReadsAttemptsWithoutHistory(t *testing.T) {
 		{Name: "api", Image: "image:1", Replicas: "3"},
 		{Name: "worker", Image: "worker:1", Replicas: "1"},
 		{Name: "metrics", Image: "metrics:1", Replicas: "Global"},
-		{Name: "batch", Image: "batch:1", Replicas: "Job: 2 concurrent, 5 total"},
+		{Name: "batch", Image: "batch:1", Replicas: "Replicated job"},
 	}, detail.Services)
 	for _, internalField := range []string{"\"path\"", "Map", "Args", "Extra"} {
 		assert.NotContains(t, string(encoded), internalField)
@@ -154,9 +154,7 @@ func TestDeploymentServiceReplicas(t *testing.T) {
 		{name: "missing deploy", deploy: compose.ServiceDeploy{}, want: "1"},
 		{name: "global", deploy: compose.ServiceDeploy{Mode: "global"}, want: "Global"},
 		{name: "global job", deploy: compose.ServiceDeploy{Mode: "global-job"}, want: "Global job"},
-		{name: "replicated job", deploy: compose.ServiceDeploy{Mode: "replicated-job", Extra: map[string]interface{}{
-			"max_concurrent": float64(2), "total_completions": float64(5),
-		}}, want: "Job: 2 concurrent, 5 total"},
+		{name: "replicated job", deploy: compose.ServiceDeploy{Mode: "replicated-job"}, want: "Replicated job"},
 		{name: "incomplete job", deploy: compose.ServiceDeploy{Mode: "replicated-job"}, want: "Replicated job"},
 		{name: "unknown mode", deploy: compose.ServiceDeploy{Mode: "unknown"}, want: "—"},
 	} {
