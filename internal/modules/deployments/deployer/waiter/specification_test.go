@@ -141,13 +141,18 @@ func TestExternalInitialCreation(t *testing.T) {
 		{name: "task still preparing", replicas: 1, tasks: []swarm.ServiceTask{
 			testTask("starting", 1, swarm.TaskStateRunning, swarm.TaskStatePreparing, serviceWaitTestTime),
 		}, want: ServiceReady},
+		{name: "failed task without exit code", replicas: 1, tasks: []swarm.ServiceTask{
+			testTask("failed", 1, swarm.TaskStateShutdown, swarm.TaskStateFailed, serviceWaitTestTime),
+		}, want: ServiceReady},
 		{name: "expected specification never applied", replicas: 1, mismatch: true, want: ServicePending},
 		{name: "different service identity", wrongID: true, want: ServicePending},
 		{name: "service not yet visible", missing: true, want: ServicePending},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			expected := externalService(tc.replicas, serviceWaitTestTime, "job:2")
+			expected.ServiceSpec.TaskTemplate.RestartPolicy = &dockerswarm.RestartPolicy{Condition: dockerswarm.RestartPolicyConditionNone}
 			observed := externalService(tc.replicas, serviceWaitTestTime, "job:2")
+			observed.ServiceSpec.TaskTemplate.RestartPolicy = expected.ServiceSpec.TaskTemplate.RestartPolicy
 			if tc.mismatch {
 				observed.ServiceSpec.TaskTemplate.ContainerSpec.Image = "job:1"
 			}

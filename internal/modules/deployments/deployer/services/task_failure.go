@@ -9,7 +9,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 
-// NonRestartingTaskFailure finds an exited current-generation replica that cannot
+// NonRestartingTaskFailure finds a failed current-generation replica that cannot
 // be replaced under an explicit restart_policy.condition=none. Pending/running
 // replacements and failures outside the desired slots never establish failure.
 func NonRestartingTaskFailure(
@@ -38,7 +38,7 @@ func NonRestartingTaskFailure(
 	}
 	var failed swarm.ServiceTask
 	for _, task := range latest {
-		if task.CurrentState == swarm.TaskStateFailed && task.ExitCode != nil && *task.ExitCode != 0 &&
+		if task.CurrentState == swarm.TaskStateFailed && (task.ExitCode == nil || *task.ExitCode != 0) &&
 			(failed.ID == "" || task.UpdatedAt.After(failed.UpdatedAt)) {
 			failed = task
 		}

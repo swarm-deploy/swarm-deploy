@@ -4,11 +4,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"testing"
 	"time"
 
 	dockerswarm "github.com/docker/docker/api/types/swarm"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
@@ -204,24 +206,52 @@ func (f *lifecycleFixture) unchangedService(t *testing.T, before dockerswarm.Ser
 	name := before.Spec.Name[len(f.stack)+1:]
 	// Observe delayed metadata/task changes too. Historical task retention is
 	// intentionally excluded: Swarm may garbage-collect old terminal tasks.
-	started := time.Now()
-	require.Eventually(t, func() bool {
-		after := f.inspect(t, name)
-		require.Equal(t, before.ID, after.ID)
-		require.Equal(t, before.Spec, after.Spec)
-		require.Equal(t, before.Version.Index, after.Version.Index)
-		ids := make([]string, 0)
-		for _, task := range f.tasks(t, name) {
+	stableSince := time.Now()
+	var after dockerswarm.Service
+	var tasks []swarm.ServiceTask
+	var ids []string
+	var lastErr error
+	assert.Eventually(t, func() bool {
+		after, lastErr = f.sw.Services.Inspect(f.ctx, before.Spec.Name)
+		if lastErr != nil {
+			stableSince = time.Now()
+			return false
+		}
+		tasks, lastErr = f.sw.Services.ListTasks(f.ctx, before.Spec.Name)
+		if lastErr != nil {
+			stableSince = time.Now()
+			return false
+		}
+		unchanged := before.ID == after.ID && reflect.DeepEqual(before.Spec, after.Spec) &&
+			before.Version.Index == after.Version.Index
+		ids = make([]string, 0)
+		for _, task := range tasks {
 			if task.DesiredState == swarm.TaskStateRunning {
-				require.Equal(t, swarm.TaskStateRunning, task.CurrentState)
+				unchanged = unchanged && task.CurrentState == swarm.TaskStateRunning
 				ids = append(ids, task.ID)
 			}
+			unchanged = unchanged && slices.Contains(running, task.ID)
 		}
 		slices.Sort(ids)
-		require.Equal(t, running, ids, "no replacement or newly scheduled task")
-		require.Subset(t, running, taskIDs(f.tasks(t, name)), "no additional task, including terminal tasks")
-		return time.Since(started) >= 2*time.Second
-	}, 5*time.Second, 100*time.Millisecond)
+		if !unchanged || !slices.Equal(running, ids) {
+			stableSince = time.Now()
+			return false
+		}
+		return time.Since(stableSince) >= 2*time.Second
+	}, 5*time.Second, 100*time.Millisecond, "%s must remain unchanged for two seconds", name)
+	// Assertions run on the test goroutine after polling, with the last observed
+	// state retained for useful expected/actual diagnostics on timeout.
+	require.NoError(t, lastErr, "last observation of %s", name)
+	assert.Equal(t, before.ID, after.ID)
+	assert.Equal(t, before.Spec, after.Spec)
+	assert.Equal(t, before.Version.Index, after.Version.Index)
+	for _, task := range tasks {
+		if task.DesiredState == swarm.TaskStateRunning {
+			assert.Equal(t, swarm.TaskStateRunning, task.CurrentState, "task %s", task.ID)
+		}
+	}
+	assert.Equal(t, running, ids, "no replacement or newly scheduled task")
+	assert.Subset(t, running, taskIDs(tasks), "no additional task, including terminal tasks")
 }
 
 func (f *lifecycleFixture) syncStatus(t *testing.T, name string) string {
