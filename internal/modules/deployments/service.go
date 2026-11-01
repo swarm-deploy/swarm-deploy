@@ -48,10 +48,9 @@ func NewService(db storage.Database, publisher Publisher, options ...ServiceOpti
 	return service
 }
 
-const (
-	automaticRetryDelay    = time.Minute
-	maximumRetryDelay      = time.Hour
-)
+const automaticRetryDelay = time.Minute
+const maximumRetryDelay = time.Hour
+const retryBackoffMultiplier = 2
 
 // StartOptions controls an explicit retry of a persisted unsuccessful deployment.
 type StartOptions struct {
@@ -172,7 +171,7 @@ func (s *Service) automaticRetryAllowed(latest deploymentmodel.Deployment) bool 
 	}
 	delay := automaticRetryDelay
 	for attempt := 1; attempt < latest.AttemptCount && delay < maximumRetryDelay; attempt++ {
-		delay = min(delay*2, maximumRetryDelay)
+		delay = min(delay*retryBackoffMultiplier, maximumRetryDelay)
 	}
 	return !s.now().Before(latest.FinishedAt.Add(delay))
 }
