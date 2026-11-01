@@ -758,8 +758,14 @@ func verificationTaskCutoff(
 		return taskGenerationCutoff(baseline, service, requireCurrentGeneration)
 	}
 	// Reject stale observations, including old completed statuses and their Running tasks.
-	if service.UpdatedAt.Before(baseline.UpdatedAt) || service.UpdateStatus == nil ||
-		service.UpdateStatus.StartedAt.IsZero() {
+	if service.UpdatedAt.Before(baseline.UpdatedAt) {
+		return time.Time{}, true
+	}
+	// A never-updated (possibly recreated) service has its creation generation.
+	if service.UpdateStatus == nil && !service.CreatedAt.IsZero() && service.CreatedAt.Equal(service.UpdatedAt) {
+		return service.CreatedAt, false
+	}
+	if service.UpdateStatus == nil || service.UpdateStatus.StartedAt.IsZero() {
 		return time.Time{}, true
 	}
 	return service.UpdateStatus.StartedAt, false

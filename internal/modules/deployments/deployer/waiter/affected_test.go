@@ -149,3 +149,25 @@ func TestUnresolvedGenerationWithoutUpdateMetadataCannotSucceed(t *testing.T) {
 	})
 	require.ErrorIs(t, err, context.DeadlineExceeded)
 }
+
+func TestUnresolvedInitialCreationCanRecoverWithoutUpdateStatus(t *testing.T) {
+	for _, previouslyUpdated := range []bool{false, true} {
+		t.Run(fmt.Sprint(previouslyUpdated), func(t *testing.T) {
+			manager := swarm.NewMockServiceManager(gomock.NewController(t))
+			accepted := testReplicatedService("api", "api-id", 1, serviceWaitTestTime, "api:2")
+			if previouslyUpdated {
+				accepted.CreatedAt = serviceWaitTestTime.Add(-time.Hour)
+			}
+			manager.EXPECT().ListServices(gomock.Any(), gomock.Any()).Return([]swarm.StackService{accepted}, nil).AnyTimes()
+			manager.EXPECT().ListTasks(gomock.Any(), "api-id").Return(testRunningTasks(1, serviceWaitTestTime), nil).AnyTimes()
+			err := NewServiceWaiter(manager, time.Millisecond, 5*time.Millisecond).Wait(t.Context(), ServiceWaitRequest{
+				StackName: "app", ServiceNames: []string{"api"}, UnresolvedServices: []string{"api"}, Baseline: []swarm.StackService{accepted},
+			})
+			if previouslyUpdated {
+				require.ErrorIs(t, err, context.DeadlineExceeded, "missing metadata cannot establish an updated generation")
+			} else {
+				require.NoError(t, err, "tasks of an unchanged creation generation prove recovery")
+			}
+		})
+	}
+}
