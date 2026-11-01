@@ -49,19 +49,19 @@ func NewService(db storage.Database, publisher Publisher, options ...ServiceOpti
 }
 
 const (
-	maxAutomaticAttempts = 3
-	automaticRetryDelay  = time.Minute
+	automaticRetryDelay    = time.Minute
+	maximumRetryDelay      = time.Hour
 )
 
 // StartOptions controls an explicit retry of a persisted unsuccessful deployment.
 type StartOptions struct {
-	// ManualRetry bypasses terminal failure suppression and the automatic retry budget.
+	// ManualRetry bypasses failure classification and automatic retry backoff.
 	ManualRetry bool
 }
 
 // StartIfChanged creates an attempt before the caller begins external apply.
-// Unchanged terminal convergence failures are suppressed. Other failures have a
-// persisted, bounded retry budget and backoff. Manual retries bypass both.
+// Unchanged non-retryable failures are suppressed. Transient failures are retried
+// indefinitely with capped exponential backoff. Manual retries bypass both.
 func (s *Service) StartIfChanged(
 	ctx context.Context,
 	stack string,
@@ -164,16 +164,16 @@ func (s *Service) startExisting(
 	}
 }
 
-// automaticRetryAllowed uses persisted metadata, so restarts cannot reset the budget.
+// automaticRetryAllowed relies only on persisted details and caps delay without
+// capping attempt count or overflowing the duration calculation.
 func (s *Service) automaticRetryAllowed(latest deploymentmodel.Deployment) bool {
-	switch latest.ErrorCode {
-	case "convergence_failed", "policy_rejected":
+	if !latest.Retryable || latest.FinishedAt == nil {
 		return false
 	}
-	if latest.AttemptCount >= maxAutomaticAttempts || latest.FinishedAt == nil {
-		return false
+	delay := automaticRetryDelay
+	for attempt := 1; attempt < latest.AttemptCount && delay < maximumRetryDelay; attempt++ {
+		delay = min(delay*2, maximumRetryDelay)
 	}
-	delay := automaticRetryDelay * time.Duration(1<<max(0, latest.AttemptCount-1))
 	return !s.now().Before(latest.FinishedAt.Add(delay))
 }
 
