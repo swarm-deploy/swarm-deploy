@@ -111,6 +111,14 @@ func (s *Service) startPrepared(
 	if err = s.supersedePrevious(ctx, latest); err != nil {
 		return nil, err
 	}
+	if latest.Status == deploymentmodel.Running {
+		// Supersession persists conservative verification obligations on interruption.
+		// Inherit the committed state rather than the stale Running snapshot.
+		latest, err = s.store.Get(ctx, latest.ID)
+		if err != nil {
+			return nil, err
+		}
+	}
 	attempt, err := s.createDeployment(ctx, stack, commit, desired, unresolvedServices(latest, desired.Definition))
 	if err != nil {
 		return nil, err
