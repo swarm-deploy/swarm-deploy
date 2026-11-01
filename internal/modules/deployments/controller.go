@@ -53,7 +53,7 @@ type ExecuteRequest struct {
 	Desired compose.File
 	// DeployComposePath identifies the prepared Compose artifact retained for tracing and compatibility.
 	DeployComposePath string
-	// ManualRetry explicitly retries a failed desired state, bypassing automatic retry limits.
+	// ManualRetry explicitly retries a failed desired state, bypassing automatic backoff.
 	ManualRetry bool
 	// SourceChanged reports whether GitOps observed a new source digest.
 	SourceChanged bool
