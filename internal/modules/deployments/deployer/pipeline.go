@@ -6,7 +6,10 @@ import (
 	"fmt"
 	"log/slog"
 	"regexp"
+	"strings"
 	"time"
+
+	dockerswarm "github.com/docker/docker/api/types/swarm"
 
 	pipe "github.com/artarts36/gopipe"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
@@ -138,19 +141,19 @@ func (d *Deployer) captureStackBaseline(ctx context.Context, payload *deployStac
 func (d *Deployer) applyStack(ctx context.Context, payload *deployStackPayload) error {
 	applyCtx, cancel := payload.stageContext(ctx)
 	defer cancel()
-	affected, err := d.serviceApplier.Apply(applyCtx, payload.stackName, payload.converted.Services)
-	payload.affected = affected
+	_, err := d.serviceApplier.Apply(applyCtx, payload.stackName, payload.converted.Services)
 	return safePipelineError(err)
 }
 
 func (d *Deployer) waitForStack(ctx context.Context, payload *deployStackPayload) error {
 	waitCtx, cancel := payload.stageContext(ctx)
 	defer cancel()
-	if len(payload.affected) == 0 {
+	if len(payload.converted.Services) == 0 {
 		return nil
 	}
 	return safePipelineError(d.wait(waitCtx, waiterpkg.ServiceWaitRequest{
-		StackName: payload.stackName, ServiceNames: payload.affected, Baseline: payload.baseline, OnlyAffected: true,
+		StackName: payload.stackName, ServiceNames: convertedServiceNames(payload.stackName, payload.converted.Services),
+		Baseline: payload.baseline, OnlyAffected: false,
 	}))
 }
 
@@ -191,19 +194,19 @@ func (d *Deployer) captureServiceBaseline(ctx context.Context, payload *deploySe
 func (d *Deployer) applyService(ctx context.Context, payload *deployServicePayload) error {
 	applyCtx, cancel := payload.stageContext(ctx)
 	defer cancel()
-	affected, err := d.serviceApplier.Apply(applyCtx, payload.stackName, payload.converted.Services)
-	payload.affected = affected
+	_, err := d.serviceApplier.Apply(applyCtx, payload.stackName, payload.converted.Services)
 	return safePipelineError(err)
 }
 
 func (d *Deployer) waitForService(ctx context.Context, payload *deployServicePayload) error {
 	waitCtx, cancel := payload.stageContext(ctx)
 	defer cancel()
-	if len(payload.affected) == 0 {
+	if len(payload.converted.Services) == 0 {
 		return nil
 	}
 	return safePipelineError(d.wait(waitCtx, waiterpkg.ServiceWaitRequest{
-		StackName: payload.stackName, ServiceNames: payload.affected, Baseline: payload.baseline,
+		StackName: payload.stackName, ServiceNames: convertedServiceNames(payload.stackName, payload.converted.Services),
+		Baseline:     payload.baseline,
 		OnlyAffected: false,
 	}))
 }
@@ -322,4 +325,12 @@ func (d *Deployer) runInitJobs(
 		}
 	}
 	return result, nil
+}
+
+func convertedServiceNames(stackName string, specs []dockerswarm.ServiceSpec) []string {
+	names := make([]string, 0, len(specs))
+	for _, spec := range specs {
+		names = append(names, strings.TrimPrefix(spec.Name, stackName+"_"))
+	}
+	return names
 }

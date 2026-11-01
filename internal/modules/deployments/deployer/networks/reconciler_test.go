@@ -47,7 +47,7 @@ func TestReconcileExternalNetworkMustExistWithoutCreation(t *testing.T) {
 	assert.ErrorContains(t, err, "external network edge does not exist")
 }
 
-func TestReconcileRejectsOwnershipAndConfigurationConflicts(t *testing.T) {
+func TestReconcilePreservesOwnershipAndReusesImmutableConfiguration(t *testing.T) {
 	for _, testCase := range []struct {
 		name, want string
 		mutate     func(*swarm.Network)
@@ -70,8 +70,11 @@ func TestReconcileRejectsOwnershipAndConfigurationConflicts(t *testing.T) {
 			testCase.mutate(&current)
 			manager.EXPECT().Get(gomock.Any(), "demo_backend").Return(current, nil)
 			err := New(manager).Reconcile(t.Context(), "demo", []converter.NetworkSpec{managedPlan("backend", "demo_backend")})
-			require.Error(t, err)
-			assert.ErrorContains(t, err, testCase.want)
+			if testCase.name == "ownership" {
+				require.ErrorContains(t, err, testCase.want)
+			} else {
+				require.NoError(t, err)
+			}
 		})
 	}
 }
@@ -102,7 +105,7 @@ func TestReconcileWaitsForCreatedNetworkMetadata(t *testing.T) {
 	first := manager.EXPECT().Get(gomock.Any(), "demo_default").Return(swarm.Network{}, swarm.ErrNetworkNotFound)
 	created := manager.EXPECT().Create(gomock.Any(), planned.Spec).After(first).Return("network-id", nil)
 	pending := compatibleNetwork("demo_default")
-	pending.Driver = ""
+	pending.ID = ""
 	manager.EXPECT().Get(gomock.Any(), "demo_default").After(created).Return(pending, nil)
 	manager.EXPECT().Get(gomock.Any(), "demo_default").Return(compatibleNetwork("demo_default"), nil)
 

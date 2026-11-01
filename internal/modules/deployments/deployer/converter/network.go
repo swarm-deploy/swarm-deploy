@@ -7,6 +7,7 @@ import (
 	"maps"
 	"slices"
 
+	dockernetwork "github.com/docker/docker/api/types/network"
 	dockerswarm "github.com/docker/docker/api/types/swarm"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
@@ -15,38 +16,29 @@ import (
 const defaultNetwork = "default"
 
 func networkDefinitions(desired compose.Compose) map[string]compose.Network {
-	definitions := make(map[string]compose.Network, len(desired.Networks)+1)
-	maps.Copy(definitions, desired.Networks)
+	definitions := make(map[string]compose.Network)
+	add := func(alias string) {
+		if definition, exists := desired.Networks[alias]; exists {
+			definitions[alias] = definition
+		} else if alias == defaultNetwork {
+			definitions[alias] = compose.Network{}
+		}
+	}
 	for _, service := range desired.Services {
-		if needsDefaultNetwork(service) {
-			if _, exists := definitions[defaultNetwork]; !exists {
-				definitions[defaultNetwork] = compose.Network{}
+		aliases := service.Networks.GetAliases()
+		if len(aliases) == 0 {
+			aliases = []string{defaultNetwork}
+		}
+		for _, alias := range aliases {
+			add(alias)
+		}
+		for _, job := range service.InitJobs {
+			for _, alias := range job.Networks.GetAliases() {
+				add(alias)
 			}
 		}
 	}
 	return definitions
-}
-
-func needsDefaultNetwork(service compose.Service) bool {
-	if service.Networks == nil || len(service.Networks.List) == 0 {
-		return true
-	}
-	for _, network := range service.Networks.List {
-		if network != nil && network.Alias == defaultNetwork {
-			return true
-		}
-	}
-	for _, job := range service.InitJobs {
-		if job.Networks == nil {
-			continue
-		}
-		for _, network := range job.Networks.List {
-			if network != nil && network.Alias == defaultNetwork {
-				return true
-			}
-		}
-	}
-	return false
 }
 
 func (c *Converter) convertNetworks(
@@ -70,7 +62,8 @@ func (c *Converter) convertNetworks(
 			}
 			byName[name] = existing
 		}
-		if existing.ID == "" || existing.Name != name || existing.Scope != "swarm" {
+		if existing.ID == "" || existing.Name != name ||
+			!swarm.ServiceNetworkScope(name, existing.Scope, definition.External) {
 			return nil, fmt.Errorf("networks.%s: expected an existing swarm network with exact name %s", alias, name)
 		}
 		result = append(result, NetworkSpec{Alias: alias, ID: existing.ID, External: definition.External,
@@ -91,6 +84,15 @@ func networkSpec(stackName, name string, definition compose.Network) swarm.Creat
 	spec.Options = maps.Clone(definition.DriverOpts)
 	spec.Labels = stackLabels(stackName, definition.Labels.Map)
 	spec.Attachable = definition.Attachable
+	if definition.IPAM != nil {
+		ipam := definition.IPAM
+		spec.IPAM = &dockernetwork.IPAM{Driver: ipam.Driver, Options: maps.Clone(ipam.Options)}
+		for _, pool := range ipam.Config {
+			spec.IPAM.Config = append(spec.IPAM.Config, dockernetwork.IPAMConfig{
+				Subnet: pool.Subnet, IPRange: pool.IPRange, Gateway: pool.Gateway, AuxAddress: maps.Clone(pool.AuxAddresses),
+			})
+		}
+	}
 	if definition.Internal != nil {
 		spec.Internal = *definition.Internal
 	}

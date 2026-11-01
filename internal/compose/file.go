@@ -97,6 +97,9 @@ func (l *fileLoader) Load(ctx context.Context, path string) (*File, error) {
 		}
 		return nil, &ValidateComposeError{FilePath: path, Issues: decodeIssues(err), Err: err}
 	}
+	for i := range schema.Services {
+		schema.Services[i].Environment.resolve(os.LookupEnv)
+	}
 
 	if issues := l.linkServices(&schema, filepath.Dir(path)); len(issues) > 0 {
 		if interpolated {

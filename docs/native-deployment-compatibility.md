@@ -1,0 +1,123 @@
+# Native deployment compatibility
+
+Reference: `swarm-deploy-docker-cli-comparison.txt`, audit of dev
+`d744a869ca03d47ddc81233bad87667672d353d9` against Docker CLI/SDK v28.3.3.
+The dev head was still this commit when this work started. The confirmed defects
+were all present; the CLI infrastructure remains removed.
+
+## Addressed findings
+
+| Audit | Result |
+| --- | --- |
+| 1: command/entrypoint | Use the same `google/shlex` parser as CLI. Preserve empty arguments, quotes, escapes and comments; list arguments are not tokenized. No repeated interpolation. |
+| 2: ForceUpdate | Preserve the current counter for comparison and every submitted update, including optimistic-conflict retries. |
+| 3: image drift | Stack image labels alone no longer establish equivalence. Check normalized repository, tag and explicit digest. |
+| 4: convergence retry | Wait for every converted service even when no ServiceUpdate was necessary. An unchanged paused/failed rollout cannot become a successful attempt by skipping the waiter. |
+| 5: Compose fields | Add the service options below, job modes, discrete generic reservations and network IPAM. Fix the examples without stripping unsupported fields in tests. |
+| 6: registry resolution | Consistent `changed` policy, preserving the resolved image/platforms on unrelated changes. Registry auth still comes from AuthManager; SDK handles resolution. |
+| 7: networks | Plan only referenced networks, including Init Job references and implicit default. Reuse existing stack-owned immutable networks. Accept predefined external host/none networks; arbitrary external local bridge networks remain invalid. |
+| 8: warnings | Log create/update response warnings, including SDK registry-resolution warnings, with the existing bounded secret-masking diagnostic function. Warnings are not failures. |
+| 9: environment/ports | Resolve bare/null keys during source loading; persist effective values. Preserve explicit empty strings and literal `"null"`. Expand short port ranges with the same nat parser used by CLI. |
+
+## Supported options added
+
+`user`, `working_dir`, `hostname`, `dns`, `dns_search`, `extra_hosts`, `read_only`,
+`init`, `tty`, `stdin_open`, `stop_signal`, `sysctls`, `ulimits`, service-level
+`tmpfs`, `isolation`, `credential_spec`, `oom_score_adj`,
+`deploy.resources.reservations.generic_resources`, `deploy.mode: replicated-job`
+and `deploy.mode: global-job`.
+
+Scalar/list DNS and tmpfs, mapping/list sysctls and extra_hosts, scalar and
+soft/hard ulimits are accepted. Host list order and duplicate hostnames survive.
+Service-level tmpfs supports targets and `size`, `mode`, `ro`, `rw` options;
+other short tmpfs options produce errors. Existing long-syntax tmpfs mounts
+remain supported. Credential specs accept exactly one of `config`, `file` or
+`registry`; config aliases use the reconciled (including rotated) config identity
+and a runtime config reference, also for single-service deployments.
+
+IPAM includes driver, options, subnet, IP range, gateway and auxiliary addresses.
+Existing networks retain their actual settings and ID: changed immutable settings
+require an operator-managed migration, and do not cause automatic recreation.
+Network identity, Swarm scope and stack ownership are still checked.
+
+Replicated jobs use Compose replicas as both MaxConcurrent and TotalCompletions,
+as CLI does, including zero. Job convergence uses Docker's current-iteration
+completed task counts and waits for scheduler/job iteration propagation. A global
+job with no observable target tasks remains pending until the existing timeout,
+like an uninitialized global-service scheduler, rather than reporting success
+immediately on API acceptance.
+
+## Explicitly unsupported
+
+`build`, `depends_on` and service-level `restart` always produce validation errors,
+even when an image or a deploy restart policy is also supplied. Use
+`deploy.restart_policy`. There is no image building or dependency orchestration.
+Other unsupported Compose options continue to fail validation.
+
+## Image policy
+
+On create or a changed image reference, use the Docker SDK's registry resolution
+with existing AuthManager credentials. Digest-pinned references are already
+resolved and do not need a registry query.
+
+For an unchanged Compose image label, reuse the current actual reference and
+SDK-generated platform metadata only if it is a valid resolution of that desired
+reference. Repository and tag must match (including normalized Docker Hub/default
+latest spelling); an explicitly desired digest must match exactly. Copy the
+resolved image/platforms into the actual update request, not only comparison
+copies. Recompute this decision after every version conflict.
+
+Thus moving a mutable tag does not change the running image on a repeated deploy
+or an unrelated env/configuration change. Change the desired image reference or
+pin a new digest to roll out a new image. A different repository/tag or a digest
+that contradicts a pinned desired digest is real drift and is corrected.
+
+A tag alone cannot independently prove that an externally substituted digest
+under the *same repository and tag* differs from its previous registry resolution.
+That value remains a valid resolution under this policy. Pin the desired digest
+when enforcing an exact image identity is required. No new image baseline store,
+registry polling or custom manifest resolver is introduced.
+
+## Intentional differences and audit corrections
+
+- Environment lookup happens once in FileLoader during source preparation, before
+  GitOps persists its effective snapshot. Bare or YAML-null names capture the
+  process value if available. Unset names remain explicit unset entries (`NAME`,
+  not `NAME=null` or `NAME=`) through JSON/YAML, overriding env_file values. The
+  converter and Parse do not read the process environment. Explicit empty values
+  remain empty; CLI v28.3.3 resolves those from its environment. Init Jobs retain
+  their existing environment/interpolation semantics.
+- Matching short port ranges and target-only ranges are expanded with Docker's
+  nat parser. Invalid or mismatched ranges fail. Host-IP publishing is still
+  unsupported by Swarm and produces the existing converter error.
+- Independent tests show that CLI v28.3.3 loads service-level tmpfs but its service
+  converter omits those mounts. Native intentionally implements them because the
+  Swarm API supports tmpfs mounts. CLI's v3.8 schema rejects `oom_score_adj`, even
+  though its converter and SDK have the field. Native supports the API field.
+- Warnings are available in existing structured deployment-context logs, without
+  a new persistence model. They are not separately stored in deployment records.
+- Config/secret reconciliation and rotation, Init Jobs, controller lifecycle,
+  events, pruning and volumes retain swarm-deploy behavior. No database migration,
+  asynchronous execution or new orchestration layer is involved.
+
+## Verification
+
+`make check` runs the repository linter, all Go tests, and differential tests in
+`tools/compatibility`. That separate module pins Docker CLI v28.3.3; it adds no
+production loader/converter or CLI executable dependency. Fixtures compare actual
+converted API specs for commands, service fields, ports, jobs, credentials and
+resources, and explicitly test environment and CLI field limitations.
+
+`SWARM_DEPLOY_E2E=1 go test -count=1 -timeout=10m -v ./e2e` uses the existing real
+Swarm infrastructure. The extended stack scenario checks unchanged service/task
+identity, external `docker service update --force`, a failed/paused rollout and
+retry without mutation, recovery, representative container options, immutable
+network reuse, and unused external networks. Existing rotation tests remain.
+Set `SWARM_DEPLOY_E2E_REGISTRY` to a pushable registry prefix reachable by Swarm
+nodes to also push two BusyBox versions under a mutable tag, verify unrelated
+changes preserve its digest, and deploy a changed image reference.
+
+Live Swarm and registry scenarios could not run in the implementation environment:
+there is no Docker executable or Docker socket. E2E compiles and skips without
+its opt-in flag. Windows credential/isolation behavior also requires a compatible
+Windows Swarm node and has conversion coverage only.

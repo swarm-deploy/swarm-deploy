@@ -60,9 +60,11 @@ type ServiceDeployResources struct {
 }
 
 type ServiceDeployResource struct {
-	Cpus   string  `yaml:"cpus,omitempty" json:"cpus,omitempty"`
-	Memory string  `yaml:"memory,omitempty" json:"memory,omitempty"`
-	Pids   *uint64 `yaml:"pids,omitempty" json:"pids,omitempty"`
+	// GenericResources reserves discrete Swarm resources.
+	GenericResources []GenericResource `yaml:"generic_resources,omitempty" json:"generic_resources,omitempty"`
+	Cpus             string            `yaml:"cpus,omitempty" json:"cpus,omitempty"`
+	Memory           string            `yaml:"memory,omitempty" json:"memory,omitempty"`
+	Pids             *uint64           `yaml:"pids,omitempty" json:"pids,omitempty"`
 
 	Extra map[string]interface{} `yaml:",inline" json:"Extra"`
 }

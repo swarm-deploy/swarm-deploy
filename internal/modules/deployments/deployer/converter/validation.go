@@ -40,7 +40,10 @@ func validateStack(stackName string, desired compose.Compose) error {
 			return err
 		}
 		creationOptions := n.Driver != "" || len(n.DriverOpts) > 0 ||
-			n.Attachable || n.Internal != nil || len(n.Labels.Map) > 0
+			n.Attachable || n.Internal != nil || len(n.Labels.Map) > 0 || n.IPAM != nil
+		if err := validateIPAM(field, n.IPAM); err != nil {
+			return err
+		}
 		if n.External && creationOptions {
 			return fmt.Errorf("%s: external network cannot declare creation options", field)
 		}
@@ -265,6 +268,21 @@ func validateFileTargets(field string, refs []compose.ObjectRef, secret bool) er
 			return fmt.Errorf("%s.%s.target: duplicate file target", field, ref.Source)
 		}
 		targets[target] = true
+	}
+	return nil
+}
+
+func validateIPAM(field string, ipam *compose.NetworkIPAM) error {
+	if ipam == nil {
+		return nil
+	}
+	if err := unsupported(field+".ipam", ipam.Extra); err != nil {
+		return err
+	}
+	for _, pool := range ipam.Config {
+		if err := unsupported(field+".ipam.config", pool.Extra); err != nil {
+			return err
+		}
 	}
 	return nil
 }

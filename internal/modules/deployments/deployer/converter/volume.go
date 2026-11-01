@@ -28,6 +28,17 @@ func serviceMounts(stackName string, service compose.Service, definitions compos
 		}
 		result = append(result, converted)
 	}
+	for _, value := range service.Tmpfs {
+		converted, err := serviceTmpfsMount(value)
+		if err != nil {
+			return nil, err
+		}
+		if targets[converted.Target] {
+			return nil, fmt.Errorf("tmpfs: expected unique absolute mount target")
+		}
+		targets[converted.Target] = true
+		result = append(result, converted)
+	}
 	return result, nil
 }
 

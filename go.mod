@@ -10,7 +10,6 @@ require (
 	github.com/artarts36/go-entrypoint v0.3.1
 	github.com/artarts36/gopipe v0.2.1
 	github.com/artarts36/specw v0.2.0
-	github.com/anmitsu/go-shlex v0.0.0-20200514113438-38f4b401e2be
 	github.com/avast/retry-go/v5 v5.0.0
 	github.com/cappuccinotm/slogx v1.4.2
 	github.com/containerd/errdefs v1.0.0
@@ -22,6 +21,7 @@ require (
 	github.com/go-faster/jx v1.2.0
 	github.com/go-git/go-git/v5 v5.17.0
 	github.com/google/go-github/v88 v88.0.0
+	github.com/google/shlex v0.0.0-20191202100458-e7afc7fbc510
 	github.com/google/uuid v1.6.0
 	github.com/jmoiron/sqlx v1.4.0
 	github.com/langwatch/langwatch/sdks/go/instrumentation/openai v1.0.0

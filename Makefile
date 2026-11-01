@@ -19,8 +19,12 @@ test:
 	go test ./...
 
 .PHONY: check
-check: lint test
+check: lint test test-compatibility
 
 .PHONY: test-cli
 cli:
 	go run ./cmd/sd/main.go lint ./example/04-assistant/swarm-deploy.yaml
+
+.PHONY: test-compatibility
+test-compatibility:
+	go -C tools/compatibility test ./...

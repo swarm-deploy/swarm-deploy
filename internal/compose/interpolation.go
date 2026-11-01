@@ -114,6 +114,15 @@ func updateInterpolatedMapping(node *yaml.Node, values map[string]any) error {
 // These are the stack CLI's typed paths for fields supported by our models.
 // Casting happens only after substitution, preserving literal environment values.
 var interpolationCasts = map[interp.Path]interp.Cast{
+	"services.*.read_only":      toInterpolationBool,
+	"services.*.init":           toInterpolationBool,
+	"services.*.tty":            toInterpolationBool,
+	"services.*.stdin_open":     toInterpolationBool,
+	"services.*.oom_score_adj":  toInterpolationInt,
+	"services.*.ulimits.*.soft": toInterpolationInt,
+	"services.*.ulimits.*.hard": toInterpolationInt,
+	"services.*.deploy.resources.reservations.generic_resources.[].discrete_resource_spec.value": toInterpolationInt,
+
 	"services.*.configs.[].mode":                          toInterpolationInt,
 	"services.*.secrets.[].mode":                          toInterpolationInt,
 	"services.*.healthcheck.retries":                      toInterpolationInt,
