@@ -23,10 +23,10 @@ func finishServiceWaitSpan(span trace.Span, startedAt time.Time, state waitState
 		span.SetStatus(codes.Ok, "")
 	}
 	span.SetAttributes(
-		tracing.DeploymentServiceWaitDurationMS.Int64( time.Since(startedAt).Milliseconds()),
-		tracing.DeploymentServiceWaitObservedServices.Int( state.observed),
-		tracing.DeploymentServiceWaitConvergedServices.Int( state.converged),
-		tracing.DeploymentServiceWaitOutcome.String( outcome),
+		tracing.DeploymentServiceWaitDurationMS.Int64(time.Since(startedAt).Milliseconds()),
+		tracing.DeploymentServiceWaitObservedServices.Int(state.observed),
+		tracing.DeploymentServiceWaitConvergedServices.Int(state.converged),
+		tracing.DeploymentServiceWaitOutcome.String(outcome),
 	)
 }
 
@@ -47,10 +47,10 @@ func (s *waitState) emit(span trace.Span, callback ServiceProgressCallback, prog
 	span.AddEvent("service convergence state changed", trace.WithAttributes(
 		tracing.ResourceServiceID.String(progress.ServiceID),
 		tracing.ResourceServiceName.String(progress.Name),
-		tracing.DeploymentServiceState.String( string(progress.State)),
-		tracing.DeploymentServiceDesiredTasks.Int64(int64(progress.Desired)),
-		tracing.DeploymentServiceRunningTasks.Int64(int64(progress.Running)),
-		tracing.DeploymentServiceMessage.String( progress.Message),
+		tracing.DeploymentServiceState.String(string(progress.State)),
+		tracing.DeploymentServiceDesiredTasks.Int64(int64(progress.Desired)), //nolint:gosec // Docker task counts fit int64
+		tracing.DeploymentServiceRunningTasks.Int64(int64(progress.Running)), //nolint:gosec // Docker task counts fit int64
+		tracing.DeploymentServiceMessage.String(progress.Message),
 	))
 	if callback != nil {
 		callback(progress)
