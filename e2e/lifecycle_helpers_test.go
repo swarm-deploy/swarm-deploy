@@ -36,6 +36,7 @@ import (
 // used by the external-controller tests. All lifecycle/state/event stores are SQLite.
 type lifecycleFixture struct {
 	*externalSwarmFixture
+	db         storage.Database
 	executor   *deployments.Controller
 	reconciler *stackloop.Reconciler
 	store      *deploymentstore.Store
@@ -48,10 +49,20 @@ type lifecycleFixture struct {
 
 func newLifecycleFixture(t *testing.T, prune bool) *lifecycleFixture {
 	t.Helper()
-	f := &lifecycleFixture{externalSwarmFixture: newExternalSwarmFixture(t)}
+	base := newExternalSwarmFixture(t)
+	cfg := &config.Config{Spec: config.Spec{
+		DataDir: t.TempDir(), Sync: config.SyncSpec{Policy: config.SyncPolicySpec{Prune: prune, SelfHeal: true}},
+	}}
+	return newLifecycleComponents(t, base, cfg, gitx.NewLazyProxy(config.GitSpec{}, filepath.Dir(base.path)))
+}
+
+func newLifecycleComponents(t *testing.T, base *externalSwarmFixture, cfg *config.Config, repository gitx.Repository) *lifecycleFixture {
+	t.Helper()
+	f := &lifecycleFixture{externalSwarmFixture: base}
 	db, err := storage.OpenSQLite(f.ctx, t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	f.db = db
 	f.store, f.state, f.outbox = deploymentstore.NewStore(db), gitopsstore.NewSQLStore(db), outbox.New(db)
 	f.bus = dispatcher.NewOutboxDispatcher(f.outbox)
 	f.history, err = history.NewSQLStore(db, 100)
@@ -63,16 +74,10 @@ func newLifecycleFixture(t *testing.T, prune bool) *lifecycleFixture {
 	} {
 		require.NoError(t, f.bus.Subscribe(typ, "e2e-history", f.history))
 	}
-	cfg := &config.Config{Spec: config.Spec{
-		DataDir: t.TempDir(), Sync: config.SyncSpec{Policy: config.SyncPolicySpec{Prune: prune, SelfHeal: true}},
-	}}
 	f.executor = deployments.NewController(deployments.NewService(db, f.bus), f.deployer, f.sw.Services,
 		pruner.NewServicePruner(f.sw.Services, f.bus, cfg.Spec.Sync.Policy), &metrics.NopDeploys{})
 	fileSystem := fs.NewLocalFileSystem()
 	rotator := stackloop.NewRotator(fileSystem)
-	// The reconciler consumes an already checked-out directory in production too;
-	// this test deliberately excludes remote Git transport and scheduler timing.
-	repository := gitx.NewLazyProxy(config.GitSpec{}, filepath.Dir(f.path))
 	f.reconciler = stackloop.New(cfg, f.executor, f.sw, f.bus, &metrics.NopDeploys{}, f.state,
 		preparation.New(cfg, repository, fileSystem, rotator), rotator, db)
 	f.request = stackloop.ReconciliationRequest{
