@@ -18,6 +18,8 @@ import (
 
 // Result contains observable results produced while deploying one stack.
 type Result struct {
+	// UnresolvedServices contains verification targets not observed ready; nil means unknown.
+	UnresolvedServices []string
 	// InitJobs contains completed Init Job executions in execution order.
 	InitJobs []InitJobResult
 }
@@ -77,6 +79,8 @@ func NewServiceWaiter(
 
 // StackOptions controls recovery during a deployment retry.
 type StackOptions struct {
+	// UnresolvedServices carries prior desired-state failures requiring verification.
+	UnresolvedServices []string
 	// RetryFailedUpdates restarts services whose accepted specification has a terminal update failure.
 	RetryFailedUpdates bool
 }

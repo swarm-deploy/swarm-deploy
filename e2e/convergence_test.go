@@ -53,6 +53,7 @@ func TestRealSwarmPausedUpdateRetryAndRecovery(t *testing.T) {
 	lifecycle := deployments.NewService(db, bus)
 	stackDeployer := deployer.NewDeployer(100*time.Millisecond, time.Minute, dockerClient, sw, nil, deployer.NewSecretResolver(fs.NewLocalFileSystem(), deployer.PlaintextDecoder{}))
 	controller := deployments.NewController(lifecycle, stackDeployer, sw.Services, pruner.NewServicePruner(sw.Services, bus, config.SyncPolicySpec{}), &metrics.NopDeploys{})
+	sideVersion := "v1"
 	load := func(command string) compose.File {
 		path := filepath.Join(dir, "compose.yaml")
 		manifest := fmt.Sprintf(`services:
@@ -60,14 +61,19 @@ func TestRealSwarmPausedUpdateRetryAndRecovery(t *testing.T) {
     image: busybox:1.36
     command: ["sh", "-c", %q]
     deploy:
-      replicas: 1
+      replicas: 2
       restart_policy:
         condition: none
       update_config:
         order: start-first
         failure_action: pause
         monitor: 1s
-`, command)
+  other:
+    image: busybox:1.36
+    command: ["sleep", "600"]
+    environment:
+      VERSION: %q
+`, command, sideVersion)
 		require.NoError(t, os.WriteFile(path, []byte(manifest), 0o600))
 		file, err := compose.NewFileLoader().Load(ctx, path)
 		require.NoError(t, err)
@@ -91,11 +97,47 @@ func TestRealSwarmPausedUpdateRetryAndRecovery(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, service.UpdateStatus)
 	assert.Equal(t, "paused", string(service.UpdateStatus.State))
+	require.NotNil(t, service.UpdateStatus.StartedAt)
+	tasks, err := sw.Services.ListTasks(ctx, service.ID)
+	require.NoError(t, err)
+	oldRunning, failedNew := false, false
+	for _, task := range tasks {
+		if task.CurrentState == swarm.TaskStateRunning && task.CreatedAt.Before(*service.UpdateStatus.StartedAt) {
+			oldRunning = true
+		}
+		if task.CurrentState == swarm.TaskStateFailed && !task.CreatedAt.Before(*service.UpdateStatus.StartedAt) {
+			failedNew = true
+		}
+	}
+	require.True(t, oldRunning, "a paused rollout retains an old Running task")
+	require.True(t, failedNew, "the failed task belongs to the new generation")
 	for range 3 {
 		skipped, err := controller.Execute(ctx, req)
 		require.NoError(t, err)
 		assert.Nil(t, skipped.Attempt)
 		assert.True(t, skipped.RetryDeferred)
+	}
+
+	// A change to the other service must not hide api's unresolved failed rollout.
+	sideVersion = "v2"
+	req.Commit, req.Desired = "other-changed", load("exit 1")
+	changed, err := controller.Execute(ctx, req)
+	require.Error(t, err)
+	require.NotNil(t, changed.Attempt)
+	assert.NotEqual(t, result.Attempt.DeploymentID, changed.Attempt.DeploymentID)
+	assert.Equal(t, deploymentmodel.Failed, changed.Status)
+	assert.Equal(t, "convergence_failed", changed.ErrorCode)
+	unchangedAPI, err := sw.Services.Inspect(ctx, service.ID)
+	require.NoError(t, err)
+	assert.Equal(t, service.Spec.TaskTemplate.ForceUpdate, unchangedAPI.Spec.TaskTemplate.ForceUpdate)
+	pending, _, err := deploymentstore.NewStore(db).Latest(ctx, stack)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"api"}, pending.UnresolvedServices, "the other service was verified even while api failed")
+	for range 3 {
+		skipped, executeErr := controller.Execute(ctx, req)
+		require.NoError(t, executeErr)
+		assert.True(t, skipped.RetryDeferred)
+		assert.Nil(t, skipped.Attempt)
 	}
 	req.ManualRetry = true
 	retried, err := controller.Execute(ctx, req)

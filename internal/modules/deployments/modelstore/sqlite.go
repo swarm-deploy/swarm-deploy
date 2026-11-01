@@ -329,6 +329,8 @@ type summaryRow struct {
 }
 
 type deploymentDetails struct {
+	// UnresolvedServices retains verification obligations across desired-state deployments.
+	UnresolvedServices []string                          `json:"unresolved_services"`
 	ErrorDiagnostic    string                            `json:"error_diagnostic,omitempty"`
 	Retryable          bool                              `json:"retryable,omitempty"`
 	ApplyStatus        deploymentmodel.StageStatus       `json:"apply_status"`
@@ -374,7 +376,8 @@ type attemptRow struct {
 
 func detailsFromDeployment(d deploymentmodel.Deployment) deploymentDetails {
 	return deploymentDetails{
-		ErrorDiagnostic: d.ErrorDiagnostic, Retryable: d.Retryable, ApplyStatus: d.ApplyStatus,
+		UnresolvedServices: d.UnresolvedServices,
+		ErrorDiagnostic:    d.ErrorDiagnostic, Retryable: d.Retryable, ApplyStatus: d.ApplyStatus,
 		VerificationStatus: d.VerificationStatus, CleanupStatus: d.CleanupStatus,
 		ActualStateStatus: d.ActualStateStatus, ObservedAt: d.ObservedAt,
 		ComparisonBasis: d.ComparisonBasis, ComparisonStatus: d.ComparisonStatus,
@@ -417,7 +420,8 @@ func (row deploymentRow) deployment() (deploymentmodel.Deployment, error) {
 	}
 	result := deploymentmodel.Deployment{
 		ID: row.ID, Stack: row.Stack, Commit: row.Commit, Status: projectedStatus(row.Status, row.IsSuperseded),
-		StartedAt: row.StartedAt.UTC(), ErrorCode: row.ErrorCode,
+		UnresolvedServices: details.UnresolvedServices,
+		StartedAt:          row.StartedAt.UTC(), ErrorCode: row.ErrorCode,
 		ErrorDiagnostic: details.ErrorDiagnostic, Retryable: details.Retryable, Phase: row.Phase,
 		ApplyStatus: details.ApplyStatus, VerificationStatus: details.VerificationStatus,
 		CleanupStatus: details.CleanupStatus, ActualStateStatus: details.ActualStateStatus,

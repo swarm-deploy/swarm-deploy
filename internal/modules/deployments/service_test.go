@@ -109,6 +109,47 @@ func TestStartIfChangedSupersedesAndPublishesAtomically(t *testing.T) {
 	assert.Len(t, publications(t, db, events.TypeNameServiceRemovedFromDesired), 1)
 }
 
+func TestStartIfChangedCarriesUnresolvedServicesFromInterruptedRunningDeployment(t *testing.T) {
+	for _, tc := range []struct {
+		name           string
+		removeWorker   bool
+		wantUnresolved []string
+	}{
+		{name: "unchanged service retained", wantUnresolved: []string{"api", "worker"}},
+		{name: "removed service excluded", removeWorker: true, wantUnresolved: []string{"api"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			db, service, _ := openService(t)
+			store := deploymentstore.NewStore(db)
+
+			first, err := service.StartIfChanged(t.Context(), "app", "first", desiredServices("api", "worker"), true)
+			require.NoError(t, err)
+			require.NotNil(t, first)
+
+			// A new digest supersedes the still-running attempt before it can verify its services.
+			nextDesired := desiredServices("api", "worker")
+			if tc.removeWorker {
+				nextDesired = desiredServices("api")
+			} else {
+				nextDesired.Compose.Services[1].Image = "example/worker:2"
+			}
+			second, err := service.StartIfChanged(t.Context(), "app", "second", nextDesired, true)
+			require.NoError(t, err)
+			require.NotNil(t, second)
+
+			previous, err := store.Get(t.Context(), first.DeploymentID)
+			require.NoError(t, err)
+			assert.Equal(t, deploymentmodel.Superseded, previous.Status)
+			assert.Equal(t, []string{"api", "worker"}, previous.UnresolvedServices)
+
+			current, err := store.Get(t.Context(), second.DeploymentID)
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantUnresolved, current.UnresolvedServices,
+				"supersession must inherit interrupted verification obligations")
+		})
+	}
+}
+
 func TestStartIfChangedUsesSuccessfulBaselineForSemanticChanges(t *testing.T) {
 	db, service, _ := openService(t)
 	store := deploymentstore.NewStore(db)

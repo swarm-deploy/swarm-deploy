@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"time"
 
@@ -110,7 +111,15 @@ func (s *Service) startPrepared(
 	if err = s.supersedePrevious(ctx, latest); err != nil {
 		return nil, err
 	}
-	attempt, err := s.createDeployment(ctx, stack, commit, desired)
+	if latest.Status == deploymentmodel.Running {
+		// Supersession persists conservative verification obligations on interruption.
+		// Inherit the committed state rather than the stale Running snapshot.
+		latest, err = s.store.Get(ctx, latest.ID)
+		if err != nil {
+			return nil, err
+		}
+	}
+	attempt, err := s.createDeployment(ctx, stack, commit, desired, unresolvedServices(latest, desired.Definition))
 	if err != nil {
 		return nil, err
 	}
@@ -209,10 +218,14 @@ func (s *Service) createDeployment(
 	stack string,
 	commit string,
 	desired deploymentmodel.Prepared,
+	unresolved ...[]string,
 ) (*deploymentmodel.Attempt, error) {
 	d, attempt, err := s.newDeployment(ctx, stack, commit, desired)
 	if err != nil {
 		return nil, err
+	}
+	if len(unresolved) > 0 {
+		d.UnresolvedServices = unresolved[0]
 	}
 	if err = s.store.CreateDeployment(ctx, d, desired, attempt); err != nil {
 		return nil, err
@@ -345,4 +358,28 @@ func (s *Service) interruptAttempts(ctx context.Context, attempts []deploymentmo
 		}
 	}
 	return nil
+}
+
+// unresolvedServices filters durable obligations only when a service leaves desired state.
+// Rows written before this metadata existed must be treated conservatively.
+func unresolvedServices(previous deploymentmodel.Deployment, desired compose.File) []string {
+	names := previous.UnresolvedServices
+	if names == nil && (previous.Status == deploymentmodel.Failed || previous.Status == deploymentmodel.Interrupted) {
+		return desiredServiceNames(desired)
+	}
+	result := make([]string, 0, len(names))
+	for _, name := range desiredServiceNames(desired) {
+		if slices.Contains(names, name) {
+			result = append(result, name)
+		}
+	}
+	return result
+}
+
+func desiredServiceNames(desired compose.File) []string {
+	names := make([]string, 0, len(desired.Compose.Services))
+	for _, service := range desired.Compose.Services {
+		names = append(names, service.Name)
+	}
+	return names
 }

@@ -99,10 +99,12 @@ func (d *Deployer) DeployStack(
 		sourceComposePath: sourceComposePath,
 		deployComposePath: deployComposePath,
 		desired:           desired,
+		result:            Result{UnresolvedServices: []string{}},
 	}
 
 	if len(options) > 0 {
 		payload.retryFailedUpdates = options[0].RetryFailedUpdates
+		payload.unresolvedServices = options[0].UnresolvedServices
 	}
 
 	ctx, span := otel.GetTracerProvider().Tracer(deployerTracerName).Start(

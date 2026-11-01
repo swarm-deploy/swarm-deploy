@@ -22,7 +22,7 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
-func TestReconcileDeferredFailureCannotSelfHealPruneOrOverwriteProjection(t *testing.T) {
+func TestReconcileDeferredFailureProtectsUnresolvedServiceAndFailureProjection(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	repository := gitx.NewMockRepository(ctrl)
 	manager := swarm.NewMockServiceManager(ctrl)
@@ -43,18 +43,19 @@ func TestReconcileDeferredFailureCannotSelfHealPruneOrOverwriteProjection(t *tes
 	assert.Equal(t, "convergence_failed", before.Stacks["app"].LastError)
 	// Recreate both lifecycle and reconciler, keeping only SQLite state.
 	reconciler = newTestReconciler(cfg, repository, deployments.NewService(db, bus), stackDeployer, swarmService, bus, &metrics.NopDeploys{}, stateStore, fs.NewLocalFileSystem(), db)
+	manager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "app"}).Return(nil, nil).Times(5)
 	for range 5 {
 		require.NoError(t, reconciler.Reconcile(t.Context(), req))
 	}
-	assert.Equal(t, before, readSQLState(t, stateStore))
+	assert.Equal(t, before.Stacks["app"].LastError, readSQLState(t, stateStore).Stacks["app"].LastError)
+	assert.Equal(t, before.Stacks["app"].Services, readSQLState(t, stateStore).Stacks["app"].Services)
 	stored, _, err := deploymentstore.NewStore(db).Latest(t.Context(), "app")
 	require.NoError(t, err)
 	assert.Equal(t, 1, stored.AttemptCount)
 	assert.Equal(t, deploymentmodel.Failed, stored.Status)
-	// No ListServices/DeployService expectations exist above: skipped ticks must
-	// not enter the live-state/prune/self-heal pipeline or invent completion events.
+	// Live state is observed, but the unresolved api is never automatically applied.
 	req.IsManual = true
-	stackDeployer.EXPECT().DeployStack(gomock.Any(), "app", gomock.Any(), gomock.Any(), gomock.Any(), deployer.StackOptions{RetryFailedUpdates: true}).Return(deployer.Result{}, nil)
+	stackDeployer.EXPECT().DeployStack(gomock.Any(), "app", gomock.Any(), gomock.Any(), gomock.Any(), deployer.StackOptions{RetryFailedUpdates: true, UnresolvedServices: []string{"api"}}).Return(deployer.Result{}, nil)
 	manager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "app"}).Return(nil, nil)
 	require.NoError(t, reconciler.Reconcile(t.Context(), req))
 	retried, _, err := deploymentstore.NewStore(db).Latest(t.Context(), "app")

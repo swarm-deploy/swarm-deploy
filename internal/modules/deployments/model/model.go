@@ -221,6 +221,8 @@ type Attempt struct {
 
 // Deployment is one immutable effective desired state with zero or more persisted execution attempts.
 type Deployment struct {
+	// UnresolvedServices requires convergence verification before a later deployment can succeed.
+	UnresolvedServices []string `json:"-"`
 	// ID uniquely identifies this desired state; retries reuse it.
 	ID string `json:"id"`
 	// Stack identifies the deployment target.

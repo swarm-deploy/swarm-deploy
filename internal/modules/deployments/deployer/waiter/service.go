@@ -77,6 +77,8 @@ type ServiceWaitRequest struct {
 	// AppliedServices contains services actually created or updated by this apply.
 	// These must become visible before their tasks or update status can satisfy verification.
 	AppliedServices []string
+	// UnresolvedServices requires proof of the rollout generation even without a new apply.
+	UnresolvedServices []string
 	// OnlyAffected excludes unchanged services from a full-stack wait.
 	OnlyAffected bool
 	// Progress receives de-duplicated convergence transitions when configured.
@@ -147,18 +149,26 @@ func (w *ServiceWaiter) wait(
 
 	for {
 		allReady, observeErr := w.poll(ctx, span, request, baseline, candidates, targets, state)
-		if observeErr != nil {
-			if waitErr := state.handleObservationError(ctx, span, request, targets, observeErr); waitErr != nil {
-				return waitErr
+		switch {
+		case errors.Is(observeErr, ErrConvergenceFailed):
+			// Finish observing independent targets before returning the known failure.
+			state.terminalFailure = observeErr
+			if allReady {
+				return observeErr
 			}
-		} else if allReady {
-			return nil
+		case observeErr != nil:
+			if waitErr := state.handleObservationError(ctx, span, request, targets, observeErr); waitErr != nil {
+				return errors.Join(state.terminalFailure, waitErr)
+			}
+		case allReady:
+			return state.terminalFailure
 		}
 
 		select {
 		case <-ctx.Done():
 			state.failPending(span, request.Progress, ctx.Err())
-			return waitInterruptedError(request.StackName, state.last, ctx.Err(), state.lastObservationError)
+			return errors.Join(state.terminalFailure,
+				waitInterruptedError(request.StackName, state.last, ctx.Err(), state.lastObservationError))
 		case <-ticker.C:
 		}
 	}
@@ -200,6 +210,7 @@ func (w *ServiceWaiter) observeTargets(
 	state.observed = len(targets)
 	state.converged = 0
 	allReady := true
+	var failures []error
 	for _, name := range sortedTargetNames(targets) {
 		if slices.Contains(request.AppliedServices, name) && baseline[name].ID != "" &&
 			!serviceChanged(baseline[name], current[name]) {
@@ -211,13 +222,16 @@ func (w *ServiceWaiter) observeTargets(
 			allReady = false
 			continue
 		}
-		progress, err := w.observeService(ctx, name, baseline[name], current[name])
+		progress, err := w.observeService(ctx, name, baseline[name], current[name],
+			slices.Contains(request.UnresolvedServices, name))
 		state.emit(span, request.Progress, progress)
 		if err != nil {
-			return false, err
+			return false, errors.Join(append(failures, err)...)
 		}
 		if progress.State == ServiceFailed {
-			return false, fmt.Errorf("%w: service %s failed to converge: %s", ErrConvergenceFailed, name, progress.Message)
+			failures = append(failures, fmt.Errorf("%w: service %s failed to converge: %s",
+				ErrConvergenceFailed, name, progress.Message))
+			continue
 		}
 		if progress.State == ServiceReady {
 			state.converged++
@@ -225,7 +239,7 @@ func (w *ServiceWaiter) observeTargets(
 		}
 		allReady = false
 	}
-	return allReady, nil
+	return allReady, errors.Join(failures...)
 }
 
 func finishServiceWaitSpan(span trace.Span, startedAt time.Time, state waitState, waitErr error) {
@@ -253,6 +267,7 @@ type waitState struct {
 	observed             int
 	converged            int
 	lastObservationError error
+	terminalFailure      error
 }
 
 func (s *waitState) emit(span trace.Span, callback ServiceProgressCallback, progress ServiceProgress) {
@@ -329,6 +344,7 @@ func (w *ServiceWaiter) observeService(
 	name string,
 	baseline swarm.StackService,
 	service swarm.StackService,
+	unresolved ...bool,
 ) (ServiceProgress, error) {
 	if service.ID == "" {
 		return ServiceProgress{Name: name, State: ServicePending, Message: "waiting for service to appear"}, nil
@@ -377,9 +393,8 @@ func (w *ServiceWaiter) observeService(
 		return zeroDesiredProgress(progress, tasks), nil
 	}
 
-	requireCurrentGeneration := baseline.ID == "" || baseline.ID != service.ID ||
-		!reflect.DeepEqual(baseline.ServiceSpec.TaskTemplate, service.ServiceSpec.TaskTemplate)
-	cutoff, generationPending := taskGenerationCutoff(baseline, service, requireCurrentGeneration)
+	requireCurrentGeneration := requiresTaskGeneration(baseline, service, unresolved)
+	cutoff, generationPending := verificationTaskCutoff(baseline, service, requireCurrentGeneration, unresolved)
 	if generationPending {
 		progress.Message = "waiting for current rolling update status"
 		return progress, nil
@@ -734,4 +749,29 @@ func boundedDiagnostic(message string) string {
 		return message
 	}
 	return message[:maxServiceDiagnosticLength] + "..."
+}
+
+func verificationTaskCutoff(
+	baseline, service swarm.StackService, requireCurrentGeneration bool, unresolved []bool,
+) (time.Time, bool) {
+	if len(unresolved) == 0 || !unresolved[0] || baseline.ID == "" || baseline.ID != service.ID {
+		return taskGenerationCutoff(baseline, service, requireCurrentGeneration)
+	}
+	// Reject stale observations, including old completed statuses and their Running tasks.
+	if service.UpdatedAt.Before(baseline.UpdatedAt) {
+		return time.Time{}, true
+	}
+	// A never-updated (possibly recreated) service has its creation generation.
+	if service.UpdateStatus == nil && !service.CreatedAt.IsZero() && service.CreatedAt.Equal(service.UpdatedAt) {
+		return service.CreatedAt, false
+	}
+	if service.UpdateStatus == nil || service.UpdateStatus.StartedAt.IsZero() {
+		return time.Time{}, true
+	}
+	return service.UpdateStatus.StartedAt, false
+}
+
+func requiresTaskGeneration(baseline, service swarm.StackService, unresolved []bool) bool {
+	return slices.Contains(unresolved, true) || baseline.ID == "" || baseline.ID != service.ID ||
+		!reflect.DeepEqual(baseline.ServiceSpec.TaskTemplate, service.ServiceSpec.TaskTemplate)
 }

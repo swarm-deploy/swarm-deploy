@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
@@ -37,6 +38,9 @@ const (
 
 // Completion describes the terminal outcome selected by a deployment orchestrator.
 type Completion struct {
+	// UnresolvedServices contains applied services not proven converged by this execution.
+	// Nil on failure conservatively retains every desired service for legacy/unknown outcomes.
+	UnresolvedServices []string
 	// Outcome identifies the terminal transition.
 	Outcome CompletionOutcome
 	// Diagnostic contains optional technical context and is sanitized before persistence or publication.
@@ -46,17 +50,18 @@ type Completion struct {
 }
 
 type completionState struct {
-	status       deploymentmodel.Status
-	errorCode    string
-	diagnostic   error
-	retryable    bool
-	phase        deploymentmodel.Phase
-	apply        deploymentmodel.StageStatus
-	verification deploymentmodel.StageStatus
-	cleanup      deploymentmodel.StageStatus
-	actual       deploymentmodel.ActualStateStatus
-	observedAt   *time.Time
-	eventStage   string
+	unresolvedServices []string
+	status             deploymentmodel.Status
+	errorCode          string
+	diagnostic         error
+	retryable          bool
+	phase              deploymentmodel.Phase
+	apply              deploymentmodel.StageStatus
+	verification       deploymentmodel.StageStatus
+	cleanup            deploymentmodel.StageStatus
+	actual             deploymentmodel.ActualStateStatus
+	observedAt         *time.Time
+	eventStage         string
 }
 
 // Complete persists one terminal attempt transition, updates the successful baseline when applicable,
@@ -105,6 +110,21 @@ func (s *Service) complete(
 	attempt.Phase, attempt.ApplyStatus = state.phase, state.apply
 	attempt.VerificationStatus, attempt.CleanupStatus = state.verification, state.cleanup
 	attempt.ActualStateStatus, attempt.ObservedAt = state.actual, state.observedAt
+	if state.status == deploymentmodel.Succeeded {
+		deployment.UnresolvedServices = nil
+	} else {
+		stateInheritedServices := deployment.UnresolvedServices
+		unresolved := state.unresolvedServices
+		if unresolved == nil {
+			unresolved = desiredServiceNames(desired)
+		}
+		deployment.UnresolvedServices = append([]string{}, unresolved...)
+		if state.phase == deploymentmodel.PhaseApply {
+			deployment.UnresolvedServices = append(deployment.UnresolvedServices, stateInheritedServices...)
+		}
+		slices.Sort(deployment.UnresolvedServices)
+		deployment.UnresolvedServices = slices.Compact(deployment.UnresolvedServices)
+	}
 	if err = s.store.FinishAttempt(ctx, deployment, attempt); err != nil {
 		return err
 	}
@@ -118,9 +138,10 @@ func (s *Service) complete(
 
 func (completion Completion) state() (completionState, error) {
 	state := completionState{
-		errorCode:  completion.ErrorCode(),
-		diagnostic: faults.SafeError(completion.Diagnostic),
-		observedAt: completion.ObservedAt,
+		unresolvedServices: completion.rolloutObligations(),
+		errorCode:          completion.ErrorCode(),
+		diagnostic:         faults.SafeError(completion.Diagnostic),
+		observedAt:         completion.ObservedAt,
 	}
 	// Persist retry eligibility without changing the stable public failure codes.
 	switch completion.Outcome {
@@ -238,4 +259,14 @@ func (s *Service) publishCompletion(
 	default:
 		return fmt.Errorf("unsupported completion status %q", state.status)
 	}
+}
+
+func (completion Completion) rolloutObligations() []string {
+	// A failed pre-apply check has not created a new failed service generation.
+	// Keep inherited obligations, but do not require replacement of healthy tasks.
+	if completion.UnresolvedServices == nil &&
+		(completion.Outcome == CompletionInitJobFailed || completion.Outcome == CompletionPolicyRejected) {
+		return []string{}
+	}
+	return completion.UnresolvedServices
 }

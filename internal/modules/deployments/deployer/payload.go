@@ -29,6 +29,7 @@ type deployStackPayload struct {
 	resolved           resolvedResources
 	result             Result
 	retryFailedUpdates bool
+	unresolvedServices []string
 }
 
 type deployServicePayload struct {
