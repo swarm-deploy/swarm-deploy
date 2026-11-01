@@ -609,18 +609,20 @@ onUnmounted(() => {
         <h2 id="realtime-scale-title">Scale service</h2>
       </template>
       <div class="modal-body">
+        <p class="realtime-scale-section-label">Service details</p>
         <dl class="realtime-scale-summary">
           <dt>Service</dt><dd>{{ scalingService.name || scalingService.full_name }}</dd>
           <dt>Stack</dt><dd>{{ stackLabel(scalingService.stack) }}</dd>
-          <dt>Configured replicas</dt><dd>{{ scalingService.configured_replicas ?? "Unavailable" }}</dd>
+          <dt>Current scale</dt><dd>{{ scalingService.configured_replicas ?? "Unavailable" }}</dd>
         </dl>
+        <hr class="realtime-scale-divider" />
+        <p class="realtime-scale-section-label">Scale</p>
         <label for="realtime-scale-replicas">Desired replicas</label>
         <div class="realtime-scale-input">
           <button type="button" class="button-ghost" aria-label="Decrease replicas" :disabled="scalePending || scaleInput === 0" @click="stepScale(-1)">−</button>
-          <input id="realtime-scale-replicas" ref="scaleInputElement" v-model.number="scaleInput" type="number" min="0" step="1" :max="Number.MAX_SAFE_INTEGER" required :disabled="scalePending" :aria-invalid="!validScaleInput" aria-describedby="realtime-scale-hint" />
+          <input id="realtime-scale-replicas" ref="scaleInputElement" v-model.number="scaleInput" type="number" min="0" step="1" :max="Number.MAX_SAFE_INTEGER" required :disabled="scalePending" :aria-invalid="!validScaleInput" />
           <button type="button" class="button-ghost" aria-label="Increase replicas" :disabled="scalePending || scaleInput === Number.MAX_SAFE_INTEGER" @click="stepScale(1)">+</button>
         </div>
-        <p id="realtime-scale-hint" class="meta">Enter a non-negative whole number.</p>
         <p class="form-helper" role="note">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 11v6m0-10h.01" /></svg>
           <span>Manual scaling may be overwritten by the next GitOps synchronization.</span>
@@ -643,7 +645,9 @@ onUnmounted(() => {
 .realtime-scale-button:focus-visible { outline: 2px solid var(--accent-focus); outline-offset: 2px; }
 .realtime-scale-button svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
 :deep(.realtime-scale-card) { width: min(440px, 94vw); }
-.realtime-scale-summary { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px 16px; margin: 0 0 6px; font-size: .84rem; }
+.realtime-scale-section-label { margin: 0; color: var(--muted); font-size: .7rem; font-weight: 600; letter-spacing: .055em; text-transform: uppercase; }
+.realtime-scale-summary { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px 16px; margin: 0; font-size: .84rem; }
+.realtime-scale-divider { width: 100%; margin: 8px 0 2px; border: 0; border-top: 1px solid var(--line); }
 .realtime-scale-summary dt { color: var(--muted); }
 .realtime-scale-summary dd { margin: 0; overflow-wrap: anywhere; }
 .realtime-scale-input { display: flex; align-items: stretch; min-width: 0; height: 32px; overflow: hidden; border: 1px solid var(--border-default); border-radius: 6px; background: var(--surface-input); }
