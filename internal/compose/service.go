@@ -76,18 +76,18 @@ type Service struct {
 }
 
 type ServiceHealth struct {
-	Test          Command                `yaml:"test,omitempty" json:"test,omitempty"`
-	Interval      string                 `yaml:"interval,omitempty" json:"interval,omitempty"`
-	Timeout       string                 `yaml:"timeout,omitempty" json:"timeout,omitempty"`
-	Retries       *uint64                `yaml:"retries,omitempty" json:"retries,omitempty"`
-	StartPeriod   string                 `yaml:"start_period,omitempty" json:"start_period,omitempty"`
-	StartInterval string                 `yaml:"start_interval,omitempty" json:"start_interval,omitempty"`
-	Disable       bool                   `yaml:"disable,omitempty" json:"disable,omitempty"`
+	Test          Command `yaml:"test,omitempty" json:"test,omitempty"`
+	Interval      string  `yaml:"interval,omitempty" json:"interval,omitempty"`
+	Timeout       string  `yaml:"timeout,omitempty" json:"timeout,omitempty"`
+	Retries       *uint64 `yaml:"retries,omitempty" json:"retries,omitempty"`
+	StartPeriod   string  `yaml:"start_period,omitempty" json:"start_period,omitempty"`
+	StartInterval string  `yaml:"start_interval,omitempty" json:"start_interval,omitempty"`
+	Disable       bool    `yaml:"disable,omitempty" json:"disable,omitempty"`
 }
 
 type ServiceLogging struct {
-	Driver  string                 `yaml:"driver,omitempty" json:"driver,omitempty"`
-	Options map[string]string      `yaml:"options,omitempty" json:"options,omitempty"`
+	Driver  string            `yaml:"driver,omitempty" json:"driver,omitempty"`
+	Options map[string]string `yaml:"options,omitempty" json:"options,omitempty"`
 }
 
 // SelfHealPolicy returns the service-level self-heal policy and whether it was specified.
