@@ -31,7 +31,7 @@ func (s *ServiceDrifted) Details() map[string]string {
 	}
 }
 
-// ServiceDriftFixed is emitted after actual Swarm state is confirmed converged.
+// ServiceDriftFixed is emitted after monitored service drift is confirmed absent.
 type ServiceDriftFixed struct {
 	// StackName is the stack containing the recovered service.
 	StackName string

@@ -1296,7 +1296,7 @@ func TestPublishDriftEventsUsesEpisodesAndConfirmedResolution(t *testing.T) {
 			}},
 		},
 		{
-			name: "external or deployment recovery is fixed", previous: model.SyncStatusOutOfSync,
+			name: "previously detected drift recovery is fixed", previous: model.SyncStatusOutOfSync,
 			want: []events.TypeName{events.TypeNameServiceDriftFixed},
 		},
 		{
@@ -1319,7 +1319,7 @@ func TestPublishDriftEventsUsesEpisodesAndConfirmedResolution(t *testing.T) {
 				},
 			).AnyTimes()
 			reconciler := &Reconciler{event: publisher}
-			previous := model.Stack{Services: map[string]model.Service{
+			previous := model.Stack{DriftedServices: map[string]bool{"api": tt.previous == model.SyncStatusOutOfSync}, Services: map[string]model.Service{
 				"api": {SyncStatus: tt.previous},
 			}}
 			payload := &pipelinePayload{
@@ -1327,6 +1327,9 @@ func TestPublishDriftEventsUsesEpisodesAndConfirmedResolution(t *testing.T) {
 				Drift:   tt.detected, RemainingDrift: tt.remaining,
 			}
 
+			if payload.RemainingDrift == nil {
+				payload.RemainingDrift = map[string]drift.ServiceDrift{}
+			}
 			require.NoError(t, reconciler.publishDriftEvents(context.Background(), ReconciliationRequest{
 				Stack: config.StackSpec{Name: "app"}, Commit: "current",
 			}, previous, payload))
@@ -1425,9 +1428,12 @@ func TestPublishDriftEventsUsesFinalVerifiedStatePerService(t *testing.T) {
 				}}},
 				Drift: tt.initial, RemainingDrift: tt.remaining,
 			}
+			if payload.RemainingDrift == nil {
+				payload.RemainingDrift = map[string]drift.ServiceDrift{}
+			}
 			require.NoError(t, reconciler.publishDriftEvents(t.Context(), ReconciliationRequest{
 				Stack: config.StackSpec{Name: "app"}, Commit: "current",
-			}, model.Stack{Services: tt.previous}, payload))
+			}, model.Stack{Services: tt.previous, DriftedServices: map[string]bool{"worker": tt.previous["worker"].SyncStatus == model.SyncStatusOutOfSync}}, payload))
 			assert.Equal(t, tt.want, published)
 		})
 	}
