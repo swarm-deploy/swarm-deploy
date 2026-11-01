@@ -225,7 +225,7 @@ func (s *Service) createDeployment(
 		return nil, err
 	}
 	if len(unresolved) > 0 {
-		d.UnresolvedServices = unresolved[0]
+		d.Verification = deploymentmodel.Verification{Known: true, UnresolvedServices: unresolved[0]}
 	}
 	if err = s.store.CreateDeployment(ctx, d, desired, attempt); err != nil {
 		return nil, err
@@ -363,8 +363,9 @@ func (s *Service) interruptAttempts(ctx context.Context, attempts []deploymentmo
 // unresolvedServices filters durable obligations only when a service leaves desired state.
 // Rows written before this metadata existed must be treated conservatively.
 func unresolvedServices(previous deploymentmodel.Deployment, desired compose.File) []string {
-	names := previous.UnresolvedServices
-	if names == nil && (previous.Status == deploymentmodel.Failed || previous.Status == deploymentmodel.Interrupted) {
+	names := previous.Verification.UnresolvedServices
+	failed := previous.Status == deploymentmodel.Failed || previous.Status == deploymentmodel.Interrupted
+	if !previous.Verification.Known && failed {
 		return desiredServiceNames(desired)
 	}
 	result := make([]string, 0, len(names))

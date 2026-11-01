@@ -69,7 +69,11 @@ func TestDeployStackRunsInitJobsBeforeNativeServiceApplication(t *testing.T) {
 
 	desired := minimalCompose("api")
 	desired.Services[0].InitJobs = []compose.InitJob{{Name: "migrate", Image: "example/migrate:1"}}
-	result, err := deployer.DeployStack(t.Context(), "demo", "source.yaml", "rendered.yaml", desired)
+	result, err := deployer.DeployStack(t.Context(), StackRequest{
+		StackName:         "demo",
+		SourceComposePath: "source.yaml",
+		Desired:           desired,
+	})
 	require.NoError(t, err)
 	assert.Equal(t, []string{"network", "init:api:migrate", "apply"}, events)
 	require.Len(t, result.InitJobs, 1)
@@ -89,7 +93,11 @@ func TestDeployStackInitJobFailureStopsApplicationAndPreservesPartialResult(t *t
 	desired := minimalCompose("api")
 	desired.Services[0].InitJobs = []compose.InitJob{{Name: "migrate", Image: "example/migrate:1"}}
 
-	result, err := deployer.DeployStack(t.Context(), "demo", "source.yaml", "unused.yaml", desired)
+	result, err := deployer.DeployStack(t.Context(), StackRequest{
+		StackName:         "demo",
+		SourceComposePath: "source.yaml",
+		Desired:           desired,
+	})
 	require.ErrorIs(t, err, jobErr)
 	assert.True(t, InitJobsFailed(err))
 	require.Len(t, result.InitJobs, 1)
@@ -114,7 +122,12 @@ func TestDeployServiceUsesSingleServiceProjectionWithoutInitJobs(t *testing.T) {
 		{Name: "api", Image: "example/api:1", InitJobs: []compose.InitJob{{Name: "migrate"}}},
 		{Name: "worker", Image: "example/worker:1"},
 	}}
-	result, err := deployer.DeployService(t.Context(), "demo", "source.yaml", "api", desired, desired)
+	result, err := deployer.DeployService(t.Context(), ServiceRequest{
+		StackName:         "demo",
+		SourceComposePath: "source.yaml",
+		ServiceName:       "api",
+		Desired:           desired,
+	})
 	require.NoError(t, err)
 	assert.Empty(t, result.InitJobs)
 	assert.Empty(t, jobs.calls)
@@ -127,7 +140,12 @@ func TestDeployServiceFailsBeforeDockerWritesWhenServiceIsMissing(t *testing.T) 
 	}
 	manager := swarm.NewMockServiceManager(gomock.NewController(t))
 	wireNativeTestDeployerWithServiceManager(t, deployer, manager, false)
-	_, err := deployer.DeployService(t.Context(), "demo", "source.yaml", "worker", minimalCompose("api"), compose.Compose{})
+	_, err := deployer.DeployService(t.Context(), ServiceRequest{
+		StackName:         "demo",
+		SourceComposePath: "source.yaml",
+		ServiceName:       "worker",
+		Desired:           minimalCompose("api"),
+	})
 	require.Error(t, err)
 	assert.ErrorContains(t, err, `service "worker" not found`)
 }
@@ -136,11 +154,11 @@ func TestDeployStackPassesNoTargetsWhenApplicationIsUnchanged(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	waiter := NewMockServiceWaitExecutor(ctrl)
 	waiter.EXPECT().Snapshot(gomock.Any(), "demo").Return(nil, nil)
-	waiter.EXPECT().Wait(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, req ServiceWaitRequest) error {
+	waiter.EXPECT().Wait(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, req ServiceWaitRequest) (ServiceWaitResult, error) {
 		assert.Equal(t, "demo", req.StackName)
 		assert.Empty(t, req.ServiceNames)
 		assert.Empty(t, req.AppliedServices)
-		return nil
+		return ServiceWaitResult{}, nil
 	})
 	deployer := &Deployer{
 		secretResolver: newTestSecretResolver(), initJobRunner: &fakeInitJobExecutor{}, serviceWaiter: waiter,
@@ -151,7 +169,11 @@ func TestDeployStackPassesNoTargetsWhenApplicationIsUnchanged(t *testing.T) {
 	}, nil)
 	wireNativeTestDeployerWithServiceManager(t, deployer, manager, false)
 
-	_, err := deployer.DeployStack(t.Context(), "demo", "source.yaml", "unused.yaml", minimalCompose("api"))
+	_, err := deployer.DeployStack(t.Context(), StackRequest{
+		StackName:         "demo",
+		SourceComposePath: "source.yaml",
+		Desired:           minimalCompose("api"),
+	})
 	require.NoError(t, err)
 }
 
@@ -161,17 +183,21 @@ func TestDeployStackParentCancellationInterruptsConvergence(t *testing.T) {
 	waiter.EXPECT().Snapshot(gomock.Any(), "demo").Return(nil, nil)
 	ctx, cancel := context.WithCancel(t.Context())
 	waiter.EXPECT().Wait(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(waitCtx context.Context, _ ServiceWaitRequest) error {
+		func(waitCtx context.Context, _ ServiceWaitRequest) (ServiceWaitResult, error) {
 			cancel()
 			<-waitCtx.Done()
-			return waitCtx.Err()
+			return ServiceWaitResult{}, waitCtx.Err()
 		})
 	deployer := &Deployer{
 		secretResolver: newTestSecretResolver(), initJobRunner: &fakeInitJobExecutor{}, serviceWaiter: waiter,
 	}
 	wireNativeTestDeployer(t, deployer)
 
-	_, err := deployer.DeployStack(ctx, "demo", "source.yaml", "unused.yaml", minimalCompose("api"))
+	_, err := deployer.DeployStack(ctx, StackRequest{
+		StackName:         "demo",
+		SourceComposePath: "source.yaml",
+		Desired:           minimalCompose("api"),
+	})
 	require.ErrorIs(t, err, context.Canceled)
 }
 
@@ -181,12 +207,21 @@ func TestDeployPathsShareOneApplyDeadline(t *testing.T) {
 		run  func(*Deployer) error
 	}{
 		{name: "stack", run: func(deployer *Deployer) error {
-			_, err := deployer.DeployStack(t.Context(), "demo", "source.yaml", "rendered.yaml", minimalCompose("api"))
+			_, err := deployer.DeployStack(t.Context(), StackRequest{
+				StackName:         "demo",
+				SourceComposePath: "source.yaml",
+				Desired:           minimalCompose("api"),
+			})
 			return err
 		}},
 		{name: "single service", run: func(deployer *Deployer) error {
 			desired := minimalCompose("api", "worker")
-			_, err := deployer.DeployService(t.Context(), "demo", "source.yaml", "api", desired, desired)
+			_, err := deployer.DeployService(t.Context(), ServiceRequest{
+				StackName:         "demo",
+				SourceComposePath: "source.yaml",
+				ServiceName:       "api",
+				Desired:           desired,
+			})
 			return err
 		}},
 	} {
@@ -220,9 +255,9 @@ func TestDeployPathsShareOneApplyDeadline(t *testing.T) {
 				},
 			)
 			waiter.EXPECT().Wait(gomock.Any(), gomock.Any()).DoAndReturn(
-				func(ctx context.Context, _ ServiceWaitRequest) error {
+				func(ctx context.Context, _ ServiceWaitRequest) (ServiceWaitResult, error) {
 					captureDeadline(ctx)
-					return nil
+					return ServiceWaitResult{}, nil
 				},
 			)
 			deployer := &Deployer{
@@ -257,13 +292,17 @@ func TestDeployStackStartsApplyTimeoutAfterInitJobs(t *testing.T) {
 			return nil, nil
 		},
 	)
-	waiter.EXPECT().Wait(gomock.Any(), gomock.Any()).Return(nil)
+	waiter.EXPECT().Wait(gomock.Any(), gomock.Any()).Return(ServiceWaitResult{}, nil)
 	deployer := &Deployer{secretResolver: newTestSecretResolver(), initJobRunner: jobs, serviceWaiter: waiter}
 	wireNativeTestDeployer(t, deployer)
 	desired := minimalCompose("api")
 	desired.Services[0].InitJobs = []compose.InitJob{{Name: "migrate", Image: "alpine:3"}}
 
-	_, err := deployer.DeployStack(t.Context(), "demo", "source.yaml", "rendered.yaml", desired)
+	_, err := deployer.DeployStack(t.Context(), StackRequest{
+		StackName:         "demo",
+		SourceComposePath: "source.yaml",
+		Desired:           desired,
+	})
 	require.NoError(t, err)
 }
 
@@ -272,9 +311,9 @@ func TestDeployStackDoesNotReturnBeforeServiceConvergence(t *testing.T) {
 	waiter.EXPECT().Snapshot(gomock.Any(), "demo").Return(nil, nil)
 	release := make(chan struct{})
 	waiter.EXPECT().Wait(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(context.Context, ServiceWaitRequest) error {
+		func(context.Context, ServiceWaitRequest) (ServiceWaitResult, error) {
 			<-release
-			return nil
+			return ServiceWaitResult{}, nil
 		},
 	)
 	deployer := &Deployer{
@@ -284,7 +323,11 @@ func TestDeployStackDoesNotReturnBeforeServiceConvergence(t *testing.T) {
 
 	result := make(chan error, 1)
 	go func() {
-		_, err := deployer.DeployStack(context.Background(), "demo", "source.yaml", "rendered.yaml", minimalCompose("api"))
+		_, err := deployer.DeployStack(context.Background(), StackRequest{
+			StackName:         "demo",
+			SourceComposePath: "source.yaml",
+			Desired:           minimalCompose("api"),
+		})
 		result <- err
 	}()
 	select {
@@ -300,13 +343,17 @@ func TestDeployStackPropagatesServiceWaitFailure(t *testing.T) {
 	waitErr := errors.New("service api did not converge")
 	waiter := NewMockServiceWaitExecutor(gomock.NewController(t))
 	waiter.EXPECT().Snapshot(gomock.Any(), "demo").Return(nil, nil)
-	waiter.EXPECT().Wait(gomock.Any(), gomock.Any()).Return(waitErr)
+	waiter.EXPECT().Wait(gomock.Any(), gomock.Any()).Return(ServiceWaitResult{}, waitErr)
 	deployer := &Deployer{
 		secretResolver: newTestSecretResolver(), initJobRunner: &fakeInitJobExecutor{}, serviceWaiter: waiter,
 	}
 	wireNativeTestDeployer(t, deployer)
 
-	_, err := deployer.DeployStack(t.Context(), "demo", "source.yaml", "rendered.yaml", minimalCompose("api"))
+	_, err := deployer.DeployStack(t.Context(), StackRequest{
+		StackName:         "demo",
+		SourceComposePath: "source.yaml",
+		Desired:           minimalCompose("api"),
+	})
 	require.ErrorIs(t, err, waitErr)
 	assert.True(t, ConvergenceFailed(err))
 	assert.ErrorContains(t, err, "wait for stack demo service convergence")
@@ -319,14 +366,19 @@ func TestDeployServiceWaitsOnlyForTarget(t *testing.T) {
 	waiter.EXPECT().Snapshot(gomock.Any(), "demo").Return(baseline, nil)
 	waiter.EXPECT().Wait(gomock.Any(), ServiceWaitRequest{
 		StackName: "demo", ServiceNames: []string{"api"}, Baseline: baseline, AppliedServices: []string{"api"},
-	}).Return(nil)
+	}).Return(ServiceWaitResult{}, nil)
 	deployer := &Deployer{
 		secretResolver: newTestSecretResolver(), initJobRunner: &fakeInitJobExecutor{}, serviceWaiter: waiter,
 	}
 	wireNativeTestDeployer(t, deployer)
 	desired := minimalCompose("api", "worker")
 
-	_, err := deployer.DeployService(t.Context(), "demo", "source.yaml", "api", desired, desired)
+	_, err := deployer.DeployService(t.Context(), ServiceRequest{
+		StackName:         "demo",
+		SourceComposePath: "source.yaml",
+		ServiceName:       "api",
+		Desired:           desired,
+	})
 	require.NoError(t, err)
 }
 
@@ -343,7 +395,11 @@ func TestDeployStackPreservesInitJobResultsWhenNativeApplyFails(t *testing.T) {
 	desired := minimalCompose("api")
 	desired.Services[0].InitJobs = []compose.InitJob{{Name: "migrate", Image: "alpine:3"}}
 
-	result, err := deployer.DeployStack(t.Context(), "demo", "source.yaml", "rendered.yaml", desired)
+	result, err := deployer.DeployStack(t.Context(), StackRequest{
+		StackName:         "demo",
+		SourceComposePath: "source.yaml",
+		Desired:           desired,
+	})
 	require.ErrorIs(t, err, applyErr)
 	require.Len(t, result.InitJobs, 1)
 	assert.Equal(t, "migrate", result.InitJobs[0].JobName)
@@ -361,7 +417,11 @@ func TestDeployStackOmitsInitJobResultWhenExecutionNeverStarted(t *testing.T) {
 	desired := minimalCompose("api")
 	desired.Services[0].InitJobs = []compose.InitJob{{Name: "migrate", Image: "alpine:3"}}
 
-	result, err := deployer.DeployStack(t.Context(), "demo", "source.yaml", "rendered.yaml", desired)
+	result, err := deployer.DeployStack(t.Context(), StackRequest{
+		StackName:         "demo",
+		SourceComposePath: "source.yaml",
+		Desired:           desired,
+	})
 	require.ErrorIs(t, err, createErr)
 	assert.Empty(t, result.InitJobs)
 }
@@ -419,6 +479,6 @@ func newSuccessfulServiceWaiter(t *testing.T) *MockServiceWaitExecutor {
 	t.Helper()
 	waiter := NewMockServiceWaitExecutor(gomock.NewController(t))
 	waiter.EXPECT().Snapshot(gomock.Any(), gomock.Any()).Return([]swarm.StackService{}, nil).AnyTimes()
-	waiter.EXPECT().Wait(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	waiter.EXPECT().Wait(gomock.Any(), gomock.Any()).Return(ServiceWaitResult{}, nil).AnyTimes()
 	return waiter
 }

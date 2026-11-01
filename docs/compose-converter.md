@@ -88,11 +88,18 @@ pointers with the returned specs.
 network, config or secret is missing. It does not substitute names for IDs,
 select an older rotated resource, or return partial ServiceSpecs.
 
+`Validate` checks all locally decidable conversion rules without Docker reads,
+using the same service conversion functions as `Convert`. Invalid field values,
+resource references and incompatible options therefore fail before any resources
+are changed.
+
 The apply pipeline validates the stack, uses `PlanNetworks` to reconcile
 Compose-owned networks, and runs the existing config/secret reconciliation
 **before** final conversion, including on first deployment. Network reconciliation
 also precedes Init Jobs, which receive the reconciled network IDs. After resources
 exist, the same `Convert` call produces final specs without Deployer enrichment.
+Metadata lookup errors are sanitized without losing their temporary/deadline
+retry classification.
 
 ## Validation and limitations
 

@@ -132,7 +132,7 @@ func TestRealSwarmPausedUpdateRetryAndRecovery(t *testing.T) {
 	assert.Equal(t, service.Spec.TaskTemplate.ForceUpdate, unchangedAPI.Spec.TaskTemplate.ForceUpdate)
 	pending, _, err := deploymentstore.NewStore(db).Latest(ctx, stack)
 	require.NoError(t, err)
-	assert.Equal(t, []string{"api"}, pending.UnresolvedServices, "the other service was verified even while api failed")
+	assert.Equal(t, []string{"api"}, pending.Verification.UnresolvedServices, "the other service was verified even while api failed")
 	for range 3 {
 		skipped, executeErr := controller.Execute(ctx, req)
 		require.NoError(t, executeErr)

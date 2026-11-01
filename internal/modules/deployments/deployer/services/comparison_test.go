@@ -29,7 +29,7 @@ func TestRepeatedApplyIgnoresSetOrderingAndDaemonDefaults(t *testing.T) {
 	applier := New(manager, &registry.NopAuthManager{})
 	original := cloneSpec(desired)
 	for range 3 {
-		changed, err := applier.Apply(t.Context(), "demo", []dockerswarm.ServiceSpec{desired})
+		changed, err := applier.Apply(t.Context(), "demo", []dockerswarm.ServiceSpec{desired}, ApplyOptions{})
 		require.NoError(t, err)
 		assert.Empty(t, changed) // An unexpected Update call fails via gomock.
 	}

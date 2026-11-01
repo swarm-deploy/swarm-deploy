@@ -110,9 +110,13 @@ func TestReconcileAgeSecretFailuresDoNotApplyServices(t *testing.T) {
 				serviceWaiter: newSuccessfulServiceWaiter(t)}
 			serviceManager := swarm.NewMockServiceManager(ctrl)
 			wireNativeTestDeployerWithServiceManager(t, d, serviceManager, false)
-			_, err := d.DeployStack(t.Context(), "app", filepath.Join(dir, "compose.yaml"), "unused", compose.Compose{
-				Services: minimalCompose("api").Services,
-				Secrets:  compose.Secrets{"password": {File: "password.age", Driver: tt.driver}},
+			_, err := d.DeployStack(t.Context(), StackRequest{
+				StackName:         "app",
+				SourceComposePath: filepath.Join(dir, "compose.yaml"),
+				Desired: compose.Compose{
+					Services: minimalCompose("api").Services,
+					Secrets:  compose.Secrets{"password": {File: "password.age", Driver: tt.driver}},
+				},
 			})
 			require.ErrorContains(t, err, tt.want)
 			assert.NotContains(t, err.Error(), "private-marker")

@@ -3,15 +3,10 @@ package services
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"reflect"
 	"slices"
-	"time"
 
-	"github.com/distribution/reference"
-	"github.com/docker/docker/api/types/container"
 	dockerswarm "github.com/docker/docker/api/types/swarm"
 	"github.com/swarm-deploy/swarm-deploy/internal/registry"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/labelsdict"
@@ -19,11 +14,8 @@ import (
 )
 
 const (
-	serviceUpdateAttempts  = 3
-	stackImageLabel        = "com.docker.stack.image"
-	defaultStopGracePeriod = 10 * time.Second
-	defaultRestartDelay    = 5 * time.Second
-	defaultUpdateMonitor   = 5 * time.Second
+	serviceUpdateAttempts = 3
+	stackImageLabel       = "com.docker.stack.image"
 )
 
 // Applier creates and updates final Docker service specifications.
@@ -45,7 +37,7 @@ type ApplyOptions struct {
 
 // Apply reconciles services in deterministic name order and returns changed service names.
 func (a *Applier) Apply(
-	ctx context.Context, stackName string, specs []dockerswarm.ServiceSpec, options ...ApplyOptions,
+	ctx context.Context, stackName string, specs []dockerswarm.ServiceSpec, options ApplyOptions,
 ) ([]string, error) {
 	desired := slices.Clone(specs)
 	slices.SortFunc(desired, func(left, right dockerswarm.ServiceSpec) int {
@@ -58,7 +50,7 @@ func (a *Applier) Apply(
 		return 0
 	})
 
-	retryFailed := len(options) > 0 && options[0].RetryFailedUpdates
+	retryFailed := options.RetryFailedUpdates
 	changed := make([]string, 0, len(desired))
 	for _, spec := range desired {
 		serviceName, serviceChanged, err := a.apply(ctx, stackName, spec, retryFailed)
@@ -212,188 +204,4 @@ func serviceName(stackName, fullName string) string {
 		return fullName[len(prefix):]
 	}
 	return fullName
-}
-
-func serviceSpecsEqual(current, desired dockerswarm.ServiceSpec) bool {
-	current = cloneSpec(current)
-	desired = cloneSpec(desired)
-	desired.TaskTemplate.ForceUpdate = current.TaskTemplate.ForceUpdate
-	normalizeImageResolution(&current, &desired)
-	normalizeDockerDefaults(&current)
-	normalizeDockerDefaults(&desired)
-	normalizeServiceSets(&current)
-	normalizeServiceSets(&desired)
-	return reflect.DeepEqual(canonicalSpec(current), canonicalSpec(desired))
-}
-
-func cloneSpec(spec dockerswarm.ServiceSpec) dockerswarm.ServiceSpec {
-	payload, _ := json.Marshal(spec)
-	var cloned dockerswarm.ServiceSpec
-	_ = json.Unmarshal(payload, &cloned)
-	return cloned
-}
-
-// normalizeImageResolution reuses the resolved image only when the actual reference
-// can be the SDK's resolution of the unchanged Compose reference. Labels alone
-// are insufficient evidence: repository, tag and explicit digest must agree.
-func normalizeImageResolution(current, desired *dockerswarm.ServiceSpec) bool {
-	if current.TaskTemplate.ContainerSpec == nil || desired.TaskTemplate.ContainerSpec == nil {
-		return false
-	}
-	wanted := desired.TaskTemplate.ContainerSpec.Image
-	actual := current.TaskTemplate.ContainerSpec.Image
-	if current.Labels[stackImageLabel] == "" || current.Labels[stackImageLabel] != desired.Labels[stackImageLabel] ||
-		!resolvedImageMatches(actual, wanted) {
-		return false
-	}
-	desired.TaskTemplate.ContainerSpec.Image = actual
-	if current.TaskTemplate.Placement != nil && len(current.TaskTemplate.Placement.Platforms) > 0 {
-		if desired.TaskTemplate.Placement == nil {
-			desired.TaskTemplate.Placement = &dockerswarm.Placement{}
-		}
-		desired.TaskTemplate.Placement.Platforms = slices.Clone(current.TaskTemplate.Placement.Platforms)
-	}
-	return true
-}
-
-func resolvedImageMatches(actual, wanted string) bool {
-	current, err := reference.ParseNormalizedNamed(actual)
-	if err != nil {
-		return false
-	}
-	desired, err := reference.ParseNormalizedNamed(wanted)
-	if err != nil || current.Name() != desired.Name() {
-		return false
-	}
-	if pinned, ok := desired.(reference.Canonical); ok {
-		resolved, canonical := current.(reference.Canonical)
-		return canonical && pinned.Digest() == resolved.Digest()
-	}
-	desired = reference.TagNameOnly(desired)
-	current = reference.TagNameOnly(current)
-	desiredTag, tagged := desired.(reference.Tagged)
-	currentTag, currentTagged := current.(reference.Tagged)
-	return tagged && currentTagged && desiredTag.Tag() == currentTag.Tag()
-}
-
-func digestPinned(spec dockerswarm.ServiceSpec) bool {
-	if spec.TaskTemplate.ContainerSpec == nil {
-		return false
-	}
-	named, err := reference.ParseNormalizedNamed(spec.TaskTemplate.ContainerSpec.Image)
-	if err != nil {
-		return false
-	}
-	_, pinned := named.(reference.Canonical)
-	return pinned
-}
-
-func normalizeDockerDefaults(spec *dockerswarm.ServiceSpec) {
-	if job := spec.Mode.ReplicatedJob; job != nil {
-		if job.MaxConcurrent == nil {
-			value := uint64(1)
-			job.MaxConcurrent = &value
-		}
-		if job.TotalCompletions == nil {
-			value := *job.MaxConcurrent
-			job.TotalCompletions = &value
-		}
-	}
-	if spec.Mode.Replicated != nil && spec.Mode.Replicated.Replicas == nil {
-		replicas := uint64(1)
-		spec.Mode.Replicated.Replicas = &replicas
-	}
-	if spec.EndpointSpec == nil {
-		spec.EndpointSpec = &dockerswarm.EndpointSpec{}
-	}
-	if spec.EndpointSpec.Mode == "" {
-		spec.EndpointSpec.Mode = dockerswarm.ResolutionModeVIP
-	}
-	if spec.TaskTemplate.ContainerSpec != nil {
-		// Engine's SwarmKit conversion returns explicit runtime/isolation
-		// defaults even when they were omitted in the create request.
-		if spec.TaskTemplate.Runtime == "" {
-			spec.TaskTemplate.Runtime = dockerswarm.RuntimeContainer
-		}
-		if spec.TaskTemplate.ContainerSpec.Isolation == "" {
-			spec.TaskTemplate.ContainerSpec.Isolation = container.IsolationDefault
-		}
-		if spec.TaskTemplate.ContainerSpec.StopGracePeriod == nil {
-			value := defaultStopGracePeriod
-			spec.TaskTemplate.ContainerSpec.StopGracePeriod = &value
-		}
-	}
-	if spec.TaskTemplate.RestartPolicy == nil {
-		spec.TaskTemplate.RestartPolicy = &dockerswarm.RestartPolicy{}
-	}
-	restart := spec.TaskTemplate.RestartPolicy
-	if restart.Condition == "" {
-		restart.Condition = dockerswarm.RestartPolicyConditionAny
-	}
-	if restart.Delay == nil {
-		value := defaultRestartDelay
-		restart.Delay = &value
-	}
-	if restart.MaxAttempts == nil {
-		value := uint64(0)
-		restart.MaxAttempts = &value
-	}
-	spec.UpdateConfig = normalizeUpdateConfig(spec.UpdateConfig)
-	spec.RollbackConfig = normalizeUpdateConfig(spec.RollbackConfig)
-}
-
-func normalizeUpdateConfig(config *dockerswarm.UpdateConfig) *dockerswarm.UpdateConfig {
-	if config == nil {
-		config = &dockerswarm.UpdateConfig{Parallelism: 1}
-	}
-	if config.FailureAction == "" {
-		config.FailureAction = dockerswarm.UpdateFailureActionPause
-	}
-	if config.Monitor == 0 {
-		config.Monitor = defaultUpdateMonitor
-	}
-	if config.Order == "" {
-		config.Order = dockerswarm.UpdateOrderStopFirst
-	}
-	return config
-}
-
-func canonicalSpec(spec dockerswarm.ServiceSpec) any {
-	payload, _ := json.Marshal(spec)
-	var value any
-	_ = json.Unmarshal(payload, &value)
-	return pruneEmpty(value)
-}
-
-func pruneEmpty(value any) any {
-	switch typed := value.(type) {
-	case map[string]any:
-		for key, child := range typed {
-			child = pruneEmpty(child)
-			if child == nil || isEmptyCollection(child) {
-				delete(typed, key)
-				continue
-			}
-			typed[key] = child
-		}
-		return typed
-	case []any:
-		for index := range typed {
-			typed[index] = pruneEmpty(typed[index])
-		}
-		return typed
-	default:
-		return value
-	}
-}
-
-func isEmptyCollection(value any) bool {
-	switch typed := value.(type) {
-	case map[string]any:
-		return len(typed) == 0
-	case []any:
-		return len(typed) == 0
-	default:
-		return false
-	}
 }

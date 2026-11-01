@@ -71,7 +71,7 @@ func TestForceUpdateAndResolvedImageSurviveUnrelatedUpdateAndConflict(t *testing
 			} else {
 				update(1, 7, nil)
 			}
-			changed, err := New(manager, &registry.NopAuthManager{}).Apply(t.Context(), "demo", []dockerswarm.ServiceSpec{desired})
+			changed, err := New(manager, &registry.NopAuthManager{}).Apply(t.Context(), "demo", []dockerswarm.ServiceSpec{desired}, ApplyOptions{})
 			require.NoError(t, err)
 			assert.Equal(t, []string{"api"}, changed)
 			assert.Zero(t, desired.TaskTemplate.ForceUpdate)
@@ -100,7 +100,7 @@ func TestRegistryResolutionDecisions(t *testing.T) {
 					assert.Equal(t, tc.after, spec.TaskTemplate.ContainerSpec.Image)
 					return nil
 				})
-			_, err := New(manager, &registry.NopAuthManager{}).Apply(t.Context(), "demo", []dockerswarm.ServiceSpec{desired})
+			_, err := New(manager, &registry.NopAuthManager{}).Apply(t.Context(), "demo", []dockerswarm.ServiceSpec{desired}, ApplyOptions{})
 			require.NoError(t, err)
 		})
 	}
@@ -112,7 +112,7 @@ func TestExternalForceUpdateDoesNotUpdateUnchangedService(t *testing.T) {
 	current := cloneSpec(desired)
 	current.TaskTemplate.ForceUpdate = 42
 	manager.EXPECT().Inspect(gomock.Any(), "demo_api").Return(service("id", 7, current), nil)
-	changed, err := New(manager, &registry.NopAuthManager{}).Apply(t.Context(), "demo", []dockerswarm.ServiceSpec{desired})
+	changed, err := New(manager, &registry.NopAuthManager{}).Apply(t.Context(), "demo", []dockerswarm.ServiceSpec{desired}, ApplyOptions{})
 	require.NoError(t, err)
 	assert.Empty(t, changed)
 }

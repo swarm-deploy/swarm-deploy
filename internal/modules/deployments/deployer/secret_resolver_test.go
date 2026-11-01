@@ -40,7 +40,11 @@ func TestSecretResolverValidatesReusedSecrets(t *testing.T) {
 				serviceWaiter:  newSuccessfulServiceWaiter(t)}
 			wireNativeTestDeployer(t, d)
 			desired := compose.Compose{Secrets: compose.Secrets{"password": {Name: "existing-password", File: "password.age"}}}
-			_, err = d.DeployStack(t.Context(), "app", filepath.Join(dir, "compose.yaml"), "rendered.yaml", desired)
+			_, err = d.DeployStack(t.Context(), StackRequest{
+				StackName:         "app",
+				SourceComposePath: filepath.Join(dir, "compose.yaml"),
+				Desired:           desired,
+			})
 			require.NoError(t, err)
 			switch scenario {
 			case "corrupt file":
@@ -52,7 +56,11 @@ func TestSecretResolverValidatesReusedSecrets(t *testing.T) {
 			case "missing identity":
 				d.secretResolver = newTestSecretResolver()
 			}
-			_, err = d.DeployStack(t.Context(), "app", filepath.Join(dir, "compose.yaml"), "rendered.yaml", desired)
+			_, err = d.DeployStack(t.Context(), StackRequest{
+				StackName:         "app",
+				SourceComposePath: filepath.Join(dir, "compose.yaml"),
+				Desired:           desired,
+			})
 			require.Error(t, err)
 			assert.NotContains(t, err.Error(), "private-corrupt-marker")
 			assert.NotContains(t, err.Error(), identity.String())

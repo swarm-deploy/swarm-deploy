@@ -1,6 +1,7 @@
 package faults
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net"
@@ -19,6 +20,7 @@ func TestSanitizeErrorPreservesClassificationWithoutCause(t *testing.T) {
 	}{
 		{name: "wrapped timeout", cause: fmt.Errorf("private-request-marker: %w", &net.OpError{Op: "private-key-marker", Err: syscall.ETIMEDOUT}), temporary: true},
 		{name: "permanent classified", cause: &net.OpError{Op: "private-key-marker", Err: errors.New("private-payload-marker")}},
+		{name: "deadline", cause: fmt.Errorf("private-request-marker: %w", context.DeadlineExceeded), temporary: true},
 		{name: "unclassified", cause: errors.New("private-payload-marker")},
 	} {
 		t.Run(test.name, func(t *testing.T) {

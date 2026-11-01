@@ -14,13 +14,12 @@ The current pipeline is:
 4. [Inject Downward metadata when enabled](./downward.md).
 5. Add the swarm-deploy managed label.
 6. [Rotate configs and secrets when enabled](./secrets-rotation.md).
-7. Write a rendered Compose file when the desired state was mutated.
-8. Submit the effective in-memory desired state to Deployments when the source digest changed or the desired state was mutated. Deployments validates desired state, reconciles networks, reconciles configs/secrets, converts Compose to Docker API specs, runs Init Jobs, captures the service baseline, applies services through the Docker API, and waits for convergence.
-9. Load live Swarm state.
-10. [Prune managed orphaned services when applicable](./prune.md).
-11. [Analyze drift](./drift.md).
-12. Reapply drifted services when their [self-heal policy](./drift.md#self-heal-policy) is enabled, without Init Jobs.
-13. Reload stack services once and verify every attempted repair against actual Swarm state.
+7. Submit the effective in-memory desired state to Deployments when the source digest changed or the desired state was mutated. Deployments validates desired state, reconciles networks, reconciles configs/secrets, converts Compose to Docker API specs, runs Init Jobs, captures the service baseline, applies services through the Docker API, and waits for convergence.
+8. Load live Swarm state.
+9. [Prune managed orphaned services when applicable](./prune.md).
+10. [Analyze drift](./drift.md).
+11. Reapply drifted services when their [self-heal policy](./drift.md#self-heal-policy) is enabled, without Init Jobs.
+12. Reload stack services once and verify every attempted repair against actual Swarm state.
 
 Some steps are conditional. For example, the image policy step is absent when every image rule is disabled, and environment population runs only when at least one desired service declares `env_file`.
 
@@ -95,9 +94,11 @@ swarm-deploy may mutate the loaded source Compose before deployment. Today this 
 - adding the managed-service label;
 - rotating config and secret object names.
 
-When any of these steps changes the desired state, swarm-deploy retains a temporary rendered Compose artifact. Native deployment consumes the effective in-memory desired state, not that file.
-
-The source Compose in Git is the declarative input. The prepared in-memory definition is the effective desired state converted into Docker API specs. The rendered artifact path remains in execution tracing for compatibility and is cleaned up after synchronous reconciliation. The shared preparation also normalizes source paths and projects API-managed secret references for single-service remediation; removing this infrastructure is a separate refactor.
+The source Compose in Git is the declarative input. Preparation produces an effective
+in-memory definition, which both stack deployments and single-service remediation
+submit directly to Deployments. No intermediate Compose file is written or read.
+Execution traces identify the original source Compose path. Legacy rendered files
+from older versions are removed after the controller acquires ownership.
 
 ## Configuration compatibility
 

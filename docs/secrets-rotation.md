@@ -15,8 +15,7 @@ secrets:
     file: ./secrets/db_password.age
 ```
 
-Paths are resolved relative to the source Compose file, including when a rendered
-Compose is used for deployment. Absolute paths are also supported. Only local
+Paths are resolved relative to the source Compose file. Absolute paths are also supported. Only local
 Secrets with the `.age` extension are decrypted; Configs and other secret files
 retain their existing behavior. External Secrets are reused unchanged. A secret
 file cannot be combined with an external secret driver.
@@ -53,8 +52,7 @@ API only when their `com.docker.stack.namespace` matches the current stack.
 Conflicting or missing ownership fails reconciliation without changing Secret
 labels; external Secrets remain untouched. Sanitized API failures retain their
 `Temporary()` classification for Alert Management. No decrypted file is written to disk or
-embedded in rendered
-Compose, deployment snapshots, logs, traces or errors. The original Compose and
+embedded in deployment snapshots, logs, traces or errors. The original Compose and
 encrypted file remain unchanged. Decrypted payloads must fit Docker's 500 KiB
 secret limit. Invalid keys, ciphertext and authentication failures stop creation
 and deployment without including their contents in diagnostics.

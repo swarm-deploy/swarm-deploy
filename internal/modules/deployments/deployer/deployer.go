@@ -7,12 +7,12 @@ import (
 
 	pipe "github.com/artarts36/gopipe"
 	"github.com/docker/docker/client"
-	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/converter"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/initjob"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/networks"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/services"
 	waiterpkg "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/waiter"
+	deploymentmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/registry"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/tracing"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
@@ -29,12 +29,15 @@ const (
 )
 
 type initJobExecutor interface {
+	// Run executes one ephemeral Init Job and returns its observed outcome.
 	Run(ctx context.Context, spec initjob.Spec) (initjob.Result, error)
 }
 
 type serviceWaitExecutor interface {
+	// Snapshot captures the stack state immediately before application.
 	Snapshot(ctx context.Context, stackName string) ([]swarm.StackService, error)
-	Wait(ctx context.Context, request waiterpkg.ServiceWaitRequest) error
+	// Wait returns unresolved targets independently of optional progress notifications.
+	Wait(ctx context.Context, request waiterpkg.ServiceWaitRequest) (waiterpkg.ServiceWaitResult, error)
 }
 
 // Deployer coordinates deployment execution components through two explicit pipelines.
@@ -85,26 +88,13 @@ func NewDeployer(
 }
 
 // DeployStack runs the full stack deployment pipeline.
-func (d *Deployer) DeployStack(
-	ctx context.Context,
-	stackName,
-	sourceComposePath,
-	deployComposePath string,
-	desired compose.Compose,
-	options ...StackOptions,
-) (Result, error) {
+func (d *Deployer) DeployStack(ctx context.Context, request StackRequest) (Result, error) {
 	d.attachPipelines()
 	payload := &deployStackPayload{
-		stackName:         stackName,
-		sourceComposePath: sourceComposePath,
-		deployComposePath: deployComposePath,
-		desired:           desired,
-		result:            Result{UnresolvedServices: []string{}},
-	}
-
-	if len(options) > 0 {
-		payload.retryFailedUpdates = options[0].RetryFailedUpdates
-		payload.unresolvedServices = options[0].UnresolvedServices
+		stackName: request.StackName, sourceComposePath: request.SourceComposePath, desired: request.Desired,
+		result:             Result{Verification: deploymentmodel.Verification{Known: true}},
+		retryFailedUpdates: request.Options.RetryFailedUpdates,
+		unresolvedServices: request.Options.UnresolvedServices,
 	}
 
 	ctx, span := otel.GetTracerProvider().Tracer(deployerTracerName).Start(
@@ -122,21 +112,11 @@ func (d *Deployer) DeployStack(
 }
 
 // DeployService runs the single-service deployment pipeline without Init Jobs or pruning.
-func (d *Deployer) DeployService(
-	ctx context.Context,
-	stackName,
-	sourceComposePath,
-	serviceName string,
-	desired,
-	deploy compose.Compose,
-) (Result, error) {
+func (d *Deployer) DeployService(ctx context.Context, request ServiceRequest) (Result, error) {
 	d.attachPipelines()
 	payload := &deployServicePayload{
-		stackName:         stackName,
-		sourceComposePath: sourceComposePath,
-		serviceName:       serviceName,
-		desired:           desired,
-		deploy:            deploy,
+		stackName: request.StackName, sourceComposePath: request.SourceComposePath,
+		serviceName: request.ServiceName, desired: request.Desired,
 	}
 
 	ctx, span := otel.GetTracerProvider().Tracer(deployerTracerName).Start(

@@ -23,7 +23,6 @@ type deployStackPayload struct {
 	applyPayload
 	stackName          string
 	sourceComposePath  string
-	deployComposePath  string
 	desired            compose.Compose
 	converted          *converter.StackSpec
 	resolved           resolvedResources
@@ -38,7 +37,6 @@ type deployServicePayload struct {
 	sourceComposePath string
 	serviceName       string
 	desired           compose.Compose
-	deploy            compose.Compose
 	prepared          compose.Compose
 	converted         *converter.StackSpec
 	resolved          resolvedResources

@@ -12,14 +12,15 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/resources"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/secrets"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/waiter"
+	deploymentmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 
 // Result contains observable results produced while deploying one stack.
 type Result struct {
-	// UnresolvedServices contains verification targets not observed ready; nil means unknown.
-	UnresolvedServices []string
+	// Verification contains the known rollout obligations produced by execution.
+	Verification deploymentmodel.Verification
 	// InitJobs contains completed Init Job executions in execution order.
 	InitJobs []InitJobResult
 }
@@ -40,6 +41,7 @@ type (
 	ServiceState            = waiter.ServiceState
 	ServiceProgress         = waiter.ServiceProgress
 	ServiceProgressCallback = waiter.ServiceProgressCallback
+	ServiceWaitResult       = waiter.ServiceWaitResult
 	ServiceWaitRequest      = waiter.ServiceWaitRequest
 	ServiceWaiter           = waiter.ServiceWaiter
 )
@@ -85,24 +87,34 @@ type StackOptions struct {
 	RetryFailedUpdates bool
 }
 
-// StackDeployer reconciles one stack through native Docker API execution.
+// StackRequest contains the effective stack and resource-resolution inputs.
+type StackRequest struct {
+	// StackName identifies the Docker stack namespace.
+	StackName string
+	// SourceComposePath is the original Compose path used to resolve resource files.
+	SourceComposePath string
+	// Desired is the prepared in-memory definition to apply.
+	Desired compose.Compose
+	// Options controls recovery of previous failed updates.
+	Options StackOptions
+}
+
+// ServiceRequest contains one service remediation without stack-wide Init Jobs or pruning.
+type ServiceRequest struct {
+	// StackName identifies the Docker stack namespace.
+	StackName string
+	// SourceComposePath is the original Compose path used to resolve resource files.
+	SourceComposePath string
+	// ServiceName is the Compose service name without the stack prefix.
+	ServiceName string
+	// Desired is the prepared in-memory stack containing the service.
+	Desired compose.Compose
+}
+
+// StackDeployer reconciles prepared desired state through native Docker API execution.
 type StackDeployer interface {
-	// DeployStack reconciles resources from sourceComposePath and applies the prepared desired stack.
-	DeployStack(
-		ctx context.Context,
-		stackName,
-		sourceComposePath,
-		deployComposePath string,
-		desired compose.Compose,
-		options ...StackOptions,
-	) (Result, error)
-	// DeployService reconciles resources and applies one service without pruning the rest of the stack.
-	DeployService(
-		ctx context.Context,
-		stackName,
-		sourceComposePath,
-		serviceName string,
-		desired,
-		deploy compose.Compose,
-	) (Result, error)
+	// DeployStack reconciles resources, runs Init Jobs, applies services and verifies convergence.
+	DeployStack(ctx context.Context, request StackRequest) (Result, error)
+	// DeployService reconciles resources and applies one service without Init Jobs or pruning.
+	DeployService(ctx context.Context, request ServiceRequest) (Result, error)
 }

@@ -50,7 +50,7 @@ func TestDeployPipelinesPreserveRequiredPhaseOrdering(t *testing.T) {
 	root := requireSpan(t, spans, deployStackOperationName)
 	assert.Equal(t, codes.Ok, root.Status().Code)
 	assertSpanAttributes(t, root, map[attribute.Key]string{
-		tracing.ResourceStackName: "demo", tracing.ResourceComposePath: "rendered.yaml",
+		tracing.ResourceStackName: "demo", tracing.ResourceComposePath: "source.yaml",
 	})
 }
 
@@ -86,7 +86,11 @@ func TestDeployStackStepErrorPreservesJobFailureType(t *testing.T) {
 	desired := minimalCompose("api")
 	desired.Services[0].InitJobs = append(desired.Services[0].InitJobs, composeInitJob("migrate"))
 
-	result, err := deployer.DeployStack(t.Context(), "demo", "source.yaml", "rendered.yaml", desired)
+	result, err := deployer.DeployStack(t.Context(), StackRequest{
+		StackName:         "demo",
+		SourceComposePath: "source.yaml",
+		Desired:           desired,
+	})
 	require.Error(t, err)
 	require.Len(t, result.InitJobs, 1)
 	assert.ErrorIs(t, err, jobErr)
@@ -135,9 +139,18 @@ func TestDeployPipelinesShareInterpolatedDesiredState(t *testing.T) {
 		}).Times(2)
 	deployer := &Deployer{secretResolver: newTestSecretResolver(), serviceWaiter: newSuccessfulServiceWaiter(t)}
 	wireNativeTestDeployerWithServiceManager(t, deployer, manager, false)
-	_, err = deployer.DeployStack(t.Context(), "demo", "source.yaml", "rendered.yaml", file.Compose)
+	_, err = deployer.DeployStack(t.Context(), StackRequest{
+		StackName:         "demo",
+		SourceComposePath: "source.yaml",
+		Desired:           file.Compose,
+	})
 	require.NoError(t, err)
-	_, err = deployer.DeployService(t.Context(), "demo", "source.yaml", "api", restored, restored)
+	_, err = deployer.DeployService(t.Context(), ServiceRequest{
+		StackName:         "demo",
+		SourceComposePath: "source.yaml",
+		ServiceName:       "api",
+		Desired:           restored,
+	})
 	require.NoError(t, err)
 	require.Len(t, applied, 2)
 	assert.Equal(t, applied[0], applied[1])
@@ -149,7 +162,11 @@ func TestDeployPipelinesShareInterpolatedDesiredState(t *testing.T) {
 
 func runMinimalStack(t *testing.T, deployer *Deployer) error {
 	t.Helper()
-	_, err := deployer.DeployStack(t.Context(), "demo", "source.yaml", "rendered.yaml", minimalCompose("api"))
+	_, err := deployer.DeployStack(t.Context(), StackRequest{
+		StackName:         "demo",
+		SourceComposePath: "source.yaml",
+		Desired:           minimalCompose("api"),
+	})
 	return err
 }
 
@@ -206,9 +223,18 @@ func TestUnchangedHistoricalPausedServiceIsNotAnAppliedTarget(t *testing.T) {
 			wireNativeTestDeployerWithServiceManager(t, d, manager, false)
 			var err error
 			if single {
-				_, err = d.DeployService(t.Context(), "demo", "source.yaml", "api", minimalCompose("api"), compose.Compose{})
+				_, err = d.DeployService(t.Context(), ServiceRequest{
+					StackName:         "demo",
+					SourceComposePath: "source.yaml",
+					ServiceName:       "api",
+					Desired:           minimalCompose("api"),
+				})
 			} else {
-				_, err = d.DeployStack(t.Context(), "demo", "source.yaml", "rendered.yaml", minimalCompose("api"))
+				_, err = d.DeployStack(t.Context(), StackRequest{
+					StackName:         "demo",
+					SourceComposePath: "source.yaml",
+					Desired:           minimalCompose("api"),
+				})
 			}
 			require.NoError(t, err)
 			// gomock permits no update: desired ServiceSpec was already accepted.
@@ -238,7 +264,12 @@ func TestRetryPausedStackActuallyAppliesNewTaskGeneration(t *testing.T) {
 	manager.EXPECT().ListTasks(gomock.Any(), "service-id").Return([]swarm.ServiceTask{{ID: "new-task", DesiredState: swarm.TaskStateRunning, CurrentState: swarm.TaskStateRunning, CreatedAt: now}}, nil)
 	d := &Deployer{secretResolver: newTestSecretResolver(), serviceWaiter: waiterpkg.NewServiceWaiter(manager, time.Millisecond, time.Second)}
 	wireNativeTestDeployerWithServiceManager(t, d, manager, false)
-	_, err := d.DeployStack(t.Context(), "demo", "source.yaml", "rendered.yaml", minimalCompose("api"), StackOptions{RetryFailedUpdates: true})
+	_, err := d.DeployStack(t.Context(), StackRequest{
+		StackName:         "demo",
+		SourceComposePath: "source.yaml",
+		Desired:           minimalCompose("api"),
+		Options:           StackOptions{RetryFailedUpdates: true},
+	})
 	require.NoError(t, err)
 }
 
@@ -262,11 +293,16 @@ func TestAcceptedUnchangedRolloutIsVerified(t *testing.T) {
 			manager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "demo"}).Return([]swarm.StackService{after}, nil)
 			d := &Deployer{secretResolver: newTestSecretResolver(), serviceWaiter: waiterpkg.NewServiceWaiter(manager, time.Millisecond, time.Second)}
 			wireNativeTestDeployerWithServiceManager(t, d, manager, false)
-			var options []StackOptions
+			options := StackOptions{}
 			if retry {
-				options = append(options, StackOptions{RetryFailedUpdates: true})
+				options.RetryFailedUpdates = true
 			}
-			_, err := d.DeployStack(t.Context(), "demo", "source.yaml", "rendered.yaml", minimalCompose("api"), options...)
+			_, err := d.DeployStack(t.Context(), StackRequest{
+				StackName:         "demo",
+				SourceComposePath: "source.yaml",
+				Desired:           minimalCompose("api"),
+				Options:           options,
+			})
 			require.NoError(t, err)
 		})
 	}
@@ -285,13 +321,17 @@ func TestFailuresDistinguishPreApplyChecksFromPartialServiceApply(t *testing.T) 
 				manager.EXPECT().Inspect(gomock.Any(), "demo_api").Return(dockerswarm.Service{}, swarm.ErrServiceNotFound)
 				manager.EXPECT().Create(gomock.Any(), gomock.Any(), gomock.Any()).Return("", assert.AnError)
 			}
-			result, err := d.DeployStack(t.Context(), "demo", "source.yaml", "rendered.yaml", desired)
+			result, err := d.DeployStack(t.Context(), StackRequest{
+				StackName:         "demo",
+				SourceComposePath: "source.yaml",
+				Desired:           desired,
+			})
 			require.Error(t, err)
 			if preApply {
-				require.NotNil(t, result.UnresolvedServices, "known pre-apply failure cannot invent a failed service generation")
-				assert.Empty(t, result.UnresolvedServices)
+				assert.True(t, result.Verification.Known, "known pre-apply failure cannot invent a failed service generation")
+				assert.Empty(t, result.Verification.UnresolvedServices)
 			} else {
-				assert.Nil(t, result.UnresolvedServices, "partial service apply needs conservative verification")
+				assert.False(t, result.Verification.Known, "partial service apply needs conservative verification")
 			}
 		})
 	}

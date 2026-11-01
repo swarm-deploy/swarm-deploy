@@ -38,9 +38,8 @@ const (
 
 // Completion describes the terminal outcome selected by a deployment orchestrator.
 type Completion struct {
-	// UnresolvedServices contains applied services not proven converged by this execution.
-	// Nil on failure conservatively retains every desired service for legacy/unknown outcomes.
-	UnresolvedServices []string
+	// Verification contains the rollout obligations known at completion.
+	Verification deploymentmodel.Verification
 	// Outcome identifies the terminal transition.
 	Outcome CompletionOutcome
 	// Diagnostic contains optional technical context and is sanitized before persistence or publication.
@@ -50,18 +49,18 @@ type Completion struct {
 }
 
 type completionState struct {
-	unresolvedServices []string
-	status             deploymentmodel.Status
-	errorCode          string
-	diagnostic         error
-	retryable          bool
-	phase              deploymentmodel.Phase
-	apply              deploymentmodel.StageStatus
-	verification       deploymentmodel.StageStatus
-	cleanup            deploymentmodel.StageStatus
-	actual             deploymentmodel.ActualStateStatus
-	observedAt         *time.Time
-	eventStage         string
+	rolloutVerification deploymentmodel.Verification
+	status              deploymentmodel.Status
+	errorCode           string
+	diagnostic          error
+	retryable           bool
+	phase               deploymentmodel.Phase
+	apply               deploymentmodel.StageStatus
+	verification        deploymentmodel.StageStatus
+	cleanup             deploymentmodel.StageStatus
+	actual              deploymentmodel.ActualStateStatus
+	observedAt          *time.Time
+	eventStage          string
 }
 
 // Complete persists one terminal attempt transition, updates the successful baseline when applicable,
@@ -111,19 +110,21 @@ func (s *Service) complete(
 	attempt.VerificationStatus, attempt.CleanupStatus = state.verification, state.cleanup
 	attempt.ActualStateStatus, attempt.ObservedAt = state.actual, state.observedAt
 	if state.status == deploymentmodel.Succeeded {
-		deployment.UnresolvedServices = nil
+		deployment.Verification = deploymentmodel.Verification{Known: true}
 	} else {
-		stateInheritedServices := deployment.UnresolvedServices
-		unresolved := state.unresolvedServices
-		if unresolved == nil {
+		stateInheritedServices := deployment.Verification.UnresolvedServices
+		unresolved := state.rolloutVerification.UnresolvedServices
+		if !state.rolloutVerification.Known {
 			unresolved = desiredServiceNames(desired)
 		}
-		deployment.UnresolvedServices = append([]string{}, unresolved...)
+		deployment.Verification = deploymentmodel.Verification{Known: true, UnresolvedServices: slices.Clone(unresolved)}
 		if state.phase == deploymentmodel.PhaseApply {
-			deployment.UnresolvedServices = append(deployment.UnresolvedServices, stateInheritedServices...)
+			deployment.Verification.UnresolvedServices = append(
+				deployment.Verification.UnresolvedServices, stateInheritedServices...,
+			)
 		}
-		slices.Sort(deployment.UnresolvedServices)
-		deployment.UnresolvedServices = slices.Compact(deployment.UnresolvedServices)
+		slices.Sort(deployment.Verification.UnresolvedServices)
+		deployment.Verification.UnresolvedServices = slices.Compact(deployment.Verification.UnresolvedServices)
 	}
 	if err = s.store.FinishAttempt(ctx, deployment, attempt); err != nil {
 		return err
@@ -138,10 +139,10 @@ func (s *Service) complete(
 
 func (completion Completion) state() (completionState, error) {
 	state := completionState{
-		unresolvedServices: completion.rolloutObligations(),
-		errorCode:          completion.ErrorCode(),
-		diagnostic:         faults.SafeError(completion.Diagnostic),
-		observedAt:         completion.ObservedAt,
+		rolloutVerification: completion.rolloutObligations(),
+		errorCode:           completion.ErrorCode(),
+		diagnostic:          faults.SafeError(completion.Diagnostic),
+		observedAt:          completion.ObservedAt,
 	}
 	// Persist retry eligibility without changing the stable public failure codes.
 	switch completion.Outcome {
@@ -261,12 +262,12 @@ func (s *Service) publishCompletion(
 	}
 }
 
-func (completion Completion) rolloutObligations() []string {
+func (completion Completion) rolloutObligations() deploymentmodel.Verification {
 	// A failed pre-apply check has not created a new failed service generation.
 	// Keep inherited obligations, but do not require replacement of healthy tasks.
-	if completion.UnresolvedServices == nil &&
+	if !completion.Verification.Known &&
 		(completion.Outcome == CompletionInitJobFailed || completion.Outcome == CompletionPolicyRejected) {
-		return []string{}
+		return deploymentmodel.Verification{Known: true}
 	}
-	return completion.UnresolvedServices
+	return completion.Verification
 }

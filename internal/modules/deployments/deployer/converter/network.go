@@ -10,6 +10,7 @@ import (
 	dockernetwork "github.com/docker/docker/api/types/network"
 	dockerswarm "github.com/docker/docker/api/types/swarm"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 
@@ -58,7 +59,7 @@ func (c *Converter) convertNetworks(
 				return nil, fmt.Errorf("networks.%s: required network missing; reconcile it before conversion", alias)
 			}
 			if err != nil {
-				return nil, fmt.Errorf("networks.%s: Docker metadata lookup failed", alias)
+				return nil, faults.SanitizeError(err, fmt.Sprintf("networks.%s: Docker metadata lookup failed", alias))
 			}
 			byName[name] = existing
 		}

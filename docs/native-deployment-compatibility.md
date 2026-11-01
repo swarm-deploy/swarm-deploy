@@ -156,6 +156,10 @@ with existing sanitization.
 The native applier supplies the exact created/updated service names to the waiter.
 The waiter waits for the applied service version and a fresh rollout status before
 accepting running tasks. Old running tasks do not satisfy a new task generation.
+The caller supplies the complete verification target set; the waiter returns
+unresolved targets independently of optional progress callbacks. In-memory
+results explicitly distinguish known obligations from an unknown outcome.
+Legacy null/array metadata remains compatible at the persistence boundary.
 Unrelated unchanged services, including historical paused updates, are excluded.
 Accepted updates still in progress are verified even when their specs are unchanged.
 With no mutations or active updates, stack apply is a no-op rather than a health check.

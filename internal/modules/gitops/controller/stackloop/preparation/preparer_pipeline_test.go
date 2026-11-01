@@ -57,7 +57,6 @@ func TestPrepareRecordsOriginalStepSpans(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	defer preparer.Cleanup(t.Context(), prepared)
 
 	var names []string
 	for _, span := range spans.Ended() {
@@ -65,8 +64,7 @@ func TestPrepareRecordsOriginalStepSpans(t *testing.T) {
 	}
 	assert.Contains(t, names, "prepare stack")
 	assert.Contains(t, names, "add managed label")
-	assert.Contains(t, names, "write rendered compose")
-	assert.FileExists(t, prepared.RenderedComposePath)
+	assert.Equal(t, labelsdict.ServiceManagedLabelValue, prepared.Compose.Services[0].Deploy.Labels.Map[labelsdict.ServiceManagedLabelKey])
 }
 
 func TestPrepareKeepsExistingManagedLabelWithoutRendering(t *testing.T) {
@@ -85,8 +83,7 @@ func TestPrepareKeepsExistingManagedLabelWithoutRendering(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	assert.Equal(t, "/repo/app.yaml", prepared.DeployComposePath)
-	assert.Empty(t, prepared.RenderedComposePath)
+	assert.Equal(t, "/repo/app.yaml", prepared.Path)
 }
 
 func TestPreparePreservesValidationErrorType(t *testing.T) {

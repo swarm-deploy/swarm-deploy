@@ -10,6 +10,7 @@ import (
 
 	dockerswarm "github.com/docker/docker/api/types/swarm"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/resources"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/labelsdict"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
@@ -48,7 +49,19 @@ func New(networks swarm.NetworkManager, configs swarm.ConfigManager, secrets swa
 
 // Validate checks whether desired can be converted without reading or changing Docker state.
 func (*Converter) Validate(stackName string, desired compose.Compose) error {
-	return validateStack(stackName, desired)
+	if err := validateStack(stackName, desired); err != nil {
+		return err
+	}
+	// Run the same conversion against declared resource names. Docker identities
+	// are resolved only in Convert; every local conversion error is caught here.
+	networks := planNetworks(stackName, desired)
+	objects := declaredObjects(stackName, desired)
+	for _, service := range desired.Services {
+		if _, err := convertService(stackName, service, desired.Volumes, networks, objects); err != nil {
+			return fmt.Errorf("services.%s: %w", service.Name, err)
+		}
+	}
+	return nil
 }
 
 // PlanNetworks returns the desired network specifications without reading or changing Docker state.
@@ -57,6 +70,10 @@ func (c *Converter) PlanNetworks(stackName string, desired compose.Compose) ([]N
 	if err := c.Validate(stackName, desired); err != nil {
 		return nil, err
 	}
+	return planNetworks(stackName, desired), nil
+}
+
+func planNetworks(stackName string, desired compose.Compose) []NetworkSpec {
 	definitions := networkDefinitions(desired)
 	result := make([]NetworkSpec, 0, len(definitions))
 	for _, alias := range sortedKeys(definitions) {
@@ -66,7 +83,25 @@ func (c *Converter) PlanNetworks(stackName string, desired compose.Compose) ([]N
 			Alias: alias, External: definition.External, Spec: networkSpec(stackName, name, definition),
 		})
 	}
-	return result, nil
+	return result
+}
+
+func declaredObjects(stackName string, desired compose.Compose) resources.Resolved {
+	objects := resources.Resolved{
+		Configs: make(map[string]resources.ResolvedResource, len(desired.Configs)),
+		Secrets: make(map[string]resources.ResolvedResource, len(desired.Secrets)),
+	}
+	for alias, object := range desired.Configs {
+		objects.Configs[alias] = resources.ResolvedResource{
+			Name: resourceName(stackName, alias, object.Name, object.External),
+		}
+	}
+	for alias, object := range desired.Secrets {
+		objects.Secrets[alias] = resources.ResolvedResource{
+			Name: resourceName(stackName, alias, object.Name, object.External),
+		}
+	}
+	return objects
 }
 
 // Convert builds final specifications. Missing resources produce an error and no partial result.
