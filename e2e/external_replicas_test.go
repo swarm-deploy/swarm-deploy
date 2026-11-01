@@ -41,7 +41,7 @@ type externalSwarmFixture struct {
 	subnet      string
 }
 
-func newExternalSwarmFixture(t *testing.T) *externalSwarmFixture {
+func newExternalSwarmFixture(t *testing.T, waitTimeout ...time.Duration) *externalSwarmFixture {
 	t.Helper()
 	if os.Getenv("SWARM_DEPLOY_E2E") != "1" {
 		t.Skip("set SWARM_DEPLOY_E2E=1 to run against a real initialized Docker Swarm")
@@ -54,7 +54,11 @@ func newExternalSwarmFixture(t *testing.T) *externalSwarmFixture {
 	f := &externalSwarmFixture{ctx: ctx, sw: swarm.NewSwarm(cli),
 		stack: fmt.Sprintf("sdexternal%d", time.Now().UnixNano()), path: filepath.Join(t.TempDir(), "compose.yaml"),
 		subnet: fmt.Sprintf("198.18.%d.0/24", externalSubnetSequence.Add(1))}
-	f.deployer = deployer.NewDeployer(100*time.Millisecond, 40*time.Second, cli, f.sw, nil,
+	timeout := 40 * time.Second
+	if len(waitTimeout) > 0 {
+		timeout = waitTimeout[0]
+	}
+	f.deployer = deployer.NewDeployer(100*time.Millisecond, timeout, cli, f.sw, nil,
 		deployer.NewSecretResolver(fs.NewLocalFileSystem(), deployer.PlaintextDecoder{}))
 	t.Cleanup(func() {
 		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 25*time.Second)
