@@ -26,6 +26,7 @@ import (
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/labelsdict"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	"go.uber.org/mock/gomock"
 )
@@ -80,17 +81,20 @@ func TestDeferredDeploymentIsolatesIndependentReconciliation(t *testing.T) {
 			failed, _, err := deploymentstore.NewStore(db).Latest(t.Context(), "app")
 			require.NoError(t, err)
 			// First observe healthy independent services. The orphan remains untouched even with prune enabled.
-			healthy := []swarm.StackService{{Name: "a", UpdateStatus: &swarm.ServiceUpdateStatus{State: "paused"}}, {Name: "b"}, {Name: "c"}, {Name: "orphan"}}
+			orphan := swarm.StackService{ID: "orphan-id", Name: "orphan", Labels: map[string]string{
+				labelsdict.ServiceManagedLabelKey: labelsdict.ServiceManagedLabelValue,
+			}}
+			healthy := []swarm.StackService{{Name: "a", UpdateStatus: &swarm.ServiceUpdateStatus{State: "paused"}}, {Name: "b"}, {Name: "c"}, orphan}
 			manager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "app"}).Return(healthy, nil)
 			require.NoError(t, create().Reconcile(t.Context(), req))
 			assert.Equal(t, model.SyncStatus(model.SyncStatusSynced), readSQLState(t, stateStore).Stacks["app"].Services["b"].SyncStatus)
 			// Then both a and b disappear: only b may be remediated. Recreate the process on every tick.
-			missing := []swarm.StackService{{Name: "c"}, {Name: "orphan"}}
+			missing := []swarm.StackService{{Name: "c"}, orphan}
 			for range 3 {
 				manager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "app"}).Return(missing, nil)
 				if tc.heal {
 					stackDeployer.EXPECT().DeployService(gomock.Any(), "app", gomock.Any(), "b", gomock.Any(), gomock.Any()).Return(deployer.Result{}, nil)
-					manager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "app"}).Return([]swarm.StackService{{Name: "b"}, {Name: "c"}, {Name: "orphan"}}, nil)
+					manager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "app"}).Return([]swarm.StackService{{Name: "b"}, {Name: "c"}, orphan}, nil)
 				}
 				require.NoError(t, create().Reconcile(t.Context(), req))
 				state := readSQLState(t, stateStore).Stacks["app"]
@@ -104,6 +108,9 @@ func TestDeferredDeploymentIsolatesIndependentReconciliation(t *testing.T) {
 				assert.Equal(t, want, state.Services["b"].SyncStatus)
 				assert.Equal(t, model.SyncStatus(model.SyncStatusSynced), state.Services["c"].SyncStatus)
 			}
+			// A maintenance observation error must not become a new SyncFailed occurrence.
+			manager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "app"}).Return(nil, assert.AnError)
+			require.Error(t, create().Reconcile(t.Context(), req))
 			after, _, err := deploymentstore.NewStore(db).Latest(t.Context(), "app")
 			require.NoError(t, err)
 			assert.Equal(t, deploymentmodel.Failed, after.Status)
