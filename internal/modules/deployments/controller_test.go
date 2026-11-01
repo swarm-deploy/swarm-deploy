@@ -225,7 +225,7 @@ func TestControllerExecuteRetriesAndSupersedesThroughCanonicalLifecycle(t *testi
 	req := executionRequest("worker:1")
 	req.Stack.Name = "other"
 	req.Commit = "two"
-	stackDeployer.EXPECT().DeployStack(gomock.Any(), "other", "app.yaml", "rendered.yaml", gomock.Any()).
+	stackDeployer.EXPECT().DeployStack(gomock.Any(), "other", "app.yaml", "rendered.yaml", gomock.Any(), deployer.StackOptions{UnresolvedServices: []string{"api"}}).
 		Return(deployer.Result{}, nil)
 	services.EXPECT().ListServices(gomock.Any(), gomock.Any()).Return(nil, nil)
 	newer, err := controller.Execute(t.Context(), req)
