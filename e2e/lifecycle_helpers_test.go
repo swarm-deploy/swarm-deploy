@@ -162,7 +162,11 @@ func (f *lifecycleFixture) runningIDs(t *testing.T, name string, count int) []st
 	f.poll(t, fmt.Sprintf("%s has %d running tasks and no pending desired tasks", name, count), func() bool {
 		ids = nil
 		desired := 0
+		running := 0
 		for _, task := range f.tasks(t, name) {
+			if task.CurrentState == swarm.TaskStateRunning {
+				running++
+			}
 			if task.DesiredState == swarm.TaskStateRunning {
 				desired++
 				if task.CurrentState == swarm.TaskStateRunning {
@@ -170,7 +174,9 @@ func (f *lifecycleFixture) runningIDs(t *testing.T, name string, count int) []st
 				}
 			}
 		}
-		return len(ids) == count && desired == count
+		// Include tasks still stopping after scale-down/rollback; desired-state
+		// counts alone can hide a temporarily over-replicated real service.
+		return len(ids) == count && desired == count && running == count
 	})
 	slices.Sort(ids)
 	return ids
