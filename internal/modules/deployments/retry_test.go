@@ -1,6 +1,7 @@
 package deployments
 
 import (
+	"errors"
 	"testing"
 	"time"
 
@@ -84,3 +85,38 @@ func TestAutomaticRetryBackoffIsCappedAndPersistsAcrossRestart(t *testing.T) {
 		})
 	}
 }
+
+func TestApplyFailuresRetryOnlyWhenExplicitlyTemporary(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		outcome CompletionOutcome
+		diagnostic error
+		retry bool
+	}{
+		{name: "unclassified apply", outcome: CompletionApplyFailed, diagnostic: errors.New("invalid service")},
+		{name: "unclassified init job", outcome: CompletionInitJobFailed, diagnostic: errors.New("exit 1")},
+		{name: "unclassified cleanup", outcome: CompletionCleanupFailed, diagnostic: errors.New("invalid operation")},
+		{name: "temporary apply", outcome: CompletionApplyFailed, diagnostic: retryTestTemporaryError{}, retry: true},
+		{name: "temporary init job", outcome: CompletionInitJobFailed, diagnostic: retryTestTemporaryError{}, retry: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			now := time.Now().UTC()
+			db, service, bus := openService(t, WithClock(func() time.Time { return now }))
+			desired := desiredServices("api")
+			attempt, err := service.StartIfChanged(t.Context(), "app", "first", desired, true)
+			require.NoError(t, err)
+			completion := Completion{Outcome: tc.outcome, Diagnostic: tc.diagnostic}
+			if tc.outcome == CompletionCleanupFailed { completion.ObservedAt = &now }
+			require.NoError(t, service.Complete(t.Context(), attempt.ID, completion))
+			service = NewService(db, bus, WithClock(func() time.Time { return now }))
+			now = now.Add(2 * time.Hour)
+			next, err := service.StartIfChanged(t.Context(), "app", "tick", desired, false)
+			require.NoError(t, err)
+			if tc.retry { require.NotNil(t, next); assert.Equal(t, 2, next.Number) } else { assert.Nil(t, next) }
+		})
+	}
+}
+
+type retryTestTemporaryError struct{}
+func (retryTestTemporaryError) Error() string { return "temporary unavailable" }
+func (retryTestTemporaryError) Temporary() bool { return true }
