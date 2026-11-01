@@ -8,6 +8,8 @@ import (
 	"go.yaml.in/yaml/v3"
 )
 
+const yamlNullTag = "!!null"
+
 // validateComposeSyntax rejects unsupported keys before YAML decoding can silently
 // discard them. Extension fields and Swarm-ignored service options are deliberately
 // excluded from the effective state, not retained as arbitrary model data.
@@ -32,7 +34,7 @@ func checkComposeFields(node *yaml.Node, typ reflect.Type, path string, ignored 
 	if node.Kind == yaml.AliasNode {
 		return checkComposeFields(node.Alias, typ, path, ignored)
 	}
-	if node.Kind == yaml.ScalarNode || node.Tag == "!!null" {
+	if node.Kind == yaml.ScalarNode || node.Tag == yamlNullTag {
 		return nil // The YAML decoder validates scalar types.
 	}
 	for typ.Kind() == reflect.Pointer {
@@ -61,34 +63,47 @@ func checkComposeFields(node *yaml.Node, typ reflect.Type, path string, ignored 
 	case reflect.Slice, reflect.Array:
 		return checkSequenceComposeValues(node, typ.Elem(), path, ignored)
 	case reflect.Struct:
-		if node.Kind != yaml.MappingNode {
-			return nil // The YAML decoder reports malformed shapes.
-		}
-		for i := 0; i+1 < len(node.Content); i += 2 {
-			key, value := node.Content[i].Value, node.Content[i+1]
-			if key == "<<" {
-				if err := checkComposeMerge(value, typ, path, ignored); err != nil {
-					return err
-				}
-				continue
-			}
-			fieldType, exists := composeFieldType(typ, key)
-			if !exists {
-				if strings.HasPrefix(key, "x-") || (typ == reflect.TypeFor[Compose]() && key == "version") {
-					continue
-				}
-				if typ == reflect.TypeFor[Service]() && IsSwarmIgnoredOption(key) {
-					*ignored = append(*ignored, path+"."+key)
-					continue
-				}
-				return fmt.Errorf("%s.%s: unsupported Compose option", path, key)
-			}
-			if err := checkComposeFields(value, fieldType, path+"."+key, ignored); err != nil {
+		return checkComposeStructFields(node, typ, path, ignored)
+	default:
+		return nil
+	}
+}
+
+func checkComposeStructFields(node *yaml.Node, typ reflect.Type, path string, ignored *[]string) error {
+	if node.Kind != yaml.MappingNode {
+		return nil // The YAML decoder reports malformed shapes.
+	}
+	for i := 0; i+1 < len(node.Content); i += 2 {
+		key, value := node.Content[i].Value, node.Content[i+1]
+		if key == "<<" {
+			if err := checkComposeMerge(value, typ, path, ignored); err != nil {
 				return err
 			}
+			continue
+		}
+		fieldType, exists := composeFieldType(typ, key)
+		if !exists {
+			if err := checkUnknownComposeField(typ, path, key, ignored); err != nil {
+				return err
+			}
+			continue
+		}
+		if err := checkComposeFields(value, fieldType, path+"."+key, ignored); err != nil {
+			return err
 		}
 	}
 	return nil
+}
+
+func checkUnknownComposeField(typ reflect.Type, path, key string, ignored *[]string) error {
+	if strings.HasPrefix(key, "x-") || (typ == reflect.TypeFor[Compose]() && key == "version") {
+		return nil
+	}
+	if typ == reflect.TypeFor[Service]() && IsSwarmIgnoredOption(key) {
+		*ignored = append(*ignored, path+"."+key)
+		return nil
+	}
+	return fmt.Errorf("%s.%s: unsupported Compose option", path, key)
 }
 
 func checkMappedComposeValues(node *yaml.Node, typ reflect.Type, path string, ignored *[]string) error {

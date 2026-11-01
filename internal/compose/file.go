@@ -92,7 +92,9 @@ func (l *fileLoader) Load(ctx context.Context, path string) (*File, error) {
 	}
 	ignored, validateErr := validateComposeSyntax(&syntax)
 	if validateErr != nil {
-		if interpolated { validateErr = fmt.Errorf("unsupported Compose option after interpolation") }
+		if interpolated {
+			validateErr = fmt.Errorf("unsupported Compose option after interpolation")
+		}
 		return nil, &ValidateComposeError{FilePath: path, Issues: decodeIssues(validateErr), Err: validateErr}
 	}
 	schema := Compose{}

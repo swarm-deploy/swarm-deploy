@@ -176,4 +176,3 @@ func validateFileTargets(field string, refs []compose.ObjectRef, secret bool) er
 	}
 	return nil
 }
-

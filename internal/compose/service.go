@@ -69,10 +69,10 @@ type Service struct {
 	Environment Environment    `yaml:"environment,omitempty" json:"environment,omitempty"`
 	InitJobs    []InitJob      `yaml:"x-init-deploy-jobs,omitempty" json:"init_jobs,omitempty"`
 	Deploy      ServiceDeploy  `yaml:"deploy,omitempty" json:"deploy"`
-	// IgnoredOptions contains tolerated Swarm-ignored source keys; never persisted.
-	IgnoredOptions []string `yaml:"-" json:"-"`
 	Logging     ServiceLogging `yaml:"logging,omitempty" json:"logging,omitempty"`
 	Volumes     ServiceVolumes `yaml:"volumes,omitempty" json:"volumes"`
+	// IgnoredOptions contains tolerated Swarm-ignored source keys; never persisted.
+	IgnoredOptions []string `yaml:"-" json:"-"`
 }
 
 type ServiceHealth struct {

@@ -64,5 +64,5 @@ type ServiceDeployPlacement struct {
 }
 
 type ServiceDeployPlacementPreference struct {
-	Spread string                 `yaml:"spread,omitempty" json:"spread,omitempty"`
+	Spread string `yaml:"spread,omitempty" json:"spread,omitempty"`
 }
