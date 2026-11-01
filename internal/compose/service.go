@@ -130,6 +130,10 @@ func (s *Services) UnmarshalYAML(n *yaml.Node) error {
 			continue
 		}
 
+		if strings.HasPrefix(name, "x-") {
+			continue
+		}
+
 		var srv Service
 
 		err := cn.Decode(&srv)
