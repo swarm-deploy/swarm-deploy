@@ -57,7 +57,7 @@ jobs:
               await dialog.getByLabel('Path',{exact:true}).fill('production/app/database-dsn');
               await dialog.getByRole('button',{name:'DSN',exact:true}).click();
               await dialog.getByLabel('Database service',{exact:true}).selectOption(sample.service);
-              const value = dialog.getByRole('textbox',{name:'Secret value (DSN)',exact:true});
+              const value = dialog.getByLabel('Secret value (DSN)',{exact:true});
               if (sample.service === 'infra_postgres') {
                 await dialog.getByLabel('Password',{exact:true}).fill('example-password');
                 await dialog.getByRole('button',{name:'Reveal',exact:true}).click();
