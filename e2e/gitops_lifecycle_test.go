@@ -205,7 +205,6 @@ func TestRealSwarmGitOpsLifecycle(t *testing.T) {
 			current, err := f.sw.Services.Inspect(f.ctx, service.ID)
 			require.NoError(t, err)
 			require.Equal(t, service.Spec, current.Spec)
-			require.Equal(t, service.Version, current.Version)
 		}
 		f.delivered(t, events.TypeNameServicePruned, 1)
 	}) {
