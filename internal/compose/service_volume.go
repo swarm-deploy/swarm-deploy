@@ -180,14 +180,14 @@ func (sv *ServiceVolume) UnmarshalString(raw string) error {
 		sv.Type = ServiceVolumeTypeVolume
 		sv.Source = parts[0]
 		sv.Target = parts[1]
-		if strings.Contains(sv.Source, ".") || strings.Contains(sv.Source, "/") {
+		if strings.HasPrefix(sv.Source, ".") || strings.Contains(sv.Source, "/") {
 			sv.Type = ServiceVolumeTypeBind
 		}
 	case 3: //nolint:mnd // volume and bind with modes
 		sv.Type = ServiceVolumeTypeVolume
 		sv.Source = parts[0]
 		sv.Target = parts[1]
-		if strings.Contains(sv.Source, ".") || strings.Contains(sv.Source, "/") {
+		if strings.HasPrefix(sv.Source, ".") || strings.Contains(sv.Source, "/") {
 			sv.Type = ServiceVolumeTypeBind
 		}
 
