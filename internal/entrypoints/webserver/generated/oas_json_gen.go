@@ -2812,12 +2812,17 @@ func (s *DSNSuggestion) encodeFields(e *jx.Encoder) {
 		e.FieldStart("engine")
 		s.Engine.Encode(e)
 	}
+	{
+		e.FieldStart("port")
+		s.Port.Encode(e)
+	}
 }
 
-var jsonFieldsNameOfDSNSuggestion = [3]string{
+var jsonFieldsNameOfDSNSuggestion = [4]string{
 	0: "service_name",
 	1: "stack",
 	2: "engine",
+	3: "port",
 }
 
 // Decode decodes DSNSuggestion from json.
@@ -2863,6 +2868,16 @@ func (s *DSNSuggestion) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"engine\"")
 			}
+		case "port":
+			requiredBitSet[0] |= 1 << 3
+			if err := func() error {
+				if err := s.Port.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"port\"")
+			}
 		default:
 			return d.Skip()
 		}
@@ -2873,7 +2888,7 @@ func (s *DSNSuggestion) Decode(d *jx.Decoder) error {
 	// Validate required fields.
 	var failures []validate.FieldError
 	for i, mask := range [1]uint8{
-		0b00000111,
+		0b00001111,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -8152,6 +8167,52 @@ func (s NilDSNSuggestionEngine) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON implements stdjson.Unmarshaler.
 func (s *NilDSNSuggestionEngine) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes int as json.
+func (o NilInt) Encode(e *jx.Encoder) {
+	if o.Null {
+		e.Null()
+		return
+	}
+	e.Int(int(o.Value))
+}
+
+// Decode decodes int from json.
+func (o *NilInt) Decode(d *jx.Decoder) error {
+	if o == nil {
+		return errors.New("invalid: unable to decode NilInt to nil")
+	}
+	if d.Next() == jx.Null {
+		if err := d.Null(); err != nil {
+			return err
+		}
+
+		var v int
+		o.Value = v
+		o.Null = true
+		return nil
+	}
+	o.Null = false
+	v, err := d.Int()
+	if err != nil {
+		return err
+	}
+	o.Value = int(v)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s NilInt) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *NilInt) UnmarshalJSON(data []byte) error {
 	d := jx.DecodeBytes(data)
 	return s.Decode(d)
 }

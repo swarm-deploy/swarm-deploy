@@ -1139,6 +1139,9 @@ type DSNSuggestion struct {
 	ServiceName string                 `json:"service_name"`
 	Stack       string                 `json:"stack"`
 	Engine      NilDSNSuggestionEngine `json:"engine"`
+	// Suggested internal database port from supported server environment variables, or the engine
+	// default. Null for unknown engines. Published ports and command/config overrides are not inspected.
+	Port NilInt `json:"port"`
 }
 
 // GetServiceName returns the value of ServiceName.
@@ -1156,6 +1159,11 @@ func (s *DSNSuggestion) GetEngine() NilDSNSuggestionEngine {
 	return s.Engine
 }
 
+// GetPort returns the value of Port.
+func (s *DSNSuggestion) GetPort() NilInt {
+	return s.Port
+}
+
 // SetServiceName sets the value of ServiceName.
 func (s *DSNSuggestion) SetServiceName(val string) {
 	s.ServiceName = val
@@ -1169,6 +1177,11 @@ func (s *DSNSuggestion) SetStack(val string) {
 // SetEngine sets the value of Engine.
 func (s *DSNSuggestion) SetEngine(val NilDSNSuggestionEngine) {
 	s.Engine = val
+}
+
+// SetPort sets the value of Port.
+func (s *DSNSuggestion) SetPort(val NilInt) {
+	s.Port = val
 }
 
 type DSNSuggestionEngine string
@@ -3755,6 +3768,51 @@ func (o NilDSNSuggestionEngine) Get() (v DSNSuggestionEngine, ok bool) {
 
 // Or returns value if set, or given parameter if does not.
 func (o NilDSNSuggestionEngine) Or(d DSNSuggestionEngine) DSNSuggestionEngine {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewNilInt returns new NilInt with value set to v.
+func NewNilInt(v int) NilInt {
+	return NilInt{
+		Value: v,
+	}
+}
+
+// NilInt is nullable int.
+type NilInt struct {
+	Value int
+	Null  bool
+}
+
+// SetTo sets value to v.
+func (o *NilInt) SetTo(v int) {
+	o.Null = false
+	o.Value = v
+}
+
+// IsNull returns true if value is Null.
+func (o NilInt) IsNull() bool { return o.Null }
+
+// SetToNull sets value to null.
+func (o *NilInt) SetToNull() {
+	o.Null = true
+	var v int
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o NilInt) Get() (v int, ok bool) {
+	if o.Null {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o NilInt) Or(d int) int {
 	if v, ok := o.Get(); ok {
 		return v
 	}

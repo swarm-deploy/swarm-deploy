@@ -52,9 +52,9 @@ let dsnRequest = 0;
 const databaseService = computed(() => dsnSuggestions.value.find((item) => item.service_name === databaseServiceName.value));
 
 function serviceDescription(service: DSNSuggestion): string {
-  const engine = service.engine === "postgresql" ? "PostgreSQL · 5432"
-    : service.engine === "mysql" ? "MySQL · 3306" : "Unknown engine";
-  return [engine, service.stack].filter(Boolean).join(" · ");
+  const engine = service.engine === "postgresql" ? "PostgreSQL"
+    : service.engine === "mysql" ? "MySQL" : "Unknown engine";
+  return [engine, service.port, service.stack].filter(Boolean).join(" · ");
 }
 
 // Encode each URI component, including reserved characters left by encodeURIComponent.
@@ -65,13 +65,12 @@ function encodeDSNPart(part: string): string {
 function generateDSN(): void {
   const service = databaseService.value;
   if (dsnManual.value) return;
-  if (!service?.engine) {
+  if (!service?.engine || service.port === null) {
     generatedDSN = "";
     value.value = "";
     return;
   }
-  const port = service.engine === "postgresql" ? 5432 : 3306;
-  generatedDSN = `${service.engine}://${encodeDSNPart(databaseUser.value)}:${encodeDSNPart(databasePassword.value)}@${service.service_name}:${port}/${encodeDSNPart(databaseName.value)}`;
+  generatedDSN = `${service.engine}://${encodeDSNPart(databaseUser.value)}:${encodeDSNPart(databasePassword.value)}@${service.service_name}:${service.port}/${encodeDSNPart(databaseName.value)}`;
   value.value = generatedDSN;
 }
 

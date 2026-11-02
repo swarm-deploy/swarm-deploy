@@ -51,9 +51,9 @@ describe("CreateSecretModal", () => {
   beforeEach(() => {
     vi.resetAllMocks();
     vi.mocked(fetchDSNSuggestions).mockResolvedValue({ suggestions: [
-      { service_name: "infra_postgres", stack: "infra", engine: "postgresql" },
-      { service_name: "infra_mysql", stack: "infra", engine: "mysql" },
-      { service_name: "custom_database", stack: "", engine: null },
+      { service_name: "infra_postgres", stack: "infra", engine: "postgresql", port: 5432 },
+      { service_name: "infra_mysql", stack: "infra", engine: "mysql", port: 3306 },
+      { service_name: "custom_database", stack: "", engine: null, port: null },
     ] });
     vi.mocked(createSecret).mockResolvedValue({ id: "secret-id", name: "app-token" });
     vi.mocked(createExternalSecret).mockResolvedValue({
@@ -347,6 +347,29 @@ describe("CreateSecretModal", () => {
     expect(final()).toBe("postgresql://reader:example@infra_postgres:5432/orders");
     await wrapper.get('select[aria-label="Database service"]').setValue("infra_mysql");
     expect(final()).toBe("mysql://reader:example@infra_mysql:3306/orders");
+  });
+
+  it("uses API ports in service descriptions, reactive DSNs and the saved value", async () => {
+    vi.mocked(fetchDSNSuggestions).mockResolvedValueOnce({ suggestions: [
+      { service_name: "infra_postgres", stack: "infra", engine: "postgresql", port: 6543 },
+      { service_name: "infra_mysql", stack: "infra", engine: "mysql", port: 13306 },
+    ] });
+    const wrapper = mountModal();
+    await wrapper.findAll('[role="tab"]')[0].trigger("click");
+    await wrapper.get('input[aria-label="Name"]').setValue("db-dsn");
+    await openDSN(wrapper);
+    await wrapper.get('select[aria-label="Database service"]').setValue("infra_postgres");
+    const final = () => wrapper.get<HTMLInputElement>('input[aria-label="Secret value (DSN)"]').element.value;
+    expect(wrapper.get(".create-secret-manager-copy").text()).toContain("PostgreSQL · 6543");
+    expect(final()).toBe("postgresql://app:@infra_postgres:6543/app");
+    await wrapper.get('input[aria-label="Database name"]').setValue("orders");
+    expect(final()).toBe("postgresql://app:@infra_postgres:6543/orders");
+    await wrapper.get('select[aria-label="Database service"]').setValue("infra_mysql");
+    expect(wrapper.get(".create-secret-manager-copy").text()).toContain("MySQL · 13306");
+    expect(final()).toBe("mysql://app:@infra_mysql:13306/orders");
+    await wrapper.get("form").trigger("submit");
+    await flushPromises();
+    expect(createSecret).toHaveBeenCalledWith({ name: "db-dsn", value: "mysql://app:@infra_mysql:13306/orders" });
   });
 
   it("percent-encodes credentials and database names and saves exactly the displayed value", async () => {
