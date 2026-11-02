@@ -6,11 +6,15 @@ import (
 	"reflect"
 	"time"
 
+	dockerswarm "github.com/docker/docker/api/types/swarm"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/services"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 
-const waitingForUpdateStatus = "waiting for current rolling update status"
+const (
+	waitingForUpdateStatus = "waiting for current rolling update status"
+	rollbackCompleted      = "rollback_completed"
+)
 
 func evaluateService(
 	name string,
@@ -18,6 +22,7 @@ func evaluateService(
 	service swarm.StackService,
 	tasks []swarm.ServiceTask,
 	unresolved bool,
+	expected dockerswarm.ServiceSpec,
 ) ServiceProgress {
 	if service.ID == "" {
 		return ServiceProgress{Name: name, State: ServicePending, Message: "waiting for service to appear"}
@@ -27,7 +32,8 @@ func evaluateService(
 	progress := ServiceProgress{
 		ServiceID: service.ID, Name: name, State: ServicePending, Desired: desired,
 	}
-	if message, failed := terminalUpdateFailure(service.UpdateStatus); failed {
+	restored := restoredCompletedRollback(baseline, service, expected)
+	if message, failed := terminalUpdateFailure(service.UpdateStatus); failed && !restored {
 		if baseline.ID == service.ID && serviceChanged(baseline, service) &&
 			reflect.DeepEqual(baseline.UpdateStatus, service.UpdateStatus) {
 			progress.Message = "waiting for current update status; previous update was " + service.UpdateStatus.State
@@ -57,6 +63,9 @@ func evaluateService(
 		return zeroDesiredProgress(progress, tasks)
 	}
 
+	// A no-op sync of the restored spec verifies its existing tasks, even when
+	// an earlier failed desired spec left an unresolved verification obligation.
+	unresolved = unresolved && !restored
 	requireCurrentGeneration := requiresTaskGeneration(baseline, service, unresolved)
 	cutoff, generationPending := verificationTaskCutoff(baseline, service, requireCurrentGeneration, unresolved)
 	if generationPending {
@@ -89,6 +98,15 @@ func evaluateService(
 		taskFailureDiagnostic(tasks),
 	))
 	return progress
+}
+
+func restoredCompletedRollback(baseline, service swarm.StackService, expected dockerswarm.ServiceSpec) bool {
+	// Only a rollback already completed before this apply may be stale. A new
+	// rollback, retry generation, or a different desired spec must still fail.
+	return expected.Name != "" && baseline.ID == service.ID && !serviceChanged(baseline, service) &&
+		service.UpdateStatus != nil && service.UpdateStatus.State == rollbackCompleted &&
+		reflect.DeepEqual(baseline.UpdateStatus, service.UpdateStatus) &&
+		services.SpecsEqual(service.ServiceSpec, expected)
 }
 
 func serviceDesiredTasks(service swarm.StackService) uint64 {
@@ -223,7 +241,7 @@ func terminalUpdateFailure(status *swarm.ServiceUpdateStatus) (string, bool) {
 		return "", false
 	}
 	switch status.State {
-	case "failed", "paused", "rollback_started", "rollback_paused", "rollback_completed":
+	case "failed", "paused", "rollback_started", "rollback_paused", rollbackCompleted:
 		message := "service update is " + status.State
 		if diagnostic := boundedDiagnostic(status.Message); diagnostic != "" {
 			message += ": " + diagnostic
@@ -239,7 +257,7 @@ func updatePending(status *swarm.ServiceUpdateStatus) bool {
 		return false
 	}
 	switch status.State {
-	case "", "paused", "rollback_started", "rollback_paused", "rollback_completed":
+	case "", "paused", "rollback_started", "rollback_paused", rollbackCompleted:
 		return false
 	case "updating":
 		return true

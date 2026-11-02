@@ -21,11 +21,12 @@ func (w *ServiceWaiter) observeService(
 	if !managed {
 		return w.observeExternalService(ctx, name, baseline, service, unresolved, expected, generation)
 	}
-	progress := evaluateService(name, baseline, service, nil, unresolved)
+	progress := evaluateService(name, baseline, service, nil, unresolved, expected)
 	if service.ID == "" {
 		return progress, nil
 	}
 	_, terminal := terminalUpdateFailure(service.UpdateStatus)
+	terminal = terminal && !restoredCompletedRollback(baseline, service, expected)
 	if terminal && progress.State != ServiceFailed {
 		return progress, nil // The status belongs to the previous rollout.
 	}
@@ -42,5 +43,5 @@ func (w *ServiceWaiter) observeService(
 		progress.Message = boundedDiagnostic(fmt.Sprintf("list tasks: %v", err))
 		return progress, fmt.Errorf("list tasks for service %s: %w", name, err)
 	}
-	return evaluateService(name, baseline, service, tasks, unresolved), nil
+	return evaluateService(name, baseline, service, tasks, unresolved, expected), nil
 }
