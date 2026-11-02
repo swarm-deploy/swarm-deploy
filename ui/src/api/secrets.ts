@@ -4,6 +4,7 @@ import type {
   CreateExternalSecretResponse,
   CreateSecretRequest,
   CreateSecretResponse,
+  DSNSuggestionsResponse,
   SecretDetailsResponse,
   SecretManagerSyncResponse,
   SecretManagersResponse,
@@ -63,4 +64,8 @@ export function createExternalSecret(
       body: JSON.stringify(request),
     },
   );
+}
+
+export function fetchDSNSuggestions(): Promise<DSNSuggestionsResponse> {
+  return apiRequest<DSNSuggestionsResponse>("/api/v1/secrets/suggestions/dsn");
 }
