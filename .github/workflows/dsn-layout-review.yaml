@@ -1,0 +1,110 @@
+name: DSN layout review screenshots
+on:
+  pull_request:
+    branches: [master]
+    paths:
+      - .github/workflows/dsn-layout-review.yaml
+permissions:
+  contents: read
+jobs:
+  screenshots:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+      - run: npm ci
+        working-directory: ui
+      - name: Install browser
+        run: |
+          npm install --prefix /tmp/dsn-browser playwright
+          /tmp/dsn-browser/node_modules/.bin/playwright install --with-deps chromium
+      - name: Start real UI with mock API
+        working-directory: ui
+        run: |
+          node scripts/mock-api.mjs > /tmp/mock.log 2>&1 &
+          npm run dev -- --mode mock --host 127.0.0.1 > /tmp/vite.log 2>&1 &
+          for i in $(seq 1 30); do curl --fail -s http://127.0.0.1:5173 >/dev/null && exit 0; sleep 1; done
+          cat /tmp/mock.log /tmp/vite.log
+          exit 1
+      - name: Verify layout and capture screenshots
+        run: |
+          cat > /tmp/dsn-browser/review.cjs <<'JS'
+          const { chromium } = require('playwright');
+          const assert = require('node:assert/strict');
+          const fs = require('node:fs');
+          (async () => {
+            fs.mkdirSync('dsn-screenshots', {recursive:true});
+            const browser = await chromium.launch();
+            const page = await browser.newPage({viewport:{width:1280,height:800}, deviceScaleFactor:1});
+            await page.emulateMedia({colorScheme:'light'});
+            const samples = [
+              {name:'desktop-unknown-engine',width:1280,height:800,service:'infra_custom_database'},
+              {name:'short-unknown-engine-focused',width:650,height:625,service:'infra_custom_database'},
+              {name:'mobile-unknown-engine-focused',width:390,height:844,service:'infra_custom_database'},
+              {name:'desktop-postgres-focused',width:1280,height:800,service:'infra_postgres'}
+            ];
+            for (const sample of samples) {
+              await page.setViewportSize({width:sample.width,height:sample.height});
+              await page.goto('http://127.0.0.1:5173/secrets');
+              await page.getByRole('button',{name:'Create Secret',exact:true}).click();
+              const dialog = page.getByRole('dialog');
+              await dialog.getByLabel('Secret Manager',{exact:true}).selectOption('security-cloudru/cloudru-cloud-secrets');
+              await dialog.getByLabel('Path',{exact:true}).fill('production/app/database-dsn');
+              await dialog.getByRole('button',{name:'DSN',exact:true}).click();
+              await dialog.getByLabel('Database service',{exact:true}).selectOption(sample.service);
+              const value = dialog.getByRole('textbox',{name:'Secret value (DSN)',exact:true});
+              if (sample.service === 'infra_postgres') {
+                await dialog.getByLabel('Password',{exact:true}).fill('example-password');
+                await dialog.getByRole('button',{name:'Reveal',exact:true}).click();
+                assert.equal(await value.inputValue(),'postgresql://app:example-password@infra_postgres:5432/app');
+              } else {
+                await value.fill('custom://example');
+              }
+              await value.focus();
+              const metrics = await page.evaluate(() => {
+                const editor=document.querySelector('.create-secret-editor');
+                const form=document.querySelector('.create-secret-form');
+                const toolbar=document.querySelector('.create-secret-editor-toolbar');
+                const input=document.querySelector('input[aria-label="Secret value (DSN)"]');
+                const e=editor.getBoundingClientRect(),t=toolbar.getBoundingClientRect(),v=input.getBoundingClientRect();
+                return {editorHeight:e.height,editorContent:editor.scrollHeight,editorScroll:editor.scrollTop,
+                  toolbarWithinEditor:t.top>=e.top && t.bottom<=e.bottom,
+                  valueWithinEditor:v.top>=e.top && v.bottom<=e.bottom,
+                  formWidth:form.clientWidth,formContentWidth:form.scrollWidth};
+              });
+              console.log(sample.name,JSON.stringify(metrics));
+              assert.ok(metrics.toolbarWithinEditor,'toolbar clipped within editor');
+              assert.ok(metrics.valueWithinEditor,'DSN input clipped within editor');
+              assert.ok(metrics.editorHeight+2>=metrics.editorContent,'editor collapsed');
+              assert.equal(metrics.editorScroll,0,'focus scrolled hidden editor content');
+              assert.ok(metrics.formContentWidth<=metrics.formWidth+1,'horizontal overflow');
+              await dialog.screenshot({path:'dsn-screenshots/'+sample.name+'.png'});
+              if(sample.name==='short-unknown-engine-focused') {
+                await page.evaluate(() => {
+                  const form=document.querySelector('.create-secret-form');
+                  form.style.gridAutoRows='auto';form.style.minHeight='auto';form.scrollTop=0;
+                  document.querySelector('input[aria-label="Secret value (DSN)"]').blur();
+                });
+                const before=await page.evaluate(() => {
+                  const editor=document.querySelector('.create-secret-editor');
+                  return {height:editor.clientHeight,content:editor.scrollHeight};
+                });
+                assert.ok(before.content>before.height+2,'baseline did not reproduce clipping');
+                console.log('baseline clipping reproduced',JSON.stringify(before));
+                await dialog.screenshot({path:'dsn-screenshots/before-short-unknown-engine.png'});
+              }
+            }
+            await browser.close();
+          })().catch(error=>{console.error(error);process.exit(1)});
+          JS
+          node /tmp/dsn-browser/review.cjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: dsn-layout-screenshots
+          path: dsn-screenshots/
