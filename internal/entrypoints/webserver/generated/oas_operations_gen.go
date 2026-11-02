@@ -30,6 +30,7 @@ const (
 	GetTaskLogsOperation                OperationName = "GetTaskLogs"
 	ListAlertsOperation                 OperationName = "ListAlerts"
 	ListAssistantChatsOperation         OperationName = "ListAssistantChats"
+	ListDSNSuggestionsOperation         OperationName = "ListDSNSuggestions"
 	ListDeploymentsOperation            OperationName = "ListDeployments"
 	ListEventsOperation                 OperationName = "ListEvents"
 	ListNetworksOperation               OperationName = "ListNetworks"

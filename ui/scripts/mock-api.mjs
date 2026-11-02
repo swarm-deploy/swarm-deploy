@@ -301,6 +301,13 @@ app.put("/api/v1/swarm/services/:serviceID/replicas", async (context) => {
 
 app.get("/api/v1/swarm/services", (context) => context.json({ services: swarmServices }));
 
+// Synthetic database services for local DSN Builder verification; no real credentials.
+app.get("/api/v1/secrets/suggestions/dsn", (context) => context.json({ suggestions: [
+  { service_name: "infra_postgres", stack: "infra", engine: "postgresql", port: 5432 },
+  { service_name: "infra_mysql", stack: "infra", engine: "mysql", port: 3306 },
+  { service_name: "infra_custom_database", stack: "infra", engine: null, port: null },
+] }));
+
 app.get("/api/v1/secrets", (context) => context.json({ secrets: mockSecrets }));
 
 app.post("/api/v1/secrets", async (context) => {

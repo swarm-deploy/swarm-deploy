@@ -20,6 +20,7 @@ const (
 	TypeServiceImageDigestUnspecified         Type = "service.image.digest.unspecified"
 	TypeServiceRestartPolicyUnspecified       Type = "service.restart-policy.unspecified"
 	TypeServiceSelfHealScheduledService       Type = "service.self-heal.scheduled-service"
+	TypeServiceSecretsEnvironment             Type = "service.secrets.environment"
 	TypeServiceDockerSocketMount              Type = "service.docker-socket.mount"
 	TypeServiceCapabilitiesAll                Type = "service.capabilities.all"
 	TypeServiceCapabilitiesPrivileged         Type = "service.capabilities.privileged"

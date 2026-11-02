@@ -44,6 +44,7 @@ func InitModule(ctx context.Context, cfg *config.Config, cnt Container) (*Module
 			analyzer.NewSwarmDeployDockerConfigAnalyzer(),
 			analyzer.NewDockerSocketMountAnalyzer(),
 			analyzer.NewServiceCapabilitiesAnalyzer(),
+			analyzer.NewServiceSecretsAnalyzer(),
 		),
 		store,
 	)

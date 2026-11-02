@@ -26,7 +26,7 @@ var (
 	rn12AllowedHeaders = map[string]string{
 		"POST": "Content-Type",
 	}
-	rn71AllowedHeaders = map[string]string{
+	rn72AllowedHeaders = map[string]string{
 		"PUT": "Content-Type",
 	}
 )
@@ -1048,6 +1048,37 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 										break
 									}
 
+									if len(elem) == 0 {
+										break
+									}
+									switch elem[0] {
+									case 's': // Prefix: "suggestions/dsn"
+										origElem := elem
+										if l := len("suggestions/dsn"); len(elem) >= l && elem[0:l] == "suggestions/dsn" {
+											elem = elem[l:]
+										} else {
+											break
+										}
+
+										if len(elem) == 0 {
+											// Leaf node.
+											switch r.Method {
+											case "GET":
+												s.handleListDSNSuggestionsRequest([0]string{}, elemIsEscaped, w, r)
+											default:
+												s.notAllowed(w, r, notAllowedParams{
+													allowedMethods: "GET",
+													allowedHeaders: nil,
+													acceptPost:     "",
+													acceptPatch:    "",
+												})
+											}
+
+											return
+										}
+
+										elem = origElem
+									}
 									// Param: "name"
 									// Leaf parameter, slashes are prohibited
 									idx := strings.IndexByte(elem, '/')
@@ -1404,7 +1435,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 											default:
 												s.notAllowed(w, r, notAllowedParams{
 													allowedMethods: "PUT",
-													allowedHeaders: rn71AllowedHeaders,
+													allowedHeaders: rn72AllowedHeaders,
 													acceptPost:     "",
 													acceptPatch:    "",
 												})
@@ -2590,6 +2621,37 @@ func (s *Server) FindPath(method string, u *url.URL) (r Route, _ bool) {
 										break
 									}
 
+									if len(elem) == 0 {
+										break
+									}
+									switch elem[0] {
+									case 's': // Prefix: "suggestions/dsn"
+										origElem := elem
+										if l := len("suggestions/dsn"); len(elem) >= l && elem[0:l] == "suggestions/dsn" {
+											elem = elem[l:]
+										} else {
+											break
+										}
+
+										if len(elem) == 0 {
+											// Leaf node.
+											switch method {
+											case "GET":
+												r.name = ListDSNSuggestionsOperation
+												r.summary = ""
+												r.operationID = "listDSNSuggestions"
+												r.operationGroup = ""
+												r.pathPattern = "/api/v1/secrets/suggestions/dsn"
+												r.args = args
+												r.count = 0
+												return r, true
+											default:
+												return
+											}
+										}
+
+										elem = origElem
+									}
 									// Param: "name"
 									// Leaf parameter, slashes are prohibited
 									idx := strings.IndexByte(elem, '/')

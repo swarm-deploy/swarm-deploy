@@ -1,13 +1,14 @@
 import { flushPromises, mount } from "@vue/test-utils";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { createExternalSecret, createSecret, syncSecretManager } from "../../api/secrets";
+import { createExternalSecret, createSecret, fetchDSNSuggestions, syncSecretManager } from "../../api/secrets";
 import type { SecretManagerInfo } from "../../api/types";
 import { copyText } from "../../utils/clipboard";
 import CreateSecretModal from "./CreateSecretModal.vue";
 
 vi.mock("../../api/secrets", () => ({
   createSecret: vi.fn(),
+  fetchDSNSuggestions: vi.fn(),
   createExternalSecret: vi.fn(),
   syncSecretManager: vi.fn(),
 }));
@@ -49,6 +50,11 @@ async function selectCloudMode(wrapper: ReturnType<typeof mountModal>) {
 describe("CreateSecretModal", () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    vi.mocked(fetchDSNSuggestions).mockResolvedValue({ suggestions: [
+      { service_name: "infra_postgres", stack: "infra", engine: "postgresql", port: 5432 },
+      { service_name: "infra_mysql", stack: "infra", engine: "mysql", port: 3306 },
+      { service_name: "custom_database", stack: "", engine: null, port: null },
+    ] });
     vi.mocked(createSecret).mockResolvedValue({ id: "secret-id", name: "app-token" });
     vi.mocked(createExternalSecret).mockResolvedValue({
       path: "normalized/path",
@@ -320,4 +326,159 @@ describe("CreateSecretModal", () => {
     expect(description.attributes("required")).toBeUndefined();
     expect(description.element.compareDocumentPosition(valueEditor.element) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
+
+  async function openDSN(wrapper: ReturnType<typeof mountModal>) {
+    await wrapper.findAll(".create-secret-mode-toggle button")[2].trigger("click");
+    await flushPromises();
+  }
+
+  it("loads database suggestions lazily and generates PostgreSQL and MySQL DSNs reactively", async () => {
+    const wrapper = mountModal();
+    expect(fetchDSNSuggestions).not.toHaveBeenCalled();
+    await openDSN(wrapper);
+    expect(fetchDSNSuggestions).toHaveBeenCalledOnce();
+    expect(wrapper.get('select[aria-label="Database service"]').findAll("option")).toHaveLength(4);
+    await wrapper.get('select[aria-label="Database service"]').setValue("infra_postgres");
+    const final = () => wrapper.get<HTMLInputElement>('input[aria-label="Secret value (DSN)"]').element.value;
+    expect(final()).toBe("postgresql://app:@infra_postgres:5432/app");
+    await wrapper.get('input[aria-label="Database name"]').setValue("orders");
+    await wrapper.get('input[aria-label="User"]').setValue("reader");
+    await wrapper.get('input[aria-label="Password"]').setValue("example");
+    expect(final()).toBe("postgresql://reader:example@infra_postgres:5432/orders");
+    await wrapper.get('select[aria-label="Database service"]').setValue("infra_mysql");
+    expect(final()).toBe("mysql://reader:example@infra_mysql:3306/orders");
+  });
+
+  it("uses API ports in service descriptions, reactive DSNs and the saved value", async () => {
+    vi.mocked(fetchDSNSuggestions).mockResolvedValueOnce({ suggestions: [
+      { service_name: "infra_postgres", stack: "infra", engine: "postgresql", port: 6543 },
+      { service_name: "infra_mysql", stack: "infra", engine: "mysql", port: 13306 },
+    ] });
+    const wrapper = mountModal();
+    await wrapper.findAll('[role="tab"]')[0].trigger("click");
+    await wrapper.get('input[aria-label="Name"]').setValue("db-dsn");
+    await openDSN(wrapper);
+    await wrapper.get('select[aria-label="Database service"]').setValue("infra_postgres");
+    const final = () => wrapper.get<HTMLInputElement>('input[aria-label="Secret value (DSN)"]').element.value;
+    expect(wrapper.get(".create-secret-manager-copy").text()).toContain("PostgreSQL · 6543");
+    expect(final()).toBe("postgresql://app:@infra_postgres:6543/app");
+    await wrapper.get('input[aria-label="Database name"]').setValue("orders");
+    expect(final()).toBe("postgresql://app:@infra_postgres:6543/orders");
+    await wrapper.get('select[aria-label="Database service"]').setValue("infra_mysql");
+    expect(wrapper.get(".create-secret-manager-copy").text()).toContain("MySQL · 13306");
+    expect(final()).toBe("mysql://app:@infra_mysql:13306/orders");
+    await wrapper.get("form").trigger("submit");
+    await flushPromises();
+    expect(createSecret).toHaveBeenCalledWith({ name: "db-dsn", value: "mysql://app:@infra_mysql:13306/orders" });
+  });
+
+  it("percent-encodes credentials and database names and saves exactly the displayed value", async () => {
+    const wrapper = mountModal();
+    await wrapper.findAll('[role="tab"]')[0].trigger("click");
+    await wrapper.get('input[aria-label="Name"]').setValue("app-dsn");
+    await openDSN(wrapper);
+    await wrapper.get('select[aria-label="Database service"]').setValue("infra_postgres");
+    await wrapper.get('input[aria-label="Database name"]').setValue("sales/北 ?#%");
+    await wrapper.get('input[aria-label="User"]').setValue("app@team");
+    await wrapper.get('input[aria-label="Password"]').setValue("P@ss:/?#%!'()*");
+    const expected = "postgresql://app%40team:P%40ss%3A%2F%3F%23%25%21%27%28%29%2A@infra_postgres:5432/sales%2F%E5%8C%97%20%3F%23%25";
+    expect(wrapper.get<HTMLInputElement>('input[aria-label="Secret value (DSN)"]').element.value).toBe(expected);
+    await wrapper.get("form").trigger("submit");
+    await flushPromises();
+    expect(createSecret).toHaveBeenCalledWith({ name: "app-dsn", value: expected });
+  });
+
+  it("preserves a manual DSN until explicitly regenerating, including across value modes", async () => {
+    const wrapper = mountModal();
+    await openDSN(wrapper);
+    await wrapper.get('select[aria-label="Database service"]').setValue("infra_postgres");
+    const input = () => wrapper.get<HTMLInputElement>('input[aria-label="Secret value (DSN)"]');
+    const manual = "postgresql://custom:example@infra_postgres:5432/manual?sslmode=require";
+    await input().setValue(manual);
+    await wrapper.get('input[aria-label="Database name"]').setValue("changed");
+    await wrapper.get('input[aria-label="Password"]').setValue("changed");
+    await wrapper.get('select[aria-label="Database service"]').setValue("infra_mysql");
+    expect(input().element.value).toBe(manual);
+    await wrapper.findAll(".create-secret-mode-toggle button")[0].trigger("click");
+    expect(wrapper.get<HTMLTextAreaElement>("textarea").element.value).toBe(manual);
+    await openDSN(wrapper);
+    expect(input().element.value).toBe(manual);
+    expect(fetchDSNSuggestions).toHaveBeenCalledOnce();
+    await wrapper.get(".create-secret-dsn-value-label button").trigger("click");
+    expect(input().element.value).toBe("mysql://app:changed@infra_mysql:3306/changed");
+    await wrapper.get('input[aria-label="User"]').setValue("reactive");
+    expect(input().element.value).toContain("mysql://reactive:changed@");
+  });
+
+  it("saves the exact manually edited DSN through Cloud Secrets", async () => {
+    const wrapper = mountModal();
+    await wrapper.get('input[aria-label="Path"]').setValue("production/db");
+    await wrapper.get('input[aria-label="Key"]').setValue("dsn");
+    await openDSN(wrapper);
+    const manual = "mysql://example:example@infra_mysql:3306/app?charset=utf8mb4";
+    await wrapper.get('input[aria-label="Secret value (DSN)"]').setValue(manual);
+    await wrapper.get("form").trigger("submit");
+    await flushPromises();
+    expect(createExternalSecret).toHaveBeenCalledWith("security", "vault-secrets", { path: "production/db", key: "dsn", value: manual });
+  });
+
+  it("uses the existing Reveal action for both DSN and password", async () => {
+    const wrapper = mountModal();
+    await openDSN(wrapper);
+    const password = wrapper.get('input[aria-label="Password"]');
+    const final = wrapper.get('input[aria-label="Secret value (DSN)"]');
+    expect(password.attributes("type")).toBe("password");
+    expect(final.attributes("type")).toBe("password");
+    await wrapper.get(".create-secret-small-action").trigger("click");
+    expect(password.attributes("type")).toBe("text");
+    expect(final.attributes("type")).toBe("text");
+    await wrapper.get(".create-secret-small-action").trigger("click");
+    expect(final.attributes("type")).toBe("password");
+  });
+
+  it("clears a generated value for an unknown engine and permits manual entry", async () => {
+    const wrapper = mountModal();
+    await openDSN(wrapper);
+    await wrapper.get('select[aria-label="Database service"]').setValue("infra_postgres");
+    await wrapper.get('select[aria-label="Database service"]').setValue("custom_database");
+    const final = wrapper.get<HTMLInputElement>('input[aria-label="Secret value (DSN)"]');
+    expect(final.element.value).toBe("");
+    expect(wrapper.text()).toContain("Engine could not be identified");
+    await final.setValue("custom://manual");
+    await wrapper.get('input[aria-label="User"]').setValue("new");
+    expect(final.element.value).toBe("custom://manual");
+  });
+
+  it("preserves existing Text/JSON content when entering DSN mode", async () => {
+    const wrapper = mountModal();
+    const original = '{"dsn":"manual"}';
+    await wrapper.get("textarea").setValue(original);
+    await wrapper.findAll(".create-secret-mode-toggle button")[1].trigger("click");
+    await openDSN(wrapper);
+    await wrapper.get('select[aria-label="Database service"]').setValue("infra_postgres");
+    expect(wrapper.get<HTMLInputElement>('input[aria-label="Secret value (DSN)"]').element.value).toBe(original);
+  });
+
+  it("shows loading, empty, and retry states while retaining manual input", async () => {
+    const response = deferred<{ suggestions: [] }>();
+    vi.mocked(fetchDSNSuggestions).mockReturnValueOnce(response.promise);
+    const wrapper = mountModal();
+    await openDSN(wrapper);
+    expect(wrapper.get<HTMLSelectElement>('select[aria-label="Database service"]').element.disabled).toBe(true);
+    expect(wrapper.text()).toContain("Loading database services");
+    await wrapper.get('input[aria-label="Secret value (DSN)"]').setValue("manual://value");
+    response.resolve({ suggestions: [] });
+    await flushPromises();
+    expect(wrapper.text()).toContain("No database services found");
+    await wrapper.setProps({ open: false });
+    await wrapper.setProps({ open: true });
+    vi.mocked(fetchDSNSuggestions).mockRejectedValueOnce(new Error("upstream details"));
+    await openDSN(wrapper);
+    expect(wrapper.text()).toContain("Unable to load database services");
+    expect(wrapper.text()).not.toContain("upstream details");
+    await wrapper.get(".create-secret-dsn-action").trigger("click");
+    await flushPromises();
+    expect(wrapper.findAll('select[aria-label="Database service"] option')).toHaveLength(4);
+  });
+
 });

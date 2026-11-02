@@ -103,6 +103,10 @@ type Handler interface {
 	//
 	// GET /api/v1/assistant/chats
 	ListAssistantChats(ctx context.Context) (*AssistantChatsResponse, error)
+	// ListDSNSuggestions implements listDSNSuggestions operation.
+	//
+	// GET /api/v1/secrets/suggestions/dsn
+	ListDSNSuggestions(ctx context.Context) (*DSNSuggestionsResponse, error)
 	// ListDeployments implements listDeployments operation.
 	//
 	// GET /api/v1/deployments

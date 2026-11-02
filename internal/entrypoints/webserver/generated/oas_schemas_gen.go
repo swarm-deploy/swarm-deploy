@@ -1133,6 +1133,113 @@ func (s *CurrentUserResponse) SetName(val string) {
 	s.Name = val
 }
 
+// Ref: #/components/schemas/DSNSuggestion
+type DSNSuggestion struct {
+	// Full Docker Swarm service name, usable as a DNS hostname on a shared overlay network.
+	ServiceName string                 `json:"service_name"`
+	Stack       string                 `json:"stack"`
+	Engine      NilDSNSuggestionEngine `json:"engine"`
+	// Suggested internal database port from supported server environment variables, or the engine
+	// default. Null for unknown engines. Published ports and command/config overrides are not inspected.
+	Port NilInt `json:"port"`
+}
+
+// GetServiceName returns the value of ServiceName.
+func (s *DSNSuggestion) GetServiceName() string {
+	return s.ServiceName
+}
+
+// GetStack returns the value of Stack.
+func (s *DSNSuggestion) GetStack() string {
+	return s.Stack
+}
+
+// GetEngine returns the value of Engine.
+func (s *DSNSuggestion) GetEngine() NilDSNSuggestionEngine {
+	return s.Engine
+}
+
+// GetPort returns the value of Port.
+func (s *DSNSuggestion) GetPort() NilInt {
+	return s.Port
+}
+
+// SetServiceName sets the value of ServiceName.
+func (s *DSNSuggestion) SetServiceName(val string) {
+	s.ServiceName = val
+}
+
+// SetStack sets the value of Stack.
+func (s *DSNSuggestion) SetStack(val string) {
+	s.Stack = val
+}
+
+// SetEngine sets the value of Engine.
+func (s *DSNSuggestion) SetEngine(val NilDSNSuggestionEngine) {
+	s.Engine = val
+}
+
+// SetPort sets the value of Port.
+func (s *DSNSuggestion) SetPort(val NilInt) {
+	s.Port = val
+}
+
+type DSNSuggestionEngine string
+
+const (
+	DSNSuggestionEnginePostgresql DSNSuggestionEngine = "postgresql"
+	DSNSuggestionEngineMysql      DSNSuggestionEngine = "mysql"
+)
+
+// AllValues returns all DSNSuggestionEngine values.
+func (DSNSuggestionEngine) AllValues() []DSNSuggestionEngine {
+	return []DSNSuggestionEngine{
+		DSNSuggestionEnginePostgresql,
+		DSNSuggestionEngineMysql,
+	}
+}
+
+// MarshalText implements encoding.TextMarshaler.
+func (s DSNSuggestionEngine) MarshalText() ([]byte, error) {
+	switch s {
+	case DSNSuggestionEnginePostgresql:
+		return []byte(s), nil
+	case DSNSuggestionEngineMysql:
+		return []byte(s), nil
+	default:
+		return nil, errors.Errorf("invalid value: %q", s)
+	}
+}
+
+// UnmarshalText implements encoding.TextUnmarshaler.
+func (s *DSNSuggestionEngine) UnmarshalText(data []byte) error {
+	switch DSNSuggestionEngine(data) {
+	case DSNSuggestionEnginePostgresql:
+		*s = DSNSuggestionEnginePostgresql
+		return nil
+	case DSNSuggestionEngineMysql:
+		*s = DSNSuggestionEngineMysql
+		return nil
+	default:
+		return errors.Errorf("invalid value: %q", data)
+	}
+}
+
+// Ref: #/components/schemas/DSNSuggestionsResponse
+type DSNSuggestionsResponse struct {
+	Suggestions []DSNSuggestion `json:"suggestions"`
+}
+
+// GetSuggestions returns the value of Suggestions.
+func (s *DSNSuggestionsResponse) GetSuggestions() []DSNSuggestion {
+	return s.Suggestions
+}
+
+// SetSuggestions sets the value of Suggestions.
+func (s *DSNSuggestionsResponse) SetSuggestions(val []DSNSuggestion) {
+	s.Suggestions = val
+}
+
 // DeleteNodeLabelNoContent is response for DeleteNodeLabel operation.
 type DeleteNodeLabelNoContent struct{}
 
@@ -3620,6 +3727,96 @@ func (s *NetworksResponse) GetNetworks() []NetworkInfo {
 // SetNetworks sets the value of Networks.
 func (s *NetworksResponse) SetNetworks(val []NetworkInfo) {
 	s.Networks = val
+}
+
+// NewNilDSNSuggestionEngine returns new NilDSNSuggestionEngine with value set to v.
+func NewNilDSNSuggestionEngine(v DSNSuggestionEngine) NilDSNSuggestionEngine {
+	return NilDSNSuggestionEngine{
+		Value: v,
+	}
+}
+
+// NilDSNSuggestionEngine is nullable DSNSuggestionEngine.
+type NilDSNSuggestionEngine struct {
+	Value DSNSuggestionEngine
+	Null  bool
+}
+
+// SetTo sets value to v.
+func (o *NilDSNSuggestionEngine) SetTo(v DSNSuggestionEngine) {
+	o.Null = false
+	o.Value = v
+}
+
+// IsNull returns true if value is Null.
+func (o NilDSNSuggestionEngine) IsNull() bool { return o.Null }
+
+// SetToNull sets value to null.
+func (o *NilDSNSuggestionEngine) SetToNull() {
+	o.Null = true
+	var v DSNSuggestionEngine
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o NilDSNSuggestionEngine) Get() (v DSNSuggestionEngine, ok bool) {
+	if o.Null {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o NilDSNSuggestionEngine) Or(d DSNSuggestionEngine) DSNSuggestionEngine {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewNilInt returns new NilInt with value set to v.
+func NewNilInt(v int) NilInt {
+	return NilInt{
+		Value: v,
+	}
+}
+
+// NilInt is nullable int.
+type NilInt struct {
+	Value int
+	Null  bool
+}
+
+// SetTo sets value to v.
+func (o *NilInt) SetTo(v int) {
+	o.Null = false
+	o.Value = v
+}
+
+// IsNull returns true if value is Null.
+func (o NilInt) IsNull() bool { return o.Null }
+
+// SetToNull sets value to null.
+func (o *NilInt) SetToNull() {
+	o.Null = true
+	var v int
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o NilInt) Get() (v int, ok bool) {
+	if o.Null {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o NilInt) Or(d int) int {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
 }
 
 // Ref: #/components/schemas/NodeInfo
