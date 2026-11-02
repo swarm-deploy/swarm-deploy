@@ -4,15 +4,15 @@ import { tokenizeWith } from "@speed-highlight/core/tokenize";
 import { computed, onUnmounted, ref, watch } from "vue";
 
 import AppModal from "../common/AppModal.vue";
-import { createExternalSecret, createSecret, syncSecretManager } from "../../api/secrets";
-import type { SecretManagerInfo, SynchronizedSecretIdentity } from "../../api/types";
+import { createExternalSecret, createSecret, fetchDSNSuggestions, syncSecretManager } from "../../api/secrets";
+import type { DSNSuggestion, SecretManagerInfo, SynchronizedSecretIdentity } from "../../api/types";
 import { copyText } from "../../utils/clipboard";
 import { safeExternalLink } from "../../utils/externalLink";
 import AppTabs from "../common/AppTabs.vue";
 import PathInput from "./PathInput.vue";
 
 type Destination = "docker" | "cloud";
-type ValueMode = "text" | "json";
+type ValueMode = "text" | "json" | "dsn";
 type ProviderKind = "vault" | "cloudru" | "unknown";
 type SubmissionStage = "" | "creating" | "syncing" | "retrying";
 type ResultState = "" | "syncing" | "success" | "partial";
@@ -38,6 +38,67 @@ const path = ref("");
 const key = ref("");
 const value = ref("");
 const description = ref("");
+const dsnSuggestions = ref<DSNSuggestion[]>([]);
+const dsnLoading = ref(false);
+const dsnLoaded = ref(false);
+const dsnError = ref("");
+const databaseServiceName = ref("");
+const databaseName = ref("app");
+const databaseUser = ref("app");
+const databasePassword = ref("");
+const dsnManual = ref(false);
+let generatedDSN = "";
+let dsnRequest = 0;
+const databaseService = computed(() => dsnSuggestions.value.find((item) => item.service_name === databaseServiceName.value));
+
+function serviceDescription(service: DSNSuggestion): string {
+  const engine = service.engine === "postgresql" ? "PostgreSQL"
+    : service.engine === "mysql" ? "MySQL" : "Unknown engine";
+  return [engine, service.port, service.stack].filter(Boolean).join(" · ");
+}
+
+// Encode each URI component, including reserved characters left by encodeURIComponent.
+function encodeDSNPart(part: string): string {
+  return encodeURIComponent(part).replace(/[!'()*]/g, (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`);
+}
+
+function generateDSN(): void {
+  const service = databaseService.value;
+  if (dsnManual.value) return;
+  if (!service?.engine || service.port === null) {
+    generatedDSN = "";
+    value.value = "";
+    return;
+  }
+  generatedDSN = `${service.engine}://${encodeDSNPart(databaseUser.value)}:${encodeDSNPart(databasePassword.value)}@${service.service_name}:${service.port}/${encodeDSNPart(databaseName.value)}`;
+  value.value = generatedDSN;
+}
+
+function resumeDSNGeneration(): void {
+  dsnManual.value = false;
+  generateDSN();
+}
+
+async function loadDSNSuggestions(): Promise<void> {
+  const request = ++dsnRequest;
+  dsnLoading.value = true;
+  dsnError.value = "";
+  try {
+    const response = await fetchDSNSuggestions();
+    if (request !== dsnRequest) return;
+    dsnSuggestions.value = response.suggestions;
+    dsnLoaded.value = true;
+  } catch {
+    if (request !== dsnRequest) return;
+    dsnError.value = "Unable to load database services. You can enter a DSN manually.";
+  } finally {
+    if (request === dsnRequest) dsnLoading.value = false;
+  }
+}
+
+watch(value, (next) => {
+  if (valueMode.value !== "dsn" && next !== generatedDSN) dsnManual.value = next !== "";
+});
 const selectedManagerKey = ref("");
 const submissionStage = ref<SubmissionStage>("");
 const errorMessage = ref("");
@@ -160,6 +221,17 @@ function resetForm(): void {
   createdKey.value = "";
   managerURL.value = "";
   synchronizedSecret.value = undefined;
+  ++dsnRequest;
+  dsnSuggestions.value = [];
+  dsnLoading.value = false;
+  dsnLoaded.value = false;
+  dsnError.value = "";
+  databaseServiceName.value = "";
+  databaseName.value = "app";
+  databaseUser.value = "app";
+  databasePassword.value = "";
+  dsnManual.value = false;
+  generatedDSN = "";
   clearCopiedState();
 }
 
@@ -190,6 +262,7 @@ function setDestination(next: string): void {
 
 function setValueMode(next: ValueMode): void {
   valueMode.value = next;
+  if (next === "dsn" && !dsnLoaded.value && !dsnLoading.value) void loadDSNSuggestions();
 }
 
 function formatJSON(): void {
@@ -311,7 +384,7 @@ onUnmounted(() => {
   <AppModal
     :open="open"
     labelledby="create-secret-title"
-    :card-class="['create-secret-dialog', { 'create-secret-dialog--result': resultVisible }]"
+    :card-class="['create-secret-dialog', { 'create-secret-dialog--result': resultVisible, 'create-secret-dialog--dsn': valueMode === 'dsn' && !resultVisible }]"
     class="create-secret-modal"
     :close-disabled="pending"
     @close="close"
@@ -391,9 +464,10 @@ onUnmounted(() => {
             <div class="create-secret-mode-toggle" aria-label="Value format">
               <button type="button" :class="{ active: valueMode === 'text' }" :aria-pressed="valueMode === 'text'" @click="setValueMode('text')">Text</button>
               <button type="button" :class="{ active: valueMode === 'json' }" :aria-pressed="valueMode === 'json'" @click="setValueMode('json')">JSON</button>
+              <button type="button" :class="{ active: valueMode === 'dsn' }" :aria-pressed="valueMode === 'dsn'" @click="setValueMode('dsn')">DSN</button>
             </div>
             <span class="create-secret-tool-divider" aria-hidden="true" />
-            <button v-if="valueMode === 'text'" type="button" class="create-secret-small-action" @click="revealValue = !revealValue">
+            <button v-if="valueMode !== 'json'" type="button" class="create-secret-small-action" @click="revealValue = !revealValue">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z" /><circle cx="12" cy="12" r="2.5" /></svg>
               {{ revealValue ? "Hide" : "Reveal" }}
             </button>
@@ -415,6 +489,51 @@ onUnmounted(() => {
           aria-label="Value"
           required
         />
+        <div v-else-if="valueMode === 'dsn'" class="create-secret-dsn">
+          <label class="create-secret-dsn-field">
+            <span>Database service <span class="create-secret-dsn-info" title="Swarm DNS is reachable from containers on a shared overlay network." aria-label="Swarm DNS is reachable from containers on a shared overlay network.">ⓘ</span></span>
+            <div class="create-secret-control create-secret-manager-control">
+              <span class="create-secret-control-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><ellipse cx="12" cy="5" rx="7" ry="3" /><path d="M5 5v14c0 4 14 4 14 0V5M5 10c0 4 14 4 14 0M5 15c0 4 14 4 14 0" /></svg>
+              </span>
+              <span class="create-secret-manager-copy">
+                <strong>{{ databaseService?.service_name || (dsnLoading ? "Loading database services…" : "Select database service") }}</strong>
+                <small v-if="databaseService">{{ serviceDescription(databaseService) }}</small>
+              </span>
+              <span class="create-secret-chevron" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="m6 9 6 6 6-6" /></svg></span>
+              <select v-model="databaseServiceName" aria-label="Database service" :disabled="pending || dsnLoading" @change="generateDSN">
+                <option value="" disabled>Select database service</option>
+                <option v-for="service in dsnSuggestions" :key="service.service_name" :value="service.service_name">{{ service.service_name }} — {{ serviceDescription(service) }}</option>
+              </select>
+            </div>
+          </label>
+          <p v-if="dsnLoading" class="form-helper" role="status">Loading database services…</p>
+          <p v-else-if="dsnError" class="create-secret-inline-error" role="alert">{{ dsnError }} <button type="button" class="create-secret-dsn-action" @click="loadDSNSuggestions">Retry</button></p>
+          <p v-else-if="dsnLoaded && !dsnSuggestions.length" class="form-helper">No database services found. Enter a DSN manually.</p>
+          <p v-else-if="databaseService && !databaseService.engine" class="form-helper">Engine could not be identified. Enter a DSN manually.</p>
+          <div class="create-secret-dsn-fields">
+            <label class="create-secret-dsn-field">Database name
+              <input v-model="databaseName" aria-label="Database name" autocomplete="off" :disabled="pending" @input="generateDSN" />
+            </label>
+            <label class="create-secret-dsn-field">User
+              <input v-model="databaseUser" aria-label="User" autocomplete="off" :disabled="pending" @input="generateDSN" />
+            </label>
+            <label class="create-secret-dsn-field">Password
+              <input v-model="databasePassword" aria-label="Password" :type="revealValue ? 'text' : 'password'" autocomplete="new-password" :disabled="pending" @input="generateDSN" />
+            </label>
+          </div>
+          <label class="create-secret-dsn-field">
+            <span class="create-secret-dsn-value-label">Secret value (DSN)
+              <button v-if="dsnManual && databaseService?.engine" type="button" class="create-secret-dsn-action" :disabled="pending" title="Replace the manual DSN and resume automatic updates from the fields above." @click.prevent="resumeDSNGeneration">Generate from fields</button>
+            </span>
+            <span class="create-secret-dsn-value">
+              <input v-model="value" aria-label="Secret value (DSN)" :type="revealValue ? 'text' : 'password'" spellcheck="false" autocomplete="new-password" :disabled="pending" required @input="dsnManual = true" />
+              <button type="button" class="create-secret-result-copy" aria-label="Copy DSN" title="Copy DSN" :disabled="!value || pending" @click="copyText(value)">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="11" height="11" rx="2" /><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" /></svg>
+              </button>
+            </span>
+          </label>
+        </div>
         <div v-else class="create-secret-json-editor">
           <pre ref="jsonHighlight" class="create-secret-json-highlight" aria-hidden="true" v-html="highlightedJSON" />
           <textarea
@@ -553,6 +672,18 @@ onUnmounted(() => {
 <style scoped>
 :deep(.create-secret-dialog) { width: min(560px, 94vw); display: flex; flex-direction: column; overflow: hidden; }
 :deep(.create-secret-dialog--result) { width: min(640px, 94vw); }
+:deep(.create-secret-dialog--dsn) { width: min(640px, 94vw); }
+.create-secret-dsn { display: grid; gap: 12px; padding: 12px 13px 15px; }
+.create-secret-dsn-field { min-width: 0; display: grid; gap: 5px; font-size: .8rem; }
+.create-secret-dsn-info { color: var(--muted); margin-left: 5px; }
+.create-secret-dsn-fields { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; }
+.create-secret-dsn-field > input, .create-secret-dsn-value { min-width: 0; width: 100%; height: 34px; border: 1px solid var(--border-default); border-radius: 6px; background: var(--surface-input); color: var(--text); padding: 0 10px; font: inherit; }
+.create-secret-dsn-field > input:focus, .create-secret-dsn-value:focus-within { outline: 2px solid var(--accent-focus); outline-offset: 1px; border-color: var(--accent-border); }
+.create-secret-dsn-value-label { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.create-secret-dsn-value { display: flex; align-items: center; padding-right: 4px; }
+.create-secret-dsn-value input { flex: 1; min-width: 0; width: 100%; border: 0; outline: 0; padding: 0; background: transparent; color: var(--text); font: .76rem "JetBrains Mono", ui-monospace, monospace; }
+.create-secret-dsn-action { padding: 0; border: 0; background: transparent; color: var(--control-primary); font: inherit; font-size: .7rem; text-decoration: underline; }
+.create-secret-dsn .form-helper { margin: 0; }
 .create-secret-form { gap: 11px; overflow-y: auto; padding: 0 20px 18px; }
 .create-secret-tabs { flex: 0 0 auto; gap: 0; margin: 0; }
 .create-secret-tabs :deep(.app-tabs-tab) { flex: 1; justify-content: center; border-bottom-width: 2px; border-radius: 0; padding: 12px 8px 10px; font-size: .82rem; }
@@ -652,6 +783,7 @@ onUnmounted(() => {
 button:disabled, input:disabled, select:disabled, textarea:disabled { cursor: not-allowed; opacity: .58; }
 @keyframes create-secret-spin { to { transform: rotate(360deg); } }
 @media (max-width: 520px) {
+  .create-secret-dsn-fields { grid-template-columns: 1fr; gap: 10px; }
   .create-secret-form { padding-inline: 12px; }
   .create-secret-editor-toolbar { padding-left: 9px; }
   .create-secret-mode-toggle button, .create-secret-small-action { padding-inline: 7px; }

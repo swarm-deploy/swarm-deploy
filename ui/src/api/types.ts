@@ -669,3 +669,14 @@ export interface StackResourcesResponse {
   secrets: StackResourceInfo[];
   configs: StackResourceInfo[];
 }
+
+export interface DSNSuggestion {
+  service_name: string;
+  stack: string;
+  engine: "postgresql" | "mysql" | null;
+  port: number | null;
+}
+
+export interface DSNSuggestionsResponse {
+  suggestions: DSNSuggestion[];
+}

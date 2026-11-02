@@ -189,6 +189,13 @@ func (UnimplementedHandler) ListAssistantChats(ctx context.Context) (r *Assistan
 	return r, ht.ErrNotImplemented
 }
 
+// ListDSNSuggestions implements listDSNSuggestions operation.
+//
+// GET /api/v1/secrets/suggestions/dsn
+func (UnimplementedHandler) ListDSNSuggestions(ctx context.Context) (r *DSNSuggestionsResponse, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // ListDeployments implements listDeployments operation.
 //
 // GET /api/v1/deployments

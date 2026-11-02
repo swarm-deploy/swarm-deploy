@@ -60,6 +60,8 @@ paths:
     $ref: './resources/networks.yaml#/paths/~1api~1v1~1networks'
   /api/v1/secrets:
     $ref: './resources/secrets.yaml#/paths/~1api~1v1~1secrets'
+  /api/v1/secrets/suggestions/dsn:
+    $ref: './resources/secrets.yaml#/paths/~1api~1v1~1secrets~1suggestions~1dsn'
   /api/v1/secrets/{name}:
     $ref: './resources/secrets.yaml#/paths/~1api~1v1~1secrets~1{name}'
   /api/v1/secret-managers:
@@ -168,6 +170,10 @@ components:
       $ref: './resources/nodes.yaml#/components/schemas/NodeLabelUpdateRequest'
     NetworkInfo:
       $ref: './resources/networks.yaml#/components/schemas/NetworkInfo'
+    DSNSuggestionsResponse:
+      $ref: './resources/secrets.yaml#/components/schemas/DSNSuggestionsResponse'
+    DSNSuggestion:
+      $ref: './resources/secrets.yaml#/components/schemas/DSNSuggestion'
     SecretsResponse:
       $ref: './resources/secrets.yaml#/components/schemas/SecretsResponse'
     SecretManagersResponse:
