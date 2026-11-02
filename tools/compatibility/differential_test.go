@@ -40,6 +40,19 @@ func TestDockerCLIDifferential(t *testing.T) {
     ulimits: {nofile: {soft: 1024, hard: 2048}, nproc: 256}
     isolation: default`,
 		`ports: ['8000-8002:8000-8002/udp']`,
+		`restart: 'no'`,
+		`restart: always`,
+		`restart: unless-stopped`,
+		`restart: on-failure`,
+		`restart: on-failure:5`,
+		`restart: 'on-failure:'`,
+		`restart: on-failure:-1`,
+		`restart: always:5`,
+		`restart: 'no:5'`,
+		`restart: on-failure:5
+    deploy: {restart_policy: {condition: none, max_attempts: 2}}`,
+		`restart: invalid
+    deploy: {restart_policy: {}}`,
 		`deploy: {mode: replicated-job, replicas: 3}`,
 		`deploy: {mode: global-job}`,
 		`deploy: {resources: {reservations: {generic_resources: [{discrete_resource_spec: {kind: GPU, value: 1}}]}}}`,
@@ -128,4 +141,18 @@ func TestCLIFieldLimitations(t *testing.T) {
 	require.NoError(t, yaml.Unmarshal([]byte("version: '3.8'\nservices: {api: {image: alpine, oom_score_adj: 100}}"), &dictionary))
 	_, err = cliloader.Load(clitypes.ConfigDetails{WorkingDir: t.TempDir(), ConfigFiles: []clitypes.ConfigFile{{Config: dictionary}}})
 	require.ErrorContains(t, err, "oom_score_adj")
+}
+
+func TestDockerCLIRestartInvalid(t *testing.T) {
+	for _, policy := range []string{"invalid", "Always", ":5", "on-failure:abc", "on-failure:1:2", "on-failure:9223372036854775808"} {
+		t.Run(policy, func(t *testing.T) {
+			_, cliErr := cliconvert.Service("1.51", cliconvert.NewNamespace("demo"), clitypes.ServiceConfig{Name: "api", Image: "alpine", Restart: policy}, nil, nil, nil, nil)
+			require.Error(t, cliErr)
+			native, err := compose.Parse([]byte("services: {api: {image: alpine, restart: '" + policy + "'}}"))
+			require.NoError(t, err)
+			ctrl := gomock.NewController(t)
+			c := converter.New(swarm.NewMockNetworkManager(ctrl), swarm.NewMockConfigManager(ctrl), swarm.NewMockSecretManager(ctrl))
+			require.ErrorContains(t, c.Validate("demo", *native), "restart")
+		})
+	}
 }

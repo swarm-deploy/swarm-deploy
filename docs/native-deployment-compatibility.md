@@ -49,12 +49,18 @@ immediately on API acceptance.
 
 ## Ignored and unsupported options
 
-Service-level `privileged`, `depends_on` (short or long form) and `restart` are
+Service-level `privileged` and `depends_on` (short or long form) are
 accepted and ignored, matching the previous Swarm deployment workflow. Each
 present field produces one structured warning with its full Compose path during
 pipeline validation. They do not change the generated ServiceSpec or effective
 desired-state comparison. No dependency ordering or alternative privileged mode
-is implemented. Configure Swarm restarts through `deploy.restart_policy`.
+is implemented.
+
+Service-level `restart` follows Docker CLI v28.3.3 as a fallback when
+`deploy.restart_policy` is absent. `always` and `unless-stopped` map to `any`;
+`on-failure[:N]` maps to `on-failure` with the retry count. As in that CLI,
+`no` and an empty value leave the restart policy unset (Swarm defaults apply).
+An explicit `deploy.restart_policy`, including an empty mapping, takes precedence.
 
 `build` and other unsupported Compose options continue to fail validation.
 

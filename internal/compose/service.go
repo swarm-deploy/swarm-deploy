@@ -16,6 +16,8 @@ type Service struct {
 	Command Command `yaml:"command,omitempty" json:"command,omitempty"`
 	// Entrypoint overrides the image entrypoint.
 	Entrypoint Command `yaml:"entrypoint,omitempty" json:"entrypoint,omitempty"`
+	// Restart is the legacy fallback when deploy.restart_policy is absent.
+	Restart string `yaml:"restart,omitempty" json:"restart,omitempty"`
 	// StopGracePeriod is the time Docker gives a task to exit before forcefully stopping it.
 	StopGracePeriod string `yaml:"stop_grace_period,omitempty" json:"stop_grace_period,omitempty"`
 	// CapAdd lists Linux capabilities added to the service containers.

@@ -11,7 +11,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 )
 
-func deployment(spec *dockerswarm.ServiceSpec, source compose.ServiceDeploy) error {
+func deployment(spec *dockerswarm.ServiceSpec, source compose.ServiceDeploy, legacyRestart string) error {
 	switch source.Mode {
 	case "", "replicated":
 		spec.Mode.Replicated = &dockerswarm.ReplicatedService{Replicas: clonePointer(source.Replicas)}
@@ -45,11 +45,9 @@ func deployment(spec *dockerswarm.ServiceSpec, source compose.ServiceDeploy) err
 			return err
 		}
 	}
-	if source.RestartPolicy != nil {
-		spec.TaskTemplate.RestartPolicy, err = restartPolicy(source.RestartPolicy)
-		if err != nil {
-			return err
-		}
+	spec.TaskTemplate.RestartPolicy, err = effectiveRestartPolicy(source.RestartPolicy, legacyRestart)
+	if err != nil {
+		return err
 	}
 	if source.UpdateConfig != nil {
 		u := source.UpdateConfig

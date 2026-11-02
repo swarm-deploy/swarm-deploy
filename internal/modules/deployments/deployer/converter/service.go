@@ -72,7 +72,7 @@ func convertService(
 	} else if len(service.Logging.Options) > 0 {
 		return spec, fmt.Errorf("logging.options: driver is required")
 	}
-	if err = deployment(&spec, service.Deploy); err != nil {
+	if err = deployment(&spec, service.Deploy, service.Restart); err != nil {
 		return spec, err
 	}
 	spec.EndpointSpec, err = endpoint(service)
