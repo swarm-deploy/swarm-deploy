@@ -15,76 +15,49 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 
-func TestRealSwarmGitOpsPruningAndOwnership(t *testing.T) {
-	for _, tc := range []struct {
-		name  string
-		prune bool
-	}{
-		{name: "enabled", prune: true},
-		{name: "disabled", prune: false},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			f := newLifecycleFixture(t, tc.prune)
-			keep := lifecycleService("job", "sleep 600", "")
-			f.manifest(t, keep+lifecycleService("removed", "sleep 600", ""))
-			f.reconcile(t)
-			f.runningIDs(t, "job", 1)
-			before := f.settled(t, "job")
-			f.runningIDs(t, "removed", 1)
-			removed := f.settled(t, "removed")
-			// Cover each existing protection independently: an unmanaged service
-			// in this namespace, a service-level prune opt-out, and another stack.
-			protected := []dockerswarm.Service{
-				f.protectedService(t, f.inspect(t, "job"), "unmanaged", f.stack, false, true),
-				f.protectedService(t, f.inspect(t, "job"), "optout", f.stack, true, false),
-				f.protectedService(t, f.inspect(t, "job"), "foreign", f.stack+"foreign", true, true),
-			}
-			f.manifest(t, keep)
-			f.request.Commit = "remove-service"
-			f.reconcile(t)
-			if tc.prune {
-				f.poll(t, "only removed service deleted", func() bool {
-					_, err := f.sw.Services.Inspect(f.ctx, removed.Service.ID)
-					return errors.Is(err, swarm.ErrServiceNotFound)
-				})
-				items := f.publications(t, events.TypeNameServicePruned)
-				require.Len(t, items, 1)
-				event, ok := items[0].Envelope.Event.(*events.ServicePruned)
-				require.True(t, ok)
-				assert.Equal(t, "removed", event.ServiceName)
-				assert.Equal(t, f.request.Commit, event.Commit)
-			} else {
-				assert.Equal(t, removed.Service.ID, f.inspect(t, "removed").ID)
-				assert.Equal(t, removed.Service.Spec, f.settled(t, "removed").Service.Spec)
-				require.Empty(t, f.publications(t, events.TypeNameServicePruned))
-			}
-			for range 3 {
-				f.reconcile(t)
-			}
-			f.unchangedService(t, before)
-			if !tc.prune {
-				f.unchangedService(t, removed)
-			}
-			state, err := f.state.Read(f.ctx)
-			require.NoError(t, err)
-			assert.NotContains(t, state.Stacks[f.stack].Services, "removed", "runtime reflects the desired service set")
-			for _, service := range protected {
-				current, err := f.sw.Services.Inspect(f.ctx, service.ID)
-				require.NoError(t, err)
-				assert.Equal(t, service.Spec, current.Spec)
-			}
-			assertSuccessfulHistory(t, f.latest(t))
-			assert.Equal(t, 1, f.latest(t).AttemptCount)
-			page, err := f.store.List(f.ctx, model.ListFilter{Stacks: []string{f.stack}})
-			require.NoError(t, err)
-			require.Len(t, page.Deployments, 2, "repeated reconciliation creates no deployments")
-			count := 0
-			if tc.prune {
-				count = 1
-			}
-			f.delivered(t, events.TypeNameServicePruned, count)
-		})
+// Enabled pruning and ownership isolation share the recovery revision in
+// TestRealSwarmGitOpsLifecycle. Keep the distinct global prune=false contract.
+func TestRealSwarmGitOpsPruningDisabled(t *testing.T) {
+	f := newLifecycleFixture(t, false)
+	keep := lifecycleService("job", "sleep 600", "")
+	f.manifest(t, keep+lifecycleService("removed", "sleep 600", ""))
+	f.reconcile(t)
+	f.runningIDs(t, "job", 1)
+	before := f.settled(t, "job")
+	f.runningIDs(t, "removed", 1)
+	removed := f.settled(t, "removed")
+	// Cover each existing protection independently: an unmanaged service
+	// in this namespace, a service-level prune opt-out, and another stack.
+	protected := []dockerswarm.Service{
+		f.protectedService(t, f.inspect(t, "job"), "unmanaged", f.stack, false, true),
+		f.protectedService(t, f.inspect(t, "job"), "optout", f.stack, true, false),
+		f.protectedService(t, f.inspect(t, "job"), "foreign", f.stack+"foreign", true, true),
 	}
+	f.manifest(t, keep)
+	f.request.Commit = "remove-service"
+	f.reconcile(t)
+	assert.Equal(t, removed.Service.ID, f.inspect(t, "removed").ID)
+	assert.Equal(t, removed.Service.Spec, f.settled(t, "removed").Service.Spec)
+	require.Empty(t, f.publications(t, events.TypeNameServicePruned))
+	for range 3 {
+		f.reconcile(t)
+	}
+	f.unchangedService(t, before)
+	f.unchangedService(t, removed)
+	state, err := f.state.Read(f.ctx)
+	require.NoError(t, err)
+	assert.NotContains(t, state.Stacks[f.stack].Services, "removed", "runtime reflects the desired service set")
+	for _, service := range protected {
+		current, err := f.sw.Services.Inspect(f.ctx, service.ID)
+		require.NoError(t, err)
+		assert.Equal(t, service.Spec, current.Spec)
+	}
+	assertSuccessfulHistory(t, f.latest(t))
+	assert.Equal(t, 1, f.latest(t).AttemptCount)
+	page, err := f.store.List(f.ctx, model.ListFilter{Stacks: []string{f.stack}})
+	require.NoError(t, err)
+	require.Len(t, page.Deployments, 2, "repeated reconciliation creates no deployments")
+	f.delivered(t, events.TypeNameServicePruned, 0)
 }
 
 func (f *lifecycleFixture) protectedService(t *testing.T, source dockerswarm.Service, name, namespace string, managed, prune bool) dockerswarm.Service {

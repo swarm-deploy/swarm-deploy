@@ -15,10 +15,9 @@ import (
 func TestRealSwarmGitOpsReplicaDriftAndSelfHeal(t *testing.T) {
 	for _, tc := range []struct {
 		name, label string
-		heal, drift bool
+		drift       bool
 	}{
-		{name: "self-heal enabled", heal: true, drift: true},
-		{name: "replica drift suppressed", label: "org.swarm-deploy.service.sync.policy.selfHeal.replicas", heal: false},
+		{name: "replica drift suppressed", label: "org.swarm-deploy.service.sync.policy.selfHeal.replicas"},
 		{name: "self-heal disabled still detects drift", label: "org.swarm-deploy.service.sync.policy.selfHeal", drift: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -39,53 +38,29 @@ func TestRealSwarmGitOpsReplicaDriftAndSelfHeal(t *testing.T) {
 			f.runningIDs(t, "job", 3)
 			external := f.settled(t, "job")
 			f.reconcile(t)
-			if tc.heal {
-				f.runningIDs(t, "job", 2)
-				healed := f.settled(t, "job")
-				assert.Equal(t, external.Service.ID, healed.Service.ID)
-				assert.Equal(t, uint64(2), *healed.Service.Spec.Mode.Replicated.Replicas)
-				assert.Equal(t, gitopsmodel.SyncStatusSynced, f.syncStatus(t, "job"))
-				detected := f.publications(t, events.TypeNameServiceDrifted)
-				require.Len(t, detected, 1)
-				event, ok := detected[0].Envelope.Event.(*events.ServiceDrifted)
+			for range 3 {
+				f.reconcile(t)
+			}
+			f.unchangedService(t, external)
+			assert.Equal(t, uint64(3), *f.inspect(t, "job").Spec.Mode.Replicated.Replicas)
+			require.Empty(t, f.publications(t, events.TypeNameServiceDriftFixed))
+			if tc.drift {
+				assert.Equal(t, gitopsmodel.SyncStatusOutOfSync, f.syncStatus(t, "job"))
+				items := f.publications(t, events.TypeNameServiceDrifted)
+				require.Len(t, items, 1, "unchanged drift must not republish the detection")
+				event, ok := items[0].Envelope.Event.(*events.ServiceDrifted)
 				require.True(t, ok)
-				assert.True(t, event.Resolved, "detected and repaired in the same reconciliation")
-				assert.Contains(t, event.Reason, "desired=2 actual=3")
-				fixed := f.publications(t, events.TypeNameServiceDriftFixed)
-				require.Len(t, fixed, 1)
-				assert.Less(t, detected[0].Envelope.PublicationSequence, fixed[0].Envelope.PublicationSequence)
-				assert.Equal(t, "job", fixed[0].Envelope.Event.Details()[events.AttributeServiceName])
+				assert.False(t, event.Resolved)
 			} else {
-				for range 3 {
-					f.reconcile(t)
-				}
-				f.unchangedService(t, external)
-				assert.Equal(t, uint64(3), *f.inspect(t, "job").Spec.Mode.Replicated.Replicas)
-				require.Empty(t, f.publications(t, events.TypeNameServiceDriftFixed))
-				if tc.drift {
-					assert.Equal(t, gitopsmodel.SyncStatusOutOfSync, f.syncStatus(t, "job"))
-					items := f.publications(t, events.TypeNameServiceDrifted)
-					require.Len(t, items, 1, "unchanged drift must not republish the detection")
-					event, ok := items[0].Envelope.Event.(*events.ServiceDrifted)
-					require.True(t, ok)
-					assert.False(t, event.Resolved)
-				} else {
-					assert.Equal(t, gitopsmodel.SyncStatusSynced, f.syncStatus(t, "job"))
-					require.Empty(t, f.publications(t, events.TypeNameServiceDrifted))
-				}
+				assert.Equal(t, gitopsmodel.SyncStatusSynced, f.syncStatus(t, "job"))
+				require.Empty(t, f.publications(t, events.TypeNameServiceDrifted))
 			}
 			assert.Equal(t, baseline.ID, f.latest(t).ID, "self-heal does not create a stack Deployment")
 			assert.Equal(t, 1, f.latest(t).AttemptCount)
 			if !tc.drift {
 				f.verifyReplicaPolicyDoesNotHideMissingService(t, manifest)
 			}
-			if tc.heal {
-				for range 3 {
-					f.reconcile(t)
-				}
-				f.delivered(t, events.TypeNameServiceDrifted, 1)
-				f.delivered(t, events.TypeNameServiceDriftFixed, 1)
-			} else if tc.drift {
+			if tc.drift {
 				f.delivered(t, events.TypeNameServiceDrifted, 1)
 				f.delivered(t, events.TypeNameServiceDriftFixed, 0)
 			}
