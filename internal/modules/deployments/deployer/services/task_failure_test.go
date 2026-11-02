@@ -65,26 +65,30 @@ func TestNonRestartingTaskFailure(t *testing.T) {
 func TestApplyExplicitRetryOfInitialFailure(t *testing.T) {
 	exit := 23
 	for _, tc := range []struct {
-		name     string
-		retry    bool
-		exitCode *int
+		name       string
+		retry      bool
+		exitCode   *int
+		taskOffset time.Duration
 	}{
 		{name: "unchanged failure is not forced", exitCode: &exit},
-		{name: "explicit retry forces new generation", retry: true, exitCode: &exit},
+		{name: "explicit retry forces new generation", retry: true, exitCode: &exit, taskOffset: time.Second},
 		{name: "unchanged failure without exit code is not forced"},
-		{name: "explicit retry without exit code forces new generation", retry: true},
+		{name: "explicit retry without exit code forces new generation", retry: true, taskOffset: time.Second},
+		{name: "allocation metadata updated after initial task creation", retry: true, exitCode: &exit, taskOffset: -time.Millisecond},
+		{name: "allocation metadata updated after initial task without exit code", retry: true, taskOffset: -time.Millisecond},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			manager := swarm.NewMockServiceManager(gomock.NewController(t))
 			desired := serviceSpec("api", "busybox:1.36")
 			desired.TaskTemplate.RestartPolicy = &dockerswarm.RestartPolicy{Condition: dockerswarm.RestartPolicyConditionNone}
 			current := service("api-id", 7, desired)
-			current.UpdatedAt = time.Now()
+			current.CreatedAt = time.Now().Add(-time.Second)
+			current.UpdatedAt = current.CreatedAt.Add(time.Second)
 			manager.EXPECT().Inspect(gomock.Any(), desired.Name).Return(current, nil)
 			if tc.retry {
 				manager.EXPECT().ListTasks(gomock.Any(), current.ID).Return([]swarm.ServiceTask{{
 					ID: "initial-failed", Slot: 1, CurrentState: swarm.TaskStateFailed, ExitCode: tc.exitCode,
-					CreatedAt: current.UpdatedAt.Add(time.Second),
+					CreatedAt: current.UpdatedAt.Add(tc.taskOffset),
 				}}, nil).Times(2)
 				forced := cloneSpec(desired)
 				forced.TaskTemplate.ForceUpdate++

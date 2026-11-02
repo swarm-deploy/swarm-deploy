@@ -61,6 +61,10 @@ func (a *Applier) retryRequired(ctx context.Context, service dockerswarm.Service
 	if err != nil {
 		return false, fmt.Errorf("inspect service %s retry tasks: %w", service.Spec.Name, err)
 	}
-	_, failed := NonRestartingTaskFailure(service.Spec, tasks, service.UpdatedAt)
+	// Initial allocation can update the service metadata after its first task
+	// was created, without starting a rolling update. UpdatedAt is therefore not
+	// a task-generation boundary here. Use creation time and the latest task per
+	// slot so an observed replacement still supersedes the initial failure.
+	_, failed := NonRestartingTaskFailure(service.Spec, tasks, service.CreatedAt)
 	return failed, nil
 }

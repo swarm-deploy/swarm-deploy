@@ -625,3 +625,62 @@ func waitForTest(waiter *ServiceWaiter, ctx context.Context, request ServiceWait
 	_, err := waiter.Wait(ctx, request)
 	return err
 }
+
+func TestServiceWaiterManualRetryOfInitialFailureUsesNewGeneration(t *testing.T) {
+	for _, outcome := range []string{"failed", "running"} {
+		t.Run(outcome, func(t *testing.T) {
+			manager := swarm.NewMockServiceManager(gomock.NewController(t))
+			before := testReplicatedService("api", "api-id", 1, serviceWaitTestTime, "busybox:1.36")
+			before.ServiceSpec.TaskTemplate.RestartPolicy = &dockerswarm.RestartPolicy{Condition: dockerswarm.RestartPolicyConditionNone}
+			// Allocation metadata can be newer than the initial failed task.
+			before.UpdatedAt = before.CreatedAt.Add(time.Millisecond)
+			exit := 23
+			old := testTask("initial-failed", 1, swarm.TaskStateShutdown, swarm.TaskStateFailed, before.CreatedAt)
+			old.ExitCode = &exit
+			after := before
+			after.ServiceSpec.TaskTemplate.ForceUpdate++
+			after.UpdatedAt = serviceWaitTestTime.Add(time.Second)
+			status := after
+			status.UpdateStatus = &swarm.ServiceUpdateStatus{State: "updating", StartedAt: after.UpdatedAt}
+			current := testTask("retry-task", 1, swarm.TaskStateRunning, swarm.TaskStateStarting, after.UpdatedAt)
+			finished := status
+			finished.UpdateStatus = &swarm.ServiceUpdateStatus{State: "completed", StartedAt: after.UpdatedAt}
+			if outcome == "failed" {
+				current.DesiredState, current.CurrentState = swarm.TaskStateShutdown, swarm.TaskStateFailed
+				current.ExitCode = &exit
+				finished.UpdateStatus.State = "paused"
+				finished.UpdateStatus.Message = "update paused due to failure of task retry-task"
+			} else {
+				current.CurrentState = swarm.TaskStateRunning
+			}
+			gomock.InOrder(
+				// Stale pre-apply snapshot must not finish the new attempt.
+				manager.EXPECT().ListServices(gomock.Any(), gomock.Any()).Return([]swarm.StackService{before}, nil),
+				// Accepted ForceUpdate is visible before rolling-update metadata.
+				manager.EXPECT().ListServices(gomock.Any(), gomock.Any()).Return([]swarm.StackService{after}, nil),
+				manager.EXPECT().ListTasks(gomock.Any(), before.ID).Return([]swarm.ServiceTask{old}, nil),
+				manager.EXPECT().ListServices(gomock.Any(), gomock.Any()).Return([]swarm.StackService{status}, nil),
+				manager.EXPECT().ListTasks(gomock.Any(), before.ID).Return([]swarm.ServiceTask{old}, nil),
+				manager.EXPECT().ListServices(gomock.Any(), gomock.Any()).Return([]swarm.StackService{finished}, nil),
+				manager.EXPECT().ListTasks(gomock.Any(), before.ID).Return([]swarm.ServiceTask{old, current}, nil),
+			)
+			var progress []ServiceProgress
+			_, err := newTestServiceWaiter(manager).Wait(t.Context(), ServiceWaitRequest{
+				StackName: "app", ServiceNames: []string{"api"}, Baseline: []swarm.StackService{before},
+				AppliedServices: []string{"api"}, UnresolvedServices: []string{"api"},
+				Progress: func(p ServiceProgress) { progress = append(progress, p) },
+			})
+			if outcome == "failed" {
+				require.ErrorIs(t, err, ErrConvergenceFailed)
+				assert.NotErrorIs(t, err, context.DeadlineExceeded)
+				assert.ErrorContains(t, err, "id=retry-task state=failed exit_code=23")
+			} else {
+				require.NoError(t, err)
+			}
+			require.NotEmpty(t, progress)
+			for _, p := range progress[:len(progress)-1] {
+				assert.Equal(t, ServicePending, p.State, "old task must not complete the retry")
+			}
+		})
+	}
+}
