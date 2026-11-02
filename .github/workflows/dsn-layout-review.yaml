@@ -103,6 +103,14 @@ jobs:
           })().catch(error=>{console.error(error);process.exit(1)});
           JS
           node /tmp/dsn-browser/review.cjs
+      - name: Export screenshots for PR attachment
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import base64,glob
+          for path in sorted(glob.glob('dsn-screenshots/*.png')):
+              print('DSN_SCREENSHOT:'+path.split('/')[-1]+':'+base64.b64encode(open(path,'rb').read()).decode())
+          PY
       - uses: actions/upload-artifact@v4
         if: always()
         with:
