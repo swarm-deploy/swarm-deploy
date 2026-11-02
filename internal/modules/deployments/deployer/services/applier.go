@@ -165,7 +165,7 @@ func (a *Applier) update(
 		if err != nil {
 			return fmt.Errorf("service %s registry authentication: %w", displayName, err)
 		}
-		options.QueryRegistry = !reused && !digestPinned(applied)
+		options.QueryRegistry = !reused
 		err = a.manager.Update(ctx, current.ID, current.Version, applied, options)
 		if err == nil {
 			recordExternalUpdate(generations, displayName, applied, current)
@@ -238,7 +238,7 @@ func failedUpdate(service dockerswarm.Service) bool {
 
 func (a *Applier) createOptions(spec dockerswarm.ServiceSpec) (dockerswarm.ServiceCreateOptions, error) {
 	auth, err := a.resolveAuth(spec)
-	return dockerswarm.ServiceCreateOptions{EncodedRegistryAuth: auth, QueryRegistry: !digestPinned(spec)}, err
+	return dockerswarm.ServiceCreateOptions{EncodedRegistryAuth: auth, QueryRegistry: true}, err
 }
 
 func (a *Applier) updateOptions(spec dockerswarm.ServiceSpec) (dockerswarm.ServiceUpdateOptions, error) {
