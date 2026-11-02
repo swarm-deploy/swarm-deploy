@@ -36,23 +36,27 @@ func TestInitialDeploymentRecoveryAfterAllocation(t *testing.T) {
 }
 
 func TestInitialDeploymentInterruptedThenRepeatedSyncDoesNotForceUpdate(t *testing.T) {
-	manager := swarm.NewMockServiceManager(gomock.NewController(t))
+	interruptedManager := swarm.NewMockServiceManager(gomock.NewController(t))
 	service := testReplicatedService("api", "api-id", 1, serviceWaitTestTime, "nginx:alpine")
 	service.ServiceSpec.Labels = map[string]string{labelsdict.StackNamespace: "app"}
 	service.ServiceSpec.TaskTemplate.RestartPolicy = &dockerswarm.RestartPolicy{Condition: dockerswarm.RestartPolicyConditionNone}
 	service.UpdatedAt = service.CreatedAt.Add(time.Millisecond)
 	ctx, cancel := context.WithCancel(t.Context())
-	manager.EXPECT().ListServices(gomock.Any(), gomock.Any()).Return([]swarm.StackService{service}, nil)
-	manager.EXPECT().ListTasks(gomock.Any(), service.ID).DoAndReturn(func(context.Context, string) ([]swarm.ServiceTask, error) {
+	defer cancel()
+	// Cancellation and the poll ticker may become ready together. Keep canceled
+	// observations repeatable, then use a fresh manager for the recovered process.
+	interruptedManager.EXPECT().ListServices(gomock.Any(), gomock.Any()).Return([]swarm.StackService{service}, nil).AnyTimes()
+	interruptedManager.EXPECT().ListTasks(gomock.Any(), service.ID).DoAndReturn(func(context.Context, string) ([]swarm.ServiceTask, error) {
 		cancel()
 		return []swarm.ServiceTask{testTask("starting", 1, swarm.TaskStateRunning, swarm.TaskStateStarting, service.CreatedAt)}, nil
-	})
+	}).AnyTimes()
 	request := ServiceWaitRequest{StackName: "app", ServiceNames: []string{"api"}, Baseline: []swarm.StackService{service}}
-	result, err := newTestServiceWaiter(manager).Wait(ctx, request)
+	result, err := newTestServiceWaiter(interruptedManager).Wait(ctx, request)
 	require.ErrorIs(t, err, context.Canceled)
 	require.Equal(t, []string{"api"}, result.UnresolvedServices)
 	request.UnresolvedServices = result.UnresolvedServices
 	tasks := testRunningTasks(1, service.CreatedAt)
+	manager := swarm.NewMockServiceManager(gomock.NewController(t))
 	applier := services.New(manager, &registry.NopAuthManager{})
 	for _, manual := range []bool{false, true, false, true} {
 		manager.EXPECT().Inspect(gomock.Any(), service.ServiceSpec.Name).Return(dockerswarm.Service{
