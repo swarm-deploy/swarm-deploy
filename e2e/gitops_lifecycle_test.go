@@ -368,19 +368,10 @@ func TestRealSwarmGitOpsLifecycle(t *testing.T) {
 			require.Equal(t, loaded.Digest, afterInterval.Stacks[f.stack].SourceDigest)
 			require.Equal(t, beforeHistory, history(t), "no new deployment or attempt for unchanged effective desired state")
 			if broken {
-				// Failure initially marks the stack OutOfSync. Its first
-				// deferred interval re-observes the unaffected healthy services
-				// and legitimately closes their drift state once.
-				fixed := f.publications(t, events.TypeNameServiceDriftFixed)
-				require.Len(t, fixed, 2)
-				names := make([]string, 0, len(fixed))
-				for _, publication := range fixed {
-					event, ok := publication.Envelope.Event.(*events.ServiceDriftFixed)
-					require.True(t, ok)
-					require.Equal(t, sha, event.Commit)
-					names = append(names, event.ServiceName)
-				}
-				require.ElementsMatch(t, []string{"worker", "scheduler"}, names)
+				// Failure marks services OutOfSync without detecting drift.
+				// Re-observing healthy worker/scheduler replicas must not invent
+				// drift recovery events for that deployment-only failure state.
+				require.Empty(t, f.publications(t, events.TypeNameServiceDriftFixed))
 				require.Empty(t, f.publications(t, events.TypeNameDeploySuccess))
 				require.Empty(t, f.publications(t, events.TypeNameDeployFailed))
 				drain(t)

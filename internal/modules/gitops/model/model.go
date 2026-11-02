@@ -1,6 +1,7 @@
 package model
 
 import (
+	"maps"
 	"time"
 )
 
@@ -17,6 +18,8 @@ type Service struct {
 }
 
 type Stack struct {
+	// DriftedServices tracks verified drift episodes independently of deployment status.
+	DriftedServices map[string]bool `json:"drifted_services,omitempty"`
 	// SourceDigest is the digest of the source compose file used for deployment.
 	SourceDigest string `json:"source_digest"`
 	// LastCommit is the git commit hash that triggered the latest stack deployment.
@@ -89,6 +92,7 @@ func (r *Runtime) Clone() Runtime {
 
 	for stackName, stack := range r.Stacks {
 		stackCopy := stack
+		stackCopy.DriftedServices = maps.Clone(stack.DriftedServices)
 		stackCopy.Services = map[string]Service{}
 		for serviceName, service := range stack.Services {
 			stackCopy.Services[serviceName] = service

@@ -178,12 +178,7 @@ func (r *Reconciler) Reconcile(
 }
 
 func stackHasDrift(stack model.Stack) bool {
-	for _, service := range stack.Services {
-		if service.SyncStatus == model.SyncStatusOutOfSync {
-			return true
-		}
-	}
-	return false
+	return len(stack.DriftedServices) > 0
 }
 
 func (r *Reconciler) currentStackState(ctx context.Context, stackName string) (model.Stack, bool, error) {
@@ -232,8 +227,17 @@ func (r *Reconciler) processResult(
 		serviceStates[service.Name] = state
 	}
 
+	driftedServices := prevState.DriftedServices
+	if payload.RemainingDrift != nil {
+		driftedServices = make(map[string]bool, len(payload.RemainingDrift))
+		for name := range payload.RemainingDrift {
+			driftedServices[name] = true
+		}
+	}
+
 	result := model.Stack{
-		SourceDigest: desired.Digest, LastCommit: req.Commit, Status: model.NewStackStatus(serviceStates),
+		DriftedServices: driftedServices,
+		SourceDigest:    desired.Digest, LastCommit: req.Commit, Status: model.NewStackStatus(serviceStates),
 		LastDeployAt: prevState.LastDeployAt, StateUpdatedAt: now.UTC(), Services: serviceStates,
 	}
 	if payload.RetryDeferred {
@@ -357,10 +361,12 @@ func (r *Reconciler) publishDriftEvents(
 	prevState model.Stack,
 	payload *pipelinePayload,
 ) error {
+	// A nil map means drift analysis did not run. Deployment completion alone
+	// cannot establish that an earlier drift episode was resolved.
+	if payload.RemainingDrift == nil {
+		return nil
+	}
 	for _, service := range payload.Desired.Compose.Services {
-		if payload.RetryDeferred && slices.Contains(payload.ProtectedServices, service.Name) {
-			continue
-		}
 		if err := r.publishServiceDriftEvents(ctx, req, prevState, payload, service.Name); err != nil {
 			return err
 		}
@@ -378,8 +384,7 @@ func (r *Reconciler) publishServiceDriftEvents(
 ) error {
 	initial, initiallyDrifted := payload.Drift[serviceName]
 	final, unresolved := payload.RemainingDrift[serviceName]
-	previousStatus := prevState.ServiceSyncStatus(serviceName)
-	wasDrifted := previousStatus == model.SyncStatusOutOfSync
+	wasDrifted := prevState.DriftedServices[serviceName]
 	detected := final
 	if !unresolved {
 		detected = initial
