@@ -44,11 +44,15 @@ func (h *handler) ListDSNSuggestions(ctx context.Context) (*generated.DSNSuggest
 
 // Engine inference belongs only to DSN suggestions, not to the global classifier.
 func inferDSNEngine(image, name string) string {
+	const (
+		postgresql  = "postgresql"
+		mysqlEngine = "mysql"
+	)
 	switch utils.ImageName(image) {
-	case "postgres", "postgresql":
-		return "postgresql"
-	case "mysql", "mariadb":
-		return "mysql"
+	case "postgres", postgresql:
+		return postgresql
+	case mysqlEngine, "mariadb":
+		return mysqlEngine
 	}
 	var postgres, mysql bool
 	tokens := strings.FieldsFunc(strings.ToLower(name), func(r rune) bool {
@@ -56,17 +60,17 @@ func inferDSNEngine(image, name string) string {
 	})
 	for _, token := range tokens {
 		switch token {
-		case "postgres", "postgresql":
+		case "postgres", postgresql:
 			postgres = true
-		case "mysql", "mariadb":
+		case mysqlEngine, "mariadb":
 			mysql = true
 		}
 	}
 	if postgres && !mysql {
-		return "postgresql"
+		return postgresql
 	}
 	if mysql && !postgres {
-		return "mysql"
+		return mysqlEngine
 	}
 	return ""
 }
