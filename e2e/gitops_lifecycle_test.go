@@ -35,7 +35,7 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-// One live stack survives six real Git revisions, including a failed rollout.
+// One live stack survives seven real Git revisions, including a failed rollout.
 // No scheduler timing, Git transport, deployment, or Docker operations are mocked.
 func TestRealSwarmGitOpsLifecycle(t *testing.T) {
 	f := newGitOpsLifecycleFixture(t)
@@ -54,7 +54,7 @@ func TestRealSwarmGitOpsLifecycle(t *testing.T) {
 
 		api = f.runningAPI(t, desired)
 		originalResources = f.mountedResources(t, 1)
-		worker = f.runningService(t, "worker")
+		worker = f.runningService(t, "worker", 2)
 		f.assertCompletionDelivered(t, latest, events.TypeNameDeploySuccess, 2)
 		f.assertHealthyReconciliationIsIdle(t, sha, api.snapshot, worker)
 	}) {
@@ -63,10 +63,10 @@ func TestRealSwarmGitOpsLifecycle(t *testing.T) {
 
 	if !t.Run("repair_worker_replica_drift_without_git_commit", func(t *testing.T) {
 		baseline, beforeHistory := f.latest(t), f.deploymentHistory(t)
-		two := uint64(2)
+		three := uint64(3)
 		f.poll(t, "external worker scale accepted", func() bool {
 			current := f.inspect(t, "worker")
-			current.Spec.Mode.Replicated.Replicas = &two
+			current.Spec.Mode.Replicated.Replicas = &three
 			err := f.sw.Services.Update(f.ctx, current.ID, current.Version, current.Spec, dockerswarm.ServiceUpdateOptions{})
 			if errors.Is(err, swarm.ErrServiceConflict) {
 				return false
@@ -74,10 +74,10 @@ func TestRealSwarmGitOpsLifecycle(t *testing.T) {
 			require.NoError(t, err)
 			return true
 		})
-		f.runningIDs(t, "worker", 2)
+		f.runningIDs(t, "worker", 3)
 		external := f.settled(t, "worker")
 		f.runner.Run(f.ctx, syncrun.Task{Reason: syncrun.TriggerInterval})
-		healed := f.runningService(t, "worker")
+		healed := f.runningService(t, "worker", 2)
 		require.Equal(t, worker.Service.ID, healed.Service.ID)
 		require.Equal(t, worker.Service.Spec, healed.Service.Spec)
 		require.Greater(t, healed.Service.Version.Index, external.Service.Version.Index)
@@ -88,7 +88,7 @@ func TestRealSwarmGitOpsLifecycle(t *testing.T) {
 		require.True(t, ok)
 		require.True(t, event.Resolved, "detected and repaired in the same reconciliation")
 		require.Equal(t, "worker", event.ServiceName)
-		require.Contains(t, event.Reason, "desired=1 actual=2")
+		require.Contains(t, event.Reason, "desired=2 actual=3")
 		fixed := f.publications(t, events.TypeNameServiceDriftFixed)
 		require.Len(t, fixed, 1)
 		require.Less(t, detected[0].Envelope.PublicationSequence, fixed[0].Envelope.PublicationSequence)
@@ -133,7 +133,7 @@ func TestRealSwarmGitOpsLifecycle(t *testing.T) {
 		// Retain the API baseline: the bounded idle check also proves isolation
 		// across adding scheduler, including retained task generations.
 		require.Equal(t, originalResources, f.mountedResources(t, 1))
-		scheduler = f.runningService(t, "scheduler")
+		scheduler = f.runningService(t, "scheduler", 1)
 		f.assertCompletionDelivered(t, latest, events.TypeNameDeploySuccess, 3)
 		f.assertHealthyReconciliationIsIdle(t, sha, api.snapshot, worker, scheduler)
 		composeBeforeRotation = content
@@ -175,31 +175,49 @@ func TestRealSwarmGitOpsLifecycle(t *testing.T) {
 		t.FailNow()
 	}
 
-	if !t.Run("recover_api_and_prune_scheduler", func(t *testing.T) {
+	if !t.Run("recover_api", func(t *testing.T) {
+		desired.broken, desired.apiCommand = false, "recovered"
+		sha, content := f.pushRevision(t, "Recover API", desired)
+		f.pollGit(t)
+		latest := f.assertRevision(t, sha, content, desired)
+		f.assertSuccessfulDeployment(t, latest)
+
+		// Recovery keeps scheduler and compares API against the last healthy generation.
+		api = f.updatedAPI(t, api, desired)
+		require.Equal(t, rotatedResources, f.mountedResources(t, 2))
+		require.NotEqual(t, originalResources.secret, rotatedResources.secret)
+		require.NotEqual(t, originalResources.config, rotatedResources.config)
+		f.assertFailedDeploymentSuperseded(t, failed)
+		f.assertCompletionDelivered(t, latest, events.TypeNameDeploySuccess, 3)
+		f.assertHealthyReconciliationIsIdle(t, sha, api.snapshot, worker, scheduler)
+	}) {
+		t.FailNow()
+	}
+
+	if !t.Run("prune_scheduler_without_other_service_changes", func(t *testing.T) {
 		protected := []dockerswarm.Service{
 			f.protectedService(t, f.inspect(t, "worker"), "unmanaged", f.stack, false, true),
 			f.protectedService(t, f.inspect(t, "worker"), "optout", f.stack, true, false),
 			f.protectedService(t, f.inspect(t, "worker"), "foreign", f.stack+"foreign", true, true),
 		}
-		desired.broken, desired.scheduler, desired.apiCommand = false, false, "recovered"
-		sha, content := f.pushRevision(t, "Recover API and prune scheduler", desired)
+		beforeCompose := desired.compose(f.subnet)
+		desired.scheduler = false
+		sha, content := f.pushRevision(t, "Prune scheduler only", desired)
+		require.Equal(t, strings.Replace(beforeCompose, lifecycleService("scheduler", "sleep 600", ""), "", 1), content,
+			"pruning must not change any remaining service spec")
 		f.pollGit(t)
 		latest := f.assertRevision(t, sha, content, desired)
 		f.assertSuccessfulDeployment(t, latest)
 
-		// Compare recovery with the last healthy generation, retained across failure.
-		api = f.updatedAPI(t, api, desired)
 		require.Equal(t, rotatedResources, f.mountedResources(t, 2))
-		require.NotEqual(t, originalResources.secret, rotatedResources.secret)
-		require.NotEqual(t, originalResources.config, rotatedResources.config)
 		f.assertSchedulerPruned(t, scheduler, sha)
 		require.NotContains(t, f.runtime(t).Stacks[f.stack].Services, "scheduler")
-		f.assertFailedDeploymentSuperseded(t, failed)
 		f.assertCompletionDelivered(t, latest, events.TypeNameDeploySuccess, 2)
 		beforeHistory := f.deploymentHistory(t)
 		for range 3 {
 			f.assertNoOpInterval(t, sha, beforeHistory)
 		}
+		// Baselines predate pruning, proving it did not update API or worker tasks/specs.
 		f.assertHealthyReconciliationIsIdle(t, sha, api.snapshot, worker)
 		for _, service := range protected {
 			current, err := f.sw.Services.Inspect(f.ctx, service.ID)
@@ -211,10 +229,10 @@ func TestRealSwarmGitOpsLifecycle(t *testing.T) {
 		t.FailNow()
 	}
 
-	require.Len(t, f.commits, 6)
+	require.Len(t, f.commits, 7)
 	success, err := f.history.ReadRecent(f.ctx, eventhistory.QueryOptions{Types: []events.TypeName{events.TypeNameDeploySuccess}, Limit: 100})
 	require.NoError(t, err)
-	require.Len(t, success, 5)
+	require.Len(t, success, 6)
 }
 
 // GitOps-specific wiring stays local; lifecycleFixture owns the real Swarm and stores.
@@ -280,7 +298,8 @@ func (m gitOpsManifest) compose(subnet string) string {
 	}
 	api := lifecycleService("api", command, "")
 	api = strings.Replace(api, "    deploy:\n", fmt.Sprintf("    environment: {MODE: %s}\n    secrets: [password]\n    configs: [{source: settings, target: /etc/app.conf}]\n%s    deploy:\n", m.mode, health), 1)
-	services := api + lifecycleService("worker", "sleep 600", "")
+	worker := strings.Replace(lifecycleService("worker", "sleep 600", ""), "replicas: 1", "replicas: 2", 1)
+	services := api + worker
 	if m.scheduler {
 		services += lifecycleService("scheduler", "sleep 600", "")
 	}
@@ -369,11 +388,11 @@ func (f *gitOpsLifecycleFixture) updatedAPI(t *testing.T, previous gitOpsAPIObse
 	return current
 }
 
-func (f *gitOpsLifecycleFixture) runningService(t *testing.T, name string) dockertester.ServiceSnapshot {
+func (f *gitOpsLifecycleFixture) runningService(t *testing.T, name string, replicas int) dockertester.ServiceSnapshot {
 	t.Helper()
-	f.runningIDs(t, name, 1)
+	f.runningIDs(t, name, replicas)
 	current := f.settled(t, name)
-	require.EqualValues(t, 1, *current.Service.Spec.Mode.Replicated.Replicas)
+	require.EqualValues(t, replicas, *current.Service.Spec.Mode.Replicated.Replicas)
 	return current
 }
 
