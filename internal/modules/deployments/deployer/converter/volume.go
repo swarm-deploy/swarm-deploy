@@ -46,10 +46,7 @@ func convertMount(stackName string, volume compose.ServiceVolume, definitions co
 	if !slices.Contains([]mount.Consistency{"", "default", "consistent", "cached", "delegated"}, volume.Consistency) {
 		return mount.Mount{}, fmt.Errorf("consistency: unsupported value")
 	}
-	kind := mount.Type(volume.Type)
-	if kind == "" {
-		kind = mount.TypeVolume
-	}
+	kind := mount.Type(volume.EffectiveType())
 	result := mount.Mount{Type: kind, Source: volume.Source, Target: volume.Target,
 		ReadOnly: volume.ReadOnly, Consistency: volume.Consistency}
 	switch kind {

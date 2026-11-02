@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/waiter"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
@@ -237,4 +238,46 @@ func assertFailedPublication(t *testing.T, f *lifecycleFixture, item model.Deplo
 	assert.Equal(t, string(model.PhaseVerification), event.Stage)
 	require.Error(t, event.Error)
 	assert.Equal(t, item.ErrorDiagnostic, event.Error.Error())
+}
+
+func TestRealSwarmInitialDeploymentRecoveryWithoutServiceUpdate(t *testing.T) {
+	f := newLifecycleFixture(t, true)
+	desired := f.manifest(t, lifecycleService("job", "sleep 600", ""))
+	lifecycle := deployments.NewService(f.db, f.bus)
+	attempt, err := lifecycle.StartIfChanged(f.ctx, f.stack, "initial", desired, true)
+	require.NoError(t, err)
+	require.NotNil(t, attempt)
+	// Simulate a process stopping after Swarm converged, before the attempt's
+	// completion was persisted. Recovery must verify the existing creation tasks.
+	_, err = f.deployer.DeployStack(f.ctx, deployer.StackRequest{
+		StackName: f.stack, SourceComposePath: f.path, Desired: desired.Compose,
+	})
+	require.NoError(t, err)
+	f.settled(t, "job")
+	before := f.inspect(t, "job")
+	require.Nil(t, before.UpdateStatus)
+	require.Nil(t, before.PreviousSpec)
+	ids := f.runningIDs(t, "job", 1)
+	require.NoError(t, f.executor.Recover(f.ctx))
+	interrupted, err := f.store.Get(f.ctx, attempt.DeploymentID)
+	require.NoError(t, err)
+	require.Equal(t, model.Interrupted, interrupted.Status)
+	require.Equal(t, []string{"job"}, interrupted.Verification.UnresolvedServices)
+	// Explicit retry bypasses the lifecycle backoff without sleeping.
+	req := deployments.ExecuteRequest{Stack: f.request.Stack, Desired: desired, Commit: "initial", SourceChanged: true, ManualRetry: true}
+	result, err := f.executor.Execute(f.ctx, req)
+	require.NoError(t, err)
+	require.Equal(t, model.Succeeded, result.Status)
+	assertSuccessfulHistory(t, f.latest(t))
+	for _, manual := range []bool{false, true} {
+		req.SourceChanged, req.ManualRetry = false, manual
+		_, err = f.executor.Execute(f.ctx, req)
+		require.NoError(t, err)
+		after := f.inspect(t, "job")
+		assert.Equal(t, before.ID, after.ID)
+		assert.Equal(t, before.Version, after.Version, "recovery and repeated sync must not update the service")
+		assert.Equal(t, before.Spec.TaskTemplate.ForceUpdate, after.Spec.TaskTemplate.ForceUpdate)
+		assert.ElementsMatch(t, ids, f.runningIDs(t, "job", 1))
+		assert.Nil(t, after.UpdateStatus)
+	}
 }

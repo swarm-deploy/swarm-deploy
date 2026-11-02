@@ -1,0 +1,80 @@
+package compose
+
+import (
+	"context"
+	"fmt"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+func TestNumericInterpolationThroughMergeAnchors(t *testing.T) {
+	for _, tc := range []struct {
+		name, extensions, deploy string
+		want                     uint64
+	}{
+		{name: "direct", deploy: "replicas: '${SD_MERGE_REPLICAS:-2}'", want: 2},
+		{name: "merged", extensions: "x-deploy: &deployment\n  replicas: '${SD_MERGE_REPLICAS:-2}'\n", deploy: "<<: *deployment", want: 2},
+		{name: "chained", extensions: "x-base: &base\n  replicas: '${SD_MERGE_REPLICAS:-2}'\nx-deploy: &deployment\n  <<: *base\n", deploy: "<<: *deployment", want: 2},
+		{name: "nested", extensions: "x-update: &update\n  parallelism: '${SD_MERGE_REPLICAS:-2}'\nx-deploy: &deployment\n  replicas: '${SD_MERGE_REPLICAS:-2}'\n  update_config:\n    <<: *update\n", deploy: "<<: *deployment", want: 2},
+		{name: "merge sequence precedence", extensions: "x-first: &first\n  replicas: '${SD_MERGE_REPLICAS:-2}'\nx-second: &second\n  replicas: 9\n", deploy: "<<: [*first, *second]", want: 2},
+		{name: "explicit override", extensions: "x-deploy: &deployment\n  replicas: '${SD_MERGE_REPLICAS:-2}'\n", deploy: "<<: *deployment\n      replicas: 7", want: 7},
+	} {
+		for _, value := range []string{"", "3", "invalid-number"} {
+			t.Run(tc.name+"/"+value, func(t *testing.T) {
+				t.Setenv("SD_MERGE_REPLICAS", value)
+				source := []byte(fmt.Sprintf("%sservices:\n  app:\n    image: nginx:alpine\n    deploy:\n      %s\n", tc.extensions, tc.deploy))
+				loader := NewFileLoaderWithReader(func(context.Context, string) ([]byte, error) { return source, nil })
+				file, err := loader.Load(t.Context(), "compose.yaml")
+				// An explicit override removes the invalid value from typed service paths.
+				if value == "invalid-number" && tc.name != "explicit override" {
+					var validation *ValidateComposeError
+					require.ErrorAs(t, err, &validation)
+					assert.Contains(t, err.Error(), "invalid integer")
+					assert.NotContains(t, err.Error(), value)
+					return
+				}
+				require.NoError(t, err)
+				want := tc.want
+				if value == "3" && want == 2 {
+					want = 3
+				}
+				require.NotNil(t, file.Compose.Services[0].Deploy.Replicas)
+				assert.Equal(t, want, *file.Compose.Services[0].Deploy.Replicas)
+				if tc.name == "nested" {
+					require.NotNil(t, file.Compose.Services[0].Deploy.UpdateConfig)
+					assert.Equal(t, want, *file.Compose.Services[0].Deploy.UpdateConfig.Parallelism)
+				}
+			})
+		}
+	}
+}
+
+func TestInterpolationKeepsAnchorValuesIndependentOfTypedUses(t *testing.T) {
+	t.Setenv("SD_MERGE_REPLICAS", "3")
+	source := []byte(`x-common: &common
+  replicas: '${SD_MERGE_REPLICAS}'
+services:
+  z:
+    image: nginx:alpine
+    deploy:
+      <<: *common
+    environment:
+      <<: *common
+  a:
+    image: nginx:alpine
+    deploy:
+      <<: *common
+      replicas: 4
+`)
+	loader := NewFileLoaderWithReader(func(context.Context, string) ([]byte, error) { return source, nil })
+	file, err := loader.Load(t.Context(), "compose.yaml")
+	require.NoError(t, err)
+	require.Len(t, file.Compose.Services, 2)
+	assert.Equal(t, "z", file.Compose.Services[0].Name)
+	assert.EqualValues(t, 3, *file.Compose.Services[0].Deploy.Replicas)
+	assert.Equal(t, "3", file.Compose.Services[0].Environment.Map["replicas"])
+	assert.Equal(t, "a", file.Compose.Services[1].Name)
+	assert.EqualValues(t, 4, *file.Compose.Services[1].Deploy.Replicas)
+}

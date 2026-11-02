@@ -86,7 +86,7 @@ func (m *serviceManager) Update(
 ) error {
 	response, err := m.dockerClient.ServiceUpdate(ctx, serviceID, version, spec, options)
 	if err != nil {
-		if cerrdefs.IsConflict(err) {
+		if isServiceUpdateConflict(err) {
 			return fmt.Errorf("update service %s: %w", spec.Name, ErrServiceConflict)
 		}
 		if isNotFoundErr(err) {
@@ -96,6 +96,11 @@ func (m *serviceManager) Update(
 	}
 	logServiceWarnings(ctx, spec.Name, response.Warnings)
 	return nil
+}
+
+func isServiceUpdateConflict(err error) bool {
+	// SwarmKit sequence conflicts may be returned as Unknown/HTTP 500.
+	return cerrdefs.IsConflict(err) || (err != nil && strings.Contains(err.Error(), "update out of sequence"))
 }
 
 func logServiceWarnings(ctx context.Context, service string, warnings []string) {
@@ -262,8 +267,7 @@ func (m *serviceManager) scale(
 		switch {
 		case isNotFoundErr(err):
 			return ServiceScaleResult{}, ErrServiceNotFound
-		// Some Docker versions expose SwarmKit sequence conflicts as HTTP 500.
-		case cerrdefs.IsConflict(err), strings.Contains(err.Error(), "update out of sequence"):
+		case isServiceUpdateConflict(err):
 			return ServiceScaleResult{}, ErrServiceUpdateConflict
 		default:
 			return ServiceScaleResult{}, fmt.Errorf("update service %s replicas to %d: %w", service.ID, replicas, err)

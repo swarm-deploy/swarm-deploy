@@ -42,6 +42,14 @@ type ServiceVolume struct {
 	isString bool
 }
 
+// EffectiveType returns the mount type, defaulting omitted long-syntax types to volume.
+func (sv ServiceVolume) EffectiveType() ServiceVolumeType {
+	if sv.Type == "" {
+		return ServiceVolumeTypeVolume
+	}
+	return sv.Type
+}
+
 type ServiceVolumeBind struct {
 	CreateHostPath *bool             `yaml:"create_host_path,omitempty" json:"CreateHostPath"`
 	Propagation    mount.Propagation `yaml:"propagation,omitempty" json:"Propagation"`
