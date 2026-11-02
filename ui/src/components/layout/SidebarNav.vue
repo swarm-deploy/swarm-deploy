@@ -30,7 +30,6 @@ const buildTimeTitle = computed(() => formatBuildTime(__SWARM_DEPLOY_BUILD_TIME_
 const links = [
   { to: "/overview", label: "Overview", icon: "overview" },
   { to: "/realtime", label: "Realtime", icon: "realtime" },
-  { to: "/services", label: "Services", icon: "services" },
   { to: "/graph", label: "Graph", icon: "graph" },
   { to: "/cluster", label: "Cluster", icon: "cluster" },
   { to: "/networks", label: "Networks", icon: "networks" },
@@ -41,10 +40,6 @@ const links = [
 const secondaryLinks = [{ to: "/events", label: "Events & Alerts", icon: "events" }];
 
 function isActive(path: string): boolean {
-  if (path === "/services") {
-    return route.path === "/services" || route.path.startsWith("/services/");
-  }
-
   return route.path === path;
 }
 
