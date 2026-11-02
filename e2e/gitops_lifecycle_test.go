@@ -11,9 +11,10 @@ import (
 	"testing"
 	"time"
 
-	dockerswarm "github.com/docker/docker/api/types/swarm"
+	mobyswarm "github.com/moby/moby/api/types/swarm"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/swarm-deploy/dockertester"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/configstore"
@@ -113,9 +114,9 @@ func TestRealSwarmGitOpsLifecycle(t *testing.T) {
 	}
 	var previousCompose, sha, failedID string
 	var failedDeployment model.Deployment
-	var previousAPI dockerswarm.Service
+	var previousAPI mobyswarm.Service
 	var previousTasks []string
-	var worker, scheduled gitopsServiceSnapshot
+	var worker, scheduled dockertester.ServiceSnapshot
 	var originalSecret, originalConfig, latestSecret, latestConfig string
 	var seenSHAs []string
 
@@ -200,11 +201,14 @@ func TestRealSwarmGitOpsLifecycle(t *testing.T) {
 				require.Equal(t, []string{"api"}, latest.Verification.UnresolvedServices)
 				require.Equal(t, latest.ErrorDiagnostic, latest.Attempts[0].ErrorDiagnostic)
 				failedID, failedDeployment = latest.ID, latest
-				failedService := f.settled(t, "api")
+				// A paused rollout is deliberately a failure baseline, not healthy stability.
+				failedSnapshot, stableErr := f.observer.WaitStable(f.ctx, f.stack+"_api", time.Second)
+				require.ErrorContains(t, stableErr, "rollout paused")
+				failedService := failedSnapshot.Service
 				require.Equal(t, previousAPI.ID, failedService.ID)
 				require.Contains(t, failedService.Spec.TaskTemplate.ContainerSpec.Args, "sleep 1; exit 23")
 				require.NotNil(t, failedService.UpdateStatus)
-				require.Equal(t, dockerswarm.UpdateStatePaused, failedService.UpdateStatus.State)
+				require.Equal(t, mobyswarm.UpdateStatePaused, failedService.UpdateStatus.State)
 				require.NotNil(t, failedService.UpdateStatus.StartedAt)
 				var failedTask string
 				f.poll(t, "revision 4 failing generation executed exit 23", func() bool {
@@ -233,21 +237,21 @@ func TestRealSwarmGitOpsLifecycle(t *testing.T) {
 				require.Empty(t, f.publications(t, events.TypeNameDeployFailed))
 				ids := f.runningIDs(t, "api", 1)
 				current := f.settled(t, "api")
-				require.Contains(t, current.Spec.TaskTemplate.ContainerSpec.Env, "MODE="+mode)
-				require.Contains(t, current.Spec.TaskTemplate.ContainerSpec.Args[2], apiCommand)
-				require.EqualValues(t, 1, *current.Spec.Mode.Replicated.Replicas)
+				require.Contains(t, current.Service.Spec.TaskTemplate.ContainerSpec.Env, "MODE="+mode)
+				require.Contains(t, current.Service.Spec.TaskTemplate.ContainerSpec.Args[2], apiCommand)
+				require.EqualValues(t, 1, *current.Service.Spec.Mode.Replicated.Replicas)
 				if revision > 0 {
-					require.Equal(t, previousAPI.ID, current.ID)
+					require.Equal(t, previousAPI.ID, current.Service.ID)
 					if revision == 2 {
-						require.Equal(t, previousAPI.Spec, current.Spec)
-						require.Equal(t, previousAPI.Version, current.Version)
+						require.Equal(t, previousAPI.Spec, current.Service.Spec)
+						require.Equal(t, previousAPI.Version, current.Service.Version)
 						require.Equal(t, previousTasks, ids)
 					} else {
 						require.NotEqual(t, previousTasks, ids, "new specification must execute a new task generation")
 					}
 				}
 				assertGitOpsTaskOutput(t, f, ids[0], fmt.Sprintf("%s:%s:%s:%s", apiCommand, mode, secretValue, configValue))
-				previousAPI, previousTasks = current, ids
+				previousAPI, previousTasks = current.Service, ids
 			}
 			api := f.inspect(t, "api")
 			require.Len(t, api.Spec.TaskTemplate.ContainerSpec.Secrets, 1)
@@ -280,21 +284,21 @@ func TestRealSwarmGitOpsLifecycle(t *testing.T) {
 				require.NotEqual(t, originalConfig, configID)
 			}
 			if revision > 0 {
-				assertGitOpsServiceUnchanged(t, f, worker)
+				f.unchangedService(t, worker)
 			}
 			f.runningIDs(t, "worker", 1)
-			worker = captureGitOpsService(t, f, "worker")
-			require.EqualValues(t, 1, *worker.service.Spec.Mode.Replicated.Replicas)
+			worker = f.settled(t, "worker")
+			require.EqualValues(t, 1, *worker.Service.Spec.Mode.Replicated.Replicas)
 			if revision >= 2 && revision < 5 {
 				if revision > 2 {
-					assertGitOpsServiceUnchanged(t, f, scheduled)
+					f.unchangedService(t, scheduled)
 				}
 				f.runningIDs(t, "scheduler", 1)
-				scheduled = captureGitOpsService(t, f, "scheduler")
-				require.EqualValues(t, 1, *scheduled.service.Spec.Mode.Replicated.Replicas)
+				scheduled = f.settled(t, "scheduler")
+				require.EqualValues(t, 1, *scheduled.Service.Spec.Mode.Replicated.Replicas)
 			}
 			if revision == 5 {
-				_, err := f.sw.Services.Inspect(f.ctx, scheduled.service.ID)
+				_, err := f.sw.Services.Inspect(f.ctx, scheduled.Service.ID)
 				require.ErrorIs(t, err, swarm.ErrServiceNotFound)
 				pruned := f.publications(t, events.TypeNameServicePruned)
 				require.Len(t, pruned, 1)
@@ -346,7 +350,18 @@ func TestRealSwarmGitOpsLifecycle(t *testing.T) {
 			// Git polling without new commits must not run synchronization at all.
 			// Interval reconciliation does run; effective-state deduplication must avoid
 			// both a new persisted attempt and a Docker update, even for terminal failure.
-			snapshots := []gitopsServiceSnapshot{captureGitOpsService(t, f, "api"), worker}
+			var apiBaseline dockertester.ServiceSnapshot
+			if broken {
+				// Failure and exit status were verified above; capture the terminal
+				// paused state explicitly without treating it as a healthy rollout.
+				apiBaseline, err = f.observer.Snapshot(f.ctx, f.stack+"_api")
+				require.NoError(t, err)
+				require.NotNil(t, apiBaseline.Service.UpdateStatus)
+				require.Equal(t, mobyswarm.UpdateStatePaused, apiBaseline.Service.UpdateStatus.State)
+			} else {
+				apiBaseline = f.settled(t, "api")
+			}
+			snapshots := []dockertester.ServiceSnapshot{apiBaseline, worker}
 			if scheduler {
 				snapshots = append(snapshots, scheduled)
 			}
@@ -380,7 +395,7 @@ func TestRealSwarmGitOpsLifecycle(t *testing.T) {
 			}
 			require.Empty(t, publications(t), "unchanged reconciliation must not duplicate domain events")
 			for _, snapshot := range snapshots {
-				assertGitOpsServiceUnchanged(t, f, snapshot)
+				f.unchangedService(t, snapshot)
 			}
 			if broken {
 				require.Equal(t, failedID, f.latest(t).ID)
@@ -408,37 +423,6 @@ func gitCommand(t *testing.T, ctx context.Context, dir string, args ...string) s
 	output, err := command.CombinedOutput()
 	require.NoError(t, err, "git %v: %s", args, output)
 	return strings.TrimSpace(string(output))
-}
-
-type gitopsServiceSnapshot struct {
-	service        dockerswarm.Service
-	running, known []string
-}
-
-func captureGitOpsService(t *testing.T, f *lifecycleFixture, name string) gitopsServiceSnapshot {
-	t.Helper()
-	snapshot := gitopsServiceSnapshot{service: f.settled(t, name)}
-	tasks := f.tasks(t, name)
-	for _, task := range tasks {
-		if task.DesiredState == swarm.TaskStateRunning && task.CurrentState == swarm.TaskStateRunning {
-			snapshot.running = append(snapshot.running, task.ID)
-		}
-	}
-	slices.Sort(snapshot.running)
-	snapshot.known = taskIDs(tasks)
-	return snapshot
-}
-
-func assertGitOpsServiceUnchanged(t *testing.T, f *lifecycleFixture, before gitopsServiceSnapshot) {
-	t.Helper()
-	name := strings.TrimPrefix(before.service.Spec.Name, f.stack+"_")
-	after := captureGitOpsService(t, f, name)
-	require.Equal(t, before.service.ID, after.service.ID, name)
-	require.Equal(t, before.service.Spec, after.service.Spec, name)
-	require.Equal(t, before.service.Version, after.service.Version, name)
-	require.Equal(t, before.running, after.running, name)
-	// Swarm may remove historical terminal tasks; new task identities are forbidden.
-	require.Subset(t, before.known, after.known, name)
 }
 
 func assertGitOpsTaskOutput(t *testing.T, f *lifecycleFixture, taskID, expected string) {

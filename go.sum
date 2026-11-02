@@ -176,6 +176,10 @@ github.com/mfridman/interpolate v0.0.2 h1:pnuTK7MQIxxFz1Gr+rjSIx9u7qVjf5VOoM/u6B
 github.com/mfridman/interpolate v0.0.2/go.mod h1:p+7uk6oE07mpE/Ik1b8EckO0O4ZXiGAfshKBWLUM9Xg=
 github.com/moby/docker-image-spec v1.3.1 h1:jMKff3w6PgbfSa69GfNg+zN/XLhfXJGnEx3Nl2EsFP0=
 github.com/moby/docker-image-spec v1.3.1/go.mod h1:eKmb5VW8vQEh/BAr2yvVNvuiJuY6UIocYsFu/DxxRpo=
+github.com/moby/moby/api v1.55.0 h1:2/sexvQyqIWS8pRSCFddBfpW2qE7vR7FCL+vN8pxwMc=
+github.com/moby/moby/api v1.55.0/go.mod h1:+RQ6wluLwtYaTd1WnPLykIDPekkuyD/ROWQClE83pzs=
+github.com/moby/moby/client v0.5.1 h1:tYNaJno4c0HXz12y5BiqEDy0rVTYkWzI26lGvnTMiJw=
+github.com/moby/moby/client v0.5.1/go.mod h1:odLstlZ6uSnfvAgVxMpvgmb8SUdd+siH2T0GBuxVAlM=
 github.com/moby/sys/atomicwriter v0.1.0 h1:kw5D/EqkBwsBFi0ss9v1VG3wIkVhzGvLklJ+w3A14Sw=
 github.com/moby/sys/atomicwriter v0.1.0/go.mod h1:Ul8oqv2ZMNHOceF643P6FKPXeCmYtlQMvpizfsSoaWs=
 github.com/moby/sys/sequential v0.6.0 h1:qrx7XFUd/5DxtqcoH1h438hF5TmOvzC/lspjy7zgvCU=
@@ -244,6 +248,8 @@ github.com/swarm-deploy/cloud-secrets/pkg/grpc-api v0.1.1 h1:r4+1rB8tU8XoRyELNb8
 github.com/swarm-deploy/cloud-secrets/pkg/grpc-api v0.1.1-0.20261030165616-8365ec26115e h1:5efd0q1NLFsXt+m5RJKRVmDTNw/wsCNVXU9NmIVtV+c=
 github.com/swarm-deploy/cloud-secrets/pkg/grpc-api v0.1.1-0.20261030165616-8365ec26115e/go.mod h1:iDdXGDQY/PLa62LhoSZKp8luOJ3DZt7mBFqnq7ocKWY=
 github.com/swarm-deploy/cloud-secrets/pkg/grpc-api v0.1.1/go.mod h1:iDdXGDQY/PLa62LhoSZKp8luOJ3DZt7mBFqnq7ocKWY=
+github.com/swarm-deploy/dockertester v0.1.1-0.20261102061756-75c5a5c322f9 h1:cMn3jQsnYSbZgjCfAZiH3w9GndN6p5NPkzNZeQK923s=
+github.com/swarm-deploy/dockertester v0.1.1-0.20261102061756-75c5a5c322f9/go.mod h1:+1umO3yRQbkfF2mYQgYE+uRBCCsEtAefI5Iu0o3WCL4=
 github.com/swarm-deploy/downward-otel/go v0.1.0 h1:BJovrDJ+QKj3wPSp9YODcCjtGhVh7yyiBrQzx6yNiA8=
 github.com/swarm-deploy/downward-otel/go v0.1.0/go.mod h1:1Sv6iK4ZSY3zEd3L72LYBHzWRRHyFCDJubxVAmS0Giw=
 github.com/swarm-deploy/downward/go v0.1.1 h1:ye4yAN39VPBvhgi88W+s758CEVIk3fpytAvwLDalRu0=
@@ -421,3 +427,5 @@ modernc.org/strutil v1.2.1 h1:UneZBkQA+DX2Rp35KcM69cSsNES9ly8mQWD71HKlOA0=
 modernc.org/strutil v1.2.1/go.mod h1:EHkiggD70koQxjVdSBM3JKM7k6L0FbGE5eymy9i3B9A=
 modernc.org/token v1.1.0 h1:Xl7Ap9dKaEs5kLoOQeQmPWevfnk/DM5qcLcYlA8ys6Y=
 modernc.org/token v1.1.0/go.mod h1:UGzOrNV1mAFSEB63lOFHIpNRUVMvYTc6yu1SMY/XTDM=
+pgregory.net/rapid v1.2.0 h1:keKAYRcjm+e1F0oAuU5F5+YPAWcyxNNRK2wud503Gnk=
+pgregory.net/rapid v1.2.0/go.mod h1:PY5XlDGj0+V1FCq0o192FdRhpKHGTRIWBgqjDBTrq04=

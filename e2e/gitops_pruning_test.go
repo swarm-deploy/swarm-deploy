@@ -28,23 +28,23 @@ func TestRealSwarmGitOpsPruningAndOwnership(t *testing.T) {
 			keep := lifecycleService("job", "sleep 600", "")
 			f.manifest(t, keep+lifecycleService("removed", "sleep 600", ""))
 			f.reconcile(t)
-			ids := f.runningIDs(t, "job", 1)
+			f.runningIDs(t, "job", 1)
 			before := f.settled(t, "job")
-			removedIDs := f.runningIDs(t, "removed", 1)
+			f.runningIDs(t, "removed", 1)
 			removed := f.settled(t, "removed")
 			// Cover each existing protection independently: an unmanaged service
 			// in this namespace, a service-level prune opt-out, and another stack.
 			protected := []dockerswarm.Service{
-				f.protectedService(t, before, "unmanaged", f.stack, false, true),
-				f.protectedService(t, before, "optout", f.stack, true, false),
-				f.protectedService(t, before, "foreign", f.stack+"foreign", true, true),
+				f.protectedService(t, f.inspect(t, "job"), "unmanaged", f.stack, false, true),
+				f.protectedService(t, f.inspect(t, "job"), "optout", f.stack, true, false),
+				f.protectedService(t, f.inspect(t, "job"), "foreign", f.stack+"foreign", true, true),
 			}
 			f.manifest(t, keep)
 			f.request.Commit = "remove-service"
 			f.reconcile(t)
 			if tc.prune {
 				f.poll(t, "only removed service deleted", func() bool {
-					_, err := f.sw.Services.Inspect(f.ctx, removed.ID)
+					_, err := f.sw.Services.Inspect(f.ctx, removed.Service.ID)
 					return errors.Is(err, swarm.ErrServiceNotFound)
 				})
 				items := f.publications(t, events.TypeNameServicePruned)
@@ -54,16 +54,16 @@ func TestRealSwarmGitOpsPruningAndOwnership(t *testing.T) {
 				assert.Equal(t, "removed", event.ServiceName)
 				assert.Equal(t, f.request.Commit, event.Commit)
 			} else {
-				assert.Equal(t, removed.ID, f.inspect(t, "removed").ID)
-				assert.Equal(t, removed.Spec, f.inspect(t, "removed").Spec)
+				assert.Equal(t, removed.Service.ID, f.inspect(t, "removed").ID)
+				assert.Equal(t, removed.Service.Spec, f.settled(t, "removed").Service.Spec)
 				require.Empty(t, f.publications(t, events.TypeNameServicePruned))
 			}
 			for range 3 {
 				f.reconcile(t)
 			}
-			f.unchangedService(t, before, ids)
+			f.unchangedService(t, before)
 			if !tc.prune {
-				f.unchangedService(t, removed, removedIDs)
+				f.unchangedService(t, removed)
 			}
 			state, err := f.state.Read(f.ctx)
 			require.NoError(t, err)

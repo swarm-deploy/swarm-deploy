@@ -119,14 +119,14 @@ func TestRealSwarmNativeRollbackHistoryRetryAndRecovery(t *testing.T) {
 	})
 	rolledBackIDs := f.runningIDs(t, "job", 1)
 	rolledBack := f.settled(t, "job")
-	assert.Equal(t, original.ID, rolledBack.ID)
-	assert.Equal(t, original.Spec.TaskTemplate.ContainerSpec, rolledBack.Spec.TaskTemplate.ContainerSpec)
+	assert.Equal(t, original.Service.ID, rolledBack.Service.ID)
+	assert.Equal(t, original.Service.Spec.TaskTemplate.ContainerSpec, rolledBack.Service.Spec.TaskTemplate.ContainerSpec)
 	assert.NotEqual(t, originalIDs, rolledBackIDs, "rollback actually replaced the failed generation")
 	// Swarm clears PreviousSpec on rollback. Persisted diagnostics were captured
 	// from the real failing task before task-history garbage collection.
 	assert.Contains(t, failed.ErrorDiagnostic, "exit_code=31", "the failing target actually ran")
 	assert.Contains(t, failed.ErrorDiagnostic, "state=failed")
-	assert.NotContains(t, rolledBack.Spec.TaskTemplate.ContainerSpec.Args, "exit 31")
+	assert.NotContains(t, rolledBack.Service.Spec.TaskTemplate.ContainerSpec.Args, "exit 31")
 	// The rollback outcome can be observed before or after completion by the
 	// verifier. History must remain failed even once the old version is healthy.
 	for range 3 {
@@ -135,8 +135,8 @@ func TestRealSwarmNativeRollbackHistoryRetryAndRecovery(t *testing.T) {
 		assert.Equal(t, failed.ID, current.ID)
 		assert.Equal(t, 1, current.AttemptCount)
 		assert.Equal(t, model.Failed, current.Status)
-		assert.Equal(t, rolledBack.Version, f.inspect(t, "job").Version)
-		assert.Equal(t, rolledBack.Spec, f.inspect(t, "job").Spec)
+		assert.Equal(t, rolledBack.Service.Version.Index, f.inspect(t, "job").Version.Index)
+		assert.Equal(t, rolledBack.Service.Spec, f.settled(t, "job").Service.Spec)
 	}
 	require.Len(t, f.publications(t, events.TypeNameDeployFailed), 1)
 	assertFailedPublication(t, f, failed)

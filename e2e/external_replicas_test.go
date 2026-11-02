@@ -18,6 +18,7 @@ import (
 	"github.com/docker/docker/client"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/swarm-deploy/dockertester"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/converter"
@@ -36,6 +37,7 @@ var externalSubnetSequence atomic.Uint32
 type externalSwarmFixture struct {
 	ctx         context.Context
 	sw          *swarm.Swarm
+	observer    *dockertester.ServiceTester
 	deployer    deployer.StackDeployer
 	stack, path string
 	subnet      string
@@ -59,6 +61,7 @@ func newExternalSwarmFixtureWithTimeout(t *testing.T, timeout time.Duration) *ex
 	f := &externalSwarmFixture{ctx: ctx, sw: swarm.NewSwarm(cli),
 		stack: fmt.Sprintf("sdexternal%d", time.Now().UnixNano()), path: filepath.Join(t.TempDir(), "compose.yaml"),
 		subnet: fmt.Sprintf("198.18.%d.0/24", externalSubnetSequence.Add(1))}
+	f.observer = newSwarmObserver(t)
 	f.deployer = deployer.NewDeployer(100*time.Millisecond, 40*time.Second, cli, f.sw, nil,
 		deployer.NewSecretResolver(fs.NewLocalFileSystem(), deployer.PlaintextDecoder{}))
 	t.Cleanup(func() {
@@ -131,23 +134,21 @@ func (f *externalSwarmFixture) inspect(t *testing.T, name string) dockerswarm.Se
 	return service
 }
 
-// Observe a settled rollout before version assertions: Swarm itself writes
-// rollout metadata asynchronously after ServiceUpdate, independently of deploy.
-func (f *externalSwarmFixture) settledJob(t *testing.T) dockerswarm.Service {
+// Capture task history together with a quiet service baseline before the operation.
+func (f *externalSwarmFixture) settledJob(t *testing.T) dockertester.ServiceSnapshot {
 	t.Helper()
-	var last dockerswarm.Service
-	stableSince := time.Now()
-	f.poll(t, "service version and rollout metadata settled", func() bool {
-		current := f.inspect(t, "job")
-		pending := current.UpdateStatus != nil && (current.UpdateStatus.State == dockerswarm.UpdateStateUpdating ||
-			current.UpdateStatus.State == dockerswarm.UpdateStateRollbackStarted)
-		if pending || current.Version != last.Version {
-			stableSince = time.Now()
-		}
-		last = current
-		return !pending && time.Since(stableSince) >= time.Second
-	})
-	return last
+	snapshot, err := f.observer.WaitStable(f.ctx, f.stack+"_job", time.Second)
+	require.NoError(t, err)
+	return snapshot
+}
+
+// Observations use their own Moby client; production mutations keep internal/swarm.
+func newSwarmObserver(t *testing.T) *dockertester.ServiceTester {
+	t.Helper()
+	tester, err := dockertester.NewTester()
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, tester.Close()) })
+	return tester.Service()
 }
 
 func (f *externalSwarmFixture) externalUpdate(t *testing.T, change func(*dockerswarm.ServiceSpec)) {
@@ -215,50 +216,13 @@ func taskIDs(tasks []swarm.ServiceTask) []string {
 
 func (f *externalSwarmFixture) running(t *testing.T, count int) {
 	t.Helper()
-	f.poll(t, fmt.Sprintf("%d running tasks", count), func() bool {
-		running := 0
-		for _, task := range f.tasks(t, "job") {
-			if task.CurrentState == swarm.TaskStateRunning && task.DesiredState == swarm.TaskStateRunning {
-				running++
-			}
-		}
-		return running == count
-	})
+	_, err := f.observer.WaitRunningTasks(f.ctx, f.stack+"_job", count)
+	require.NoError(t, err)
 }
 
-// Observe a bounded interval for delayed task creation, rather than checking only
-// the instant DeployStack returns. The baseline is captured after external
-// rollout metadata settles, so even an otherwise redundant write is detected.
-func (f *externalSwarmFixture) unchanged(t *testing.T, before dockerswarm.Service, ids []string) {
+func (f *externalSwarmFixture) unchanged(t *testing.T, before dockertester.ServiceSnapshot) {
 	t.Helper()
-	timer := time.NewTimer(2 * time.Second)
-	defer timer.Stop()
-	ticker := time.NewTicker(100 * time.Millisecond)
-	defer ticker.Stop()
-	for {
-		after := f.inspect(t, "job")
-		require.Equal(t, before.ID, after.ID)
-		require.Equal(t, before.Spec, after.Spec)
-		require.Equal(t, before.Version.Index, after.Version.Index, "unchanged deployment must not issue a service update")
-		if before.UpdateStatus != nil && after.UpdateStatus != nil {
-			require.Equal(t, before.UpdateStatus.StartedAt, after.UpdateStatus.StartedAt, "no new rollout")
-		}
-		observedIDs := taskIDs(f.tasks(t, "job"))
-		if *before.Spec.Mode.Replicated.Replicas == 0 {
-			// Docker may garbage-collect shutdown history while the service is
-			// idle. New task identities are still forbidden.
-			require.Subset(t, ids, observedIDs, "no unscheduled execution during idle update")
-		} else {
-			require.Equal(t, ids, observedIDs, "no additional execution or task replacement")
-		}
-		select {
-		case <-f.ctx.Done():
-			t.Fatal(f.ctx.Err())
-		case <-timer.C:
-			return
-		case <-ticker.C:
-		}
-	}
+	require.NoError(t, f.observer.WaitUnchanged(f.ctx, before, 2*time.Second))
 }
 
 func TestExternalReplicasInitialCreationOnRealSwarm(t *testing.T) {
@@ -290,10 +254,9 @@ func TestExternalReplicaChangesOnRealSwarm(t *testing.T) {
 	f.externalUpdate(t, func(spec *dockerswarm.ServiceSpec) { spec.Mode.Replicated.Replicas = &two })
 	f.running(t, 2)
 	external := f.settledJob(t)
-	ids := taskIDs(f.tasks(t, "job"))
 	for range 3 {
 		f.deploy(t, desired, deployer.StackOptions{})
-		f.unchanged(t, external, ids)
+		f.unchanged(t, external)
 	}
 }
 
@@ -319,13 +282,19 @@ func TestExternalForceUpdateAndRetryOnRealSwarm(t *testing.T) {
 			}
 			return true
 		})
-		external := f.settledJob(t)
-		ids := taskIDs(f.tasks(t, "job"))
+		// Failed execution was verified above. Swarm may pause an externally
+		// forced rollout; retain that explicit failure state as the baseline.
+		external, stableErr := f.observer.WaitStable(f.ctx, f.stack+"_job", time.Second)
+		if stableErr != nil {
+			require.NotNil(t, external.Service.UpdateStatus)
+			require.Equal(t, "paused", string(external.Service.UpdateStatus.State))
+			require.ErrorContains(t, stableErr, "rollout paused")
+		}
 		// An accepted unchanged spec remains valid even when external execution
 		// failed. Explicit deployment retry must not force another job run.
 		for _, retry := range []bool{false, true} {
 			f.deploy(t, desired, deployer.StackOptions{RetryFailedUpdates: retry})
-			f.unchanged(t, external, ids)
+			f.unchanged(t, external)
 		}
 	}
 }
@@ -336,7 +305,6 @@ func TestExternalActiveAndIdleUpdateOnRealSwarm(t *testing.T) {
 	f.deploy(t, desired, deployer.StackOptions{})
 	f.running(t, 1)
 	before := f.settledJob(t)
-	ids := taskIDs(f.tasks(t, "job"))
 	desired.Services[0].Environment = compose.Environment{Map: map[string]string{"CHANGED": "yes"}, Keys: []string{"CHANGED"}}
 	// Sorted after job: this must still be applied after the blocked error.
 	zero := uint64(0)
@@ -347,7 +315,7 @@ func TestExternalActiveAndIdleUpdateOnRealSwarm(t *testing.T) {
 	require.False(t, result.Verification.Known)
 	web := f.inspect(t, "web")
 	require.NotEmpty(t, web.ID, "independent service is applied despite blocked job")
-	f.unchanged(t, before, ids)
+	f.unchanged(t, before)
 	f.running(t, 1)
 	// Arrange an actual idle window externally, then retry the same deployment.
 	f.externalUpdate(t, func(spec *dockerswarm.ServiceSpec) {
@@ -366,17 +334,17 @@ func TestExternalActiveAndIdleUpdateOnRealSwarm(t *testing.T) {
 	})
 	// Keep the independent service idle as well so it does not affect verification.
 	desired.Services[1].Deploy.Replicas = &zero
-	ids = taskIDs(f.tasks(t, "job"))
+	ids := taskIDs(f.tasks(t, "job"))
 	result = f.deploy(t, desired, deployer.StackOptions{RetryFailedUpdates: true})
 	require.Equal(t, []string{"job"}, result.SpecificationOnlyServices)
 	accepted := f.settledJob(t)
-	require.Zero(t, *accepted.Spec.Mode.Replicated.Replicas)
-	require.Equal(t, uint64(42), accepted.Spec.TaskTemplate.ForceUpdate)
-	require.Contains(t, accepted.Spec.TaskTemplate.ContainerSpec.Env, "CHANGED=yes")
+	require.Zero(t, *accepted.Service.Spec.Mode.Replicated.Replicas)
+	require.Equal(t, uint64(42), accepted.Service.Spec.TaskTemplate.ForceUpdate)
+	require.Contains(t, accepted.Service.Spec.TaskTemplate.ContainerSpec.Env, "CHANGED=yes")
 	require.Subset(t, ids, taskIDs(f.tasks(t, "job")), "idle template update must not schedule any task")
-	f.unchanged(t, accepted, ids)
+	f.unchanged(t, accepted)
 	f.deploy(t, desired, deployer.StackOptions{})
-	f.unchanged(t, accepted, ids)
+	f.unchanged(t, accepted)
 }
 
 func TestSwarmCronjob116OnRealSwarm(t *testing.T) {
@@ -410,19 +378,19 @@ func TestSwarmCronjob116OnRealSwarm(t *testing.T) {
 	})
 	f.running(t, 1)
 	external := f.settledJob(t)
-	require.Equal(t, uint64(1), *external.Spec.Mode.Replicated.Replicas)
-	require.Greater(t, external.Spec.TaskTemplate.ForceUpdate, initial.Spec.TaskTemplate.ForceUpdate)
+	require.Equal(t, uint64(1), *external.Service.Spec.Mode.Replicated.Replicas)
+	require.Greater(t, external.Service.Spec.TaskTemplate.ForceUpdate, initial.Spec.TaskTemplate.ForceUpdate)
 	ids := taskIDs(f.tasks(t, "job"))
 	require.Len(t, ids, 1)
-	t.Logf("swarm-cronjob 1.16.0 executed task %s: replicas=1 forceUpdate=%d", ids[0], external.Spec.TaskTemplate.ForceUpdate)
+	t.Logf("swarm-cronjob 1.16.0 executed task %s: replicas=1 forceUpdate=%d", ids[0], external.Service.Spec.TaskTemplate.ForceUpdate)
 	f.deploy(t, desired, deployer.StackOptions{})
-	f.unchanged(t, external, ids)
+	f.unchanged(t, external)
 	// Stop future ticks after proving a real scheduled execution. This isolates
 	// any extra execution caused by synchronization from a legitimate cron tick.
 	require.NoError(t, f.sw.Services.Remove(f.ctx, scheduler))
 	for range 2 {
 		f.deploy(t, desired, deployer.StackOptions{})
-		f.unchanged(t, external, ids)
+		f.unchanged(t, external)
 	}
 	changed := f.load(t, 0, "echo changed; sleep 30", `        swarm.cronjob.enable: "true"
         swarm.cronjob.schedule: "* * * * *"
@@ -430,13 +398,15 @@ func TestSwarmCronjob116OnRealSwarm(t *testing.T) {
 	_, err = f.deployer.DeployStack(f.ctx, deployer.StackRequest{StackName: f.stack, SourceComposePath: f.path, Desired: changed})
 	require.ErrorIs(t, err, services.ErrUpdateBlocked)
 	require.Equal(t, "apply stack", deployer.FailedStep(err))
-	f.unchanged(t, external, ids)
+	f.unchanged(t, external)
 	f.poll(t, "scheduled job completed without interruption", func() bool {
 		tasks := f.tasks(t, "job")
 		return len(tasks) == 1 && tasks[0].ID == ids[0] && tasks[0].CurrentState == swarm.TaskStateComplete
 	})
+	// Completion is expected; capture terminal state before asserting retry idempotency.
+	external = f.settledJob(t)
 	f.deploy(t, desired, deployer.StackOptions{RetryFailedUpdates: true})
-	f.unchanged(t, external, ids)
+	f.unchanged(t, external)
 }
 
 func TestManagedFailureWithExternalJobOnRealSwarm(t *testing.T) {
@@ -448,7 +418,6 @@ func TestManagedFailureWithExternalJobOnRealSwarm(t *testing.T) {
 		return len(tasks) == 1 && tasks[0].CurrentState == swarm.TaskStateFailed
 	})
 	job := f.settledJob(t)
-	ids := taskIDs(f.tasks(t, "job"))
 	// Reuse the Compose loader for the ordinary service and its rollout policy.
 	require.NoError(t, os.WriteFile(f.path, []byte(`services:
   web:
@@ -470,5 +439,5 @@ func TestManagedFailureWithExternalJobOnRealSwarm(t *testing.T) {
 	require.Equal(t, []string{"web"}, result.Verification.UnresolvedServices)
 	desired.Services[1].Command = file.Compose.Services[0].Command
 	f.deploy(t, desired, deployer.StackOptions{RetryFailedUpdates: true, UnresolvedServices: result.Verification.UnresolvedServices})
-	f.unchanged(t, job, ids)
+	f.unchanged(t, job)
 }

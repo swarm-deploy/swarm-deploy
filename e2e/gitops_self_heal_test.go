@@ -36,14 +36,14 @@ func TestRealSwarmGitOpsReplicaDriftAndSelfHeal(t *testing.T) {
 			assertSuccessfulHistory(t, baseline)
 			three := uint64(3)
 			f.externalUpdate(t, func(spec *dockerswarm.ServiceSpec) { spec.Mode.Replicated.Replicas = &three })
-			externalIDs := f.runningIDs(t, "job", 3)
+			f.runningIDs(t, "job", 3)
 			external := f.settled(t, "job")
 			f.reconcile(t)
 			if tc.heal {
 				f.runningIDs(t, "job", 2)
 				healed := f.settled(t, "job")
-				assert.Equal(t, external.ID, healed.ID)
-				assert.Equal(t, uint64(2), *healed.Spec.Mode.Replicated.Replicas)
+				assert.Equal(t, external.Service.ID, healed.Service.ID)
+				assert.Equal(t, uint64(2), *healed.Service.Spec.Mode.Replicated.Replicas)
 				assert.Equal(t, gitopsmodel.SyncStatusSynced, f.syncStatus(t, "job"))
 				detected := f.publications(t, events.TypeNameServiceDrifted)
 				require.Len(t, detected, 1)
@@ -59,7 +59,7 @@ func TestRealSwarmGitOpsReplicaDriftAndSelfHeal(t *testing.T) {
 				for range 3 {
 					f.reconcile(t)
 				}
-				f.unchangedService(t, external, externalIDs)
+				f.unchangedService(t, external)
 				assert.Equal(t, uint64(3), *f.inspect(t, "job").Spec.Mode.Replicated.Replicas)
 				require.Empty(t, f.publications(t, events.TypeNameServiceDriftFixed))
 				if tc.drift {
@@ -103,8 +103,8 @@ func (f *lifecycleFixture) verifyReplicaPolicyDoesNotHideMissingService(t *testi
 	f.reconcile(t)
 	f.runningIDs(t, "job", 2)
 	service := f.settled(t, "job")
-	assert.Contains(t, service.Spec.TaskTemplate.ContainerSpec.Args, "echo source-update; sleep 600")
-	require.NoError(t, f.sw.Services.Remove(f.ctx, service.ID))
+	assert.Contains(t, service.Service.Spec.TaskTemplate.ContainerSpec.Args, "echo source-update; sleep 600")
+	require.NoError(t, f.sw.Services.Remove(f.ctx, service.Service.ID))
 	f.poll(t, "service missing from real stack observation", func() bool {
 		services, err := f.sw.Services.ListServices(f.ctx, swarm.ListServicesFilter{Stack: f.stack})
 		return err == nil && len(services) == 0
@@ -112,7 +112,7 @@ func (f *lifecycleFixture) verifyReplicaPolicyDoesNotHideMissingService(t *testi
 	f.reconcile(t)
 	f.runningIDs(t, "job", 2)
 	restored := f.settled(t, "job")
-	assert.NotEqual(t, service.ID, restored.ID)
+	assert.NotEqual(t, service.Service.ID, restored.Service.ID)
 	assert.Equal(t, gitopsmodel.SyncStatusSynced, f.syncStatus(t, "job"))
 	require.Empty(t, f.publications(t, events.TypeNameServiceDrifted), "missing is a distinct domain event")
 	missed := f.publications(t, events.TypeNameServiceMissed)
