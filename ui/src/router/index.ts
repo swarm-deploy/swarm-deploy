@@ -29,11 +29,6 @@ export const router = createRouter({
       component: OverviewView,
     },
     {
-      path: "/services",
-      name: "services",
-      redirect: "/realtime",
-    },
-    {
       path: "/realtime",
       name: "realtime",
       component: RealtimeView,
