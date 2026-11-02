@@ -25,6 +25,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/jmoiron/sqlx v1.4.0
 	github.com/langwatch/langwatch/sdks/go/instrumentation/openai v1.0.0
+	github.com/moby/moby/api v1.55.0
 	github.com/ogen-go/ogen v1.20.1
 	github.com/openai/openai-go/v3 v3.50.0
 	github.com/opencontainers/go-digest v1.0.0
@@ -34,6 +35,7 @@ require (
 	github.com/prometheus/client_model v0.6.2
 	github.com/stretchr/testify v1.12.1
 	github.com/swarm-deploy/cloud-secrets/pkg/grpc-api v0.1.1
+	github.com/swarm-deploy/dockertester v0.2.0
 	github.com/swarm-deploy/downward-otel/go v0.1.0
 	github.com/swarm-deploy/downward/go v0.1.1
 	github.com/swarm-deploy/webroute v0.2.0
@@ -73,7 +75,7 @@ require (
 	github.com/containerd/errdefs/pkg v0.3.0 // indirect
 	github.com/cyphar/filepath-securejoin v0.4.1 // indirect
 	github.com/dlclark/regexp2 v1.11.5 // indirect
-	github.com/docker/go-connections v0.6.0 // indirect
+	github.com/docker/go-connections v0.7.0 // indirect
 	github.com/docker/go-units v0.5.0 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/emirpasic/gods v1.18.1 // indirect
@@ -96,6 +98,7 @@ require (
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/mfridman/interpolate v0.0.2 // indirect
 	github.com/moby/docker-image-spec v1.3.1 // indirect
+	github.com/moby/moby/client v0.5.1 // indirect
 	github.com/moby/sys/atomicwriter v0.1.0 // indirect
 	github.com/moby/term v0.5.2 // indirect
 	github.com/morikuni/aec v1.1.0 // indirect
@@ -142,3 +145,7 @@ require (
 
 // Fork with conditional edges: github.com/NirAlon/langgraphgo/tree/feature/add-conditional-edges (b8adbfaa3d82d87e1d1474d985788c91562d8694).
 replace github.com/tmc/langgraphgo => github.com/NirAlon/langgraphgo v0.0.0-20260311231625-b8adbfaa3d82
+
+// Docker v28 still uses sockets.DialPipe, removed in go-connections v0.7.0.
+// Keep its existing transport dependency while the E2E-only Moby client coexists.
+replace github.com/docker/go-connections => github.com/docker/go-connections v0.6.0

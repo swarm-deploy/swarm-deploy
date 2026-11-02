@@ -7,7 +7,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -40,6 +39,7 @@ func TestDeployStackCompatibilityOnRealSwarm(t *testing.T) {
 	stack := fmt.Sprintf("sdreconcile%d", time.Now().UnixNano())
 	dir := t.TempDir()
 	swarmService := swarm.NewSwarm(dockerClient)
+	observer := newSwarmObserver(t)
 	stackDeployer := deployer.NewDeployer(100*time.Millisecond, 2*time.Minute, dockerClient, swarmService, nil, deployer.NewSecretResolver(fs.NewLocalFileSystem(), deployer.PlaintextDecoder{}))
 	composePath := filepath.Join(dir, "compose.yaml")
 	t.Cleanup(func() {
@@ -60,7 +60,10 @@ func TestDeployStackCompatibilityOnRealSwarm(t *testing.T) {
 	waitForRealSwarmTask(t, ctx, dockerPath, stack+"_check", "mounted-v1")
 	serviceBefore, err := swarmService.Services.Inspect(ctx, stack+"_check")
 	require.NoError(t, err)
-	runningBefore, tasksBefore := realSwarmTaskIDs(t, ctx, swarmService, serviceBefore.ID)
+	_, err = observer.WaitRunningTasks(ctx, serviceBefore.ID, 1)
+	require.NoError(t, err)
+	baseline, err := observer.WaitStable(ctx, serviceBefore.ID, time.Second)
+	require.NoError(t, err)
 
 	t.Run("ignored Swarm options do not roll services", func(t *testing.T) {
 		prepared, err := compose.NewFileLoader().Load(ctx, composePath)
@@ -76,13 +79,7 @@ func TestDeployStackCompatibilityOnRealSwarm(t *testing.T) {
 				Desired:           prepared.Compose,
 			})
 			require.NoError(t, err)
-			current, err := swarmService.Services.Inspect(ctx, serviceBefore.ID)
-			require.NoError(t, err)
-			assert.Equal(t, serviceBefore.Version.Index, current.Version.Index)
-			assert.Equal(t, serviceBefore.Spec, current.Spec)
-			running, tasks := realSwarmTaskIDs(t, ctx, swarmService, current.ID)
-			assert.Equal(t, runningBefore, running)
-			assert.Equal(t, tasksBefore, tasks)
+			require.NoError(t, observer.WaitUnchanged(ctx, baseline, 2*time.Second))
 		}
 	})
 
@@ -103,18 +100,15 @@ func TestDeployStackCompatibilityOnRealSwarm(t *testing.T) {
 	assert.Equal(t, forced.PreviousSpec, afterForce.PreviousSpec, "waiting must not submit another service update")
 	require.NotNil(t, afterForce.UpdateStatus)
 	assert.Equal(t, dockerswarm.UpdateStateCompleted, afterForce.UpdateStatus.State)
-	runningBefore, tasksAfterForce := realSwarmTaskIDs(t, ctx, swarmService, afterForce.ID)
+	_, err = observer.WaitRunningTasks(ctx, afterForce.ID, 1)
+	require.NoError(t, err)
+	forcedBaseline, err := observer.WaitStable(ctx, afterForce.ID, time.Second)
+	require.NoError(t, err)
 
 	// Once convergence is complete, idempotency also includes a stable object
-	// version and the exact same running and historical task identities.
+	// version and running task identities, allowing terminal history cleanup.
 	deployFixture(t, ctx, stackDeployer, stack, composePath)
-	repeatedForce, err := swarmService.Services.Inspect(ctx, stack+"_check")
-	require.NoError(t, err)
-	assert.Equal(t, afterForce.Version.Index, repeatedForce.Version.Index)
-	assert.Equal(t, afterForce.Spec, repeatedForce.Spec)
-	runningRepeated, tasksRepeated := realSwarmTaskIDs(t, ctx, swarmService, repeatedForce.ID)
-	assert.Equal(t, runningBefore, runningRepeated)
-	assert.Equal(t, tasksAfterForce, tasksRepeated)
+	require.NoError(t, observer.WaitUnchanged(ctx, forcedBaseline, 2*time.Second))
 
 	// Immutable network option changes do not block application deployment.
 	networkBefore, err := swarmService.Networks.Get(ctx, stack+"_default")
@@ -219,23 +213,6 @@ func TestDeployStackCompatibilityOnRealSwarm(t *testing.T) {
 		assert.NotEqual(t, pinned.Spec.TaskTemplate.ContainerSpec.Image, updated.Spec.TaskTemplate.ContainerSpec.Image)
 	})
 
-}
-
-func realSwarmTaskIDs(t *testing.T, ctx context.Context, service *swarm.Swarm, serviceID string) ([]string, []string) {
-	t.Helper()
-	tasks, err := service.Services.ListTasks(ctx, serviceID)
-	require.NoError(t, err)
-	var running, all []string
-	for _, task := range tasks {
-		all = append(all, task.ID)
-		if task.CurrentState == swarm.TaskStateRunning && task.DesiredState == swarm.TaskStateRunning {
-			running = append(running, task.ID)
-		}
-	}
-	require.Len(t, running, 1, "fixture must have exactly one healthy running task")
-	slices.Sort(running)
-	slices.Sort(all)
-	return running, all
 }
 
 func writeRealSwarmFixture(t *testing.T, dir, composePath, secretValue, configValue, marker string) {

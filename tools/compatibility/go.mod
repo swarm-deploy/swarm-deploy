@@ -11,7 +11,7 @@ require (
 	github.com/distribution/reference v0.6.0 // indirect
 	github.com/docker/cli v28.3.3+incompatible
 	github.com/docker/docker v28.3.3+incompatible
-	github.com/docker/go-connections v0.6.0 // indirect
+	github.com/docker/go-connections v0.7.0 // indirect
 	github.com/docker/go-units v0.5.0 // indirect
 	github.com/go-faster/errors v0.7.1 // indirect
 	github.com/google/shlex v0.0.0-20191202100458-e7afc7fbc510 // indirect
@@ -111,3 +111,6 @@ replace github.com/tmc/langgraphgo => github.com/NirAlon/langgraphgo v0.0.0-2026
 require github.com/swarm-deploy/swarm-deploy v0.0.0
 
 replace github.com/swarm-deploy/swarm-deploy => ../..
+
+// Replace directives are module-local; retain the Docker v28 transport pin from the root module.
+replace github.com/docker/go-connections => github.com/docker/go-connections v0.6.0
