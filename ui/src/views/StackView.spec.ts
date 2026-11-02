@@ -74,7 +74,6 @@ async function render(path = "/stacks/app") {
     history: createMemoryHistory(),
     routes: [
       { path: "/stacks/:stack?", name: "stack-details", component: StackView },
-      { path: "/services", name: "services", component: { template: "<div />" } },
       { path: "/services/:stack/:service", name: "service-details", component: { template: "<div />" } },
       { path: "/deployments", name: "deployments", component: { template: "<div />" } },
     ],
