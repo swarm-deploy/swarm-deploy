@@ -1,13 +1,18 @@
 package waiter
 
 import (
+	"errors"
 	"fmt"
 	"reflect"
 
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/services"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 
-func jobProgress(progress ServiceProgress, baseline, service swarm.StackService) ServiceProgress {
+func jobProgress(
+	progress ServiceProgress, baseline, service swarm.StackService, tasks []swarm.ServiceTask,
+) ServiceProgress {
 	progress.Message = "waiting for job scheduler"
 	if service.JobStatus == nil {
 		return progress
@@ -30,7 +35,13 @@ func jobProgress(progress ServiceProgress, baseline, service swarm.StackService)
 		}
 	}
 	progress.Desired = desired
-	if service.Mode == "global-job" && desired == 0 {
+	if task, failed := services.JobTaskFailure(service.ServiceSpec, service.JobStatus, tasks); failed {
+		progress.State = ServiceFailed
+		diagnostic := "job task exited with restart disabled" + formatTaskDiagnostic(task)
+		progress.Message = boundedDiagnostic(faults.SafeDiagnostic(errors.New(diagnostic)))
+		return progress
+	}
+	if service.Mode == globalJobServiceMode && desired == 0 {
 		return progress
 	}
 	if service.CompletedTasks >= desired {

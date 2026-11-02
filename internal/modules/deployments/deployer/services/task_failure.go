@@ -50,16 +50,22 @@ func (a *Applier) retryRequired(ctx context.Context, service dockerswarm.Service
 	if !enabled {
 		return false, nil
 	}
-	if failedUpdate(service) {
+	job := service.Spec.Mode.ReplicatedJob != nil || service.Spec.Mode.GlobalJob != nil
+	if !job && failedUpdate(service) {
 		return true, nil
 	}
-	if service.UpdateStatus != nil || service.Spec.TaskTemplate.RestartPolicy == nil ||
+	if (!job && service.UpdateStatus != nil) || (job && service.JobStatus == nil) ||
+		service.Spec.TaskTemplate.RestartPolicy == nil ||
 		service.Spec.TaskTemplate.RestartPolicy.Condition != dockerswarm.RestartPolicyConditionNone {
 		return false, nil
 	}
 	tasks, err := a.manager.ListTasks(ctx, service.ID)
 	if err != nil {
 		return false, fmt.Errorf("inspect service %s retry tasks: %w", service.Spec.Name, err)
+	}
+	if job {
+		_, failed := JobTaskFailure(service.Spec, service.JobStatus, tasks)
+		return failed, nil
 	}
 	// Initial allocation can update the service metadata after its first task
 	// was created, without starting a rolling update. UpdatedAt is therefore not

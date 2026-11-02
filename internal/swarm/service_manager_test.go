@@ -192,6 +192,7 @@ func TestServiceManagerListTasksByIDOrFullName(t *testing.T) {
 				require.NoError(t, json.NewEncoder(w).Encode([]dockerswarm.Task{
 					{
 						ID:           "task-running",
+						JobIteration: &dockerswarm.Version{Index: 7},
 						Slot:         3,
 						NodeID:       "node-1",
 						DesiredState: dockerswarm.TaskStateRunning,
@@ -217,6 +218,8 @@ func TestServiceManagerListTasksByIDOrFullName(t *testing.T) {
 			require.NoError(t, err)
 			require.Len(t, tasks, 2)
 			assert.Equal(t, 3, tasks[0].Slot)
+			assert.Equal(t, &dockerswarm.Version{Index: 7}, tasks[0].JobIteration)
+			assert.Nil(t, tasks[1].JobIteration)
 			assert.Equal(t, TaskStateRunning, tasks[0].DesiredState)
 			assert.Equal(t, "container-1", tasks[0].ContainerID)
 			require.NotNil(t, tasks[0].ExitCode)

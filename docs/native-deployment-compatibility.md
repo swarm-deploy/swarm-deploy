@@ -47,6 +47,21 @@ job with no observable target tasks remains pending until the existing timeout,
 like an uninitialized global-service scheduler, rather than reporting success
 immediately on API acceptance.
 
+For `replicated-job` and `global-job` with explicit
+`deploy.restart_policy.condition: none`, verification also observes terminal task
+failures. SDK `Task.JobIteration` is retained by `internal/swarm` and matched to
+`Service.JobStatus.JobIteration`; previous iterations and tasks superseded by
+pending/running/completed replacements cannot fail the current deployment.
+Replicated job slots start at zero; global jobs use node identity. Missing
+task iteration metadata is not treated as failure evidence.
+
+An explicit retry of a failed job increments the current `TaskTemplate.ForceUpdate`
+to submit a new Docker execution. Both failure evidence and the counter are
+re-read after optimistic version conflicts. Ordinary syncs, historical failures,
+and already completed jobs do not force new executions. Docker advances the job
+iteration for accepted job service updates; verification waits for the new
+iteration before accepting task completion. Diagnostics are bounded and masked.
+
 ## Ignored and unsupported options
 
 Service-level `privileged`, `depends_on` (short or long form) and `restart` are
@@ -140,10 +155,19 @@ Set `SWARM_DEPLOY_E2E_REGISTRY` to a pushable registry prefix reachable by Swarm
 nodes to also push two BusyBox versions under a mutable tag, verify unrelated
 changes preserve its digest, and deploy a changed image reference.
 
-Live Swarm and registry scenarios could not run in the implementation environment:
-there is no Docker executable or Docker socket. E2E compiles and skips without
-its opt-in flag. Windows credential/isolation behavior also requires a compatible
-Windows Swarm node and has conversion coverage only.
+The original compatibility audit had no Docker executable/socket for live tests.
+Native job recovery is now covered by `TestRealSwarmJobFailureRetryAndRecovery`:
+both modes fail with exit 23, retry a fresh failed iteration, recover through
+changed input (unchanged spec) or a changed command, then retain task history
+across no-op syncs and an unrelated service change. Run with
+`SWARM_DEPLOY_E2E=1 go test -count=1 -timeout=10m -v ./e2e -run '^TestRealSwarmJobFailureRetryAndRecovery$'`.
+These local bind-input scenarios require a single-node Swarm. An optional
+`SWARM_DEPLOY_E2E_JOB_NETWORK` names an existing external Swarm-scoped network;
+without it, the usual fixture overlay is used. This allows a local Swarm-scoped
+bridge network in environments without VXLAN support. Local-scoped external
+bridge networks remain unsupported. E2E skips without its opt-in flag.
+Windows credential/isolation behavior requires a compatible Windows Swarm node
+and has conversion coverage only.
 
 ## Convergence failures and retries
 

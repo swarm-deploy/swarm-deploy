@@ -25,6 +25,8 @@ const (
 	maxServiceDiagnosticLength = 256
 	globalServiceMode          = "global"
 	replicatedServiceMode      = "replicated"
+	globalJobServiceMode       = "global-job"
+	replicatedJobServiceMode   = "replicated-job"
 )
 
 var serviceWaiterTracer = otel.Tracer(
