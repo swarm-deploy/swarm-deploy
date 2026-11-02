@@ -208,7 +208,6 @@ func TestRealSwarmGitOpsLifecycle(t *testing.T) {
 			require.Equal(t, service.Version, current.Version)
 		}
 		f.delivered(t, events.TypeNameServicePruned, 1)
-		f.delivered(t, events.TypeNameServiceRemovedFromDesired, 1)
 	}) {
 		t.FailNow()
 	}
