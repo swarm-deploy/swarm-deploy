@@ -1,17 +1,20 @@
 package handlers
 
 import (
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
-	dockerswarm "github.com/docker/docker/api/types/swarm"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
-	"github.com/swarm-deploy/swarm-deploy/internal/shared/labelsdict"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/enrichment/metadata"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/model"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/modelstore"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/stype"
+	"github.com/swarm-deploy/swarm-deploy/internal/storage"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
+	"github.com/swarm-deploy/swarm-deploy/internal/testutil"
 	"go.uber.org/mock/gomock"
 )
 
@@ -34,29 +37,33 @@ func TestInferDSNEngine(t *testing.T) {
 
 func TestListDSNSuggestions(t *testing.T) {
 	t.Parallel()
-	databaseLabel := map[string]string{labelsdict.ServiceType: "database"}
 	for _, tc := range []struct {
 		name     string
-		services []swarm.StackService
+		services []model.Info
 		want     string
 	}{
 		{name: "empty", want: `{"suggestions":[]}`},
-		{name: "filtered and nullable", services: []swarm.StackService{
-			{ID: "pg", Name: "postgres", FullName: "infra_postgres", Stack: "infra", Image: "postgres:18"},
-			{ID: "my", Name: "mysql", FullName: "infra_mysql", Stack: "infra", Image: "mysql:8.4"},
-			{ID: "custom", Name: "custom", FullName: "custom_database", Labels: databaseLabel, Image: "custom:v1"},
-			{ID: "container", Name: "postgres", FullName: "other_postgres", Image: "custom:v1", ServiceSpec: dockerswarm.ServiceSpec{TaskTemplate: dockerswarm.TaskSpec{ContainerSpec: &dockerswarm.ContainerSpec{
-				Labels: databaseLabel, Env: []string{"PASSWORD=must-not-leak"}, Secrets: []*dockerswarm.SecretReference{{SecretName: "must-not-leak"}},
-			}}}},
-			{ID: "app", Name: "postgres", FullName: "app_postgres", Image: "custom:v1"},
-			{ID: "overridden", Name: "postgres", FullName: "override_postgres", Image: "postgres:18", Labels: map[string]string{labelsdict.ServiceType: "application"}},
-		}, want: `{"suggestions":[{"service_id":"pg","service_name":"infra_postgres","stack":"infra","engine":"postgresql"},{"service_id":"my","service_name":"infra_mysql","stack":"infra","engine":"mysql"},{"service_id":"custom","service_name":"custom_database","stack":"","engine":null},{"service_id":"container","service_name":"other_postgres","stack":"","engine":"postgresql"}]}`},
+		{name: "no databases", services: []model.Info{
+			{Name: "postgres", Image: "postgres:18", Metadata: metadata.Metadata{Type: stype.Application}},
+		}, want: `{"suggestions":[]}`},
+		{name: "catalog classification and nullable engines", services: []model.Info{
+			{Name: "postgres", Image: "postgres:18", Metadata: metadata.Metadata{Type: stype.Database},
+				Environment: map[string]string{"POSTGRES_PASSWORD": "must-not-leak"},
+				Spec:        swarm.ServiceSpec{Secrets: []swarm.ServiceSecret{{SecretName: "must-not-leak"}}}},
+			{Name: "mysql", Image: "mysql:8.4", Metadata: metadata.Metadata{Type: stype.Database}},
+			{Name: "custom", Image: "custom:v1", Metadata: metadata.Metadata{Type: stype.Database}},
+			{Name: "primary-postgres", Image: "custom:v1", Metadata: metadata.Metadata{Type: stype.Database}},
+			{Name: "excluded-postgres", Image: "postgres:18", Metadata: metadata.Metadata{Type: stype.Application}},
+			{Name: "unclassified-postgres", Image: "postgres:18"},
+		}, want: `{"suggestions":[{"service_name":"infra_custom","stack":"infra","engine":null},{"service_name":"infra_mysql","stack":"infra","engine":"mysql"},{"service_name":"infra_postgres","stack":"infra","engine":"postgresql"},{"service_name":"infra_primary-postgres","stack":"infra","engine":"postgresql"}]}`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
+			services := modelstore.NewSQLStore(testutil.OpenSQLite(t))
+			require.NoError(t, services.ReplaceStack(t.Context(), "infra", tc.services))
+			// No Docker calls are expected; suggestions must work from catalog data alone.
 			inspector := swarm.NewMockServiceManager(gomock.NewController(t))
-			inspector.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{}).Return(tc.services, nil)
-			h := &handler{serviceInspector: inspector}
+			h := &handler{services: services, serviceInspector: inspector}
 			server, err := generated.NewServer(h, h, generated.WithErrorHandler(HandleHTTPError))
 			require.NoError(t, err)
 			recorder := httptest.NewRecorder()
@@ -68,18 +75,33 @@ func TestListDSNSuggestions(t *testing.T) {
 	}
 }
 
+func TestListDSNSuggestionsKeepsSameServiceNamesInDifferentStacks(t *testing.T) {
+	t.Parallel()
+	services := modelstore.NewSQLStore(testutil.OpenSQLite(t))
+	for _, stack := range []string{"infra", "other"} {
+		require.NoError(t, services.ReplaceStack(t.Context(), stack, []model.Info{{
+			Name: "postgres", Image: "postgres:18", Metadata: metadata.Metadata{Type: stype.Database},
+		}}))
+	}
+	h := &handler{services: services}
+	response, err := h.ListDSNSuggestions(t.Context())
+	require.NoError(t, err)
+	require.Len(t, response.Suggestions, 2)
+	assert.Equal(t, "infra_postgres", response.Suggestions[0].ServiceName)
+	assert.Equal(t, "other_postgres", response.Suggestions[1].ServiceName)
+}
+
 func TestListDSNSuggestionsFailure(t *testing.T) {
 	t.Parallel()
-	inspector := swarm.NewMockServiceManager(gomock.NewController(t))
-	inspector.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{}).Return(nil, assert.AnError)
-	h := &handler{serviceInspector: inspector}
-	_, err := h.ListDSNSuggestions(t.Context())
+	db, err := storage.OpenSQLite(t.Context(), t.TempDir())
+	require.NoError(t, err)
+	services := modelstore.NewSQLStore(db)
+	require.NoError(t, db.Close())
+	h := &handler{services: services}
+	_, err = h.ListDSNSuggestions(t.Context())
 	require.Error(t, err)
 	var statusErr *statusError
 	require.ErrorAs(t, err, &statusErr)
 	assert.Equal(t, http.StatusInternalServerError, statusErr.code)
-	// The public error must not contain upstream details.
-	encoded, err := json.Marshal(statusErr.Error())
-	require.NoError(t, err)
-	assert.NotContains(t, string(encoded), assert.AnError.Error())
+	assert.EqualError(t, statusErr, "unable to list database services")
 }

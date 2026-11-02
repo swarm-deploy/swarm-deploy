@@ -16,22 +16,20 @@ import (
 
 // ListDSNSuggestions returns database hostnames without reading credentials.
 func (h *handler) ListDSNSuggestions(ctx context.Context) (*generated.DSNSuggestionsResponse, error) {
-	services, err := h.serviceInspector.ListServices(ctx, swarm.ListServicesFilter{})
+	services, err := h.services.ReadAll(ctx)
 	if err != nil {
 		slog.ErrorContext(ctx, "[webserver] failed to list DSN suggestions", slog.Any("err", err))
 		return nil, withStatusError(http.StatusInternalServerError, errors.New("unable to list database services"))
 	}
 	suggestions := make([]generated.DSNSuggestion, 0, len(services))
-	resolver := stype.NewResolver()
 	for _, service := range services {
-		labels := stype.Labels{Service: service.Labels}
-		if container := service.ServiceSpec.TaskTemplate.ContainerSpec; container != nil {
-			labels.Container = container.Labels
-		}
-		if resolver.Resolve(service.Image, labels) != stype.Database {
+		if service.Type != stype.Database {
 			continue
 		}
-		suggestion := generated.DSNSuggestion{ServiceID: service.ID, ServiceName: service.FullName, Stack: service.Stack}
+		suggestion := generated.DSNSuggestion{
+			ServiceName: swarm.NewServiceReference(service.Stack, service.Name).Name(),
+			Stack:       service.Stack,
+		}
 		if engine := inferDSNEngine(service.Image, service.Name); engine != "" {
 			suggestion.Engine.SetTo(generated.DSNSuggestionEngine(engine))
 		} else {

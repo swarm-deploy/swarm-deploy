@@ -1135,16 +1135,10 @@ func (s *CurrentUserResponse) SetName(val string) {
 
 // Ref: #/components/schemas/DSNSuggestion
 type DSNSuggestion struct {
-	ServiceID string `json:"service_id"`
 	// Full Docker Swarm service name, usable as a DNS hostname on a shared overlay network.
 	ServiceName string                 `json:"service_name"`
 	Stack       string                 `json:"stack"`
 	Engine      NilDSNSuggestionEngine `json:"engine"`
-}
-
-// GetServiceID returns the value of ServiceID.
-func (s *DSNSuggestion) GetServiceID() string {
-	return s.ServiceID
 }
 
 // GetServiceName returns the value of ServiceName.
@@ -1160,11 +1154,6 @@ func (s *DSNSuggestion) GetStack() string {
 // GetEngine returns the value of Engine.
 func (s *DSNSuggestion) GetEngine() NilDSNSuggestionEngine {
 	return s.Engine
-}
-
-// SetServiceID sets the value of ServiceID.
-func (s *DSNSuggestion) SetServiceID(val string) {
-	s.ServiceID = val
 }
 
 // SetServiceName sets the value of ServiceName.

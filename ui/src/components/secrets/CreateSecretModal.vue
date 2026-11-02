@@ -42,14 +42,14 @@ const dsnSuggestions = ref<DSNSuggestion[]>([]);
 const dsnLoading = ref(false);
 const dsnLoaded = ref(false);
 const dsnError = ref("");
-const databaseServiceID = ref("");
+const databaseServiceName = ref("");
 const databaseName = ref("app");
 const databaseUser = ref("app");
 const databasePassword = ref("");
 const dsnManual = ref(false);
 let generatedDSN = "";
 let dsnRequest = 0;
-const databaseService = computed(() => dsnSuggestions.value.find((item) => item.service_id === databaseServiceID.value));
+const databaseService = computed(() => dsnSuggestions.value.find((item) => item.service_name === databaseServiceName.value));
 
 function serviceDescription(service: DSNSuggestion): string {
   const engine = service.engine === "postgresql" ? "PostgreSQL · 5432"
@@ -227,7 +227,7 @@ function resetForm(): void {
   dsnLoading.value = false;
   dsnLoaded.value = false;
   dsnError.value = "";
-  databaseServiceID.value = "";
+  databaseServiceName.value = "";
   databaseName.value = "app";
   databaseUser.value = "app";
   databasePassword.value = "";
@@ -502,9 +502,9 @@ onUnmounted(() => {
                 <small v-if="databaseService">{{ serviceDescription(databaseService) }}</small>
               </span>
               <span class="create-secret-chevron" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="m6 9 6 6 6-6" /></svg></span>
-              <select v-model="databaseServiceID" aria-label="Database service" :disabled="pending || dsnLoading" @change="generateDSN">
+              <select v-model="databaseServiceName" aria-label="Database service" :disabled="pending || dsnLoading" @change="generateDSN">
                 <option value="" disabled>Select database service</option>
-                <option v-for="service in dsnSuggestions" :key="service.service_id" :value="service.service_id">{{ service.service_name }} — {{ serviceDescription(service) }}</option>
+                <option v-for="service in dsnSuggestions" :key="service.service_name" :value="service.service_name">{{ service.service_name }} — {{ serviceDescription(service) }}</option>
               </select>
             </div>
           </label>

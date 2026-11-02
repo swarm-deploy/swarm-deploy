@@ -51,9 +51,9 @@ describe("CreateSecretModal", () => {
   beforeEach(() => {
     vi.resetAllMocks();
     vi.mocked(fetchDSNSuggestions).mockResolvedValue({ suggestions: [
-      { service_id: "pg", service_name: "infra_postgres", stack: "infra", engine: "postgresql" },
-      { service_id: "my", service_name: "infra_mysql", stack: "infra", engine: "mysql" },
-      { service_id: "unknown", service_name: "custom_database", stack: "", engine: null },
+      { service_name: "infra_postgres", stack: "infra", engine: "postgresql" },
+      { service_name: "infra_mysql", stack: "infra", engine: "mysql" },
+      { service_name: "custom_database", stack: "", engine: null },
     ] });
     vi.mocked(createSecret).mockResolvedValue({ id: "secret-id", name: "app-token" });
     vi.mocked(createExternalSecret).mockResolvedValue({
@@ -338,14 +338,14 @@ describe("CreateSecretModal", () => {
     await openDSN(wrapper);
     expect(fetchDSNSuggestions).toHaveBeenCalledOnce();
     expect(wrapper.get('select[aria-label="Database service"]').findAll("option")).toHaveLength(4);
-    await wrapper.get('select[aria-label="Database service"]').setValue("pg");
+    await wrapper.get('select[aria-label="Database service"]').setValue("infra_postgres");
     const final = () => wrapper.get<HTMLInputElement>('input[aria-label="Secret value (DSN)"]').element.value;
     expect(final()).toBe("postgresql://app:@infra_postgres:5432/app");
     await wrapper.get('input[aria-label="Database name"]').setValue("orders");
     await wrapper.get('input[aria-label="User"]').setValue("reader");
     await wrapper.get('input[aria-label="Password"]').setValue("example");
     expect(final()).toBe("postgresql://reader:example@infra_postgres:5432/orders");
-    await wrapper.get('select[aria-label="Database service"]').setValue("my");
+    await wrapper.get('select[aria-label="Database service"]').setValue("infra_mysql");
     expect(final()).toBe("mysql://reader:example@infra_mysql:3306/orders");
   });
 
@@ -354,7 +354,7 @@ describe("CreateSecretModal", () => {
     await wrapper.findAll('[role="tab"]')[0].trigger("click");
     await wrapper.get('input[aria-label="Name"]').setValue("app-dsn");
     await openDSN(wrapper);
-    await wrapper.get('select[aria-label="Database service"]').setValue("pg");
+    await wrapper.get('select[aria-label="Database service"]').setValue("infra_postgres");
     await wrapper.get('input[aria-label="Database name"]').setValue("sales/北 ?#%");
     await wrapper.get('input[aria-label="User"]').setValue("app@team");
     await wrapper.get('input[aria-label="Password"]').setValue("P@ss:/?#%!'()*");
@@ -368,13 +368,13 @@ describe("CreateSecretModal", () => {
   it("preserves a manual DSN until explicitly regenerating, including across value modes", async () => {
     const wrapper = mountModal();
     await openDSN(wrapper);
-    await wrapper.get('select[aria-label="Database service"]').setValue("pg");
+    await wrapper.get('select[aria-label="Database service"]').setValue("infra_postgres");
     const input = () => wrapper.get<HTMLInputElement>('input[aria-label="Secret value (DSN)"]');
     const manual = "postgresql://custom:example@infra_postgres:5432/manual?sslmode=require";
     await input().setValue(manual);
     await wrapper.get('input[aria-label="Database name"]').setValue("changed");
     await wrapper.get('input[aria-label="Password"]').setValue("changed");
-    await wrapper.get('select[aria-label="Database service"]').setValue("my");
+    await wrapper.get('select[aria-label="Database service"]').setValue("infra_mysql");
     expect(input().element.value).toBe(manual);
     await wrapper.findAll(".create-secret-mode-toggle button")[0].trigger("click");
     expect(wrapper.get<HTMLTextAreaElement>("textarea").element.value).toBe(manual);
@@ -416,8 +416,8 @@ describe("CreateSecretModal", () => {
   it("clears a generated value for an unknown engine and permits manual entry", async () => {
     const wrapper = mountModal();
     await openDSN(wrapper);
-    await wrapper.get('select[aria-label="Database service"]').setValue("pg");
-    await wrapper.get('select[aria-label="Database service"]').setValue("unknown");
+    await wrapper.get('select[aria-label="Database service"]').setValue("infra_postgres");
+    await wrapper.get('select[aria-label="Database service"]').setValue("custom_database");
     const final = wrapper.get<HTMLInputElement>('input[aria-label="Secret value (DSN)"]');
     expect(final.element.value).toBe("");
     expect(wrapper.text()).toContain("Engine could not be identified");
@@ -432,7 +432,7 @@ describe("CreateSecretModal", () => {
     await wrapper.get("textarea").setValue(original);
     await wrapper.findAll(".create-secret-mode-toggle button")[1].trigger("click");
     await openDSN(wrapper);
-    await wrapper.get('select[aria-label="Database service"]').setValue("pg");
+    await wrapper.get('select[aria-label="Database service"]').setValue("infra_postgres");
     expect(wrapper.get<HTMLInputElement>('input[aria-label="Secret value (DSN)"]').element.value).toBe(original);
   });
 

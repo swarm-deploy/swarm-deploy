@@ -2801,10 +2801,6 @@ func (s *DSNSuggestion) Encode(e *jx.Encoder) {
 // encodeFields encodes fields.
 func (s *DSNSuggestion) encodeFields(e *jx.Encoder) {
 	{
-		e.FieldStart("service_id")
-		e.Str(s.ServiceID)
-	}
-	{
 		e.FieldStart("service_name")
 		e.Str(s.ServiceName)
 	}
@@ -2818,11 +2814,10 @@ func (s *DSNSuggestion) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfDSNSuggestion = [4]string{
-	0: "service_id",
-	1: "service_name",
-	2: "stack",
-	3: "engine",
+var jsonFieldsNameOfDSNSuggestion = [3]string{
+	0: "service_name",
+	1: "stack",
+	2: "engine",
 }
 
 // Decode decodes DSNSuggestion from json.
@@ -2834,20 +2829,8 @@ func (s *DSNSuggestion) Decode(d *jx.Decoder) error {
 
 	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
 		switch string(k) {
-		case "service_id":
-			requiredBitSet[0] |= 1 << 0
-			if err := func() error {
-				v, err := d.Str()
-				s.ServiceID = string(v)
-				if err != nil {
-					return err
-				}
-				return nil
-			}(); err != nil {
-				return errors.Wrap(err, "decode field \"service_id\"")
-			}
 		case "service_name":
-			requiredBitSet[0] |= 1 << 1
+			requiredBitSet[0] |= 1 << 0
 			if err := func() error {
 				v, err := d.Str()
 				s.ServiceName = string(v)
@@ -2859,7 +2842,7 @@ func (s *DSNSuggestion) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"service_name\"")
 			}
 		case "stack":
-			requiredBitSet[0] |= 1 << 2
+			requiredBitSet[0] |= 1 << 1
 			if err := func() error {
 				v, err := d.Str()
 				s.Stack = string(v)
@@ -2871,7 +2854,7 @@ func (s *DSNSuggestion) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"stack\"")
 			}
 		case "engine":
-			requiredBitSet[0] |= 1 << 3
+			requiredBitSet[0] |= 1 << 2
 			if err := func() error {
 				if err := s.Engine.Decode(d); err != nil {
 					return err
@@ -2890,7 +2873,7 @@ func (s *DSNSuggestion) Decode(d *jx.Decoder) error {
 	// Validate required fields.
 	var failures []validate.FieldError
 	for i, mask := range [1]uint8{
-		0b00001111,
+		0b00000111,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.

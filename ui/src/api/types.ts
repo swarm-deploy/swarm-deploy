@@ -671,7 +671,6 @@ export interface StackResourcesResponse {
 }
 
 export interface DSNSuggestion {
-  service_id: string;
   service_name: string;
   stack: string;
   engine: "postgresql" | "mysql" | null;
