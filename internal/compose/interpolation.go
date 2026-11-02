@@ -3,7 +3,9 @@ package compose
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -101,12 +103,23 @@ func updateInterpolatedValues(node *yaml.Node, value any) error {
 }
 
 func updateInterpolatedMapping(node *yaml.Node, values map[string]any) error {
+	remaining := maps.Clone(values)
 	for i := 0; i < len(node.Content); i += yamlMappingNodePairSize {
 		if child, exists := values[node.Content[i].Value]; exists {
 			if err := updateInterpolatedValues(node.Content[i+1], child); err != nil {
 				return err
 			}
+			delete(remaining, node.Content[i].Value)
 		}
+	}
+	// The decoded map already applies YAML merge precedence. Materialize inherited
+	// values locally so typed casts do not mutate shared anchors or disappear behind <<.
+	for _, key := range slices.Sorted(maps.Keys(remaining)) {
+		child := &yaml.Node{}
+		if err := child.Encode(remaining[key]); err != nil {
+			return err
+		}
+		node.Content = append(node.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: key}, child)
 	}
 	return nil
 }

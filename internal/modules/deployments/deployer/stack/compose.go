@@ -77,7 +77,7 @@ func selectVolumes(volumes compose.Volumes, refs compose.ServiceVolumes) compose
 	}
 	selected := make(compose.Volumes)
 	for _, ref := range refs.Volumes {
-		if ref.Type != compose.ServiceVolumeTypeVolume {
+		if ref.EffectiveType() != compose.ServiceVolumeTypeVolume {
 			continue
 		}
 		if volume, ok := volumes[ref.Source]; ok {

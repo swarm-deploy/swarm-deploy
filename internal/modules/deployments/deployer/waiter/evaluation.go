@@ -261,15 +261,19 @@ func updateProgressMessage(status *swarm.ServiceUpdateStatus) string {
 func verificationTaskCutoff(
 	baseline, service swarm.StackService, requireCurrentGeneration bool, unresolved bool,
 ) (time.Time, bool) {
-	if !unresolved || baseline.ID == "" || baseline.ID != service.ID {
+	if !unresolved || baseline.ID == "" || baseline.ID != service.ID ||
+		!reflect.DeepEqual(baseline.ServiceSpec.TaskTemplate, service.ServiceSpec.TaskTemplate) {
 		return taskGenerationCutoff(baseline, service, requireCurrentGeneration)
 	}
 	// Reject stale observations, including old completed statuses and their Running tasks.
 	if service.UpdatedAt.Before(baseline.UpdatedAt) {
 		return time.Time{}, true
 	}
-	// A never-updated (possibly recreated) service has its creation generation.
-	if service.UpdateStatus == nil && !service.CreatedAt.IsZero() && service.CreatedAt.Equal(service.UpdatedAt) {
+	// Allocation can advance UpdatedAt without a rolling update. An unchanged
+	// initial spec has its creation generation, even after process recovery.
+	if service.UpdateStatus == nil && baseline.UpdateStatus == nil &&
+		service.PreviousSpec == nil && baseline.PreviousSpec == nil &&
+		service.ServiceSpec.TaskTemplate.ForceUpdate == 0 && !service.CreatedAt.IsZero() {
 		return service.CreatedAt, false
 	}
 	if service.UpdateStatus == nil || service.UpdateStatus.StartedAt.IsZero() {

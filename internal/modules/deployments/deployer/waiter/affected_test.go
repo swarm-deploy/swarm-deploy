@@ -156,7 +156,8 @@ func TestUnresolvedInitialCreationCanRecoverWithoutUpdateStatus(t *testing.T) {
 			manager := swarm.NewMockServiceManager(gomock.NewController(t))
 			accepted := testReplicatedService("api", "api-id", 1, serviceWaitTestTime, "api:2")
 			if previouslyUpdated {
-				accepted.CreatedAt = serviceWaitTestTime.Add(-time.Hour)
+				previous := testReplicatedService("api", "api-id", 1, serviceWaitTestTime.Add(-time.Hour), "api:1")
+				accepted.PreviousSpec = &previous.ServiceSpec
 			}
 			manager.EXPECT().ListServices(gomock.Any(), gomock.Any()).Return([]swarm.StackService{accepted}, nil).AnyTimes()
 			manager.EXPECT().ListTasks(gomock.Any(), "api-id").Return(testRunningTasks(1, serviceWaitTestTime), nil).AnyTimes()
