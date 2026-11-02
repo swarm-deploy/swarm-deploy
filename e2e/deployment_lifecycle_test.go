@@ -56,21 +56,26 @@ func TestRealSwarmInitialStartupFailureHistoryAndRecovery(t *testing.T) {
 	req.ManualRetry = true
 	retried, err := f.executor.Execute(f.ctx, req)
 	require.ErrorIs(t, err, waiter.ErrConvergenceFailed)
+	assert.Equal(t, "convergence_failed", retried.ErrorCode)
 	require.NotNil(t, retried.Attempt)
 	assert.Equal(t, failed.ID, retried.Attempt.DeploymentID)
 	assert.Equal(t, 2, retried.Attempt.Number)
 	retriedService := f.inspect(t, "job")
 	assert.Equal(t, service.ID, retriedService.ID)
 	assert.Equal(t, service.Spec.TaskTemplate.ForceUpdate+1, retriedService.Spec.TaskTemplate.ForceUpdate)
+	var retriedTask string
 	f.poll(t, "explicit retry executes a new real task", func() bool {
 		for _, task := range f.tasks(t, "job") {
 			if task.ID != initialTask && task.CurrentState == swarm.TaskStateFailed && task.ExitCode != nil && *task.ExitCode == 23 {
+				retriedTask = task.ID
 				return true
 			}
 		}
 		return false
 	})
 	again := f.latest(t)
+	assert.Contains(t, again.ErrorDiagnostic, "id="+retriedTask, "the retry must fail on its own task generation")
+	assert.Contains(t, again.ErrorDiagnostic, "exit_code=23")
 	require.Len(t, again.Attempts, 2)
 	assert.Equal(t, model.Failed, again.Attempts[0].Status)
 	assert.Equal(t, model.Failed, again.Attempts[1].Status)
