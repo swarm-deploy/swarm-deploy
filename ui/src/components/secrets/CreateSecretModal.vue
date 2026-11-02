@@ -684,7 +684,7 @@ onUnmounted(() => {
 .create-secret-dsn-value input { flex: 1; min-width: 0; width: 100%; border: 0; outline: 0; padding: 0; background: transparent; color: var(--text); font: .76rem "JetBrains Mono", ui-monospace, monospace; }
 .create-secret-dsn-action { padding: 0; border: 0; background: transparent; color: var(--control-primary); font: inherit; font-size: .7rem; text-decoration: underline; }
 .create-secret-dsn .form-helper { margin: 0; }
-.create-secret-form { gap: 11px; overflow-y: auto; padding: 0 20px 18px; }
+.create-secret-form { min-height: 0; grid-auto-rows: max-content; gap: 11px; overflow-y: auto; padding: 0 20px 18px; }
 .create-secret-tabs { flex: 0 0 auto; gap: 0; margin: 0; }
 .create-secret-tabs :deep(.app-tabs-tab) { flex: 1; justify-content: center; border-bottom-width: 2px; border-radius: 0; padding: 12px 8px 10px; font-size: .82rem; }
 .create-secret-control { position: relative; display: flex; align-items: center; min-width: 0; height: 40px; border: 1px solid var(--border-default); border-radius: 6px; background: var(--surface-input); color: var(--text); }
