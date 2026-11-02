@@ -35,15 +35,164 @@ import (
 // One live stack survives six real Git revisions, including a failed rollout.
 // No scheduler timing, Git transport, deployment, or Docker operations are mocked.
 func TestRealSwarmGitOpsLifecycle(t *testing.T) {
+	f := newGitOpsLifecycleFixture(t)
+	desired := gitOpsManifest{apiCommand: "initial", mode: "v1", secret: "secret-v1", config: "config-v1"}
+	var api gitOpsAPIObservation
+	var worker, scheduler dockertester.ServiceSnapshot
+	var originalResources, rotatedResources gitOpsResourceRefs
+	var composeBeforeRotation string
+	var failed model.Deployment
+
+	if !t.Run("initial_deployment", func(t *testing.T) {
+		sha, content := f.pushRevision(t, "Initial deployment", desired)
+		f.runner.Run(f.ctx, syncrun.Task{Reason: syncrun.TriggerStartup})
+		latest := f.assertRevision(t, sha, content, desired)
+		f.assertSuccessfulDeployment(t, latest)
+
+		api = f.runningAPI(t, desired)
+		originalResources = f.mountedResources(t, 1)
+		worker = f.runningService(t, "worker")
+		f.assertCompletionDelivered(t, latest, events.TypeNameDeploySuccess, 2)
+		f.assertHealthyReconciliationIsIdle(t, sha, worker)
+	}) {
+		t.FailNow()
+	}
+
+	if !t.Run("update_api_command_and_environment", func(t *testing.T) {
+		desired.apiCommand, desired.mode = "updated", "v2"
+		sha, content := f.pushRevision(t, "Update API command and environment", desired)
+		f.pollGit(t)
+		latest := f.assertRevision(t, sha, content, desired)
+		f.assertSuccessfulDeployment(t, latest)
+
+		api = f.updatedAPI(t, api, desired)
+		require.Equal(t, originalResources, f.mountedResources(t, 1))
+		worker = f.unchangedRunningService(t, "worker", worker)
+		f.assertCompletionDelivered(t, latest, events.TypeNameDeploySuccess, 2)
+		f.assertHealthyReconciliationIsIdle(t, sha, worker)
+	}) {
+		t.FailNow()
+	}
+
+	if !t.Run("add_scheduler_service", func(t *testing.T) {
+		desired.scheduler = true
+		sha, content := f.pushRevision(t, "Add scheduler service", desired)
+		f.pollGit(t)
+		latest := f.assertRevision(t, sha, content, desired)
+		f.assertSuccessfulDeployment(t, latest)
+
+		current := f.runningAPI(t, desired)
+		require.Equal(t, api.service.ID, current.service.ID)
+		require.Equal(t, api.service.Spec, current.service.Spec)
+		require.Equal(t, api.service.Version, current.service.Version)
+		require.Equal(t, api.tasks, current.tasks)
+		api = current
+		require.Equal(t, originalResources, f.mountedResources(t, 1))
+		worker = f.unchangedRunningService(t, "worker", worker)
+		scheduler = f.runningService(t, "scheduler")
+		f.assertCompletionDelivered(t, latest, events.TypeNameDeploySuccess, 3)
+		f.assertHealthyReconciliationIsIdle(t, sha, worker, scheduler)
+		composeBeforeRotation = content
+	}) {
+		t.FailNow()
+	}
+
+	if !t.Run("rotate_secret_and_config", func(t *testing.T) {
+		desired.secret, desired.config = "secret-v2", "config-v2"
+		sha, content := f.pushRevision(t, "Rotate secret and config", desired)
+		require.Equal(t, composeBeforeRotation, content, "rotation changes resource files only")
+		f.pollGit(t)
+		latest := f.assertRevision(t, sha, content, desired)
+		f.assertSuccessfulDeployment(t, latest)
+
+		api = f.updatedAPI(t, api, desired)
+		rotatedResources = f.mountedResources(t, 2)
+		require.NotEqual(t, originalResources.secret, rotatedResources.secret)
+		require.NotEqual(t, originalResources.config, rotatedResources.config)
+		worker = f.unchangedRunningService(t, "worker", worker)
+		scheduler = f.unchangedRunningService(t, "scheduler", scheduler)
+		f.assertCompletionDelivered(t, latest, events.TypeNameDeploySuccess, 3)
+		f.assertHealthyReconciliationIsIdle(t, sha, worker, scheduler)
+	}) {
+		t.FailNow()
+	}
+
+	if !t.Run("failed_api_rollout", func(t *testing.T) {
+		desired.broken = true
+		sha, content := f.pushRevision(t, "Fail API rollout", desired)
+		f.pollGit(t)
+		failed = f.assertRevision(t, sha, content, desired)
+		f.assertPausedAPIRollout(t, failed, api)
+
+		require.Equal(t, rotatedResources, f.mountedResources(t, 2))
+		require.NotEqual(t, originalResources.secret, rotatedResources.secret)
+		require.NotEqual(t, originalResources.config, rotatedResources.config)
+		worker = f.unchangedRunningService(t, "worker", worker)
+		scheduler = f.unchangedRunningService(t, "scheduler", scheduler)
+		f.assertCompletionDelivered(t, failed, events.TypeNameDeployFailed, 3)
+		f.assertFailedReconciliationIsIdle(t, failed, worker, scheduler)
+	}) {
+		t.FailNow()
+	}
+
+	if !t.Run("recover_api_and_prune_scheduler", func(t *testing.T) {
+		desired.broken, desired.scheduler, desired.apiCommand = false, false, "recovered"
+		sha, content := f.pushRevision(t, "Recover API and prune scheduler", desired)
+		f.pollGit(t)
+		latest := f.assertRevision(t, sha, content, desired)
+		f.assertSuccessfulDeployment(t, latest)
+
+		// Compare recovery with the last healthy generation, retained across failure.
+		api = f.updatedAPI(t, api, desired)
+		require.Equal(t, rotatedResources, f.mountedResources(t, 2))
+		require.NotEqual(t, originalResources.secret, rotatedResources.secret)
+		require.NotEqual(t, originalResources.config, rotatedResources.config)
+		worker = f.unchangedRunningService(t, "worker", worker)
+		f.assertSchedulerPruned(t, scheduler, sha)
+		f.assertFailedDeploymentSuperseded(t, failed)
+		f.assertCompletionDelivered(t, latest, events.TypeNameDeploySuccess, 2)
+		f.assertHealthyReconciliationIsIdle(t, sha, worker)
+	}) {
+		t.FailNow()
+	}
+
+	require.Len(t, f.commits, 6)
+	success, err := f.history.ReadRecent(f.ctx, eventhistory.QueryOptions{Types: []events.TypeName{events.TypeNameDeploySuccess}, Limit: 100})
+	require.NoError(t, err)
+	require.Len(t, success, 5)
+}
+
+// GitOps-specific wiring stays local; lifecycleFixture owns the real Swarm and stores.
+type gitOpsLifecycleFixture struct {
+	*lifecycleFixture
+	writer     string
+	repository gitx.Repository
+	runner     *syncrun.Runner
+	commits    []string
+}
+
+type gitOpsManifest struct {
+	apiCommand, mode, secret, config string
+	scheduler, broken                bool
+}
+
+type gitOpsAPIObservation struct {
+	service mobyswarm.Service
+	tasks   []string
+}
+
+type gitOpsResourceRefs struct {
+	secret, config string
+}
+
+func newGitOpsLifecycleFixture(t *testing.T) *gitOpsLifecycleFixture {
+	t.Helper()
 	base := newExternalSwarmFixtureWithTimeout(t, 4*time.Minute)
 	remote, writer, checkout := filepath.Join(t.TempDir(), "remote.git"), t.TempDir(), t.TempDir()
 	gitCommand(t, base.ctx, writer, "init", "--bare", "--initial-branch=main", remote)
 	gitCommand(t, base.ctx, writer, "init", "--initial-branch=main")
 	gitCommand(t, base.ctx, writer, "remote", "add", "origin", remote)
-	write := func(name, content string) {
-		require.NoError(t, os.WriteFile(filepath.Join(writer, name), []byte(content), 0o600))
-	}
-	write("stacks.yaml", fmt.Sprintf("stacks:\n  - name: %s\n    composeFile: compose.yaml\n", base.stack))
+	require.NoError(t, os.WriteFile(filepath.Join(writer, "stacks.yaml"), []byte(fmt.Sprintf("stacks:\n  - name: %s\n    composeFile: compose.yaml\n", base.stack)), 0o600))
 	cfg := &config.Config{Spec: config.Spec{
 		DataDir: t.TempDir(), Git: config.GitSpec{Repository: remote, Branch: "main"},
 		StacksSource:   config.StacksSourceSpec{File: "stacks.yaml"},
@@ -62,356 +211,335 @@ func TestRealSwarmGitOpsLifecycle(t *testing.T) {
 	puller := gitpull.NewPuller(repository, gitpull.NewMonitor(f.db, f.state, f.bus), metricGroup.Git, cfg.Spec.Git)
 	networks := networkloop.NewCoordinator(f.db, configs, f.state, networkloop.New(f.sw.Networks), f.bus)
 	runner := syncrun.New(configs, repository, metricGroup, f.bus, f.state, networks, f.reconciler, puller)
+	return &gitOpsLifecycleFixture{lifecycleFixture: f, writer: writer, repository: repository, runner: runner}
+}
 
-	apiCommand, mode, secretValue, configValue := "initial", "v1", "secret-v1", "config-v1"
-	scheduler, broken := false, false
-	manifest := func() string {
-		command := fmt.Sprintf(`printf '%s:%%s:%%s:%%s\n' "$$MODE" "$$(cat /run/secrets/password)" "$$(cat /etc/app.conf)"; sleep 600`, apiCommand)
-		health := ""
-		if broken {
-			command = "sleep 1; exit 23"
-			// A task can never briefly report Running before exit 23; otherwise a
-			// fast verifier could incorrectly accept the failing generation.
-			health = "    healthcheck: {test: [CMD, 'false'], interval: 1s, timeout: 1s, retries: 30}\n"
-		}
-		api := lifecycleService("api", command, "")
-		api = strings.Replace(api, "    deploy:\n", fmt.Sprintf("    environment: {MODE: %s}\n    secrets: [password]\n    configs: [{source: settings, target: /etc/app.conf}]\n%s    deploy:\n", mode, health), 1)
-		services := api + lifecycleService("worker", "sleep 600", "")
-		if scheduler {
-			services += lifecycleService("scheduler", "sleep 600", "")
-		}
-		return fmt.Sprintf("services:\n%s\nsecrets:\n  password: {file: ./password.txt}\nconfigs:\n  settings: {file: ./settings.txt}\nnetworks:\n  default:\n    ipam:\n      config: [{subnet: %s}]\n", services, f.subnet)
+func (m gitOpsManifest) compose(subnet string) string {
+	command := fmt.Sprintf(`printf '%s:%%s:%%s:%%s\n' "$$MODE" "$$(cat /run/secrets/password)" "$$(cat /etc/app.conf)"; sleep 600`, m.apiCommand)
+	health := ""
+	if m.broken {
+		command = "sleep 1; exit 23"
+		// A task can never briefly report Running before exit 23; otherwise a
+		// fast verifier could incorrectly accept the failing generation.
+		health = "    healthcheck: {test: [CMD, 'false'], interval: 1s, timeout: 1s, retries: 30}\n"
 	}
-	state := func(t *testing.T) gitmodel.Runtime {
-		t.Helper()
-		s, err := f.state.Read(f.ctx)
-		require.NoError(t, err)
-		return s
+	api := lifecycleService("api", command, "")
+	api = strings.Replace(api, "    deploy:\n", fmt.Sprintf("    environment: {MODE: %s}\n    secrets: [password]\n    configs: [{source: settings, target: /etc/app.conf}]\n%s    deploy:\n", m.mode, health), 1)
+	services := api + lifecycleService("worker", "sleep 600", "")
+	if m.scheduler {
+		services += lifecycleService("scheduler", "sleep 600", "")
 	}
-	history := func(t *testing.T) []model.DeploymentSummary {
-		t.Helper()
-		page, err := f.store.List(f.ctx, model.ListFilter{Stacks: []string{f.stack}})
-		require.NoError(t, err)
-		return page.Deployments
-	}
-	publications := func(t *testing.T) []outbox.Publication {
-		t.Helper()
-		p, err := f.outbox.ListPublications(f.ctx, outbox.ListFilter{})
-		require.NoError(t, err)
-		return p
-	}
-	drain := func(t *testing.T) {
-		t.Helper()
-		for range 100 {
-			worked, err := f.bus.ProcessNext(f.ctx)
-			require.NoError(t, err)
-			if !worked {
-				require.Empty(t, publications(t))
-				return
-			}
-		}
-		t.Fatal("outbox did not drain within 100 deliveries")
-	}
-	var previousCompose, sha, failedID string
-	var failedDeployment model.Deployment
-	var previousAPI mobyswarm.Service
-	var previousTasks []string
-	var worker, scheduled dockertester.ServiceSnapshot
-	var originalSecret, originalConfig, latestSecret, latestConfig string
-	var seenSHAs []string
+	return fmt.Sprintf("services:\n%s\nsecrets:\n  password: {file: ./password.txt}\nconfigs:\n  settings: {file: ./settings.txt}\nnetworks:\n  default:\n    ipam:\n      config: [{subnet: %s}]\n", services, subnet)
+}
 
-	for revision := range 6 {
-		if !t.Run(fmt.Sprintf("revision_%d", revision), func(t *testing.T) {
-			switch revision {
-			case 1:
-				apiCommand, mode = "updated", "v2"
-			case 2:
-				scheduler = true
-			case 3:
-				secretValue, configValue = "secret-v2", "config-v2"
-			case 4:
-				broken = true
-			case 5:
-				broken, scheduler, apiCommand = false, false, "recovered"
-			}
-			serviceCount := 2
-			if scheduler {
-				serviceCount++
-			}
-			content := manifest()
-			if revision == 3 {
-				require.Equal(t, previousCompose, content, "rotation changes resource files only")
-			}
-			write("compose.yaml", content)
-			write("password.txt", secretValue+"\n")
-			write("settings.txt", configValue+"\n")
-			gitCommand(t, f.ctx, writer, "add", ".")
-			gitCommand(t, f.ctx, writer, "-c", "user.name=E2E", "-c", "user.email=e2e@example.invalid", "commit", "-m", fmt.Sprintf("revision %d", revision))
-			sha = gitCommand(t, f.ctx, writer, "rev-parse", "HEAD")
-			require.NotContains(t, seenSHAs, sha)
-			seenSHAs = append(seenSHAs, sha)
-			gitCommand(t, f.ctx, writer, "push", "origin", "main")
-			t.Logf("revision %d, commit %s", revision, sha)
-			if revision == 0 {
-				runner.Run(f.ctx, syncrun.Task{Reason: syncrun.TriggerStartup})
-			} else {
-				runner.Poll(f.ctx)
-			}
-			head, err := repository.Head(f.ctx)
-			require.NoError(t, err)
-			require.Equal(t, sha, head)
-			checkedOut, err := repository.ReadFile(f.ctx, "compose.yaml")
-			require.NoError(t, err)
-			require.Equal(t, content, string(checkedOut))
-			checkedSecret, err := repository.ReadFile(f.ctx, "password.txt")
-			require.NoError(t, err)
-			require.Equal(t, secretValue+"\n", string(checkedSecret))
-			checkedConfig, err := repository.ReadFile(f.ctx, "settings.txt")
-			require.NoError(t, err)
-			require.Equal(t, configValue+"\n", string(checkedConfig))
-			require.Len(t, history(t), revision+1, "each of these revisions changes effective desired state")
-			latest := f.latest(t)
-			require.Equal(t, sha, latest.Commit)
-			require.Equal(t, 1, latest.AttemptCount)
-			require.Len(t, latest.Attempts, 1)
-			require.NotNil(t, latest.Attempts[0].FinishedAt)
-			require.Equal(t, model.StageSucceeded, latest.ApplyStatus)
-			require.Equal(t, latest.Status, latest.Attempts[0].Status)
-			require.Equal(t, latest.Phase, latest.Attempts[0].Phase)
-			require.Equal(t, latest.ApplyStatus, latest.Attempts[0].ApplyStatus)
-			require.Equal(t, latest.VerificationStatus, latest.Attempts[0].VerificationStatus)
-			require.Equal(t, latest.CleanupStatus, latest.Attempts[0].CleanupStatus)
-			require.Equal(t, latest.ErrorCode, latest.Attempts[0].ErrorCode)
-			runtime := state(t)
-			require.Equal(t, sha, runtime.GitRevision)
-			if revision > 0 {
-				require.Equal(t, "updated", runtime.LastPollResult)
-			}
-			require.Equal(t, sha, runtime.Stacks[f.stack].LastCommit)
-			if revision == 4 {
-				require.Equal(t, "partial_error", runtime.LastSyncResult)
-				require.NotEmpty(t, runtime.LastSyncError)
-				require.Equal(t, model.Failed, latest.Status)
-				require.False(t, latest.Retryable)
-				require.Equal(t, "convergence_failed", latest.ErrorCode)
-				require.Equal(t, model.PhaseVerification, latest.Phase)
-				require.Equal(t, model.StageFailed, latest.VerificationStatus)
-				require.Equal(t, model.StageSkipped, latest.CleanupStatus)
-				require.True(t, latest.Verification.Known)
-				require.Equal(t, []string{"api"}, latest.Verification.UnresolvedServices)
-				require.Equal(t, latest.ErrorDiagnostic, latest.Attempts[0].ErrorDiagnostic)
-				failedID, failedDeployment = latest.ID, latest
-				// A paused rollout is deliberately a failure baseline, not healthy stability.
-				failedSnapshot, stableErr := f.observer.WaitStable(f.ctx, f.stack+"_api", time.Second)
-				require.ErrorContains(t, stableErr, "rollout paused")
-				failedService := failedSnapshot.Service
-				require.Equal(t, previousAPI.ID, failedService.ID)
-				require.Contains(t, failedService.Spec.TaskTemplate.ContainerSpec.Args, "sleep 1; exit 23")
-				require.NotNil(t, failedService.UpdateStatus)
-				require.Equal(t, mobyswarm.UpdateStatePaused, failedService.UpdateStatus.State)
-				require.NotNil(t, failedService.UpdateStatus.StartedAt)
-				var failedTask string
-				f.poll(t, "revision 4 failing generation executed exit 23", func() bool {
-					for _, task := range f.tasks(t, "api") {
-						if !task.CreatedAt.Before(*failedService.UpdateStatus.StartedAt) && task.CurrentState == swarm.TaskStateFailed && task.ExitCode != nil && *task.ExitCode == 23 {
-							failedTask = task.ID
-							return true
-						}
-					}
-					return false
-				})
-				require.NotContains(t, previousTasks, failedTask)
-				require.Contains(t, latest.ErrorDiagnostic, failedTask)
-				require.Contains(t, latest.ErrorDiagnostic, "exit_code=23")
-				require.Contains(t, latest.ErrorDiagnostic, "state=failed")
-				require.Contains(t, latest.ErrorDiagnostic, "service api failed to converge")
-				require.Len(t, f.publications(t, events.TypeNameDeployFailed), 1)
-				require.Empty(t, f.publications(t, events.TypeNameDeploySuccess))
-			} else {
-				assertSuccessfulHistory(t, latest)
-				require.Equal(t, "success", runtime.LastSyncResult)
-				require.Empty(t, runtime.LastSyncError)
-				require.Equal(t, model.StageSkipped, latest.VerificationStatus)
-				require.Equal(t, model.StageSucceeded, latest.CleanupStatus)
-				require.Len(t, f.publications(t, events.TypeNameDeploySuccess), 1)
-				require.Empty(t, f.publications(t, events.TypeNameDeployFailed))
-				ids := f.runningIDs(t, "api", 1)
-				current := f.settled(t, "api")
-				require.Contains(t, current.Service.Spec.TaskTemplate.ContainerSpec.Env, "MODE="+mode)
-				require.Contains(t, current.Service.Spec.TaskTemplate.ContainerSpec.Args[2], apiCommand)
-				require.EqualValues(t, 1, *current.Service.Spec.Mode.Replicated.Replicas)
-				if revision > 0 {
-					require.Equal(t, previousAPI.ID, current.Service.ID)
-					if revision == 2 {
-						require.Equal(t, previousAPI.Spec, current.Service.Spec)
-						require.Equal(t, previousAPI.Version, current.Service.Version)
-						require.Equal(t, previousTasks, ids)
-					} else {
-						require.NotEqual(t, previousTasks, ids, "new specification must execute a new task generation")
-					}
-				}
-				assertGitOpsTaskOutput(t, f, ids[0], fmt.Sprintf("%s:%s:%s:%s", apiCommand, mode, secretValue, configValue))
-				previousAPI, previousTasks = current.Service, ids
-			}
-			api := f.inspect(t, "api")
-			require.Len(t, api.Spec.TaskTemplate.ContainerSpec.Secrets, 1)
-			require.Len(t, api.Spec.TaskTemplate.ContainerSpec.Configs, 1)
-			secretID, configID := api.Spec.TaskTemplate.ContainerSpec.Secrets[0].SecretID, api.Spec.TaskTemplate.ContainerSpec.Configs[0].ConfigID
-			secrets, err := f.sw.Secrets.List(f.ctx, swarm.ListSecretsFilter{StackName: f.stack})
-			require.NoError(t, err)
-			configs, err := f.sw.Configs.List(f.ctx, swarm.ListConfigsFilter{StackName: f.stack})
-			require.NoError(t, err)
-			require.True(t, slices.ContainsFunc(secrets, func(item swarm.Secret) bool { return item.ID == secretID }), "mounted secret %s must exist", secretID)
-			require.True(t, slices.ContainsFunc(configs, func(item swarm.Config) bool { return item.ID == configID }), "mounted config %s must exist", configID)
-			if revision == 0 {
-				originalSecret, originalConfig = secretID, configID
-			} else if revision != 3 {
-				require.Equal(t, latestSecret, secretID)
-				require.Equal(t, latestConfig, configID)
-			}
-			latestSecret, latestConfig = secretID, configID
-			resourceCount := 1
-			if revision >= 3 {
-				resourceCount = 2
-			}
-			require.Len(t, secrets, resourceCount)
-			require.Len(t, configs, resourceCount)
-			if revision < 3 {
-				require.Equal(t, originalSecret, secretID)
-				require.Equal(t, originalConfig, configID)
-			} else {
-				require.NotEqual(t, originalSecret, secretID)
-				require.NotEqual(t, originalConfig, configID)
-			}
-			if revision > 0 {
-				f.unchangedService(t, worker)
-			}
-			f.runningIDs(t, "worker", 1)
-			worker = f.settled(t, "worker")
-			require.EqualValues(t, 1, *worker.Service.Spec.Mode.Replicated.Replicas)
-			if revision >= 2 && revision < 5 {
-				if revision > 2 {
-					f.unchangedService(t, scheduled)
-				}
-				f.runningIDs(t, "scheduler", 1)
-				scheduled = f.settled(t, "scheduler")
-				require.EqualValues(t, 1, *scheduled.Service.Spec.Mode.Replicated.Replicas)
-			}
-			if revision == 5 {
-				_, err := f.sw.Services.Inspect(f.ctx, scheduled.Service.ID)
-				require.ErrorIs(t, err, swarm.ErrServiceNotFound)
-				pruned := f.publications(t, events.TypeNameServicePruned)
-				require.Len(t, pruned, 1)
-				event, ok := pruned[0].Envelope.Event.(*events.ServicePruned)
-				require.True(t, ok)
-				require.Equal(t, "scheduler", event.ServiceName)
-				require.Equal(t, sha, event.Commit)
-				removed := f.publications(t, events.TypeNameServiceRemovedFromDesired)
-				require.Len(t, removed, 1)
-				require.Equal(t, sha, removed[0].Envelope.Event.Details()[events.AttributeCommit])
-				prior, err := f.store.Get(f.ctx, failedID)
-				require.NoError(t, err)
-				// History projects an older failure as Superseded when newer
-				// desired state exists. Its immutable failed Attempt and all
-				// failure diagnostics must survive recovery unchanged.
-				require.Equal(t, model.Superseded, prior.Status)
-				require.Equal(t, seenSHAs[4], prior.Commit)
-				require.Equal(t, failedDeployment.LatestAttemptID, prior.LatestAttemptID)
-				require.Equal(t, 1, prior.AttemptCount)
-				require.Equal(t, failedDeployment.Attempts, prior.Attempts)
-				require.Equal(t, model.Failed, prior.Attempts[0].Status)
-				require.Equal(t, failedDeployment.ErrorCode, prior.ErrorCode)
-				require.Equal(t, failedDeployment.ErrorDiagnostic, prior.ErrorDiagnostic)
-				require.Equal(t, failedDeployment.Phase, prior.Phase)
-				require.Equal(t, failedDeployment.VerificationStatus, prior.VerificationStatus)
-				require.Equal(t, failedDeployment.Verification, prior.Verification)
-			}
-			eventType := events.TypeNameDeploySuccess
-			if broken {
-				eventType = events.TypeNameDeployFailed
-			}
-			completion := f.publications(t, eventType)[0].Envelope.Event.Details()
-			require.Equal(t, sha, completion[events.AttributeCommit])
-			require.Equal(t, latest.ID, completion[events.AttributeDeploymentID])
-			require.Equal(t, latest.LatestAttemptID, completion[events.AttributeAttemptID])
-			drain(t)
-			runtime = state(t)
-			require.Equal(t, sha, runtime.Stacks[f.stack].LastCommit)
-			if !broken {
-				require.Empty(t, runtime.Stacks[f.stack].LastError)
-				require.Zero(t, runtime.Stacks[f.stack].Status.OutOfSynced)
-				require.Equal(t, serviceCount, runtime.Stacks[f.stack].Status.Synced)
-			} else {
-				require.NotEmpty(t, runtime.Stacks[f.stack].LastError)
-			}
-			require.Len(t, runtime.Stacks[f.stack].Services, serviceCount)
-			require.NotEmpty(t, runtime.Stacks[f.stack].SourceDigest)
-
-			// Git polling without new commits must not run synchronization at all.
-			// Interval reconciliation does run; effective-state deduplication must avoid
-			// both a new persisted attempt and a Docker update, even for terminal failure.
-			var apiBaseline dockertester.ServiceSnapshot
-			if broken {
-				// Failure and exit status were verified above; capture the terminal
-				// paused state explicitly without treating it as a healthy rollout.
-				apiBaseline, err = f.observer.Snapshot(f.ctx, f.stack+"_api")
-				require.NoError(t, err)
-				require.NotNil(t, apiBaseline.Service.UpdateStatus)
-				require.Equal(t, mobyswarm.UpdateStatePaused, apiBaseline.Service.UpdateStatus.State)
-			} else {
-				apiBaseline = f.settled(t, "api")
-			}
-			snapshots := []dockertester.ServiceSnapshot{apiBaseline, worker}
-			if scheduler {
-				snapshots = append(snapshots, scheduled)
-			}
-			beforeState, beforeHistory := state(t), history(t)
-			runner.Poll(f.ctx)
-			afterPoll := state(t)
-			require.Equal(t, "no_change", afterPoll.LastPollResult)
-			require.Equal(t, beforeState.LastSyncAt, afterPoll.LastSyncAt)
-			require.Equal(t, beforeHistory, history(t))
-			require.Empty(t, publications(t))
-			runner.Run(f.ctx, syncrun.Task{Reason: syncrun.TriggerInterval})
-			afterInterval := state(t)
-			require.Equal(t, string(syncrun.TriggerInterval), afterInterval.LastSyncReason)
-			require.Equal(t, afterPoll.LastPollAt, afterInterval.LastPollAt)
-			require.True(t, afterInterval.LastSyncAt.After(beforeState.LastSyncAt))
-			require.Equal(t, sha, afterInterval.GitRevision)
-			loaded, err := compose.NewFileLoader().Load(f.ctx, f.path)
-			require.NoError(t, err)
-			require.Equal(t, loaded.Digest, afterInterval.Stacks[f.stack].SourceDigest)
-			require.Equal(t, beforeHistory, history(t), "no new deployment or attempt for unchanged effective desired state")
-			if broken {
-				// Failure marks services OutOfSync without detecting drift.
-				// Re-observing healthy worker/scheduler replicas must not invent
-				// drift recovery events for that deployment-only failure state.
-				require.Empty(t, f.publications(t, events.TypeNameServiceDriftFixed))
-				require.Empty(t, f.publications(t, events.TypeNameDeploySuccess))
-				require.Empty(t, f.publications(t, events.TypeNameDeployFailed))
-				drain(t)
-				runner.Run(f.ctx, syncrun.Task{Reason: syncrun.TriggerInterval})
-				require.Equal(t, beforeHistory, history(t))
-			}
-			require.Empty(t, publications(t), "unchanged reconciliation must not duplicate domain events")
-			for _, snapshot := range snapshots {
-				f.unchangedService(t, snapshot)
-			}
-			if broken {
-				require.Equal(t, failedID, f.latest(t).ID)
-				require.Equal(t, model.Failed, f.latest(t).Status)
-				require.NotEmpty(t, afterInterval.Stacks[f.stack].LastError)
-				require.Equal(t, gitmodel.SyncStatus(gitmodel.SyncStatusOutOfSync), afterInterval.Stacks[f.stack].Services["api"].SyncStatus)
-			}
-			previousCompose = content
-		}) {
-			t.FailNow()
-		}
+func (f *gitOpsLifecycleFixture) pushRevision(t *testing.T, message string, desired gitOpsManifest) (string, string) {
+	t.Helper()
+	content := desired.compose(f.subnet)
+	for name, value := range map[string]string{"compose.yaml": content, "password.txt": desired.secret + "\n", "settings.txt": desired.config + "\n"} {
+		require.NoError(t, os.WriteFile(filepath.Join(f.writer, name), []byte(value), 0o600))
 	}
-	require.Len(t, seenSHAs, 6)
-	success, err := f.history.ReadRecent(f.ctx, eventhistory.QueryOptions{Types: []events.TypeName{events.TypeNameDeploySuccess}, Limit: 100})
+	gitCommand(t, f.ctx, f.writer, "add", ".")
+	gitCommand(t, f.ctx, f.writer, "-c", "user.name=E2E", "-c", "user.email=e2e@example.invalid", "commit", "-m", message)
+	sha := gitCommand(t, f.ctx, f.writer, "rev-parse", "HEAD")
+	require.NotContains(t, f.commits, sha)
+	f.commits = append(f.commits, sha)
+	gitCommand(t, f.ctx, f.writer, "push", "origin", "main")
+	t.Logf("%s, commit %s", message, sha)
+	return sha, content
+}
+
+func (f *gitOpsLifecycleFixture) pollGit(t *testing.T) {
+	t.Helper()
+	f.runner.Poll(f.ctx)
+	require.Equal(t, "updated", f.runtime(t).LastPollResult)
+}
+
+func (f *gitOpsLifecycleFixture) assertRevision(t *testing.T, sha, content string, desired gitOpsManifest) model.Deployment {
+	t.Helper()
+	head, err := f.repository.Head(f.ctx)
 	require.NoError(t, err)
-	require.Len(t, success, 5)
+	require.Equal(t, sha, head)
+	for name, expected := range map[string]string{"compose.yaml": content, "password.txt": desired.secret + "\n", "settings.txt": desired.config + "\n"} {
+		checkedOut, readErr := f.repository.ReadFile(f.ctx, name)
+		require.NoError(t, readErr)
+		require.Equal(t, expected, string(checkedOut), "checkout of %s", name)
+	}
+	require.Len(t, f.deploymentHistory(t), len(f.commits), "each of these revisions changes effective desired state")
+	latest := f.latest(t)
+	require.Equal(t, sha, latest.Commit)
+	require.Equal(t, 1, latest.AttemptCount)
+	require.Len(t, latest.Attempts, 1)
+	require.NotNil(t, latest.Attempts[0].FinishedAt)
+	require.Equal(t, model.StageSucceeded, latest.ApplyStatus)
+	require.Equal(t, latest.Status, latest.Attempts[0].Status)
+	require.Equal(t, latest.Phase, latest.Attempts[0].Phase)
+	require.Equal(t, latest.ApplyStatus, latest.Attempts[0].ApplyStatus)
+	require.Equal(t, latest.VerificationStatus, latest.Attempts[0].VerificationStatus)
+	require.Equal(t, latest.CleanupStatus, latest.Attempts[0].CleanupStatus)
+	require.Equal(t, latest.ErrorCode, latest.Attempts[0].ErrorCode)
+	runtime := f.runtime(t)
+	require.Equal(t, sha, runtime.GitRevision)
+	require.Equal(t, sha, runtime.Stacks[f.stack].LastCommit)
+	return latest
+}
+
+func (f *gitOpsLifecycleFixture) assertSuccessfulDeployment(t *testing.T, latest model.Deployment) {
+	t.Helper()
+	assertSuccessfulHistory(t, latest)
+	runtime := f.runtime(t)
+	require.Equal(t, "success", runtime.LastSyncResult)
+	require.Empty(t, runtime.LastSyncError)
+	require.Equal(t, model.StageSkipped, latest.VerificationStatus)
+	require.Equal(t, model.StageSucceeded, latest.CleanupStatus)
+	require.Len(t, f.publications(t, events.TypeNameDeploySuccess), 1)
+	require.Empty(t, f.publications(t, events.TypeNameDeployFailed))
+}
+
+func (f *gitOpsLifecycleFixture) runningAPI(t *testing.T, desired gitOpsManifest) gitOpsAPIObservation {
+	t.Helper()
+	ids := f.runningIDs(t, "api", 1)
+	current := f.settled(t, "api")
+	require.Contains(t, current.Service.Spec.TaskTemplate.ContainerSpec.Env, "MODE="+desired.mode)
+	require.Contains(t, current.Service.Spec.TaskTemplate.ContainerSpec.Args[2], desired.apiCommand)
+	require.EqualValues(t, 1, *current.Service.Spec.Mode.Replicated.Replicas)
+	assertGitOpsTaskOutput(t, f.lifecycleFixture, ids[0], fmt.Sprintf("%s:%s:%s:%s", desired.apiCommand, desired.mode, desired.secret, desired.config))
+	return gitOpsAPIObservation{service: current.Service, tasks: ids}
+}
+
+func (f *gitOpsLifecycleFixture) updatedAPI(t *testing.T, previous gitOpsAPIObservation, desired gitOpsManifest) gitOpsAPIObservation {
+	t.Helper()
+	current := f.runningAPI(t, desired)
+	require.Equal(t, previous.service.ID, current.service.ID)
+	require.NotEqual(t, previous.tasks, current.tasks, "new specification must execute a new task generation")
+	return current
+}
+
+func (f *gitOpsLifecycleFixture) runningService(t *testing.T, name string) dockertester.ServiceSnapshot {
+	t.Helper()
+	f.runningIDs(t, name, 1)
+	current := f.settled(t, name)
+	require.EqualValues(t, 1, *current.Service.Spec.Mode.Replicated.Replicas)
+	return current
+}
+
+func (f *gitOpsLifecycleFixture) unchangedRunningService(t *testing.T, name string, before dockertester.ServiceSnapshot) dockertester.ServiceSnapshot {
+	t.Helper()
+	f.unchangedService(t, before)
+	return f.runningService(t, name)
+}
+
+func (f *gitOpsLifecycleFixture) mountedResources(t *testing.T, count int) gitOpsResourceRefs {
+	t.Helper()
+	api := f.inspect(t, "api")
+	require.Len(t, api.Spec.TaskTemplate.ContainerSpec.Secrets, 1)
+	require.Len(t, api.Spec.TaskTemplate.ContainerSpec.Configs, 1)
+	refs := gitOpsResourceRefs{secret: api.Spec.TaskTemplate.ContainerSpec.Secrets[0].SecretID, config: api.Spec.TaskTemplate.ContainerSpec.Configs[0].ConfigID}
+	secrets, err := f.sw.Secrets.List(f.ctx, swarm.ListSecretsFilter{StackName: f.stack})
+	require.NoError(t, err)
+	configs, err := f.sw.Configs.List(f.ctx, swarm.ListConfigsFilter{StackName: f.stack})
+	require.NoError(t, err)
+	require.True(t, slices.ContainsFunc(secrets, func(item swarm.Secret) bool { return item.ID == refs.secret }), "mounted secret %s must exist", refs.secret)
+	require.True(t, slices.ContainsFunc(configs, func(item swarm.Config) bool { return item.ID == refs.config }), "mounted config %s must exist", refs.config)
+	require.Len(t, secrets, count)
+	require.Len(t, configs, count)
+	return refs
+}
+
+func (f *gitOpsLifecycleFixture) assertPausedAPIRollout(t *testing.T, latest model.Deployment, previous gitOpsAPIObservation) {
+	t.Helper()
+	runtime := f.runtime(t)
+	require.Equal(t, "partial_error", runtime.LastSyncResult)
+	require.NotEmpty(t, runtime.LastSyncError)
+	require.Equal(t, model.Failed, latest.Status)
+	require.False(t, latest.Retryable)
+	require.Equal(t, "convergence_failed", latest.ErrorCode)
+	require.Equal(t, model.PhaseVerification, latest.Phase)
+	require.Equal(t, model.StageFailed, latest.VerificationStatus)
+	require.Equal(t, model.StageSkipped, latest.CleanupStatus)
+	require.True(t, latest.Verification.Known)
+	require.Equal(t, []string{"api"}, latest.Verification.UnresolvedServices)
+	require.Equal(t, latest.ErrorDiagnostic, latest.Attempts[0].ErrorDiagnostic)
+	// A paused rollout is deliberately a failure baseline, not healthy stability.
+	failedSnapshot, stableErr := f.observer.WaitStable(f.ctx, f.stack+"_api", time.Second)
+	require.ErrorContains(t, stableErr, "rollout paused")
+	failedService := failedSnapshot.Service
+	require.Equal(t, previous.service.ID, failedService.ID)
+	require.Contains(t, failedService.Spec.TaskTemplate.ContainerSpec.Args, "sleep 1; exit 23")
+	require.NotNil(t, failedService.UpdateStatus)
+	require.Equal(t, mobyswarm.UpdateStatePaused, failedService.UpdateStatus.State)
+	require.NotNil(t, failedService.UpdateStatus.StartedAt)
+	var failedTask string
+	f.poll(t, "failing API generation executed exit 23", func() bool {
+		for _, task := range f.tasks(t, "api") {
+			if !task.CreatedAt.Before(*failedService.UpdateStatus.StartedAt) && task.CurrentState == swarm.TaskStateFailed && task.ExitCode != nil && *task.ExitCode == 23 {
+				failedTask = task.ID
+				return true
+			}
+		}
+		return false
+	})
+	require.NotContains(t, previous.tasks, failedTask)
+	require.Contains(t, latest.ErrorDiagnostic, failedTask)
+	require.Contains(t, latest.ErrorDiagnostic, "exit_code=23")
+	require.Contains(t, latest.ErrorDiagnostic, "state=failed")
+	require.Contains(t, latest.ErrorDiagnostic, "service api failed to converge")
+	require.Len(t, f.publications(t, events.TypeNameDeployFailed), 1)
+	require.Empty(t, f.publications(t, events.TypeNameDeploySuccess))
+}
+
+func (f *gitOpsLifecycleFixture) assertSchedulerPruned(t *testing.T, scheduler dockertester.ServiceSnapshot, sha string) {
+	t.Helper()
+	_, err := f.sw.Services.Inspect(f.ctx, scheduler.Service.ID)
+	require.ErrorIs(t, err, swarm.ErrServiceNotFound)
+	pruned := f.publications(t, events.TypeNameServicePruned)
+	require.Len(t, pruned, 1)
+	event, ok := pruned[0].Envelope.Event.(*events.ServicePruned)
+	require.True(t, ok)
+	require.Equal(t, "scheduler", event.ServiceName)
+	require.Equal(t, sha, event.Commit)
+	removed := f.publications(t, events.TypeNameServiceRemovedFromDesired)
+	require.Len(t, removed, 1)
+	require.Equal(t, sha, removed[0].Envelope.Event.Details()[events.AttributeCommit])
+}
+
+func (f *gitOpsLifecycleFixture) assertFailedDeploymentSuperseded(t *testing.T, failed model.Deployment) {
+	t.Helper()
+	prior, err := f.store.Get(f.ctx, failed.ID)
+	require.NoError(t, err)
+	// History projects the older failure as Superseded; its immutable failed
+	// Attempt and all failure diagnostics must survive recovery unchanged.
+	require.Equal(t, model.Superseded, prior.Status)
+	require.Equal(t, failed.Commit, prior.Commit)
+	require.Equal(t, failed.LatestAttemptID, prior.LatestAttemptID)
+	require.Equal(t, 1, prior.AttemptCount)
+	require.Equal(t, failed.Attempts, prior.Attempts)
+	require.Equal(t, model.Failed, prior.Attempts[0].Status)
+	require.Equal(t, failed.ErrorCode, prior.ErrorCode)
+	require.Equal(t, failed.ErrorDiagnostic, prior.ErrorDiagnostic)
+	require.Equal(t, failed.Phase, prior.Phase)
+	require.Equal(t, failed.VerificationStatus, prior.VerificationStatus)
+	require.Equal(t, failed.Verification, prior.Verification)
+}
+
+func (f *gitOpsLifecycleFixture) assertCompletionDelivered(t *testing.T, latest model.Deployment, eventType events.TypeName, serviceCount int) {
+	t.Helper()
+	completion := f.publications(t, eventType)[0].Envelope.Event.Details()
+	require.Equal(t, latest.Commit, completion[events.AttributeCommit])
+	require.Equal(t, latest.ID, completion[events.AttributeDeploymentID])
+	require.Equal(t, latest.LatestAttemptID, completion[events.AttributeAttemptID])
+	f.drainPublications(t)
+	runtime := f.runtime(t)
+	require.Equal(t, latest.Commit, runtime.Stacks[f.stack].LastCommit)
+	if eventType == events.TypeNameDeploySuccess {
+		require.Empty(t, runtime.Stacks[f.stack].LastError)
+		require.Zero(t, runtime.Stacks[f.stack].Status.OutOfSynced)
+		require.Equal(t, serviceCount, runtime.Stacks[f.stack].Status.Synced)
+	} else {
+		require.NotEmpty(t, runtime.Stacks[f.stack].LastError)
+	}
+	require.Len(t, runtime.Stacks[f.stack].Services, serviceCount)
+	require.NotEmpty(t, runtime.Stacks[f.stack].SourceDigest)
+}
+
+func (f *gitOpsLifecycleFixture) assertNoOpGitPoll(t *testing.T) []model.DeploymentSummary {
+	t.Helper()
+	beforeState, beforeHistory := f.runtime(t), f.deploymentHistory(t)
+	f.runner.Poll(f.ctx)
+	afterPoll := f.runtime(t)
+	require.Equal(t, "no_change", afterPoll.LastPollResult)
+	require.Equal(t, beforeState.LastSyncAt, afterPoll.LastSyncAt)
+	require.Equal(t, beforeHistory, f.deploymentHistory(t))
+	require.Empty(t, f.allPublications(t))
+	return beforeHistory
+}
+
+func (f *gitOpsLifecycleFixture) assertNoOpInterval(t *testing.T, sha string, beforeHistory []model.DeploymentSummary) gitmodel.Runtime {
+	t.Helper()
+	afterPoll := f.runtime(t)
+	f.runner.Run(f.ctx, syncrun.Task{Reason: syncrun.TriggerInterval})
+	afterInterval := f.runtime(t)
+	require.Equal(t, string(syncrun.TriggerInterval), afterInterval.LastSyncReason)
+	require.Equal(t, afterPoll.LastPollAt, afterInterval.LastPollAt)
+	require.True(t, afterInterval.LastSyncAt.After(afterPoll.LastSyncAt))
+	require.Equal(t, sha, afterInterval.GitRevision)
+	loaded, err := compose.NewFileLoader().Load(f.ctx, f.path)
+	require.NoError(t, err)
+	require.Equal(t, loaded.Digest, afterInterval.Stacks[f.stack].SourceDigest)
+	require.Equal(t, beforeHistory, f.deploymentHistory(t), "no new deployment or attempt for unchanged effective desired state")
+	return afterInterval
+}
+
+func (f *gitOpsLifecycleFixture) assertHealthyReconciliationIsIdle(t *testing.T, sha string, unaffected ...dockertester.ServiceSnapshot) {
+	t.Helper()
+	apiBaseline := f.settled(t, "api")
+	beforeHistory := f.assertNoOpGitPoll(t)
+	f.assertNoOpInterval(t, sha, beforeHistory)
+	require.Empty(t, f.allPublications(t), "unchanged reconciliation must not duplicate domain events")
+	for _, snapshot := range append([]dockertester.ServiceSnapshot{apiBaseline}, unaffected...) {
+		f.unchangedService(t, snapshot)
+	}
+}
+
+func (f *gitOpsLifecycleFixture) assertFailedReconciliationIsIdle(t *testing.T, failed model.Deployment, unaffected ...dockertester.ServiceSnapshot) {
+	t.Helper()
+	// Exit status was verified before delivery. Capture the terminal paused state
+	// explicitly rather than accepting it as a healthy WaitStable baseline.
+	apiBaseline, err := f.observer.Snapshot(f.ctx, f.stack+"_api")
+	require.NoError(t, err)
+	require.NotNil(t, apiBaseline.Service.UpdateStatus)
+	require.Equal(t, mobyswarm.UpdateStatePaused, apiBaseline.Service.UpdateStatus.State)
+	beforeHistory := f.assertNoOpGitPoll(t)
+	afterInterval := f.assertNoOpInterval(t, failed.Commit, beforeHistory)
+	// A deployment-only OutOfSync state must not invent drift recovery events
+	// when healthy worker/scheduler replicas are observed again.
+	require.Empty(t, f.publications(t, events.TypeNameServiceDriftFixed))
+	require.Empty(t, f.publications(t, events.TypeNameDeploySuccess))
+	require.Empty(t, f.publications(t, events.TypeNameDeployFailed))
+	f.drainPublications(t)
+	f.runner.Run(f.ctx, syncrun.Task{Reason: syncrun.TriggerInterval})
+	require.Equal(t, beforeHistory, f.deploymentHistory(t))
+	require.Empty(t, f.allPublications(t), "unchanged reconciliation must not duplicate domain events")
+	for _, snapshot := range append([]dockertester.ServiceSnapshot{apiBaseline}, unaffected...) {
+		f.unchangedService(t, snapshot)
+	}
+	require.Equal(t, failed.ID, f.latest(t).ID)
+	require.Equal(t, model.Failed, f.latest(t).Status)
+	require.NotEmpty(t, afterInterval.Stacks[f.stack].LastError)
+	require.Equal(t, gitmodel.SyncStatus(gitmodel.SyncStatusOutOfSync), afterInterval.Stacks[f.stack].Services["api"].SyncStatus)
+}
+
+func (f *gitOpsLifecycleFixture) runtime(t *testing.T) gitmodel.Runtime {
+	t.Helper()
+	state, err := f.state.Read(f.ctx)
+	require.NoError(t, err)
+	return state
+}
+
+func (f *gitOpsLifecycleFixture) deploymentHistory(t *testing.T) []model.DeploymentSummary {
+	t.Helper()
+	page, err := f.store.List(f.ctx, model.ListFilter{Stacks: []string{f.stack}})
+	require.NoError(t, err)
+	return page.Deployments
+}
+
+func (f *gitOpsLifecycleFixture) allPublications(t *testing.T) []outbox.Publication {
+	t.Helper()
+	publications, err := f.outbox.ListPublications(f.ctx, outbox.ListFilter{})
+	require.NoError(t, err)
+	return publications
+}
+
+func (f *gitOpsLifecycleFixture) drainPublications(t *testing.T) {
+	t.Helper()
+	for range 100 {
+		worked, err := f.bus.ProcessNext(f.ctx)
+		require.NoError(t, err)
+		if !worked {
+			require.Empty(t, f.allPublications(t))
+			return
+		}
+	}
+	t.Fatal("outbox did not drain within 100 deliveries")
 }
 
 func gitCommand(t *testing.T, ctx context.Context, dir string, args ...string) string {
