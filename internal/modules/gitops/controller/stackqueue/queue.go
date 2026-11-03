@@ -184,7 +184,7 @@ func (q *Queue) rebuildReadyLocked(requests []stackloop.ReconciliationRequest) {
 	for _, changedPass := range []bool{true, false} {
 		for _, req := range requests {
 			name := req.Stack.Name
-			if _, isSeen := seen[name]; isSeen || q.running[name] || q.pending[name].changed != changedPass {
+			if _, isSeen := seen[name]; isSeen || q.isRunningLocked(name) || q.pending[name].changed != changedPass {
 				continue
 			}
 			seen[name] = struct{}{}
@@ -216,12 +216,17 @@ func (q *Queue) Clear(changed map[string]bool) []string {
 	return dropped
 }
 
+func (q *Queue) isRunningLocked(name string) bool {
+	_, running := q.running[name]
+	return running
+}
+
 // SubmitCleanup queues a rotated-resource cleanup only when the stack has no running or waiting work.
 // A busy stack is skipped: cleanup is periodic and runs on a later tick. It returns whether it was queued.
 func (q *Queue) SubmitCleanup(ctx context.Context, stack config.StackSpec, commit string) bool {
 	q.mu.Lock()
 	defer q.mu.Unlock()
-	if q.stopped || q.running[stack.Name] {
+	if q.stopped || q.isRunningLocked(stack.Name) {
 		return false
 	}
 	if _, hasPending := q.pending[stack.Name]; hasPending {
