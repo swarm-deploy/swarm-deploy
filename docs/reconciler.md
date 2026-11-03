@@ -8,7 +8,7 @@ A reconciliation run loads the configured Compose file, computes its effective d
 
 The current pipeline is:
 
-1. Load Compose and interpolate source YAML values using Docker stack CLI semantics (see [source interpolation](./compose-converter.md#source-interpolation)).
+1. Load Compose without interpolating repository-controlled values.
 2. [Check image policy when at least one image rule is enabled](./image-policy.md).
 3. Populate service environment from `env_file`.
 4. [Inject Downward metadata when enabled](./downward.md).
@@ -81,9 +81,9 @@ This behavior is intentional. A bare key in Docker CLI can read the value of the
 
 The reconciliation boundary therefore enforces the following invariant:
 
-> Repository-controlled `env_file` content must never read values from the swarm-deploy process environment.
+> Repository-controlled Compose content, including `env_file`, must never read values from the swarm-deploy process environment.
 
-If a bare key is present, reconciliation fails with an error instead of resolving the value from the controller environment.
+If a bare key is present, reconciliation fails with an error instead of resolving the value from the controller environment. The same rule applies to service `environment` lists. Null mapping values become empty strings, and `$VAR` / `${VAR}` expressions remain literal.
 
 ## Desired-state mutations
 
