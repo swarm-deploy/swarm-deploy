@@ -96,15 +96,6 @@ func (p *Preparer) Load(ctx context.Context, stack config.StackSpec, revision st
 	return file, nil
 }
 
-// LoadCurrent loads the current revision for standalone resource cleanup.
-func (p *Preparer) LoadCurrent(ctx context.Context, stack config.StackSpec) (*compose.File, error) {
-	revision, err := p.git.Head(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("resolve repository head: %w", err)
-	}
-	return p.Load(ctx, stack, revision)
-}
-
 // Prepare builds the effective definition used directly by native deployment.
 func (p *Preparer) Prepare(ctx context.Context, req Request) (*compose.File, error) {
 	payload := &preparationPayload{request: req, desired: req.Desired}

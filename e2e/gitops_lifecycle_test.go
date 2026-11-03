@@ -27,6 +27,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/outbox"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/gitpull"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/networkloop"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackqueue"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/syncrun"
 	gitdeployment "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/deployment"
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
@@ -240,8 +241,25 @@ type gitOpsLifecycleFixture struct {
 	*lifecycleFixture
 	writer     string
 	repository gitx.Repository
-	runner     *syncrun.Runner
+	runner     waitingSyncRunner
 	commits    []string
+}
+
+// waitingSyncRunner runs synchronization like the scheduler and then waits for queued stack operations,
+// because sync runs only dispatch stacks to the stack queue.
+type waitingSyncRunner struct {
+	runner *syncrun.Runner
+	stacks *stackqueue.Queue
+}
+
+func (w waitingSyncRunner) Run(ctx context.Context, task syncrun.Task) {
+	w.runner.Run(ctx, task)
+	_ = w.stacks.WaitIdle(ctx)
+}
+
+func (w waitingSyncRunner) Poll(ctx context.Context) {
+	w.runner.Poll(ctx)
+	_ = w.stacks.WaitIdle(ctx)
 }
 
 type gitOpsManifest struct {
@@ -283,8 +301,14 @@ func newGitOpsLifecycleFixture(t *testing.T) *gitOpsLifecycleFixture {
 	metricGroup := metrics.NewGroup(metrics.CreateGroupParams{Namespace: "e2e"})
 	puller := gitpull.NewPuller(repository, gitpull.NewMonitor(f.db, f.state, f.bus), metricGroup.Git, cfg.Spec.Git)
 	networks := networkloop.NewCoordinator(f.db, configs, f.state, networkloop.New(f.sw.Networks), f.bus)
-	runner := syncrun.New(configs, repository, metricGroup, f.bus, f.state, networks, f.reconciler, puller)
-	return &gitOpsLifecycleFixture{lifecycleFixture: f, writer: writer, repository: repository, runner: runner}
+	stacks := stackqueue.New(f.reconciler, metricGroup.Sync, 1)
+	stacks.Start(context.WithoutCancel(base.ctx))
+	t.Cleanup(stacks.Stop)
+	runner := syncrun.New(configs, repository, metricGroup, f.bus, f.state, networks, puller, stacks)
+	return &gitOpsLifecycleFixture{
+		lifecycleFixture: f, writer: writer, repository: repository,
+		runner: waitingSyncRunner{runner: runner, stacks: stacks},
+	}
 }
 
 func (m gitOpsManifest) compose(subnet string) string {
@@ -416,8 +440,10 @@ func (f *gitOpsLifecycleFixture) mountedResources(t *testing.T, count int) gitOp
 func (f *gitOpsLifecycleFixture) assertPausedAPIRollout(t *testing.T, latest model.Deployment, previous gitOpsAPIObservation) {
 	t.Helper()
 	runtime := f.runtime(t)
-	require.Equal(t, "partial_error", runtime.LastSyncResult)
-	require.NotEmpty(t, runtime.LastSyncError)
+	// Sync runs only dispatch stacks; the failed rollout is reported on the stack itself.
+	require.Equal(t, "success", runtime.LastSyncResult)
+	require.Empty(t, runtime.LastSyncError)
+	require.Equal(t, "convergence_failed", runtime.Stacks[f.stack].LastError)
 	require.Equal(t, model.Failed, latest.Status)
 	require.False(t, latest.Retryable)
 	require.Equal(t, "convergence_failed", latest.ErrorCode)

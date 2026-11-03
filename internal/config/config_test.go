@@ -135,6 +135,59 @@ stacks:
 	assert.Equal(t, 15*time.Second, cfg.Spec.Sync.Interval.Value, "expected configured sync interval")
 }
 
+func TestLoadGitPullTimeout(t *testing.T) {
+	tests := []struct {
+		name     string
+		value    string
+		expected time.Duration
+	}{
+		{name: "default", expected: 2 * time.Minute},
+		{name: "configured", value: "  pullTimeout: 45s\n", expected: 45 * time.Second},
+		{name: "zero uses default", value: "  pullTimeout: 0s\n", expected: 2 * time.Minute},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			require.NoError(t, os.WriteFile(filepath.Join(dir, "stacks.yaml"), []byte("stacks: []\n"), 0o600))
+			path := filepath.Join(dir, "swarm-deploy.yaml")
+			data := "git:\n  repository: https://example.com/repo.git\n" + tt.value +
+				"sync:\n  mode: pull\nstacks:\n  file: ./stacks.yaml\n"
+			require.NoError(t, os.WriteFile(path, []byte(data), 0o600))
+			cfg, err := Load(path)
+			require.NoError(t, err)
+			assert.Equal(t, tt.expected, cfg.Spec.Git.PullTimeout.Value)
+		})
+	}
+}
+
+func TestLoadSyncParallelism(t *testing.T) {
+	tests := []struct {
+		name     string
+		sync     string
+		expected int
+	}{
+		{name: "default", sync: "  mode: pull\n", expected: 1},
+		{name: "configured", sync: "  mode: pull\n  parallelism: 2\n", expected: 2},
+		{name: "zero uses default", sync: "  mode: pull\n  parallelism: 0\n", expected: 1},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			require.NoError(t, os.WriteFile(filepath.Join(dir, "stacks.yaml"), []byte("stacks: []\n"), 0o600))
+			configPath := filepath.Join(dir, "swarm-deploy.yaml")
+			configPayload := "git:\n  repository: https://example.com/repo.git\nsync:\n" + tt.sync +
+				"stacks:\n  file: ./stacks.yaml\n"
+			require.NoError(t, os.WriteFile(configPath, []byte(configPayload), 0o600))
+
+			cfg, err := Load(configPath)
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.expected, cfg.Spec.Sync.Parallelism)
+		})
+	}
+}
+
 func TestLoadImagePolicy(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "stacks.yaml"), []byte("stacks: []\n"), 0o600))

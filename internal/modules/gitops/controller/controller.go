@@ -18,6 +18,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/scheduler"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackloop"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackloop/preparation"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackqueue"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/syncrun"
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/modelstore"
@@ -46,6 +47,7 @@ type renderedCleaner interface {
 type Controller struct {
 	deployments  deployments.Executor
 	scheduler    *scheduler.Scheduler
+	stacks       *stackqueue.Queue
 	event        dispatcher.Dispatcher
 	cleaner      renderedCleaner
 	ownership    *controllerOwnership
@@ -76,13 +78,15 @@ func New(
 	networkCoordinator := networkloop.NewCoordinator(
 		db, configStore, stateStore, networkloop.New(swarmService.Networks), eventDispatcher,
 	)
+	stacks := stackqueue.New(stackReconciler, metricGroup.Sync, cfg.Spec.Sync.Parallelism)
 	runner := syncrun.New(
 		configStore, git, metricGroup, eventDispatcher, stateStore,
-		networkCoordinator, stackReconciler, puller,
+		networkCoordinator, puller, stacks,
 	)
 	return &Controller{
 		deployments:  deploymentExecutor,
 		scheduler:    scheduler.New(cfg, runner),
+		stacks:       stacks,
 		event:        eventDispatcher,
 		cleaner:      preparer,
 		ownership:    newControllerOwnership(cfg.Spec.DataDir),
@@ -125,6 +129,12 @@ func (c *Controller) Run(ctx context.Context) error {
 		if err := c.deployments.Recover(ctx); err != nil {
 			return fmt.Errorf("recover orphaned deployments: %w", err)
 		}
+	}
+	if c.stacks != nil {
+		// Stack operations run until they finish or the graceful shutdown deadline cancels them.
+		// Stop is deferred after ownership acquisition, so ownership is released only once they ended.
+		c.stacks.Start(reconciliationCtx)
+		defer c.stacks.Stop()
 	}
 	return c.scheduler.Run(ctx, reconciliationCtx)
 }

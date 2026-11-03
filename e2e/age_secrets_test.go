@@ -158,7 +158,7 @@ secretRotation:
 				// Once the first generation is no longer desired or a rollback
 				// reference, existing cleanup must remove it from the real Swarm.
 				require.Eventually(t, func() bool {
-					if r.Cleanup(ctx, req.Stack) != nil {
+					if r.Cleanup(ctx, req.Stack, req.Commit) != nil {
 						return false
 					}
 					_, _, inspectErr := dockerClient.SecretInspectWithRaw(ctx, firstID)

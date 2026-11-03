@@ -106,6 +106,7 @@ A minimal configuration looks like this:
 git:
   repository: https://github.com/your-org/your-stacks-repo.git
   branch: main
+  pullTimeout: 2m # default; maximum duration of a Git pull
   auth:
     type: none
 
@@ -113,6 +114,7 @@ sync:
   mode: pull
   pollInterval: 30s
   interval: 1m
+  parallelism: 1 # default; increase explicitly for concurrent stack deployments
   policy:
     prune: true
     selfHeal: true
@@ -135,6 +137,8 @@ healthServer:
   healthz:
     path: /healthz
 ```
+
+`git.pullTimeout` defaults to `2m` and bounds pull operations, including waiting for Git access. `sync.parallelism` defaults to `1`, running stacks one at a time; increase it explicitly to enable parallel stack reconciliation. Git sync runs dispatch operations asynchronously even when parallelism is `1`.
 
 `web.basePath` defaults to `/`. A trailing slash is normalized, so `/infrastructure/swarm/` serves the UI at `/infrastructure/swarm/` and the API below `/infrastructure/swarm/api/`. Path segments must use URL-unreserved ASCII characters (letters, digits, `-`, `_`, `.`, `~`); percent-encoding and ServeMux wildcard syntax are not accepted. The configured value is authoritative; `X-Forwarded-Prefix` is not used. Health, metrics, and webhook endpoints keep their independently configured paths.
 

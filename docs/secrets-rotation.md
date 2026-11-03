@@ -37,11 +37,10 @@ repository; do not commit private keys alongside the encrypted files. The file
 is read when swarm-deploy loads its configuration; restart after replacing it.
 
 Decryption works even with `secretRotation.enabled: false`. Secret file contents
-are read once, through the shared, traced filesystem, when the Compose file is
-loaded, and travel with the in-memory desired state of that revision; they are never
-serialized. A dedicated `SecretResolver` decodes these loaded contents without
-reading the repository again, so a deployment always uses the files of the revision
-it was prepared from, even if Git is updated while it runs. The resolver
+are read once from the Git commit when the Compose file is loaded. They travel with
+the in-memory desired state of that revision and are never serialized. A dedicated
+`SecretResolver` decodes the captured contents, so a deployment uses the same files
+even if Git is updated while it runs. The resolver
 selects the first matching decoder (age, then plaintext). It authenticates
 and decrypts file-backed Secrets before the Docker API reconciler runs, including
 when an existing Docker Secret will be reused. The resource reconciler receives

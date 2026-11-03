@@ -35,6 +35,8 @@ const (
 	defaultEventHistoryCap         = 500
 	defaultSyncPollInterval        = 30 * time.Second
 	defaultSyncInterval            = 1 * time.Minute
+	defaultSyncParallelism         = 1
+	DefaultGitPullTimeout          = 2 * time.Minute
 	defaultInitJobPollEvery        = 2 * time.Second
 	defaultInitJobMaxDuration      = 10 * time.Minute
 	defaultInitJobsTimeout         = 10 * time.Minute
@@ -113,6 +115,8 @@ type SyncSpec struct {
 	PollInterval specw.Duration `yaml:"pollInterval"`
 	// Interval is an interval between reconciliations against the current local desired state.
 	Interval specw.Duration `yaml:"interval"`
+	// Parallelism is the maximum number of stacks reconciled at the same time.
+	Parallelism int `yaml:"parallelism"`
 	// Policy contains synchronization behavior flags.
 	Policy SyncPolicySpec `yaml:"policy"`
 	// Webhook contains webhook sync trigger settings.
@@ -295,6 +299,9 @@ func (c *Config) applyDefaults(configDir string) error {
 }
 
 func (c *Config) applyGitAndSyncDefaults() {
+	if c.Spec.Git.PullTimeout.Value <= 0 {
+		c.Spec.Git.PullTimeout.Value = DefaultGitPullTimeout
+	}
 	if c.Spec.Git.Branch == "" {
 		c.Spec.Git.Branch = "main"
 	}
@@ -306,6 +313,9 @@ func (c *Config) applyGitAndSyncDefaults() {
 	}
 	if c.Spec.Sync.Interval.Value <= 0 {
 		c.Spec.Sync.Interval.Value = defaultSyncInterval
+	}
+	if c.Spec.Sync.Parallelism <= 0 {
+		c.Spec.Sync.Parallelism = defaultSyncParallelism
 	}
 	if c.Spec.Sync.Webhook.Path == "" {
 		c.Spec.Sync.Webhook.Path = "/api/v1/webhooks/git"
