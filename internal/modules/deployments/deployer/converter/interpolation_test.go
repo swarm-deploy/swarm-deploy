@@ -54,7 +54,7 @@ volumes:
   data:
     name: 'storage'
     driver: 'local'
-    driver_opts: {type: tmpfs, device: '$HOME'}
+    driver_opts: {type: tmpfs, device: '$$HOME'}
 `, tc.command, tc.entrypoint)
 			loader := compose.NewFileLoaderWithReader(func(context.Context, string) ([]byte, error) {
 				return []byte(source), nil
