@@ -28,7 +28,7 @@ func TestComparisonNormalizesComposeRepresentations(t *testing.T) {
 		{"secret", "    secrets: [key]\n", "    secrets: [{source: key, target: /run/secrets/key, uid: '0', gid: '0', mode: 0444}]\n"},
 		{"relative secret target", "    secrets: [key]\n", "    secrets: [{source: key, target: key}]\n"},
 		{"config", "    configs: [cfg]\n", "    configs: [{source: cfg, target: /cfg}]\n"},
-		{"ignored options", "", "    privileged: true\n    depends_on: {db: {condition: service_healthy}}\n    restart: always\n"},
+		{"ignored options", "", "    privileged: true\n    depends_on: {db: {condition: service_healthy}}\n"},
 		{"ref ordering", "    secrets: [one, two]\n", "    secrets: [{source: two, target: two}, one]\n"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -48,6 +48,7 @@ func TestComparisonKeepsMeaningfulChangesAndMasksExecutables(t *testing.T) {
 		{"secret target", "    secrets: [key]\n", "    secrets: [{source: key, target: /other}]\n", "secrets"},
 		{"secret mode", "    secrets: [key]\n", "    secrets: [{source: key, mode: 0400}]\n", "secrets"},
 		{"config target", "    configs: [cfg]\n", "    configs: [{source: cfg, target: /run/secrets/cfg}]\n", "configs"},
+		{"legacy restart", "    restart: always\n", "    restart: on-failure:5\n", "restart"},
 		{"restart policy", "    deploy: {restart_policy: {condition: none}}\n", "    deploy: {restart_policy: {condition: any}}\n", "deploy.restart_policy"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -77,7 +78,7 @@ func TestComparisonIgnoresLegacyMetadataWithoutHidingUserFields(t *testing.T) {
 	for _, path := range []string{
 		"services/api/entrypoint/IsList", "services/api/command/IsList",
 		"services/api/secrets/@key/short_form", "services/api/configs/@cfg/short_form",
-		"services/api/Extra/privileged", "services/api/Extra/depends_on/db/condition", "services/api/Extra/restart",
+		"services/api/Extra/privileged", "services/api/Extra/depends_on/db/condition",
 	} {
 		before.Fields[path], before.Fingerprints[path] = "true", "old"
 	}

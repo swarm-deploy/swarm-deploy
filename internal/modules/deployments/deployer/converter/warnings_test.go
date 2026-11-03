@@ -15,7 +15,6 @@ func TestIgnoredSwarmOptionsDoNotAffectServiceSpec(t *testing.T) {
 	for _, option := range []string{
 		"privileged: true", "privileged: false", "depends_on: [db]",
 		"depends_on: {db: {condition: service_healthy, restart: true}}",
-		"restart: always", "restart: on-failure", "restart: 'no'",
 	} {
 		t.Run(option, func(t *testing.T) {
 			converter, networks, _, _ := newTestConverter(t)
@@ -46,8 +45,9 @@ func TestIgnoredOptionsWarningsAreStructuredAndNotRepeatedByConversion(t *testin
 	networks.EXPECT().Get(gomock.Any(), "demo_default").Return(existingNetwork("demo_default"), nil)
 	_, err = converter.Convert(t.Context(), "demo", desired)
 	require.NoError(t, err)
-	assert.Equal(t, 3, strings.Count(output.String(), `"level":"WARN"`))
-	for _, field := range []string{"privileged", "depends_on", "restart"} {
+	assert.Equal(t, 2, strings.Count(output.String(), `"level":"WARN"`))
+	assert.NotContains(t, output.String(), `"field":"services.app.restart"`)
+	for _, field := range []string{"privileged", "depends_on"} {
 		assert.Equal(t, 1, strings.Count(output.String(), `"field":"services.app.`+field+`"`))
 	}
 }

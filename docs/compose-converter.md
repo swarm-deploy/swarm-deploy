@@ -118,10 +118,11 @@ The converter currently rejects, rather than approximates:
 - Bind host-path creation, relative bind paths, image/cluster/npipe mounts,
   SELinux short mount modes and other unconverted mount options.
 - Unmodeled service fields, including `build`. Only explicitly documented
-  compatibility options are ignored: service-level `privileged`, `depends_on`
-  and `restart` are accepted with a non-fatal structured warning and have no
-  effect on Docker service specifications. Use `deploy.restart_policy` for
-  Swarm restart behavior. Dependency ordering is not implemented.
+  compatibility options are ignored: service-level `privileged` and `depends_on`
+  are accepted with a non-fatal structured warning and have no
+  effect on Docker service specifications. Service-level `restart` is a fallback for
+  `deploy.restart_policy`, following Docker CLI v28.3.3 semantics.
+  Dependency ordering is not implemented.
 - CPU quantities beyond signed nanocpu range/precision, invalid durations and
   sizes, nonnumeric file owners, invalid file modes and conflicting options.
 

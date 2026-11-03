@@ -43,7 +43,8 @@ services:
 	parsed, err := Parse(source)
 	require.NoError(t, err)
 	require.Len(t, parsed.Services, 1)
-	assert.Equal(t, []string{"privileged", "depends_on", "restart"}, parsed.Services[0].IgnoredOptions)
+	assert.Equal(t, []string{"privileged", "depends_on"}, parsed.Services[0].IgnoredOptions)
+	assert.Equal(t, "always", parsed.Services[0].Restart)
 }
 
 func TestStrictComposeLoaderRejectsBeforeDeployment(t *testing.T) {
