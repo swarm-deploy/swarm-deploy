@@ -32,7 +32,7 @@ only the work that needs a stable Git working tree:
 2. reload `stacks` and `networks` configuration;
 3. reconcile managed networks;
 4. load every stack source: the Compose file and the content of its `env_file`, config and secret files;
-5. hand each stack to the stack queue, changed stacks first.
+5. replace the work waiting in the stack queue with the loaded stacks, changed stacks first.
 
 The run then finishes without waiting for deployments. Loading is the only step that reads the working tree,
 so a later Git pull can never change the files of a deployment that is still running: each queued
@@ -48,13 +48,21 @@ sync:
   parallelism: 4
 ```
 
-While a stack is busy, only the latest submitted reconciliation is kept and runs as soon as the current one
-finishes; a manual request stays manual when it is coalesced with a later one. Periodic rotated-resource
-cleanup is queued only for idle stacks, so it never overlaps a reconciliation of the same stack.
+The queue is keyed by stack name, like a Kubernetes work queue, and every successful sync run atomically
+replaces the whole set of waiting reconciliations with the desired state it has just loaded. As a result:
 
-After every configuration reload, waiting operations of stacks that are no longer configured are dropped, so a
-removed or renamed stack is never deployed from an older revision after the new configuration took effect.
-Operations that are already running are not interrupted and finish within their normal lifecycle.
+- while a stack is busy, only the latest desired state waits for it and runs as soon as the current operation
+  finishes; a manual request stays manual when it is superseded by a later run;
+- waiting work of stacks that are no longer configured disappears, so a removed or renamed stack is never
+  deployed from an older revision after the new configuration took effect;
+- a stack never runs with a specification or source that a newer successful run has already replaced;
+- when a run fails after the new configuration was accepted (for example, while reconciling networks), all
+  waiting work is dropped instead of running under that configuration; the next successful run queues every
+  stack again.
+
+Operations that are already running are never interrupted and finish within their normal lifecycle.
+Periodic rotated-resource cleanup is queued only for idle stacks, so it never overlaps a reconciliation of the
+same stack, and a later run supersedes a cleanup that is still waiting.
 
 Stacks are not ordered relative to each other. With `parallelism: 1` they are processed one by one in dispatch
 order, which preserves the previous sequential behavior.

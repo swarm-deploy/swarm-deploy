@@ -3,6 +3,7 @@ package syncrun
 import (
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -21,6 +22,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackqueue"
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/modelstore"
+	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	"go.uber.org/mock/gomock"
 )
 
@@ -160,6 +162,49 @@ func TestRunDropsQueuedWorkOfStacksRemovedFromConfiguration(t *testing.T) {
 	assert.Equal(t, []string{"slow@A", "slow@B"}, reconciled, "old must never be deployed from revision A")
 }
 
+func TestRunFailureAfterConfigurationReloadDropsWaitingWork(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	repoDir := t.TempDir()
+	stacksPath, networksPath := filepath.Join(repoDir, "stacks.yaml"), filepath.Join(repoDir, "networks.yaml")
+	require.NoError(t, writeStacks(stacksPath, []string{"slow", "waiting"}))
+	require.NoError(t, os.WriteFile(networksPath, []byte("networks: []\n"), 0o600))
+	repository := gitx.NewMockRepository(ctrl)
+	repository.EXPECT().WorkingDir().Return(repoDir).AnyTimes()
+	reconciler := stackloop.NewMockStackReconciler(ctrl)
+	reconciler.EXPECT().Load(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, stack config.StackSpec) (*compose.File, error) {
+			return &compose.File{Path: stack.ComposeFile}, nil
+		}).AnyTimes()
+	slowStarted, releaseSlow := make(chan struct{}), make(chan struct{})
+	var reconciled []string
+	reconciler.EXPECT().Reconcile(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, req stackloop.ReconciliationRequest) error {
+			reconciled = append(reconciled, req.Stack.Name+"@"+req.Commit)
+			close(slowStarted)
+			<-releaseSlow
+			return nil
+		})
+	networkManager := swarm.NewMockNetworkManager(ctrl)
+	networkManager.EXPECT().Get(gomock.Any(), "edge").Return(swarm.Network{}, errors.New("docker unavailable"))
+	runner, store, queue := newTestRunnerWithNetworks(t, repository, reconciler, 1, networkManager, "networks.yaml")
+
+	// Revision A: the only worker is busy with slow, so waiting is queued.
+	runner.run(t.Context(), Task{Reason: TriggerInterval}, &gitx.PullResult{OldRevision: "A", NewRevision: "A"})
+	receive(t, slowStarted)
+	require.True(t, queue.Busy("waiting"))
+
+	// Revision B is accepted, but the run fails before stacks are dispatched.
+	require.NoError(t, writeStacks(stacksPath, []string{"slow"}))
+	require.NoError(t, os.WriteFile(networksPath, []byte("networks:\n  - name: edge\n    driver: overlay\n"), 0o600))
+	runner.run(t.Context(), Task{Reason: TriggerInterval}, &gitx.PullResult{OldRevision: "B", NewRevision: "B"})
+	assert.Equal(t, syncRunResultError, readSQLState(t, store).LastSyncResult)
+	assert.False(t, queue.Busy("waiting"), "work prepared for an older configuration must not run under a newer one")
+
+	close(releaseSlow)
+	waitIdle(t, queue)
+	assert.Equal(t, []string{"slow@A"}, reconciled)
+}
+
 func TestRunPassesLoadFailureToReconciliation(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	repoDir := t.TempDir()
@@ -266,17 +311,26 @@ func newTestRunner(
 	t *testing.T, repository gitx.Repository, reconciler stackloop.StackReconciler, parallelism int,
 ) (*Runner, *modelstore.SQLStore, *stackqueue.Queue) {
 	t.Helper()
+	return newTestRunnerWithNetworks(t, repository, reconciler, parallelism, nil, "")
+}
+
+func newTestRunnerWithNetworks(
+	t *testing.T, repository gitx.Repository, reconciler stackloop.StackReconciler, parallelism int,
+	networkManager swarm.NetworkManager, networksFile string,
+) (*Runner, *modelstore.SQLStore, *stackqueue.Queue) {
+	t.Helper()
 	db, store := newSQLState(t)
 	cfg := &config.Config{Spec: config.Spec{
-		Git:          config.GitSpec{Repository: "repo"},
-		StacksSource: config.StacksSourceSpec{File: "stacks.yaml"},
+		Git:            config.GitSpec{Repository: "repo"},
+		StacksSource:   config.StacksSourceSpec{File: "stacks.yaml"},
+		NetworksSource: config.NetworksSourceSpec{File: networksFile},
 	}}
 	events := &dispatcher.NopDispatcher{}
 	namespace := strings.NewReplacer("/", "_", " ", "_").Replace("test_" + t.Name())
 	metricGroup := metrics.NewGroup(metrics.CreateGroupParams{Namespace: namespace})
 	puller := gitpull.NewPuller(repository, gitpull.NewMonitor(db, store, events), metricGroup.Git, cfg.Spec.Git)
 	configuration := configstore.New(cfg, events)
-	networkCoordinator := networkloop.NewCoordinator(db, configuration, store, networkloop.New(nil), events)
+	networkCoordinator := networkloop.NewCoordinator(db, configuration, store, networkloop.New(networkManager), events)
 	queue := stackqueue.New(reconciler, metricGroup.Sync, parallelism)
 	queue.Start(context.WithoutCancel(t.Context()))
 	t.Cleanup(queue.Stop)

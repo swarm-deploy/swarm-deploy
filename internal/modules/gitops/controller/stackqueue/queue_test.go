@@ -50,9 +50,8 @@ func TestQueueBoundsParallelism(t *testing.T) {
 				}).Times(6)
 			queue := newTestQueue(t, reconciler, tt.parallelism)
 
-			for _, name := range []string{"a", "b", "c", "d", "e", "f"} {
-				require.True(t, queue.SubmitReconcile(t.Context(), request(name, "v1", false)))
-			}
+			replace(t, queue, request("a", "v1", false), request("b", "v1", false), request("c", "v1", false),
+				request("d", "v1", false), request("e", "v1", false), request("f", "v1", false))
 
 			waitIdle(t, queue)
 			assert.Equal(t, tt.expected, peak.Load())
@@ -80,10 +79,10 @@ func TestQueueRunsOneOperationPerStackAndCoalescesRequests(t *testing.T) {
 		}).Times(2)
 	queue := newTestQueue(t, reconciler, 4)
 
-	require.True(t, queue.SubmitReconcile(t.Context(), request("app", "v1", false)))
+	replace(t, queue, request("app", "v1", false))
 	receive(t, started)
-	require.True(t, queue.SubmitReconcile(t.Context(), request("app", "v2", true)))
-	require.True(t, queue.SubmitReconcile(t.Context(), request("app", "v3", false)))
+	replace(t, queue, request("app", "v2", true))
+	replace(t, queue, request("app", "v3", false))
 	assert.True(t, queue.Busy("app"))
 	close(release)
 
@@ -117,7 +116,7 @@ func TestQueueCleanupRunsOnlyForIdleStacks(t *testing.T) {
 		})
 	queue := newTestQueue(t, reconciler, 2)
 
-	require.True(t, queue.SubmitReconcile(t.Context(), request("busy", "v1", false)))
+	replace(t, queue, request("busy", "v1", false))
 	receive(t, started)
 
 	assert.False(t, queue.SubmitCleanup(t.Context(), config.StackSpec{Name: "busy"}, &compose.File{}),
@@ -137,7 +136,7 @@ func TestQueueReconciliationReplacesWaitingCleanup(t *testing.T) {
 	t.Cleanup(queue.Stop)
 
 	require.True(t, queue.SubmitCleanup(t.Context(), config.StackSpec{Name: "app"}, &compose.File{}))
-	require.True(t, queue.SubmitReconcile(t.Context(), request("app", "v1", false)))
+	replace(t, queue, request("app", "v1", false))
 	queue.Start(context.WithoutCancel(t.Context()))
 
 	waitIdle(t, queue)
@@ -158,9 +157,9 @@ func TestQueueStopDropsWaitingWorkAndRejectsNewWork(t *testing.T) {
 	queue := New(reconciler, newTestMetrics(t), 1)
 	queue.Start(context.WithoutCancel(t.Context()))
 
-	require.True(t, queue.SubmitReconcile(t.Context(), request("running", "v1", false)))
+	replace(t, queue, request("running", "v1", false))
 	receive(t, started)
-	require.True(t, queue.SubmitReconcile(t.Context(), request("waiting", "v1", false)))
+	replace(t, queue, request("waiting", "v1", false))
 
 	stopped := make(chan struct{})
 	go func() {
@@ -168,7 +167,10 @@ func TestQueueStopDropsWaitingWorkAndRejectsNewWork(t *testing.T) {
 		close(stopped)
 	}()
 	require.Eventually(t, func() bool {
-		return !queue.SubmitReconcile(t.Context(), request("late", "v1", false))
+		_, accepted := queue.Replace(t.Context(), []stackloop.ReconciliationRequest{
+			request("waiting", "v1", false), request("late", "v1", false),
+		})
+		return !accepted
 	}, testWait, time.Millisecond)
 	select {
 	case <-stopped:
@@ -180,13 +182,59 @@ func TestQueueStopDropsWaitingWorkAndRejectsNewWork(t *testing.T) {
 	receive(t, stopped)
 	assert.True(t, finished.Load())
 	assert.False(t, queue.Busy("waiting"), "waiting work is dropped on Stop")
+	assert.False(t, queue.Busy("late"), "waiting work is dropped on Stop")
 	waitIdle(t, queue)
 }
 
-func TestQueueRetainDropsWaitingWorkOfRemovedStacks(t *testing.T) {
+func TestQueueReplaceDropsWaitingWorkOfStacksAbsentFromDesiredState(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	reconciler := stackloop.NewMockStackReconciler(ctrl)
 	started, release := make(chan struct{}), make(chan struct{})
+	seen := recordReconciliations(reconciler, started, release, 3)
+	queue := newTestQueue(t, reconciler, 1)
+
+	replace(t, queue, request("renamed", "A", false))
+	receive(t, started)
+	// The single worker is busy: everything below waits.
+	replace(t, queue, request("renamed", "B", false), request("old", "B", false), request("kept", "B", false))
+	require.True(t, queue.SubmitCleanup(t.Context(), config.StackSpec{Name: "removed"}, &compose.File{}))
+
+	dropped := replace(t, queue, request("kept", "C", false), request("new", "C", false))
+
+	assert.Equal(t, []string{"old", "removed", "renamed"}, dropped)
+	assert.True(t, queue.Busy("renamed"), "a running operation is not interrupted")
+	assert.False(t, queue.Busy("old"))
+	assert.False(t, queue.Busy("removed"))
+	close(release)
+	waitIdle(t, queue)
+	assert.Equal(t, []string{"renamed@A", "kept@C", "new@C"}, seen(),
+		"waiting work absent from the latest desired state never runs, even behind a running operation")
+}
+
+func TestQueueClearDropsAllWaitingWork(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	reconciler := stackloop.NewMockStackReconciler(ctrl)
+	started, release := make(chan struct{}), make(chan struct{})
+	seen := recordReconciliations(reconciler, started, release, 1)
+	queue := newTestQueue(t, reconciler, 1)
+
+	replace(t, queue, request("running", "A", false))
+	receive(t, started)
+	replace(t, queue, request("running", "B", false), request("waiting", "B", false))
+
+	assert.Equal(t, []string{"running", "waiting"}, queue.Clear())
+	assert.Nil(t, queue.Clear(), "nothing left to drop")
+	assert.True(t, queue.Busy("running"), "a running operation is not interrupted")
+	assert.False(t, queue.Busy("waiting"))
+	close(release)
+	waitIdle(t, queue)
+	assert.Equal(t, []string{"running@A"}, seen())
+}
+
+// recordReconciliations blocks the first reconciliation until release and returns the observed order.
+func recordReconciliations(
+	reconciler *stackloop.MockStackReconciler, started, release chan struct{}, times int,
+) func() []string {
 	var mu sync.Mutex
 	var seen []string
 	reconciler.EXPECT().Reconcile(gomock.Any(), gomock.Any()).DoAndReturn(
@@ -200,30 +248,19 @@ func TestQueueRetainDropsWaitingWorkOfRemovedStacks(t *testing.T) {
 				<-release
 			}
 			return nil
-		}).Times(2)
-	queue := newTestQueue(t, reconciler, 1)
+		}).Times(times)
+	return func() []string {
+		mu.Lock()
+		defer mu.Unlock()
+		return append([]string(nil), seen...)
+	}
+}
 
-	require.True(t, queue.SubmitReconcile(t.Context(), request("renamed", "A", false)))
-	receive(t, started)
-	// The single worker is busy: everything below waits.
-	require.True(t, queue.SubmitReconcile(t.Context(), request("renamed", "B", false)))
-	require.True(t, queue.SubmitReconcile(t.Context(), request("old", "A", false)))
-	require.True(t, queue.SubmitCleanup(t.Context(), config.StackSpec{Name: "removed"}, &compose.File{}))
-	require.True(t, queue.SubmitReconcile(t.Context(), request("kept", "A", false)))
-
-	dropped := queue.Retain([]config.StackSpec{{Name: "kept"}, {Name: "new"}})
-
-	assert.Equal(t, []string{"old", "removed", "renamed"}, dropped)
-	assert.True(t, queue.Busy("renamed"), "a running operation is not interrupted")
-	assert.False(t, queue.Busy("old"))
-	assert.False(t, queue.Busy("removed"))
-	assert.Nil(t, queue.Retain([]config.StackSpec{{Name: "kept"}}), "nothing left to drop")
-	close(release)
-	waitIdle(t, queue)
-	mu.Lock()
-	defer mu.Unlock()
-	assert.Equal(t, []string{"renamed@A", "kept@A"}, seen,
-		"waiting work of removed stacks, including work queued behind a running operation, never runs")
+func replace(t *testing.T, queue *Queue, requests ...stackloop.ReconciliationRequest) []string {
+	t.Helper()
+	dropped, accepted := queue.Replace(t.Context(), requests)
+	require.True(t, accepted)
+	return dropped
 }
 
 func newTestQueue(t *testing.T, reconciler stackloop.StackReconciler, parallelism int) *Queue {

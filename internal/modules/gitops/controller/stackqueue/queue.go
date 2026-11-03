@@ -1,8 +1,14 @@
 // Package stackqueue runs stack operations with bounded parallelism and at most one operation per stack.
 //
-// A sync run only loads stack sources and submits them here, so a slow stack never delays Git polling,
-// later sync runs or other stacks while a worker is free. Work for one stack is coalesced: while a stack
-// is busy, only the latest submitted reconciliation is kept and runs right after the current one.
+// The queue is keyed by stack name, like a Kubernetes work queue. Every successful sync run replaces
+// the whole set of waiting reconciliations with the desired state it has just loaded (Replace), so
+// waiting work always reflects the latest successfully loaded configuration and revision: stacks that
+// are no longer configured simply have nothing left to run, and a stack never runs with a stale
+// specification or source once a newer run has replaced it. A run that fails after accepting a new
+// configuration clears all waiting work (Clear) instead of letting older revisions run under it.
+//
+// A slow stack never delays Git polling, later sync runs or other stacks while a worker is free.
+// Running operations are never interrupted by Replace or Clear; they finish within their lifecycle.
 package stackqueue
 
 import (
@@ -99,30 +105,53 @@ func (q *Queue) Stop() {
 	q.done.Wait()
 }
 
-// SubmitReconcile queues a reconciliation. A reconciliation already waiting for the same stack is
-// replaced, keeping the manual flag of either request. It returns false after Stop.
-func (q *Queue) SubmitReconcile(ctx context.Context, req stackloop.ReconciliationRequest) bool {
+// Replace atomically makes requests the complete set of reconciliations waiting in the queue and returns
+// the sorted names of stacks whose waiting work was dropped because they are absent from requests.
+// A reconciliation already waiting for a stack is superseded, keeping the manual flag of either request,
+// and a waiting cleanup is superseded too. Stacks keep their place in the queue; new ones join its end
+// in request order. It returns false after Stop.
+func (q *Queue) Replace(ctx context.Context, requests []stackloop.ReconciliationRequest) ([]string, bool) {
+	spanContext := trace.SpanContextFromContext(ctx)
+	desired := make(map[string]struct{}, len(requests))
+	for _, req := range requests {
+		desired[req.Stack.Name] = struct{}{}
+	}
+
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	if q.stopped {
-		return false
+		return nil, false
 	}
 
-	name := req.Stack.Name
-	previous, hasPrevious := q.pending[name]
-	if hasPrevious && previous.kind == OperationReconcile {
-		req.IsManual = req.IsManual || previous.request.IsManual
-	}
-	q.pending[name] = operation{
-		kind: OperationReconcile, request: req, spanContext: trace.SpanContextFromContext(ctx),
-	}
-	// A stack is in the ready list only while it has waiting work and nothing running;
-	// finish re-enqueues work submitted while the stack was running.
-	if !hasPrevious && !q.running[name] {
-		q.enqueueLocked(name)
+	dropped := q.dropLocked(func(name string) bool {
+		_, isDesired := desired[name]
+		return !isDesired
+	})
+	for _, req := range requests {
+		name := req.Stack.Name
+		previous, hasPrevious := q.pending[name]
+		if hasPrevious && previous.kind == OperationReconcile {
+			req.IsManual = req.IsManual || previous.request.IsManual
+		}
+		q.pending[name] = operation{kind: OperationReconcile, request: req, spanContext: spanContext}
+		// A stack is in the ready list only while it has waiting work and nothing running;
+		// finish re-enqueues work that was replaced while the stack was running.
+		if !hasPrevious && !q.running[name] {
+			q.enqueueLocked(name)
+		}
 	}
 	q.updateStateLocked()
-	return true
+	return dropped, true
+}
+
+// Clear drops every waiting operation and returns the sorted names of the affected stacks.
+// Running operations are not interrupted.
+func (q *Queue) Clear() []string {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	dropped := q.dropLocked(func(string) bool { return true })
+	q.updateStateLocked()
+	return dropped
 }
 
 // SubmitCleanup queues a rotated-resource cleanup only when the stack has no running or waiting work.
@@ -145,39 +174,6 @@ func (q *Queue) SubmitCleanup(ctx context.Context, stack config.StackSpec, sourc
 	q.enqueueLocked(stack.Name)
 	q.updateStateLocked()
 	return true
-}
-
-// Retain drops waiting operations of stacks that are absent from the current configuration and
-// returns their names in sorted order. Running operations are not interrupted: they finish within
-// their normal lifecycle. Without this, work queued for a removed or renamed stack would still be
-// applied from an older revision after the new configuration took effect.
-func (q *Queue) Retain(stacks []config.StackSpec) []string {
-	configured := make(map[string]struct{}, len(stacks))
-	for _, stack := range stacks {
-		configured[stack.Name] = struct{}{}
-	}
-	isRemoved := func(name string) bool {
-		_, ok := configured[name]
-		return !ok
-	}
-
-	q.mu.Lock()
-	defer q.mu.Unlock()
-	var dropped []string
-	for name := range q.pending {
-		if isRemoved(name) {
-			delete(q.pending, name)
-			dropped = append(dropped, name)
-		}
-	}
-	if len(dropped) == 0 {
-		return nil
-	}
-	// The ready list holds only stacks with waiting work, so removed stacks leave it as well.
-	q.ready = slices.DeleteFunc(q.ready, isRemoved)
-	q.updateStateLocked()
-	slices.Sort(dropped)
-	return dropped
 }
 
 // Busy reports whether a stack has an operation running or waiting to start.
@@ -276,6 +272,24 @@ func (q *Queue) execute(ctx context.Context, op operation) {
 		tracing.FailSpan(span, err)
 	}
 	q.metrics.RecordStackOperation(op.request.Stack.Name, op.kind, result, time.Since(startedAt))
+}
+
+// dropLocked removes waiting operations of matching stacks and returns their sorted names.
+func (q *Queue) dropLocked(matches func(name string) bool) []string {
+	var dropped []string
+	for name := range q.pending {
+		if matches(name) {
+			delete(q.pending, name)
+			dropped = append(dropped, name)
+		}
+	}
+	if len(dropped) == 0 {
+		return nil
+	}
+	// The ready list holds only stacks with waiting work, so dropped stacks leave it as well.
+	q.ready = slices.DeleteFunc(q.ready, matches)
+	slices.Sort(dropped)
+	return dropped
 }
 
 func (q *Queue) enqueueLocked(name string) {

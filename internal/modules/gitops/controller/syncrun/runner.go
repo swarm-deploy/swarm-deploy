@@ -1,8 +1,8 @@
 // Package syncrun executes serialized GitOps synchronization runs.
 //
-// A run pulls Git, reloads configuration, reconciles networks, loads every stack source and hands
-// the stacks to the stack queue. It does not wait for stack deployments, so a slow stack never
-// delays polling, later runs or other stacks.
+// A run pulls Git, reloads configuration, reconciles networks, loads every stack source and replaces
+// the work waiting in the stack queue with that desired state. It does not wait for stack deployments,
+// so a slow stack never delays polling, later runs or other stacks.
 package syncrun
 
 import (
@@ -162,12 +162,14 @@ func (r *Runner) run(ctx context.Context, task Task, gitResult *gitx.PullResult)
 	}
 	slog.InfoContext(ctx, "[controller] configuration reloaded",
 		slog.Int("stacks", len(r.configStore.Stacks())), slog.Int("networks", len(r.configStore.Networks())))
-	if dropped := r.stacks.Retain(r.configStore.Stacks()); len(dropped) > 0 {
-		slog.InfoContext(ctx, "[controller] dropped queued operations of stacks removed from configuration",
-			slog.Any("stacks", dropped), slog.String("commit", gitResult.NewRevision))
-	}
 
 	if err = r.networkReconciler.Reconcile(ctx, gitResult.NewRevision); err != nil {
+		// The configuration of this revision is already accepted, so waiting work prepared for an older
+		// configuration must not run under it. The next successful run queues every stack again.
+		if dropped := r.stacks.Clear(); len(dropped) > 0 {
+			slog.WarnContext(ctx, "[controller] dropped queued stack operations after a failed sync run",
+				slog.Any("stacks", dropped), slog.String("commit", gitResult.NewRevision))
+		}
 		r.finishStageFailure(ctx, task.Reason, startedAt, gitResult.NewRevision, "networks reconcile", err)
 		return
 	}
@@ -233,18 +235,28 @@ func (r *Runner) finishStageFailure(
 	})
 }
 
-// dispatchStacks loads every stack source while the working tree is stable and queues its reconciliation.
-// Loading happens here, serialized with Git pulls, so queued reconciliations never read the working tree.
+// dispatchStacks loads every stack source while the working tree is stable and makes the result the
+// complete set of reconciliations waiting in the stack queue. Loading happens here, serialized with
+// Git pulls, so queued reconciliations never read the working tree, and waiting work of stacks that
+// are no longer configured is dropped atomically.
 func (r *Runner) dispatchStacks(ctx context.Context, stacks []config.StackSpec, commit string, reason TriggerReason) {
+	requests := make([]stackloop.ReconciliationRequest, 0, len(stacks))
 	for _, stackCfg := range stacks {
 		source, loadErr := r.stackReconciler.Load(ctx, stackCfg)
-		queued := r.stacks.SubmitReconcile(ctx, stackloop.ReconciliationRequest{
+		requests = append(requests, stackloop.ReconciliationRequest{
 			Stack: stackCfg, Commit: commit, IsManual: reason == TriggerManual, Source: source, SourceErr: loadErr,
 		})
-		if !queued {
-			slog.WarnContext(ctx, "stack sync was not queued: controller is shutting down",
-				slog.String("reason", string(reason)), slog.String("stack", stackCfg.Name), slog.String("commit", commit))
-		}
+	}
+
+	dropped, accepted := r.stacks.Replace(ctx, requests)
+	if !accepted {
+		slog.WarnContext(ctx, "stack syncs were not queued: controller is shutting down",
+			slog.String("reason", string(reason)), slog.String("commit", commit))
+		return
+	}
+	if len(dropped) > 0 {
+		slog.InfoContext(ctx, "[controller] dropped queued operations of stacks removed from configuration",
+			slog.Any("stacks", dropped), slog.String("commit", commit))
 	}
 }
 
