@@ -45,10 +45,10 @@ func TestReconcileRemovesRenderedComposeAfterEarlyPipelineFailure(t *testing.T) 
 	fileSystem := fs.NewTraceableFileSystem(tracerProvider, fs.NewLocalFileSystem())
 
 	require.NoError(t, writeComposeFile(repoDir), "write compose")
-	repository.EXPECT().WorkingDir().Return(repoDir).AnyTimes()
+	mockRepositoryFiles(repository, repoDir)
 
 	cfg := &config.Config{Spec: config.Spec{DataDir: filepath.Join(repoDir, ".data")}}
-	rotator := NewRotator(fileSystem)
+	rotator := NewRotator()
 	reconciler := &Reconciler{cfg: cfg, event: &dispatcher.NopDispatcher{},
 		deployMetrics: &metrics.NopDeploys{}, stateStore: stateStore, composeRotator: rotator,
 		preparer: preparation.New(cfg, repository, fileSystem, rotator)}
@@ -76,7 +76,7 @@ func TestReconcileRemovesRenderedComposeAfterEarlyPipelineFailure(t *testing.T) 
 	for _, span := range spanRecorder.Ended() {
 		spanNames = append(spanNames, span.Name())
 	}
-	assert.ElementsMatch(t, []string{"fs.ReadFile", "fs.CreateDirectory", "fs.WriteFile", "fs.RemoveFile"}, spanNames)
+	assert.ElementsMatch(t, []string{"fs.CreateDirectory", "fs.WriteFile", "fs.RemoveFile"}, spanNames)
 }
 
 func TestRenderedComposeCleanupFailureDoesNotFailReconciliation(t *testing.T) {
@@ -87,13 +87,12 @@ func TestRenderedComposeCleanupFailureDoesNotFailReconciliation(t *testing.T) {
 	db, stateStore := newSQLState(t)
 	repoDir := t.TempDir()
 	dataDir := filepath.Join(repoDir, ".data")
-	composePath := filepath.Join(repoDir, "app.yaml")
 	renderedPath := filepath.Join(dataDir, "rendered", "app.yaml")
 
 	require.NoError(t, writeComposeFile(repoDir), "write compose")
-	repository.EXPECT().WorkingDir().Return(repoDir).AnyTimes()
-	stackDeployer.EXPECT().DeployStack(gomock.Any(), "app", composePath, renderedPath, gomock.Any()).
-		DoAndReturn(func(_ context.Context, _, _, deployComposePath string, _ compose.Compose) (deployer.Result, error) {
+	mockRepositoryFiles(repository, repoDir)
+	stackDeployer.EXPECT().DeployStack(gomock.Any(), "app", renderedPath, gomock.Any()).
+		DoAndReturn(func(_ context.Context, _, deployComposePath string, _ compose.Compose) (deployer.Result, error) {
 			require.FileExists(t, deployComposePath, "rendered compose must exist during deployment")
 			require.NoError(t, os.Remove(deployComposePath), "remove rendered compose in deployer")
 			require.NoError(t, os.Mkdir(deployComposePath, 0o700), "replace rendered compose with directory")
@@ -110,7 +109,7 @@ func TestRenderedComposeCleanupFailureDoesNotFailReconciliation(t *testing.T) {
 
 	filesystem := fs.NewLocalFileSystem()
 	cfg := &config.Config{Spec: config.Spec{DataDir: dataDir}}
-	rotator := NewRotator(filesystem)
+	rotator := NewRotator()
 	reconciler := &Reconciler{cfg: cfg, event: &dispatcher.NopDispatcher{},
 		deployMetrics: &metrics.NopDeploys{}, stateStore: stateStore,
 		pruner:         pruner.NewServicePruner(serviceManager, &dispatcher.NopDispatcher{}, config.SyncPolicySpec{}),

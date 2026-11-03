@@ -60,8 +60,6 @@ type ExecuteRequest struct {
 type ExecuteServiceRequest struct {
 	// StackName identifies the owning stack.
 	StackName string
-	// SourceComposePath is the source Compose path used for resource resolution.
-	SourceComposePath string
 	// ServiceName identifies the service to apply.
 	ServiceName string
 	// Desired contains the effective desired stack.
@@ -131,7 +129,7 @@ func (c *Controller) Execute(ctx context.Context, req ExecuteRequest) (ExecuteRe
 	}
 
 	deployResult, deployErr := c.deployer.DeployStack(
-		ctx, req.Stack.Name, req.Desired.Path, req.DeployComposePath, req.Desired.Compose,
+		ctx, req.Stack.Name, req.DeployComposePath, req.Desired.Compose,
 	)
 	c.persistInitJobs(ctx, attempt.ID, deployResult.InitJobs)
 	if deployErr != nil {
@@ -179,7 +177,7 @@ func (c *Controller) Execute(ctx context.Context, req ExecuteRequest) (ExecuteRe
 // ExecuteService runs one synchronous service remediation through the owned Deployer.
 func (c *Controller) ExecuteService(ctx context.Context, req ExecuteServiceRequest) (deployer.Result, error) {
 	return c.deployer.DeployService(
-		ctx, req.StackName, req.SourceComposePath, req.ServiceName, req.Desired, req.Deploy,
+		ctx, req.StackName, req.ServiceName, req.Desired, req.Deploy,
 	)
 }
 

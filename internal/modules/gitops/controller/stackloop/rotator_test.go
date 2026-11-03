@@ -1,8 +1,6 @@
 package stackloop
 
 import (
-	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
-	"os"
 	"path/filepath"
 	"testing"
 
@@ -14,16 +12,15 @@ import (
 
 func TestRotatorLabelsManagedResources(t *testing.T) {
 	dir := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "token"), []byte("secret"), 0o600), "write secret")
 	file := &compose.File{
 		Path: filepath.Join(dir, "compose.yaml"),
 		Compose: compose.Compose{Secrets: compose.Secrets{
-			"token":    {File: "./token"},
+			"token":    {File: "./token", Data: []byte("secret")},
 			"external": {External: true, Name: "external-token"},
 		}},
 	}
 
-	changed, err := NewRotator(fs.NewLocalFileSystem()).Rotate(t.Context(), file, "app", 8, false)
+	changed, err := NewRotator().Rotate(t.Context(), file, "app", 8, false)
 
 	require.NoError(t, err, "rotate secrets")
 	assert.True(t, changed, "expected rotation mutation")

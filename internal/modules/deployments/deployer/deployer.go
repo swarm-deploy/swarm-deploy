@@ -87,14 +87,12 @@ func defaultStackDeployArgs() []string { return stackpkg.DefaultDeployArgs() }
 func (d *Deployer) DeployStack(
 	ctx context.Context,
 	stackName,
-	sourceComposePath,
 	deployComposePath string,
 	desired compose.Compose,
 ) (Result, error) {
 	d.attachPipelines()
 	payload := &deployStackPayload{
 		stackName:         stackName,
-		sourceComposePath: sourceComposePath,
 		deployComposePath: deployComposePath,
 		desired:           desired,
 	}
@@ -117,18 +115,16 @@ func (d *Deployer) DeployStack(
 func (d *Deployer) DeployService(
 	ctx context.Context,
 	stackName,
-	sourceComposePath,
 	serviceName string,
 	desired,
 	deploy compose.Compose,
 ) (Result, error) {
 	d.attachPipelines()
 	payload := &deployServicePayload{
-		stackName:         stackName,
-		sourceComposePath: sourceComposePath,
-		serviceName:       serviceName,
-		desired:           desired,
-		deploy:            deploy,
+		stackName:   stackName,
+		serviceName: serviceName,
+		desired:     desired,
+		deploy:      deploy,
 	}
 	defer payload.cleanup()
 

@@ -10,8 +10,8 @@ type Repository interface {
 	// WorkingDir returns local repository path.
 	WorkingDir() string
 
-	// ReadFile reads raw file content from current repository working tree.
-	ReadFile(ctx context.Context, path string) ([]byte, error)
+	// ReadFile reads a repository-relative file from the specified Git commit hash.
+	ReadFile(ctx context.Context, revision, path string) ([]byte, error)
 
 	// Pull fetches latest changes from origin for configured branch.
 	Pull(ctx context.Context) (PullResult, error)

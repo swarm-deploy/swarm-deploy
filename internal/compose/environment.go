@@ -14,7 +14,8 @@ type Environment struct {
 	Map  map[string]string `json:"Map"`
 	Keys []string          `json:"Keys"`
 
-	isMap bool
+	isMap       bool
+	literalKeys map[string]struct{}
 }
 
 func NewEnvironment(values []string) (*Environment, error) {
@@ -93,6 +94,18 @@ func (e *Environment) Clone() *Environment {
 		Map:   values,
 		isMap: e.isMap,
 	}
+}
+
+// ForStackDeploy protects literal env_file values from Docker CLI interpolation.
+func (e Environment) ForStackDeploy() Environment {
+	if len(e.literalKeys) == 0 {
+		return e
+	}
+	rendered := e.Clone()
+	for key := range e.literalKeys {
+		rendered.Map[key] = strings.ReplaceAll(rendered.Map[key], "$", "$$")
+	}
+	return *rendered
 }
 
 func (e *Environment) Has(key string) bool {

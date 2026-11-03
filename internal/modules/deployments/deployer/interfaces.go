@@ -13,7 +13,6 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/secrets"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/stack"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/waiter"
-	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 
@@ -53,8 +52,8 @@ const (
 	ServiceFailed      = waiter.ServiceFailed
 )
 
-func NewSecretResolver(fileSystem fs.FileSystem, decoders ...SecretDecoder) *SecretResolver {
-	return secrets.NewSecretResolver(fileSystem, decoders...)
+func NewSecretResolver(decoders ...SecretDecoder) *SecretResolver {
+	return secrets.NewSecretResolver(decoders...)
 }
 
 func NewAgeDecoder(identity []byte) *AgeDecoder { return secrets.NewAgeDecoder(identity) }
@@ -79,11 +78,10 @@ func NewServiceWaiter(
 
 // StackDeployer reconciles one stack via deploy command execution.
 type StackDeployer interface {
-	// DeployStack reconciles init-job resources from sourceComposePath and applies deployComposePath.
+	// DeployStack reconciles loaded resources and runs init jobs before it and applies deployComposePath.
 	DeployStack(
 		ctx context.Context,
 		stackName,
-		sourceComposePath,
 		deployComposePath string,
 		desired compose.Compose,
 	) (Result, error)
@@ -91,7 +89,6 @@ type StackDeployer interface {
 	DeployService(
 		ctx context.Context,
 		stackName,
-		sourceComposePath,
 		serviceName string,
 		desired,
 		deploy compose.Compose,

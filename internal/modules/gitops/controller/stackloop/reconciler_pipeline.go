@@ -28,6 +28,7 @@ type pipelinePayload struct {
 
 	Desired           *compose.File
 	DeployComposePath string
+	DeployCompose     compose.Compose
 
 	LiveServices   []swarm.StackService
 	ObservedAt     time.Time

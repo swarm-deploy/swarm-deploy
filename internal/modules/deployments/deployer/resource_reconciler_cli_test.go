@@ -16,6 +16,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
+	"github.com/swarm-deploy/swarm-deploy/internal/config"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackloop/preparation"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 
@@ -43,8 +46,10 @@ func TestDockerStackDeployReusesReconciledResources(t *testing.T) {
 			t.Setenv("DOCKER_TLS_VERIFY", "")
 			t.Setenv("DOCKER_CERT_PATH", "")
 			t.Setenv("DOCKER_CONTEXT", "")
+			t.Setenv("CONTROLLER_ONLY", "should-never-expand")
 			require.NoError(t, os.WriteFile(filepath.Join(dir, "config.txt"), []byte("config-data"), 0o600))
 			require.NoError(t, os.WriteFile(filepath.Join(dir, "password.txt"), []byte("secret-data"), 0o600))
+			require.NoError(t, os.WriteFile(filepath.Join(dir, "api.env"), []byte("LITERAL=${CONTROLLER_ONLY} $$\n"), 0o600))
 			names := ""
 			secretName := ""
 			if tt.name != "scoped" {
@@ -56,6 +61,7 @@ func TestDockerStackDeployReusesReconciledResources(t *testing.T) {
 services:
   api:
     image: example/api:latest
+    env_file: api.env
     configs:
       - source: app
         target: /etc/app.conf
@@ -74,6 +80,20 @@ secrets:
 `, names, secretName)), 0o600))
 			desired, err := compose.NewFileLoader().Load(t.Context(), path)
 			require.NoError(t, err)
+			for _, filename := range []string{"config.txt", "password.txt", "api.env", "compose.yaml"} {
+				require.NoError(t, os.Remove(filepath.Join(dir, filename)))
+			}
+			preparer := preparation.New(&config.Config{Spec: config.Spec{DataDir: dir}}, nil, fs.NewLocalFileSystem(), nil)
+			prepared, err := preparer.Prepare(t.Context(), preparation.Request{
+				Stack: config.StackSpec{Name: "demo"}, Desired: desired,
+			})
+			require.NoError(t, err)
+			defer preparer.Cleanup(t.Context(), prepared)
+			configCopy := prepared.DeployCompose.Configs["app"].File
+			require.FileExists(t, configCopy)
+			snapshot, err := json.Marshal(desired)
+			require.NoError(t, err)
+			require.NotContains(t, string(snapshot), "secret-data")
 
 			var mu sync.Mutex
 			var config *dockerswarm.Config
@@ -166,20 +186,27 @@ secrets:
 				serviceWaiter:   newSuccessfulServiceWaiter(t),
 			}
 			for range 2 {
-				_, err = deployer.DeployStack(t.Context(), "demo", path, path, desired.Compose)
+				_, err = deployer.DeployStack(t.Context(), "demo", prepared.DeployComposePath, desired.Compose)
 				require.NoError(t, err)
 			}
+
+			_, err = deployer.DeployService(t.Context(), "demo", "api", desired.Compose, prepared.DeployCompose)
+			require.NoError(t, err)
+			preparer.Cleanup(t.Context(), prepared)
+			assert.NoFileExists(t, configCopy)
+			assert.NoFileExists(t, prepared.DeployComposePath)
 
 			mu.Lock()
 			defer mu.Unlock()
 			assert.Equal(t, map[string]int{"config": 1, "secret": 1}, creates, "only API reconciliation should create resources")
-			assert.Equal(t, map[string]int{"config": 2, "secret": 2}, updates, "CLI should reuse resources on both deploys")
-			require.Len(t, services, 2)
+			assert.Equal(t, map[string]int{"config": 3}, updates, "CLI should reuse resources on both deploys")
+			require.Len(t, services, 3)
 			for _, service := range services {
 				require.Len(t, service.TaskTemplate.ContainerSpec.Configs, 1)
 				require.Len(t, service.TaskTemplate.ContainerSpec.Secrets, 1)
 				assert.Equal(t, "config-id", service.TaskTemplate.ContainerSpec.Configs[0].ConfigID)
 				assert.Equal(t, tt.configName, service.TaskTemplate.ContainerSpec.Configs[0].ConfigName)
+				assert.Contains(t, service.TaskTemplate.ContainerSpec.Env, "LITERAL=${CONTROLLER_ONLY} $$")
 				assert.Equal(t, "secret-id", service.TaskTemplate.ContainerSpec.Secrets[0].SecretID)
 				assert.Equal(t, tt.secretName, service.TaskTemplate.ContainerSpec.Secrets[0].SecretName)
 			}

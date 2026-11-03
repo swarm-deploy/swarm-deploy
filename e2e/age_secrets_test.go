@@ -17,6 +17,9 @@ import (
 	dockerswarm "github.com/docker/docker/api/types/swarm"
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/errdefs"
+	gogit "github.com/go-git/go-git/v5"
+	gitconfig "github.com/go-git/go-git/v5/config"
+	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
@@ -105,21 +108,39 @@ exec "$SWARM_AGE_DOCKER" "$@"
 			swarmService := swarm.NewSwarm(dockerClient, wrapperPath)
 			fileSystem := sharedfs.NewLocalFileSystem()
 			stackDeployer := deployer.NewDeployer(100*time.Millisecond, time.Minute, dockerClient, swarmService, &metrics.NopDeploys{},
-				deployer.NewSecretResolver(fileSystem, deployer.NewAgeDecoder(cfg.Spec.SecretRotation.Age.IdentityFile.Content), deployer.PlaintextDecoder{}))
+				deployer.NewSecretResolver(deployer.NewAgeDecoder(cfg.Spec.SecretRotation.Age.IdentityFile.Content), deployer.PlaintextDecoder{}))
 			bus := eventbus.NewOutboxDispatcher(outbox.New(db))
 			deployMetrics := &metrics.NopDeploys{}
 			executor := deployments.NewController(
 				deployments.NewService(db, bus), stackDeployer, swarmService.Services,
 				pruner.NewServicePruner(swarmService.Services, bus, cfg.Spec.Sync.Policy), deployMetrics,
 			)
+			source, err := gogit.PlainInit(dir, false)
+			require.NoError(t, err)
+			_, err = source.CreateRemote(&gitconfig.RemoteConfig{Name: "origin", URLs: []string{cfg.Spec.Git.Repository}})
+			require.NoError(t, err)
+			worktree, err := source.Worktree()
+			require.NoError(t, err)
+			commitFixture := func() string {
+				t.Helper()
+				for _, file := range []string{"compose.yaml", "password.age", "plain.txt"} {
+					_, err := worktree.Add(file)
+					require.NoError(t, err)
+				}
+				hash, err := worktree.Commit("age fixture", &gogit.CommitOptions{Author: &object.Signature{Name: "test"}})
+				require.NoError(t, err)
+				return hash.String()
+			}
 			repository := gitx.NewRepository(cfg.Spec.Git, dir)
-			rotator := stackloop.NewRotator(fileSystem)
+			rotator := stackloop.NewRotator()
 			preparer := preparation.New(cfg, repository, fileSystem, rotator)
 			r := stackloop.New(cfg, executor, swarmService, bus, deployMetrics,
 				modelstore.NewSQLStore(db), preparer, rotator, db)
-			req := stackloop.ReconciliationRequest{Stack: config.StackSpec{Name: stack, ComposeFile: "compose.yaml"}, Commit: "v1"}
+			req := stackloop.ReconciliationRequest{Stack: config.StackSpec{Name: stack, ComposeFile: "compose.yaml"}}
 			composePath := filepath.Join(dir, "compose.yaml")
 			writeAgeSwarmFixture(t, dir, identity.Recipient(), "age-private-marker-v1", "mounted-age-v1")
+			initialRevision := commitFixture()
+			req.Commit = initialRevision
 			initialManifest, err := os.ReadFile(composePath)
 			require.NoError(t, err)
 			require.NoError(t, r.Reconcile(ctx, req))
@@ -140,14 +161,15 @@ exec "$SWARM_AGE_DOCKER" "$@"
 			brokenInit := strings.Replace(string(initialManifest), `command: ["test `, `command: ["false && test `, 1)
 			require.NotEqual(t, string(initialManifest), brokenInit)
 			require.NoError(t, os.WriteFile(composePath, []byte(brokenInit), 0o600))
-			req.Commit = "init-failure"
+			failedInitRevision := commitFixture()
+			req.Commit = failedInitRevision
 			err = r.Reconcile(ctx, req)
 			require.ErrorContains(t, err, "init job")
 			afterInitFailure, err := os.ReadFile(capture)
 			require.NoError(t, err)
 			assert.Equal(t, cliBytes, afterInitFailure)
 			require.NoError(t, os.WriteFile(composePath, initialManifest, 0o600))
-			req.Commit = "v1"
+			req.Commit = initialRevision
 
 			// Unchanged reconcile must preserve the Docker secret identity.
 			require.NoError(t, r.Reconcile(ctx, req))
@@ -155,9 +177,9 @@ exec "$SWARM_AGE_DOCKER" "$@"
 			assert.Equal(t, firstID, repeatedID)
 			if rotation {
 				for _, version := range []int{2, 3} {
-					req.Commit = fmt.Sprintf("v%d", version)
 					marker := fmt.Sprintf("mounted-age-v%d", version)
 					writeAgeSwarmFixture(t, dir, identity.Recipient(), fmt.Sprintf("age-private-marker-v%d", version), marker)
+					req.Commit = commitFixture()
 					require.NoError(t, r.Reconcile(ctx, req))
 					waitForRealSwarmTask(t, ctx, dockerPath, stack+"_check", marker)
 					name, id := inspectAgeSwarmSecret(t, ctx, dockerClient, stack)
@@ -175,9 +197,9 @@ exec "$SWARM_AGE_DOCKER" "$@"
 				}, 30*time.Second, time.Second)
 			} else {
 				// Docker secrets remain immutable without name rotation.
-				req.Commit = "v2"
 				writeAgeSwarmFixture(t, dir, identity.Recipient(), "age-private-marker-v2", "mounted-age-v2")
 				require.NoError(t, os.WriteFile(composePath, initialManifest, 0o600))
+				req.Commit = commitFixture()
 				require.NoError(t, r.Reconcile(ctx, req))
 				_, id := inspectAgeSwarmSecret(t, ctx, dockerClient, stack)
 				assert.Equal(t, firstID, id)
@@ -192,7 +214,7 @@ exec "$SWARM_AGE_DOCKER" "$@"
 			require.NoError(t, err)
 			require.NotEmpty(t, deployments.Deployments)
 			for _, item := range deployments.Deployments {
-				if item.Commit == "init-failure" {
+				if item.Commit == failedInitRevision {
 					assert.Equal(t, deploymentmodel.Superseded, item.Status)
 					failed, getErr := store.Get(ctx, item.ID)
 					require.NoError(t, getErr)
@@ -214,7 +236,7 @@ exec "$SWARM_AGE_DOCKER" "$@"
 			require.NoError(t, err)
 			require.NoError(t, os.WriteFile(filepath.Join(dir, "password.age"), []byte("invalid-ciphertext-marker"), 0o600))
 			// Keep the same Compose name: validation must also run when Docker would reuse the Secret.
-			req.Commit = "invalid"
+			req.Commit = commitFixture()
 			err = r.Reconcile(ctx, req)
 			require.Error(t, err)
 			assert.NotContains(t, err.Error(), "invalid-ciphertext-marker")

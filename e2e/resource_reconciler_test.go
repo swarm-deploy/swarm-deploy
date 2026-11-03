@@ -15,7 +15,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
+	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackloop/preparation"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
@@ -59,7 +61,7 @@ exec "$SWARM_E2E_REAL_DOCKER" "$@"
 	t.Setenv("SWARM_E2E_CONFIG_NAME", stack+"_settings")
 
 	swarmService := swarm.NewSwarm(dockerClient, wrapperPath)
-	stackDeployer := deployer.NewDeployer(100*time.Millisecond, 2*time.Minute, dockerClient, swarmService, nil, deployer.NewSecretResolver(fs.NewLocalFileSystem(), deployer.PlaintextDecoder{}))
+	stackDeployer := deployer.NewDeployer(100*time.Millisecond, 2*time.Minute, dockerClient, swarmService, nil, deployer.NewSecretResolver(deployer.PlaintextDecoder{}))
 	composePath := filepath.Join(dir, "compose.yaml")
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
@@ -142,7 +144,11 @@ func deployFixture(t *testing.T, ctx context.Context, stackDeployer deployer.Sta
 	t.Helper()
 	file, err := compose.NewFileLoader().Load(ctx, composePath)
 	require.NoError(t, err)
-	_, err = stackDeployer.DeployStack(ctx, stack, composePath, composePath, file.Compose)
+	preparer := preparation.New(&config.Config{Spec: config.Spec{DataDir: filepath.Dir(composePath)}}, nil, fs.NewLocalFileSystem(), nil)
+	prepared, err := preparer.Prepare(ctx, preparation.Request{Stack: config.StackSpec{Name: stack}, Desired: file})
+	require.NoError(t, err)
+	defer preparer.Cleanup(ctx, prepared)
+	_, err = stackDeployer.DeployStack(ctx, stack, prepared.DeployComposePath, file.Compose)
 	require.NoError(t, err)
 }
 

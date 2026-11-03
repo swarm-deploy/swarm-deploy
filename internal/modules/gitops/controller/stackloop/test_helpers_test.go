@@ -1,6 +1,10 @@
 package stackloop
 
 import (
+	"context"
+	"os"
+	"path/filepath"
+
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments"
@@ -13,6 +17,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 	"github.com/swarm-deploy/swarm-deploy/internal/storage"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
+	"go.uber.org/mock/gomock"
 )
 
 func newTestReconciler(
@@ -32,9 +37,17 @@ func newTestReconciler(
 		pruner.NewServicePruner(swarmService.Services, eventDispatcher, cfg.Spec.Sync.Policy),
 		deployMetrics,
 	)
-	rotator := NewRotator(fileSystem)
+	rotator := NewRotator()
 	preparer := preparation.New(cfg, gitSync, fileSystem, rotator)
 	return New(
 		cfg, executor, swarmService, eventDispatcher, deployMetrics, stateStore, preparer, rotator, db,
 	)
+}
+
+func mockRepositoryFiles(repository *gitx.MockRepository, dir string) {
+	repository.EXPECT().WorkingDir().Return(dir).AnyTimes()
+	repository.EXPECT().ReadFile(gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, _, path string) ([]byte, error) {
+			return os.ReadFile(filepath.Join(dir, path))
+		}).AnyTimes()
 }

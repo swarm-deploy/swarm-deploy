@@ -3,7 +3,6 @@ package deployer
 import (
 	"context"
 	"errors"
-	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -56,7 +55,7 @@ func TestDeployStackReconcilesResourcesWithAndWithoutInitJobs(t *testing.T) {
 
 				if !tt.external {
 					secret.File = "password.txt"
-					require.NoError(t, os.WriteFile(filepath.Join(dir, secret.File), []byte("secret-data"), 0o600))
+					secret.Data = []byte("secret-data")
 				}
 				var existingConfigs []swarm.Config
 				var existingSecrets []swarm.Secret
@@ -68,7 +67,7 @@ func TestDeployStackReconcilesResourcesWithAndWithoutInitJobs(t *testing.T) {
 					config.Labels = *compose.NewLabels(map[string]string{"purpose": "app"})
 					secret.File = "password.txt"
 					secret.Labels = *compose.NewLabels(map[string]string{"purpose": "password"})
-					require.NoError(t, os.WriteFile(filepath.Join(dir, secret.File), []byte("secret-data"), 0o600))
+					secret.Data = []byte("secret-data")
 				}
 
 				calls := []*gomock.Call{configs.EXPECT().List(gomock.Any(), swarm.ListConfigsFilter{Names: []string{configName}}).
@@ -112,7 +111,7 @@ func TestDeployStackReconcilesResourcesWithAndWithoutInitJobs(t *testing.T) {
 					resources:     &resourceReconciler{configs: configs, secrets: secrets},
 					serviceWaiter: newSuccessfulServiceWaiter(t),
 				}
-				_, err := deployer.DeployStack(t.Context(), "demo", filepath.Join(dir, "compose.yaml"), deployPath, compose.Compose{
+				_, err := deployer.DeployStack(t.Context(), "demo", deployPath, compose.Compose{
 					Services: []compose.Service{service}, Configs: compose.Configs{"app": config}, Secrets: compose.Secrets{"password": secret},
 				})
 				require.NoError(t, err)
@@ -137,7 +136,7 @@ func TestDeployStackResourceFailuresStopDeployment(t *testing.T) {
 			{name: "list secrets", stage: "list", errorMatch: "list secrets"},
 			{name: "create secret", stage: "create", errorMatch: "create secret demo_password"},
 			{name: "missing external secret", external: true, errorMatch: "external secret password does not exist"},
-			{name: "read secret", stage: "read", errorMatch: "read secret demo_password"},
+			{name: "read secret", stage: "read", errorMatch: "decode secret demo_password"},
 		} {
 			t.Run(initJobTestName(withInitJobs)+"/"+tt.name, func(t *testing.T) {
 				ctrl := gomock.NewController(t)
@@ -145,7 +144,6 @@ func TestDeployStackResourceFailuresStopDeployment(t *testing.T) {
 				secrets := swarm.NewMockSecretManager(ctrl)
 				jobs := NewMockInitJobExecutor(ctrl)
 				runner := NewMockRunner(ctrl)
-				dir := t.TempDir()
 				desired := compose.Compose{Services: []compose.Service{{Name: "api"}}}
 				if withInitJobs {
 					desired.Services[0].InitJobs = []compose.InitJob{{Name: "migrate"}}
@@ -166,7 +164,7 @@ func TestDeployStackResourceFailuresStopDeployment(t *testing.T) {
 						secrets.EXPECT().List(gomock.Any(), gomock.Any()).Return(nil, listErr)
 					}
 					if tt.stage == "list" {
-						require.NoError(t, os.WriteFile(filepath.Join(dir, "password.txt"), []byte("data"), 0o600))
+						desired.Secrets["password"].Data = []byte("data")
 					}
 					if tt.stage == "create" {
 						// A later failure must also retain resources already created in this attempt.
@@ -175,7 +173,7 @@ func TestDeployStackResourceFailuresStopDeployment(t *testing.T) {
 							configs.EXPECT().List(gomock.Any(), gomock.Any()).Return(nil, nil),
 							configs.EXPECT().Create(gomock.Any(), gomock.Any()).Return("config-id", nil),
 						)
-						require.NoError(t, os.WriteFile(filepath.Join(dir, "password.txt"), []byte("data"), 0o600))
+						desired.Secrets["password"].Data = []byte("data")
 						secrets.EXPECT().Create(gomock.Any(), gomock.Any()).Return("", apiErr)
 					}
 				}
@@ -184,7 +182,7 @@ func TestDeployStackResourceFailuresStopDeployment(t *testing.T) {
 					resources:     &resourceReconciler{configs: configs, secrets: secrets},
 					serviceWaiter: newSuccessfulServiceWaiter(t),
 				}
-				_, err := deployer.DeployStack(context.Background(), "demo", filepath.Join(dir, "compose.yaml"), "rendered.yaml", desired)
+				_, err := deployer.DeployStack(context.Background(), "demo", "rendered.yaml", desired)
 				require.ErrorContains(t, err, "")
 				assert.ErrorContains(t, err, tt.errorMatch)
 				if tt.stage == "list" || (tt.stage == "create" && tt.config) {
@@ -225,7 +223,7 @@ func TestDeployStackDeployFailureKeepsReconciledResources(t *testing.T) {
 				resources:     &resourceReconciler{configs: configs, secrets: secrets},
 				serviceWaiter: newSuccessfulServiceWaiter(t),
 			}
-			result, err := deployer.DeployStack(t.Context(), "demo", "compose.yaml", "rendered.yaml", desired)
+			result, err := deployer.DeployStack(t.Context(), "demo", "rendered.yaml", desired)
 			require.ErrorIs(t, err, deployErr)
 			assert.ErrorContains(t, err, "deploy stack demo")
 			if withInitJobs {

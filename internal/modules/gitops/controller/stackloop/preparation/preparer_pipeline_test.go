@@ -23,7 +23,7 @@ func TestPrepareRecoversStepPanicWithStage(t *testing.T) {
 	// A missing rotator deliberately causes a panic inside the rotation step.
 	preparer := New(cfg, nil, fs.NewLocalFileSystem(), nil)
 	_, err := preparer.Prepare(t.Context(), Request{
-		Stack: config.StackSpec{Name: "app"},
+		Stack:   config.StackSpec{Name: "app"},
 		Desired: &compose.File{Path: "/app/compose.yaml"},
 	})
 	var stepErr *pipe.StepError
@@ -65,11 +65,11 @@ func TestPrepareRecordsOriginalStepSpans(t *testing.T) {
 	assert.Contains(t, names, "prepare stack")
 	assert.Contains(t, names, "add managed label")
 	assert.Contains(t, names, "write rendered compose")
-	assert.FileExists(t, prepared.RenderedComposePath)
+	assert.FileExists(t, prepared.DeployComposePath)
 }
 
-func TestPrepareKeepsExistingManagedLabelWithoutRendering(t *testing.T) {
-	cfg := &config.Config{}
+func TestPrepareAlwaysRendersEvenWithExistingManagedLabel(t *testing.T) {
+	cfg := &config.Config{Spec: config.Spec{DataDir: t.TempDir()}}
 	preparer := New(cfg, nil, fs.NewLocalFileSystem(), nil)
 	prepared, err := preparer.Prepare(t.Context(), Request{
 		Stack: config.StackSpec{Name: "app"},
@@ -84,8 +84,9 @@ func TestPrepareKeepsExistingManagedLabelWithoutRendering(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	assert.Equal(t, "/repo/app.yaml", prepared.DeployComposePath)
-	assert.Empty(t, prepared.RenderedComposePath)
+	defer preparer.Cleanup(t.Context(), prepared)
+	assert.NotEqual(t, "/repo/app.yaml", prepared.DeployComposePath)
+	assert.FileExists(t, prepared.DeployComposePath)
 }
 
 func TestPreparePreservesValidationErrorType(t *testing.T) {

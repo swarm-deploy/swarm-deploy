@@ -41,11 +41,11 @@ func (t *TraceableRepository) WorkingDir() string {
 	return t.repo.WorkingDir()
 }
 
-func (t *TraceableRepository) ReadFile(ctx context.Context, path string) ([]byte, error) {
+func (t *TraceableRepository) ReadFile(ctx context.Context, revision, path string) ([]byte, error) {
 	ctx, span := t.tracer.Start(ctx, "repo.ReadFile", trace.WithAttributes(attribute.String("path", path)))
 	defer span.End()
 
-	content, err := t.repo.ReadFile(ctx, path)
+	content, err := t.repo.ReadFile(ctx, revision, path)
 	if err != nil {
 		tracing.FailSpan(span, err)
 		return nil, err
