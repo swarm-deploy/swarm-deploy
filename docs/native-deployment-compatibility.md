@@ -101,8 +101,9 @@ does not replace or suppress an already observed terminal update failure.
 ## Image policy
 
 On create or a changed image reference, use the Docker SDK's registry resolution
-with existing AuthManager credentials. Digest-pinned references are already
-resolved and do not need a registry query.
+with existing AuthManager credentials, including digest-pinned references.
+A digest pins content but does not supply platform metadata; the SDK registry
+query supplies placement platforms for heterogeneous Swarm scheduling.
 
 For an unchanged Compose image label, reuse the current actual reference and
 SDK-generated platform metadata only if it is a valid resolution of that desired

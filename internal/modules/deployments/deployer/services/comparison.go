@@ -116,18 +116,6 @@ func resolvedImageMatches(actual, wanted string) bool {
 	return tagged && currentTagged && desiredTag.Tag() == currentTag.Tag()
 }
 
-func digestPinned(spec dockerswarm.ServiceSpec) bool {
-	if spec.TaskTemplate.ContainerSpec == nil {
-		return false
-	}
-	named, err := reference.ParseNormalizedNamed(spec.TaskTemplate.ContainerSpec.Image)
-	if err != nil {
-		return false
-	}
-	_, pinned := named.(reference.Canonical)
-	return pinned
-}
-
 func canonicalSpec(spec dockerswarm.ServiceSpec) any {
 	payload, _ := json.Marshal(spec)
 	var value any

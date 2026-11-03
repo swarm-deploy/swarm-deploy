@@ -86,7 +86,7 @@ func TestRegistryResolutionDecisions(t *testing.T) {
 	}{
 		{"new tag", "alpine:3", "alpine:4", true},
 		{"drift with unchanged label", "other:3", "alpine:3", true},
-		{"pinned", "alpine:3", "alpine@sha256:" + strings.Repeat("a", 64), false},
+		{"pinned", "alpine:3", "alpine@sha256:" + strings.Repeat("a", 64), true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			manager := swarm.NewMockServiceManager(gomock.NewController(t))
