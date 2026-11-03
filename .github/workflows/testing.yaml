@@ -150,7 +150,36 @@ jobs:
       - name: Test real Swarm deployments and scheduler integration
         env:
           SWARM_DEPLOY_E2E: '1'
-        run: go test -count=1 -timeout=10m -v ./e2e
+        run: go test -count=1 -timeout=10m -v ./e2e -skip '^TestRealSwarmJobFailureRetryAndRecovery
+      - name: Collect Swarm diagnostics on failure
+        if: failure()
+        run: |
+          docker info || true
+          docker service ls || true
+          docker stack ls || true
+          docker service ps --no-trunc $(docker service ls --format '{{.Name}}') || true
+
+      - name: Leave Swarm
+        if: always()
+        run: docker swarm leave --force || true
+
+
+      - name: Test real Swarm job failure and retry recovery
+        env:
+          SWARM_DEPLOY_E2E: '1'
+        run: go test -count=1 -timeout=10m -v ./e2e -run '^TestRealSwarmJobFailureRetryAndRecovery
+      - name: Collect Swarm diagnostics on failure
+        if: failure()
+        run: |
+          docker info || true
+          docker service ls || true
+          docker stack ls || true
+          docker service ps --no-trunc $(docker service ls --format '{{.Name}}') || true
+
+      - name: Leave Swarm
+        if: always()
+        run: docker swarm leave --force || true
+
 
       - name: Collect Swarm diagnostics on failure
         if: failure()
