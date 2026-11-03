@@ -26,11 +26,11 @@ import (
 type GoGitRepository struct {
 	path string
 
-	branch   string
+	branch      string
 	pullTimeout time.Duration
-	auth     transport.AuthMethod
-	remote   string
-	authType config.GitAuthType
+	auth        transport.AuthMethod
+	remote      string
+	authType    config.GitAuthType
 
 	// go-git mutates its object indexes during both reads and pulls.
 	mu         chan struct{}
@@ -64,14 +64,14 @@ func NewGoGitRepository(ctx context.Context, spec config.GitSpec, path string) (
 		pullTimeout = config.DefaultGitPullTimeout
 	}
 	return &GoGitRepository{
-		path:       path,
-		branch:     spec.Branch,
+		path:        path,
+		branch:      spec.Branch,
 		pullTimeout: pullTimeout,
-		auth:       authMethod,
-		remote:     spec.Repository,
-		authType:   spec.Auth.Type,
-		repository: repo,
-		mu:         make(chan struct{}, 1),
+		auth:        authMethod,
+		remote:      spec.Repository,
+		authType:    spec.Auth.Type,
+		repository:  repo,
+		mu:          make(chan struct{}, 1),
 	}, nil
 }
 

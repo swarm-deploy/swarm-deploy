@@ -64,10 +64,10 @@ type Queue struct {
 	running map[string]operation
 	// changedAfterFailure retains priority when a failed run drops pending work.
 	changedAfterFailure map[string]bool
-	started bool
-	stopped bool
-	idle    chan struct{}
-	done    sync.WaitGroup
+	started             bool
+	stopped             bool
+	idle                chan struct{}
+	done                sync.WaitGroup
 }
 
 // New creates a queue with the given number of workers. Values below one mean sequential processing.
@@ -75,14 +75,14 @@ func New(reconciler stackloop.StackReconciler, syncMetrics metrics.Sync, paralle
 	idle := make(chan struct{})
 	close(idle)
 	q := &Queue{
-		reconciler: reconciler,
-		metrics:    syncMetrics,
-		workers:    max(parallelism, 1),
-		tracer:     otel.Tracer("github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackqueue"),
-		pending:    map[string]operation{},
-		running:    map[string]operation{},
+		reconciler:          reconciler,
+		metrics:             syncMetrics,
+		workers:             max(parallelism, 1),
+		tracer:              otel.Tracer("github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackqueue"),
+		pending:             map[string]operation{},
+		running:             map[string]operation{},
 		changedAfterFailure: map[string]bool{},
-		idle:       idle,
+		idle:                idle,
 	}
 	q.cond = sync.NewCond(&q.mu)
 	return q
