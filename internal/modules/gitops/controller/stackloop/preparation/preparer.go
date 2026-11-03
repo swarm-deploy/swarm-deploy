@@ -3,6 +3,7 @@ package preparation
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -88,8 +89,9 @@ func New(cfg *config.Config, git gitx.Repository, fileSystem fs.FileSystem, rota
 // Load reads and validates the source Compose file at a Git revision without applying effective-state
 // mutations. Files inside the repository, including env files, configs and secrets, are read from the
 // revision's commit objects, never from the working tree, so the result does not depend on pulls
-// performed meanwhile. Absolute paths outside the repository, such as files mounted into the
-// controller, are not versioned and are read from the filesystem.
+// performed meanwhile; symlinks are resolved within the same revision. Paths outside the repository,
+// whether absolute or reached through a symlink, such as files mounted into the controller, are not
+// versioned and are read from the filesystem.
 func (p *Preparer) Load(ctx context.Context, stack config.StackSpec, revision string) (*compose.File, error) {
 	root := p.git.WorkingDir()
 	reader := func(ctx context.Context, path string) ([]byte, error) {
@@ -97,7 +99,12 @@ func (p *Preparer) Load(ctx context.Context, stack config.StackSpec, revision st
 		if !inside {
 			return p.fileSystem.ReadFile(ctx, path)
 		}
-		return p.git.ReadFileAt(ctx, revision, relative)
+		content, err := p.git.ReadFileAt(ctx, revision, relative)
+		if external, ok := errors.AsType[*gitx.ExternalPathError](err); ok {
+			// A symlink in the revision points outside the repository: same policy as external paths.
+			return p.fileSystem.ReadFile(ctx, external.Path)
+		}
+		return content, err
 	}
 	return compose.NewFileLoaderWithReader(reader).Load(ctx, filepath.Join(root, stack.ComposeFile))
 }

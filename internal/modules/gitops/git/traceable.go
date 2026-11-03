@@ -2,6 +2,7 @@ package git
 
 import (
 	"context"
+	"errors"
 	"net/http"
 
 	"github.com/go-git/go-git/v5/plumbing/transport/client"
@@ -63,6 +64,13 @@ func (t *TraceableRepository) ReadFileAt(ctx context.Context, revision string, p
 	defer span.End()
 
 	content, err := t.repo.ReadFileAt(ctx, revision, path)
+	if external, ok := errors.AsType[*ExternalPathError](err); ok {
+		// Not a failure: the caller decides how to read content outside the repository.
+		span.AddEvent("path resolves outside the repository", trace.WithAttributes(
+			attribute.String("external_path", external.Path),
+		))
+		return nil, err
+	}
 	if err != nil {
 		tracing.FailSpan(span, err)
 		return nil, err

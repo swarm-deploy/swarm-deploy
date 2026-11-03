@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 
 	gogit "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
@@ -30,6 +31,9 @@ type GoGitRepository struct {
 	remote   string
 	authType config.GitAuthType
 
+	// mu serializes access to the go-git repository, which is not safe for concurrent use:
+	// stack operations read revisions in parallel while the scheduler pulls.
+	mu         sync.Mutex
 	repository *gogit.Repository
 }
 
@@ -84,21 +88,22 @@ func (r *GoGitRepository) ReadFileAt(_ context.Context, revision string, path st
 		return nil, errors.New("revision is required")
 	}
 
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
 	commit, err := r.repository.CommitObject(plumbing.NewHash(trimmedRevision))
 	if err != nil {
 		return nil, fmt.Errorf("find commit %q: %w", trimmedRevision, err)
 	}
-	file, err := commit.File(filepath.ToSlash(path))
+	tree, err := commit.Tree()
+	if err != nil {
+		return nil, fmt.Errorf("resolve tree of %s: %w", trimmedRevision, err)
+	}
+	blobHash, err := r.resolveRevisionFile(tree, path)
 	if err != nil {
 		return nil, fmt.Errorf("read repository file %q at %s: %w", path, trimmedRevision, err)
 	}
-	reader, err := file.Reader()
-	if err != nil {
-		return nil, fmt.Errorf("open repository file %q at %s: %w", path, trimmedRevision, err)
-	}
-	defer reader.Close()
-
-	content, err := io.ReadAll(reader)
+	content, err := r.readBlob(blobHash)
 	if err != nil {
 		return nil, fmt.Errorf("read repository file %q at %s: %w", path, trimmedRevision, err)
 	}
@@ -107,12 +112,15 @@ func (r *GoGitRepository) ReadFileAt(_ context.Context, revision string, path st
 }
 
 func (r *GoGitRepository) Pull(ctx context.Context) (PullResult, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
 	worktree, err := r.repository.Worktree()
 	if err != nil {
 		return PullResult{}, fmt.Errorf("open worktree: %w", err)
 	}
 
-	previousHash, err := r.Head(ctx)
+	previousHash, err := r.head()
 	if err != nil {
 		return PullResult{}, fmt.Errorf("get current head: %w", err)
 	}
@@ -129,7 +137,7 @@ func (r *GoGitRepository) Pull(ctx context.Context) (PullResult, error) {
 		return PullResult{}, ClassifyPullError(fmt.Errorf("git pull: %w", err), r.remote, r.authType)
 	}
 
-	newHash, err := r.Head(ctx)
+	newHash, err := r.head()
 	if err != nil {
 		return PullResult{}, fmt.Errorf("get current head after pull: %w", err)
 	}
@@ -142,6 +150,13 @@ func (r *GoGitRepository) Pull(ctx context.Context) (PullResult, error) {
 }
 
 func (r *GoGitRepository) Head(context.Context) (string, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	return r.head()
+}
+
+func (r *GoGitRepository) head() (string, error) {
 	headRef, err := r.repository.Head()
 	if err != nil {
 		return "", err
@@ -154,6 +169,9 @@ func (r *GoGitRepository) List(ctx context.Context, limit int) ([]CommitMeta, er
 	if limit <= 0 {
 		return nil, errors.New("limit must be > 0")
 	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
 
 	headRef, err := r.repository.Head()
 	if err != nil {
@@ -207,6 +225,9 @@ func (r *GoGitRepository) Diff(ctx context.Context, oldRevision string, newRevis
 		return nil, nil
 	}
 
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
 	oldCommit, err := r.repository.CommitObject(plumbing.NewHash(oldRevision))
 	if err != nil {
 		return nil, fmt.Errorf("find old revision %q: %w", oldRevision, err)
@@ -240,6 +261,9 @@ func (r *GoGitRepository) Show(ctx context.Context, commitHash string) (Commit, 
 	if trimmedHash == "" {
 		return Commit{}, errors.New("commit hash is required")
 	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
 
 	commit, err := r.repository.CommitObject(plumbing.NewHash(trimmedHash))
 	if err != nil {

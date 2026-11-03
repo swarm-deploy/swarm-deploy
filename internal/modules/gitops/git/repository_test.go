@@ -603,6 +603,105 @@ func TestGoGitRepositoryReadFileAtReadsRevisionIndependentlyOfWorkingTree(t *tes
 	}
 }
 
+func TestGoGitRepositoryReadFileAtResolvesSymlinksWithinRevision(t *testing.T) {
+	sourceRepositoryPath, sourceHead := initSourceRepository(t)
+	sourceRepository, err := gogit.PlainOpen(sourceRepositoryPath)
+	require.NoError(t, err, "open source repository")
+	worktree, err := sourceRepository.Worktree()
+	require.NoError(t, err, "open source repository worktree")
+	commitAll := func(message string) string {
+		t.Helper()
+		require.NoError(t, worktree.AddWithOptions(&gogit.AddOptions{All: true}), "git add")
+		hash, commitErr := worktree.Commit(message, &gogit.CommitOptions{
+			Author: &object.Signature{Name: "test", Email: "test@example.com", When: time.Now()},
+		})
+		require.NoError(t, commitErr, "commit")
+		return hash.String()
+	}
+	write := func(name, content string) {
+		t.Helper()
+		target := filepath.Join(sourceRepositoryPath, filepath.FromSlash(name))
+		require.NoError(t, os.MkdirAll(filepath.Dir(target), 0o755))
+		require.NoError(t, os.WriteFile(target, []byte(content), 0o600))
+	}
+	link := func(target, name string) {
+		t.Helper()
+		linkPath := filepath.Join(sourceRepositoryPath, filepath.FromSlash(name))
+		_ = os.Remove(linkPath)
+		require.NoError(t, os.Symlink(target, linkPath))
+	}
+
+	write("app/compose.yaml", "compose")
+	write("shared/app.env", "env")
+	link("../shared/app.env", "app/env")
+	link("app/compose.yaml", "file-link")
+	link("app", "dir-link")
+	link("chain-b", "chain-a")
+	link("file-link", "chain-b")
+	link("loop-b", "loop-a")
+	link("loop-a", "loop-b")
+	link(filepath.Join(sourceRepositoryPath, "app", "compose.yaml"), "absolute-inside")
+	link("../outside.txt", "escape")
+	link("/etc/swarm-deploy/token", "absolute-outside")
+	link("/mnt/secrets", "external-dir")
+	link("missing.txt", "dangling")
+	link("app/compose.yaml", "moving")
+	first := commitAll("symlinks")
+	link("shared/app.env", "moving")
+	second := commitAll("move symlink")
+	repository, err := NewGoGitRepository(t.Context(), config.GitSpec{
+		Repository: sourceRepositoryPath,
+		Branch:     sourceHead.Name().Short(),
+	}, sourceRepositoryPath)
+	require.NoError(t, err, "create repository")
+
+	tests := []struct {
+		name        string
+		revision    string
+		path        string
+		expected    string
+		external    string
+		expectedErr string
+	}{
+		{name: "regular file", revision: first, path: "app/compose.yaml", expected: "compose"},
+		{name: "relative link with parent", revision: first, path: "app/env", expected: "env"},
+		{name: "link to file", revision: first, path: "file-link", expected: "compose"},
+		{name: "link to directory", revision: first, path: "dir-link/compose.yaml", expected: "compose"},
+		{name: "chain of links", revision: first, path: "chain-a", expected: "compose"},
+		{name: "absolute link inside repository", revision: first, path: "absolute-inside", expected: "compose"},
+		{name: "link target at first revision", revision: first, path: "moving", expected: "compose"},
+		{name: "link target at second revision", revision: second, path: "moving", expected: "env"},
+		{name: "relative link leaving repository", revision: first, path: "escape",
+			external: filepath.Join(filepath.Dir(sourceRepositoryPath), "outside.txt")},
+		{name: "absolute link outside repository", revision: first, path: "absolute-outside",
+			external: "/etc/swarm-deploy/token"},
+		{name: "file under external directory link", revision: first, path: "external-dir/token",
+			external: "/mnt/secrets/token"},
+		{name: "link cycle", revision: first, path: "loop-a", expectedErr: "too many levels of symbolic links"},
+		{name: "dangling link", revision: first, path: "dangling", expectedErr: "file not found"},
+		{name: "directory", revision: first, path: "app", expectedErr: "is a directory"},
+		{name: "file used as directory", revision: first, path: "app/compose.yaml/x", expectedErr: "is not a directory"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			content, readErr := repository.ReadFileAt(t.Context(), tt.revision, tt.path)
+
+			switch {
+			case tt.external != "":
+				external, ok := errors.AsType[*ExternalPathError](readErr)
+				require.True(t, ok, "expected external path error, got %v", readErr)
+				assert.Equal(t, tt.external, external.Path)
+			case tt.expectedErr != "":
+				require.ErrorContains(t, readErr, tt.expectedErr)
+			default:
+				require.NoError(t, readErr)
+				assert.Equal(t, tt.expected, string(content))
+			}
+		})
+	}
+}
+
 func TestGoGitRepositoryDiffReturnsFileDiffsBetweenRevisions(t *testing.T) {
 	sourceRepositoryPath, sourceHead := initSourceRepository(t)
 	sourceRepository, err := gogit.PlainOpen(sourceRepositoryPath)

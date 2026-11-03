@@ -36,8 +36,10 @@ only the work that needs a stable Git working tree:
 
 The run then finishes without waiting for deployments. Every stack operation reads its Compose file and the
 `env_file`, config and secret files it references from the commit of its revision, never from the working
-tree, so a later Git pull can never change what a queued or running operation applies. Absolute paths outside
-the repository, such as files mounted into the controller, are not versioned and are read from disk.
+tree, so a later Git pull can never change what a queued or running operation applies. Symlinks inside the
+repository, both for directories and files, are resolved within the same revision; cycles fail after 40 hops.
+Paths outside the repository, whether absolute or reached through a symlink, such as files mounted into the
+controller, are not versioned and are read from disk.
 
 The stack queue runs at most `sync.parallelism` stacks at the same time (default `4`) and never runs two
 operations for the same stack at once. A slow stack therefore occupies one slot but never delays Git polling,

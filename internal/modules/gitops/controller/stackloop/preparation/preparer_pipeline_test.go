@@ -109,9 +109,12 @@ func TestLoadReadsRepositoryFilesAtRevision(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "repo")
 	outside := filepath.Join(t.TempDir(), "mounted.secret")
 	require.NoError(t, os.WriteFile(outside, []byte("mounted"), 0o600))
+	linkedOutside := filepath.Join(t.TempDir(), "linked.secret")
+	require.NoError(t, os.WriteFile(linkedOutside, []byte("linked"), 0o600))
 	files := map[string]string{
 		"app/compose.yaml": "services:\n  api:\n    image: nginx:1.27\n    env_file: [../shared/app.env]\n" +
-			"configs:\n  settings:\n    file: ./settings.conf\nsecrets:\n  mounted:\n    file: " + outside + "\n",
+			"configs:\n  settings:\n    file: ./settings.conf\nsecrets:\n  mounted:\n    file: " + outside + "\n" +
+			"  linked:\n    file: ./linked.secret\n",
 		"shared/app.env":    "MODE=revision\n",
 		"app/settings.conf": "revision settings",
 	}
@@ -120,6 +123,9 @@ func TestLoadReadsRepositoryFilesAtRevision(t *testing.T) {
 	for path, content := range files {
 		repository.EXPECT().ReadFileAt(gomock.Any(), "abc123", path).Return([]byte(content), nil)
 	}
+	// A symlink in the revision that leaves the repository follows the external file policy.
+	repository.EXPECT().ReadFileAt(gomock.Any(), "abc123", "app/linked.secret").
+		Return(nil, &gitx.ExternalPathError{Path: linkedOutside})
 	// The working tree is never read: none of the repository files exist on disk.
 	preparer := New(&config.Config{}, repository, fs.NewLocalFileSystem(), nil)
 
@@ -131,6 +137,8 @@ func TestLoadReadsRepositoryFilesAtRevision(t *testing.T) {
 	assert.Equal(t, []byte("revision settings"), source.Compose.Configs["settings"].Data)
 	assert.Equal(t, []byte("mounted"), source.Compose.Secrets["mounted"].Data,
 		"absolute paths outside the repository are read from the filesystem")
+	assert.Equal(t, []byte("linked"), source.Compose.Secrets["linked"].Data,
+		"symlinks leaving the repository are read from the filesystem")
 }
 
 func TestRepositoryPath(t *testing.T) {
