@@ -110,10 +110,11 @@ func TestCLIEnvironmentDifferences(t *testing.T) {
 	for _, tc := range []struct {
 		environment string
 		native      string
+		reject      bool
 	}{
-		{"[AUDIT_ENV]", "from-controller"},
-		{"{AUDIT_ENV: null}", "from-controller"},
-		{"{AUDIT_ENV: ''}", ""},
+		{"[AUDIT_ENV]", "", true},
+		{"{AUDIT_ENV: null}", "", false},
+		{"{AUDIT_ENV: ''}", "", false},
 	} {
 		t.Run(tc.environment, func(t *testing.T) {
 			source := "version: '3.8'\nservices: {api: {image: alpine, environment: " + tc.environment + "}}"
@@ -124,6 +125,10 @@ func TestCLIEnvironmentDifferences(t *testing.T) {
 			require.NotNil(t, cli.Services[0].Environment["AUDIT_ENV"])
 			assert.Equal(t, "from-controller", *cli.Services[0].Environment["AUDIT_ENV"])
 			file, err := compose.NewFileLoaderWithReader(func(context.Context, string) ([]byte, error) { return []byte(source), nil }).Load(t.Context(), "compose.yaml")
+			if tc.reject {
+				require.Error(t, err)
+				return
+			}
 			require.NoError(t, err)
 			assert.Equal(t, tc.native, file.Compose.Services[0].Environment.Map["AUDIT_ENV"])
 		})

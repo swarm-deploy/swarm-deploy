@@ -146,11 +146,11 @@ networks:
 
 func TestEnvironmentConverterDoesNotResolveProcessValues(t *testing.T) {
 	t.Setenv("BARE", "hidden")
-	desired, err := compose.Parse([]byte(`services: {api: {image: alpine, environment: [BARE, 'EMPTY=', 'LITERAL=null']}}`))
+	desired, err := compose.Parse([]byte(`services: {api: {image: alpine, environment: ['BARE=', 'EMPTY=', 'LITERAL=null']}}`))
 	require.NoError(t, err)
 	spec, err := convertService("demo", desired.Services[0], nil, []NetworkSpec{{Alias: "default", ID: "network"}}, resources.Resolved{})
 	require.NoError(t, err)
-	assert.Equal(t, []string{"BARE", "EMPTY=", "LITERAL=null"}, spec.TaskTemplate.ContainerSpec.Env)
+	assert.Equal(t, []string{"BARE=", "EMPTY=", "LITERAL=null"}, spec.TaskTemplate.ContainerSpec.Env)
 }
 
 func TestTmpfsShortOptions(t *testing.T) {

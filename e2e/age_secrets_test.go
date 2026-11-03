@@ -224,7 +224,7 @@ func writeAgeSwarmFixture(t *testing.T, dir string, recipient age.Recipient, val
 	manifest := fmt.Sprintf(`services:
   check:
     image: busybox:1.36
-    command: ["sh", "-ec", "test $$(sha256sum /run/secrets/password | cut -d' ' -f1) = %x && grep -qx plain-fixture /run/secrets/plain && echo %s && sleep 300"]
+    command: ["sh", "-ec", "test $(sha256sum /run/secrets/password | cut -d' ' -f1) = %x && grep -qx plain-fixture /run/secrets/plain && echo %s && sleep 300"]
     x-init-deploy-jobs:
       - name: validate-age
         image: busybox:1.36

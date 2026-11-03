@@ -288,7 +288,7 @@ func newGitOpsLifecycleFixture(t *testing.T) *gitOpsLifecycleFixture {
 }
 
 func (m gitOpsManifest) compose(subnet string) string {
-	command := fmt.Sprintf(`printf '%s:%%s:%%s:%%s\n' "$$MODE" "$$(cat /run/secrets/password)" "$$(cat /etc/app.conf)"; sleep 600`, m.apiCommand)
+	command := fmt.Sprintf(`printf '%s:%%s:%%s:%%s\n' "$MODE" "$(cat /run/secrets/password)" "$(cat /etc/app.conf)"; sleep 600`, m.apiCommand)
 	health := ""
 	if m.broken {
 		command = "sleep 1; exit 23"

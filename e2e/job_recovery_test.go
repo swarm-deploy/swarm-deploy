@@ -24,7 +24,7 @@ func TestRealSwarmJobFailureRetryAndRecovery(t *testing.T) {
 				input := t.TempDir()
 				exitFile := filepath.Join(input, "exit-code")
 				require.NoError(t, os.WriteFile(exitFile, []byte("23"), 0o600))
-				command := "exit $$(cat /input/exit-code)"
+				command := "exit $(cat /input/exit-code)"
 				side := ""
 				network := fmt.Sprintf("    ipam:\n      config:\n        - subnet: %s\n", f.subnet)
 				if external := os.Getenv("SWARM_DEPLOY_E2E_JOB_NETWORK"); external != "" {

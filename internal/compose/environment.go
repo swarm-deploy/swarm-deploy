@@ -13,8 +13,8 @@ import (
 const envPairParts = 2
 
 type Environment struct {
-	// Unset records bare/null keys without an effective value. It survives snapshots
-	// and rendered YAML so deployment never consults the controller environment.
+	// Unset is retained only for backwards compatibility with persisted definitions.
+	// Newly loaded Compose environments contain explicit values.
 	Unset []string          `json:"Unset,omitempty"`
 	Map   map[string]string `json:"Map"`
 	Keys  []string          `json:"Keys"`
@@ -34,10 +34,6 @@ func NewEnvironment(values []string) (*Environment, error) {
 			return nil, fmt.Errorf("environment[%d] %q: %w", i, raw, err)
 		}
 
-		env.Unset = slices.DeleteFunc(env.Unset, func(existing string) bool { return existing == key })
-		if !strings.Contains(raw, "=") {
-			env.Unset = append(env.Unset, key)
-		}
 		env.Map[key] = value
 		env.Keys = append(env.Keys, key)
 	}
@@ -128,10 +124,6 @@ func (e *Environment) unmarshalFromSequence(node *yaml.Node) error {
 			return fmt.Errorf("environment[%d] %q: %w", i, item.Value, err)
 		}
 
-		e.Unset = slices.DeleteFunc(e.Unset, func(existing string) bool { return existing == key })
-		if !strings.Contains(item.Value, "=") {
-			e.Unset = append(e.Unset, key)
-		}
 		mmap[key] = value
 		keys = append(keys, key)
 	}
@@ -148,23 +140,7 @@ func (e *Environment) parseVar(raw string) (string, string, error) {
 		return chunks[0], chunks[1], nil
 	}
 
-	if raw == "" {
-		return "", "", errors.New("contains empty variable name")
-	}
-	return raw, "", nil
-}
-
-// resolve captures effective bare/null values during source preparation only.
-func (e *Environment) resolve(lookup func(string) (string, bool)) {
-	unresolved := make([]string, 0, len(e.Unset))
-	for _, key := range e.Unset {
-		if value, exists := lookup(key); exists {
-			e.Map[key] = value
-		} else {
-			unresolved = append(unresolved, key)
-		}
-	}
-	e.Unset = unresolved
+	return "", "", errors.New("contains non-pair value")
 }
 
 func (e *Environment) unmarshalFromMapping(node *yaml.Node) error {
@@ -177,7 +153,6 @@ func (e *Environment) unmarshalFromMapping(node *yaml.Node) error {
 			key = child.Value
 		} else {
 			if child.Tag == "!!null" {
-				e.Unset = append(e.Unset, key)
 				e.Map[key] = ""
 			} else {
 				e.Map[key] = child.Value
