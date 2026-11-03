@@ -115,6 +115,21 @@ func (mr *MockRepositoryMockRecorder) ReadFile(ctx, path any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReadFile", reflect.TypeOf((*MockRepository)(nil).ReadFile), ctx, path)
 }
 
+// ReadFileAt mocks base method.
+func (m *MockRepository) ReadFileAt(ctx context.Context, revision, path string) ([]byte, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ReadFileAt", ctx, revision, path)
+	ret0, _ := ret[0].([]byte)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ReadFileAt indicates an expected call of ReadFileAt.
+func (mr *MockRepositoryMockRecorder) ReadFileAt(ctx, revision, path any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReadFileAt", reflect.TypeOf((*MockRepository)(nil).ReadFileAt), ctx, revision, path)
+}
+
 // Show mocks base method.
 func (m *MockRepository) Show(ctx context.Context, commitHash string) (Commit, error) {
 	m.ctrl.T.Helper()

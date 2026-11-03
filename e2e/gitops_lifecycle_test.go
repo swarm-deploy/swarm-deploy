@@ -304,7 +304,7 @@ func newGitOpsLifecycleFixture(t *testing.T) *gitOpsLifecycleFixture {
 	stacks := stackqueue.New(f.reconciler, metricGroup.Sync, 1)
 	stacks.Start(context.WithoutCancel(base.ctx))
 	t.Cleanup(stacks.Stop)
-	runner := syncrun.New(configs, repository, metricGroup, f.bus, f.state, networks, f.reconciler, puller, stacks)
+	runner := syncrun.New(configs, repository, metricGroup, f.bus, f.state, networks, puller, stacks)
 	return &gitOpsLifecycleFixture{
 		lifecycleFixture: f, writer: writer, repository: repository,
 		runner: waitingSyncRunner{runner: runner, stacks: stacks},

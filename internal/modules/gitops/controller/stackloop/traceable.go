@@ -3,7 +3,6 @@ package stackloop
 import (
 	"context"
 
-	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
@@ -23,30 +22,14 @@ func NewTraceableReconciler(tp trace.TracerProvider, reconciler StackReconciler)
 	}
 }
 
-func (t *TraceableReconciler) Load(ctx context.Context, stack config.StackSpec) (*compose.File, error) {
-	ctx, span := t.tracer.Start(ctx, "stackReconciler.Load", trace.WithAttributes(
-		tracing.ResourceStackName.String(stack.Name),
-	))
-	defer span.End()
-
-	source, err := t.reconciler.Load(ctx, stack)
-	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, err.Error())
-		return nil, err
-	}
-
-	span.SetStatus(codes.Ok, "")
-	return source, nil
-}
-
-func (t *TraceableReconciler) Cleanup(ctx context.Context, stack config.StackSpec, source *compose.File) error {
+func (t *TraceableReconciler) Cleanup(ctx context.Context, stack config.StackSpec, commit string) error {
 	ctx, span := t.tracer.Start(ctx, "stackReconciler.Cleanup", trace.WithAttributes(
 		tracing.ResourceStackName.String(stack.Name),
+		tracing.SyncCommitSha.String(commit),
 	))
 	defer span.End()
 
-	err := t.reconciler.Cleanup(ctx, stack, source)
+	err := t.reconciler.Cleanup(ctx, stack, commit)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())

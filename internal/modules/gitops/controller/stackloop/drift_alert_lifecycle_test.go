@@ -95,14 +95,16 @@ func TestReconcileDriftRecoveryPersistsAndDeliversEvents(t *testing.T) {
 				}}
 			}))
 			repository.EXPECT().WorkingDir().Return(dir).AnyTimes()
+			expectRevisionReads(repository, dir)
 			// Recreate the reconciler and lifecycle controller on every tick. The clock
 			// stays before the automatic retry deadline to exercise persisted backoff.
 			clock := time.Now().UTC()
 			reconcile := func() error {
 				lifecycle := deployments.NewService(db, publisher, deployments.WithClock(func() time.Time { return clock }))
-				return reconcileFromWorkingTree(ctx, newTestReconciler(cfg, repository, lifecycle, stackDeployer,
-					&swarm.Swarm{Services: manager}, publisher, &metrics.NopDeploys{}, store, fs.NewLocalFileSystem(), db),
-					ReconciliationRequest{Stack: config.StackSpec{Name: "app", ComposeFile: "app.yaml"}, Commit: "one"})
+				return newTestReconciler(cfg, repository, lifecycle, stackDeployer, &swarm.Swarm{Services: manager}, publisher,
+					&metrics.NopDeploys{}, store, fs.NewLocalFileSystem(), db).Reconcile(ctx, ReconciliationRequest{
+					Stack: config.StackSpec{Name: "app", ComposeFile: "app.yaml"}, Commit: "one",
+				})
 			}
 			one, three := uint64(1), uint64(3)
 			healthy := []swarm.StackService{{Name: "api", Replicas: &three}, {Name: "peer", Replicas: &one}}

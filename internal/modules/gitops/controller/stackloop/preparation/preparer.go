@@ -65,7 +65,7 @@ type Request struct {
 type Preparer struct {
 	cfg              *config.Config
 	git              gitx.Repository
-	composeLoader    compose.FileLoader
+	fileSystem       fs.FileSystem
 	envFilePopulator *compose.EnvFilePopulator
 	rotator          Rotator
 	pipeline         *pipe.Pipeline[*preparationPayload]
@@ -79,15 +79,36 @@ type preparationPayload struct {
 // New creates a Compose preparer.
 func New(cfg *config.Config, git gitx.Repository, fileSystem fs.FileSystem, rotator Rotator) *Preparer {
 	preparer := &Preparer{cfg: cfg, git: git,
-		composeLoader:    compose.NewFileLoaderWithReader(fileSystem.ReadFile),
+		fileSystem:       fileSystem,
 		envFilePopulator: compose.NewEnvFilePopulator(), rotator: rotator}
 	preparer.attachPipeline(nil)
 	return preparer
 }
 
-// Load reads and validates the source Compose file without applying effective-state mutations.
-func (p *Preparer) Load(ctx context.Context, stack config.StackSpec) (*compose.File, error) {
-	return p.composeLoader.Load(ctx, filepath.Join(p.git.WorkingDir(), stack.ComposeFile))
+// Load reads and validates the source Compose file at a Git revision without applying effective-state
+// mutations. Files inside the repository, including env files, configs and secrets, are read from the
+// revision's commit objects, never from the working tree, so the result does not depend on pulls
+// performed meanwhile. Absolute paths outside the repository, such as files mounted into the
+// controller, are not versioned and are read from the filesystem.
+func (p *Preparer) Load(ctx context.Context, stack config.StackSpec, revision string) (*compose.File, error) {
+	root := p.git.WorkingDir()
+	reader := func(ctx context.Context, path string) ([]byte, error) {
+		relative, inside := repositoryPath(root, path)
+		if !inside {
+			return p.fileSystem.ReadFile(ctx, path)
+		}
+		return p.git.ReadFileAt(ctx, revision, relative)
+	}
+	return compose.NewFileLoaderWithReader(reader).Load(ctx, filepath.Join(root, stack.ComposeFile))
+}
+
+// repositoryPath returns the slash-separated path relative to the repository root when path is inside it.
+func repositoryPath(root, path string) (string, bool) {
+	relative, err := filepath.Rel(root, path)
+	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		return "", false
+	}
+	return filepath.ToSlash(relative), true
 }
 
 // Prepare builds the effective definition used directly by native deployment.

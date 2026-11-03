@@ -12,6 +12,9 @@ type Repository interface {
 
 	// ReadFile reads raw file content from current repository working tree.
 	ReadFile(ctx context.Context, path string) ([]byte, error)
+	// ReadFileAt reads raw file content of a repository-relative path at a revision.
+	// It reads the immutable commit objects, so the result never depends on later pulls.
+	ReadFileAt(ctx context.Context, revision string, path string) ([]byte, error)
 
 	// Pull fetches latest changes from origin for configured branch.
 	Pull(ctx context.Context) (PullResult, error)

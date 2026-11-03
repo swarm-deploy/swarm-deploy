@@ -8,7 +8,7 @@ A reconciliation run loads the configured Compose file, computes its effective d
 
 The current pipeline is:
 
-1. Load Compose without interpolating repository-controlled values.
+1. Load Compose at the requested Git revision without interpolating repository-controlled values.
 2. [Check image policy when at least one image rule is enabled](./image-policy.md).
 3. Populate service environment from `env_file`.
 4. [Inject Downward metadata when enabled](./downward.md).
@@ -31,12 +31,13 @@ only the work that needs a stable Git working tree:
 1. pull Git (or read `HEAD` for interval runs);
 2. reload `stacks` and `networks` configuration;
 3. reconcile managed networks;
-4. load every stack source: the Compose file and the content of its `env_file`, config and secret files;
-5. replace the work waiting in the stack queue with the loaded stacks, changed stacks first.
+4. replace the work waiting in the stack queue with every configured stack at the run's revision, changed
+   stacks first.
 
-The run then finishes without waiting for deployments. Loading is the only step that reads the working tree,
-so a later Git pull can never change the files of a deployment that is still running: each queued
-reconciliation carries the in-memory source of the revision it was loaded from.
+The run then finishes without waiting for deployments. Every stack operation reads its Compose file and the
+`env_file`, config and secret files it references from the commit of its revision, never from the working
+tree, so a later Git pull can never change what a queued or running operation applies. Absolute paths outside
+the repository, such as files mounted into the controller, are not versioned and are read from disk.
 
 The stack queue runs at most `sync.parallelism` stacks at the same time (default `4`) and never runs two
 operations for the same stack at once. A slow stack therefore occupies one slot but never delays Git polling,
@@ -49,13 +50,13 @@ sync:
 ```
 
 The queue is keyed by stack name, like a Kubernetes work queue, and every successful sync run atomically
-replaces the whole set of waiting reconciliations with the desired state it has just loaded. As a result:
+replaces the whole set of waiting reconciliations with every configured stack at its revision. As a result:
 
-- while a stack is busy, only the latest desired state waits for it and runs as soon as the current operation
+- while a stack is busy, only the latest revision waits for it and runs as soon as the current operation
   finishes; a manual request stays manual when it is superseded by a later run;
 - waiting work of stacks that are no longer configured disappears, so a removed or renamed stack is never
   deployed from an older revision after the new configuration took effect;
-- a stack never runs with a specification or source that a newer successful run has already replaced;
+- a stack never runs with a specification or revision that a newer successful run has already replaced;
 - waiting stacks are reordered by every run: stacks changed in Git run first, and a waiting stack keeps its
   changed mark until it runs, so a later run without a diff (such as the periodic one) does not push it back;
 - when a run fails after the new configuration was accepted (for example, while reconciling networks), all

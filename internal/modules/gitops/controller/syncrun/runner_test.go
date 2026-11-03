@@ -11,7 +11,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/configstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
@@ -48,7 +47,6 @@ func TestRunDispatchesStacksInPlanOrderAndContinuesAfterFailure(t *testing.T) {
 			repository.EXPECT().WorkingDir().Return(repoDir).AnyTimes()
 			repository.EXPECT().Diff(gomock.Any(), "old", "new").Return(tt.diff, tt.diffErr)
 			reconciler := stackloop.NewMockStackReconciler(ctrl)
-			sources := expectLoads(reconciler, "stack-a", "stack-b")
 			calls := make([]any, 0, len(tt.expected))
 			for index, name := range tt.expected {
 				var reconcileErr error
@@ -56,7 +54,7 @@ func TestRunDispatchesStacksInPlanOrderAndContinuesAfterFailure(t *testing.T) {
 					reconcileErr = errors.New("deploy failed")
 				}
 				calls = append(calls, reconciler.EXPECT().Reconcile(gomock.Any(), stackloop.ReconciliationRequest{
-					Stack: config.StackSpec{Name: name, ComposeFile: name + ".yaml"}, Commit: "new", Source: sources[name],
+					Stack: config.StackSpec{Name: name, ComposeFile: name + ".yaml"}, Commit: "new",
 				}).Return(reconcileErr))
 			}
 			gomock.InOrder(calls...)
@@ -82,10 +80,6 @@ func TestRunDoesNotWaitForSlowStack(t *testing.T) {
 	repository := gitx.NewMockRepository(ctrl)
 	repository.EXPECT().WorkingDir().Return(repoDir).AnyTimes()
 	reconciler := stackloop.NewMockStackReconciler(ctrl)
-	reconciler.EXPECT().Load(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, stack config.StackSpec) (*compose.File, error) {
-			return &compose.File{Path: stack.ComposeFile}, nil
-		}).AnyTimes()
 
 	slowStarted, releaseSlow := make(chan struct{}), make(chan struct{})
 	fastCommits := make(chan string, 2)
@@ -130,10 +124,6 @@ func TestRunDropsQueuedWorkOfStacksRemovedFromConfiguration(t *testing.T) {
 	repository := gitx.NewMockRepository(ctrl)
 	repository.EXPECT().WorkingDir().Return(repoDir).AnyTimes()
 	reconciler := stackloop.NewMockStackReconciler(ctrl)
-	reconciler.EXPECT().Load(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, stack config.StackSpec) (*compose.File, error) {
-			return &compose.File{Path: stack.ComposeFile}, nil
-		}).AnyTimes()
 	slowStarted, releaseSlow := make(chan struct{}), make(chan struct{})
 	var reconciled []string
 	reconciler.EXPECT().Reconcile(gomock.Any(), gomock.Any()).DoAndReturn(
@@ -171,10 +161,6 @@ func TestRunFailureAfterConfigurationReloadDropsWaitingWork(t *testing.T) {
 	repository := gitx.NewMockRepository(ctrl)
 	repository.EXPECT().WorkingDir().Return(repoDir).AnyTimes()
 	reconciler := stackloop.NewMockStackReconciler(ctrl)
-	reconciler.EXPECT().Load(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, stack config.StackSpec) (*compose.File, error) {
-			return &compose.File{Path: stack.ComposeFile}, nil
-		}).AnyTimes()
 	slowStarted, releaseSlow := make(chan struct{}), make(chan struct{})
 	var reconciled []string
 	reconciler.EXPECT().Reconcile(gomock.Any(), gomock.Any()).DoAndReturn(
@@ -205,26 +191,6 @@ func TestRunFailureAfterConfigurationReloadDropsWaitingWork(t *testing.T) {
 	assert.Equal(t, []string{"slow@A"}, reconciled)
 }
 
-func TestRunPassesLoadFailureToReconciliation(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	repoDir := t.TempDir()
-	require.NoError(t, writeStacks(filepath.Join(repoDir, "stacks.yaml"), []string{"broken"}))
-	repository := gitx.NewMockRepository(ctrl)
-	repository.EXPECT().WorkingDir().Return(repoDir).AnyTimes()
-	loadErr := errors.New("invalid compose")
-	reconciler := stackloop.NewMockStackReconciler(ctrl)
-	stack := config.StackSpec{Name: "broken", ComposeFile: "broken.yaml"}
-	reconciler.EXPECT().Load(gomock.Any(), stack).Return(nil, loadErr)
-	reconciler.EXPECT().Reconcile(gomock.Any(), stackloop.ReconciliationRequest{
-		Stack: stack, Commit: "revision", IsManual: true, SourceErr: loadErr,
-	}).Return(loadErr)
-	runner, _, queue := newTestRunner(t, repository, reconciler, 1)
-
-	runner.run(t.Context(), Task{Reason: TriggerManual, TriggeredBy: "alice"}, &gitx.PullResult{NewRevision: "revision"})
-
-	waitIdle(t, queue)
-}
-
 func TestCleanupSkipsBusyStacks(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	repoDir := t.TempDir()
@@ -232,7 +198,6 @@ func TestCleanupSkipsBusyStacks(t *testing.T) {
 	repository := gitx.NewMockRepository(ctrl)
 	repository.EXPECT().WorkingDir().Return(repoDir).AnyTimes()
 	reconciler := stackloop.NewMockStackReconciler(ctrl)
-	expectLoads(reconciler, "busy", "idle")
 	busyStarted, releaseBusy := make(chan struct{}), make(chan struct{})
 	reconciler.EXPECT().Reconcile(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, req stackloop.ReconciliationRequest) error {
@@ -247,10 +212,9 @@ func TestCleanupSkipsBusyStacks(t *testing.T) {
 	receive(t, busyStarted)
 	require.Eventually(t, func() bool { return !queue.Busy("idle") }, testWait, 10*time.Millisecond)
 
-	// The busy stack is neither loaded nor cleaned up; the idle one is.
-	idleSource := &compose.File{Path: "idle.yaml"}
-	reconciler.EXPECT().Load(gomock.Any(), config.StackSpec{Name: "idle", ComposeFile: "idle.yaml"}).Return(idleSource, nil)
-	reconciler.EXPECT().Cleanup(gomock.Any(), config.StackSpec{Name: "idle", ComposeFile: "idle.yaml"}, idleSource).Return(nil)
+	// Cleanup runs at the current revision for the idle stack only.
+	repository.EXPECT().Head(gomock.Any()).Return("head", nil)
+	reconciler.EXPECT().Cleanup(gomock.Any(), config.StackSpec{Name: "idle", ComposeFile: "idle.yaml"}, "head").Return(nil)
 
 	runner.Cleanup(t.Context())
 
@@ -335,17 +299,7 @@ func newTestRunnerWithNetworks(
 	queue.Start(context.WithoutCancel(t.Context()))
 	t.Cleanup(queue.Stop)
 	return New(configuration, repository, metricGroup, events, store,
-		networkCoordinator, reconciler, puller, queue), store, queue
-}
-
-func expectLoads(reconciler *stackloop.MockStackReconciler, names ...string) map[string]*compose.File {
-	sources := make(map[string]*compose.File, len(names))
-	for _, name := range names {
-		source := &compose.File{Path: name + ".yaml", Digest: name}
-		sources[name] = source
-		reconciler.EXPECT().Load(gomock.Any(), config.StackSpec{Name: name, ComposeFile: name + ".yaml"}).Return(source, nil)
-	}
-	return sources
+		networkCoordinator, puller, queue), store, queue
 }
 
 func waitIdle(t *testing.T, queue *stackqueue.Queue) {

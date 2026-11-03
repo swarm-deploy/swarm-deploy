@@ -80,13 +80,13 @@ func New(
 	return reconciler
 }
 
-// Load reads and validates the source Compose definition of a stack from the working tree.
-func (r *Reconciler) Load(ctx context.Context, stack config.StackSpec) (*compose.File, error) {
-	return r.preparer.Load(ctx, stack)
-}
-
 // Cleanup runs rotated config/secret cleanup for one stack without performing reconciliation.
-func (r *Reconciler) Cleanup(ctx context.Context, stack config.StackSpec, desired *compose.File) error {
+func (r *Reconciler) Cleanup(ctx context.Context, stack config.StackSpec, commit string) error {
+	desired, err := r.preparer.Load(ctx, stack, commit)
+	if err != nil {
+		return fmt.Errorf("load compose for cleanup: %w", err)
+	}
+
 	liveServices, err := r.serviceManager.ListServices(ctx, swarm.ListServicesFilter{Stack: stack.Name})
 	if err != nil {
 		return fmt.Errorf("list stack services for cleanup: %w", err)
@@ -118,15 +118,12 @@ func (r *Reconciler) Reconcile(
 	ctx context.Context,
 	req ReconciliationRequest,
 ) error {
-	if req.SourceErr != nil {
-		persistErr := r.recordFailure(ctx, req.Stack.Name, req.Commit, nil, req.SourceErr)
+	desiredState, err := r.preparer.Load(ctx, req.Stack, req.Commit)
+	if err != nil {
+		persistErr := r.recordFailure(ctx, req.Stack.Name, req.Commit, nil, err)
 
-		return wrapReconcileError("load compose", nil, errors.Join(req.SourceErr, persistErr))
+		return wrapReconcileError("load compose", nil, errors.Join(err, persistErr))
 	}
-	if req.Source == nil {
-		return wrapReconcileError("load compose", nil, errors.New("stack source is not loaded"))
-	}
-	desiredState := req.Source
 
 	prev, hasPrev, readErr := r.currentStackState(ctx, req.Stack.Name)
 	if readErr != nil {

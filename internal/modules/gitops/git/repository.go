@@ -78,6 +78,34 @@ func (r *GoGitRepository) ReadFile(_ context.Context, path string) ([]byte, erro
 	return content, nil
 }
 
+func (r *GoGitRepository) ReadFileAt(_ context.Context, revision string, path string) ([]byte, error) {
+	trimmedRevision := strings.TrimSpace(revision)
+	if trimmedRevision == "" {
+		return nil, errors.New("revision is required")
+	}
+
+	commit, err := r.repository.CommitObject(plumbing.NewHash(trimmedRevision))
+	if err != nil {
+		return nil, fmt.Errorf("find commit %q: %w", trimmedRevision, err)
+	}
+	file, err := commit.File(filepath.ToSlash(path))
+	if err != nil {
+		return nil, fmt.Errorf("read repository file %q at %s: %w", path, trimmedRevision, err)
+	}
+	reader, err := file.Reader()
+	if err != nil {
+		return nil, fmt.Errorf("open repository file %q at %s: %w", path, trimmedRevision, err)
+	}
+	defer reader.Close()
+
+	content, err := io.ReadAll(reader)
+	if err != nil {
+		return nil, fmt.Errorf("read repository file %q at %s: %w", path, trimmedRevision, err)
+	}
+
+	return content, nil
+}
+
 func (r *GoGitRepository) Pull(ctx context.Context) (PullResult, error) {
 	worktree, err := r.repository.Worktree()
 	if err != nil {

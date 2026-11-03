@@ -83,7 +83,7 @@ func New(
 	stacks := stackqueue.New(stackReconciler, metricGroup.Sync, cfg.Spec.Sync.Parallelism)
 	runner := syncrun.New(
 		configStore, git, metricGroup, eventDispatcher, stateStore,
-		networkCoordinator, stackReconciler, puller, stacks,
+		networkCoordinator, puller, stacks,
 	)
 	return &Controller{
 		deployments:  deploymentExecutor,

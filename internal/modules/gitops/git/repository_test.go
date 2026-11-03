@@ -552,6 +552,57 @@ func TestGoGitRepositoryShowFailsOnUnknownCommit(t *testing.T) {
 	assert.Contains(t, err.Error(), "find commit", "unexpected error")
 }
 
+func TestGoGitRepositoryReadFileAtReadsRevisionIndependentlyOfWorkingTree(t *testing.T) {
+	sourceRepositoryPath, sourceHead := initSourceRepository(t)
+	sourceRepository, err := gogit.PlainOpen(sourceRepositoryPath)
+	require.NoError(t, err, "open source repository")
+	worktree, err := sourceRepository.Worktree()
+	require.NoError(t, err, "open source repository worktree")
+	require.NoError(t, os.MkdirAll(filepath.Join(sourceRepositoryPath, "app"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(sourceRepositoryPath, "app", "compose.yaml"), []byte("v1"), 0o600))
+	_, err = worktree.Add("app/compose.yaml")
+	require.NoError(t, err, "git add compose")
+	first, err := worktree.Commit("first", &gogit.CommitOptions{
+		Author: &object.Signature{Name: "test", Email: "test@example.com", When: time.Now()},
+	})
+	require.NoError(t, err, "commit first revision")
+	// The working tree moves on to an uncommitted change.
+	require.NoError(t, os.WriteFile(filepath.Join(sourceRepositoryPath, "app", "compose.yaml"), []byte("v2"), 0o600))
+	repository, err := NewGoGitRepository(t.Context(), config.GitSpec{
+		Repository: sourceRepositoryPath,
+		Branch:     sourceHead.Name().Short(),
+	}, sourceRepositoryPath)
+	require.NoError(t, err, "create repository")
+
+	tests := []struct {
+		name        string
+		revision    string
+		path        string
+		expected    string
+		expectedErr string
+	}{
+		{name: "file at revision", revision: first.String(), path: "app/compose.yaml", expected: "v1"},
+		{name: "file absent at revision", revision: sourceHead.Hash().String(), path: "app/compose.yaml",
+			expectedErr: "read repository file"},
+		{name: "unknown revision", revision: "0000000000000000000000000000000000000000", path: "README.md",
+			expectedErr: "find commit"},
+		{name: "empty revision", path: "README.md", expectedErr: "revision is required"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			content, readErr := repository.ReadFileAt(t.Context(), tt.revision, tt.path)
+
+			if tt.expectedErr != "" {
+				require.ErrorContains(t, readErr, tt.expectedErr)
+				return
+			}
+			require.NoError(t, readErr)
+			assert.Equal(t, tt.expected, string(content))
+		})
+	}
+}
+
 func TestGoGitRepositoryDiffReturnsFileDiffsBetweenRevisions(t *testing.T) {
 	sourceRepositoryPath, sourceHead := initSourceRepository(t)
 	sourceRepository, err := gogit.PlainOpen(sourceRepositoryPath)

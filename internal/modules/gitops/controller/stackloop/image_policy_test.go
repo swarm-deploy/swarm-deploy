@@ -185,12 +185,13 @@ func TestImagePolicyViolationLifecycle(t *testing.T) {
 	serviceManager := swarm.NewMockServiceManager(ctrl)
 	repoDir := t.TempDir()
 	repository.EXPECT().WorkingDir().Return(repoDir).AnyTimes()
+	expectRevisionReads(repository, repoDir)
 	require.NoError(t, writeComposeFile(repoDir))
 	reconciler := newTestReconciler(cfg, repository, deployments.NewService(db, bus), stackDeployer, &swarm.Swarm{
 		Services: serviceManager, Configs: swarm.NewMockConfigManager(ctrl), Secrets: swarm.NewMockSecretManager(ctrl),
 	}, bus, &metrics.NopDeploys{}, state, fs.NewLocalFileSystem(), db)
 
-	err = reconcileFromWorkingTree(ctx, reconciler, ReconciliationRequest{
+	err = reconciler.Reconcile(ctx, ReconciliationRequest{
 		Stack: config.StackSpec{Name: "app", ComposeFile: "app.yaml"}, Commit: "sha",
 	})
 	require.Error(t, err)
@@ -214,7 +215,7 @@ func TestImagePolicyViolationLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, historyEntries, "preparation failures must remain alert-only")
 
-	require.Error(t, reconcileFromWorkingTree(ctx, reconciler, ReconciliationRequest{
+	require.Error(t, reconciler.Reconcile(ctx, ReconciliationRequest{
 		Stack: config.StackSpec{Name: "app", ComposeFile: "app.yaml"}, Commit: "sha",
 	}))
 	drainOutbox(t, ctx, bus)
@@ -230,7 +231,7 @@ func TestImagePolicyViolationLifecycle(t *testing.T) {
 		[]byte("services:\n  api:\n    image: nginx:1.27\n"), 0o600))
 	stackDeployer.EXPECT().DeployStack(gomock.Any(), gomock.Cond(func(req deployer.StackRequest) bool { return req.StackName == "app" })).Return(deployer.Result{}, nil)
 	serviceManager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "app"}).Return([]swarm.StackService{}, nil)
-	require.NoError(t, reconcileFromWorkingTree(ctx, reconciler, ReconciliationRequest{
+	require.NoError(t, reconciler.Reconcile(ctx, ReconciliationRequest{
 		Stack: config.StackSpec{Name: "app", ComposeFile: "app.yaml"}, Commit: "fixed",
 	}))
 	drainOutbox(t, ctx, bus)
@@ -259,6 +260,7 @@ func TestImagePolicyDisabledPreservesDeployment(t *testing.T) {
 	serviceManager := swarm.NewMockServiceManager(ctrl)
 	repoDir := t.TempDir()
 	repository.EXPECT().WorkingDir().Return(repoDir).AnyTimes()
+	expectRevisionReads(repository, repoDir)
 	require.NoError(t, os.WriteFile(filepath.Join(repoDir, "app.yaml"), []byte(`services:
   api:
     image: nginx:latest
@@ -274,7 +276,7 @@ func TestImagePolicyDisabledPreservesDeployment(t *testing.T) {
 			Services: serviceManager, Configs: swarm.NewMockConfigManager(ctrl), Secrets: swarm.NewMockSecretManager(ctrl),
 		}, bus, &metrics.NopDeploys{}, state, fs.NewLocalFileSystem(), db)
 
-	require.NoError(t, reconcileFromWorkingTree(t.Context(), reconciler, ReconciliationRequest{
+	require.NoError(t, reconciler.Reconcile(t.Context(), ReconciliationRequest{
 		Stack: config.StackSpec{Name: "app", ComposeFile: "app.yaml"}, Commit: "sha",
 	}))
 	deployments, err := deploymentstore.NewStore(db).List(t.Context(), deploymentmodel.ListFilter{})

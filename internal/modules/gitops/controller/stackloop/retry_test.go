@@ -31,6 +31,7 @@ func TestReconcileDeferredFailureProtectsUnresolvedServiceAndFailureProjection(t
 	dir := t.TempDir()
 	require.NoError(t, writeComposeFile(dir))
 	repository.EXPECT().WorkingDir().Return(dir).AnyTimes()
+	expectRevisionReads(repository, dir)
 	cfg := &config.Config{Spec: config.Spec{DataDir: filepath.Join(dir, ".data"), Sync: config.SyncSpec{Policy: config.SyncPolicySpec{SelfHeal: true}}}}
 	bus := &dispatcher.NopDispatcher{}
 	lifecycle := deployments.NewService(db, bus)
@@ -38,14 +39,14 @@ func TestReconcileDeferredFailureProtectsUnresolvedServiceAndFailureProjection(t
 	reconciler := newTestReconciler(cfg, repository, lifecycle, stackDeployer, swarmService, bus, &metrics.NopDeploys{}, stateStore, fs.NewLocalFileSystem(), db)
 	req := ReconciliationRequest{Stack: config.StackSpec{Name: "app", ComposeFile: "app.yaml"}, Commit: "one"}
 	stackDeployer.EXPECT().DeployStack(gomock.Any(), gomock.Cond(func(req deployer.StackRequest) bool { return req.StackName == "app" })).Return(deployer.Result{}, &pipe.StepError{StepName: "wait for service convergence", Err: fmt.Errorf("api paused: %w", waiter.ErrConvergenceFailed)})
-	require.Error(t, reconcileFromWorkingTree(t.Context(), reconciler, req))
+	require.Error(t, reconciler.Reconcile(t.Context(), req))
 	before := readSQLState(t, stateStore)
 	assert.Equal(t, "convergence_failed", before.Stacks["app"].LastError)
 	// Recreate both lifecycle and reconciler, keeping only SQLite state.
 	reconciler = newTestReconciler(cfg, repository, deployments.NewService(db, bus), stackDeployer, swarmService, bus, &metrics.NopDeploys{}, stateStore, fs.NewLocalFileSystem(), db)
 	manager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "app"}).Return(nil, nil).Times(5)
 	for range 5 {
-		require.NoError(t, reconcileFromWorkingTree(t.Context(), reconciler, req))
+		require.NoError(t, reconciler.Reconcile(t.Context(), req))
 	}
 	assert.Equal(t, before.Stacks["app"].LastError, readSQLState(t, stateStore).Stacks["app"].LastError)
 	assert.Equal(t, before.Stacks["app"].Services, readSQLState(t, stateStore).Stacks["app"].Services)
@@ -60,7 +61,7 @@ func TestReconcileDeferredFailureProtectsUnresolvedServiceAndFailureProjection(t
 			gomock.Eq(deployer.StackOptions{RetryFailedUpdates: true, UnresolvedServices: []string{"api"}}).Matches(req.Options)
 	})).Return(deployer.Result{}, nil)
 	manager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "app"}).Return(nil, nil)
-	require.NoError(t, reconcileFromWorkingTree(t.Context(), reconciler, req))
+	require.NoError(t, reconciler.Reconcile(t.Context(), req))
 	retried, _, err := deploymentstore.NewStore(db).Latest(t.Context(), "app")
 	require.NoError(t, err)
 	assert.Equal(t, stored.ID, retried.ID)

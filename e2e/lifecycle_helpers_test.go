@@ -27,6 +27,7 @@ import (
 	gitopsstore "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 	"github.com/swarm-deploy/swarm-deploy/internal/storage"
+	"go.uber.org/mock/gomock"
 )
 
 // Reuse the real Engine fixture, subnet allocation, bounded polling and cleanup
@@ -50,7 +51,7 @@ func newLifecycleFixture(t *testing.T, prune bool) *lifecycleFixture {
 	cfg := &config.Config{Spec: config.Spec{
 		DataDir: t.TempDir(), Sync: config.SyncSpec{Policy: config.SyncPolicySpec{Prune: prune, SelfHeal: true}},
 	}}
-	return newLifecycleComponents(t, base, cfg, gitx.NewLazyProxy(config.GitSpec{}, filepath.Dir(base.path)))
+	return newLifecycleComponents(t, base, cfg, newWorkingTreeRepository(t, filepath.Dir(base.path)))
 }
 
 func newLifecycleComponents(t *testing.T, base *externalSwarmFixture, cfg *config.Config, repository gitx.Repository) *lifecycleFixture {
@@ -107,7 +108,7 @@ func lifecycleService(name, command, policy string) string {
 
 func (f *lifecycleFixture) reconcile(t *testing.T) {
 	t.Helper()
-	require.NoError(t, reconcileFromWorkingTree(f.ctx, f.reconciler, f.request))
+	require.NoError(t, f.reconciler.Reconcile(f.ctx, f.request))
 }
 
 func (f *lifecycleFixture) latest(t *testing.T) model.Deployment {
@@ -186,19 +187,15 @@ func (f *lifecycleFixture) syncStatus(t *testing.T, name string) string {
 	return string(state.Stacks[f.stack].Services[name].SyncStatus)
 }
 
-// reconcileFromWorkingTree loads the stack source like the sync runner does and reconciles it.
-func reconcileFromWorkingTree(
-	ctx context.Context, reconciler stackloop.StackReconciler, req stackloop.ReconciliationRequest,
-) error {
-	req.Source, req.SourceErr = reconciler.Load(ctx, req.Stack)
-	return reconciler.Reconcile(ctx, req)
-}
-
-// cleanupFromWorkingTree loads the stack source like the sync runner does and cleans rotated resources.
-func cleanupFromWorkingTree(ctx context.Context, reconciler stackloop.StackReconciler, stack config.StackSpec) error {
-	source, err := reconciler.Load(ctx, stack)
-	if err != nil {
-		return err
-	}
-	return reconciler.Cleanup(ctx, stack, source)
+// newWorkingTreeRepository serves files at any revision from dir. Fixtures that are not Git
+// repositories use it to keep their revision labels while rewriting files between reconciliations.
+func newWorkingTreeRepository(t *testing.T, dir string) *gitx.MockRepository {
+	t.Helper()
+	repository := gitx.NewMockRepository(gomock.NewController(t))
+	repository.EXPECT().WorkingDir().Return(dir).AnyTimes()
+	repository.EXPECT().ReadFileAt(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, _ string, path string) ([]byte, error) {
+			return os.ReadFile(filepath.Join(dir, path))
+		}).AnyTimes()
+	return repository
 }

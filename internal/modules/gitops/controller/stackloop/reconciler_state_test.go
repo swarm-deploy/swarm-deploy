@@ -48,6 +48,7 @@ func TestReconcileUpdatesStateOnSuccess(t *testing.T) {
 	deployMetrics := &metrics.NopDeploys{}
 
 	repository.EXPECT().WorkingDir().Return(repoDir).AnyTimes()
+	expectRevisionReads(repository, repoDir)
 
 	require.NoError(t, writeComposeFile(repoDir), "write compose")
 	otherRenderedPath := filepath.Join(repoDir, ".data", "rendered", "other.yaml")
@@ -82,7 +83,7 @@ func TestReconcileUpdatesStateOnSuccess(t *testing.T) {
 	reconciler.preparer = preparation.New(reconciler.cfg, repository, fs.NewLocalFileSystem(), reconciler.composeRotator)
 	reconciler.attachPipeline()
 
-	err := reconcileFromWorkingTree(context.Background(), reconciler, ReconciliationRequest{
+	err := reconciler.Reconcile(context.Background(), ReconciliationRequest{
 		Stack: config.StackSpec{
 			Name:        "app",
 			ComposeFile: "app.yaml",
@@ -115,6 +116,7 @@ func TestReconcileUpdatesStateOnFailure(t *testing.T) {
 	eventDispatcher := &dispatcher.NopDispatcher{}
 
 	repository.EXPECT().WorkingDir().Return(repoDir).AnyTimes()
+	expectRevisionReads(repository, repoDir)
 
 	require.NoError(t, writeComposeFile(repoDir), "write compose")
 
@@ -143,7 +145,7 @@ func TestReconcileUpdatesStateOnFailure(t *testing.T) {
 	reconciler.preparer = preparation.New(reconciler.cfg, repository, fs.NewLocalFileSystem(), reconciler.composeRotator)
 	reconciler.attachPipeline()
 
-	err := reconcileFromWorkingTree(context.Background(), reconciler, ReconciliationRequest{
+	err := reconciler.Reconcile(context.Background(), ReconciliationRequest{
 		Stack: config.StackSpec{
 			Name:        "app",
 			ComposeFile: "app.yaml",
@@ -219,6 +221,7 @@ func TestReconcileSeparatesPostApplyOutcomes(t *testing.T) {
 			repoDir := t.TempDir()
 			require.NoError(t, writeComposeFile(repoDir))
 			repository.EXPECT().WorkingDir().Return(repoDir).AnyTimes()
+			expectRevisionReads(repository, repoDir)
 			stackDeployer.EXPECT().DeployStack(gomock.Any(), gomock.Cond(func(req deployer.StackRequest) bool { return req.StackName == "app" })).Return(deployer.Result{}, nil)
 			tt.setupServices(serviceManager)
 			cfg := &config.Config{Spec: config.Spec{DataDir: filepath.Join(repoDir, ".data"),
@@ -235,7 +238,7 @@ func TestReconcileSeparatesPostApplyOutcomes(t *testing.T) {
 			)
 			reconciler.preparer = preparation.New(reconciler.cfg, repository, fs.NewLocalFileSystem(), reconciler.composeRotator)
 			reconciler.attachPipeline()
-			err := reconcileFromWorkingTree(context.Background(), reconciler, ReconciliationRequest{
+			err := reconciler.Reconcile(context.Background(), ReconciliationRequest{
 				Stack: config.StackSpec{Name: "app", ComposeFile: "app.yaml"}, Commit: "commit",
 			})
 			if tt.expectedError {
@@ -290,6 +293,7 @@ secrets:
 	}
 
 	repository.EXPECT().WorkingDir().Return(repoDir).AnyTimes()
+	expectRevisionReads(repository, repoDir)
 	stackDeployer.EXPECT().DeployStack(gomock.Any(), gomock.Cond(func(req deployer.StackRequest) bool {
 		return req.StackName == "app" &&
 			req.SourceComposePath == composePath
@@ -342,7 +346,7 @@ secrets:
 	reconciler.preparer = preparation.New(reconciler.cfg, repository, fs.NewLocalFileSystem(), reconciler.composeRotator)
 	reconciler.attachPipeline()
 
-	err := reconcileFromWorkingTree(context.Background(), reconciler, ReconciliationRequest{
+	err := reconciler.Reconcile(context.Background(), ReconciliationRequest{
 		Stack:  config.StackSpec{Name: "app", ComposeFile: "app.yaml"},
 		Commit: "commit-cleanup",
 	})
@@ -366,6 +370,7 @@ func TestReconcileReadsPreviousDigestFromStateStore(t *testing.T) {
 	deployMetrics := &metrics.NopDeploys{}
 
 	repository.EXPECT().WorkingDir().Return(repoDir).AnyTimes()
+	expectRevisionReads(repository, repoDir)
 
 	require.NoError(t, writeComposeFile(repoDir), "write compose")
 
@@ -409,7 +414,7 @@ func TestReconcileReadsPreviousDigestFromStateStore(t *testing.T) {
 	reconciler.preparer = preparation.New(reconciler.cfg, repository, fs.NewLocalFileSystem(), reconciler.composeRotator)
 	reconciler.attachPipeline()
 
-	reconcileErr := reconcileFromWorkingTree(context.Background(), reconciler, ReconciliationRequest{
+	reconcileErr := reconciler.Reconcile(context.Background(), ReconciliationRequest{
 		Stack: config.StackSpec{
 			Name:        "app",
 			ComposeFile: "app.yaml",
@@ -479,6 +484,7 @@ configs:
 	require.NotEqual(t, oldStackFile.Digest, newStackFile.Digest, "expected config content to change digest")
 
 	repository.EXPECT().WorkingDir().Return(repoDir).AnyTimes()
+	expectRevisionReads(repository, repoDir)
 	var preparedCompose *compose.Compose
 	stackDeployer.EXPECT().
 		DeployStack(gomock.Any(), gomock.Cond(func(req deployer.StackRequest) bool {
@@ -514,7 +520,7 @@ configs:
 	reconciler.preparer = preparation.New(reconciler.cfg, repository, fs.NewLocalFileSystem(), reconciler.composeRotator)
 	reconciler.attachPipeline()
 
-	reconcileErr := reconcileFromWorkingTree(context.Background(), reconciler, ReconciliationRequest{
+	reconcileErr := reconciler.Reconcile(context.Background(), ReconciliationRequest{
 		Stack: config.StackSpec{
 			Name:        "app",
 			ComposeFile: "app.yaml",
@@ -580,6 +586,7 @@ secrets:
 	require.NoError(t, os.WriteFile(absSecretPath, []byte("absolute secret\n"), 0o600), "write absolute secret")
 
 	repository.EXPECT().WorkingDir().Return(repoDir).AnyTimes()
+	expectRevisionReads(repository, repoDir)
 	var preparedCompose *compose.Compose
 	stackDeployer.EXPECT().
 		DeployStack(gomock.Any(), gomock.Cond(func(req deployer.StackRequest) bool {
@@ -611,7 +618,7 @@ secrets:
 	reconciler.preparer = preparation.New(reconciler.cfg, repository, fs.NewLocalFileSystem(), reconciler.composeRotator)
 	reconciler.attachPipeline()
 
-	reconcileErr := reconcileFromWorkingTree(context.Background(), reconciler, ReconciliationRequest{
+	reconcileErr := reconciler.Reconcile(context.Background(), ReconciliationRequest{
 		Stack: config.StackSpec{
 			Name:        "app",
 			ComposeFile: "deploy/docker-compose.yaml",
@@ -665,6 +672,7 @@ services:
 `), 0o600), "write compose")
 
 	repository.EXPECT().WorkingDir().Return(repoDir).AnyTimes()
+	expectRevisionReads(repository, repoDir)
 	var preparedCompose *compose.Compose
 	stackDeployer.EXPECT().
 		DeployStack(gomock.Any(), gomock.Cond(func(req deployer.StackRequest) bool {
@@ -696,7 +704,7 @@ services:
 	reconciler.preparer = preparation.New(reconciler.cfg, repository, fs.NewLocalFileSystem(), reconciler.composeRotator)
 	reconciler.attachPipeline()
 
-	reconcileErr := reconcileFromWorkingTree(context.Background(), reconciler, ReconciliationRequest{
+	reconcileErr := reconciler.Reconcile(context.Background(), ReconciliationRequest{
 		Stack: config.StackSpec{
 			Name:        "app",
 			ComposeFile: "deploy/compose.yaml",
@@ -734,6 +742,7 @@ services:
 `, labelsdict.ServiceManagedLabelKey, labelsdict.ServiceManagedLabelValue)), 0o600), "write compose")
 
 	repository.EXPECT().WorkingDir().Return(repoDir).AnyTimes()
+	expectRevisionReads(repository, repoDir)
 	var preparedCompose *compose.Compose
 	stackDeployer.EXPECT().
 		DeployStack(gomock.Any(), gomock.Cond(func(req deployer.StackRequest) bool {
@@ -768,7 +777,7 @@ services:
 	reconciler.preparer = preparation.New(reconciler.cfg, repository, fs.NewLocalFileSystem(), reconciler.composeRotator)
 	reconciler.attachPipeline()
 
-	reconcileErr := reconcileFromWorkingTree(context.Background(), reconciler, ReconciliationRequest{
+	reconcileErr := reconciler.Reconcile(context.Background(), ReconciliationRequest{
 		Stack: config.StackSpec{
 			Name:        "app",
 			ComposeFile: "app.yaml",
@@ -809,6 +818,7 @@ services:
 `, labelsdict.ServiceManagedLabelKey, labelsdict.ServiceManagedLabelValue)), 0o600), "write compose")
 
 	repository.EXPECT().WorkingDir().Return(repoDir).Times(2)
+	expectRevisionReads(repository, repoDir)
 	stackDeployer.EXPECT().
 		DeployStack(gomock.Any(), gomock.Cond(func(req deployer.StackRequest) bool {
 			return req.StackName == "app" &&
@@ -844,7 +854,7 @@ services:
 	reconciler.preparer = preparation.New(reconciler.cfg, repository, fs.NewLocalFileSystem(), reconciler.composeRotator)
 	reconciler.attachPipeline()
 
-	reconcileErr := reconcileFromWorkingTree(context.Background(), reconciler, ReconciliationRequest{
+	reconcileErr := reconciler.Reconcile(context.Background(), ReconciliationRequest{
 		Stack: config.StackSpec{
 			Name:        "app",
 			ComposeFile: "app.yaml",
@@ -853,7 +863,7 @@ services:
 	})
 	require.NoError(t, reconcileErr, "first reconcile")
 
-	reconcileErr = reconcileFromWorkingTree(context.Background(), reconciler, ReconciliationRequest{
+	reconcileErr = reconciler.Reconcile(context.Background(), ReconciliationRequest{
 		Stack: config.StackSpec{
 			Name:        "app",
 			ComposeFile: "app.yaml",
@@ -899,6 +909,7 @@ func TestReconcilePrunesServicesWithoutNewDeployment(t *testing.T) {
 			})
 
 			repository.EXPECT().WorkingDir().Return(repoDir).AnyTimes()
+			expectRevisionReads(repository, repoDir)
 			serviceManager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "app"}).Return([]swarm.StackService{
 				{
 					ID:   "service-api",
@@ -938,7 +949,7 @@ func TestReconcilePrunesServicesWithoutNewDeployment(t *testing.T) {
 			reconciler.preparer = preparation.New(reconciler.cfg, repository, fs.NewLocalFileSystem(), reconciler.composeRotator)
 			reconciler.attachPipeline()
 
-			reconcileErr := reconcileFromWorkingTree(context.Background(), reconciler, ReconciliationRequest{
+			reconcileErr := reconciler.Reconcile(context.Background(), ReconciliationRequest{
 				Stack: config.StackSpec{
 					Name:        "app",
 					ComposeFile: "app.yaml",
@@ -1013,6 +1024,7 @@ func TestReconcileServiceMissedEventOnDrift(t *testing.T) {
 			})
 
 			repository.EXPECT().WorkingDir().Return(repoDir).AnyTimes()
+			expectRevisionReads(repository, repoDir)
 			serviceManager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "app"}).Return(tt.liveServices, nil)
 
 			reconciler := &Reconciler{
@@ -1036,7 +1048,7 @@ func TestReconcileServiceMissedEventOnDrift(t *testing.T) {
 			reconciler.preparer = preparation.New(reconciler.cfg, repository, fs.NewLocalFileSystem(), reconciler.composeRotator)
 			reconciler.attachPipeline()
 
-			reconcileErr := reconcileFromWorkingTree(context.Background(), reconciler, ReconciliationRequest{
+			reconcileErr := reconciler.Reconcile(context.Background(), ReconciliationRequest{
 				Stack: config.StackSpec{
 					Name:        "app",
 					ComposeFile: "app.yaml",
@@ -1140,6 +1152,7 @@ func TestReconcileSelfHealsMissingService(t *testing.T) {
 			}))
 
 			repository.EXPECT().WorkingDir().Return(repoDir).AnyTimes()
+			expectRevisionReads(repository, repoDir)
 			serviceManager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "app"}).Return(nil, nil)
 			serviceManager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "app"}).Return(tt.verifiedLive, tt.verificationErr)
 			stackDeployer.EXPECT().DeployService(gomock.Any(), gomock.Cond(func(req deployer.ServiceRequest) bool {
@@ -1167,7 +1180,7 @@ func TestReconcileSelfHealsMissingService(t *testing.T) {
 			reconciler.preparer = preparation.New(reconciler.cfg, repository, fs.NewLocalFileSystem(), reconciler.composeRotator)
 			reconciler.attachPipeline()
 
-			err = reconcileFromWorkingTree(context.Background(), reconciler, ReconciliationRequest{
+			err = reconciler.Reconcile(context.Background(), ReconciliationRequest{
 				Stack: config.StackSpec{Name: "app", ComposeFile: "app.yaml"}, Commit: "current",
 			})
 			if tt.wantErr {
@@ -1237,6 +1250,7 @@ func TestReconcileSelfHealsReplicaDriftAfterVerification(t *testing.T) {
 
 	one, three := uint64(1), uint64(3)
 	repository.EXPECT().WorkingDir().Return(repoDir).AnyTimes()
+	expectRevisionReads(repository, repoDir)
 	serviceManager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "app"}).Return([]swarm.StackService{{
 		Name: "api", Replicas: &one,
 	}}, nil)
@@ -1265,7 +1279,7 @@ func TestReconcileSelfHealsReplicaDriftAfterVerification(t *testing.T) {
 	reconciler.preparer = preparation.New(reconciler.cfg, repository, fs.NewLocalFileSystem(), reconciler.composeRotator)
 	reconciler.attachPipeline()
 
-	require.NoError(t, reconcileFromWorkingTree(context.Background(), reconciler, ReconciliationRequest{
+	require.NoError(t, reconciler.Reconcile(context.Background(), ReconciliationRequest{
 		Stack: config.StackSpec{Name: "app", ComposeFile: "app.yaml"}, Commit: "current",
 	}))
 	state := readSQLState(t, stateStore).Stacks["app"].Services["api"]

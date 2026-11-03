@@ -1,13 +1,13 @@
 // Package syncrun executes serialized GitOps synchronization runs.
 //
-// A run pulls Git, reloads configuration, reconciles networks, loads every stack source and replaces
-// the work waiting in the stack queue with that desired state. It does not wait for stack deployments,
-// so a slow stack never delays polling, later runs or other stacks.
+// A run pulls Git, reloads configuration, reconciles networks and replaces the work waiting in the
+// stack queue with every configured stack at the run's revision. It does not wait for stack
+// deployments, so a slow stack never delays polling, later runs or other stacks. Stacks read their
+// sources at that revision from Git, so later pulls never change what a queued operation applies.
 package syncrun
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	"time"
 
@@ -68,7 +68,6 @@ type Runner struct {
 	event             dispatcher.Dispatcher
 	stateStore        modelstore.Store
 	networkReconciler *networkloop.Coordinator
-	stackReconciler   stackloop.StackReconciler
 	stackPlanner      *stackplan.Planner
 	puller            *gitpull.Puller
 	stacks            *stackqueue.Queue
@@ -83,14 +82,13 @@ func New(
 	eventDispatcher dispatcher.Dispatcher,
 	stateStore modelstore.Store,
 	networkReconciler *networkloop.Coordinator,
-	stackReconciler stackloop.StackReconciler,
 	puller *gitpull.Puller,
 	stacks *stackqueue.Queue,
 ) *Runner {
 	return &Runner{
 		configStore: configStore, git: git, metrics: metricGroup, event: eventDispatcher,
 		stateStore: stateStore, networkReconciler: networkReconciler,
-		stackReconciler: stackReconciler, stackPlanner: stackplan.NewPlanner(git), puller: puller, stacks: stacks,
+		stackPlanner: stackplan.NewPlanner(git), puller: puller, stacks: stacks,
 		tracer: otel.Tracer("github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller"),
 	}
 }
@@ -200,22 +198,17 @@ func (r *Runner) run(ctx context.Context, task Task, gitResult *gitx.PullResult)
 	r.metrics.Sync.RecordSyncRun(string(task.Reason), result, time.Since(startedAt))
 }
 
-// Cleanup loads every configured stack and queues rotated-resource cleanup for idle stacks.
+// Cleanup queues rotated-resource cleanup at the current revision for every idle configured stack.
 // Busy stacks are skipped until a later tick, so cleanup never overlaps a reconciliation of the same stack.
 func (r *Runner) Cleanup(ctx context.Context) {
+	revision, err := r.git.Head(ctx)
+	if err != nil {
+		slog.WarnContext(ctx, "[controller] rotated resource cleanup skipped: resolve revision",
+			slog.Any("error", err))
+		return
+	}
 	for _, stack := range r.configStore.Stacks() {
-		if r.stacks.Busy(stack.Name) {
-			slog.DebugContext(ctx, "[controller] rotated resource cleanup postponed: stack is busy",
-				slog.String("stack", stack.Name))
-			continue
-		}
-		source, err := r.stackReconciler.Load(ctx, stack)
-		if err != nil {
-			slog.WarnContext(ctx, "[controller] rotated resource cleanup failed",
-				slog.String("stack", stack.Name), slog.Any("error", fmt.Errorf("load compose for cleanup: %w", err)))
-			continue
-		}
-		if !r.stacks.SubmitCleanup(ctx, stack, source) {
+		if !r.stacks.SubmitCleanup(ctx, stack, revision) {
 			slog.DebugContext(ctx, "[controller] rotated resource cleanup postponed: stack is busy",
 				slog.String("stack", stack.Name))
 		}
@@ -234,16 +227,14 @@ func (r *Runner) finishStageFailure(
 	})
 }
 
-// dispatchStacks loads every stack source while the working tree is stable and makes the result the
-// complete set of reconciliations waiting in the stack queue, changed stacks first. Loading happens
-// here, serialized with Git pulls, so queued reconciliations never read the working tree, and waiting
-// work of stacks that are no longer configured is dropped atomically.
+// dispatchStacks makes every planned stack at commit the complete set of reconciliations waiting in
+// the stack queue, changed stacks first. Waiting work of stacks that are no longer configured is
+// dropped atomically.
 func (r *Runner) dispatchStacks(ctx context.Context, plan stackplan.Plan, commit string, reason TriggerReason) {
 	requests := make([]stackloop.ReconciliationRequest, 0, len(plan.Stacks))
 	for _, stackCfg := range plan.Stacks {
-		source, loadErr := r.stackReconciler.Load(ctx, stackCfg)
 		requests = append(requests, stackloop.ReconciliationRequest{
-			Stack: stackCfg, Commit: commit, IsManual: reason == TriggerManual, Source: source, SourceErr: loadErr,
+			Stack: stackCfg, Commit: commit, IsManual: reason == TriggerManual,
 		})
 	}
 

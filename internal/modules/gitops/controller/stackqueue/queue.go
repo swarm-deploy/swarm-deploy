@@ -1,11 +1,12 @@
 // Package stackqueue runs stack operations with bounded parallelism and at most one operation per stack.
 //
-// The queue is keyed by stack name, like a Kubernetes work queue. Every successful sync run replaces
-// the whole set of waiting reconciliations with the desired state it has just loaded (Replace), so
-// waiting work always reflects the latest successfully loaded configuration and revision: stacks that
-// are no longer configured simply have nothing left to run, and a stack never runs with a stale
-// specification or source once a newer run has replaced it. A run that fails after accepting a new
-// configuration clears all waiting work (Clear) instead of letting older revisions run under it.
+// The queue is keyed by stack name, like a Kubernetes work queue, and holds for every stack only the
+// revision to apply: operations read their sources at that revision from Git. Every successful sync run
+// replaces the whole set of waiting reconciliations (Replace), so waiting work always reflects the latest
+// successfully accepted configuration and revision: stacks that are no longer configured simply have
+// nothing left to run, and a stack never runs with a stale specification or revision once a newer run
+// has replaced it. A run that fails after accepting a new configuration clears all waiting work (Clear)
+// instead of letting older revisions run under it.
 //
 // Stacks changed in Git run first: Replace orders waiting work by the plan of the latest run, and a
 // waiting stack keeps its changed mark until it runs, so a later run without a diff (for example, the
@@ -22,7 +23,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackloop"
@@ -32,7 +32,7 @@ import (
 )
 
 const (
-	// OperationReconcile applies a stack source.
+	// OperationReconcile applies a stack at a revision.
 	OperationReconcile = "reconcile"
 	// OperationCleanup removes stale rotated configs and secrets of a stack.
 	OperationCleanup = "cleanup"
@@ -184,7 +184,7 @@ func (q *Queue) Clear() []string {
 
 // SubmitCleanup queues a rotated-resource cleanup only when the stack has no running or waiting work.
 // A busy stack is skipped: cleanup is periodic and runs on a later tick. It returns whether it was queued.
-func (q *Queue) SubmitCleanup(ctx context.Context, stack config.StackSpec, source *compose.File) bool {
+func (q *Queue) SubmitCleanup(ctx context.Context, stack config.StackSpec, commit string) bool {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	if q.stopped || q.running[stack.Name] {
@@ -196,7 +196,7 @@ func (q *Queue) SubmitCleanup(ctx context.Context, stack config.StackSpec, sourc
 
 	q.pending[stack.Name] = operation{
 		kind:        OperationCleanup,
-		request:     stackloop.ReconciliationRequest{Stack: stack, Source: source},
+		request:     stackloop.ReconciliationRequest{Stack: stack, Commit: commit},
 		spanContext: trace.SpanContextFromContext(ctx),
 	}
 	q.enqueueLocked(stack.Name)
@@ -280,7 +280,7 @@ func (q *Queue) execute(ctx context.Context, op operation) {
 	var err error
 	switch op.kind {
 	case OperationCleanup:
-		err = q.reconciler.Cleanup(ctx, op.request.Stack, op.request.Source)
+		err = q.reconciler.Cleanup(ctx, op.request.Stack, op.request.Commit)
 		if err != nil {
 			slog.WarnContext(ctx, "[controller] rotated resource cleanup failed",
 				slog.String("stack", op.request.Stack.Name), slog.Any("error", err))

@@ -2,6 +2,8 @@ package stackloop
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
@@ -15,6 +17,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 	"github.com/swarm-deploy/swarm-deploy/internal/storage"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
+	"go.uber.org/mock/gomock"
 )
 
 func newTestReconciler(
@@ -41,8 +44,10 @@ func newTestReconciler(
 	)
 }
 
-// reconcileFromWorkingTree loads the stack source like the sync runner does and reconciles it.
-func reconcileFromWorkingTree(ctx context.Context, reconciler StackReconciler, req ReconciliationRequest) error {
-	req.Source, req.SourceErr = reconciler.Load(ctx, req.Stack)
-	return reconciler.Reconcile(ctx, req)
+// expectRevisionReads serves repository files at any revision from the test working tree.
+func expectRevisionReads(repository *gitx.MockRepository, dir string) {
+	repository.EXPECT().ReadFileAt(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, _ string, path string) ([]byte, error) {
+			return os.ReadFile(filepath.Join(dir, path))
+		}).AnyTimes()
 }

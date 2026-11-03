@@ -31,7 +31,6 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/outbox"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackloop"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackloop/preparation"
-	gitx "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/modelstore"
 	sharedfs "github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 	"github.com/swarm-deploy/swarm-deploy/internal/storage"
@@ -106,7 +105,7 @@ secretRotation:
 				deployments.NewService(db, bus), stackDeployer, swarmService.Services,
 				pruner.NewServicePruner(swarmService.Services, bus, cfg.Spec.Sync.Policy), deployMetrics,
 			)
-			repository := gitx.NewRepository(cfg.Spec.Git, dir)
+			repository := newWorkingTreeRepository(t, dir)
 			rotator := stackloop.NewRotator()
 			preparer := preparation.New(cfg, repository, fileSystem, rotator)
 			r := stackloop.New(cfg, executor, swarmService, bus, deployMetrics,
@@ -116,7 +115,7 @@ secretRotation:
 			writeAgeSwarmFixture(t, dir, identity.Recipient(), "age-private-marker-v1", "mounted-age-v1")
 			initialManifest, err := os.ReadFile(composePath)
 			require.NoError(t, err)
-			require.NoError(t, reconcileFromWorkingTree(ctx, r, req))
+			require.NoError(t, r.Reconcile(ctx, req))
 			waitForRealSwarmTask(t, ctx, dockerPath, stack+"_check", "mounted-age-v1")
 			firstName, firstID := inspectAgeSwarmSecret(t, ctx, dockerClient, stack)
 			beforeInitFailure := inspectAgeSwarmService(t, ctx, dockerClient, stack)
@@ -126,7 +125,7 @@ secretRotation:
 			require.NotEqual(t, string(initialManifest), brokenInit)
 			require.NoError(t, os.WriteFile(composePath, []byte(brokenInit), 0o600))
 			req.Commit = "init-failure"
-			err = reconcileFromWorkingTree(ctx, r, req)
+			err = r.Reconcile(ctx, req)
 			require.ErrorContains(t, err, "init job")
 			afterInitFailure := inspectAgeSwarmService(t, ctx, dockerClient, stack)
 			assert.Equal(t, beforeInitFailure.Version.Index, afterInitFailure.Version.Index)
@@ -134,7 +133,7 @@ secretRotation:
 			req.Commit = "v1"
 
 			// Unchanged reconcile must preserve the Docker secret identity.
-			require.NoError(t, reconcileFromWorkingTree(ctx, r, req))
+			require.NoError(t, r.Reconcile(ctx, req))
 			_, repeatedID := inspectAgeSwarmSecret(t, ctx, dockerClient, stack)
 			assert.Equal(t, firstID, repeatedID)
 			if rotation {
@@ -142,7 +141,7 @@ secretRotation:
 					req.Commit = fmt.Sprintf("v%d", version)
 					marker := fmt.Sprintf("mounted-age-v%d", version)
 					writeAgeSwarmFixture(t, dir, identity.Recipient(), fmt.Sprintf("age-private-marker-v%d", version), marker)
-					require.NoError(t, reconcileFromWorkingTree(ctx, r, req))
+					require.NoError(t, r.Reconcile(ctx, req))
 					waitForRealSwarmTask(t, ctx, dockerPath, stack+"_check", marker)
 					name, id := inspectAgeSwarmSecret(t, ctx, dockerClient, stack)
 					assert.NotEqual(t, firstName, name)
@@ -151,7 +150,7 @@ secretRotation:
 				// Once the first generation is no longer desired or a rollback
 				// reference, existing cleanup must remove it from the real Swarm.
 				require.Eventually(t, func() bool {
-					if cleanupFromWorkingTree(ctx, r, req.Stack) != nil {
+					if r.Cleanup(ctx, req.Stack, req.Commit) != nil {
 						return false
 					}
 					_, _, inspectErr := dockerClient.SecretInspectWithRaw(ctx, firstID)
@@ -162,7 +161,7 @@ secretRotation:
 				req.Commit = "v2"
 				writeAgeSwarmFixture(t, dir, identity.Recipient(), "age-private-marker-v2", "mounted-age-v2")
 				require.NoError(t, os.WriteFile(composePath, initialManifest, 0o600))
-				require.NoError(t, reconcileFromWorkingTree(ctx, r, req))
+				require.NoError(t, r.Reconcile(ctx, req))
 				_, id := inspectAgeSwarmSecret(t, ctx, dockerClient, stack)
 				assert.Equal(t, firstID, id)
 			}
@@ -198,7 +197,7 @@ secretRotation:
 			require.NoError(t, os.WriteFile(filepath.Join(dir, "password.age"), []byte("invalid-ciphertext-marker"), 0o600))
 			// Keep the same Compose name: validation must also run when Docker would reuse the Secret.
 			req.Commit = "invalid"
-			err = reconcileFromWorkingTree(ctx, r, req)
+			err = r.Reconcile(ctx, req)
 			require.Error(t, err)
 			assert.NotContains(t, err.Error(), "invalid-ciphertext-marker")
 			after, err := swarmService.Secrets.List(ctx, swarm.ListSecretsFilter{StackName: stack})

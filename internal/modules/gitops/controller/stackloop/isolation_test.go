@@ -62,6 +62,7 @@ func TestDeferredDeploymentIsolatesIndependentReconciliation(t *testing.T) {
 			manifest += "  c:\n    image: example/c:1\n"
 			require.NoError(t, os.WriteFile(filepath.Join(dir, "app.yaml"), []byte(manifest), 0o600))
 			repository.EXPECT().WorkingDir().Return(dir).AnyTimes()
+			expectRevisionReads(repository, dir)
 			cfg := &config.Config{Spec: config.Spec{DataDir: filepath.Join(dir, ".data"), Sync: config.SyncSpec{Policy: config.SyncPolicySpec{SelfHeal: tc.global, Prune: true}}}}
 			alerts := alertstore.NewSQLStore(db)
 			subscriber := alertmanagement.NewSQLSubscriber(alerts, &dispatcher.NopDispatcher{}, func(alertmodel.AlertKind) []events.AlertRecipient { return nil }, cfg)
@@ -76,7 +77,7 @@ func TestDeferredDeploymentIsolatesIndependentReconciliation(t *testing.T) {
 			req := ReconciliationRequest{Stack: config.StackSpec{Name: "app", ComposeFile: "app.yaml"}, Commit: "one"}
 			req.Stack.Sync.Policy.SelfHeal = tc.stack
 			stackDeployer.EXPECT().DeployStack(gomock.Any(), gomock.Cond(func(req deployer.StackRequest) bool { return req.StackName == "app" })).Return(deployer.Result{Verification: deploymentmodel.Verification{Known: true, UnresolvedServices: []string{"a"}}}, &pipe.StepError{StepName: "wait for service convergence", Err: waiter.ErrConvergenceFailed})
-			require.Error(t, reconcileFromWorkingTree(t.Context(), create(), req))
+			require.Error(t, create().Reconcile(t.Context(), req))
 			original := readSQLState(t, stateStore).Stacks["app"]
 			failed, _, err := deploymentstore.NewStore(db).Latest(t.Context(), "app")
 			require.NoError(t, err)
@@ -86,7 +87,7 @@ func TestDeferredDeploymentIsolatesIndependentReconciliation(t *testing.T) {
 			}}
 			healthy := []swarm.StackService{{Name: "a", UpdateStatus: &swarm.ServiceUpdateStatus{State: "paused"}}, {Name: "b"}, {Name: "c"}, orphan}
 			manager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "app"}).Return(healthy, nil)
-			require.NoError(t, reconcileFromWorkingTree(t.Context(), create(), req))
+			require.NoError(t, create().Reconcile(t.Context(), req))
 			assert.Equal(t, model.SyncStatus(model.SyncStatusSynced), readSQLState(t, stateStore).Stacks["app"].Services["b"].SyncStatus)
 			// Then both a and b disappear: only b may be remediated. Recreate the process on every tick.
 			missing := []swarm.StackService{{Name: "c"}, orphan}
@@ -99,7 +100,7 @@ func TestDeferredDeploymentIsolatesIndependentReconciliation(t *testing.T) {
 					})).Return(deployer.Result{}, nil)
 					manager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "app"}).Return([]swarm.StackService{{Name: "b"}, {Name: "c"}, orphan}, nil)
 				}
-				require.NoError(t, reconcileFromWorkingTree(t.Context(), create(), req))
+				require.NoError(t, create().Reconcile(t.Context(), req))
 				state := readSQLState(t, stateStore).Stacks["app"]
 				assert.Equal(t, original.Services["a"], state.Services["a"])
 				assert.Equal(t, "convergence_failed", state.LastError)
@@ -113,7 +114,7 @@ func TestDeferredDeploymentIsolatesIndependentReconciliation(t *testing.T) {
 			}
 			// A maintenance observation error must not become a new SyncFailed occurrence.
 			manager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "app"}).Return(nil, assert.AnError)
-			require.Error(t, reconcileFromWorkingTree(t.Context(), create(), req))
+			require.Error(t, create().Reconcile(t.Context(), req))
 			after, _, err := deploymentstore.NewStore(db).Latest(t.Context(), "app")
 			require.NoError(t, err)
 			assert.Equal(t, deploymentmodel.Failed, after.Status)

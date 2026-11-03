@@ -10,7 +10,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackloop"
@@ -107,10 +106,9 @@ func TestQueueCleanupRunsOnlyForIdleStacks(t *testing.T) {
 			return nil
 		})
 	idleStack := config.StackSpec{Name: "idle"}
-	idleSource := &compose.File{Path: "idle.yaml"}
 	cleaned := make(chan struct{})
-	reconciler.EXPECT().Cleanup(gomock.Any(), idleStack, idleSource).DoAndReturn(
-		func(context.Context, config.StackSpec, *compose.File) error {
+	reconciler.EXPECT().Cleanup(gomock.Any(), idleStack, "v1").DoAndReturn(
+		func(context.Context, config.StackSpec, string) error {
 			close(cleaned)
 			return nil
 		})
@@ -119,9 +117,9 @@ func TestQueueCleanupRunsOnlyForIdleStacks(t *testing.T) {
 	replace(t, queue, request("busy", "v1", false))
 	receive(t, started)
 
-	assert.False(t, queue.SubmitCleanup(t.Context(), config.StackSpec{Name: "busy"}, &compose.File{}),
+	assert.False(t, queue.SubmitCleanup(t.Context(), config.StackSpec{Name: "busy"}, "v1"),
 		"cleanup must never overlap a reconciliation of the same stack")
-	assert.True(t, queue.SubmitCleanup(t.Context(), idleStack, idleSource))
+	assert.True(t, queue.SubmitCleanup(t.Context(), idleStack, "v1"))
 	receive(t, cleaned)
 	close(release)
 	waitIdle(t, queue)
@@ -135,7 +133,7 @@ func TestQueueReconciliationReplacesWaitingCleanup(t *testing.T) {
 	queue := New(reconciler, newTestMetrics(t), 1)
 	t.Cleanup(queue.Stop)
 
-	require.True(t, queue.SubmitCleanup(t.Context(), config.StackSpec{Name: "app"}, &compose.File{}))
+	require.True(t, queue.SubmitCleanup(t.Context(), config.StackSpec{Name: "app"}, "v1"))
 	replace(t, queue, request("app", "v1", false))
 	queue.Start(context.WithoutCancel(t.Context()))
 
@@ -197,7 +195,7 @@ func TestQueueReplaceDropsWaitingWorkOfStacksAbsentFromDesiredState(t *testing.T
 	receive(t, started)
 	// The single worker is busy: everything below waits.
 	replace(t, queue, request("renamed", "B", false), request("old", "B", false), request("kept", "B", false))
-	require.True(t, queue.SubmitCleanup(t.Context(), config.StackSpec{Name: "removed"}, &compose.File{}))
+	require.True(t, queue.SubmitCleanup(t.Context(), config.StackSpec{Name: "removed"}, "B"))
 
 	dropped := replace(t, queue, request("kept", "C", false), request("new", "C", false))
 
@@ -313,7 +311,7 @@ func newTestMetrics(t *testing.T) metrics.Sync {
 
 func request(stack, commit string, manual bool) stackloop.ReconciliationRequest {
 	return stackloop.ReconciliationRequest{
-		Stack: config.StackSpec{Name: stack}, Commit: commit, IsManual: manual, Source: &compose.File{Path: stack},
+		Stack: config.StackSpec{Name: stack}, Commit: commit, IsManual: manual,
 	}
 }
 
