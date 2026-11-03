@@ -241,6 +241,8 @@ func (r *Runner) Cleanup(ctx context.Context) {
 	}
 }
 
+// finishStageFailure records a run that failed before its stacks were queued. It keeps GitRevision,
+// which names the latest revision dispatched to the stack queue: the failed revision was never queued.
 func (r *Runner) finishStageFailure(
 	ctx context.Context, reason TriggerReason, startedAt time.Time, revision, stage string, err error,
 ) {
@@ -249,7 +251,7 @@ func (r *Runner) finishStageFailure(
 	r.metrics.Sync.RecordSyncRun(string(reason), syncRunResultError, time.Since(startedAt))
 	_ = r.updateState(ctx, func(state *model.Runtime) {
 		state.LastSyncAt, state.LastSyncReason = time.Now(), string(reason)
-		state.LastSyncResult, state.LastSyncError, state.GitRevision = syncRunResultError, err.Error(), revision
+		state.LastSyncResult, state.LastSyncError = syncRunResultError, err.Error()
 	})
 }
 

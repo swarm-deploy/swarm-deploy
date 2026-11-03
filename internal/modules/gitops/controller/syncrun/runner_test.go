@@ -180,7 +180,9 @@ func TestRunFailureAfterConfigurationReloadDropsWaitingWork(t *testing.T) {
 	require.NoError(t, writeStacks(stacksPath, []string{"slow"}))
 	require.NoError(t, os.WriteFile(networksPath, []byte("networks:\n  - name: edge\n    driver: overlay\n"), 0o600))
 	runner.run(t.Context(), Task{Reason: TriggerInterval}, &gitx.PullResult{OldRevision: "B", NewRevision: "B"})
-	assert.Equal(t, syncRunResultError, readSQLState(t, store).LastSyncResult)
+	state := readSQLState(t, store)
+	assert.Equal(t, syncRunResultError, state.LastSyncResult)
+	assert.Equal(t, "A", state.GitRevision, "revision B was never queued")
 
 	close(releaseSlow)
 	waitIdle(t, queue)
@@ -246,7 +248,9 @@ func TestCleanupUsesLatestDispatchAfterFailedRun(t *testing.T) {
 	require.NoError(t, writeStacks(stacksPath, []string{"renamed"}))
 	require.NoError(t, os.WriteFile(networksPath, []byte("networks:\n  - name: edge\n    driver: overlay\n"), 0o600))
 	runner.run(t.Context(), Task{Reason: TriggerInterval}, &gitx.PullResult{OldRevision: "B", NewRevision: "B"})
-	require.Equal(t, syncRunResultError, readSQLState(t, store).LastSyncResult)
+	state := readSQLState(t, store)
+	require.Equal(t, syncRunResultError, state.LastSyncResult)
+	assert.Equal(t, "A", state.GitRevision, "revision B was never queued")
 
 	// Cleanup matches what the stacks are deployed from, not the newer configuration and revision.
 	reconciler.EXPECT().Cleanup(gomock.Any(), config.StackSpec{Name: "app", ComposeFile: "app.yaml"}, "A").Return(nil)
@@ -269,6 +273,7 @@ func TestRunRejectedByStoppedQueue(t *testing.T) {
 	state := readSQLState(t, store)
 	assert.Equal(t, syncRunResultError, state.LastSyncResult, "a run whose stacks were not queued is not a success")
 	assert.Equal(t, errQueueStopped.Error(), state.LastSyncError)
+	assert.Empty(t, state.GitRevision, "nothing was queued")
 	runner.Cleanup(t.Context())
 }
 
@@ -309,16 +314,26 @@ func TestRunPullFailureUpdatesSyncState(t *testing.T) {
 	assert.Equal(t, "Git pull failed", state.LastSyncError)
 }
 
-func TestRunConfigurationReloadFailurePersistsRevision(t *testing.T) {
+func TestRunConfigurationReloadFailureKeepsDispatchedRevision(t *testing.T) {
 	ctrl := gomock.NewController(t)
+	repoDir := t.TempDir()
+	stacksPath := filepath.Join(repoDir, "stacks.yaml")
+	require.NoError(t, writeStacks(stacksPath, []string{"app"}))
 	repository := gitx.NewMockRepository(ctrl)
-	repository.EXPECT().WorkingDir().Return(t.TempDir()).AnyTimes()
-	runner, store, _ := newTestRunner(t, repository, stackloop.NewMockStackReconciler(ctrl), 1)
-	runner.run(t.Context(), Task{Reason: TriggerWebhook}, &gitx.PullResult{NewRevision: "revision"})
+	repository.EXPECT().WorkingDir().Return(repoDir).AnyTimes()
+	reconciler := stackloop.NewMockStackReconciler(ctrl)
+	reconciler.EXPECT().Reconcile(gomock.Any(), gomock.Any()).Return(nil)
+	runner, store, queue := newTestRunner(t, repository, reconciler, 1)
+	runner.run(t.Context(), Task{Reason: TriggerWebhook}, &gitx.PullResult{NewRevision: "dispatched"})
+	waitIdle(t, queue)
+
+	require.NoError(t, os.Remove(stacksPath))
+	runner.run(t.Context(), Task{Reason: TriggerWebhook}, &gitx.PullResult{NewRevision: "failed"})
+
 	state := readSQLState(t, store)
 	assert.Equal(t, syncRunResultError, state.LastSyncResult)
-	assert.Equal(t, "revision", state.GitRevision)
 	assert.NotEmpty(t, state.LastSyncError)
+	assert.Equal(t, "dispatched", state.GitRevision, "a revision that was never queued must not be reported")
 }
 
 func newTestRunner(

@@ -89,7 +89,9 @@ restore the old whole-run barrier.
 **Compatibility / monitoring change:** `last_sync_result: success` now means that Git, configuration,
 network reconciliation and queue dispatch succeeded (a run during shutdown, whose stacks the stopped queue
 no longer accepts, is reported as `error`), **not** that any stack deployed successfully.
-`git_revision` is the revision dispatched to the queue, not a guarantee that it was applied to every stack.
+`git_revision` is the latest revision dispatched to the queue, not a guarantee that it was applied to every
+stack. A run that fails before dispatch (configuration reload, network reconciliation or a stopped queue)
+keeps the previous `git_revision`; the failed revision appears only in the logs of that run.
 `partial_error` is no longer emitted. Dashboards and alerts using
 `swarm_deploy_sync_runs_total{result="partial_error"}` must instead monitor stack operation failures via
 `swarm_deploy_sync_stack_operations_total{operation="reconcile",result="error"}` (counter increase),

@@ -68,7 +68,7 @@ type Runtime struct {
 	LastSyncResult string `json:"last_sync_result"`
 	// LastSyncError contains the latest Sync error message.
 	LastSyncError string `json:"last_sync_error"`
-	// GitRevision is the git revision observed during the latest Sync.
+	// GitRevision is the latest git revision dispatched to the stack queue. Failed Sync runs keep it.
 	GitRevision string `json:"git_revision"`
 	// Stacks stores deployment state keyed by stack name.
 	Stacks map[string]Stack `json:"stacks"`
