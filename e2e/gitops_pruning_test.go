@@ -21,6 +21,7 @@ func TestRealSwarmGitOpsPruningDisabled(t *testing.T) {
 	f := newLifecycleFixture(t, false)
 	keep := lifecycleService("job", "sleep 600", "")
 	f.manifest(t, keep+lifecycleService("removed", "sleep 600", ""))
+	f.commitManifest(t)
 	f.reconcile(t)
 	f.runningIDs(t, "job", 1)
 	before := f.settled(t, "job")
@@ -34,7 +35,7 @@ func TestRealSwarmGitOpsPruningDisabled(t *testing.T) {
 		f.protectedService(t, f.inspect(t, "job"), "foreign", f.stack+"foreign", true, true),
 	}
 	f.manifest(t, keep)
-	f.request.Commit = "remove-service"
+	f.commitManifest(t)
 	f.reconcile(t)
 	assert.Equal(t, removed.Service.ID, f.inspect(t, "removed").ID)
 	assert.Equal(t, removed.Service.Spec, f.settled(t, "removed").Service.Spec)

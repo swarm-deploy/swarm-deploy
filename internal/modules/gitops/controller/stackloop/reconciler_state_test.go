@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 
 	"github.com/artarts36/specw"
 	"github.com/stretchr/testify/assert"
@@ -47,8 +46,7 @@ func TestReconcileUpdatesStateOnSuccess(t *testing.T) {
 	eventDispatcher := &dispatcher.NopDispatcher{}
 	deployMetrics := &metrics.NopDeploys{}
 
-	repository.EXPECT().WorkingDir().Return(repoDir).AnyTimes()
-	expectRevisionReads(repository, repoDir)
+	mockRepositoryFiles(repository, repoDir)
 
 	require.NoError(t, writeComposeFile(repoDir), "write compose")
 	otherRenderedPath := filepath.Join(repoDir, ".data", "rendered", "other.yaml")
@@ -80,7 +78,7 @@ func TestReconcileUpdatesStateOnSuccess(t *testing.T) {
 	reconciler.executor = deployments.NewController(
 		deployments.NewService(db, reconciler.event), stackDeployer, serviceManager, reconciler.pruner, reconciler.deployMetrics,
 	)
-	reconciler.preparer = preparation.New(reconciler.cfg, repository, fs.NewLocalFileSystem(), reconciler.composeRotator)
+	reconciler.preparer = preparation.New(reconciler.cfg, repository, reconciler.composeRotator)
 	reconciler.attachPipeline()
 
 	err := reconciler.Reconcile(context.Background(), ReconciliationRequest{
@@ -115,8 +113,7 @@ func TestReconcileUpdatesStateOnFailure(t *testing.T) {
 	errDeployFailed := errors.New("deploy failed")
 	eventDispatcher := &dispatcher.NopDispatcher{}
 
-	repository.EXPECT().WorkingDir().Return(repoDir).AnyTimes()
-	expectRevisionReads(repository, repoDir)
+	mockRepositoryFiles(repository, repoDir)
 
 	require.NoError(t, writeComposeFile(repoDir), "write compose")
 
@@ -142,7 +139,7 @@ func TestReconcileUpdatesStateOnFailure(t *testing.T) {
 	reconciler.executor = deployments.NewController(
 		deployments.NewService(db, reconciler.event), stackDeployer, serviceManager, reconciler.pruner, reconciler.deployMetrics,
 	)
-	reconciler.preparer = preparation.New(reconciler.cfg, repository, fs.NewLocalFileSystem(), reconciler.composeRotator)
+	reconciler.preparer = preparation.New(reconciler.cfg, repository, reconciler.composeRotator)
 	reconciler.attachPipeline()
 
 	err := reconciler.Reconcile(context.Background(), ReconciliationRequest{
@@ -220,8 +217,7 @@ func TestReconcileSeparatesPostApplyOutcomes(t *testing.T) {
 			db, stateStore := newSQLState(t)
 			repoDir := t.TempDir()
 			require.NoError(t, writeComposeFile(repoDir))
-			repository.EXPECT().WorkingDir().Return(repoDir).AnyTimes()
-			expectRevisionReads(repository, repoDir)
+			mockRepositoryFiles(repository, repoDir)
 			stackDeployer.EXPECT().DeployStack(gomock.Any(), gomock.Cond(func(req deployer.StackRequest) bool { return req.StackName == "app" })).Return(deployer.Result{}, nil)
 			tt.setupServices(serviceManager)
 			cfg := &config.Config{Spec: config.Spec{DataDir: filepath.Join(repoDir, ".data"),
@@ -236,7 +232,7 @@ func TestReconcileSeparatesPostApplyOutcomes(t *testing.T) {
 				deployments.NewService(db, reconciler.event), stackDeployer,
 				serviceManager, reconciler.pruner, reconciler.deployMetrics,
 			)
-			reconciler.preparer = preparation.New(reconciler.cfg, repository, fs.NewLocalFileSystem(), reconciler.composeRotator)
+			reconciler.preparer = preparation.New(reconciler.cfg, repository, reconciler.composeRotator)
 			reconciler.attachPipeline()
 			err := reconciler.Reconcile(context.Background(), ReconciliationRequest{
 				Stack: config.StackSpec{Name: "app", ComposeFile: "app.yaml"}, Commit: "commit",
@@ -292,8 +288,7 @@ secrets:
 		managedSecret("current", currentName, "token", now.Add(-time.Hour)),
 	}
 
-	repository.EXPECT().WorkingDir().Return(repoDir).AnyTimes()
-	expectRevisionReads(repository, repoDir)
+	mockRepositoryFiles(repository, repoDir)
 	stackDeployer.EXPECT().DeployStack(gomock.Any(), gomock.Cond(func(req deployer.StackRequest) bool {
 		return req.StackName == "app" &&
 			req.SourceComposePath == composePath
@@ -343,7 +338,7 @@ secrets:
 	reconciler.executor = deployments.NewController(
 		deployments.NewService(db, reconciler.event), stackDeployer, serviceManager, reconciler.pruner, reconciler.deployMetrics,
 	)
-	reconciler.preparer = preparation.New(reconciler.cfg, repository, fs.NewLocalFileSystem(), reconciler.composeRotator)
+	reconciler.preparer = preparation.New(reconciler.cfg, repository, reconciler.composeRotator)
 	reconciler.attachPipeline()
 
 	err := reconciler.Reconcile(context.Background(), ReconciliationRequest{
@@ -369,8 +364,7 @@ func TestReconcileReadsPreviousDigestFromStateStore(t *testing.T) {
 	eventDispatcher := &dispatcher.NopDispatcher{}
 	deployMetrics := &metrics.NopDeploys{}
 
-	repository.EXPECT().WorkingDir().Return(repoDir).AnyTimes()
-	expectRevisionReads(repository, repoDir)
+	mockRepositoryFiles(repository, repoDir)
 
 	require.NoError(t, writeComposeFile(repoDir), "write compose")
 
@@ -411,7 +405,7 @@ func TestReconcileReadsPreviousDigestFromStateStore(t *testing.T) {
 	reconciler.executor = deployments.NewController(
 		deployments.NewService(db, reconciler.event), stackDeployer, serviceManager, reconciler.pruner, reconciler.deployMetrics,
 	)
-	reconciler.preparer = preparation.New(reconciler.cfg, repository, fs.NewLocalFileSystem(), reconciler.composeRotator)
+	reconciler.preparer = preparation.New(reconciler.cfg, repository, reconciler.composeRotator)
 	reconciler.attachPipeline()
 
 	reconcileErr := reconciler.Reconcile(context.Background(), ReconciliationRequest{
@@ -483,8 +477,7 @@ configs:
 	require.NoError(t, err, "load compose with new config")
 	require.NotEqual(t, oldStackFile.Digest, newStackFile.Digest, "expected config content to change digest")
 
-	repository.EXPECT().WorkingDir().Return(repoDir).AnyTimes()
-	expectRevisionReads(repository, repoDir)
+	mockRepositoryFiles(repository, repoDir)
 	var preparedCompose *compose.Compose
 	stackDeployer.EXPECT().
 		DeployStack(gomock.Any(), gomock.Cond(func(req deployer.StackRequest) bool {
@@ -517,7 +510,7 @@ configs:
 	reconciler.executor = deployments.NewController(
 		deployments.NewService(db, reconciler.event), stackDeployer, serviceManager, reconciler.pruner, reconciler.deployMetrics,
 	)
-	reconciler.preparer = preparation.New(reconciler.cfg, repository, fs.NewLocalFileSystem(), reconciler.composeRotator)
+	reconciler.preparer = preparation.New(reconciler.cfg, repository, reconciler.composeRotator)
 	reconciler.attachPipeline()
 
 	reconcileErr := reconciler.Reconcile(context.Background(), ReconciliationRequest{
@@ -554,11 +547,11 @@ func TestReconcilePassesSourceResourceDefinitionsToNativeDeployment(t *testing.T
 	db, stateStore := newSQLState(t)
 	repoDir := t.TempDir()
 	eventDispatcher := &dispatcher.NopDispatcher{}
-	absConfigPath := filepath.Join(repoDir, "absolute", "config.yaml")
-	absSecretPath := filepath.Join(repoDir, "absolute", "source-secret")
+	sharedConfigPath := filepath.Join(repoDir, "shared", "config.yaml")
+	sharedSecretPath := filepath.Join(repoDir, "shared", "source-secret")
 
 	require.NoError(t, os.MkdirAll(filepath.Join(repoDir, "deploy"), 0o755), "create compose dir")
-	require.NoError(t, os.WriteFile(filepath.Join(repoDir, "deploy", "docker-compose.yaml"), []byte(fmt.Sprintf(`
+	require.NoError(t, os.WriteFile(filepath.Join(repoDir, "deploy", "docker-compose.yaml"), []byte(`
 services:
   api:
     image: nginx:latest
@@ -569,24 +562,23 @@ services:
 configs:
   app-config:
     file: ./config/app.yaml
-  abs-config:
-    file: %s
+  shared-config:
+    file: ../shared/config.yaml
 secrets:
   app-secret:
     file: secrets/password.txt
-  abs-secret:
-    file: %s
-`, absConfigPath, absSecretPath)), 0o600), "write compose")
+  shared-secret:
+    file: ../shared/source-secret
+`), 0o600), "write compose")
 	require.NoError(t, os.MkdirAll(filepath.Join(repoDir, "deploy", "config"), 0o755), "create config dir")
 	require.NoError(t, os.MkdirAll(filepath.Join(repoDir, "deploy", "secrets"), 0o755), "create secrets dir")
-	require.NoError(t, os.MkdirAll(filepath.Dir(absConfigPath), 0o755), "create absolute object dir")
+	require.NoError(t, os.MkdirAll(filepath.Dir(sharedConfigPath), 0o755), "create shared object dir")
 	require.NoError(t, os.WriteFile(filepath.Join(repoDir, "deploy", "config", "app.yaml"), []byte("version: current\n"), 0o600), "write config")
 	require.NoError(t, os.WriteFile(filepath.Join(repoDir, "deploy", "secrets", "password.txt"), []byte("password\n"), 0o600), "write secret")
-	require.NoError(t, os.WriteFile(absConfigPath, []byte("absolute config\n"), 0o600), "write absolute config")
-	require.NoError(t, os.WriteFile(absSecretPath, []byte("absolute secret\n"), 0o600), "write absolute secret")
+	require.NoError(t, os.WriteFile(sharedConfigPath, []byte("shared config\n"), 0o600), "write shared config")
+	require.NoError(t, os.WriteFile(sharedSecretPath, []byte("shared secret\n"), 0o600), "write shared secret")
 
-	repository.EXPECT().WorkingDir().Return(repoDir).AnyTimes()
-	expectRevisionReads(repository, repoDir)
+	mockRepositoryFiles(repository, repoDir)
 	var preparedCompose *compose.Compose
 	stackDeployer.EXPECT().
 		DeployStack(gomock.Any(), gomock.Cond(func(req deployer.StackRequest) bool {
@@ -615,7 +607,7 @@ secrets:
 	reconciler.executor = deployments.NewController(
 		deployments.NewService(db, reconciler.event), stackDeployer, serviceManager, reconciler.pruner, reconciler.deployMetrics,
 	)
-	reconciler.preparer = preparation.New(reconciler.cfg, repository, fs.NewLocalFileSystem(), reconciler.composeRotator)
+	reconciler.preparer = preparation.New(reconciler.cfg, repository, reconciler.composeRotator)
 	reconciler.attachPipeline()
 
 	reconcileErr := reconciler.Reconcile(context.Background(), ReconciliationRequest{
@@ -633,18 +625,18 @@ secrets:
 		t,
 		"./config/app.yaml",
 		preparedCompose.Configs["app-config"].File,
-		"native deployment resolves files from SourceComposePath",
+		"native deployment receives the declared source path",
 	)
 	assert.Equal(
 		t,
-		absConfigPath,
-		preparedCompose.Configs["abs-config"].File,
-		"absolute config file should be preserved",
+		"../shared/config.yaml",
+		preparedCompose.Configs["shared-config"].File,
+		"path to the shared config should be preserved",
 	)
 	assert.False(t, preparedCompose.Secrets["app-secret"].External)
 	assert.Equal(t, "secrets/password.txt", preparedCompose.Secrets["app-secret"].File)
-	assert.False(t, preparedCompose.Secrets["abs-secret"].External)
-	assert.Equal(t, absSecretPath, preparedCompose.Secrets["abs-secret"].File)
+	assert.False(t, preparedCompose.Secrets["shared-secret"].External)
+	assert.Equal(t, "../shared/source-secret", preparedCompose.Secrets["shared-secret"].File)
 	assert.Equal(t, []byte("version: current\n"), preparedCompose.Configs["app-config"].Data)
 
 }
@@ -671,8 +663,7 @@ services:
       FOO: explicit
 `), 0o600), "write compose")
 
-	repository.EXPECT().WorkingDir().Return(repoDir).AnyTimes()
-	expectRevisionReads(repository, repoDir)
+	mockRepositoryFiles(repository, repoDir)
 	var preparedCompose *compose.Compose
 	stackDeployer.EXPECT().
 		DeployStack(gomock.Any(), gomock.Cond(func(req deployer.StackRequest) bool {
@@ -701,7 +692,7 @@ services:
 	reconciler.executor = deployments.NewController(
 		deployments.NewService(db, reconciler.event), stackDeployer, serviceManager, reconciler.pruner, reconciler.deployMetrics,
 	)
-	reconciler.preparer = preparation.New(reconciler.cfg, repository, fs.NewLocalFileSystem(), reconciler.composeRotator)
+	reconciler.preparer = preparation.New(reconciler.cfg, repository, reconciler.composeRotator)
 	reconciler.attachPipeline()
 
 	reconcileErr := reconciler.Reconcile(context.Background(), ReconciliationRequest{
@@ -741,8 +732,7 @@ services:
         %s: %q
 `, labelsdict.ServiceManagedLabelKey, labelsdict.ServiceManagedLabelValue)), 0o600), "write compose")
 
-	repository.EXPECT().WorkingDir().Return(repoDir).AnyTimes()
-	expectRevisionReads(repository, repoDir)
+	mockRepositoryFiles(repository, repoDir)
 	var preparedCompose *compose.Compose
 	stackDeployer.EXPECT().
 		DeployStack(gomock.Any(), gomock.Cond(func(req deployer.StackRequest) bool {
@@ -774,7 +764,7 @@ services:
 	reconciler.executor = deployments.NewController(
 		deployments.NewService(db, reconciler.event), stackDeployer, serviceManager, reconciler.pruner, reconciler.deployMetrics,
 	)
-	reconciler.preparer = preparation.New(reconciler.cfg, repository, fs.NewLocalFileSystem(), reconciler.composeRotator)
+	reconciler.preparer = preparation.New(reconciler.cfg, repository, reconciler.composeRotator)
 	reconciler.attachPipeline()
 
 	reconcileErr := reconciler.Reconcile(context.Background(), ReconciliationRequest{
@@ -817,8 +807,7 @@ services:
         %s: %q
 `, labelsdict.ServiceManagedLabelKey, labelsdict.ServiceManagedLabelValue)), 0o600), "write compose")
 
-	repository.EXPECT().WorkingDir().Return(repoDir).Times(2)
-	expectRevisionReads(repository, repoDir)
+	mockRepositoryFiles(repository, repoDir)
 	stackDeployer.EXPECT().
 		DeployStack(gomock.Any(), gomock.Cond(func(req deployer.StackRequest) bool {
 			return req.StackName == "app" &&
@@ -851,7 +840,7 @@ services:
 	reconciler.executor = deployments.NewController(
 		deployments.NewService(db, reconciler.event), stackDeployer, serviceManager, reconciler.pruner, reconciler.deployMetrics,
 	)
-	reconciler.preparer = preparation.New(reconciler.cfg, repository, fs.NewLocalFileSystem(), reconciler.composeRotator)
+	reconciler.preparer = preparation.New(reconciler.cfg, repository, reconciler.composeRotator)
 	reconciler.attachPipeline()
 
 	reconcileErr := reconciler.Reconcile(context.Background(), ReconciliationRequest{
@@ -908,8 +897,7 @@ func TestReconcilePrunesServicesWithoutNewDeployment(t *testing.T) {
 				}
 			})
 
-			repository.EXPECT().WorkingDir().Return(repoDir).AnyTimes()
-			expectRevisionReads(repository, repoDir)
+			mockRepositoryFiles(repository, repoDir)
 			serviceManager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "app"}).Return([]swarm.StackService{
 				{
 					ID:   "service-api",
@@ -946,7 +934,7 @@ func TestReconcilePrunesServicesWithoutNewDeployment(t *testing.T) {
 			reconciler.executor = deployments.NewController(
 				deployments.NewService(db, reconciler.event), stackDeployer, serviceManager, reconciler.pruner, reconciler.deployMetrics,
 			)
-			reconciler.preparer = preparation.New(reconciler.cfg, repository, fs.NewLocalFileSystem(), reconciler.composeRotator)
+			reconciler.preparer = preparation.New(reconciler.cfg, repository, reconciler.composeRotator)
 			reconciler.attachPipeline()
 
 			reconcileErr := reconciler.Reconcile(context.Background(), ReconciliationRequest{
@@ -1023,8 +1011,7 @@ func TestReconcileServiceMissedEventOnDrift(t *testing.T) {
 				}
 			})
 
-			repository.EXPECT().WorkingDir().Return(repoDir).AnyTimes()
-			expectRevisionReads(repository, repoDir)
+			mockRepositoryFiles(repository, repoDir)
 			serviceManager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "app"}).Return(tt.liveServices, nil)
 
 			reconciler := &Reconciler{
@@ -1045,7 +1032,7 @@ func TestReconcileServiceMissedEventOnDrift(t *testing.T) {
 				deployments.NewService(db, reconciler.event), deployer.NewMockStackDeployer(ctrl),
 				serviceManager, reconciler.pruner, reconciler.deployMetrics,
 			)
-			reconciler.preparer = preparation.New(reconciler.cfg, repository, fs.NewLocalFileSystem(), reconciler.composeRotator)
+			reconciler.preparer = preparation.New(reconciler.cfg, repository, reconciler.composeRotator)
 			reconciler.attachPipeline()
 
 			reconcileErr := reconciler.Reconcile(context.Background(), ReconciliationRequest{
@@ -1151,8 +1138,7 @@ func TestReconcileSelfHealsMissingService(t *testing.T) {
 				state.Stacks["app"] = model.Stack{SourceDigest: stackFile.Digest, LastCommit: "previous"}
 			}))
 
-			repository.EXPECT().WorkingDir().Return(repoDir).AnyTimes()
-			expectRevisionReads(repository, repoDir)
+			mockRepositoryFiles(repository, repoDir)
 			serviceManager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "app"}).Return(nil, nil)
 			serviceManager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "app"}).Return(tt.verifiedLive, tt.verificationErr)
 			stackDeployer.EXPECT().DeployService(gomock.Any(), gomock.Cond(func(req deployer.ServiceRequest) bool {
@@ -1177,7 +1163,7 @@ func TestReconcileSelfHealsMissingService(t *testing.T) {
 			reconciler.executor = deployments.NewController(
 				deployments.NewService(db, reconciler.event), stackDeployer, serviceManager, reconciler.pruner, reconciler.deployMetrics,
 			)
-			reconciler.preparer = preparation.New(reconciler.cfg, repository, fs.NewLocalFileSystem(), reconciler.composeRotator)
+			reconciler.preparer = preparation.New(reconciler.cfg, repository, reconciler.composeRotator)
 			reconciler.attachPipeline()
 
 			err = reconciler.Reconcile(context.Background(), ReconciliationRequest{
@@ -1249,8 +1235,7 @@ func TestReconcileSelfHealsReplicaDriftAfterVerification(t *testing.T) {
 	}))
 
 	one, three := uint64(1), uint64(3)
-	repository.EXPECT().WorkingDir().Return(repoDir).AnyTimes()
-	expectRevisionReads(repository, repoDir)
+	mockRepositoryFiles(repository, repoDir)
 	serviceManager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "app"}).Return([]swarm.StackService{{
 		Name: "api", Replicas: &one,
 	}}, nil)
@@ -1276,7 +1261,7 @@ func TestReconcileSelfHealsReplicaDriftAfterVerification(t *testing.T) {
 	reconciler.executor = deployments.NewController(
 		deployments.NewService(db, reconciler.event), stackDeployer, serviceManager, reconciler.pruner, reconciler.deployMetrics,
 	)
-	reconciler.preparer = preparation.New(reconciler.cfg, repository, fs.NewLocalFileSystem(), reconciler.composeRotator)
+	reconciler.preparer = preparation.New(reconciler.cfg, repository, reconciler.composeRotator)
 	reconciler.attachPipeline()
 
 	require.NoError(t, reconciler.Reconcile(context.Background(), ReconciliationRequest{

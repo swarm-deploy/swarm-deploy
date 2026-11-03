@@ -3,7 +3,6 @@ package preparation
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -17,7 +16,6 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
-	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/labelsdict"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -66,7 +64,6 @@ type Request struct {
 type Preparer struct {
 	cfg              *config.Config
 	git              gitx.Repository
-	fileSystem       fs.FileSystem
 	envFilePopulator *compose.EnvFilePopulator
 	rotator          Rotator
 	pipeline         *pipe.Pipeline[*preparationPayload]
@@ -78,44 +75,25 @@ type preparationPayload struct {
 }
 
 // New creates a Compose preparer.
-func New(cfg *config.Config, git gitx.Repository, fileSystem fs.FileSystem, rotator Rotator) *Preparer {
+func New(cfg *config.Config, git gitx.Repository, rotator Rotator) *Preparer {
 	preparer := &Preparer{cfg: cfg, git: git,
-		fileSystem:       fileSystem,
 		envFilePopulator: compose.NewEnvFilePopulator(), rotator: rotator}
 	preparer.attachPipeline(nil)
 	return preparer
 }
 
-// Load reads and validates the source Compose file at a Git revision without applying effective-state
-// mutations. Files inside the repository, including env files, configs and secrets, are read from the
-// revision's commit objects, never from the working tree, so the result does not depend on pulls
-// performed meanwhile; symlinks are resolved within the same revision. Paths outside the repository,
-// whether absolute or reached through a symlink, such as files mounted into the controller, are not
-// versioned and are read from the filesystem.
+// Load reads and validates a Compose file and its referenced sources at one commit.
 func (p *Preparer) Load(ctx context.Context, stack config.StackSpec, revision string) (*compose.File, error) {
-	root := p.git.WorkingDir()
-	reader := func(ctx context.Context, path string) ([]byte, error) {
-		relative, inside := repositoryPath(root, path)
-		if !inside {
-			return p.fileSystem.ReadFile(ctx, path)
-		}
-		content, err := p.git.ReadFileAt(ctx, revision, relative)
-		if external, ok := errors.AsType[*gitx.ExternalPathError](err); ok {
-			// A symlink in the revision points outside the repository: same policy as external paths.
-			return p.fileSystem.ReadFile(ctx, external.Path)
-		}
-		return content, err
+	loader := compose.NewFileLoaderWithReader(func(ctx context.Context, path string) ([]byte, error) {
+		return p.git.ReadFile(ctx, revision, path)
+	})
+	file, err := loader.Load(ctx, stack.ComposeFile)
+	if err != nil {
+		return nil, err
 	}
-	return compose.NewFileLoaderWithReader(reader).Load(ctx, filepath.Join(root, stack.ComposeFile))
-}
-
-// repositoryPath returns the slash-separated path relative to the repository root when path is inside it.
-func repositoryPath(root, path string) (string, bool) {
-	relative, err := filepath.Rel(root, path)
-	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
-		return "", false
-	}
-	return filepath.ToSlash(relative), true
+	// Preserve the checkout location for resolving relative bind mounts.
+	file.Path = filepath.Join(p.git.WorkingDir(), stack.ComposeFile)
+	return file, nil
 }
 
 // Prepare builds the effective definition used directly by native deployment.

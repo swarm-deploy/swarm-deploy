@@ -8,7 +8,7 @@ A reconciliation run loads the configured Compose file, computes its effective d
 
 The current pipeline is:
 
-1. Load Compose at the requested Git revision without interpolating repository-controlled values.
+1. Load Compose and its referenced files from the reconciliation commit without interpolating repository-controlled values.
 2. [Check image policy when at least one image rule is enabled](./image-policy.md).
 3. Populate service environment from `env_file`.
 4. [Inject Downward metadata when enabled](./downward.md).
@@ -37,9 +37,8 @@ only the work that needs a stable Git working tree:
 The run then finishes without waiting for deployments. Every stack operation reads its Compose file and the
 `env_file`, config and secret files it references from the commit of its revision, never from the working
 tree, so a later Git pull can never change what a queued or running operation applies. Symlinks inside the
-repository, both for directories and files, are resolved within the same revision; cycles fail after 40 hops.
-Paths outside the repository, whether absolute or reached through a symlink, such as files mounted into the
-controller, are not versioned and are read from disk.
+repository, both for directories and files, are resolved within the same revision. Absolute symlink targets
+and targets outside the repository are rejected, and cycles fail after 40 hops.
 
 The stack queue runs at most `sync.parallelism` stacks at the same time (default `4`) and never runs two
 operations for the same stack at once. A slow stack therefore occupies one slot but never delays Git polling,
@@ -93,6 +92,8 @@ swarm-deploy calculates a source digest for each stack. The digest includes:
 A change to a referenced file therefore triggers reconciliation even when the Compose YAML itself did not change.
 
 The source digest is calculated from the source definition before swarm-deploy mutates the desired state.
+
+Compose files and their `env_file`, config, and secret sources must be committed to Git. Relative paths and symlinks can resolve anywhere within the same commit. Absolute paths, absolute symlink targets, and paths that leave the repository are rejected before deployment.
 
 ## `env_file` normalization
 

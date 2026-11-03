@@ -440,3 +440,41 @@ func TestManagedFailureWithExternalJobOnRealSwarm(t *testing.T) {
 	f.deploy(t, desired, deployer.StackOptions{RetryFailedUpdates: true, UnresolvedServices: result.Verification.UnresolvedServices})
 	f.unchanged(t, job)
 }
+
+func TestIdleExternalJobIsParkedOnTemplateUpdateOnRealSwarm(t *testing.T) {
+	f := newExternalSwarmFixture(t)
+	desired := f.load(t, 1, "echo done", "")
+	f.deploy(t, desired, deployer.StackOptions{})
+	f.poll(t, "initial job execution completed", func() bool {
+		tasks := f.tasks(t, "job")
+		return len(tasks) == 1 && tasks[0].CurrentState == swarm.TaskStateComplete
+	})
+	executed := taskIDs(f.tasks(t, "job"))
+	// Replicas stay at one after a completed execution, as with swarm-cronjob.
+	// The template change must be applied without an unscheduled execution.
+	changed := f.load(t, 1, "echo changed", "")
+	f.deploy(t, changed, deployer.StackOptions{})
+	job := f.inspect(t, "job")
+	require.Equal(t, uint64(0), *job.Spec.Mode.Replicated.Replicas, "idle job is parked with the template change")
+	f.unchanged(t, f.settledJob(t))
+	for _, task := range f.tasks(t, "job") {
+		require.Contains(t, executed, task.ID, "template update must not start an unscheduled execution")
+	}
+	// The scheduler owns the next execution; a repeated deployment stays a no-op.
+	f.externalUpdate(t, func(spec *dockerswarm.ServiceSpec) {
+		one := uint64(1)
+		spec.Mode.Replicated.Replicas = &one
+		spec.TaskTemplate.ForceUpdate++
+	})
+	f.poll(t, "scheduled execution of the changed template completed", func() bool {
+		for _, task := range f.tasks(t, "job") {
+			if !slices.Contains(executed, task.ID) && task.CurrentState == swarm.TaskStateComplete {
+				return true
+			}
+		}
+		return false
+	})
+	external := f.settledJob(t)
+	f.deploy(t, changed, deployer.StackOptions{})
+	f.unchanged(t, external)
+}

@@ -25,9 +25,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackloop/preparation"
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
 	gitopsstore "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/modelstore"
-	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 	"github.com/swarm-deploy/swarm-deploy/internal/storage"
-	"go.uber.org/mock/gomock"
 )
 
 // Reuse the real Engine fixture, subnet allocation, bounded polling and cleanup
@@ -51,7 +49,10 @@ func newLifecycleFixture(t *testing.T, prune bool) *lifecycleFixture {
 	cfg := &config.Config{Spec: config.Spec{
 		DataDir: t.TempDir(), Sync: config.SyncSpec{Policy: config.SyncPolicySpec{Prune: prune, SelfHeal: true}},
 	}}
-	return newLifecycleComponents(t, base, cfg, newWorkingTreeRepository(t, filepath.Dir(base.path)))
+	dir := filepath.Dir(base.path)
+	gitCommand(t, base.ctx, dir, "init")
+	gitCommand(t, base.ctx, dir, "remote", "add", "origin", dir)
+	return newLifecycleComponents(t, base, cfg, gitx.NewRepository(config.GitSpec{Repository: dir}, dir))
 }
 
 func newLifecycleComponents(t *testing.T, base *externalSwarmFixture, cfg *config.Config, repository gitx.Repository) *lifecycleFixture {
@@ -74,12 +75,11 @@ func newLifecycleComponents(t *testing.T, base *externalSwarmFixture, cfg *confi
 	}
 	f.executor = deployments.NewController(deployments.NewService(db, f.bus), f.deployer, f.sw.Services,
 		pruner.NewServicePruner(f.sw.Services, f.bus, cfg.Spec.Sync.Policy), &metrics.NopDeploys{})
-	fileSystem := fs.NewLocalFileSystem()
 	rotator := stackloop.NewRotator()
 	f.reconciler = stackloop.New(cfg, f.executor, f.sw, f.bus, &metrics.NopDeploys{}, f.state,
-		preparation.New(cfg, repository, fileSystem, rotator), rotator, db)
+		preparation.New(cfg, repository, rotator), rotator, db)
 	f.request = stackloop.ReconciliationRequest{
-		Stack: config.StackSpec{Name: f.stack, ComposeFile: filepath.Base(f.path)}, Commit: "initial",
+		Stack: config.StackSpec{Name: f.stack, ComposeFile: filepath.Base(f.path)},
 	}
 	return f
 }
@@ -91,6 +91,18 @@ func (f *lifecycleFixture) manifest(t *testing.T, services string) compose.File 
 	file, err := compose.NewFileLoader().Load(f.ctx, f.path)
 	require.NoError(t, err)
 	return *file
+}
+
+func commitFixtureFiles(t *testing.T, ctx context.Context, dir string, paths ...string) string {
+	t.Helper()
+	gitCommand(t, ctx, dir, append([]string{"add", "--"}, paths...)...)
+	gitCommand(t, ctx, dir, "-c", "user.name=E2E", "-c", "user.email=e2e@example.invalid", "commit", "--allow-empty", "-m", "update fixture")
+	return gitCommand(t, ctx, dir, "rev-parse", "HEAD")
+}
+
+func (f *lifecycleFixture) commitManifest(t *testing.T) {
+	t.Helper()
+	f.request.Commit = commitFixtureFiles(t, f.ctx, filepath.Dir(f.path), filepath.Base(f.path))
 }
 
 func lifecycleService(name, command, policy string) string {
@@ -185,17 +197,4 @@ func (f *lifecycleFixture) syncStatus(t *testing.T, name string) string {
 	state, err := f.state.Read(f.ctx)
 	require.NoError(t, err)
 	return string(state.Stacks[f.stack].Services[name].SyncStatus)
-}
-
-// newWorkingTreeRepository serves files at any revision from dir. Fixtures that are not Git
-// repositories use it to keep their revision labels while rewriting files between reconciliations.
-func newWorkingTreeRepository(t *testing.T, dir string) *gitx.MockRepository {
-	t.Helper()
-	repository := gitx.NewMockRepository(gomock.NewController(t))
-	repository.EXPECT().WorkingDir().Return(dir).AnyTimes()
-	repository.EXPECT().ReadFileAt(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, _ string, path string) ([]byte, error) {
-			return os.ReadFile(filepath.Join(dir, path))
-		}).AnyTimes()
-	return repository
 }

@@ -17,28 +17,20 @@ import (
 // maxSymlinkHops bounds symlink resolution like the Linux kernel does, so cycles fail instead of looping.
 const maxSymlinkHops = 40
 
-// ExternalPathError reports that a repository path resolves, through a symlink, to a location outside
-// the repository. Such content is not versioned in Git: whether and how to read it is the caller's policy.
-type ExternalPathError struct {
-	// Path is the absolute filesystem path the repository path resolves to.
-	Path string
-}
-
-func (e *ExternalPathError) Error() string {
-	return fmt.Sprintf("path resolves outside the repository to %s", e.Path)
-}
+var errExternalPath = errors.New("path escapes the repository")
 
 // resolveRevisionFile walks a repository-relative path through tree and returns the blob of the regular
 // file it designates. Symlinks, in intermediate directories as well as the final file, are resolved
-// against the same revision; a resolution leaving the repository returns *ExternalPathError.
+// against the same revision; a resolution leaving the repository is rejected.
 func (r *GoGitRepository) resolveRevisionFile(tree *object.Tree, repositoryPath string) (plumbing.Hash, error) {
-	root, err := filepath.Abs(r.path)
-	if err != nil {
-		return plumbing.ZeroHash, fmt.Errorf("resolve repository root: %w", err)
+	if repositoryPath == "" || strings.ContainsRune(repositoryPath, 0) {
+		return plumbing.ZeroHash, errors.New("invalid repository file path")
 	}
-
+	if path.IsAbs(repositoryPath) || filepath.IsAbs(repositoryPath) || filepath.VolumeName(repositoryPath) != "" {
+		return plumbing.ZeroHash, errExternalPath
+	}
 	resolver := &revisionPathResolver{
-		repository: r, tree: tree, root: root, pending: splitSlashPath(filepath.ToSlash(repositoryPath)),
+		repository: r, tree: tree, pending: strings.Split(filepath.ToSlash(repositoryPath), "/"),
 	}
 	for len(resolver.pending) > 0 {
 		hash, found, stepErr := resolver.step()
@@ -47,14 +39,13 @@ func (r *GoGitRepository) resolveRevisionFile(tree *object.Tree, repositoryPath 
 		}
 	}
 
-	return plumbing.ZeroHash, errors.New("path designates the repository root")
+	return plumbing.ZeroHash, errors.New("path designates a directory")
 }
 
 // revisionPathResolver resolves a path component by component, like path resolution in a kernel.
 type revisionPathResolver struct {
 	repository *GoGitRepository
 	tree       *object.Tree
-	root       string
 	// pending holds components still to resolve; symlink targets are prepended to it.
 	pending []string
 	// resolved holds the components of the directory resolved so far.
@@ -101,7 +92,7 @@ func (res *revisionPathResolver) step() (plumbing.Hash, bool, error) {
 
 func (res *revisionPathResolver) parent() error {
 	if len(res.resolved) == 0 {
-		return &ExternalPathError{Path: externalPath(filepath.Dir(res.root), res.pending)}
+		return errExternalPath
 	}
 	res.resolved = res.resolved[:len(res.resolved)-1]
 	return nil
@@ -119,17 +110,14 @@ func (res *revisionPathResolver) followSymlink(linkPath string, target plumbing.
 	}
 
 	targetPath := string(content)
-	if !path.IsAbs(targetPath) {
-		// A relative target is resolved from the directory holding the link.
-		res.pending = append(splitSlashPath(targetPath), res.pending...)
-		return nil
+	if path.IsAbs(targetPath) || filepath.IsAbs(targetPath) || filepath.VolumeName(targetPath) != "" {
+		return errExternalPath
 	}
-	relative, inside := relativeToRoot(res.root, filepath.FromSlash(targetPath))
-	if !inside {
-		return &ExternalPathError{Path: externalPath(filepath.FromSlash(targetPath), res.pending)}
+	if targetPath == "" || strings.ContainsRune(targetPath, 0) {
+		return fmt.Errorf("%s: invalid symbolic link target", linkPath)
 	}
-	res.resolved = nil
-	res.pending = append(splitSlashPath(relative), res.pending...)
+	// A relative target is resolved from the directory holding the link.
+	res.pending = append(strings.Split(filepath.ToSlash(targetPath), "/"), res.pending...)
 	return nil
 }
 
@@ -145,21 +133,4 @@ func (r *GoGitRepository) readBlob(hash plumbing.Hash) ([]byte, error) {
 	defer reader.Close()
 
 	return io.ReadAll(reader)
-}
-
-func splitSlashPath(value string) []string {
-	return strings.Split(value, "/")
-}
-
-// relativeToRoot returns the slash-separated path of target relative to root when target is inside it.
-func relativeToRoot(root, target string) (string, bool) {
-	relative, err := filepath.Rel(root, target)
-	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
-		return "", false
-	}
-	return filepath.ToSlash(relative), true
-}
-
-func externalPath(base string, rest []string) string {
-	return filepath.Join(append([]string{base}, rest...)...)
 }

@@ -25,7 +25,6 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackloop/preparation"
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/model"
-	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	"go.uber.org/mock/gomock"
 )
@@ -91,8 +90,7 @@ func TestReconcileReplicaDriftPolicy(t *testing.T) {
 			if tt.missing {
 				initial = nil
 			}
-			repository.EXPECT().WorkingDir().Return(dir).AnyTimes()
-			expectRevisionReads(repository, dir)
+			mockRepositoryFiles(repository, dir)
 			services.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "app"}).Return(initial, nil)
 			if tt.repair {
 				services.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "app"}).Return(live, nil)
@@ -113,7 +111,7 @@ func TestReconcileReplicaDriftPolicy(t *testing.T) {
 			}
 			r.executor = deployments.NewController(
 				deployments.NewService(db, publisher), stackDeployer, services, r.pruner, r.deployMetrics)
-			r.preparer = preparation.New(cfg, repository, fs.NewLocalFileSystem(), r.composeRotator)
+			r.preparer = preparation.New(cfg, repository, r.composeRotator)
 			r.attachPipeline()
 			require.NoError(t, r.Reconcile(t.Context(), ReconciliationRequest{
 				Stack: config.StackSpec{Name: "app", ComposeFile: "app.yaml"}, Commit: "current",

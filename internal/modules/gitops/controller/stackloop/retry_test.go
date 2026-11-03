@@ -17,7 +17,6 @@ import (
 	deploymentstore "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
-	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	"go.uber.org/mock/gomock"
 )
@@ -30,20 +29,19 @@ func TestReconcileDeferredFailureProtectsUnresolvedServiceAndFailureProjection(t
 	db, stateStore := newSQLState(t)
 	dir := t.TempDir()
 	require.NoError(t, writeComposeFile(dir))
-	repository.EXPECT().WorkingDir().Return(dir).AnyTimes()
-	expectRevisionReads(repository, dir)
+	mockRepositoryFiles(repository, dir)
 	cfg := &config.Config{Spec: config.Spec{DataDir: filepath.Join(dir, ".data"), Sync: config.SyncSpec{Policy: config.SyncPolicySpec{SelfHeal: true}}}}
 	bus := &dispatcher.NopDispatcher{}
 	lifecycle := deployments.NewService(db, bus)
 	swarmService := &swarm.Swarm{Services: manager}
-	reconciler := newTestReconciler(cfg, repository, lifecycle, stackDeployer, swarmService, bus, &metrics.NopDeploys{}, stateStore, fs.NewLocalFileSystem(), db)
+	reconciler := newTestReconciler(cfg, repository, lifecycle, stackDeployer, swarmService, bus, &metrics.NopDeploys{}, stateStore, db)
 	req := ReconciliationRequest{Stack: config.StackSpec{Name: "app", ComposeFile: "app.yaml"}, Commit: "one"}
 	stackDeployer.EXPECT().DeployStack(gomock.Any(), gomock.Cond(func(req deployer.StackRequest) bool { return req.StackName == "app" })).Return(deployer.Result{}, &pipe.StepError{StepName: "wait for service convergence", Err: fmt.Errorf("api paused: %w", waiter.ErrConvergenceFailed)})
 	require.Error(t, reconciler.Reconcile(t.Context(), req))
 	before := readSQLState(t, stateStore)
 	assert.Equal(t, "convergence_failed", before.Stacks["app"].LastError)
 	// Recreate both lifecycle and reconciler, keeping only SQLite state.
-	reconciler = newTestReconciler(cfg, repository, deployments.NewService(db, bus), stackDeployer, swarmService, bus, &metrics.NopDeploys{}, stateStore, fs.NewLocalFileSystem(), db)
+	reconciler = newTestReconciler(cfg, repository, deployments.NewService(db, bus), stackDeployer, swarmService, bus, &metrics.NopDeploys{}, stateStore, db)
 	manager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "app"}).Return(nil, nil).Times(5)
 	for range 5 {
 		require.NoError(t, reconciler.Reconcile(t.Context(), req))

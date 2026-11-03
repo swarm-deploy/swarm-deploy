@@ -2,11 +2,11 @@ package git
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -31,8 +31,7 @@ type GoGitRepository struct {
 	remote   string
 	authType config.GitAuthType
 
-	// mu serializes access to the go-git repository, which is not safe for concurrent use:
-	// stack operations read revisions in parallel while the scheduler pulls.
+	// go-git mutates its object indexes during both reads and pulls.
 	mu         sync.Mutex
 	repository *gogit.Repository
 }
@@ -73,39 +72,32 @@ func (r *GoGitRepository) WorkingDir() string {
 	return r.path
 }
 
-func (r *GoGitRepository) ReadFile(_ context.Context, path string) ([]byte, error) {
-	content, err := os.ReadFile(filepath.Join(r.path, path))
-	if err != nil {
-		return nil, fmt.Errorf("read repository file %q: %w", path, err)
-	}
-
-	return content, nil
-}
-
-func (r *GoGitRepository) ReadFileAt(_ context.Context, revision string, path string) ([]byte, error) {
-	trimmedRevision := strings.TrimSpace(revision)
-	if trimmedRevision == "" {
-		return nil, errors.New("revision is required")
-	}
-
+func (r *GoGitRepository) ReadFile(ctx context.Context, revision, path string) ([]byte, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	commit, err := r.repository.CommitObject(plumbing.NewHash(trimmedRevision))
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	hash, err := hex.DecodeString(revision)
+	if err != nil || len(hash) != len(plumbing.ZeroHash) {
+		return nil, errors.New("revision must be a full Git commit hash")
+	}
+	commit, err := r.repository.CommitObject(plumbing.Hash(hash))
 	if err != nil {
-		return nil, fmt.Errorf("find commit %q: %w", trimmedRevision, err)
+		return nil, fmt.Errorf("find commit %q: %w", revision, err)
 	}
 	tree, err := commit.Tree()
 	if err != nil {
-		return nil, fmt.Errorf("resolve tree of %s: %w", trimmedRevision, err)
+		return nil, fmt.Errorf("resolve tree of %s: %w", revision, err)
 	}
 	blobHash, err := r.resolveRevisionFile(tree, path)
 	if err != nil {
-		return nil, fmt.Errorf("read repository file %q at %s: %w", path, trimmedRevision, err)
+		return nil, fmt.Errorf("read repository file %q at %s: %w", path, revision, err)
 	}
 	content, err := r.readBlob(blobHash)
 	if err != nil {
-		return nil, fmt.Errorf("read repository file %q at %s: %w", path, trimmedRevision, err)
+		return nil, fmt.Errorf("read repository file %q at %s: %w", path, revision, err)
 	}
 
 	return content, nil
@@ -166,12 +158,12 @@ func (r *GoGitRepository) head() (string, error) {
 }
 
 func (r *GoGitRepository) List(ctx context.Context, limit int) ([]CommitMeta, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
 	if limit <= 0 {
 		return nil, errors.New("limit must be > 0")
 	}
-
-	r.mu.Lock()
-	defer r.mu.Unlock()
 
 	headRef, err := r.repository.Head()
 	if err != nil {
@@ -213,6 +205,9 @@ func (r *GoGitRepository) List(ctx context.Context, limit int) ([]CommitMeta, er
 }
 
 func (r *GoGitRepository) Diff(ctx context.Context, oldRevision string, newRevision string) ([]CommitFileDiff, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
 	if oldRevision == "" {
 		return nil, errors.New("old revision is required")
 	}
@@ -224,9 +219,6 @@ func (r *GoGitRepository) Diff(ctx context.Context, oldRevision string, newRevis
 	if oldRevision == newRevision {
 		return nil, nil
 	}
-
-	r.mu.Lock()
-	defer r.mu.Unlock()
 
 	oldCommit, err := r.repository.CommitObject(plumbing.NewHash(oldRevision))
 	if err != nil {
@@ -257,13 +249,13 @@ func (r *GoGitRepository) Diff(ctx context.Context, oldRevision string, newRevis
 }
 
 func (r *GoGitRepository) Show(ctx context.Context, commitHash string) (Commit, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
 	trimmedHash := strings.TrimSpace(commitHash)
 	if trimmedHash == "" {
 		return Commit{}, errors.New("commit hash is required")
 	}
-
-	r.mu.Lock()
-	defer r.mu.Unlock()
 
 	commit, err := r.repository.CommitObject(plumbing.NewHash(trimmedHash))
 	if err != nil {

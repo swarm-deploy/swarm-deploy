@@ -2,7 +2,6 @@ package git
 
 import (
 	"context"
-	"errors"
 	"net/http"
 
 	"github.com/go-git/go-git/v5/plumbing/transport/client"
@@ -42,35 +41,11 @@ func (t *TraceableRepository) WorkingDir() string {
 	return t.repo.WorkingDir()
 }
 
-func (t *TraceableRepository) ReadFile(ctx context.Context, path string) ([]byte, error) {
+func (t *TraceableRepository) ReadFile(ctx context.Context, revision, path string) ([]byte, error) {
 	ctx, span := t.tracer.Start(ctx, "repo.ReadFile", trace.WithAttributes(attribute.String("path", path)))
 	defer span.End()
 
-	content, err := t.repo.ReadFile(ctx, path)
-	if err != nil {
-		tracing.FailSpan(span, err)
-		return nil, err
-	}
-
-	span.SetStatus(codes.Ok, "")
-
-	return content, nil
-}
-
-func (t *TraceableRepository) ReadFileAt(ctx context.Context, revision string, path string) ([]byte, error) {
-	ctx, span := t.tracer.Start(ctx, "repo.ReadFileAt", trace.WithAttributes(
-		attribute.String("path", path), attribute.String("revision", revision),
-	))
-	defer span.End()
-
-	content, err := t.repo.ReadFileAt(ctx, revision, path)
-	if external, ok := errors.AsType[*ExternalPathError](err); ok {
-		// Not a failure: the caller decides how to read content outside the repository.
-		span.AddEvent("path resolves outside the repository", trace.WithAttributes(
-			attribute.String("external_path", external.Path),
-		))
-		return nil, err
-	}
+	content, err := t.repo.ReadFile(ctx, revision, path)
 	if err != nil {
 		tracing.FailSpan(span, err)
 		return nil, err

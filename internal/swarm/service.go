@@ -79,6 +79,8 @@ type ServiceTask struct {
 	ExitCode *int
 	// Error is a task runtime error.
 	Error string
+	// Spec is the task template the task was created from, including its ForceUpdate generation.
+	Spec dockerswarm.TaskSpec
 }
 
 // TaskResources contains compact CPU and memory resource settings.

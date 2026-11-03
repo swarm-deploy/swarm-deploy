@@ -163,13 +163,18 @@ func composeFieldType(typ reflect.Type, key string) (reflect.Type, bool) {
 // setIgnoredOptions attaches non-persistent warnings to the parsed services.
 func setIgnoredOptions(desired *Compose, paths []string) {
 	for _, path := range paths {
-		parts := strings.Split(path, ".")
-		if len(parts) != 4 || parts[0] != "compose" || parts[1] != "services" {
+		rest, ok := strings.CutPrefix(path, "compose.services.")
+		if !ok {
 			continue
 		}
+		separator := strings.LastIndexByte(rest, '.')
+		if separator <= 0 || separator == len(rest)-1 {
+			continue
+		}
+		name, option := rest[:separator], rest[separator+1:]
 		for i := range desired.Services {
-			if desired.Services[i].Name == parts[2] {
-				desired.Services[i].IgnoredOptions = append(desired.Services[i].IgnoredOptions, parts[3])
+			if desired.Services[i].Name == name {
+				desired.Services[i].IgnoredOptions = append(desired.Services[i].IgnoredOptions, option)
 				break
 			}
 		}
