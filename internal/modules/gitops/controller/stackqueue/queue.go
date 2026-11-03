@@ -7,6 +7,10 @@
 // specification or source once a newer run has replaced it. A run that fails after accepting a new
 // configuration clears all waiting work (Clear) instead of letting older revisions run under it.
 //
+// Stacks changed in Git run first: Replace orders waiting work by the plan of the latest run, and a
+// waiting stack keeps its changed mark until it runs, so a later run without a diff (for example, the
+// periodic one) does not push it back.
+//
 // A slow stack never delays Git polling, later sync runs or other stacks while a worker is free.
 // Running operations are never interrupted by Replace or Clear; they finish within their lifecycle.
 package stackqueue
@@ -41,6 +45,8 @@ type operation struct {
 	kind        string
 	request     stackloop.ReconciliationRequest
 	spanContext trace.SpanContext
+	// changed marks work for a stack whose source changed in Git; such work is scheduled first.
+	changed bool
 }
 
 // Queue executes stack operations on a fixed number of workers.
@@ -107,10 +113,14 @@ func (q *Queue) Stop() {
 
 // Replace atomically makes requests the complete set of reconciliations waiting in the queue and returns
 // the sorted names of stacks whose waiting work was dropped because they are absent from requests.
-// A reconciliation already waiting for a stack is superseded, keeping the manual flag of either request,
-// and a waiting cleanup is superseded too. Stacks keep their place in the queue; new ones join its end
-// in request order. It returns false after Stop.
-func (q *Queue) Replace(ctx context.Context, requests []stackloop.ReconciliationRequest) ([]string, bool) {
+// changed names stacks whose source changed in Git; it may be nil.
+//
+// A reconciliation already waiting for a stack is superseded, keeping the manual and changed marks of
+// either request, and a waiting cleanup is superseded too. Waiting stacks are reordered by this run:
+// changed stacks first, then the others, each group in request order. It returns false after Stop.
+func (q *Queue) Replace(
+	ctx context.Context, requests []stackloop.ReconciliationRequest, changed map[string]bool,
+) ([]string, bool) {
 	spanContext := trace.SpanContextFromContext(ctx)
 	desired := make(map[string]struct{}, len(requests))
 	for _, req := range requests {
@@ -129,19 +139,37 @@ func (q *Queue) Replace(ctx context.Context, requests []stackloop.Reconciliation
 	})
 	for _, req := range requests {
 		name := req.Stack.Name
-		previous, hasPrevious := q.pending[name]
-		if hasPrevious && previous.kind == OperationReconcile {
-			req.IsManual = req.IsManual || previous.request.IsManual
+		op := operation{kind: OperationReconcile, request: req, spanContext: spanContext, changed: changed[name]}
+		if previous, hasPrevious := q.pending[name]; hasPrevious {
+			op.changed = op.changed || previous.changed
+			if previous.kind == OperationReconcile {
+				op.request.IsManual = op.request.IsManual || previous.request.IsManual
+			}
 		}
-		q.pending[name] = operation{kind: OperationReconcile, request: req, spanContext: spanContext}
-		// A stack is in the ready list only while it has waiting work and nothing running;
-		// finish re-enqueues work that was replaced while the stack was running.
-		if !hasPrevious && !q.running[name] {
-			q.enqueueLocked(name)
-		}
+		q.pending[name] = op
 	}
+	q.rebuildReadyLocked(requests)
 	q.updateStateLocked()
 	return dropped, true
+}
+
+// rebuildReadyLocked orders every waiting stack that is not running: changed stacks first, then the
+// others, each group in request order. Running stacks re-enter the ready list through finish.
+func (q *Queue) rebuildReadyLocked(requests []stackloop.ReconciliationRequest) {
+	ready := make([]string, 0, len(requests))
+	seen := make(map[string]struct{}, len(requests))
+	for _, changedPass := range []bool{true, false} {
+		for _, req := range requests {
+			name := req.Stack.Name
+			if _, isSeen := seen[name]; isSeen || q.running[name] || q.pending[name].changed != changedPass {
+				continue
+			}
+			seen[name] = struct{}{}
+			ready = append(ready, name)
+		}
+	}
+	q.ready = ready
+	q.cond.Broadcast()
 }
 
 // Clear drops every waiting operation and returns the sorted names of the affected stacks.
@@ -292,8 +320,18 @@ func (q *Queue) dropLocked(matches func(name string) bool) []string {
 	return dropped
 }
 
+// enqueueLocked adds a stack with waiting work to the ready list: changed work after the last changed
+// stack, any other work at the end.
 func (q *Queue) enqueueLocked(name string) {
-	q.ready = append(q.ready, name)
+	if q.pending[name].changed {
+		position := 0
+		for position < len(q.ready) && q.pending[q.ready[position]].changed {
+			position++
+		}
+		q.ready = slices.Insert(q.ready, position, name)
+	} else {
+		q.ready = append(q.ready, name)
+	}
 	q.cond.Signal()
 }
 

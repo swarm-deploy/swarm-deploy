@@ -56,6 +56,8 @@ replaces the whole set of waiting reconciliations with the desired state it has 
 - waiting work of stacks that are no longer configured disappears, so a removed or renamed stack is never
   deployed from an older revision after the new configuration took effect;
 - a stack never runs with a specification or source that a newer successful run has already replaced;
+- waiting stacks are reordered by every run: stacks changed in Git run first, and a waiting stack keeps its
+  changed mark until it runs, so a later run without a diff (such as the periodic one) does not push it back;
 - when a run fails after the new configuration was accepted (for example, while reconciling networks), all
   waiting work is dropped instead of running under that configuration; the next successful run queues every
   stack again.

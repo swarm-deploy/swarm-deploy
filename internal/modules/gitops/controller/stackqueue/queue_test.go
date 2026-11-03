@@ -169,7 +169,7 @@ func TestQueueStopDropsWaitingWorkAndRejectsNewWork(t *testing.T) {
 	require.Eventually(t, func() bool {
 		_, accepted := queue.Replace(t.Context(), []stackloop.ReconciliationRequest{
 			request("waiting", "v1", false), request("late", "v1", false),
-		})
+		}, nil)
 		return !accepted
 	}, testWait, time.Millisecond)
 	select {
@@ -209,6 +209,29 @@ func TestQueueReplaceDropsWaitingWorkOfStacksAbsentFromDesiredState(t *testing.T
 	waitIdle(t, queue)
 	assert.Equal(t, []string{"renamed@A", "kept@C", "new@C"}, seen(),
 		"waiting work absent from the latest desired state never runs, even behind a running operation")
+}
+
+func TestQueueRunsChangedStacksFirst(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	reconciler := stackloop.NewMockStackReconciler(ctrl)
+	started, release := make(chan struct{}), make(chan struct{})
+	seen := recordReconciliations(reconciler, started, release, 4)
+	queue := newTestQueue(t, reconciler, 1)
+
+	replace(t, queue, request("a", "1", false))
+	receive(t, started)
+	// Revision 2 changes nothing: b and c wait in configuration order.
+	replace(t, queue, request("a", "2", false), request("b", "2", false), request("c", "2", false))
+	// Revision 3 changes c and the running a: the planner puts them first.
+	replaceChanged(t, queue, []string{"c", "a"},
+		request("c", "3", false), request("a", "3", false), request("b", "3", false))
+	// A periodic run without a diff must not push the changed stacks back.
+	replace(t, queue, request("a", "4", false), request("b", "4", false), request("c", "4", false))
+	close(release)
+
+	waitIdle(t, queue)
+	assert.Equal(t, []string{"a@1", "c@4", "a@4", "b@4"}, seen(),
+		"waiting changed stacks run before unchanged ones, including a changed stack that was running")
 }
 
 func TestQueueClearDropsAllWaitingWork(t *testing.T) {
@@ -258,7 +281,18 @@ func recordReconciliations(
 
 func replace(t *testing.T, queue *Queue, requests ...stackloop.ReconciliationRequest) []string {
 	t.Helper()
-	dropped, accepted := queue.Replace(t.Context(), requests)
+	return replaceChanged(t, queue, nil, requests...)
+}
+
+func replaceChanged(
+	t *testing.T, queue *Queue, changed []string, requests ...stackloop.ReconciliationRequest,
+) []string {
+	t.Helper()
+	changedSet := make(map[string]bool, len(changed))
+	for _, name := range changed {
+		changedSet[name] = true
+	}
+	dropped, accepted := queue.Replace(t.Context(), requests, changedSet)
 	require.True(t, accepted)
 	return dropped
 }

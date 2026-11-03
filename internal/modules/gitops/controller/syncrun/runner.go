@@ -11,7 +11,6 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/configstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
@@ -183,7 +182,7 @@ func (r *Runner) run(ctx context.Context, task Task, gitResult *gitx.PullResult)
 
 	stackCtx, stackSpan := r.tracer.Start(ctx, "controller.dispatchStacks", trace.WithAttributes(
 		attribute.Int("stacks.total", len(plan.Stacks)), attribute.Int("stacks.changed", len(plan.Changed))))
-	r.dispatchStacks(stackCtx, plan.Stacks, gitResult.NewRevision, task.Reason)
+	r.dispatchStacks(stackCtx, plan, gitResult.NewRevision, task.Reason)
 	stackSpan.SetStatus(codes.Ok, "")
 	stackSpan.End()
 
@@ -236,19 +235,19 @@ func (r *Runner) finishStageFailure(
 }
 
 // dispatchStacks loads every stack source while the working tree is stable and makes the result the
-// complete set of reconciliations waiting in the stack queue. Loading happens here, serialized with
-// Git pulls, so queued reconciliations never read the working tree, and waiting work of stacks that
-// are no longer configured is dropped atomically.
-func (r *Runner) dispatchStacks(ctx context.Context, stacks []config.StackSpec, commit string, reason TriggerReason) {
-	requests := make([]stackloop.ReconciliationRequest, 0, len(stacks))
-	for _, stackCfg := range stacks {
+// complete set of reconciliations waiting in the stack queue, changed stacks first. Loading happens
+// here, serialized with Git pulls, so queued reconciliations never read the working tree, and waiting
+// work of stacks that are no longer configured is dropped atomically.
+func (r *Runner) dispatchStacks(ctx context.Context, plan stackplan.Plan, commit string, reason TriggerReason) {
+	requests := make([]stackloop.ReconciliationRequest, 0, len(plan.Stacks))
+	for _, stackCfg := range plan.Stacks {
 		source, loadErr := r.stackReconciler.Load(ctx, stackCfg)
 		requests = append(requests, stackloop.ReconciliationRequest{
 			Stack: stackCfg, Commit: commit, IsManual: reason == TriggerManual, Source: source, SourceErr: loadErr,
 		})
 	}
 
-	dropped, accepted := r.stacks.Replace(ctx, requests)
+	dropped, accepted := r.stacks.Replace(ctx, requests, plan.Changed)
 	if !accepted {
 		slog.WarnContext(ctx, "stack syncs were not queued: controller is shutting down",
 			slog.String("reason", string(reason)), slog.String("commit", commit))
