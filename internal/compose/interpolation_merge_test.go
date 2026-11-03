@@ -22,19 +22,19 @@ func TestNumericInterpolationThroughMergeAnchors(t *testing.T) {
 		{name: "explicit override", extensions: "x-deploy: &deployment\n  replicas: '${SD_MERGE_REPLICAS:-2}'\n", deploy: "<<: *deployment\n      replicas: 7", want: 7},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-				t.Setenv("SD_MERGE_REPLICAS", "3")
-				source := []byte(fmt.Sprintf("%sservices:\n  app:\n    image: nginx:alpine\n    deploy:\n      %s\n", tc.extensions, tc.deploy))
-				loader := NewFileLoaderWithReader(func(context.Context, string) ([]byte, error) { return source, nil })
-				file, err := loader.Load(t.Context(), "compose.yaml")
-				// Expressions remain literal, so numeric fields cannot decode them.
-				if tc.name != "explicit override" {
-					require.Error(t, err)
-					return
-				}
-				require.NoError(t, err)
-				require.NotNil(t, file.Compose.Services[0].Deploy.Replicas)
-				assert.EqualValues(t, 7, *file.Compose.Services[0].Deploy.Replicas)
-			})
+			t.Setenv("SD_MERGE_REPLICAS", "3")
+			source := []byte(fmt.Sprintf("%sservices:\n  app:\n    image: nginx:alpine\n    deploy:\n      %s\n", tc.extensions, tc.deploy))
+			loader := NewFileLoaderWithReader(func(context.Context, string) ([]byte, error) { return source, nil })
+			file, err := loader.Load(t.Context(), "compose.yaml")
+			// Expressions remain literal, so numeric fields cannot decode them.
+			if tc.name != "explicit override" {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			require.NotNil(t, file.Compose.Services[0].Deploy.Replicas)
+			assert.EqualValues(t, 7, *file.Compose.Services[0].Deploy.Replicas)
+		})
 	}
 }
 
