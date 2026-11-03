@@ -211,14 +211,65 @@ func TestCleanupSkipsBusyStacks(t *testing.T) {
 	receive(t, busyStarted)
 	receive(t, idleFinished)
 
-	// Cleanup runs at the current revision for the idle stack only.
-	repository.EXPECT().Head(gomock.Any()).Return("head", nil)
-	reconciler.EXPECT().Cleanup(gomock.Any(), config.StackSpec{Name: "idle", ComposeFile: "idle.yaml"}, "head").Return(nil)
+	// Cleanup runs at the dispatched revision for the idle stack only.
+	cleaned := make(chan struct{})
+	reconciler.EXPECT().Cleanup(gomock.Any(), config.StackSpec{Name: "idle", ComposeFile: "idle.yaml"}, "revision").
+		DoAndReturn(func(context.Context, config.StackSpec, string) error {
+			close(cleaned)
+			return nil
+		})
 
 	runner.Cleanup(t.Context())
 
+	receive(t, cleaned)
 	close(releaseBusy)
 	waitIdle(t, queue)
+}
+
+func TestCleanupUsesLatestDispatchAfterFailedRun(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	repoDir := t.TempDir()
+	stacksPath, networksPath := filepath.Join(repoDir, "stacks.yaml"), filepath.Join(repoDir, "networks.yaml")
+	require.NoError(t, writeStacks(stacksPath, []string{"app"}))
+	require.NoError(t, os.WriteFile(networksPath, []byte("networks: []\n"), 0o600))
+	repository := gitx.NewMockRepository(ctrl)
+	repository.EXPECT().WorkingDir().Return(repoDir).AnyTimes()
+	reconciler := stackloop.NewMockStackReconciler(ctrl)
+	reconciler.EXPECT().Reconcile(gomock.Any(), gomock.Any()).Return(nil)
+	networkManager := swarm.NewMockNetworkManager(ctrl)
+	networkManager.EXPECT().Get(gomock.Any(), "edge").Return(swarm.Network{}, errors.New("docker unavailable"))
+	runner, store, queue := newTestRunnerWithNetworks(t, repository, reconciler, 1, networkManager, "networks.yaml")
+
+	runner.run(t.Context(), Task{Reason: TriggerInterval}, &gitx.PullResult{OldRevision: "A", NewRevision: "A"})
+	waitIdle(t, queue)
+	// Revision B renames the stack and is accepted, but the run fails before stacks are dispatched.
+	require.NoError(t, writeStacks(stacksPath, []string{"renamed"}))
+	require.NoError(t, os.WriteFile(networksPath, []byte("networks:\n  - name: edge\n    driver: overlay\n"), 0o600))
+	runner.run(t.Context(), Task{Reason: TriggerInterval}, &gitx.PullResult{OldRevision: "B", NewRevision: "B"})
+	require.Equal(t, syncRunResultError, readSQLState(t, store).LastSyncResult)
+
+	// Cleanup matches what the stacks are deployed from, not the newer configuration and revision.
+	reconciler.EXPECT().Cleanup(gomock.Any(), config.StackSpec{Name: "app", ComposeFile: "app.yaml"}, "A").Return(nil)
+	runner.Cleanup(t.Context())
+	waitIdle(t, queue)
+}
+
+func TestRunRejectedByStoppedQueue(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	repoDir := t.TempDir()
+	require.NoError(t, writeStacks(filepath.Join(repoDir, "stacks.yaml"), []string{"app"}))
+	repository := gitx.NewMockRepository(ctrl)
+	repository.EXPECT().WorkingDir().Return(repoDir).AnyTimes()
+	// No Reconcile or Cleanup expectations: nothing may be queued after Stop.
+	runner, store, queue := newTestRunner(t, repository, stackloop.NewMockStackReconciler(ctrl), 1)
+	queue.Stop()
+
+	runner.run(t.Context(), Task{Reason: TriggerInterval}, &gitx.PullResult{OldRevision: "A", NewRevision: "A"})
+
+	state := readSQLState(t, store)
+	assert.Equal(t, syncRunResultError, state.LastSyncResult, "a run whose stacks were not queued is not a success")
+	assert.Equal(t, errQueueStopped.Error(), state.LastSyncError)
+	runner.Cleanup(t.Context())
 }
 
 func TestPollFailureUpdatesOnlyPollState(t *testing.T) {
