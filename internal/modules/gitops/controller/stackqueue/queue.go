@@ -160,6 +160,11 @@ func (q *Queue) Replace(
 		if running, busy := q.running[name]; busy && running.kind == OperationReconcile &&
 			running.request.Commit == req.Commit && reflect.DeepEqual(running.request.Stack, req.Stack) &&
 			!op.request.IsManual {
+			if previous, hasPrevious := q.pending[name]; hasPrevious && previous.kind == OperationReconcile &&
+				(previous.request.Commit != req.Commit ||
+					!reflect.DeepEqual(previous.request.Stack, req.Stack) || previous.request.IsManual) {
+				continue
+			}
 			delete(q.pending, name)
 			continue
 		}

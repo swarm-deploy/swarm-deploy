@@ -4,6 +4,8 @@ git:
   repository: https://github.com/your-org/your-stacks-repo.git
   # Branch to synchronize.
   branch: main
+  # Maximum time for Git pull, including waiting for repository access. Defaults to 2m.
+  pullTimeout: 2m
   # Git authentication settings.
   auth:
     # Authentication type: none | http | ssh.

@@ -254,6 +254,131 @@ func TestQueueClearDropsAllWaitingWork(t *testing.T) {
 	assert.Equal(t, []string{"running@A"}, seen())
 }
 
+func TestQueueSkipsRepeatedIntervalDuringRunningReconciliation(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	reconciler := stackloop.NewMockStackReconciler(ctrl)
+	started, release := make(chan struct{}), make(chan struct{})
+	reconciler.EXPECT().Reconcile(gomock.Any(), request("app", "v1", false)).DoAndReturn(
+		func(context.Context, stackloop.ReconciliationRequest) error {
+			close(started)
+			<-release
+			return nil
+		})
+	queue := newTestQueue(t, reconciler, 1)
+	replace(t, queue, request("app", "v1", false))
+	receive(t, started)
+	for range 3 {
+		replace(t, queue, request("app", "v1", false))
+	}
+	assert.False(t, queueBusyPending(queue, "app"))
+	close(release)
+	waitIdle(t, queue)
+}
+
+func TestQueuePreservesNewRevisionDuringRepeatedInterval(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	reconciler := stackloop.NewMockStackReconciler(ctrl)
+	started, release := make(chan struct{}), make(chan struct{})
+	seen := recordReconciliations(reconciler, started, release, 2)
+	queue := newTestQueue(t, reconciler, 1)
+	replace(t, queue, request("app", "v1", false))
+	receive(t, started)
+	replace(t, queue, request("app", "v2", false))
+	replace(t, queue, request("app", "v1", false))
+	close(release)
+	waitIdle(t, queue)
+	assert.Equal(t, []string{"app@v1", "app@v2"}, seen())
+}
+
+func TestQueueManualRequestDuringRunningReconciliation(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	reconciler := stackloop.NewMockStackReconciler(ctrl)
+	started, release := make(chan struct{}), make(chan struct{})
+	var mu sync.Mutex
+	var seen []stackloop.ReconciliationRequest
+	reconciler.EXPECT().Reconcile(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, req stackloop.ReconciliationRequest) error {
+			mu.Lock()
+			seen = append(seen, req)
+			first := len(seen) == 1
+			mu.Unlock()
+			if first {
+				close(started)
+				<-release
+			}
+			return nil
+		}).Times(2)
+	queue := newTestQueue(t, reconciler, 1)
+	replace(t, queue, request("app", "v1", false))
+	receive(t, started)
+	replace(t, queue, request("app", "v1", true))
+	replace(t, queue, request("app", "v1", false))
+	close(release)
+	waitIdle(t, queue)
+	require.Len(t, seen, 2)
+	assert.True(t, seen[1].IsManual)
+}
+
+func TestQueueClearPreservesChangedPriority(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	reconciler := stackloop.NewMockStackReconciler(ctrl)
+	var mu sync.Mutex
+	var order []string
+	reconciler.EXPECT().Reconcile(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, req stackloop.ReconciliationRequest) error {
+			mu.Lock()
+			order = append(order, req.Stack.Name)
+			mu.Unlock()
+			return nil
+		}).Times(3)
+	queue := New(reconciler, newTestMetrics(t), 1)
+	t.Cleanup(queue.Stop)
+	replaceChanged(t, queue, []string{"changed"}, request("changed", "A", false), request("other", "A", false))
+	assert.Equal(t, []string{"changed", "other"}, queue.Clear(map[string]bool{"failed-run-change": true}))
+	replace(t, queue, request("other", "B", false), request("failed-run-change", "B", false), request("changed", "B", false))
+	queue.Start(context.WithoutCancel(t.Context()))
+	waitIdle(t, queue)
+	assert.Equal(t, []string{"failed-run-change", "changed", "other"}, order)
+}
+
+func TestQueueOperationUsesSpanLink(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	reconciler := stackloop.NewMockStackReconciler(ctrl)
+	reconciler.EXPECT().Reconcile(gomock.Any(), gomock.Any()).Return(nil)
+	recorder := tracetest.NewSpanRecorder()
+	provider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
+	defer func() { _ = provider.Shutdown(t.Context()) }()
+	queue := New(reconciler, newTestMetrics(t), 1)
+	queue.tracer = provider.Tracer("test.queue")
+	t.Cleanup(queue.Stop)
+	ctx, dispatch := provider.Tracer("test.dispatch").Start(t.Context(), "dispatch")
+	_, accepted := queue.Replace(ctx, []stackloop.ReconciliationRequest{request("app", "v1", false)}, nil)
+	require.True(t, accepted)
+	dispatchContext := dispatch.SpanContext()
+	dispatch.End()
+	queue.Start(context.WithoutCancel(t.Context()))
+	waitIdle(t, queue)
+
+	var operationSpan sdktrace.ReadOnlySpan
+	for _, span := range recorder.Ended() {
+		if span.Name() == "controller.stackOperation" {
+			operationSpan = span
+			break
+		}
+	}
+	require.NotNil(t, operationSpan)
+	assert.False(t, operationSpan.Parent().IsValid())
+	require.Len(t, operationSpan.Links(), 1)
+	assert.Equal(t, dispatchContext, operationSpan.Links()[0].SpanContext)
+}
+
+func queueBusyPending(queue *Queue, name string) bool {
+	queue.mu.Lock()
+	defer queue.mu.Unlock()
+	_, pending := queue.pending[name]
+	return pending
+}
+
 // queueBusy inspects the private queue state solely for queue unit tests.
 func queueBusy(queue *Queue, name string) bool {
 	queue.mu.Lock()

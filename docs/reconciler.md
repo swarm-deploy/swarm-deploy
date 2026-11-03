@@ -89,9 +89,10 @@ and inspect per-stack `last_error`, deployment events and the stack status. The 
 result as a dispatch status and lists stack failures separately. These changes affect monitoring even
 when `parallelism: 1`.
 
-The Git repository serializes reads and pulls for go-git safety. Network pulls are bounded by a two-minute
-timeout, including time spent waiting for the repository lock; revision readers can abandon the lock wait
-when their context is canceled. A pull in progress can delay reads for up to its timeout, but cannot
+The Git repository serializes reads and pulls for go-git safety. Git pulls are bounded by
+`git.pullTimeout` (default `2m`), including time spent waiting for the repository lock;
+revision readers can abandon the lock wait
+when their context is canceled. A pull in progress can delay reads for up to the configured timeout, but cannot
 block them indefinitely due solely to a stalled remote.
 
 Queue state is exported as
