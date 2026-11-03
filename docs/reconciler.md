@@ -52,6 +52,10 @@ While a stack is busy, only the latest submitted reconciliation is kept and runs
 finishes; a manual request stays manual when it is coalesced with a later one. Periodic rotated-resource
 cleanup is queued only for idle stacks, so it never overlaps a reconciliation of the same stack.
 
+After every configuration reload, waiting operations of stacks that are no longer configured are dropped, so a
+removed or renamed stack is never deployed from an older revision after the new configuration took effect.
+Operations that are already running are not interrupted and finish within their normal lifecycle.
+
 Stacks are not ordered relative to each other. With `parallelism: 1` they are processed one by one in dispatch
 order, which preserves the previous sequential behavior.
 

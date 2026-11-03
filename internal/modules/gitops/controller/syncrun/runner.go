@@ -162,6 +162,10 @@ func (r *Runner) run(ctx context.Context, task Task, gitResult *gitx.PullResult)
 	}
 	slog.InfoContext(ctx, "[controller] configuration reloaded",
 		slog.Int("stacks", len(r.configStore.Stacks())), slog.Int("networks", len(r.configStore.Networks())))
+	if dropped := r.stacks.Retain(r.configStore.Stacks()); len(dropped) > 0 {
+		slog.InfoContext(ctx, "[controller] dropped queued operations of stacks removed from configuration",
+			slog.Any("stacks", dropped), slog.String("commit", gitResult.NewRevision))
+	}
 
 	if err = r.networkReconciler.Reconcile(ctx, gitResult.NewRevision); err != nil {
 		r.finishStageFailure(ctx, task.Reason, startedAt, gitResult.NewRevision, "networks reconcile", err)

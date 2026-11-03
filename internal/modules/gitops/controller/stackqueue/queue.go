@@ -8,6 +8,7 @@ package stackqueue
 import (
 	"context"
 	"log/slog"
+	"slices"
 	"sync"
 	"time"
 
@@ -144,6 +145,39 @@ func (q *Queue) SubmitCleanup(ctx context.Context, stack config.StackSpec, sourc
 	q.enqueueLocked(stack.Name)
 	q.updateStateLocked()
 	return true
+}
+
+// Retain drops waiting operations of stacks that are absent from the current configuration and
+// returns their names in sorted order. Running operations are not interrupted: they finish within
+// their normal lifecycle. Without this, work queued for a removed or renamed stack would still be
+// applied from an older revision after the new configuration took effect.
+func (q *Queue) Retain(stacks []config.StackSpec) []string {
+	configured := make(map[string]struct{}, len(stacks))
+	for _, stack := range stacks {
+		configured[stack.Name] = struct{}{}
+	}
+	isRemoved := func(name string) bool {
+		_, ok := configured[name]
+		return !ok
+	}
+
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	var dropped []string
+	for name := range q.pending {
+		if isRemoved(name) {
+			delete(q.pending, name)
+			dropped = append(dropped, name)
+		}
+	}
+	if len(dropped) == 0 {
+		return nil
+	}
+	// The ready list holds only stacks with waiting work, so removed stacks leave it as well.
+	q.ready = slices.DeleteFunc(q.ready, isRemoved)
+	q.updateStateLocked()
+	slices.Sort(dropped)
+	return dropped
 }
 
 // Busy reports whether a stack has an operation running or waiting to start.

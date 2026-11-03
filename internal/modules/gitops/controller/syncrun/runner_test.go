@@ -120,6 +120,46 @@ func TestRunDoesNotWaitForSlowStack(t *testing.T) {
 	assert.Equal(t, []string{"r1", "r3"}, slowCommits, "requests queued behind a busy stack are coalesced to the latest")
 }
 
+func TestRunDropsQueuedWorkOfStacksRemovedFromConfiguration(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	repoDir := t.TempDir()
+	stacksPath := filepath.Join(repoDir, "stacks.yaml")
+	require.NoError(t, writeStacks(stacksPath, []string{"slow", "old"}))
+	repository := gitx.NewMockRepository(ctrl)
+	repository.EXPECT().WorkingDir().Return(repoDir).AnyTimes()
+	reconciler := stackloop.NewMockStackReconciler(ctrl)
+	reconciler.EXPECT().Load(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, stack config.StackSpec) (*compose.File, error) {
+			return &compose.File{Path: stack.ComposeFile}, nil
+		}).AnyTimes()
+	slowStarted, releaseSlow := make(chan struct{}), make(chan struct{})
+	var reconciled []string
+	reconciler.EXPECT().Reconcile(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, req stackloop.ReconciliationRequest) error {
+			reconciled = append(reconciled, req.Stack.Name+"@"+req.Commit)
+			if len(reconciled) == 1 {
+				close(slowStarted)
+				<-releaseSlow
+			}
+			return nil
+		}).Times(2)
+	runner, _, queue := newTestRunner(t, repository, reconciler, 1)
+
+	// Revision A: the only worker is busy with slow, so old waits in the queue.
+	runner.run(t.Context(), Task{Reason: TriggerInterval}, &gitx.PullResult{OldRevision: "A", NewRevision: "A"})
+	receive(t, slowStarted)
+	require.True(t, queue.Busy("old"))
+
+	// Revision B removes old from the configuration.
+	require.NoError(t, writeStacks(stacksPath, []string{"slow"}))
+	runner.run(t.Context(), Task{Reason: TriggerInterval}, &gitx.PullResult{OldRevision: "B", NewRevision: "B"})
+	assert.False(t, queue.Busy("old"), "work of a removed stack must not survive the configuration update")
+
+	close(releaseSlow)
+	waitIdle(t, queue)
+	assert.Equal(t, []string{"slow@A", "slow@B"}, reconciled, "old must never be deployed from revision A")
+}
+
 func TestRunPassesLoadFailureToReconciliation(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	repoDir := t.TempDir()

@@ -183,6 +183,49 @@ func TestQueueStopDropsWaitingWorkAndRejectsNewWork(t *testing.T) {
 	waitIdle(t, queue)
 }
 
+func TestQueueRetainDropsWaitingWorkOfRemovedStacks(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	reconciler := stackloop.NewMockStackReconciler(ctrl)
+	started, release := make(chan struct{}), make(chan struct{})
+	var mu sync.Mutex
+	var seen []string
+	reconciler.EXPECT().Reconcile(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, req stackloop.ReconciliationRequest) error {
+			mu.Lock()
+			seen = append(seen, req.Stack.Name+"@"+req.Commit)
+			first := len(seen) == 1
+			mu.Unlock()
+			if first {
+				close(started)
+				<-release
+			}
+			return nil
+		}).Times(2)
+	queue := newTestQueue(t, reconciler, 1)
+
+	require.True(t, queue.SubmitReconcile(t.Context(), request("renamed", "A", false)))
+	receive(t, started)
+	// The single worker is busy: everything below waits.
+	require.True(t, queue.SubmitReconcile(t.Context(), request("renamed", "B", false)))
+	require.True(t, queue.SubmitReconcile(t.Context(), request("old", "A", false)))
+	require.True(t, queue.SubmitCleanup(t.Context(), config.StackSpec{Name: "removed"}, &compose.File{}))
+	require.True(t, queue.SubmitReconcile(t.Context(), request("kept", "A", false)))
+
+	dropped := queue.Retain([]config.StackSpec{{Name: "kept"}, {Name: "new"}})
+
+	assert.Equal(t, []string{"old", "removed", "renamed"}, dropped)
+	assert.True(t, queue.Busy("renamed"), "a running operation is not interrupted")
+	assert.False(t, queue.Busy("old"))
+	assert.False(t, queue.Busy("removed"))
+	assert.Nil(t, queue.Retain([]config.StackSpec{{Name: "kept"}}), "nothing left to drop")
+	close(release)
+	waitIdle(t, queue)
+	mu.Lock()
+	defer mu.Unlock()
+	assert.Equal(t, []string{"renamed@A", "kept@A"}, seen,
+		"waiting work of removed stacks, including work queued behind a running operation, never runs")
+}
+
 func newTestQueue(t *testing.T, reconciler stackloop.StackReconciler, parallelism int) *Queue {
 	t.Helper()
 	queue := New(reconciler, newTestMetrics(t), parallelism)
