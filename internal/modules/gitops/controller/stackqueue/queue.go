@@ -75,10 +75,10 @@ func New(reconciler stackloop.StackReconciler, syncMetrics metrics.Sync, paralle
 	idle := make(chan struct{})
 	close(idle)
 	q := &Queue{
-		reconciler:          reconciler,
-		metrics:             syncMetrics,
-		workers:             max(parallelism, 1),
-		tracer:              otel.Tracer(
+		reconciler: reconciler,
+		metrics:    syncMetrics,
+		workers:    max(parallelism, 1),
+		tracer: otel.Tracer(
 			"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackqueue",
 		),
 		pending:             map[string]operation{},
