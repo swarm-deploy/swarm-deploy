@@ -19,9 +19,11 @@ import (
 	gogit "github.com/go-git/go-git/v5"
 	gitconfig "github.com/go-git/go-git/v5/config"
 	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/filemode"
 	"github.com/go-git/go-git/v5/plumbing/object"
 	githttp "github.com/go-git/go-git/v5/plumbing/transport/http"
 	gitssh "github.com/go-git/go-git/v5/plumbing/transport/ssh"
+	"github.com/go-git/go-git/v5/storage/memory"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
@@ -640,7 +642,6 @@ func TestGoGitRepositoryReadFileAtResolvesSymlinksWithinRevision(t *testing.T) {
 	link("file-link", "chain-b")
 	link("loop-b", "loop-a")
 	link("loop-a", "loop-b")
-	link(filepath.Join(sourceRepositoryPath, "app", "compose.yaml"), "absolute-inside")
 	link("../outside.txt", "escape")
 	link("/etc/swarm-deploy/token", "absolute-outside")
 	link("/mnt/secrets", "external-dir")
@@ -668,7 +669,6 @@ func TestGoGitRepositoryReadFileAtResolvesSymlinksWithinRevision(t *testing.T) {
 		{name: "link to file", revision: first, path: "file-link", expected: "compose"},
 		{name: "link to directory", revision: first, path: "dir-link/compose.yaml", expected: "compose"},
 		{name: "chain of links", revision: first, path: "chain-a", expected: "compose"},
-		{name: "absolute link inside repository", revision: first, path: "absolute-inside", expected: "compose"},
 		{name: "link target at first revision", revision: first, path: "moving", expected: "compose"},
 		{name: "link target at second revision", revision: second, path: "moving", expected: "env"},
 		{name: "relative link leaving repository", revision: first, path: "escape",
@@ -698,6 +698,79 @@ func TestGoGitRepositoryReadFileAtResolvesSymlinksWithinRevision(t *testing.T) {
 				require.NoError(t, readErr)
 				assert.Equal(t, tt.expected, string(content))
 			}
+		})
+	}
+}
+
+// go-git stores absolute symlink targets inside the worktree relative to its root, so absolute links
+// as written by the git CLI are built directly in object storage.
+func TestGoGitRepositoryReadFileAtResolvesAbsoluteSymlinksInsideRepository(t *testing.T) {
+	storage := memory.NewStorage()
+	gitRepository, err := gogit.Init(storage, nil)
+	require.NoError(t, err)
+	store := func(encode func(plumbing.EncodedObject) error) plumbing.Hash {
+		t.Helper()
+		encoded := storage.NewEncodedObject()
+		require.NoError(t, encode(encoded))
+		hash, storeErr := storage.SetEncodedObject(encoded)
+		require.NoError(t, storeErr)
+		return hash
+	}
+	blob := func(content string) plumbing.Hash {
+		t.Helper()
+		return store(func(encoded plumbing.EncodedObject) error {
+			encoded.SetType(plumbing.BlobObject)
+			writer, writerErr := encoded.Writer()
+			if writerErr != nil {
+				return writerErr
+			}
+			if _, writeErr := writer.Write([]byte(content)); writeErr != nil {
+				return writeErr
+			}
+			return writer.Close()
+		})
+	}
+	tree := func(entries ...object.TreeEntry) plumbing.Hash {
+		t.Helper()
+		return store((&object.Tree{Entries: entries}).Encode)
+	}
+	root := "/srv/repository"
+	appTree := tree(object.TreeEntry{Name: "compose.yaml", Mode: filemode.Regular, Hash: blob("compose")})
+	rootTree, err := object.GetTree(storage, tree(
+		object.TreeEntry{Name: "absolute-dir", Mode: filemode.Symlink, Hash: blob(root + "/app")},
+		object.TreeEntry{Name: "absolute-file", Mode: filemode.Symlink, Hash: blob(root + "/app/compose.yaml")},
+		object.TreeEntry{Name: "app", Mode: filemode.Dir, Hash: appTree},
+		object.TreeEntry{Name: "sibling", Mode: filemode.Symlink, Hash: blob(root + "-other/file")},
+	))
+	require.NoError(t, err)
+	repository := &GoGitRepository{path: root, repository: gitRepository}
+
+	tests := []struct {
+		name     string
+		path     string
+		expected string
+		external string
+	}{
+		{name: "absolute link to file", path: "absolute-file", expected: "compose"},
+		{name: "absolute link to directory", path: "absolute-dir/compose.yaml", expected: "compose"},
+		{name: "absolute link to sibling directory with common prefix", path: "sibling",
+			external: root + "-other/file"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			hash, resolveErr := repository.resolveRevisionFile(rootTree, tt.path)
+
+			if tt.external != "" {
+				external, ok := errors.AsType[*ExternalPathError](resolveErr)
+				require.True(t, ok, "expected external path error, got %v", resolveErr)
+				assert.Equal(t, tt.external, external.Path)
+				return
+			}
+			require.NoError(t, resolveErr)
+			content, readErr := repository.readBlob(hash)
+			require.NoError(t, readErr)
+			assert.Equal(t, tt.expected, string(content))
 		})
 	}
 }
