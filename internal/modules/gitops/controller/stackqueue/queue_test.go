@@ -14,6 +14,8 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackloop"
 	"go.uber.org/mock/gomock"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 )
 
 const testWait = 5 * time.Second
@@ -82,11 +84,11 @@ func TestQueueRunsOneOperationPerStackAndCoalescesRequests(t *testing.T) {
 	receive(t, started)
 	replace(t, queue, request("app", "v2", true))
 	replace(t, queue, request("app", "v3", false))
-	assert.True(t, queue.Busy("app"))
+	assert.True(t, queueBusy(queue, "app"))
 	close(release)
 
 	waitIdle(t, queue)
-	assert.False(t, queue.Busy("app"))
+	assert.False(t, queueBusy(queue, "app"))
 	mu.Lock()
 	defer mu.Unlock()
 	require.Len(t, seen, 2, "a busy stack never runs twice at once and keeps only the latest waiting request")
@@ -179,8 +181,8 @@ func TestQueueStopDropsWaitingWorkAndRejectsNewWork(t *testing.T) {
 	close(release)
 	receive(t, stopped)
 	assert.True(t, finished.Load())
-	assert.False(t, queue.Busy("waiting"), "waiting work is dropped on Stop")
-	assert.False(t, queue.Busy("late"), "waiting work is dropped on Stop")
+	assert.False(t, queueBusy(queue, "waiting"), "waiting work is dropped on Stop")
+	assert.False(t, queueBusy(queue, "late"), "waiting work is dropped on Stop")
 	waitIdle(t, queue)
 }
 
@@ -200,9 +202,9 @@ func TestQueueReplaceDropsWaitingWorkOfStacksAbsentFromDesiredState(t *testing.T
 	dropped := replace(t, queue, request("kept", "C", false), request("new", "C", false))
 
 	assert.Equal(t, []string{"old", "removed", "renamed"}, dropped)
-	assert.True(t, queue.Busy("renamed"), "a running operation is not interrupted")
-	assert.False(t, queue.Busy("old"))
-	assert.False(t, queue.Busy("removed"))
+	assert.True(t, queueBusy(queue, "renamed"), "a running operation is not interrupted")
+	assert.False(t, queueBusy(queue, "old"))
+	assert.False(t, queueBusy(queue, "removed"))
 	close(release)
 	waitIdle(t, queue)
 	assert.Equal(t, []string{"renamed@A", "kept@C", "new@C"}, seen(),
@@ -243,10 +245,10 @@ func TestQueueClearDropsAllWaitingWork(t *testing.T) {
 	receive(t, started)
 	replace(t, queue, request("running", "B", false), request("waiting", "B", false))
 
-	assert.Equal(t, []string{"running", "waiting"}, queue.Clear())
-	assert.Nil(t, queue.Clear(), "nothing left to drop")
-	assert.True(t, queue.Busy("running"), "a running operation is not interrupted")
-	assert.False(t, queue.Busy("waiting"))
+	assert.Equal(t, []string{"running", "waiting"}, queue.Clear(nil))
+	assert.Nil(t, queue.Clear(nil), "nothing left to drop")
+	assert.True(t, queueBusy(queue, "running"), "a running operation is not interrupted")
+	assert.False(t, queueBusy(queue, "waiting"))
 	close(release)
 	waitIdle(t, queue)
 	assert.Equal(t, []string{"running@A"}, seen())

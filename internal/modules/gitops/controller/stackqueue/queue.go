@@ -19,6 +19,7 @@ package stackqueue
 import (
 	"context"
 	"log/slog"
+	"reflect"
 	"slices"
 	"sync"
 	"time"
@@ -60,7 +61,9 @@ type Queue struct {
 	cond    *sync.Cond
 	ready   []string
 	pending map[string]operation
-	running map[string]bool
+	running map[string]operation
+	// changedAfterFailure retains priority when a failed run drops pending work.
+	changedAfterFailure map[string]bool
 	started bool
 	stopped bool
 	idle    chan struct{}
@@ -77,7 +80,8 @@ func New(reconciler stackloop.StackReconciler, syncMetrics metrics.Sync, paralle
 		workers:    max(parallelism, 1),
 		tracer:     otel.Tracer("github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackqueue"),
 		pending:    map[string]operation{},
-		running:    map[string]bool{},
+		running:    map[string]operation{},
+		changedAfterFailure: map[string]bool{},
 		idle:       idle,
 	}
 	q.cond = sync.NewCond(&q.mu)
@@ -104,6 +108,7 @@ func (q *Queue) Stop() {
 	q.stopped = true
 	q.ready = nil
 	clear(q.pending)
+	clear(q.changedAfterFailure)
 	q.updateStateLocked()
 	q.cond.Broadcast()
 	q.mu.Unlock()
@@ -116,7 +121,8 @@ func (q *Queue) Stop() {
 // changed names stacks whose source changed in Git; it may be nil.
 //
 // A reconciliation already waiting for a stack is superseded, keeping the manual and changed marks of
-// either request, and a waiting cleanup is superseded too. Waiting stacks are reordered by this run:
+// either request, and a waiting cleanup is superseded too. An identical non-manual request for a running
+// stack does not schedule redundant work. Waiting stacks are reordered by this run:
 // changed stacks first, then the others, each group in request order. It returns false after Stop.
 func (q *Queue) Replace(
 	ctx context.Context, requests []stackloop.ReconciliationRequest, changed map[string]bool,
@@ -139,15 +145,27 @@ func (q *Queue) Replace(
 	})
 	for _, req := range requests {
 		name := req.Stack.Name
-		op := operation{kind: OperationReconcile, request: req, spanContext: spanContext, changed: changed[name]}
+		op := operation{
+			kind: OperationReconcile, request: req, spanContext: spanContext,
+			changed: changed[name] || q.changedAfterFailure[name],
+		}
 		if previous, hasPrevious := q.pending[name]; hasPrevious {
 			op.changed = op.changed || previous.changed
 			if previous.kind == OperationReconcile {
 				op.request.IsManual = op.request.IsManual || previous.request.IsManual
 			}
 		}
+		// A periodic run must not add another pass for a stack already reconciling
+		// the same revision and specification. Manual requests and real changes still wait.
+		if running, busy := q.running[name]; busy && running.kind == OperationReconcile &&
+			running.request.Commit == req.Commit && reflect.DeepEqual(running.request.Stack, req.Stack) &&
+			!op.request.IsManual {
+			delete(q.pending, name)
+			continue
+		}
 		q.pending[name] = op
 	}
+	clear(q.changedAfterFailure)
 	q.rebuildReadyLocked(requests)
 	q.updateStateLocked()
 	return dropped, true
@@ -172,11 +190,22 @@ func (q *Queue) rebuildReadyLocked(requests []stackloop.ReconciliationRequest) {
 	q.cond.Broadcast()
 }
 
-// Clear drops every waiting operation and returns the sorted names of the affected stacks.
+// Clear drops every waiting operation but preserves changed-stack priority for the next
+// successful run. changed also contains changes detected by the failed run itself.
 // Running operations are not interrupted.
-func (q *Queue) Clear() []string {
+func (q *Queue) Clear(changed map[string]bool) []string {
 	q.mu.Lock()
 	defer q.mu.Unlock()
+	for name, pending := range q.pending {
+		if pending.kind == OperationReconcile && pending.changed {
+			q.changedAfterFailure[name] = true
+		}
+	}
+	for name, isChanged := range changed {
+		if isChanged {
+			q.changedAfterFailure[name] = true
+		}
+	}
 	dropped := q.dropLocked(func(string) bool { return true })
 	q.updateStateLocked()
 	return dropped
@@ -202,14 +231,6 @@ func (q *Queue) SubmitCleanup(ctx context.Context, stack config.StackSpec, commi
 	q.enqueueLocked(stack.Name)
 	q.updateStateLocked()
 	return true
-}
-
-// Busy reports whether a stack has an operation running or waiting to start.
-func (q *Queue) Busy(stack string) bool {
-	q.mu.Lock()
-	defer q.mu.Unlock()
-	_, hasPending := q.pending[stack]
-	return hasPending || q.running[stack]
 }
 
 // WaitIdle blocks until no operation is waiting or running, or ctx is done.
@@ -251,7 +272,7 @@ func (q *Queue) next() (string, operation, bool) {
 	q.ready = q.ready[1:]
 	op := q.pending[name]
 	delete(q.pending, name)
-	q.running[name] = true
+	q.running[name] = op
 	q.updateStateLocked()
 	return name, op, true
 }
@@ -267,13 +288,14 @@ func (q *Queue) finish(name string) {
 }
 
 func (q *Queue) execute(ctx context.Context, op operation) {
-	if op.spanContext.IsValid() {
-		ctx = trace.ContextWithSpanContext(ctx, op.spanContext)
-	}
-	ctx, span := q.tracer.Start(ctx, "controller.stackOperation", trace.WithAttributes(
+	options := []trace.SpanStartOption{trace.WithNewRoot(), trace.WithAttributes(
 		tracing.ResourceStackName.String(op.request.Stack.Name),
 		tracing.SyncCommitSha.String(op.request.Commit),
-	))
+	)}
+	if op.spanContext.IsValid() {
+		options = append(options, trace.WithLinks(trace.Link{SpanContext: op.spanContext}))
+	}
+	ctx, span := q.tracer.Start(ctx, "controller.stackOperation", options...)
 	defer span.End()
 	startedAt := time.Now()
 
@@ -283,12 +305,12 @@ func (q *Queue) execute(ctx context.Context, op operation) {
 		err = q.reconciler.Cleanup(ctx, op.request.Stack, op.request.Commit)
 		if err != nil {
 			slog.WarnContext(ctx, "[controller] rotated resource cleanup failed",
-				slog.String("stack", op.request.Stack.Name), slog.Any("error", err))
+				slog.String("stack", op.request.Stack.Name), slog.Any("err", err))
 		}
 	default:
 		err = q.reconciler.Reconcile(ctx, op.request)
 		if err != nil {
-			slog.ErrorContext(ctx, "sync failed for stack",
+			slog.ErrorContext(ctx, "[controller] sync failed for stack",
 				slog.String("stack", op.request.Stack.Name), slog.String("commit", op.request.Commit),
 				slog.Bool("manual", op.request.IsManual), slog.Any("err", err))
 		}

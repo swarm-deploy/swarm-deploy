@@ -160,22 +160,24 @@ func (r *Runner) run(ctx context.Context, task Task, gitResult *gitx.PullResult)
 	slog.InfoContext(ctx, "[controller] configuration reloaded",
 		slog.Int("stacks", len(r.configStore.Stacks())), slog.Int("networks", len(r.configStore.Networks())))
 
-	if err = r.networkReconciler.Reconcile(ctx, gitResult.NewRevision); err != nil {
-		// The configuration of this revision is already accepted, so waiting work prepared for an older
-		// configuration must not run under it. The next successful run queues every stack again.
-		if dropped := r.stacks.Clear(); len(dropped) > 0 {
-			slog.WarnContext(ctx, "[controller] dropped queued stack operations after a failed sync run",
-				slog.Any("stacks", dropped), slog.String("commit", gitResult.NewRevision))
-		}
-		r.finishStageFailure(ctx, task.Reason, startedAt, gitResult.NewRevision, "networks reconcile", err)
-		return
-	}
-
+	// Plan first so that changes detected by a run that fails during network reconciliation
+	// still receive priority on the next successful (possibly periodic) run.
 	plan := r.stackPlanner.Plan(ctx, r.configStore.Stacks(), *gitResult)
 	if plan.DiffErr != nil {
 		slog.ErrorContext(ctx, "git diff failed, continue with default stack order",
 			slog.String("reason", string(task.Reason)), slog.String("old_revision", gitResult.OldRevision),
 			slog.String("new_revision", gitResult.NewRevision), slog.Any("err", plan.DiffErr))
+	}
+
+	if err = r.networkReconciler.Reconcile(ctx, gitResult.NewRevision); err != nil {
+		// The configuration of this revision is already accepted, so waiting work prepared for an older
+		// configuration must not run under it. The next successful run queues every stack again.
+		if dropped := r.stacks.Clear(plan.Changed); len(dropped) > 0 {
+			slog.WarnContext(ctx, "[controller] dropped queued stack operations after a failed sync run",
+				slog.Any("stacks", dropped), slog.String("commit", gitResult.NewRevision))
+		}
+		r.finishStageFailure(ctx, task.Reason, startedAt, gitResult.NewRevision, "networks reconcile", err)
+		return
 	}
 
 	stackCtx, stackSpan := r.tracer.Start(ctx, "controller.dispatchStacks", trace.WithAttributes(
@@ -204,7 +206,7 @@ func (r *Runner) Cleanup(ctx context.Context) {
 	revision, err := r.git.Head(ctx)
 	if err != nil {
 		slog.WarnContext(ctx, "[controller] rotated resource cleanup skipped: resolve revision",
-			slog.Any("error", err))
+			slog.Any("err", err))
 		return
 	}
 	for _, stack := range r.configStore.Stacks() {
@@ -240,7 +242,7 @@ func (r *Runner) dispatchStacks(ctx context.Context, plan stackplan.Plan, commit
 
 	dropped, accepted := r.stacks.Replace(ctx, requests, plan.Changed)
 	if !accepted {
-		slog.WarnContext(ctx, "stack syncs were not queued: controller is shutting down",
+		slog.WarnContext(ctx, "[controller] stack syncs were not queued: controller is shutting down",
 			slog.String("reason", string(reason)), slog.String("commit", commit))
 		return
 	}

@@ -63,9 +63,14 @@ replaces the whole set of waiting reconciliations with every configured stack at
   changed mark until it runs, so a later run without a diff (such as the periodic one) does not push it back;
 - when a run fails after the new configuration was accepted (for example, while reconciling networks), all
   waiting work is dropped instead of running under that configuration; the next successful run queues every
-  stack again.
+  stack again, preserving the changed priority of both pending work and changes detected in the failed run.
+- repeated interval runs do not schedule a second reconciliation for a stack already running at the same
+  revision with the same stack specification. A manual request, new revision or updated specification
+  still schedules work after the running operation.
 
 Operations that are already running are never interrupted and finish within their normal lifecycle.
+Stack-operation traces are independent spans linked to their dispatch span, not children of a dispatch
+span that may have ended before the work started.
 Periodic rotated-resource cleanup is queued only for idle stacks, so it never overlaps a reconciliation of the
 same stack, and a later run supersedes a cleanup that is still waiting.
 
