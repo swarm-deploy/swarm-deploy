@@ -32,7 +32,7 @@ func New(manager swarm.ServiceManager, authManager registry.AuthManager) *Applie
 
 // ApplyOptions controls recovery when a deployment is retried.
 type ApplyOptions struct {
-	// RetryFailedUpdates restarts terminal failed updates only when replicas are managed.
+	// RetryFailedUpdates restarts terminal failed updates and non-restarting jobs only when replicas are managed.
 	RetryFailedUpdates bool
 }
 

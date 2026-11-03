@@ -44,8 +44,8 @@ func evaluateService(
 		progress.Message += terminalTaskDiagnostic(tasks, service.UpdateStatus.Message)
 		return progress
 	}
-	if service.Mode == "replicated-job" || service.Mode == "global-job" {
-		return jobProgress(progress, baseline, service)
+	if service.Mode == replicatedJobServiceMode || service.Mode == globalJobServiceMode {
+		return jobProgress(progress, baseline, service, tasks)
 	}
 	if service.Mode != replicatedServiceMode && service.Mode != globalServiceMode {
 		progress.State = ServiceFailed

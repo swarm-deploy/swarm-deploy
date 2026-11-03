@@ -63,6 +63,8 @@ type ServiceTask struct {
 	Node string
 	// Slot is the task slot within a replicated service.
 	Slot int
+	// JobIteration identifies the job execution that created this task; nil for ordinary services.
+	JobIteration *dockerswarm.Version
 	// DesiredState is the desired task state.
 	DesiredState TaskState
 	// CreatedAt is task creation timestamp from Docker Swarm.

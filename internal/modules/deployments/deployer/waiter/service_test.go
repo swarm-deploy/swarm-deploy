@@ -590,6 +590,7 @@ func TestJobsWaitForCompletion(t *testing.T) {
 	for _, mode := range []string{"replicated-job", "global-job"} {
 		t.Run(mode, func(t *testing.T) {
 			manager := swarm.NewMockServiceManager(gomock.NewController(t))
+			manager.EXPECT().ListTasks(gomock.Any(), "job-id").Return(nil, nil).Times(2)
 			service := swarm.StackService{ID: "job-id", Name: "job", Mode: mode, DesiredTasks: 1, JobStatus: &dockerswarm.JobStatus{}}
 			if mode == "replicated-job" {
 				service.ServiceSpec.Mode.ReplicatedJob = &dockerswarm.ReplicatedJob{}
@@ -612,11 +613,11 @@ func TestJobsWaitForCompletion(t *testing.T) {
 
 func TestGlobalJobPartialCompletionIsNotReady(t *testing.T) {
 	service := swarm.StackService{ID: "job", Mode: "global-job", DesiredTasks: 1, CompletedTasks: 1, JobStatus: &dockerswarm.JobStatus{}}
-	progress := jobProgress(ServiceProgress{State: ServicePending}, swarm.StackService{}, service)
+	progress := jobProgress(ServiceProgress{State: ServicePending}, swarm.StackService{}, service, nil)
 	assert.Equal(t, uint64(2), progress.Desired)
 	assert.Equal(t, ServicePending, progress.State)
 	service.DesiredTasks = 0
-	progress = jobProgress(ServiceProgress{State: ServicePending}, swarm.StackService{}, service)
+	progress = jobProgress(ServiceProgress{State: ServicePending}, swarm.StackService{}, service, nil)
 	assert.Equal(t, ServiceReady, progress.State)
 }
 

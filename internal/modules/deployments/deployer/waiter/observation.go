@@ -30,7 +30,8 @@ func (w *ServiceWaiter) observeService(
 	if terminal && progress.State != ServiceFailed {
 		return progress, nil // The status belongs to the previous rollout.
 	}
-	if !terminal && service.Mode != replicatedServiceMode && service.Mode != globalServiceMode {
+	if !terminal && service.Mode != replicatedServiceMode && service.Mode != globalServiceMode &&
+		service.Mode != replicatedJobServiceMode && service.Mode != globalJobServiceMode {
 		return progress, nil
 	}
 	tasks, err := w.services.ListTasks(ctx, service.ID)

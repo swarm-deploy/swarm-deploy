@@ -349,6 +349,7 @@ func (m *serviceManager) ListTasks(ctx context.Context, serviceIDOrName string) 
 			ID:           task.ID,
 			Node:         task.NodeID,
 			Slot:         task.Slot,
+			JobIteration: task.JobIteration,
 			DesiredState: TaskState(task.DesiredState),
 			CreatedAt:    task.CreatedAt,
 			UpdatedAt:    task.UpdatedAt,
