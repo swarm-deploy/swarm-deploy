@@ -24,7 +24,6 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/converter"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/services"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/waiter"
-	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 
@@ -63,7 +62,7 @@ func newExternalSwarmFixtureWithTimeout(t *testing.T, timeout time.Duration) *ex
 		subnet: fmt.Sprintf("198.18.%d.0/24", externalSubnetSequence.Add(1))}
 	f.observer = newSwarmObserver(t)
 	f.deployer = deployer.NewDeployer(100*time.Millisecond, 40*time.Second, cli, f.sw, nil,
-		deployer.NewSecretResolver(fs.NewLocalFileSystem(), deployer.PlaintextDecoder{}))
+		deployer.NewSecretResolver(deployer.PlaintextDecoder{}))
 	t.Cleanup(func() {
 		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 25*time.Second)
 		defer cleanupCancel()

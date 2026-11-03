@@ -72,7 +72,7 @@ func TestReconcileUpdatesStateOnSuccess(t *testing.T) {
 		deployMetrics:  deployMetrics,
 		stateStore:     stateStore,
 		pruner:         pruner.NewServicePruner(serviceManager, eventDispatcher, config.SyncPolicySpec{}),
-		composeRotator: NewRotator(fs.NewLocalFileSystem()),
+		composeRotator: NewRotator(),
 		serviceManager: serviceManager,
 	}
 	reconciler.db = db
@@ -134,7 +134,7 @@ func TestReconcileUpdatesStateOnFailure(t *testing.T) {
 		deployMetrics:  &metrics.NopDeploys{},
 		stateStore:     stateStore,
 		pruner:         pruner.NewServicePruner(serviceManager, eventDispatcher, config.SyncPolicySpec{}),
-		composeRotator: NewRotator(fs.NewLocalFileSystem()),
+		composeRotator: NewRotator(),
 	}
 	reconciler.db = db
 	reconciler.executor = deployments.NewController(
@@ -283,7 +283,7 @@ secrets:
     file: ./token
 `), 0o600), "write compose")
 
-	currentName := NewRotator(fs.NewLocalFileSystem()).buildRotatedObjectName("app", "token", "./token", []byte("current-token"), 8, false)
+	currentName := NewRotator().buildRotatedObjectName("app", "token", "./token", []byte("current-token"), 8, false)
 	liveSecrets := []swarm.Secret{
 		managedSecret("old", "app-token-old", "token", now.Add(-2*time.Hour)),
 		managedSecret("current", currentName, "token", now.Add(-time.Hour)),
@@ -328,7 +328,7 @@ secrets:
 		deployMetrics:   &metrics.NopDeploys{},
 		stateStore:      stateStore,
 		pruner:          pruner.NewServicePruner(serviceManager, &dispatcher.NopDispatcher{}, config.SyncPolicySpec{}),
-		composeRotator:  NewRotator(fs.NewLocalFileSystem()),
+		composeRotator:  NewRotator(),
 		driftAnalyzer:   drift.NewAnalyzer(),
 		serviceManager:  serviceManager,
 		secretManager:   secretManager,
@@ -397,7 +397,7 @@ func TestReconcileReadsPreviousDigestFromStateStore(t *testing.T) {
 		deployMetrics:  deployMetrics,
 		stateStore:     stateStore,
 		pruner:         pruner.NewServicePruner(serviceManager, eventDispatcher, config.SyncPolicySpec{}),
-		composeRotator: NewRotator(fs.NewLocalFileSystem()),
+		composeRotator: NewRotator(),
 		serviceManager: serviceManager,
 		secretManager:  secretManager,
 		configManager:  configManager,
@@ -504,7 +504,7 @@ configs:
 		deployMetrics:  deployMetrics,
 		stateStore:     stateStore,
 		pruner:         pruner.NewServicePruner(serviceManager, eventDispatcher, config.SyncPolicySpec{}),
-		composeRotator: NewRotator(fs.NewLocalFileSystem()),
+		composeRotator: NewRotator(),
 		serviceManager: serviceManager,
 	}
 	reconciler.db = db
@@ -525,7 +525,7 @@ configs:
 	require.NoError(t, reconcileErr, "reconcile")
 	require.NotNil(t, preparedCompose, "expected prepared compose during deploy")
 
-	expectedConfigName := NewRotator(fs.NewLocalFileSystem()).buildRotatedObjectName(
+	expectedConfigName := NewRotator().buildRotatedObjectName(
 		"app",
 		"app-config",
 		"./config/app.yaml",
@@ -601,7 +601,7 @@ secrets:
 		deployMetrics:  &metrics.NopDeploys{},
 		stateStore:     stateStore,
 		pruner:         pruner.NewServicePruner(serviceManager, eventDispatcher, config.SyncPolicySpec{}),
-		composeRotator: NewRotator(fs.NewLocalFileSystem()),
+		composeRotator: NewRotator(),
 		serviceManager: serviceManager,
 	}
 	reconciler.db = db
@@ -686,7 +686,7 @@ services:
 		deployMetrics:  &metrics.NopDeploys{},
 		stateStore:     stateStore,
 		pruner:         pruner.NewServicePruner(serviceManager, &dispatcher.NopDispatcher{}, config.SyncPolicySpec{}),
-		composeRotator: NewRotator(fs.NewLocalFileSystem()),
+		composeRotator: NewRotator(),
 		serviceManager: serviceManager,
 	}
 	reconciler.db = db
@@ -758,7 +758,7 @@ services:
 		deployMetrics:  &metrics.NopDeploys{},
 		stateStore:     stateStore,
 		pruner:         pruner.NewServicePruner(serviceManager, &dispatcher.NopDispatcher{}, config.SyncPolicySpec{}),
-		composeRotator: NewRotator(fs.NewLocalFileSystem()),
+		composeRotator: NewRotator(),
 		serviceManager: serviceManager,
 	}
 	reconciler.db = db
@@ -833,7 +833,7 @@ services:
 		deployMetrics:  &metrics.NopDeploys{},
 		stateStore:     stateStore,
 		pruner:         pruner.NewServicePruner(serviceManager, &dispatcher.NopDispatcher{}, config.SyncPolicySpec{}),
-		composeRotator: NewRotator(fs.NewLocalFileSystem()),
+		composeRotator: NewRotator(),
 		driftAnalyzer:  drift.NewAnalyzer(),
 		serviceManager: serviceManager,
 	}
@@ -928,7 +928,7 @@ func TestReconcilePrunesServicesWithoutNewDeployment(t *testing.T) {
 				deployMetrics:  deployMetrics,
 				stateStore:     stateStore,
 				pruner:         pruner.NewServicePruner(serviceManager, eventDispatcher, config.SyncPolicySpec{Prune: tc.globalPrune}),
-				composeRotator: NewRotator(fs.NewLocalFileSystem()),
+				composeRotator: NewRotator(),
 				serviceManager: serviceManager,
 			}
 			reconciler.db = db
@@ -1024,7 +1024,7 @@ func TestReconcileServiceMissedEventOnDrift(t *testing.T) {
 				deployMetrics:  &metrics.NopDeploys{},
 				stateStore:     stateStore,
 				pruner:         pruner.NewServicePruner(serviceManager, eventDispatcher, config.SyncPolicySpec{}),
-				composeRotator: NewRotator(fs.NewLocalFileSystem()),
+				composeRotator: NewRotator(),
 				driftAnalyzer:  drift.NewAnalyzer(),
 				serviceManager: serviceManager,
 			}

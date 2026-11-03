@@ -64,10 +64,10 @@ func TestReconcileAgeSecrets(t *testing.T) {
 			})
 			r := newResourceReconciler(&swarm.Swarm{Secrets: secrets})
 			objects := compose.Secrets{"password": {
-				File: path, Name: "rotated-password", TemplateDriver: "golang",
+				File: path, Data: ciphertext, Name: "rotated-password", TemplateDriver: "golang",
 				Labels: *compose.NewLabels(map[string]string{"purpose": "managed"}),
 			}}
-			data, err := newTestSecretResolverWithIdentity([]byte(identity.String())).Resolve(t.Context(), "app", filepath.Join(dir, "compose.yaml"), objects)
+			data, err := newTestSecretResolverWithIdentity([]byte(identity.String())).Resolve("app", filepath.Join(dir, "compose.yaml"), objects)
 			require.NoError(t, err)
 			defer secretpkg.Clear(data)
 			resolved, err := r.Reconcile(t.Context(), "app", nil, objects, data)
@@ -115,7 +115,7 @@ func TestReconcileAgeSecretFailuresDoNotApplyServices(t *testing.T) {
 				SourceComposePath: filepath.Join(dir, "compose.yaml"),
 				Desired: compose.Compose{
 					Services: minimalCompose("api").Services,
-					Secrets:  compose.Secrets{"password": {File: "password.age", Driver: tt.driver}},
+					Secrets:  compose.Secrets{"password": {File: "password.age", Data: tt.contents, Driver: tt.driver}},
 				},
 			})
 			require.ErrorContains(t, err, tt.want)
@@ -129,15 +129,16 @@ func TestReadPlaintextSecretIgnoresAgeIdentity(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "password.txt"), []byte("plain"), 0o600))
 	resolver := newTestSecretResolverWithIdentity([]byte("invalid identity"))
-	objects := compose.Secrets{"password": {File: "password.txt"}}
-	data, err := resolver.Resolve(t.Context(), "app", filepath.Join(dir, "compose.yaml"), objects)
+	objects := compose.Secrets{"password": {File: "password.txt", Data: []byte("plain")}}
+	data, err := resolver.Resolve("app", filepath.Join(dir, "compose.yaml"), objects)
 	require.NoError(t, err)
 	assert.Equal(t, "plain", string(data["password"]))
 	objects["password"].File = ""
-	_, err = resolver.Resolve(t.Context(), "app", filepath.Join(dir, "compose.yaml"), objects)
+	_, err = resolver.Resolve("app", filepath.Join(dir, "compose.yaml"), objects)
 	require.ErrorContains(t, err, "file is required")
 	objects["password"].File = "missing.age"
-	_, err = resolver.Resolve(t.Context(), "app", filepath.Join(dir, "compose.yaml"), objects)
-	require.Error(t, err)
+	objects["password"].Data = nil
+	_, err = resolver.Resolve("app", filepath.Join(dir, "compose.yaml"), objects)
+	require.ErrorContains(t, err, "file content was not loaded")
 	assert.NotContains(t, err.Error(), "invalid identity")
 }

@@ -99,7 +99,7 @@ secretRotation:
 			swarmService := swarm.NewSwarm(dockerClient)
 			fileSystem := sharedfs.NewLocalFileSystem()
 			stackDeployer := deployer.NewDeployer(100*time.Millisecond, time.Minute, dockerClient, swarmService, &metrics.NopDeploys{},
-				deployer.NewSecretResolver(fileSystem, deployer.NewAgeDecoder(cfg.Spec.SecretRotation.Age.IdentityFile.Content), deployer.PlaintextDecoder{}))
+				deployer.NewSecretResolver(deployer.NewAgeDecoder(cfg.Spec.SecretRotation.Age.IdentityFile.Content), deployer.PlaintextDecoder{}))
 			bus := eventbus.NewOutboxDispatcher(outbox.New(db))
 			deployMetrics := &metrics.NopDeploys{}
 			executor := deployments.NewController(
@@ -107,7 +107,7 @@ secretRotation:
 				pruner.NewServicePruner(swarmService.Services, bus, cfg.Spec.Sync.Policy), deployMetrics,
 			)
 			repository := gitx.NewRepository(cfg.Spec.Git, dir)
-			rotator := stackloop.NewRotator(fileSystem)
+			rotator := stackloop.NewRotator()
 			preparer := preparation.New(cfg, repository, fileSystem, rotator)
 			r := stackloop.New(cfg, executor, swarmService, bus, deployMetrics,
 				modelstore.NewSQLStore(db), preparer, rotator, db)

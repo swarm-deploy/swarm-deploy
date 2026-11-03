@@ -32,7 +32,7 @@ func newTestReconciler(
 		pruner.NewServicePruner(swarmService.Services, eventDispatcher, cfg.Spec.Sync.Policy),
 		deployMetrics,
 	)
-	rotator := NewRotator(fileSystem)
+	rotator := NewRotator()
 	preparer := preparation.New(cfg, gitSync, fileSystem, rotator)
 	return New(
 		cfg, executor, swarmService, eventDispatcher, deployMetrics, stateStore, preparer, rotator, db,

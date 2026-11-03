@@ -51,6 +51,9 @@ type Secret struct {
 	Name string `yaml:"name,omitempty" json:"name,omitempty"`
 	// File is the source file for the secret.
 	File string `yaml:"file,omitempty" json:"file,omitempty"`
+	// Data contains the raw, undecoded secret file content captured when the Compose file was loaded.
+	// It is never serialized. Nil means the secret has no local file.
+	Data []byte `yaml:"-" json:"-"`
 	// Driver is the secret driver name.
 	Driver string `yaml:"driver,omitempty" json:"driver,omitempty"`
 	// DriverOpts contains secret driver-specific options.
