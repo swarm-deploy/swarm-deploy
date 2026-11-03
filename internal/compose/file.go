@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/dotenv"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/labelsdict"
@@ -105,7 +106,14 @@ func (l *fileLoader) Load(ctx context.Context, path string) (*File, error) {
 		return nil, &ValidateComposeError{FilePath: path, Issues: decodeIssues(err), Err: err}
 	}
 	setIgnoredOptions(&schema, ignored)
-	if issues := l.linkServices(&schema, filepath.Dir(path)); len(issues) > 0 {
+	baseDir, _ := filepath.Split(path)
+	if baseDir == "" {
+		baseDir = "."
+	}
+	if baseDir != string(filepath.Separator) {
+		baseDir = strings.TrimSuffix(baseDir, string(filepath.Separator))
+	}
+	if issues := l.linkServices(&schema, baseDir); len(issues) > 0 {
 		if interpolated {
 			for i := range issues {
 				issues[i].Message = "invalid Compose value after interpolation"
@@ -114,13 +122,13 @@ func (l *fileLoader) Load(ctx context.Context, path string) (*File, error) {
 		return nil, &ValidateComposeError{FilePath: path, Issues: issues}
 	}
 
-	if err = l.loadEnvFiles(ctx, filepath.Dir(path), schema.Services); err != nil {
+	if err = l.loadEnvFiles(ctx, baseDir, schema.Services); err != nil {
 		err = interpolationSafeError(err, interpolated, "invalid or unreadable env_file")
 		return nil, fmt.Errorf("load env files: %w", err)
 	}
 
 	configFiles, err := loadObjectFiles(
-		ctx, l.fileReader, filepath.Dir(path), "configs", schema.Configs,
+		ctx, l.fileReader, baseDir, "configs", schema.Configs,
 		func(config *Config) (string, bool) { return config.File, config.External },
 		setConfigData,
 	)
@@ -130,7 +138,7 @@ func (l *fileLoader) Load(ctx context.Context, path string) (*File, error) {
 	}
 
 	secretFiles, err := loadObjectFiles(
-		ctx, l.fileReader, filepath.Dir(path), "secrets", schema.Secrets,
+		ctx, l.fileReader, baseDir, "secrets", schema.Secrets,
 		func(secret *Secret) (string, bool) { return secret.File, secret.External },
 		setSecretData,
 	)
@@ -178,10 +186,7 @@ func (l *fileLoader) loadEnvFiles(ctx context.Context, baseDir string, services 
 		service := &services[serviceIndex]
 		for envFileIndex := range service.EnvFiles {
 			envFile := &service.EnvFiles[envFileIndex]
-			path := envFile.Path
-			if !filepath.IsAbs(path) {
-				path = filepath.Join(baseDir, path)
-			}
+			path := resolveResourceFilePath(baseDir, envFile.Path)
 
 			content, err := l.fileReader(ctx, path)
 			if err != nil {
@@ -361,11 +366,16 @@ func computeObjectFilesDigest[T any, Objects ~map[string]*T](
 }
 
 func resolveResourceFilePath(baseDir string, path string) string {
-	if filepath.IsAbs(path) {
+	if filepath.IsAbs(path) || filepath.VolumeName(path) != "" {
 		return path
 	}
-
-	return filepath.Join(baseDir, path)
+	// Keep parent components until the reader resolves preceding symlinks.
+	path = strings.TrimPrefix(path, "./")
+	path = strings.TrimLeft(path, string(filepath.Separator))
+	if baseDir == "." {
+		return path
+	}
+	return baseDir + string(filepath.Separator) + path
 }
 
 func computeEnvFilesDigest(hasher hash.Hash, services Services) {

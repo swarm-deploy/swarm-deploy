@@ -25,7 +25,6 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/outbox"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackloop/preparation"
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
-	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	"go.uber.org/mock/gomock"
 )
@@ -184,11 +183,11 @@ func TestImagePolicyViolationLifecycle(t *testing.T) {
 	stackDeployer := deployer.NewMockStackDeployer(ctrl)
 	serviceManager := swarm.NewMockServiceManager(ctrl)
 	repoDir := t.TempDir()
-	repository.EXPECT().WorkingDir().Return(repoDir).AnyTimes()
+	mockRepositoryFiles(repository, repoDir)
 	require.NoError(t, writeComposeFile(repoDir))
 	reconciler := newTestReconciler(cfg, repository, deployments.NewService(db, bus), stackDeployer, &swarm.Swarm{
 		Services: serviceManager, Configs: swarm.NewMockConfigManager(ctrl), Secrets: swarm.NewMockSecretManager(ctrl),
-	}, bus, &metrics.NopDeploys{}, state, fs.NewLocalFileSystem(), db)
+	}, bus, &metrics.NopDeploys{}, state, db)
 
 	err = reconciler.Reconcile(ctx, ReconciliationRequest{
 		Stack: config.StackSpec{Name: "app", ComposeFile: "app.yaml"}, Commit: "sha",
@@ -258,7 +257,7 @@ func TestImagePolicyDisabledPreservesDeployment(t *testing.T) {
 	stackDeployer := deployer.NewMockStackDeployer(ctrl)
 	serviceManager := swarm.NewMockServiceManager(ctrl)
 	repoDir := t.TempDir()
-	repository.EXPECT().WorkingDir().Return(repoDir).AnyTimes()
+	mockRepositoryFiles(repository, repoDir)
 	require.NoError(t, os.WriteFile(filepath.Join(repoDir, "app.yaml"), []byte(`services:
   api:
     image: nginx:latest
@@ -272,7 +271,7 @@ func TestImagePolicyDisabledPreservesDeployment(t *testing.T) {
 	reconciler := newTestReconciler(&config.Config{Spec: config.Spec{DataDir: filepath.Join(t.TempDir(), "data")}}, repository,
 		deployments.NewService(db, bus), stackDeployer, &swarm.Swarm{
 			Services: serviceManager, Configs: swarm.NewMockConfigManager(ctrl), Secrets: swarm.NewMockSecretManager(ctrl),
-		}, bus, &metrics.NopDeploys{}, state, fs.NewLocalFileSystem(), db)
+		}, bus, &metrics.NopDeploys{}, state, db)
 
 	require.NoError(t, reconciler.Reconcile(t.Context(), ReconciliationRequest{
 		Stack: config.StackSpec{Name: "app", ComposeFile: "app.yaml"}, Commit: "sha",

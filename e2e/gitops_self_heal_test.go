@@ -28,6 +28,7 @@ func TestRealSwarmGitOpsReplicaDriftAndSelfHeal(t *testing.T) {
 			}
 			manifest := strings.Replace(lifecycleService("job", "sleep 600", policy), "replicas: 1", "replicas: 2", 1)
 			f.manifest(t, manifest)
+			f.commitManifest(t)
 			f.reconcile(t)
 			f.runningIDs(t, "job", 2)
 			f.settled(t, "job")
@@ -74,7 +75,7 @@ func (f *lifecycleFixture) verifyReplicaPolicyDoesNotHideMissingService(t *testi
 	// field. Generic manual env/command drift detection is not implemented by
 	// the current analyzer; this asserts the existing manifest-update path.
 	f.manifest(t, strings.Replace(manifest, "sleep 600", "echo source-update; sleep 600", 1))
-	f.request.Commit = "command-updated"
+	f.commitManifest(t)
 	f.reconcile(t)
 	f.runningIDs(t, "job", 2)
 	service := f.settled(t, "job")

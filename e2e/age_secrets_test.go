@@ -33,7 +33,6 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackloop/preparation"
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/modelstore"
-	sharedfs "github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 	"github.com/swarm-deploy/swarm-deploy/internal/storage"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
@@ -97,7 +96,6 @@ secretRotation:
 			t.Cleanup(func() { assert.NoError(t, db.Close()) })
 
 			swarmService := swarm.NewSwarm(dockerClient)
-			fileSystem := sharedfs.NewLocalFileSystem()
 			stackDeployer := deployer.NewDeployer(100*time.Millisecond, time.Minute, dockerClient, swarmService, &metrics.NopDeploys{},
 				deployer.NewSecretResolver(deployer.NewAgeDecoder(cfg.Spec.SecretRotation.Age.IdentityFile.Content), deployer.PlaintextDecoder{}))
 			bus := eventbus.NewOutboxDispatcher(outbox.New(db))
@@ -106,14 +104,22 @@ secretRotation:
 				deployments.NewService(db, bus), stackDeployer, swarmService.Services,
 				pruner.NewServicePruner(swarmService.Services, bus, cfg.Spec.Sync.Policy), deployMetrics,
 			)
+			gitCommand(t, ctx, dir, "init")
+			gitCommand(t, ctx, dir, "remote", "add", "origin", cfg.Spec.Git.Repository)
+			commitFixture := func() string {
+				t.Helper()
+				return commitFixtureFiles(t, ctx, dir, "compose.yaml", "password.age", "plain.txt")
+			}
 			repository := gitx.NewRepository(cfg.Spec.Git, dir)
 			rotator := stackloop.NewRotator()
-			preparer := preparation.New(cfg, repository, fileSystem, rotator)
+			preparer := preparation.New(cfg, repository, rotator)
 			r := stackloop.New(cfg, executor, swarmService, bus, deployMetrics,
 				modelstore.NewSQLStore(db), preparer, rotator, db)
-			req := stackloop.ReconciliationRequest{Stack: config.StackSpec{Name: stack, ComposeFile: "compose.yaml"}, Commit: "v1"}
+			req := stackloop.ReconciliationRequest{Stack: config.StackSpec{Name: stack, ComposeFile: "compose.yaml"}}
 			composePath := filepath.Join(dir, "compose.yaml")
 			writeAgeSwarmFixture(t, dir, identity.Recipient(), "age-private-marker-v1", "mounted-age-v1")
+			initialRevision := commitFixture()
+			req.Commit = initialRevision
 			initialManifest, err := os.ReadFile(composePath)
 			require.NoError(t, err)
 			require.NoError(t, r.Reconcile(ctx, req))
@@ -125,13 +131,14 @@ secretRotation:
 			brokenInit := strings.Replace(string(initialManifest), `command: ["test `, `command: ["false && test `, 1)
 			require.NotEqual(t, string(initialManifest), brokenInit)
 			require.NoError(t, os.WriteFile(composePath, []byte(brokenInit), 0o600))
-			req.Commit = "init-failure"
+			failedInitRevision := commitFixture()
+			req.Commit = failedInitRevision
 			err = r.Reconcile(ctx, req)
 			require.ErrorContains(t, err, "init job")
 			afterInitFailure := inspectAgeSwarmService(t, ctx, dockerClient, stack)
 			assert.Equal(t, beforeInitFailure.Version.Index, afterInitFailure.Version.Index)
 			require.NoError(t, os.WriteFile(composePath, initialManifest, 0o600))
-			req.Commit = "v1"
+			req.Commit = initialRevision
 
 			// Unchanged reconcile must preserve the Docker secret identity.
 			require.NoError(t, r.Reconcile(ctx, req))
@@ -139,9 +146,9 @@ secretRotation:
 			assert.Equal(t, firstID, repeatedID)
 			if rotation {
 				for _, version := range []int{2, 3} {
-					req.Commit = fmt.Sprintf("v%d", version)
 					marker := fmt.Sprintf("mounted-age-v%d", version)
 					writeAgeSwarmFixture(t, dir, identity.Recipient(), fmt.Sprintf("age-private-marker-v%d", version), marker)
+					req.Commit = commitFixture()
 					require.NoError(t, r.Reconcile(ctx, req))
 					waitForRealSwarmTask(t, ctx, dockerPath, stack+"_check", marker)
 					name, id := inspectAgeSwarmSecret(t, ctx, dockerClient, stack)
@@ -159,9 +166,9 @@ secretRotation:
 				}, 30*time.Second, time.Second)
 			} else {
 				// Docker secrets remain immutable without name rotation.
-				req.Commit = "v2"
 				writeAgeSwarmFixture(t, dir, identity.Recipient(), "age-private-marker-v2", "mounted-age-v2")
 				require.NoError(t, os.WriteFile(composePath, initialManifest, 0o600))
+				req.Commit = commitFixture()
 				require.NoError(t, r.Reconcile(ctx, req))
 				_, id := inspectAgeSwarmSecret(t, ctx, dockerClient, stack)
 				assert.Equal(t, firstID, id)
@@ -176,7 +183,7 @@ secretRotation:
 			require.NoError(t, err)
 			require.NotEmpty(t, deployments.Deployments)
 			for _, item := range deployments.Deployments {
-				if item.Commit == "init-failure" {
+				if item.Commit == failedInitRevision {
 					assert.Equal(t, deploymentmodel.Superseded, item.Status)
 					failed, getErr := store.Get(ctx, item.ID)
 					require.NoError(t, getErr)
@@ -197,7 +204,7 @@ secretRotation:
 			serviceBeforeInvalid := inspectAgeSwarmService(t, ctx, dockerClient, stack)
 			require.NoError(t, os.WriteFile(filepath.Join(dir, "password.age"), []byte("invalid-ciphertext-marker"), 0o600))
 			// Keep the same Compose name: validation must also run when Docker would reuse the Secret.
-			req.Commit = "invalid"
+			req.Commit = commitFixture()
 			err = r.Reconcile(ctx, req)
 			require.Error(t, err)
 			assert.NotContains(t, err.Error(), "invalid-ciphertext-marker")

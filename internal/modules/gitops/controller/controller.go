@@ -22,7 +22,6 @@ import (
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/security"
-	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 	"github.com/swarm-deploy/swarm-deploy/internal/storage"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
@@ -63,11 +62,10 @@ func New(
 	metricGroup *metrics.Group,
 	eventDispatcher dispatcher.Dispatcher,
 	stateStore modelstore.Store,
-	filesystem fs.FileSystem,
 	db storage.Database,
 ) *Controller {
 	rotator := stackloop.NewRotator()
-	preparer := preparation.New(cfg, git, filesystem, rotator)
+	preparer := preparation.New(cfg, git, rotator)
 	stackReconciler := stackloop.NewStackReconciler(
 		cfg, deploymentExecutor, swarmService, eventDispatcher, metricGroup.Deploys,
 		stateStore, preparer, rotator, db,

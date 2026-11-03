@@ -25,7 +25,6 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/model"
-	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/labelsdict"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	"go.uber.org/mock/gomock"
@@ -61,7 +60,7 @@ func TestDeferredDeploymentIsolatesIndependentReconciliation(t *testing.T) {
 			}
 			manifest += "  c:\n    image: example/c:1\n"
 			require.NoError(t, os.WriteFile(filepath.Join(dir, "app.yaml"), []byte(manifest), 0o600))
-			repository.EXPECT().WorkingDir().Return(dir).AnyTimes()
+			mockRepositoryFiles(repository, dir)
 			cfg := &config.Config{Spec: config.Spec{DataDir: filepath.Join(dir, ".data"), Sync: config.SyncSpec{Policy: config.SyncPolicySpec{SelfHeal: tc.global, Prune: true}}}}
 			alerts := alertstore.NewSQLStore(db)
 			subscriber := alertmanagement.NewSQLSubscriber(alerts, &dispatcher.NopDispatcher{}, func(alertmodel.AlertKind) []events.AlertRecipient { return nil }, cfg)
@@ -71,7 +70,7 @@ func TestDeferredDeploymentIsolatesIndependentReconciliation(t *testing.T) {
 				return subscriber.Handle(ctx, events.Envelope{ID: fmt.Sprint(len(published)), OccurredAt: time.Now().UTC(), Event: e})
 			}).AnyTimes()
 			create := func() *Reconciler {
-				return newTestReconciler(cfg, repository, deployments.NewService(db, bus), stackDeployer, &swarm.Swarm{Services: manager}, bus, &metrics.NopDeploys{}, stateStore, fs.NewLocalFileSystem(), db)
+				return newTestReconciler(cfg, repository, deployments.NewService(db, bus), stackDeployer, &swarm.Swarm{Services: manager}, bus, &metrics.NopDeploys{}, stateStore, db)
 			}
 			req := ReconciliationRequest{Stack: config.StackSpec{Name: "app", ComposeFile: "app.yaml"}, Commit: "one"}
 			req.Stack.Sync.Policy.SelfHeal = tc.stack

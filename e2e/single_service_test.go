@@ -27,6 +27,7 @@ func TestRealSwarmSingleServiceIsolationAndFailure(t *testing.T) {
 	objects := "configs:\n  settings:\n    file: ./settings.txt\nsecrets:\n  password:\n    file: ./password.txt\n"
 	check := "test -s /run/secrets/password && test -s /settings && sleep 600"
 	f.manifest(t, service("job", check)+service("other", check)+objects)
+	f.request.Commit = commitFixtureFiles(t, f.ctx, dir, filepath.Base(f.path), "settings.txt", "password.txt")
 	f.reconcile(t)
 	selectedIDs := f.runningIDs(t, "job", 1)
 	f.runningIDs(t, "other", 1)
