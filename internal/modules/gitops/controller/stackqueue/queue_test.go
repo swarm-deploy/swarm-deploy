@@ -254,6 +254,15 @@ func TestQueueClearDropsAllWaitingWork(t *testing.T) {
 	assert.Equal(t, []string{"running@A"}, seen())
 }
 
+// queueBusy inspects the private queue state solely for queue unit tests.
+func queueBusy(queue *Queue, name string) bool {
+	queue.mu.Lock()
+	defer queue.mu.Unlock()
+	_, pending := queue.pending[name]
+	_, running := queue.running[name]
+	return pending || running
+}
+
 // recordReconciliations blocks the first reconciliation until release and returns the observed order.
 func recordReconciliations(
 	reconciler *stackloop.MockStackReconciler, started, release chan struct{}, times int,

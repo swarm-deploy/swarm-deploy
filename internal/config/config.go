@@ -36,6 +36,7 @@ const (
 	defaultSyncPollInterval        = 30 * time.Second
 	defaultSyncInterval            = 1 * time.Minute
 	defaultSyncParallelism         = 1
+	defaultGitPullTimeout          = 2 * time.Minute
 	defaultInitJobPollEvery        = 2 * time.Second
 	defaultInitJobMaxDuration      = 10 * time.Minute
 	defaultInitJobsTimeout         = 10 * time.Minute
@@ -298,6 +299,9 @@ func (c *Config) applyDefaults(configDir string) error {
 }
 
 func (c *Config) applyGitAndSyncDefaults() {
+	if c.Spec.Git.PullTimeout.Value <= 0 {
+		c.Spec.Git.PullTimeout.Value = defaultGitPullTimeout
+	}
 	if c.Spec.Git.Branch == "" {
 		c.Spec.Git.Branch = "main"
 	}

@@ -23,14 +23,11 @@ import (
 	"golang.org/x/crypto/ssh/knownhosts"
 )
 
-// Maximum time spent waiting for the Git lock and fetching/pulling a remote.
-// A slow remote must not block revision reads indefinitely.
-const defaultPullTimeout = 2 * time.Minute
-
 type GoGitRepository struct {
 	path string
 
 	branch   string
+	pullTimeout time.Duration
 	auth     transport.AuthMethod
 	remote   string
 	authType config.GitAuthType
@@ -65,6 +62,7 @@ func NewGoGitRepository(ctx context.Context, spec config.GitSpec, path string) (
 	return &GoGitRepository{
 		path:       path,
 		branch:     spec.Branch,
+		pullTimeout: spec.PullTimeout.Value,
 		auth:       authMethod,
 		remote:     spec.Repository,
 		authType:   spec.Auth.Type,
@@ -126,7 +124,7 @@ func (r *GoGitRepository) ReadFile(ctx context.Context, revision, path string) (
 }
 
 func (r *GoGitRepository) Pull(ctx context.Context) (PullResult, error) {
-	ctx, cancel := context.WithTimeout(ctx, defaultPullTimeout)
+	ctx, cancel := context.WithTimeout(ctx, r.pullTimeout)
 	defer cancel()
 	if err := r.acquire(ctx); err != nil {
 		return PullResult{}, err

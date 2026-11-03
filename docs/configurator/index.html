@@ -580,6 +580,16 @@ docker secret create git_ssh_passphrase ./id_ed25519.passphrase</pre>
             <label id="labelStacksFile" for="stacksFile">Путь к файлу со стэками *</label>
             <input id="stacksFile" type="text" value="./stacks.yaml" />
           </div>
+          <div class="field">
+            <label id="labelSyncParallelism" for="syncParallelism">Параллельные стэки</label>
+            <input id="syncParallelism" type="number" min="1" step="1" value="1" required />
+            <p id="hintSyncParallelism">По умолчанию 1: стэки выполняются по очереди.</p>
+          </div>
+          <div class="field">
+            <label id="labelGitPullTimeout" for="gitPullTimeout">Таймаут Git pull</label>
+            <input id="gitPullTimeout" type="text" value="2m" required />
+            <p id="hintGitPullTimeout">Максимальная длительность Git pull, например 30s, 2m или 5m.</p>
+          </div>
         </section>
 
         <section class="step" data-step="4">
@@ -834,6 +844,12 @@ docker secret create git_ssh_passphrase ./id_ed25519.passphrase</pre>
             "<code>stacks.file</code> указывает на файл внутри Git-репозитория, где описан список стэков для деплоя.",
           step3Desc2: "По умолчанию используется <code>./stacks.yaml</code>.",
           labelStacksFile: "Путь к файлу со стэками *",
+          labelSyncParallelism: "Параллельные стэки",
+          hintSyncParallelism: "По умолчанию 1: стэки выполняются по очереди.",
+          labelGitPullTimeout: "Таймаут Git pull",
+          hintGitPullTimeout: "Максимальная длительность Git pull, например 30s, 2m или 5m.",
+          errSyncParallelism: "Укажите положительное целое число параллельных стеков.",
+          errGitPullTimeout: "Укажите положительную длительность, например 30s, 2m или 5m.",
           step4Title: "Нотификации (опционально)",
           step4Desc: "Можно отправлять уведомления в Telegram и/или custom webhook по выбранным событиям.",
           methodsTitle: "Доступные способы",
@@ -999,6 +1015,12 @@ docker secret create git_ssh_passphrase ./id_ed25519.passphrase</pre>
             "<code>stacks.file</code> points to the file in your Git repository that lists stacks to deploy.",
           step3Desc2: "Default value is <code>./stacks.yaml</code>.",
           labelStacksFile: "Stacks file path *",
+          labelSyncParallelism: "Concurrent stacks",
+          hintSyncParallelism: "Defaults to 1: stacks run one at a time.",
+          labelGitPullTimeout: "Git pull timeout",
+          hintGitPullTimeout: "Maximum Git pull duration, for example 30s, 2m, or 5m.",
+          errSyncParallelism: "Enter a positive integer for concurrent stacks.",
+          errGitPullTimeout: "Enter a positive duration, for example 30s, 2m, or 5m.",
           step4Title: "Notifications (optional)",
           step4Desc: "You can send alerts to Telegram and/or a custom webhook for selected events.",
           methodsTitle: "Available methods",
@@ -1219,6 +1241,10 @@ docker secret create git_ssh_passphrase ./id_ed25519.passphrase</pre>
         setHTML("step3Desc1", "step3Desc1");
         setHTML("step3Desc2", "step3Desc2");
         setText("labelStacksFile", "labelStacksFile");
+        setText("labelSyncParallelism", "labelSyncParallelism");
+        setText("hintSyncParallelism", "hintSyncParallelism");
+        setText("labelGitPullTimeout", "labelGitPullTimeout");
+        setText("hintGitPullTimeout", "hintGitPullTimeout");
 
         setText("step4Title", "step4Title");
         setText("step4Desc", "step4Desc");
@@ -1386,6 +1412,15 @@ docker secret create git_ssh_passphrase ./id_ed25519.passphrase</pre>
           if (!stacksFile) {
             return t("errStacksFile");
           }
+          const parallelism = document.getElementById("syncParallelism").value.trim();
+          if (!/^[1-9]\d*$/.test(parallelism) || !Number.isSafeInteger(Number(parallelism))) {
+            return t("errSyncParallelism");
+          }
+          const pullTimeout = document.getElementById("gitPullTimeout").value.trim();
+          if (!/^(?:\d+(?:\.\d+)?(?:ns|us|µs|ms|s|m|h))+$/.test(pullTimeout) ||
+              !/[1-9]/.test(pullTimeout.replace(/[a-zµ.]/g, ""))) {
+            return t("errGitPullTimeout");
+          }
         }
 
         if (currentStep === 4) {
@@ -1434,6 +1469,7 @@ docker secret create git_ssh_passphrase ./id_ed25519.passphrase</pre>
         lines.push("git:");
         lines.push(`  repository: ${yamlString(repository)}`);
         lines.push(`  branch: ${yamlString(branch)}`);
+        lines.push(`  pullTimeout: ${yamlString(document.getElementById("gitPullTimeout").value.trim())}`);
         lines.push("  auth:");
         lines.push(`    type: ${yamlString(authType)}`);
 
@@ -1475,6 +1511,7 @@ docker secret create git_ssh_passphrase ./id_ed25519.passphrase</pre>
         lines.push('  mode: "pull"');
         lines.push('  pollInterval: "30s"');
         lines.push('  interval: "1m"');
+        lines.push(`  parallelism: ${Number(document.getElementById("syncParallelism").value)}`);
         lines.push("");
         lines.push("stacks:");
         lines.push(`  file: ${yamlString(stacksFile)}`);
