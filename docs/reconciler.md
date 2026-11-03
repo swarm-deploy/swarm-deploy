@@ -59,20 +59,27 @@ replaces the whole set of waiting reconciliations with every configured stack at
 - waiting work of stacks that are no longer configured disappears, so a removed or renamed stack is never
   deployed from an older revision after the new configuration took effect;
 - a stack never runs with a specification or revision that a newer successful run has already replaced;
-- waiting stacks are reordered by every run: stacks changed in Git run first, and a waiting stack keeps its
-  changed mark until it runs, so a later run without a diff (such as the periodic one) does not push it back;
+- stacks changed in Git run first, and a waiting stack keeps its changed mark until it runs, so a later run
+  without a diff (such as the periodic one) does not push it back;
+- within the changed and the unchanged group the queue is first-in, first-out: a waiting stack keeps its
+  place across runs, and a stack that already had its turn is queued behind the stacks still waiting. A pass
+  over all stacks that takes longer than `sync.interval` therefore never starves the stacks at the end of the
+  configuration;
 - when a run fails after the new configuration was accepted (for example, while reconciling networks), all
   waiting work is dropped instead of running under that configuration; the next successful run queues every
   stack again, preserving the changed priority of both pending work and changes detected in the failed run.
-- repeated interval runs do not schedule a second reconciliation for a stack already running at the same
-  revision with the same stack specification. A manual request, new revision or updated specification
-  still schedules work after the running operation.
+- a run whose revision and stack specification match the operation already running for a stack does not
+  schedule another reconciliation, and drops any work still waiting for that stack: for example, a revision
+  or specification that was reverted while it waited is never applied. A manual request (including one
+  that was waiting) still runs again after the current operation; a new revision or updated specification
+  waits behind it.
 
 Operations that are already running are never interrupted and finish within their normal lifecycle.
 Stack-operation traces are independent spans linked to their dispatch span, not children of a dispatch
 span that may have ended before the work started.
 Periodic rotated-resource cleanup is queued only for idle stacks, so it never overlaps a reconciliation of the
-same stack, and a later run supersedes a cleanup that is still waiting.
+same stack, and a later run supersedes a cleanup that is still waiting. Cleanup uses the stacks and revision of
+the latest successful dispatch, not the Git `HEAD` or a configuration accepted by a run that failed afterwards.
 
 With the default `parallelism: 1`, stack operations run one by one in dispatch order. Unlike the former
 fully synchronous run, Git polling, configuration reload and later runs can proceed while an earlier stack
@@ -80,7 +87,8 @@ is still running; a newer revision may supersede pending work. Setting paralleli
 restore the old whole-run barrier.
 
 **Compatibility / monitoring change:** `last_sync_result: success` now means that Git, configuration,
-network reconciliation and queue dispatch succeeded, **not** that any stack deployed successfully.
+network reconciliation and queue dispatch succeeded (a run during shutdown, whose stacks the stopped queue
+no longer accepts, is reported as `error`), **not** that any stack deployed successfully.
 `git_revision` is the revision dispatched to the queue, not a guarantee that it was applied to every stack.
 `partial_error` is no longer emitted. Dashboards and alerts using
 `swarm_deploy_sync_runs_total{result="partial_error"}` must instead monitor stack operation failures via
@@ -90,7 +98,8 @@ result as a dispatch status and lists stack failures separately. These changes a
 when `parallelism: 1`.
 
 The Git repository serializes reads and pulls for go-git safety. Git pulls are bounded by
-`git.pullTimeout` (default `2m`), including time spent waiting for the repository lock;
+`git.pullTimeout` (default `2m`), including time spent waiting for the repository lock (a pull that times
+out while waiting reports `Timed out waiting for access to the local Git repository`);
 revision readers can abandon the lock wait
 when their context is canceled. A pull in progress can delay reads for up to the configured timeout, but cannot
 block them indefinitely due solely to a stalled remote.
