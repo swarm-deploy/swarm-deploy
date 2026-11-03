@@ -110,16 +110,27 @@ Missing services are still detected; `selfHeal=false` prevents their automatic r
 
 External replica ownership **does not guarantee safe immediate delivery of task-template
 changes**. A template update can interrupt a running task or start an unscheduled
-execution even after the previous task completed. swarm-deploy requires zero
-configured replicas and no active tasks before applying task-recreating changes.
-Nonzero replicas block these changes even when no tasks are running. Service labels
-and rollout policy changes can be applied while busy; other specification changes
-are conservatively treated as potentially task-recreating.
+execution even after the previous task completed. swarm-deploy applies
+task-recreating changes only when the service has no active tasks:
+
+- with zero configured replicas, the change is applied as is;
+- with nonzero replicas and `restart_policy.condition: none` (a job-like service,
+  for example one driven by swarm-cronjob), the service is **parked**: the same
+  update also sets replicas to `0`, so Swarm cannot start an unscheduled execution
+  from a completed slot. The external scheduler scales it up again on its next run;
+- with nonzero replicas and any other restart policy, the change is blocked.
+
+A scheduler run that starts between inspection and update changes the service
+version, so the optimistic update conflicts and the decision is re-evaluated.
+Service labels and rollout policy changes can be applied while busy; other
+specification changes are conservatively treated as potentially task-recreating.
 
 An unsafe update returns an explicit per-service blocked error. Independent services
 are still applied, but the deployment fails at apply (`apply_failed`); it is never
-reported as successful. There is no deferred queue: arrange an idle window with the
-external controller, then explicitly retry deployment. Manual Sync does not force
+reported as successful. When every blocked service is only waiting for active tasks
+to finish, the failure is retried automatically with the regular capped backoff
+(1 minute, doubling up to 1 hour). Other blocked updates need an idle window arranged
+with the external controller and an explicit retry. Manual Sync does not force
 an external job to restart. An unchanged external service does not block retrying
 an independent service because of historical scheduler failures. Services recorded
 in the existing unresolved-service list are still verified, including unchanged

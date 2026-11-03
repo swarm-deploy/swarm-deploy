@@ -10,6 +10,7 @@ import (
 	cerrdefs "github.com/containerd/errdefs"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/services"
 	deploymentmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/model"
 	deploymentstore "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
@@ -104,6 +105,8 @@ func TestApplyFailuresRetryOnlyWhenExplicitlyTemporary(t *testing.T) {
 		{name: "sanitized metadata unavailable", outcome: CompletionApplyFailed, diagnostic: faults.SanitizeError(fmt.Errorf("private request: %w", cerrdefs.ErrUnavailable), "metadata lookup failed"), retry: true},
 		{name: "temporary apply", outcome: CompletionApplyFailed, diagnostic: retryTestTemporaryError{}, retry: true},
 		{name: "temporary init job", outcome: CompletionInitJobFailed, diagnostic: retryTestTemporaryError{}, retry: true},
+		{name: "external update waiting for active tasks", outcome: CompletionApplyFailed, diagnostic: retryTestBusyError, retry: true},
+		{name: "external update requiring operator action", outcome: CompletionApplyFailed, diagnostic: retryTestBlockedError},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			now := time.Now().UTC()
@@ -129,6 +132,12 @@ func TestApplyFailuresRetryOnlyWhenExplicitlyTemporary(t *testing.T) {
 		})
 	}
 }
+
+var (
+	retryTestBlockedError = fmt.Errorf("apply stack: %w: service web requires zero replicas", services.ErrUpdateBlocked)
+	retryTestBusyError    = fmt.Errorf("apply stack: %w: %w", services.ErrUpdateDeferred,
+		fmt.Errorf("%w: service job still has active tasks", services.ErrUpdateBlocked))
+)
 
 type retryTestTemporaryError struct{}
 

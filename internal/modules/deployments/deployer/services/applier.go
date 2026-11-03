@@ -85,7 +85,7 @@ func (a *Applier) Apply(
 			result.ChangedServices = append(result.ChangedServices, serviceName)
 		}
 	}
-	return result, errors.Join(blocked...)
+	return result, blockedApplyError(blocked)
 }
 
 func (a *Applier) apply(
@@ -217,7 +217,7 @@ func (a *Applier) prepareUpdate(
 	reused := normalizeImageResolution(&current.Spec, &applied)
 	if !managed {
 		preserveReplicas(current.Spec, &applied)
-		if err = a.checkUpdateSafety(ctx, name, current, applied); err != nil {
+		if err = a.checkUpdateSafety(ctx, name, current, &applied); err != nil {
 			return applied, false, err
 		}
 	}

@@ -224,11 +224,14 @@ those values on every optimistic retry. Replica drift is also excluded independe
 of `selfHeal.replicas`; `selfHeal` still controls automatic repairs separately.
 
 Replica ownership alone does not guarantee safe immediate task-template updates.
-Task-recreating changes require zero replicas and no active tasks. A completed job
-with nonzero configured replicas is not idle. Unsafe changes produce per-service
-blocked errors while independent services continue applying; the deployment fails
-at apply rather than claiming success. Retry explicitly during a scheduler-coordinated
-idle window. Retrying an independent failed service leaves an unchanged external
+Task-recreating changes require no active tasks. With nonzero replicas they also
+require `restart_policy.condition: none`; such an idle job-like service is parked by
+setting replicas to zero in the same versioned update, so a completed slot cannot run
+again outside the external schedule. Unsafe changes produce per-service blocked
+errors while independent services continue applying; the deployment fails at apply
+rather than claiming success. If every block is caused only by active tasks, the
+attempt is automatically retryable with the regular backoff; otherwise retry
+explicitly during a scheduler-coordinated idle window. Retrying an independent failed service leaves an unchanged external
 job untouched, even if it has a historical terminal execution status. Existing
 unresolved-service obligations still require verification and cannot become
 successful no-ops. No retry forces a new external job generation.

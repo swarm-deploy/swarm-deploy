@@ -1,6 +1,7 @@
 package services
 
 import (
+	"errors"
 	"fmt"
 	"testing"
 
@@ -97,23 +98,33 @@ func TestExternalTaskRecreatingUpdateSafety(t *testing.T) {
 		name      string
 		replicas  uint64
 		task      swarm.TaskState
+		restart   bool
 		retry     bool
 		unchanged bool
 		blocked   bool
+		deferred  bool
 	}{
 		{name: "running job", replicas: 1, task: swarm.TaskStateRunning, blocked: true},
-		{name: "completed job with nonzero replicas", replicas: 1, task: swarm.TaskStateComplete, blocked: true},
-		{name: "zero replicas but task stopping", task: swarm.TaskStateRunning, blocked: true},
-		{name: "zero replicas but task preparing", task: swarm.TaskStatePreparing, blocked: true},
-		{name: "unknown task state", task: "future-state", blocked: true},
+		{name: "completed long-running service with nonzero replicas", replicas: 1, task: swarm.TaskStateComplete, blocked: true},
+		{name: "zero replicas but task stopping", task: swarm.TaskStateRunning, blocked: true, deferred: true},
+		{name: "zero replicas but task preparing", task: swarm.TaskStatePreparing, blocked: true, deferred: true},
+		{name: "unknown task state", task: "future-state", blocked: true, deferred: true},
 		{name: "idle with completed task", task: swarm.TaskStateComplete},
 		{name: "idle without tasks"},
+		{name: "completed restart-none job is parked", replicas: 1, task: swarm.TaskStateComplete, restart: true},
+		{name: "failed restart-none job is parked", replicas: 1, task: swarm.TaskStateFailed, restart: true},
+		{name: "restart-none job without tasks is parked", replicas: 1, restart: true},
+		{name: "running restart-none job is deferred", replicas: 1, task: swarm.TaskStateRunning, restart: true, blocked: true, deferred: true},
 		{name: "retry does not execute unchanged job outside schedule", replicas: 1, retry: true, unchanged: true},
+		{name: "retry does not park unchanged restart-none job", replicas: 1, restart: true, retry: true, unchanged: true},
 		{name: "retry blocks unsafe changed template", replicas: 1, task: swarm.TaskStateRunning, retry: true, blocked: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			manager := swarm.NewMockServiceManager(gomock.NewController(t))
 			desired := externalSpec("job")
+			if tc.restart {
+				desired.TaskTemplate.RestartPolicy = &dockerswarm.RestartPolicy{Condition: dockerswarm.RestartPolicyConditionNone}
+			}
 			current := service("id", 1, cloneSpec(desired))
 			*current.Spec.Mode.Replicated.Replicas = tc.replicas
 			current.Spec.TaskTemplate.ForceUpdate = 10
@@ -124,7 +135,7 @@ func TestExternalTaskRecreatingUpdateSafety(t *testing.T) {
 				desired.TaskTemplate.ContainerSpec.Env = []string{"CHANGED=yes"}
 			}
 			manager.EXPECT().Inspect(gomock.Any(), "demo_job").Return(current, nil)
-			if tc.replicas == 0 && !tc.unchanged {
+			if (tc.replicas == 0 || tc.restart) && !tc.unchanged {
 				var tasks []swarm.ServiceTask
 				if tc.task != "" {
 					tasks = []swarm.ServiceTask{{CurrentState: tc.task, DesiredState: swarm.TaskStateShutdown}}
@@ -143,6 +154,7 @@ func TestExternalTaskRecreatingUpdateSafety(t *testing.T) {
 			if tc.blocked {
 				require.ErrorIs(t, err, ErrUpdateBlocked)
 				assert.ErrorContains(t, err, "service job")
+				assert.Equal(t, tc.deferred, errors.Is(err, ErrUpdateDeferred))
 				assert.Empty(t, changed.ChangedServices)
 			} else {
 				require.NoError(t, err)
@@ -171,6 +183,61 @@ func TestExternalJobStartsDuringOptimisticRetry(t *testing.T) {
 	changed, err := New(manager, &registry.NopAuthManager{}).Apply(t.Context(), "demo", []dockerswarm.ServiceSpec{desired}, ApplyOptions{})
 	require.ErrorIs(t, err, ErrUpdateBlocked)
 	assert.Empty(t, changed.ChangedServices)
+}
+
+func TestParkedExternalJobStartsDuringOptimisticRetry(t *testing.T) {
+	manager := swarm.NewMockServiceManager(gomock.NewController(t))
+	desired := externalSpec("job")
+	desired.TaskTemplate.RestartPolicy = &dockerswarm.RestartPolicy{Condition: dockerswarm.RestartPolicyConditionNone}
+	current := service("id", 1, cloneSpec(desired))
+	*current.Spec.Mode.Replicated.Replicas = 1
+	current.Spec.TaskTemplate.ForceUpdate = 10
+	desired.TaskTemplate.ContainerSpec.Env = []string{"CHANGED=yes"}
+	manager.EXPECT().Inspect(gomock.Any(), "demo_job").Return(current, nil)
+	completed := []swarm.ServiceTask{{CurrentState: swarm.TaskStateComplete, DesiredState: swarm.TaskStateShutdown}}
+	manager.EXPECT().ListTasks(gomock.Any(), "id").Return(completed, nil)
+	manager.EXPECT().Update(gomock.Any(), "id", current.Version, gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ any, _ string, _ dockerswarm.Version, spec dockerswarm.ServiceSpec, _ dockerswarm.ServiceUpdateOptions) error {
+			assert.Zero(t, *spec.Mode.Replicated.Replicas, "idle job is parked with the template change")
+			assert.Equal(t, uint64(10), spec.TaskTemplate.ForceUpdate)
+			return swarm.ErrServiceConflict
+		})
+	// The scheduler started a run between inspection and update.
+	newer := service("id", 2, cloneSpec(current.Spec))
+	newer.Spec.TaskTemplate.ForceUpdate = 11
+	manager.EXPECT().Inspect(gomock.Any(), "demo_job").Return(newer, nil)
+	running := []swarm.ServiceTask{{CurrentState: swarm.TaskStateRunning, DesiredState: swarm.TaskStateRunning}}
+	manager.EXPECT().ListTasks(gomock.Any(), "id").Return(running, nil)
+	changed, err := New(manager, &registry.NopAuthManager{}).Apply(t.Context(), "demo", []dockerswarm.ServiceSpec{desired}, ApplyOptions{})
+	require.ErrorIs(t, err, ErrUpdateBlocked)
+	require.ErrorIs(t, err, ErrUpdateDeferred)
+	assert.Empty(t, changed.ChangedServices)
+	assert.Zero(t, *desired.Mode.Replicated.Replicas, "caller spec is immutable")
+}
+
+func TestDeferredOnlyWhenEveryBlockIsTransient(t *testing.T) {
+	busy := fmt.Errorf("%w: service a still has active tasks", errUpdateBusy)
+	permanent := fmt.Errorf("%w: service b requires zero replicas", ErrUpdateBlocked)
+	for _, tc := range []struct {
+		name     string
+		blocked  []error
+		deferred bool
+	}{
+		{name: "nothing blocked"},
+		{name: "only active tasks", blocked: []error{busy}, deferred: true},
+		{name: "operator action required", blocked: []error{permanent}},
+		{name: "mixed", blocked: []error{busy, permanent}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := blockedApplyError(tc.blocked)
+			if len(tc.blocked) == 0 {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorIs(t, err, ErrUpdateBlocked)
+			assert.Equal(t, tc.deferred, errors.Is(err, ErrUpdateDeferred))
+		})
+	}
 }
 
 func TestBlockedExternalJobDoesNotPreventIndependentApply(t *testing.T) {
