@@ -88,7 +88,7 @@ func (d *Deployer) newDeployServicePipeline() *pipe.Pipeline[*deployServicePaylo
 }
 
 func (d *Deployer) reconcileStackResources(ctx context.Context, payload *deployStackPayload) error {
-	resolved, err := d.reconcileResources(ctx, payload.stackName, payload.sourceComposePath, payload.desired)
+	resolved, err := d.reconcileResources(ctx, payload.stackName, payload.desired)
 	payload.resolved = resolved
 	return safePipelineError(err)
 }
@@ -128,7 +128,7 @@ func (d *Deployer) prepareService(_ context.Context, payload *deployServicePaylo
 }
 
 func (d *Deployer) reconcileServiceResources(ctx context.Context, payload *deployServicePayload) error {
-	resolved, err := d.reconcileResources(ctx, payload.stackName, payload.sourceComposePath, payload.prepared.Desired)
+	resolved, err := d.reconcileResources(ctx, payload.stackName, payload.prepared.Desired)
 	payload.resolved = resolved
 	return safePipelineError(err)
 }
@@ -212,8 +212,7 @@ func (d *Deployer) wait(ctx context.Context, request waiterpkg.ServiceWaitReques
 
 func (d *Deployer) reconcileResources(
 	ctx context.Context,
-	stackName,
-	sourceComposePath string,
+	stackName string,
 	desired compose.Compose,
 ) (resolvedResources, error) {
 	resolved := resolvedResources{}
@@ -221,7 +220,7 @@ func (d *Deployer) reconcileResources(
 		return resolved, nil
 	}
 
-	data, err := d.secretResolver.Resolve(ctx, stackName, sourceComposePath, desired.Secrets)
+	data, err := d.secretResolver.Resolve(stackName, desired.Secrets)
 	if err != nil {
 		return resolved, fmt.Errorf("resolve secrets: %w", err)
 	}

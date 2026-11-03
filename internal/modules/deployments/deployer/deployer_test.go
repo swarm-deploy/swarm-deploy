@@ -61,7 +61,7 @@ func TestDeployStackWaitsAfterSuccessfulApply(t *testing.T) {
 		runner: runner, initJobRunner: &fakeInitJobExecutor{}, serviceWaiter: waiter,
 	}
 
-	_, err := d.DeployStack(t.Context(), "demo", "source.yaml", "rendered.yaml", compose.Compose{
+	_, err := d.DeployStack(t.Context(), "demo", "rendered.yaml", compose.Compose{
 		Services: compose.Services{{Name: "api"}},
 	})
 	require.NoError(t, err)
@@ -112,7 +112,7 @@ func TestDeployStackSharesApplyDeadlineAcrossSnapshotCLIAndWaiter(t *testing.T) 
 		runner: runner, initJobRunner: NewMockInitJobExecutor(ctrl), serviceWaiter: waiter,
 	}
 
-	_, err := d.DeployStack(context.Background(), "demo", "source.yaml", "rendered.yaml", compose.Compose{
+	_, err := d.DeployStack(context.Background(), "demo", "rendered.yaml", compose.Compose{
 		Services: compose.Services{{Name: "api"}},
 	})
 	require.NoError(t, err)
@@ -162,7 +162,7 @@ func TestDeployServiceSharesApplyDeadlineAcrossSnapshotCLIAndWaiter(t *testing.T
 	}
 	desired := compose.Compose{Services: compose.Services{{Name: "api"}}}
 
-	_, err := d.DeployService(context.Background(), "demo", "source.yaml", "api", desired, desired)
+	_, err := d.DeployService(context.Background(), "demo", "api", desired, desired)
 	require.NoError(t, err)
 	assert.True(t, snapshotDeadline.Equal(cliDeadline), "snapshot and CLI must share one absolute deadline")
 	assert.True(t, cliDeadline.Equal(waitDeadline), "CLI and waiter must share one absolute deadline")
@@ -186,7 +186,7 @@ func TestDeployStackConvergenceTimeoutPreservesDiagnostics(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
 	defer cancel()
 
-	_, err := d.DeployStack(ctx, "demo", "source.yaml", "rendered.yaml", compose.Compose{
+	_, err := d.DeployStack(ctx, "demo", "rendered.yaml", compose.Compose{
 		Services: compose.Services{{Name: "api"}},
 	})
 	require.Error(t, err)
@@ -215,7 +215,7 @@ func TestDeployStackParentCancellationInterruptsConvergence(t *testing.T) {
 		runner: runner, initJobRunner: NewMockInitJobExecutor(ctrl), serviceWaiter: waiter,
 	}
 
-	_, err := d.DeployStack(ctx, "demo", "source.yaml", "rendered.yaml", compose.Compose{
+	_, err := d.DeployStack(ctx, "demo", "rendered.yaml", compose.Compose{
 		Services: compose.Services{{Name: "api"}},
 	})
 	require.Error(t, err)
@@ -251,7 +251,7 @@ func TestDeployStackStartsSharedTimeoutAfterInitJobs(t *testing.T) {
 		runner: runner, initJobRunner: initJobs, serviceWaiter: waiter,
 	}
 
-	_, err := d.DeployStack(context.Background(), "demo", "source.yaml", "rendered.yaml", compose.Compose{
+	_, err := d.DeployStack(context.Background(), "demo", "rendered.yaml", compose.Compose{
 		Services: compose.Services{{Name: "api", InitJobs: []compose.InitJob{{Name: "migrate"}}}},
 	})
 	require.NoError(t, err)
@@ -272,7 +272,7 @@ func TestDeployStackDoesNotReturnBeforeServiceConvergence(t *testing.T) {
 
 	result := make(chan error, 1)
 	go func() {
-		_, err := d.DeployStack(t.Context(), "demo", "source.yaml", "rendered.yaml", compose.Compose{
+		_, err := d.DeployStack(t.Context(), "demo", "rendered.yaml", compose.Compose{
 			Services: compose.Services{{Name: "api"}},
 		})
 		result <- err
@@ -296,7 +296,7 @@ func TestDeployStackPropagatesServiceWaitFailure(t *testing.T) {
 		runner: &fakeRunner{}, initJobRunner: &fakeInitJobExecutor{}, serviceWaiter: waiter,
 	}
 
-	_, err := d.DeployStack(t.Context(), "demo", "source.yaml", "rendered.yaml", compose.Compose{
+	_, err := d.DeployStack(t.Context(), "demo", "rendered.yaml", compose.Compose{
 		Services: compose.Services{{Name: "api"}},
 	})
 	require.ErrorIs(t, err, waitErr)
@@ -316,7 +316,7 @@ func TestDeployServiceWaitsOnlyForTarget(t *testing.T) {
 	}
 	desired := compose.Compose{Services: compose.Services{{Name: "api"}, {Name: "worker"}}}
 
-	_, err := d.DeployService(t.Context(), "demo", "source.yaml", "api", desired, desired)
+	_, err := d.DeployService(t.Context(), "demo", "api", desired, desired)
 	require.NoError(t, err)
 }
 
@@ -360,7 +360,7 @@ func TestDeployStackRunsInitJobsBeforeDeploy(t *testing.T) {
 		},
 	}
 	result, err := deployer.DeployStack(
-		context.Background(), "demo", "/tmp/source.yaml", "/tmp/demo.yaml", compose.Compose{Services: services},
+		context.Background(), "demo", "/tmp/demo.yaml", compose.Compose{Services: services},
 	)
 	require.NoError(t, err, "deploy stack")
 
@@ -429,7 +429,7 @@ func TestDeployStackStopsWhenInitJobFails(t *testing.T) {
 	}
 
 	result, err := deployer.DeployStack(
-		context.Background(), "demo", "/tmp/source.yaml", "/tmp/demo.yaml", compose.Compose{Services: services},
+		context.Background(), "demo", "/tmp/demo.yaml", compose.Compose{Services: services},
 	)
 	require.Error(t, err, "deploy stack must fail when init job fails")
 	assert.ErrorContains(t, err, "service api init job seed", "error must include failed init job details")
@@ -456,7 +456,7 @@ func TestDeployStackDeploysWithoutInitJobs(t *testing.T) {
 		{Name: "worker"},
 	}
 
-	result, err := deployer.DeployStack(context.Background(), "demo", "/tmp/source.yaml", "/tmp/demo.yaml", compose.Compose{Services: services})
+	result, err := deployer.DeployStack(context.Background(), "demo", "/tmp/demo.yaml", compose.Compose{Services: services})
 	require.NoError(t, err, "deploy stack")
 	assert.Empty(t, result.InitJobs)
 
@@ -479,7 +479,7 @@ func TestDeployStackReturnsInitJobResultsWhenDeployCommandFails(t *testing.T) {
 		serviceWaiter:   newSuccessfulServiceWaiter(t),
 	}
 
-	result, err := deployer.DeployStack(context.Background(), "demo", "/tmp/source.yaml", "/tmp/demo.yaml", compose.Compose{
+	result, err := deployer.DeployStack(context.Background(), "demo", "/tmp/demo.yaml", compose.Compose{
 		Services: []compose.Service{{
 			Name:     "api",
 			InitJobs: []compose.InitJob{{Name: "migrate", Image: "example/migrate:latest"}},
@@ -500,7 +500,7 @@ func TestDeployStackOmitsInitJobResultWhenExecutionNeverStarted(t *testing.T) {
 		serviceWaiter:   newSuccessfulServiceWaiter(t),
 	}
 
-	result, err := deployer.DeployStack(context.Background(), "demo", "/tmp/source.yaml", "/tmp/demo.yaml", compose.Compose{
+	result, err := deployer.DeployStack(context.Background(), "demo", "/tmp/demo.yaml", compose.Compose{
 		Services: []compose.Service{{
 			Name:     "api",
 			InitJobs: []compose.InitJob{{Name: "migrate", Image: "example/migrate:latest"}},
@@ -548,7 +548,7 @@ func TestDeployServiceDeploysOnlyTargetService(t *testing.T) {
 	deploy := desired
 	deploy.Services = append(compose.Services(nil), desired.Services...)
 	deploy.Services[0].InitJobs = nil
-	result, err := d.DeployService(context.Background(), "demo", "/tmp/source.yaml", "api", desired, deploy)
+	result, err := d.DeployService(context.Background(), "demo", "api", desired, deploy)
 	require.NoError(t, err)
 	assert.Empty(t, result.InitJobs)
 	assert.Empty(t, initJobs.calls)
@@ -563,7 +563,7 @@ func TestDeployServiceFailsWhenServiceIsMissing(t *testing.T) {
 		runner: &fakeRunner{}, initJobRunner: &fakeInitJobExecutor{}, serviceWaiter: newSuccessfulServiceWaiter(t)}
 
 	desired := compose.Compose{Services: compose.Services{{Name: "api"}}}
-	_, err := d.DeployService(context.Background(), "demo", "/tmp/source.yaml", "worker", desired, desired)
+	_, err := d.DeployService(context.Background(), "demo", "worker", desired, desired)
 	require.Error(t, err)
 	assert.ErrorContains(t, err, "service \"worker\" not found")
 }

@@ -82,7 +82,7 @@ func TestControllerExecuteCompletesSuccessAndAvoidsDuplicateExecution(t *testing
 		pruner.NewServicePruner(services, bus, config.SyncPolicySpec{}), &metrics.NopDeploys{},
 	)
 	req := executionRequest("api:1")
-	stackDeployer.EXPECT().DeployStack(gomock.Any(), "app", "app.yaml", "rendered.yaml", gomock.Any()).
+	stackDeployer.EXPECT().DeployStack(gomock.Any(), "app", "rendered.yaml", gomock.Any()).
 		Return(deployer.Result{}, nil)
 	services.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "app"}).Return(nil, nil)
 
@@ -165,7 +165,7 @@ func TestControllerExecuteClassifiesAndPersistsFailures(t *testing.T) {
 				lifecycle, stackDeployer, services,
 				pruner.NewServicePruner(services, bus, config.SyncPolicySpec{Prune: true}), &metrics.NopDeploys{},
 			)
-			stackDeployer.EXPECT().DeployStack(gomock.Any(), "app", "app.yaml", "rendered.yaml", gomock.Any()).
+			stackDeployer.EXPECT().DeployStack(gomock.Any(), "app", "rendered.yaml", gomock.Any()).
 				Return(testCase.result, testCase.deployErr)
 			if testCase.deployErr == nil {
 				testCase.setupLive(services)
@@ -198,11 +198,11 @@ func TestControllerExecuteRetriesAndSupersedesThroughCanonicalLifecycle(t *testi
 		pruner.NewServicePruner(services, bus, config.SyncPolicySpec{}), &metrics.NopDeploys{},
 	)
 
-	stackDeployer.EXPECT().DeployStack(gomock.Any(), "app", "app.yaml", "rendered.yaml", gomock.Any()).
+	stackDeployer.EXPECT().DeployStack(gomock.Any(), "app", "rendered.yaml", gomock.Any()).
 		Return(deployer.Result{}, errors.New("failed"))
 	failed, err := controller.Execute(t.Context(), executionRequest("api:1"))
 	require.Error(t, err)
-	stackDeployer.EXPECT().DeployStack(gomock.Any(), "app", "app.yaml", "rendered.yaml", gomock.Any()).
+	stackDeployer.EXPECT().DeployStack(gomock.Any(), "app", "rendered.yaml", gomock.Any()).
 		Return(deployer.Result{}, nil)
 	services.EXPECT().ListServices(gomock.Any(), gomock.Any()).Return(nil, nil)
 	retry, err := controller.Execute(t.Context(), executionRequest("api:1"))
@@ -216,7 +216,7 @@ func TestControllerExecuteRetriesAndSupersedesThroughCanonicalLifecycle(t *testi
 	req := executionRequest("worker:1")
 	req.Stack.Name = "other"
 	req.Commit = "two"
-	stackDeployer.EXPECT().DeployStack(gomock.Any(), "other", "app.yaml", "rendered.yaml", gomock.Any()).
+	stackDeployer.EXPECT().DeployStack(gomock.Any(), "other", "rendered.yaml", gomock.Any()).
 		Return(deployer.Result{}, nil)
 	services.EXPECT().ListServices(gomock.Any(), gomock.Any()).Return(nil, nil)
 	newer, err := controller.Execute(t.Context(), req)

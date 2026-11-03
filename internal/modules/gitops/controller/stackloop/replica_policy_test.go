@@ -91,12 +91,11 @@ func TestReconcileReplicaDriftPolicy(t *testing.T) {
 			if tt.missing {
 				initial = nil
 			}
-			repository.EXPECT().WorkingDir().Return(dir).AnyTimes()
+			mockRepositoryFiles(repository, dir)
 			services.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "app"}).Return(initial, nil)
 			if tt.repair {
 				services.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "app"}).Return(live, nil)
-				stackDeployer.EXPECT().DeployService(gomock.Any(), "app", filepath.Join(dir, "app.yaml"),
-					"api", gomock.Any(), gomock.Any()).Return(deployer.Result{}, nil)
+				stackDeployer.EXPECT().DeployService(gomock.Any(), "app", "api", gomock.Any(), gomock.Any()).Return(deployer.Result{}, nil)
 			}
 			cfg := &config.Config{Spec: config.Spec{
 				DataDir: filepath.Join(dir, ".data"),

@@ -27,7 +27,6 @@ type serviceRemediation struct {
 
 func (r *Reconciler) selfHealDrift(ctx context.Context, payload *pipelinePayload) error {
 	payload.Remediations = make(map[string]serviceRemediation)
-	deployCompose := r.preparer.DeploymentCompose(payload.Desired, payload.Stack.Name)
 
 	span := trace.SpanFromContext(ctx)
 
@@ -40,7 +39,7 @@ func (r *Reconciler) selfHealDrift(ctx context.Context, payload *pipelinePayload
 			continue
 		}
 
-		if err := r.healService(ctx, payload, service, deployCompose); err != nil {
+		if err := r.healService(ctx, payload, service); err != nil {
 			return err
 		}
 	}
@@ -52,7 +51,6 @@ func (r *Reconciler) healService(
 	ctx context.Context,
 	payload *pipelinePayload,
 	service compose.Service,
-	deployCompose compose.Compose,
 ) error {
 	ctx, span := selfHealTracer.Start(ctx, "stackReconciler.HealService", trace.WithAttributes(
 		tracing.ResourceServiceName.String(service.Name),
@@ -86,8 +84,8 @@ func (r *Reconciler) healService(
 
 	remediation := serviceRemediation{attempted: true}
 	_, err = r.executor.ExecuteService(ctx, deployments.ExecuteServiceRequest{
-		StackName: payload.Stack.Name, SourceComposePath: payload.Desired.Path,
-		ServiceName: service.Name, Desired: payload.Desired.Compose, Deploy: deployCompose,
+		StackName:   payload.Stack.Name,
+		ServiceName: service.Name, Desired: payload.Desired.Compose, Deploy: payload.DeployCompose,
 	})
 	if err != nil {
 		remediation.applyErr = err

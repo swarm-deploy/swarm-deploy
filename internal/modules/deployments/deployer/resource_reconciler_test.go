@@ -59,7 +59,7 @@ func TestDeployStackReconcilesResourcesBeforeInitJobs(t *testing.T) {
 			fileName:     "password.txt",
 			fileContent:  "secret-value",
 			secrets: compose.Secrets{
-				"db-password": {Alias: "db-password", File: "password.txt"},
+				"db-password": {Alias: "db-password", File: "password.txt", Data: []byte("secret-value")},
 			},
 			serviceSecret: []compose.ObjectRef{{Source: "db-password"}},
 			resolved: func(spec InitJobSpec) ResolvedResource {
@@ -123,7 +123,6 @@ func TestDeployStackReconcilesResourcesBeforeInitJobs(t *testing.T) {
 			_, err := deployer.DeployStack(
 				context.Background(),
 				"demo",
-				filepath.Join(dir, "compose.yaml"),
 				filepath.Join(dir, "rendered", "compose.yaml"),
 				desired,
 			)
@@ -256,7 +255,6 @@ func TestDeployStackInitJobFailureDoesNotDeleteResources(t *testing.T) {
 	_, err := deployer.DeployStack(
 		context.Background(),
 		"demo",
-		filepath.Join(dir, "compose.yaml"),
 		filepath.Join(dir, "rendered", "compose.yaml"),
 		desired,
 	)

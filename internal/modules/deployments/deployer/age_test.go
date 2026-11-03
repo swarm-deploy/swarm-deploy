@@ -64,10 +64,10 @@ func TestReconcileAgeSecrets(t *testing.T) {
 			})
 			r := newResourceReconciler(&swarm.Swarm{Secrets: secrets})
 			objects := compose.Secrets{"password": {
-				File: path, Name: "rotated-password", TemplateDriver: "golang",
+				File: path, Data: ciphertext, Name: "rotated-password", TemplateDriver: "golang",
 				Labels: *compose.NewLabels(map[string]string{"purpose": "managed"}),
 			}}
-			data, err := newTestSecretResolverWithIdentity([]byte(identity.String())).Resolve(t.Context(), "app", filepath.Join(dir, "compose.yaml"), objects)
+			data, err := newTestSecretResolverWithIdentity([]byte(identity.String())).Resolve("app", objects)
 			require.NoError(t, err)
 			defer secretpkg.Clear(data)
 			resolved, err := r.Reconcile(t.Context(), "app", nil, objects, data)
@@ -108,8 +108,8 @@ func TestReconcileAgeSecretFailuresDoNotReachCLI(t *testing.T) {
 			runner := NewMockRunner(ctrl)
 			d := &Deployer{secretResolver: newTestSecretResolverWithIdentity(tt.key), resources: newResourceReconciler(&swarm.Swarm{Secrets: secrets}), runner: runner,
 				serviceWaiter: newSuccessfulServiceWaiter(t)}
-			_, err := d.DeployStack(t.Context(), "app", filepath.Join(dir, "compose.yaml"), "unused", compose.Compose{
-				Secrets: compose.Secrets{"password": {File: "password.age", Driver: tt.driver}},
+			_, err := d.DeployStack(t.Context(), "app", "unused", compose.Compose{
+				Secrets: compose.Secrets{"password": {File: "password.age", Data: tt.contents, Driver: tt.driver}},
 			})
 			require.ErrorContains(t, err, tt.want)
 			assert.NotContains(t, err.Error(), "private-marker")
@@ -122,15 +122,15 @@ func TestReadPlaintextSecretIgnoresAgeIdentity(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "password.txt"), []byte("plain"), 0o600))
 	resolver := newTestSecretResolverWithIdentity([]byte("invalid identity"))
-	objects := compose.Secrets{"password": {File: "password.txt"}}
-	data, err := resolver.Resolve(t.Context(), "app", filepath.Join(dir, "compose.yaml"), objects)
+	objects := compose.Secrets{"password": {File: "password.txt", Data: []byte("plain")}}
+	data, err := resolver.Resolve("app", objects)
 	require.NoError(t, err)
 	assert.Equal(t, "plain", string(data["password"]))
 	objects["password"].File = ""
-	_, err = resolver.Resolve(t.Context(), "app", filepath.Join(dir, "compose.yaml"), objects)
+	_, err = resolver.Resolve("app", objects)
 	require.ErrorContains(t, err, "file is required")
 	objects["password"].File = "missing.age"
-	_, err = resolver.Resolve(t.Context(), "app", filepath.Join(dir, "compose.yaml"), objects)
+	_, err = resolver.Resolve("app", objects)
 	require.Error(t, err)
 	assert.NotContains(t, err.Error(), "invalid identity")
 }

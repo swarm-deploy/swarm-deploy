@@ -39,7 +39,7 @@ func TestDeployPipelinesPreserveTraceHierarchyAndRootAttributes(t *testing.T) {
 			pipelineName:  deployStackPipelineName,
 			applyStage:    stepApplyStack,
 			run: func(d *Deployer) error {
-				_, err := d.DeployStack(t.Context(), "demo", "source.yaml", "rendered.yaml", compose.Compose{
+				_, err := d.DeployStack(t.Context(), "demo", "rendered.yaml", compose.Compose{
 					Services: compose.Services{{Name: "api"}},
 				})
 				return err
@@ -59,7 +59,7 @@ func TestDeployPipelinesPreserveTraceHierarchyAndRootAttributes(t *testing.T) {
 			applyStage:    stepApplyService,
 			run: func(d *Deployer) error {
 				desired := compose.Compose{Services: compose.Services{{Name: "api"}}}
-				_, err := d.DeployService(t.Context(), "demo", "source.yaml", "api", desired, desired)
+				_, err := d.DeployService(t.Context(), "demo", "api", desired, desired)
 				return err
 			},
 			wantStages: []string{
@@ -161,7 +161,7 @@ func TestDeployPipelineFailureSetsSafeRootSpanError(t *testing.T) {
 		runner: runner, initJobRunner: NewMockInitJobExecutor(ctrl), serviceWaiter: waiter,
 	}
 
-	_, err := d.DeployStack(t.Context(), "demo", "source.yaml", "rendered.yaml", compose.Compose{
+	_, err := d.DeployStack(t.Context(), "demo", "rendered.yaml", compose.Compose{
 		Services: compose.Services{{Name: "api"}},
 	})
 	require.Error(t, err)
@@ -193,7 +193,7 @@ func TestDeployStackStepErrorPreservesJobFailureType(t *testing.T) {
 		serviceWaiter: newSuccessfulServiceWaiter(t),
 	}
 
-	result, err := d.DeployStack(t.Context(), "demo", "source.yaml", "rendered.yaml", compose.Compose{
+	result, err := d.DeployStack(t.Context(), "demo", "rendered.yaml", compose.Compose{
 		Services: compose.Services{{Name: "api", InitJobs: []compose.InitJob{{Name: "migrate"}}}},
 	})
 	require.Error(t, err)

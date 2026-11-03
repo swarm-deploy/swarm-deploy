@@ -27,7 +27,13 @@ func (h *handler) GetStackManifestos(
 		return nil, withStatusError(http.StatusNotFound, fmt.Errorf("stack %s not found", params.Stack))
 	}
 
-	desiredManifest, err := h.git.ReadFile(ctx, composeFile)
+	revision, err := h.git.Head(ctx)
+	if err != nil {
+		slog.ErrorContext(ctx, "[webserver] failed to resolve desired stack revision", "stack", params.Stack, "err", err)
+		return nil, withStatusError(http.StatusInternalServerError, errors.New("unable to get stack desired manifest"))
+	}
+
+	desiredManifest, err := h.git.ReadFile(ctx, revision, composeFile)
 	if err != nil {
 		slog.ErrorContext(
 			ctx,
@@ -39,7 +45,7 @@ func (h *handler) GetStackManifestos(
 		return nil, withStatusError(http.StatusInternalServerError, errors.New("unable to get stack desired manifest"))
 	}
 
-	desiredCompose, err := h.composeLoader.Load(ctx, composeFile)
+	desiredCompose, err := compose.Parse(desiredManifest)
 	if err != nil {
 		slog.ErrorContext(
 			ctx,
@@ -63,7 +69,7 @@ func (h *handler) GetStackManifestos(
 		return nil, withStatusError(http.StatusInternalServerError, errors.New("unable to list stack services"))
 	}
 
-	sortStackServicesByDesiredState(services, desiredCompose.Compose.Services)
+	sortStackServicesByDesiredState(services, desiredCompose.Services)
 
 	liveCompose, err := livemanifest.NewComputer(h.serviceInspector, h.networks).ComputeStack(ctx, livemanifest.Stack{
 		Name:     params.Stack,

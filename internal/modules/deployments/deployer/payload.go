@@ -21,7 +21,6 @@ func (p *applyPayload) stageContext(ctx context.Context) (context.Context, conte
 type deployStackPayload struct {
 	applyPayload
 	stackName         string
-	sourceComposePath string
 	deployComposePath string
 	desired           compose.Compose
 	resolved          resolvedResources
@@ -30,14 +29,13 @@ type deployStackPayload struct {
 
 type deployServicePayload struct {
 	applyPayload
-	stackName         string
-	sourceComposePath string
-	serviceName       string
-	desired           compose.Compose
-	deploy            compose.Compose
-	prepared          *stackpkg.PreparedService
-	resolved          resolvedResources
-	result            Result
+	stackName   string
+	serviceName string
+	desired     compose.Compose
+	deploy      compose.Compose
+	prepared    *stackpkg.PreparedService
+	resolved    resolvedResources
+	result      Result
 }
 
 func (p *deployServicePayload) cleanup() {

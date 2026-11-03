@@ -53,6 +53,8 @@ type Secret struct {
 	Name string `yaml:"name,omitempty" json:"name,omitempty"`
 	// File is the source file for the secret.
 	File string `yaml:"file,omitempty" json:"file,omitempty"`
+	// Data contains transient source bytes, possibly encrypted. Nil means no file was loaded.
+	Data []byte `yaml:"-" json:"-"`
 	// Driver is the secret driver name.
 	Driver string `yaml:"driver,omitempty" json:"driver,omitempty"`
 	// DriverOpts contains secret driver-specific options.

@@ -106,33 +106,6 @@ func TestStackDeployComposeOmitsInitJobsWithoutMutatingDesired(t *testing.T) {
 	)
 }
 
-func TestNeedsRenderedCompose(t *testing.T) {
-	t.Run("age without rotation or other mutations", func(t *testing.T) {
-		assert.True(t, needsRenderedCompose(&compose.File{Compose: compose.Compose{
-			Secrets: compose.Secrets{"password": {File: "./secrets/password.age"}},
-		}}))
-	})
-
-	t.Run("init job", func(t *testing.T) {
-		assert.True(t, needsRenderedCompose(&compose.File{
-			Compose: compose.Compose{
-				Services: compose.Services{{
-					Name:     "api",
-					InitJobs: []compose.InitJob{{Name: "migrate", Image: "example/migrate:latest"}},
-				}},
-			},
-		}))
-	})
-
-	t.Run("plain compose", func(t *testing.T) {
-		assert.False(t, needsRenderedCompose(&compose.File{
-			Compose: compose.Compose{
-				Services: compose.Services{{Name: "api"}},
-			},
-		}))
-	})
-}
-
 func TestStackDeployComposeExternalizesAllAPIManagedSecrets(t *testing.T) {
 	desired := &compose.File{Compose: compose.Compose{Secrets: compose.Secrets{
 		"password": {File: "./secrets/password.age", Labels: *compose.NewLabels(map[string]string{"purpose": "app"})},

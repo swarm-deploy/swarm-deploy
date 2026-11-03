@@ -8,13 +8,13 @@ A reconciliation run loads the configured Compose file, computes its effective d
 
 The current pipeline is:
 
-1. Load Compose.
+1. Load Compose and its referenced files from the reconciliation commit.
 2. [Check image policy when at least one image rule is enabled](./image-policy.md).
 3. Populate service environment from `env_file`.
 4. [Inject Downward metadata when enabled](./downward.md).
 5. Add the swarm-deploy managed label.
 6. [Rotate configs and secrets when enabled](./secrets-rotation.md).
-7. Write a rendered Compose file when the desired state was mutated.
+7. Write the rendered Compose file used by Docker CLI.
 8. Deploy the stack when the source digest changed or the desired state was mutated. When init jobs are declared, their configs and secrets are reconciled before the jobs run; regular services are then deployed by `docker stack deploy`, which performs its own resource lookup.
 9. Load live Swarm state.
 10. [Prune managed orphaned services when applicable](./prune.md).
@@ -36,6 +36,8 @@ swarm-deploy calculates a source digest for each stack. The digest includes:
 A change to a referenced file therefore triggers reconciliation even when the Compose YAML itself did not change.
 
 The source digest is calculated from the source definition before swarm-deploy mutates the desired state.
+
+Compose files and their `env_file`, config, and secret sources must be committed to Git. Relative paths and relative symlinks can resolve anywhere within the same commit. Absolute paths, absolute symlink targets, and paths that leave the repository are rejected before deployment.
 
 ## `env_file` normalization
 
@@ -95,6 +97,4 @@ swarm-deploy may mutate the loaded source Compose before deployment. Today this 
 - adding the managed-service label;
 - rotating config and secret object names.
 
-When any of these steps changes the desired state, swarm-deploy writes a rendered Compose file and deploys that rendered form.
-
-This distinction is important: the source Compose in Git is the declarative input, while the rendered Compose is the effective desired state sent to Docker.
+Docker CLI receives a rendered Compose file for both stack deploys and single-service repairs. It reads configs from temporary copies of the validated Git content. Secrets are created through the Docker API and referenced by name in the rendered file. The rendered file and temporary config copies are removed after reconciliation.

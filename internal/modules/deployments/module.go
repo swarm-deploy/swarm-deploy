@@ -10,7 +10,6 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/pruner"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event"
-	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 	"github.com/swarm-deploy/swarm-deploy/internal/storage"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
@@ -29,8 +28,6 @@ type Container interface {
 	GetEventModule() *event.Module
 	// GetDockerClient returns the shared Docker API client.
 	GetDockerClient() *client.Client
-	// GetFileSystem returns the shared filesystem.
-	GetFileSystem() fs.FileSystem
 	// GetMetrics returns the shared application metrics.
 	GetMetrics() *metrics.Group
 	// GetSwarm returns the shared Docker Swarm services.
@@ -46,7 +43,6 @@ func InitModule(_ context.Context, cfg *config.Config, cnt Container) (*Module, 
 		cnt.GetSwarm(),
 		cnt.GetMetrics().Deploys,
 		deployer.NewSecretResolver(
-			cnt.GetFileSystem(),
 			deployer.NewAgeDecoder(cfg.Spec.SecretRotation.Age.IdentityFile.Content),
 			deployer.PlaintextDecoder{},
 		),

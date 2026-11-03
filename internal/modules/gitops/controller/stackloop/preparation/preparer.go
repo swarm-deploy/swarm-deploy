@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	pipe "github.com/artarts36/gopipe"
@@ -23,7 +24,7 @@ import (
 )
 
 const (
-	renderedComposeDirectoryMode = 0o755
+	renderedComposeDirectoryMode = 0o700
 	renderedComposeFileMode      = 0o600
 	imageViolationInvalid        = "image.invalid"
 	imageViolationRequired       = "image.tag.required"
@@ -70,10 +71,11 @@ type Request struct {
 type Prepared struct {
 	// Desired is the effective in-memory definition submitted to Deployments.
 	Desired *compose.File
-	// DeployComposePath is the source or rendered file passed to deployment execution.
+	// DeployComposePath is the rendered file passed to deployment execution.
 	DeployComposePath string
-	// RenderedComposePath is non-empty when a temporary effective definition was written.
-	RenderedComposePath string
+	// DeployCompose is the definition reused by single-service self-healing.
+	DeployCompose   compose.Compose
+	configDirectory string
 }
 
 // Preparer owns deterministic Compose loading, mutation, rendering and temporary files.
@@ -81,7 +83,6 @@ type Preparer struct {
 	cfg              *config.Config
 	git              gitx.Repository
 	fileSystem       fs.FileSystem
-	composeLoader    compose.FileLoader
 	envFilePopulator *compose.EnvFilePopulator
 	rotator          Rotator
 	pipeline         *pipe.Pipeline[*preparationPayload]
@@ -90,26 +91,44 @@ type Preparer struct {
 type preparationPayload struct {
 	request  Request
 	prepared *Prepared
-	mutated  bool
+	// mutated tracks the original render conditions, which determine the base for relative bind mounts.
+	mutated bool
 }
 
 // New creates a Compose preparer.
 func New(cfg *config.Config, git gitx.Repository, fileSystem fs.FileSystem, rotator Rotator) *Preparer {
 	preparer := &Preparer{cfg: cfg, git: git, fileSystem: fileSystem,
-		composeLoader:    compose.NewFileLoaderWithReader(fileSystem.ReadFile),
 		envFilePopulator: compose.NewEnvFilePopulator(), rotator: rotator}
 	preparer.attachPipeline(nil)
 	return preparer
 }
 
-// Load reads and validates the source Compose file without applying effective-state mutations.
-func (p *Preparer) Load(ctx context.Context, stack config.StackSpec) (*compose.File, error) {
-	return p.composeLoader.Load(ctx, filepath.Join(p.git.WorkingDir(), stack.ComposeFile))
+// Load reads and validates a Compose file and its referenced sources at one commit.
+func (p *Preparer) Load(ctx context.Context, stack config.StackSpec, revision string) (*compose.File, error) {
+	loader := compose.NewFileLoaderWithReader(func(ctx context.Context, path string) ([]byte, error) {
+		return p.git.ReadFile(ctx, revision, path)
+	})
+	file, err := loader.Load(ctx, stack.ComposeFile)
+	if err != nil {
+		return nil, err
+	}
+	// Keep the source location as metadata. Deployment never opens this path.
+	file.Path = filepath.Join(p.git.WorkingDir(), stack.ComposeFile)
+	return file, nil
 }
 
-// Prepare builds the effective definition and writes a rendered file when deployment requires one.
+// LoadCurrent loads the current revision for standalone resource cleanup.
+func (p *Preparer) LoadCurrent(ctx context.Context, stack config.StackSpec) (*compose.File, error) {
+	revision, err := p.git.Head(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("resolve repository head: %w", err)
+	}
+	return p.Load(ctx, stack, revision)
+}
+
+// Prepare builds the effective definition and writes the rendered file used for deployment.
 func (p *Preparer) Prepare(ctx context.Context, req Request) (*Prepared, error) {
-	prepared := &Prepared{Desired: req.Desired, DeployComposePath: req.Desired.Path}
+	prepared := &Prepared{Desired: req.Desired}
 	payload := &preparationPayload{request: req, prepared: prepared}
 	if err := p.pipeline.Run(ctx, payload); err != nil {
 		p.Cleanup(ctx, prepared)
@@ -157,9 +176,7 @@ func (p *Preparer) attachPipeline(provider trace.TracerProvider) {
 			Name: "add downward",
 			Run: func(_ context.Context, payload *preparationPayload) error {
 				changed := addDownward(payload.prepared.Desired, payload.request.Stack.Name)
-				if changed && payload.request.SourceChanged {
-					payload.mutated = true
-				}
+				payload.mutated = (changed && payload.request.SourceChanged) || payload.mutated
 				return nil
 			},
 		})
@@ -187,23 +204,27 @@ func (p *Preparer) attachPipeline(provider trace.TracerProvider) {
 
 	p.pipeline.Add(pipe.Step[*preparationPayload]{
 		Name: "write rendered compose",
-		When: pipe.When(func(payload *preparationPayload) bool {
-			return payload.mutated || needsRenderedCompose(payload.prepared.Desired)
-		}),
 		Run: func(ctx context.Context, payload *preparationPayload) error {
-			return p.writeRenderedCompose(ctx, payload.request.Stack.Name, payload.prepared)
+			return p.writeRenderedCompose(ctx, payload)
 		},
 	})
 }
 
-// Cleanup removes a rendered Compose file after synchronous deployment no longer needs it.
+// Cleanup removes the rendered Compose and config files after synchronous deployment.
 func (p *Preparer) Cleanup(ctx context.Context, prepared *Prepared) {
-	if prepared == nil || prepared.RenderedComposePath == "" {
+	if prepared == nil {
 		return
 	}
-	if err := p.fileSystem.RemoveFile(ctx, prepared.RenderedComposePath); err != nil && !errors.Is(err, os.ErrNotExist) {
-		slog.WarnContext(ctx, "failed to clean up rendered compose file",
-			"path", prepared.RenderedComposePath, "err", err)
+	if prepared.DeployComposePath != "" {
+		if err := p.fileSystem.RemoveFile(ctx, prepared.DeployComposePath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			slog.WarnContext(ctx, "failed to clean up rendered compose file",
+				"path", prepared.DeployComposePath, "err", err)
+		}
+	}
+	if prepared.configDirectory != "" {
+		if err := os.RemoveAll(prepared.configDirectory); err != nil {
+			slog.WarnContext(ctx, "failed to clean up temporary configs", "path", prepared.configDirectory, "err", err)
+		}
 	}
 }
 
@@ -212,30 +233,100 @@ func (p *Preparer) CleanupStale(ctx context.Context) error {
 	return os.RemoveAll(filepath.Join(p.cfg.Spec.DataDir, "rendered"))
 }
 
-// DeploymentCompose returns the normalized effective Compose definition used for service-level self-healing.
-func (p *Preparer) DeploymentCompose(desired *compose.File, stackName string) compose.Compose {
-	rendered := stackDeployCompose(desired, stackName)
-	p.normalizeRenderedObjectFilePaths(rendered)
-	return rendered.Compose
-}
-
-func (p *Preparer) writeRenderedCompose(ctx context.Context, stackName string, prepared *Prepared) error {
+func (p *Preparer) writeRenderedCompose(ctx context.Context, payload *preparationPayload) error {
+	stackName := payload.request.Stack.Name
+	prepared := payload.prepared
+	if !filepath.IsLocal(stackName) || filepath.Base(stackName) != stackName || strings.HasPrefix(stackName, "-") {
+		return fmt.Errorf("invalid stack name %q for deployment", stackName)
+	}
 	renderedDir := filepath.Join(p.cfg.Spec.DataDir, "rendered")
 	if err := p.fileSystem.CreateDirectory(ctx, renderedDir, renderedComposeDirectoryMode); err != nil {
 		return fmt.Errorf("create rendered dir: %w", err)
 	}
 	rendered := stackDeployCompose(prepared.Desired, stackName)
-	p.normalizeRenderedObjectFilePaths(rendered)
+	if err := materializeConfigs(renderedDir, rendered.Compose.Configs, prepared); err != nil {
+		return err
+	}
+	prepared.DeployCompose = rendered.Compose
+	if !payload.mutated && !needsRenderedObjects(prepared.Desired.Compose) {
+		preserveRelativeBindPaths(rendered)
+	}
 	content, err := rendered.MarshalYAML()
 	if err != nil {
 		return fmt.Errorf("failed to marshal desired compose yaml: %w", err)
 	}
 	target := filepath.Join(renderedDir, stackName+".yaml")
-	prepared.RenderedComposePath = target
+	prepared.DeployComposePath = target
 	if err = p.fileSystem.WriteFile(ctx, target, content, renderedComposeFileMode); err != nil {
 		return fmt.Errorf("write rendered compose %s: %w", target, err)
 	}
-	prepared.DeployComposePath = target
+	return nil
+}
+
+// needsRenderedObjects mirrors the previous render requirements apart from mutations.
+func needsRenderedObjects(desired compose.Compose) bool {
+	for _, secret := range desired.Secrets {
+		if !secret.External {
+			return true
+		}
+	}
+	for _, service := range desired.Services {
+		if len(service.InitJobs) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// Stacks that used the source manifest retain its base for relative bind mounts.
+func preserveRelativeBindPaths(file *compose.File) {
+	base := strings.ReplaceAll(filepath.Dir(file.Path), "$", "$$")
+	file.Compose.Services = slices.Clone(file.Compose.Services)
+	for index := range file.Compose.Services {
+		service := &file.Compose.Services[index]
+		service.Volumes.Volumes = slices.Clone(service.Volumes.Volumes)
+		for i, volume := range service.Volumes.Volumes {
+			if volume.Type != compose.ServiceVolumeTypeBind || filepath.IsAbs(volume.Source) ||
+				volume.Source == "" || strings.HasPrefix(volume.Source, "~") {
+				continue
+			}
+			volumeCopy := *volume
+			volumeCopy.Source = filepath.Join(base, volume.Source)
+			service.Volumes.Volumes[i] = &volumeCopy
+		}
+	}
+}
+
+// Docker CLI still applies the configs. Give it files containing only the already loaded bytes.
+func materializeConfigs(renderedDir string, configs compose.Configs, prepared *Prepared) error {
+	for alias, config := range configs {
+		if config.External {
+			continue
+		}
+		if config.Data == nil {
+			return fmt.Errorf("config %q has no loaded file", alias)
+		}
+		if prepared.configDirectory == "" {
+			root, err := filepath.Abs(renderedDir)
+			if err != nil {
+				return fmt.Errorf("resolve rendered directory: %w", err)
+			}
+			prepared.configDirectory, err = os.MkdirTemp(root, "configs-")
+			if err != nil {
+				return fmt.Errorf("create temporary config directory: %w", err)
+			}
+		}
+		file, err := os.CreateTemp(prepared.configDirectory, "config-")
+		if err != nil {
+			return fmt.Errorf("create temporary file for config %q: %w", alias, err)
+		}
+		_, writeErr := file.Write(config.Data)
+		if fileErr := errors.Join(writeErr, file.Close()); fileErr != nil {
+			return fmt.Errorf("write temporary file for config %q: %w", alias, fileErr)
+		}
+		config.File = strings.ReplaceAll(file.Name(), "$", "$$")
+		config.Data = nil
+	}
 	return nil
 }
 
@@ -347,92 +438,38 @@ func addManagedLabel(desired *compose.File) bool {
 	return changed
 }
 
-func needsRenderedCompose(desired *compose.File) bool {
-	for _, secret := range desired.Compose.Secrets {
-		if !secret.External {
-			return true
-		}
-	}
-	for _, service := range desired.Compose.Services {
-		if len(service.InitJobs) > 0 {
-			return true
-		}
-	}
-	return false
-}
-
 func stackDeployCompose(desired *compose.File, stackName string) *compose.File {
 	rendered := *desired
 	rendered.Compose = desired.Compose
 	rendered.Compose.Services = append(compose.Services(nil), desired.Compose.Services...)
-	rendered.Compose.Configs = cloneObjects(desired.Compose.Configs)
-	rendered.Compose.Secrets = cloneObjects(desired.Compose.Secrets)
-	for alias, secret := range rendered.Compose.Secrets {
-		if secret.External {
-			continue
+	rendered.Compose.Configs = make(compose.Configs, len(desired.Compose.Configs))
+	for alias, config := range desired.Compose.Configs {
+		configCopy := *config
+		// Only materializeConfigs can set a path in the rendered definition.
+		configCopy.File = ""
+		rendered.Compose.Configs[alias] = &configCopy
+	}
+	rendered.Compose.Secrets = make(compose.Secrets, len(desired.Compose.Secrets))
+	for alias, secret := range desired.Compose.Secrets {
+		rendered.Compose.Secrets[alias] = &compose.Secret{
+			Name: deployResourceName(stackName, alias, secret.Name, secret.External), External: true,
 		}
-		name := secret.Name
-		if name == "" {
-			name = stackName + "_" + alias
-		}
-		rendered.Compose.Secrets[alias] = &compose.Secret{Name: name, External: true}
 	}
 	for index := range rendered.Compose.Services {
-		rendered.Compose.Services[index].InitJobs = nil
+		service := &rendered.Compose.Services[index]
+		service.InitJobs = nil
+		service.EnvFiles = nil
+		service.Environment = service.Environment.ForStackDeploy()
 	}
 	return &rendered
 }
 
-func cloneObjects[T any, Objects ~map[string]*T](objects Objects) Objects {
-	if objects == nil {
-		return nil
+func deployResourceName(stackName, alias, name string, external bool) string {
+	if name != "" {
+		return name
 	}
-	cloned := make(Objects, len(objects))
-	for alias, object := range objects {
-		if object == nil {
-			cloned[alias] = nil
-			continue
-		}
-		objectCopy := *object
-		cloned[alias] = &objectCopy
+	if external {
+		return alias
 	}
-	return cloned
-}
-
-func (p *Preparer) normalizeRenderedObjectFilePaths(file *compose.File) {
-	baseDir := filepath.Dir(file.Path)
-	normalizeConfigFilePaths(baseDir, file.Compose.Configs)
-	normalizeSecretFilePaths(baseDir, file.Compose.Secrets)
-	for index, service := range file.Compose.Services {
-		file.Compose.Services[index].EnvFiles = normalizeEnvFiles(p.git.WorkingDir(), baseDir, service.EnvFiles)
-	}
-}
-
-func normalizeEnvFiles(repoDir, baseDir string, envFiles compose.EnvFiles) compose.EnvFiles {
-	result := make(compose.EnvFiles, len(envFiles))
-	for index, file := range envFiles {
-		result[index] = file
-		if filepath.IsAbs(file.Path) {
-			result[index].Path = filepath.Join(repoDir, file.Path)
-		} else {
-			result[index].Path = filepath.Join(baseDir, file.Path)
-		}
-	}
-	return result
-}
-
-func normalizeConfigFilePaths(baseDir string, objects compose.Configs) {
-	for _, object := range objects {
-		if !object.External && object.File != "" && !filepath.IsAbs(object.File) {
-			object.File = filepath.Clean(filepath.Join(baseDir, object.File))
-		}
-	}
-}
-
-func normalizeSecretFilePaths(baseDir string, objects compose.Secrets) {
-	for _, object := range objects {
-		if !object.External && object.File != "" && !filepath.IsAbs(object.File) {
-			object.File = filepath.Clean(filepath.Join(baseDir, object.File))
-		}
-	}
+	return stackName + "_" + alias
 }
