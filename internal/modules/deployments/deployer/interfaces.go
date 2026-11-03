@@ -13,7 +13,6 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/secrets"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/waiter"
 	deploymentmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/model"
-	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 
@@ -57,8 +56,8 @@ const (
 	ServiceFailed      = waiter.ServiceFailed
 )
 
-func NewSecretResolver(fileSystem fs.FileSystem, decoders ...SecretDecoder) *SecretResolver {
-	return secrets.NewSecretResolver(fileSystem, decoders...)
+func NewSecretResolver(decoders ...SecretDecoder) *SecretResolver {
+	return secrets.NewSecretResolver(decoders...)
 }
 
 func NewAgeDecoder(identity []byte) *AgeDecoder { return secrets.NewAgeDecoder(identity) }

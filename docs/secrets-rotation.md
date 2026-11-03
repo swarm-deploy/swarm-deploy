@@ -36,9 +36,13 @@ are not supported. Provision the identity file separately from the manifests
 repository; do not commit private keys alongside the encrypted files. The file
 is read when swarm-deploy loads its configuration; restart after replacing it.
 
-Decryption works even with `secretRotation.enabled: false`. A dedicated
-`SecretResolver` reads files through the shared, traced filesystem
-and selects the first matching decoder (age, then plaintext). It authenticates
+Decryption works even with `secretRotation.enabled: false`. Secret file contents
+are read once, through the shared, traced filesystem, when the Compose file is
+loaded, and travel with the in-memory desired state of that revision; they are never
+serialized. A dedicated `SecretResolver` decodes these loaded contents without
+reading the repository again, so a deployment always uses the files of the revision
+it was prepared from, even if Git is updated while it runs. The resolver
+selects the first matching decoder (age, then plaintext). It authenticates
 and decrypts file-backed Secrets before the Docker API reconciler runs, including
 when an existing Docker Secret will be reused. The resource reconciler receives
 only resolved bytes and does not know their encryption format. Init Jobs and

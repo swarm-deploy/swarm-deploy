@@ -21,7 +21,6 @@ import (
 	deploymentstore "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/pruner"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
-	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 	"github.com/swarm-deploy/swarm-deploy/internal/storage"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
@@ -51,7 +50,7 @@ func TestRealSwarmPausedUpdateRetryAndRecovery(t *testing.T) {
 	sw := swarm.NewSwarm(dockerClient)
 	bus := &dispatcher.NopDispatcher{}
 	lifecycle := deployments.NewService(db, bus)
-	stackDeployer := deployer.NewDeployer(100*time.Millisecond, time.Minute, dockerClient, sw, nil, deployer.NewSecretResolver(fs.NewLocalFileSystem(), deployer.PlaintextDecoder{}))
+	stackDeployer := deployer.NewDeployer(100*time.Millisecond, time.Minute, dockerClient, sw, nil, deployer.NewSecretResolver(deployer.PlaintextDecoder{}))
 	controller := deployments.NewController(lifecycle, stackDeployer, sw.Services, pruner.NewServicePruner(sw.Services, bus, config.SyncPolicySpec{}), &metrics.NopDeploys{})
 	sideVersion := "v1"
 	load := func(command string) compose.File {

@@ -22,7 +22,6 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/pruner"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
-	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/labelsdict"
 	"github.com/swarm-deploy/swarm-deploy/internal/storage"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
@@ -40,7 +39,7 @@ func TestNativeDeploymentCarriesUnresolvedRolloutAcrossDesiredDigests(t *testing
 	configs.EXPECT().List(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
 	secrets.EXPECT().List(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
 	sw := &swarm.Swarm{Services: manager, Networks: networks, Configs: configs, Secrets: secrets}
-	native := deployer.NewDeployer(time.Millisecond, time.Second, nil, sw, nil, deployer.NewSecretResolver(fs.NewLocalFileSystem(), deployer.PlaintextDecoder{}))
+	native := deployer.NewDeployer(time.Millisecond, time.Second, nil, sw, nil, deployer.NewSecretResolver(deployer.PlaintextDecoder{}))
 	create := func() *Controller {
 		return NewController(NewService(db, bus), native, manager, pruner.NewServicePruner(manager, bus, config.SyncPolicySpec{}), &metrics.NopDeploys{})
 	}
@@ -282,7 +281,7 @@ func TestNativeRetryDoesNotTouchUnrelatedPausedExternalJob(t *testing.T) {
 	converted, err := converter.New(networks, configs, secrets).Convert(t.Context(), "app", desired.Compose)
 	require.NoError(t, err)
 	sw := &swarm.Swarm{Services: manager, Networks: networks, Configs: configs, Secrets: secrets}
-	native := deployer.NewDeployer(time.Millisecond, time.Second, nil, sw, nil, deployer.NewSecretResolver(fs.NewLocalFileSystem(), deployer.PlaintextDecoder{}))
+	native := deployer.NewDeployer(time.Millisecond, time.Second, nil, sw, nil, deployer.NewSecretResolver(deployer.PlaintextDecoder{}))
 	create := func() *Controller {
 		return NewController(NewService(db, bus), native, manager, pruner.NewServicePruner(manager, bus, config.SyncPolicySpec{}), &metrics.NopDeploys{})
 	}

@@ -73,7 +73,7 @@ func newLifecycleComponents(t *testing.T, base *externalSwarmFixture, cfg *confi
 	f.executor = deployments.NewController(deployments.NewService(db, f.bus), f.deployer, f.sw.Services,
 		pruner.NewServicePruner(f.sw.Services, f.bus, cfg.Spec.Sync.Policy), &metrics.NopDeploys{})
 	fileSystem := fs.NewLocalFileSystem()
-	rotator := stackloop.NewRotator(fileSystem)
+	rotator := stackloop.NewRotator()
 	f.reconciler = stackloop.New(cfg, f.executor, f.sw, f.bus, &metrics.NopDeploys{}, f.state,
 		preparation.New(cfg, repository, fileSystem, rotator), rotator, db)
 	f.request = stackloop.ReconciliationRequest{

@@ -66,7 +66,7 @@ func New(
 	filesystem fs.FileSystem,
 	db storage.Database,
 ) *Controller {
-	rotator := stackloop.NewRotator(filesystem)
+	rotator := stackloop.NewRotator()
 	preparer := preparation.New(cfg, git, filesystem, rotator)
 	stackReconciler := stackloop.NewStackReconciler(
 		cfg, deploymentExecutor, swarmService, eventDispatcher, metricGroup.Deploys,

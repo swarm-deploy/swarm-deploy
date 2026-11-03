@@ -334,7 +334,7 @@ func (d *Deployer) reconcileResources(
 		return resolved, nil
 	}
 
-	data, err := d.secretResolver.Resolve(ctx, stackName, sourceComposePath, desired.Secrets)
+	data, err := d.secretResolver.Resolve(stackName, sourceComposePath, desired.Secrets)
 	if err != nil {
 		return resolved, fmt.Errorf("resolve secrets: %w", err)
 	}

@@ -58,6 +58,7 @@ func TestDeployStackReconcilesResourcesWithAndWithoutInitJobs(t *testing.T) {
 				if !tt.external {
 					secret.File = "password.txt"
 					require.NoError(t, os.WriteFile(filepath.Join(dir, secret.File), []byte("secret-data"), 0o600))
+					secret.Data = []byte("secret-data")
 				}
 				var existingConfigs []swarm.Config
 				var existingSecrets []swarm.Secret
@@ -70,6 +71,7 @@ func TestDeployStackReconcilesResourcesWithAndWithoutInitJobs(t *testing.T) {
 					secret.File = "password.txt"
 					secret.Labels = *compose.NewLabels(map[string]string{"purpose": "password"})
 					require.NoError(t, os.WriteFile(filepath.Join(dir, secret.File), []byte("secret-data"), 0o600))
+					secret.Data = []byte("secret-data")
 				}
 
 				calls := []*gomock.Call{configs.EXPECT().List(gomock.Any(), swarm.ListConfigsFilter{Names: []string{configName}}).
@@ -173,6 +175,7 @@ func TestDeployStackResourceFailuresStopDeployment(t *testing.T) {
 					}
 					if tt.stage == "list" {
 						require.NoError(t, os.WriteFile(filepath.Join(dir, "password.txt"), []byte("data"), 0o600))
+						desired.Secrets["password"].Data = []byte("data")
 					}
 					if tt.stage == "create" {
 						// A later failure must also retain resources already created in this attempt.
@@ -182,6 +185,7 @@ func TestDeployStackResourceFailuresStopDeployment(t *testing.T) {
 							configs.EXPECT().Create(gomock.Any(), gomock.Any()).Return("config-id", nil),
 						)
 						require.NoError(t, os.WriteFile(filepath.Join(dir, "password.txt"), []byte("data"), 0o600))
+						desired.Secrets["password"].Data = []byte("data")
 						secrets.EXPECT().Create(gomock.Any(), gomock.Any()).Return("", apiErr)
 					}
 				}

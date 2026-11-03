@@ -50,7 +50,7 @@ var downwardEnvironment = map[string]string{
 // Rotator rewrites config and secret names from their content.
 type Rotator interface {
 	// Rotate mutates config and secret names in the effective Compose definition.
-	Rotate(ctx context.Context, file *compose.File, stackName string, hashLength int, includePath bool) (bool, error)
+	Rotate(file *compose.File, stackName string, hashLength int, includePath bool) (bool, error)
 }
 
 // Request contains the already loaded source definition and reconciliation context.
@@ -162,8 +162,8 @@ func (p *Preparer) attachPipeline(provider trace.TracerProvider) {
 	if p.cfg.Spec.SecretRotation.Enabled {
 		p.pipeline.Add(pipe.Step[*preparationPayload]{
 			Name: "rotate secrets/configs",
-			Run: func(ctx context.Context, payload *preparationPayload) error {
-				_, err := p.rotator.Rotate(ctx, payload.desired, payload.request.Stack.Name,
+			Run: func(_ context.Context, payload *preparationPayload) error {
+				_, err := p.rotator.Rotate(payload.desired, payload.request.Stack.Name,
 					p.cfg.Spec.SecretRotation.HashLength, p.cfg.Spec.SecretRotation.IncludePath)
 				return err
 			},

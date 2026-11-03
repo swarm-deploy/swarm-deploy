@@ -1,36 +1,30 @@
 package stackloop
 
 import (
-	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"path/filepath"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
-	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/labelsdict"
 )
 
 // Rotator rewrites config and secret names based on file contents.
-type Rotator struct {
-	fileSystem fs.FileSystem
-}
+// File contents are taken from the loaded Compose definition, never from the repository working tree.
+type Rotator struct{}
 
 // NewRotator builds a compose object rotator.
-func NewRotator(fileSystem fs.FileSystem) *Rotator {
-	return &Rotator{fileSystem: fileSystem}
+func NewRotator() *Rotator {
+	return &Rotator{}
 }
 
 // Rotate mutates shared object names in-place when rotation is enabled.
 func (f *Rotator) Rotate(
-	ctx context.Context,
 	file *compose.File,
 	stackName string,
 	hashLength int,
 	includePath bool,
 ) (bool, error) {
-	baseDir := filepath.Dir(file.Path)
 	changed := false
 
 	apply := func(typeChanged bool, err error) error {
@@ -44,13 +38,12 @@ func (f *Rotator) Rotate(
 	}
 
 	if err := apply(applyObjectTypeRotation(
-		ctx, f,
+		f,
 		file.Compose.Configs,
 		stackName,
-		baseDir,
 		hashLength,
 		includePath,
-		func(config *compose.Config) (string, bool) { return config.File, config.External },
+		func(config *compose.Config) (string, []byte, bool) { return config.File, config.Data, config.External },
 		func(config *compose.Config, name, objectName string) {
 			config.Name = name
 			config.Labels.Add(labelsdict.RotatedResourceManagedLabelKey, labelsdict.RotatedResourceManagedLabelValue)
@@ -61,13 +54,12 @@ func (f *Rotator) Rotate(
 	}
 
 	if err := apply(applyObjectTypeRotation(
-		ctx, f,
+		f,
 		file.Compose.Secrets,
 		stackName,
-		baseDir,
 		hashLength,
 		includePath,
-		func(secret *compose.Secret) (string, bool) { return secret.File, secret.External },
+		func(secret *compose.Secret) (string, []byte, bool) { return secret.File, secret.Data, secret.External },
 		func(secret *compose.Secret, name, objectName string) {
 			secret.Name = name
 			secret.Labels.Add(labelsdict.RotatedResourceManagedLabelKey, labelsdict.RotatedResourceManagedLabelValue)
@@ -81,19 +73,17 @@ func (f *Rotator) Rotate(
 }
 
 func applyObjectTypeRotation[T any, Objects ~map[string]*T](
-	ctx context.Context,
 	f *Rotator,
 	objects Objects,
 	stackName string,
-	baseDir string,
 	hashLength int,
 	includePath bool,
-	properties func(*T) (file string, external bool),
+	properties func(*T) (file string, data []byte, external bool),
 	apply func(*T, string, string),
 ) (bool, error) {
 	changed := false
 	for objectName, object := range objects {
-		objectFile, external := properties(object)
+		objectFile, fileBytes, external := properties(object)
 		if external {
 			continue
 		}
@@ -102,9 +92,8 @@ func applyObjectTypeRotation[T any, Objects ~map[string]*T](
 			continue
 		}
 
-		fileBytes, err := f.fileSystem.ReadFile(ctx, resolveObjectFilePath(baseDir, objectFile))
-		if err != nil {
-			return false, fmt.Errorf("read %s for rotation: %w", objectFile, err)
+		if fileBytes == nil {
+			return false, fmt.Errorf("content of %s for rotation was not loaded", objectFile)
 		}
 
 		rotatedName := f.buildRotatedObjectName(stackName, objectName, objectFile, fileBytes, hashLength, includePath)
@@ -121,27 +110,24 @@ func applyObjectTypeRotation[T any, Objects ~map[string]*T](
 
 // DesiredResourceNames resolves current rotated Docker names keyed by logical compose object name.
 func (f *Rotator) DesiredResourceNames(
-	ctx context.Context,
 	file *compose.File,
 	stackName string,
 	hashLength int,
 	includePath bool,
 ) (map[string]string, map[string]string, error) {
-	baseDir := filepath.Dir(file.Path)
-
 	configs, err := resolveDesiredResourceNames(
-		ctx, f, file.Compose.Configs, stackName, baseDir, hashLength, includePath,
-		func(config *compose.Config) (string, string, bool, compose.Labels) {
-			return config.Name, config.File, config.External, config.Labels
+		f, file.Compose.Configs, stackName, hashLength, includePath,
+		func(config *compose.Config) (string, string, []byte, bool, compose.Labels) {
+			return config.Name, config.File, config.Data, config.External, config.Labels
 		},
 	)
 	if err != nil {
 		return nil, nil, fmt.Errorf("configs: %w", err)
 	}
 	secrets, err := resolveDesiredResourceNames(
-		ctx, f, file.Compose.Secrets, stackName, baseDir, hashLength, includePath,
-		func(secret *compose.Secret) (string, string, bool, compose.Labels) {
-			return secret.Name, secret.File, secret.External, secret.Labels
+		f, file.Compose.Secrets, stackName, hashLength, includePath,
+		func(secret *compose.Secret) (string, string, []byte, bool, compose.Labels) {
+			return secret.Name, secret.File, secret.Data, secret.External, secret.Labels
 		},
 	)
 	if err != nil {
@@ -152,18 +138,16 @@ func (f *Rotator) DesiredResourceNames(
 }
 
 func resolveDesiredResourceNames[T any, Objects ~map[string]*T](
-	ctx context.Context,
 	rotator *Rotator,
 	objects Objects,
 	stackName string,
-	baseDir string,
 	hashLength int,
 	includePath bool,
-	properties func(*T) (name string, file string, external bool, labels compose.Labels),
+	properties func(*T) (name string, file string, data []byte, external bool, labels compose.Labels),
 ) (map[string]string, error) {
 	resolved := make(map[string]string)
 	for objectName, object := range objects {
-		name, objectFile, external, labels := properties(object)
+		name, objectFile, fileBytes, external, labels := properties(object)
 		if external || objectFile == "" {
 			continue
 		}
@@ -172,9 +156,8 @@ func resolveDesiredResourceNames[T any, Objects ~map[string]*T](
 			continue
 		}
 
-		fileBytes, err := rotator.fileSystem.ReadFile(ctx, resolveObjectFilePath(baseDir, objectFile))
-		if err != nil {
-			return nil, fmt.Errorf("read %s for rotation: %w", objectFile, err)
+		if fileBytes == nil {
+			return nil, fmt.Errorf("content of %s for rotation was not loaded", objectFile)
 		}
 
 		resolved[objectName] = rotator.buildRotatedObjectName(
@@ -189,14 +172,6 @@ func isManagedRotatedResource(name string, objectName string, labels compose.Lab
 	return name != "" &&
 		labels.Map[labelsdict.RotatedResourceManagedLabelKey] == labelsdict.RotatedResourceManagedLabelValue &&
 		labels.Map[labelsdict.RotatedResourceLogicalNameLabelKey] == objectName
-}
-
-func resolveObjectFilePath(baseDir string, filePath string) string {
-	if filepath.IsAbs(filePath) {
-		return filePath
-	}
-
-	return filepath.Join(baseDir, filePath)
 }
 
 func (*Rotator) buildRotatedObjectName(

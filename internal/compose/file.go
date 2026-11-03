@@ -132,7 +132,7 @@ func (l *fileLoader) Load(ctx context.Context, path string) (*File, error) {
 	secretFiles, err := loadObjectFiles(
 		ctx, l.fileReader, filepath.Dir(path), "secrets", schema.Secrets,
 		func(secret *Secret) (string, bool) { return secret.File, secret.External },
-		nil,
+		setSecretData,
 	)
 	if err != nil {
 		err = interpolationSafeError(err, interpolated, "invalid or unreadable secret file")
@@ -166,6 +166,11 @@ func resourceDigests(configs, secrets objectFileContents) map[string]string {
 func setConfigData(config *Config, content []byte) {
 	config.Data = make([]byte, len(content))
 	copy(config.Data, content)
+}
+
+func setSecretData(secret *Secret, content []byte) {
+	secret.Data = make([]byte, len(content))
+	copy(secret.Data, content)
 }
 
 func (l *fileLoader) loadEnvFiles(ctx context.Context, baseDir string, services Services) error {

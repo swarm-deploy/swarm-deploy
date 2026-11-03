@@ -1,7 +1,6 @@
 package deployer
 
 import (
-	"os"
 	"path/filepath"
 	"testing"
 
@@ -9,7 +8,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
-	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	"go.uber.org/mock/gomock"
 )
@@ -19,7 +17,7 @@ func newTestSecretResolver() *SecretResolver {
 }
 
 func newTestSecretResolverWithIdentity(identity []byte) *SecretResolver {
-	return NewSecretResolver(fs.NewLocalFileSystem(), NewAgeDecoder(identity), PlaintextDecoder{})
+	return NewSecretResolver(NewAgeDecoder(identity), PlaintextDecoder{})
 }
 
 func TestSecretResolverValidatesReusedSecrets(t *testing.T) {
@@ -28,8 +26,7 @@ func TestSecretResolverValidatesReusedSecrets(t *testing.T) {
 			identity, err := age.GenerateX25519Identity()
 			require.NoError(t, err)
 			dir := t.TempDir()
-			path := filepath.Join(dir, "password.age")
-			require.NoError(t, os.WriteFile(path, encryptTestSecret(t, identity.Recipient(), []byte("private-marker"), false), 0o600))
+			ciphertext := encryptTestSecret(t, identity.Recipient(), []byte("private-marker"), false)
 			ctrl := gomock.NewController(t)
 			secrets := swarm.NewMockSecretManager(ctrl)
 			secrets.EXPECT().List(gomock.Any(), swarm.ListSecretsFilter{Names: []string{"existing-password"}}).
@@ -39,7 +36,9 @@ func TestSecretResolverValidatesReusedSecrets(t *testing.T) {
 				secretResolver: newTestSecretResolverWithIdentity([]byte(identity.String())),
 				serviceWaiter:  newSuccessfulServiceWaiter(t)}
 			wireNativeTestDeployer(t, d)
-			desired := compose.Compose{Secrets: compose.Secrets{"password": {Name: "existing-password", File: "password.age"}}}
+			desired := compose.Compose{Secrets: compose.Secrets{
+				"password": {Name: "existing-password", File: "password.age", Data: ciphertext},
+			}}
 			_, err = d.DeployStack(t.Context(), StackRequest{
 				StackName:         "app",
 				SourceComposePath: filepath.Join(dir, "compose.yaml"),
@@ -48,7 +47,7 @@ func TestSecretResolverValidatesReusedSecrets(t *testing.T) {
 			require.NoError(t, err)
 			switch scenario {
 			case "corrupt file":
-				require.NoError(t, os.WriteFile(path, []byte("private-corrupt-marker"), 0o600))
+				desired.Secrets["password"].Data = []byte("private-corrupt-marker")
 			case "wrong identity":
 				other, keyErr := age.GenerateX25519Identity()
 				require.NoError(t, keyErr)

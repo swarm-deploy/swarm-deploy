@@ -136,7 +136,7 @@ func (r *Reconciler) pruneOrphanedServices(ctx context.Context, payload *pipelin
 
 func (r *Reconciler) cleanRotatedResources(ctx context.Context, payload *pipelinePayload) error {
 	desiredConfigs, desiredSecrets, err := r.composeRotator.DesiredResourceNames(
-		ctx, payload.Desired,
+		payload.Desired,
 		payload.Stack.Name,
 		r.cfg.Spec.SecretRotation.HashLength,
 		r.cfg.Spec.SecretRotation.IncludePath,
