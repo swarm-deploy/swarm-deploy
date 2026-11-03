@@ -48,7 +48,7 @@ services:
     deploy:
       <<: *common
     environment:
-      <<: *common
+      replicas: "3"
   a:
     image: nginx:alpine
     deploy:
