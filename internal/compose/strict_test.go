@@ -33,7 +33,7 @@ func TestStrictComposeToleratesIgnoredAndExtensionFields(t *testing.T) {
 x-meta: {owner: infrastructure}
 services:
   x-template: {image: alpine}
-  api:
+  api.v2:
     image: alpine
     x-internal: {nested: secret}
     privileged: true
