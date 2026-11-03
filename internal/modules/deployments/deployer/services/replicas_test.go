@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"testing"
+	"time"
 
 	dockerswarm "github.com/docker/docker/api/types/swarm"
 	"github.com/stretchr/testify/assert"
@@ -99,6 +100,8 @@ func TestExternalTaskRecreatingUpdateSafety(t *testing.T) {
 		replicas  uint64
 		task      swarm.TaskState
 		restart   bool
+		stale     bool
+		removed   bool
 		retry     bool
 		unchanged bool
 		blocked   bool
@@ -113,7 +116,9 @@ func TestExternalTaskRecreatingUpdateSafety(t *testing.T) {
 		{name: "idle without tasks"},
 		{name: "completed restart-none job is parked", replicas: 1, task: swarm.TaskStateComplete, restart: true},
 		{name: "failed restart-none job is parked", replicas: 1, task: swarm.TaskStateFailed, restart: true},
-		{name: "restart-none job without tasks is parked", replicas: 1, restart: true},
+		{name: "restart-none job without a task in its slot is deferred", replicas: 1, restart: true, blocked: true, deferred: true},
+		{name: "scheduled run accepted before its task exists is deferred", replicas: 1, task: swarm.TaskStateComplete, restart: true, stale: true, blocked: true, deferred: true},
+		{name: "restart-none job with removed slot task is deferred", replicas: 1, task: swarm.TaskStateComplete, restart: true, removed: true, blocked: true, deferred: true},
 		{name: "running restart-none job is deferred", replicas: 1, task: swarm.TaskStateRunning, restart: true, blocked: true, deferred: true},
 		{name: "retry does not execute unchanged job outside schedule", replicas: 1, retry: true, unchanged: true},
 		{name: "retry does not park unchanged restart-none job", replicas: 1, restart: true, retry: true, unchanged: true},
@@ -138,7 +143,16 @@ func TestExternalTaskRecreatingUpdateSafety(t *testing.T) {
 			if (tc.replicas == 0 || tc.restart) && !tc.unchanged {
 				var tasks []swarm.ServiceTask
 				if tc.task != "" {
-					tasks = []swarm.ServiceTask{{CurrentState: tc.task, DesiredState: swarm.TaskStateShutdown}}
+					task := swarm.ServiceTask{
+						Slot: 1, CurrentState: tc.task, DesiredState: swarm.TaskStateShutdown, Spec: current.Spec.TaskTemplate,
+					}
+					if tc.stale {
+						task.Spec.ForceUpdate-- // Created before the scheduler's latest ForceUpdate.
+					}
+					if tc.removed {
+						task.DesiredState = swarm.TaskStateRemove
+					}
+					tasks = []swarm.ServiceTask{task}
 				}
 				manager.EXPECT().ListTasks(gomock.Any(), "id").Return(tasks, nil)
 			}
@@ -194,7 +208,8 @@ func TestParkedExternalJobStartsDuringOptimisticRetry(t *testing.T) {
 	current.Spec.TaskTemplate.ForceUpdate = 10
 	desired.TaskTemplate.ContainerSpec.Env = []string{"CHANGED=yes"}
 	manager.EXPECT().Inspect(gomock.Any(), "demo_job").Return(current, nil)
-	completed := []swarm.ServiceTask{{CurrentState: swarm.TaskStateComplete, DesiredState: swarm.TaskStateShutdown}}
+	completed := []swarm.ServiceTask{{Slot: 1, CurrentState: swarm.TaskStateComplete,
+		DesiredState: swarm.TaskStateShutdown, Spec: current.Spec.TaskTemplate}}
 	manager.EXPECT().ListTasks(gomock.Any(), "id").Return(completed, nil)
 	manager.EXPECT().Update(gomock.Any(), "id", current.Version, gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ any, _ string, _ dockerswarm.Version, spec dockerswarm.ServiceSpec, _ dockerswarm.ServiceUpdateOptions) error {
@@ -213,6 +228,37 @@ func TestParkedExternalJobStartsDuringOptimisticRetry(t *testing.T) {
 	require.ErrorIs(t, err, ErrUpdateDeferred)
 	assert.Empty(t, changed.ChangedServices)
 	assert.Zero(t, *desired.Mode.Replicated.Replicas, "caller spec is immutable")
+}
+
+func TestExecutionSettled(t *testing.T) {
+	template := dockerswarm.TaskSpec{ForceUpdate: 5, ContainerSpec: &dockerswarm.ContainerSpec{Image: "alpine:3"}}
+	older := template
+	older.ForceUpdate = 4
+	at := func(seconds int) time.Time { return time.Unix(int64(seconds), 0) }
+	done := func(slot, created int, spec dockerswarm.TaskSpec) swarm.ServiceTask {
+		return swarm.ServiceTask{Slot: slot, CreatedAt: at(created), CurrentState: swarm.TaskStateComplete,
+			DesiredState: swarm.TaskStateShutdown, Spec: spec}
+	}
+	for _, tc := range []struct {
+		name     string
+		replicas uint64
+		tasks    []swarm.ServiceTask
+		settled  bool
+	}{
+		{name: "every slot ran the current template", replicas: 2,
+			tasks: []swarm.ServiceTask{done(1, 1, template), done(2, 1, template)}, settled: true},
+		{name: "scaled up slot has no task yet", replicas: 2, tasks: []swarm.ServiceTask{done(1, 1, template)}},
+		{name: "newest slot task predates ForceUpdate", replicas: 1,
+			tasks: []swarm.ServiceTask{done(1, 1, template), done(1, 2, older)}},
+		{name: "history before the current run is ignored", replicas: 1,
+			tasks: []swarm.ServiceTask{done(1, 1, older), done(1, 2, template)}, settled: true},
+		{name: "tasks outside desired slots are ignored", replicas: 1,
+			tasks: []swarm.ServiceTask{done(1, 1, template), done(2, 2, older)}, settled: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.settled, executionSettled(template, tc.replicas, tc.tasks))
+		})
+	}
 }
 
 func TestDeferredOnlyWhenEveryBlockIsTransient(t *testing.T) {

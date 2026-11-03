@@ -120,8 +120,13 @@ task-recreating changes only when the service has no active tasks:
   from a completed slot. The external scheduler scales it up again on its next run;
 - with nonzero replicas and any other restart policy, the change is blocked.
 
-A scheduler run that starts between inspection and update changes the service
-version, so the optimistic update conflicts and the decision is re-evaluated.
+No active tasks alone does not prove that a requested execution has finished: the
+scheduler may already have raised replicas or `ForceUpdate` while Swarm has not created
+the task yet. A service is parked only when, for the inspected version, every desired
+slot's newest task was created from the current task template (including
+`ForceUpdate`), has finished and is not being removed. Otherwise the update waits like
+one blocked by a running task. A scheduler write after the inspection changes the
+service version, so the optimistic update conflicts and the decision is re-evaluated.
 Service labels and rollout policy changes can be applied while busy; other
 specification changes are conservatively treated as potentially task-recreating.
 

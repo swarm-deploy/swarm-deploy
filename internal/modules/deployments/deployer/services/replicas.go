@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 
 	dockerswarm "github.com/docker/docker/api/types/swarm"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
@@ -56,8 +57,12 @@ func preserveReplicas(current dockerswarm.ServiceSpec, desired *dockerswarm.Serv
 // An idle service with restart_policy.condition=none and nonzero replicas is parked:
 // the update also sets replicas to zero, so Swarm cannot start an unscheduled execution
 // from a completed slot. The external scheduler scales it up again on its next run.
-// Optimistic versioning makes this safe: a scheduler run between inspection and
-// update changes the service version, so the update conflicts and is re-evaluated.
+//
+// No active tasks alone does not prove that a requested execution has happened: the
+// scheduler may already have raised replicas or ForceUpdate while Swarm has not created
+// the task yet, and this inspection may have read that version. Parking therefore also
+// requires executionSettled for the inspected version. Any later scheduler write changes
+// the service version, so the optimistic update conflicts and is re-evaluated.
 func (a *Applier) checkUpdateSafety(
 	ctx context.Context, name string, current dockerswarm.Service, desired *dockerswarm.ServiceSpec,
 ) error {
@@ -80,6 +85,9 @@ func (a *Applier) checkUpdateSafety(
 			return fmt.Errorf("%w: service %s still has active tasks", errUpdateBusy, name)
 		}
 	}
+	if park && !executionSettled(current.Spec.TaskTemplate, replicas, tasks) {
+		return fmt.Errorf("%w: service %s has a requested execution without a finished task", errUpdateBusy, name)
+	}
 	if park {
 		zero := uint64(0)
 		desired.Mode.Replicated.Replicas = &zero
@@ -98,6 +106,34 @@ func currentReplicas(spec dockerswarm.ServiceSpec) (uint64, bool) {
 func restartDisabled(spec dockerswarm.ServiceSpec) bool {
 	policy := spec.TaskTemplate.RestartPolicy
 	return policy != nil && policy.Condition == dockerswarm.RestartPolicyConditionNone
+}
+
+// executionSettled mirrors the replicated orchestrator's slot logic for restart_policy none:
+// Swarm has no pending task for the inspected service version only when every desired slot's
+// newest task was created from the current template (including ForceUpdate), is terminal and
+// is not being removed. A missing slot, a removed slot task, or a newest task from an older
+// template means Swarm may still create the execution requested by the external scheduler.
+func executionSettled(template dockerswarm.TaskSpec, replicas uint64, tasks []swarm.ServiceTask) bool {
+	newest := make(map[int]swarm.ServiceTask, replicas)
+	for _, task := range tasks {
+		if task.Slot < 1 || uint64(task.Slot) > replicas { //nolint:gosec // Positive int slots fit uint64.
+			continue
+		}
+		previous, exists := newest[task.Slot]
+		if !exists || task.CreatedAt.After(previous.CreatedAt) {
+			newest[task.Slot] = task
+		}
+	}
+	if uint64(len(newest)) != replicas {
+		return false
+	}
+	for _, task := range newest {
+		if task.DesiredState == swarm.TaskStateRemove || taskActive(task.CurrentState) ||
+			!reflect.DeepEqual(task.Spec, template) {
+			return false
+		}
+	}
+	return true
 }
 
 func taskActive(state swarm.TaskState) bool {

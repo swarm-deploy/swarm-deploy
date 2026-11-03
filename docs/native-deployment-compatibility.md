@@ -227,7 +227,10 @@ Replica ownership alone does not guarantee safe immediate task-template updates.
 Task-recreating changes require no active tasks. With nonzero replicas they also
 require `restart_policy.condition: none`; such an idle job-like service is parked by
 setting replicas to zero in the same versioned update, so a completed slot cannot run
-again outside the external schedule. Unsafe changes produce per-service blocked
+again outside the external schedule. Parking also requires every desired slot's newest
+task to come from the current template (including `ForceUpdate`), be terminal and not
+be removed; an execution the scheduler requested but Swarm has not created yet defers
+the update instead of being cancelled. Unsafe changes produce per-service blocked
 errors while independent services continue applying; the deployment fails at apply
 rather than claiming success. If every block is caused only by active tasks, the
 attempt is automatically retryable with the regular backoff; otherwise retry

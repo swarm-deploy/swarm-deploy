@@ -355,6 +355,7 @@ func (m *serviceManager) ListTasks(ctx context.Context, serviceIDOrName string) 
 			UpdatedAt:    task.UpdatedAt,
 			CurrentState: TaskState(task.Status.State),
 			Error:        task.Status.Err,
+			Spec:         task.Spec,
 		}
 		if task.Status.ContainerStatus != nil {
 			exitCode := task.Status.ContainerStatus.ExitCode
