@@ -231,11 +231,14 @@ func TestParkedExternalJobStartsDuringOptimisticRetry(t *testing.T) {
 }
 
 func TestExecutionSettled(t *testing.T) {
-	template := dockerswarm.TaskSpec{ForceUpdate: 5, ContainerSpec: &dockerswarm.ContainerSpec{Image: "alpine:3"}}
+	template := dockerswarm.TaskSpec{
+		ForceUpdate: 5, ContainerSpec: &dockerswarm.ContainerSpec{Image: "alpine:3"}, Runtime: dockerswarm.RuntimeContainer,
+	}
 	older := template
 	older.ForceUpdate = 4
 	at := func(seconds int) time.Time { return time.Unix(int64(seconds), 0) }
 	done := func(slot, created int, spec dockerswarm.TaskSpec) swarm.ServiceTask {
+		spec.Runtime = "" // Docker's task conversion omits the container runtime.
 		return swarm.ServiceTask{Slot: slot, CreatedAt: at(created), CurrentState: swarm.TaskStateComplete,
 			DesiredState: swarm.TaskStateShutdown, Spec: spec}
 	}
@@ -254,6 +257,9 @@ func TestExecutionSettled(t *testing.T) {
 			tasks: []swarm.ServiceTask{done(1, 1, older), done(1, 2, template)}, settled: true},
 		{name: "tasks outside desired slots are ignored", replicas: 1,
 			tasks: []swarm.ServiceTask{done(1, 1, template), done(2, 2, older)}, settled: true},
+		{name: "other template fields still differ", replicas: 1, tasks: []swarm.ServiceTask{
+			done(1, 1, dockerswarm.TaskSpec{ForceUpdate: 5, ContainerSpec: &dockerswarm.ContainerSpec{Image: "alpine:4"}}),
+		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			assert.Equal(t, tc.settled, executionSettled(template, tc.replicas, tc.tasks))

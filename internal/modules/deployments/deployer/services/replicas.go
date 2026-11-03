@@ -129,11 +129,19 @@ func executionSettled(template dockerswarm.TaskSpec, replicas uint64, tasks []sw
 	}
 	for _, task := range newest {
 		if task.DesiredState == swarm.TaskStateRemove || taskActive(task.CurrentState) ||
-			!reflect.DeepEqual(task.Spec, template) {
+			!sameTaskTemplate(task.Spec, template) {
 			return false
 		}
 	}
 	return true
+}
+
+// sameTaskTemplate compares a task's spec with the service template it was created from.
+// Docker's service conversion sets Runtime explicitly for container services, while its
+// task conversion leaves it empty; the runtime is already implied by the populated spec.
+func sameTaskTemplate(task, template dockerswarm.TaskSpec) bool {
+	task.Runtime, template.Runtime = "", ""
+	return reflect.DeepEqual(task, template)
 }
 
 func taskActive(state swarm.TaskState) bool {
