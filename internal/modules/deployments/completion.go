@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/services"
 	deploymentmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/model"
 	deploymentstore "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
@@ -150,7 +151,9 @@ func (completion Completion) state() (completionState, error) {
 		state.retryable = true
 	case CompletionApplyFailed, CompletionInitJobFailed, CompletionCleanupFailed:
 		var temporary faults.Error
+		// An update deferred only by active external tasks succeeds once they finish.
 		state.retryable = errors.Is(completion.Diagnostic, context.DeadlineExceeded) ||
+			errors.Is(completion.Diagnostic, services.ErrUpdateDeferred) ||
 			(errors.As(completion.Diagnostic, &temporary) && temporary.Temporary())
 	case CompletionSucceeded, CompletionPolicyRejected, CompletionConvergenceFailed:
 		// These outcomes never trigger an automatic retry.
