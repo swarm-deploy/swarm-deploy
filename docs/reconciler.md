@@ -23,6 +23,47 @@ The current pipeline is:
 
 Some steps are conditional. For example, the image policy step is absent when every image rule is disabled, and environment population runs only when at least one desired service declares `env_file`.
 
+## Sync runs and the stack queue
+
+A sync run (startup, Git poll with a new revision, webhook, manual sync or the periodic `sync.interval`) does
+only the work that needs a stable Git working tree:
+
+1. pull Git (or read `HEAD` for interval runs);
+2. reload `stacks` and `networks` configuration;
+3. reconcile managed networks;
+4. load every stack source: the Compose file and the content of its `env_file`, config and secret files;
+5. hand each stack to the stack queue, changed stacks first.
+
+The run then finishes without waiting for deployments. Loading is the only step that reads the working tree,
+so a later Git pull can never change the files of a deployment that is still running: each queued
+reconciliation carries the in-memory source of the revision it was loaded from.
+
+The stack queue runs at most `sync.parallelism` stacks at the same time (default `4`) and never runs two
+operations for the same stack at once. A slow stack therefore occupies one slot but never delays Git polling,
+later sync runs or other stacks:
+
+```yaml
+sync:
+  # Maximum number of stacks reconciled at the same time.
+  parallelism: 4
+```
+
+While a stack is busy, only the latest submitted reconciliation is kept and runs as soon as the current one
+finishes; a manual request stays manual when it is coalesced with a later one. Periodic rotated-resource
+cleanup is queued only for idle stacks, so it never overlaps a reconciliation of the same stack.
+
+Stacks are not ordered relative to each other. With `parallelism: 1` they are processed one by one in dispatch
+order, which preserves the previous sequential behavior.
+
+The sync run result (`last_sync_result`) covers Git, configuration, networks and dispatch. The outcome of each
+stack is reported on the stack itself and through deployment events. Queue state is exported as
+`swarm_deploy_sync_stack_queue_pending` and `swarm_deploy_sync_stack_queue_running`, and every stack operation
+is counted in `swarm_deploy_sync_stack_operations_total` and timed in
+`swarm_deploy_sync_stack_operation_duration_seconds`.
+
+On shutdown, operations that have not started are dropped and running ones get the graceful shutdown window to
+finish; the next start reconciles every stack again.
+
 ## Source digest
 
 swarm-deploy calculates a source digest for each stack. The digest includes:

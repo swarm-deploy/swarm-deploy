@@ -3,6 +3,7 @@ package stackloop
 import (
 	"context"
 
+	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments"
@@ -14,9 +15,18 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 
+// StackReconciler loads stack sources and applies them to Docker Swarm.
+//
+// Load is the only operation that reads the repository working tree. Reconcile and Cleanup work
+// exclusively with the definition returned by Load, so they may run concurrently with Git updates.
+// Reconcile and Cleanup for the same stack must not run concurrently; different stacks may.
 type StackReconciler interface {
+	// Load reads and validates the source Compose definition of a stack from the working tree.
+	Load(ctx context.Context, stack config.StackSpec) (*compose.File, error)
+	// Reconcile applies the stack source captured in the request.
 	Reconcile(ctx context.Context, req ReconciliationRequest) error
-	Cleanup(ctx context.Context, stack config.StackSpec) error
+	// Cleanup removes stale rotated configs and secrets of a stack using its loaded source.
+	Cleanup(ctx context.Context, stack config.StackSpec, source *compose.File) error
 }
 
 type ReconciliationRequest struct {
@@ -26,6 +36,10 @@ type ReconciliationRequest struct {
 	Commit string
 	// IsManual reports whether reconciliation was triggered manually.
 	IsManual bool
+	// Source is the source Compose definition loaded at Commit. It is nil when SourceErr is set.
+	Source *compose.File
+	// SourceErr is the failure to load Source. Reconcile records it as a preparation failure.
+	SourceErr error
 }
 
 func NewStackReconciler(

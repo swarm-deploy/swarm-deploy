@@ -114,7 +114,7 @@ func TestReconcileReplicaDriftPolicy(t *testing.T) {
 				deployments.NewService(db, publisher), stackDeployer, services, r.pruner, r.deployMetrics)
 			r.preparer = preparation.New(cfg, repository, fs.NewLocalFileSystem(), r.composeRotator)
 			r.attachPipeline()
-			require.NoError(t, r.Reconcile(t.Context(), ReconciliationRequest{
+			require.NoError(t, reconcileFromWorkingTree(t.Context(), r, ReconciliationRequest{
 				Stack: config.StackSpec{Name: "app", ComposeFile: "app.yaml"}, Commit: "current",
 			}))
 			state := readSQLState(t, stateStore).Stacks["app"].Services["api"]

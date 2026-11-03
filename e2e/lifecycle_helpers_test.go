@@ -1,6 +1,7 @@
 package e2e
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -106,7 +107,7 @@ func lifecycleService(name, command, policy string) string {
 
 func (f *lifecycleFixture) reconcile(t *testing.T) {
 	t.Helper()
-	require.NoError(t, f.reconciler.Reconcile(f.ctx, f.request))
+	require.NoError(t, reconcileFromWorkingTree(f.ctx, f.reconciler, f.request))
 }
 
 func (f *lifecycleFixture) latest(t *testing.T) model.Deployment {
@@ -183,4 +184,21 @@ func (f *lifecycleFixture) syncStatus(t *testing.T, name string) string {
 	state, err := f.state.Read(f.ctx)
 	require.NoError(t, err)
 	return string(state.Stacks[f.stack].Services[name].SyncStatus)
+}
+
+// reconcileFromWorkingTree loads the stack source like the sync runner does and reconciles it.
+func reconcileFromWorkingTree(
+	ctx context.Context, reconciler stackloop.StackReconciler, req stackloop.ReconciliationRequest,
+) error {
+	req.Source, req.SourceErr = reconciler.Load(ctx, req.Stack)
+	return reconciler.Reconcile(ctx, req)
+}
+
+// cleanupFromWorkingTree loads the stack source like the sync runner does and cleans rotated resources.
+func cleanupFromWorkingTree(ctx context.Context, reconciler stackloop.StackReconciler, stack config.StackSpec) error {
+	source, err := reconciler.Load(ctx, stack)
+	if err != nil {
+		return err
+	}
+	return reconciler.Cleanup(ctx, stack, source)
 }

@@ -8,6 +8,7 @@ import (
 	context "context"
 	reflect "reflect"
 
+	compose "github.com/swarm-deploy/swarm-deploy/internal/compose"
 	config "github.com/swarm-deploy/swarm-deploy/internal/config"
 	gomock "go.uber.org/mock/gomock"
 )
@@ -36,17 +37,32 @@ func (m *MockStackReconciler) EXPECT() *MockStackReconcilerMockRecorder {
 }
 
 // Cleanup mocks base method.
-func (m *MockStackReconciler) Cleanup(ctx context.Context, stack config.StackSpec) error {
+func (m *MockStackReconciler) Cleanup(ctx context.Context, stack config.StackSpec, source *compose.File) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Cleanup", ctx, stack)
+	ret := m.ctrl.Call(m, "Cleanup", ctx, stack, source)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // Cleanup indicates an expected call of Cleanup.
-func (mr *MockStackReconcilerMockRecorder) Cleanup(ctx, stack interface{}) *gomock.Call {
+func (mr *MockStackReconcilerMockRecorder) Cleanup(ctx, stack, source interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Cleanup", reflect.TypeOf((*MockStackReconciler)(nil).Cleanup), ctx, stack)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Cleanup", reflect.TypeOf((*MockStackReconciler)(nil).Cleanup), ctx, stack, source)
+}
+
+// Load mocks base method.
+func (m *MockStackReconciler) Load(ctx context.Context, stack config.StackSpec) (*compose.File, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Load", ctx, stack)
+	ret0, _ := ret[0].(*compose.File)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Load indicates an expected call of Load.
+func (mr *MockStackReconcilerMockRecorder) Load(ctx, stack interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Load", reflect.TypeOf((*MockStackReconciler)(nil).Load), ctx, stack)
 }
 
 // Reconcile mocks base method.

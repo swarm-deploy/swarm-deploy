@@ -1,9 +1,12 @@
-// Package syncrun executes complete serialized GitOps synchronization runs.
+// Package syncrun executes serialized GitOps synchronization runs.
+//
+// A run pulls Git, reloads configuration, reconciles networks, loads every stack source and hands
+// the stacks to the stack queue. It does not wait for stack deployments, so a slow stack never
+// delays polling, later runs or other stacks.
 package syncrun
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -17,6 +20,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/networkloop"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackloop"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackplan"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackqueue"
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/modelstore"
@@ -44,11 +48,10 @@ const (
 )
 
 const (
-	syncRunResultError        = "error"
-	syncRunResultNoChange     = "no_change"
-	syncRunResultUpdated      = "updated"
-	syncRunResultSuccess      = "success"
-	syncRunResultPartialError = "partial_error"
+	syncRunResultError    = "error"
+	syncRunResultNoChange = "no_change"
+	syncRunResultUpdated  = "updated"
+	syncRunResultSuccess  = "success"
 )
 
 // Task describes one queued synchronization request.
@@ -69,6 +72,7 @@ type Runner struct {
 	stackReconciler   stackloop.StackReconciler
 	stackPlanner      *stackplan.Planner
 	puller            *gitpull.Puller
+	stacks            *stackqueue.Queue
 	tracer            trace.Tracer
 }
 
@@ -82,11 +86,12 @@ func New(
 	networkReconciler *networkloop.Coordinator,
 	stackReconciler stackloop.StackReconciler,
 	puller *gitpull.Puller,
+	stacks *stackqueue.Queue,
 ) *Runner {
 	return &Runner{
 		configStore: configStore, git: git, metrics: metricGroup, event: eventDispatcher,
 		stateStore: stateStore, networkReconciler: networkReconciler,
-		stackReconciler: stackReconciler, stackPlanner: stackplan.NewPlanner(git), puller: puller,
+		stackReconciler: stackReconciler, stackPlanner: stackplan.NewPlanner(git), puller: puller, stacks: stacks,
 		tracer: otel.Tracer("github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller"),
 	}
 }
@@ -116,7 +121,7 @@ func (r *Runner) Poll(ctx context.Context) {
 	}
 }
 
-// Run executes one complete GitOps synchronization.
+// Run executes one GitOps synchronization run and dispatches stacks to the stack queue.
 func (r *Runner) Run(ctx context.Context, task Task) {
 	r.run(ctx, task, nil)
 }
@@ -170,44 +175,44 @@ func (r *Runner) run(ctx context.Context, task Task, gitResult *gitx.PullResult)
 			slog.String("new_revision", gitResult.NewRevision), slog.Any("err", plan.DiffErr))
 	}
 
-	stackCtx, stackSpan := r.tracer.Start(ctx, "controller.syncStacks", trace.WithAttributes(
+	stackCtx, stackSpan := r.tracer.Start(ctx, "controller.dispatchStacks", trace.WithAttributes(
 		attribute.Int("stacks.total", len(plan.Stacks)), attribute.Int("stacks.changed", len(plan.Changed))))
-	defer stackSpan.End()
-	deployErrs := r.syncStacks(stackCtx, plan.Stacks, gitResult.NewRevision, task.Reason)
+	r.dispatchStacks(stackCtx, plan.Stacks, gitResult.NewRevision, task.Reason)
+	stackSpan.SetStatus(codes.Ok, "")
+	stackSpan.End()
 
+	// Stack outcomes are tracked per stack; the run result covers Git, configuration, networks and dispatch.
 	result := syncRunResultSuccess
-	combinedErr := errors.Join(deployErrs...)
-	if combinedErr != nil {
-		result = syncRunResultPartialError
-		slog.ErrorContext(ctx, "sync finished with errors", slog.String("reason", string(task.Reason)),
-			slog.String("commit", gitResult.NewRevision), slog.Any("err", combinedErr))
-		stackSpan.RecordError(combinedErr)
-		stackSpan.SetStatus(codes.Error, combinedErr.Error())
-	} else {
-		stackSpan.SetStatus(codes.Ok, "")
-	}
-
 	persistErr := r.updateState(ctx, func(state *model.Runtime) {
 		state.LastSyncAt, state.LastSyncReason, state.LastSyncResult = time.Now(), string(task.Reason), result
 		state.LastSyncError = ""
-		if combinedErr != nil {
-			state.LastSyncError = combinedErr.Error()
-		}
 		state.GitRevision = gitResult.NewRevision
 	})
 	if persistErr != nil {
 		result = syncRunResultError
-		tracing.FailSpan(stackSpan, persistErr)
+		tracing.FailSpan(span, persistErr)
 	}
 	r.metrics.Sync.RecordSyncRun(string(task.Reason), result, time.Since(startedAt))
 }
 
-// Cleanup reconciles rotated-resource cleanup for every configured stack.
+// Cleanup loads every configured stack and queues rotated-resource cleanup for idle stacks.
+// Busy stacks are skipped until a later tick, so cleanup never overlaps a reconciliation of the same stack.
 func (r *Runner) Cleanup(ctx context.Context) {
 	for _, stack := range r.configStore.Stacks() {
-		if err := r.stackReconciler.Cleanup(ctx, stack); err != nil {
+		if r.stacks.Busy(stack.Name) {
+			slog.DebugContext(ctx, "[controller] rotated resource cleanup postponed: stack is busy",
+				slog.String("stack", stack.Name))
+			continue
+		}
+		source, err := r.stackReconciler.Load(ctx, stack)
+		if err != nil {
 			slog.WarnContext(ctx, "[controller] rotated resource cleanup failed",
-				slog.String("stack", stack.Name), slog.Any("error", err))
+				slog.String("stack", stack.Name), slog.Any("error", fmt.Errorf("load compose for cleanup: %w", err)))
+			continue
+		}
+		if !r.stacks.SubmitCleanup(ctx, stack, source) {
+			slog.DebugContext(ctx, "[controller] rotated resource cleanup postponed: stack is busy",
+				slog.String("stack", stack.Name))
 		}
 	}
 }
@@ -224,23 +229,19 @@ func (r *Runner) finishStageFailure(
 	})
 }
 
-func (r *Runner) syncStacks(
-	ctx context.Context, stacks []config.StackSpec, commit string, reason TriggerReason,
-) []error {
-	var deployErrs []error
+// dispatchStacks loads every stack source while the working tree is stable and queues its reconciliation.
+// Loading happens here, serialized with Git pulls, so queued reconciliations never read the working tree.
+func (r *Runner) dispatchStacks(ctx context.Context, stacks []config.StackSpec, commit string, reason TriggerReason) {
 	for _, stackCfg := range stacks {
-		err := r.stackReconciler.Reconcile(ctx, stackloop.ReconciliationRequest{
-			Stack: stackCfg, Commit: commit, IsManual: reason == TriggerManual,
+		source, loadErr := r.stackReconciler.Load(ctx, stackCfg)
+		queued := r.stacks.SubmitReconcile(ctx, stackloop.ReconciliationRequest{
+			Stack: stackCfg, Commit: commit, IsManual: reason == TriggerManual, Source: source, SourceErr: loadErr,
 		})
-		if err == nil {
-			continue
+		if !queued {
+			slog.WarnContext(ctx, "stack sync was not queued: controller is shutting down",
+				slog.String("reason", string(reason)), slog.String("stack", stackCfg.Name), slog.String("commit", commit))
 		}
-		wrapped := fmt.Errorf("stack %s %w", stackCfg.Name, err)
-		deployErrs = append(deployErrs, wrapped)
-		slog.ErrorContext(ctx, "sync failed for stack", slog.String("reason", string(reason)),
-			slog.String("stack", stackCfg.Name), slog.String("commit", commit), slog.Any("err", wrapped))
 	}
-	return deployErrs
 }
 
 func (r *Runner) resolveGitState(

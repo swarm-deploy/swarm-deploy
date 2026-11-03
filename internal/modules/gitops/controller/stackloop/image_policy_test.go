@@ -190,7 +190,7 @@ func TestImagePolicyViolationLifecycle(t *testing.T) {
 		Services: serviceManager, Configs: swarm.NewMockConfigManager(ctrl), Secrets: swarm.NewMockSecretManager(ctrl),
 	}, bus, &metrics.NopDeploys{}, state, fs.NewLocalFileSystem(), db)
 
-	err = reconciler.Reconcile(ctx, ReconciliationRequest{
+	err = reconcileFromWorkingTree(ctx, reconciler, ReconciliationRequest{
 		Stack: config.StackSpec{Name: "app", ComposeFile: "app.yaml"}, Commit: "sha",
 	})
 	require.Error(t, err)
@@ -214,7 +214,7 @@ func TestImagePolicyViolationLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, historyEntries, "preparation failures must remain alert-only")
 
-	require.Error(t, reconciler.Reconcile(ctx, ReconciliationRequest{
+	require.Error(t, reconcileFromWorkingTree(ctx, reconciler, ReconciliationRequest{
 		Stack: config.StackSpec{Name: "app", ComposeFile: "app.yaml"}, Commit: "sha",
 	}))
 	drainOutbox(t, ctx, bus)
@@ -230,7 +230,7 @@ func TestImagePolicyViolationLifecycle(t *testing.T) {
 		[]byte("services:\n  api:\n    image: nginx:1.27\n"), 0o600))
 	stackDeployer.EXPECT().DeployStack(gomock.Any(), gomock.Cond(func(req deployer.StackRequest) bool { return req.StackName == "app" })).Return(deployer.Result{}, nil)
 	serviceManager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "app"}).Return([]swarm.StackService{}, nil)
-	require.NoError(t, reconciler.Reconcile(ctx, ReconciliationRequest{
+	require.NoError(t, reconcileFromWorkingTree(ctx, reconciler, ReconciliationRequest{
 		Stack: config.StackSpec{Name: "app", ComposeFile: "app.yaml"}, Commit: "fixed",
 	}))
 	drainOutbox(t, ctx, bus)
@@ -274,7 +274,7 @@ func TestImagePolicyDisabledPreservesDeployment(t *testing.T) {
 			Services: serviceManager, Configs: swarm.NewMockConfigManager(ctrl), Secrets: swarm.NewMockSecretManager(ctrl),
 		}, bus, &metrics.NopDeploys{}, state, fs.NewLocalFileSystem(), db)
 
-	require.NoError(t, reconciler.Reconcile(t.Context(), ReconciliationRequest{
+	require.NoError(t, reconcileFromWorkingTree(t.Context(), reconciler, ReconciliationRequest{
 		Stack: config.StackSpec{Name: "app", ComposeFile: "app.yaml"}, Commit: "sha",
 	}))
 	deployments, err := deploymentstore.NewStore(db).List(t.Context(), deploymentmodel.ListFilter{})

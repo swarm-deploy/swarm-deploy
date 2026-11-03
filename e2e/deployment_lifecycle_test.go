@@ -113,7 +113,7 @@ func TestRealSwarmNativeRollbackHistoryRetryAndRecovery(t *testing.T) {
 
 	f.manifest(t, strings.Replace(working, "sleep 600", "exit 31", 1))
 	f.request.Commit = "rollback"
-	err := f.reconciler.Reconcile(f.ctx, f.request)
+	err := reconcileFromWorkingTree(f.ctx, f.reconciler, f.request)
 	require.Error(t, err)
 	failed := f.latest(t)
 	assertVerificationFailure(t, failed, model.Failed, "convergence_failed", model.StageFailed)
@@ -149,7 +149,7 @@ func TestRealSwarmNativeRollbackHistoryRetryAndRecovery(t *testing.T) {
 	require.Len(t, f.publications(t, events.TypeNameDeploySuccess), 1, "rollback cannot publish success for desired exit 31")
 
 	f.request.IsManual = true
-	require.Error(t, f.reconciler.Reconcile(f.ctx, f.request))
+	require.Error(t, reconcileFromWorkingTree(f.ctx, f.reconciler, f.request))
 	f.request.IsManual = false
 	retried := f.latest(t)
 	assert.Equal(t, failed.ID, retried.ID)

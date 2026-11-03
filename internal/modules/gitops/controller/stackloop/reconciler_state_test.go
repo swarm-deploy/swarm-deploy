@@ -82,7 +82,7 @@ func TestReconcileUpdatesStateOnSuccess(t *testing.T) {
 	reconciler.preparer = preparation.New(reconciler.cfg, repository, fs.NewLocalFileSystem(), reconciler.composeRotator)
 	reconciler.attachPipeline()
 
-	err := reconciler.Reconcile(context.Background(), ReconciliationRequest{
+	err := reconcileFromWorkingTree(context.Background(), reconciler, ReconciliationRequest{
 		Stack: config.StackSpec{
 			Name:        "app",
 			ComposeFile: "app.yaml",
@@ -143,7 +143,7 @@ func TestReconcileUpdatesStateOnFailure(t *testing.T) {
 	reconciler.preparer = preparation.New(reconciler.cfg, repository, fs.NewLocalFileSystem(), reconciler.composeRotator)
 	reconciler.attachPipeline()
 
-	err := reconciler.Reconcile(context.Background(), ReconciliationRequest{
+	err := reconcileFromWorkingTree(context.Background(), reconciler, ReconciliationRequest{
 		Stack: config.StackSpec{
 			Name:        "app",
 			ComposeFile: "app.yaml",
@@ -235,7 +235,7 @@ func TestReconcileSeparatesPostApplyOutcomes(t *testing.T) {
 			)
 			reconciler.preparer = preparation.New(reconciler.cfg, repository, fs.NewLocalFileSystem(), reconciler.composeRotator)
 			reconciler.attachPipeline()
-			err := reconciler.Reconcile(context.Background(), ReconciliationRequest{
+			err := reconcileFromWorkingTree(context.Background(), reconciler, ReconciliationRequest{
 				Stack: config.StackSpec{Name: "app", ComposeFile: "app.yaml"}, Commit: "commit",
 			})
 			if tt.expectedError {
@@ -342,7 +342,7 @@ secrets:
 	reconciler.preparer = preparation.New(reconciler.cfg, repository, fs.NewLocalFileSystem(), reconciler.composeRotator)
 	reconciler.attachPipeline()
 
-	err := reconciler.Reconcile(context.Background(), ReconciliationRequest{
+	err := reconcileFromWorkingTree(context.Background(), reconciler, ReconciliationRequest{
 		Stack:  config.StackSpec{Name: "app", ComposeFile: "app.yaml"},
 		Commit: "commit-cleanup",
 	})
@@ -409,7 +409,7 @@ func TestReconcileReadsPreviousDigestFromStateStore(t *testing.T) {
 	reconciler.preparer = preparation.New(reconciler.cfg, repository, fs.NewLocalFileSystem(), reconciler.composeRotator)
 	reconciler.attachPipeline()
 
-	reconcileErr := reconciler.Reconcile(context.Background(), ReconciliationRequest{
+	reconcileErr := reconcileFromWorkingTree(context.Background(), reconciler, ReconciliationRequest{
 		Stack: config.StackSpec{
 			Name:        "app",
 			ComposeFile: "app.yaml",
@@ -514,7 +514,7 @@ configs:
 	reconciler.preparer = preparation.New(reconciler.cfg, repository, fs.NewLocalFileSystem(), reconciler.composeRotator)
 	reconciler.attachPipeline()
 
-	reconcileErr := reconciler.Reconcile(context.Background(), ReconciliationRequest{
+	reconcileErr := reconcileFromWorkingTree(context.Background(), reconciler, ReconciliationRequest{
 		Stack: config.StackSpec{
 			Name:        "app",
 			ComposeFile: "app.yaml",
@@ -611,7 +611,7 @@ secrets:
 	reconciler.preparer = preparation.New(reconciler.cfg, repository, fs.NewLocalFileSystem(), reconciler.composeRotator)
 	reconciler.attachPipeline()
 
-	reconcileErr := reconciler.Reconcile(context.Background(), ReconciliationRequest{
+	reconcileErr := reconcileFromWorkingTree(context.Background(), reconciler, ReconciliationRequest{
 		Stack: config.StackSpec{
 			Name:        "app",
 			ComposeFile: "deploy/docker-compose.yaml",
@@ -696,7 +696,7 @@ services:
 	reconciler.preparer = preparation.New(reconciler.cfg, repository, fs.NewLocalFileSystem(), reconciler.composeRotator)
 	reconciler.attachPipeline()
 
-	reconcileErr := reconciler.Reconcile(context.Background(), ReconciliationRequest{
+	reconcileErr := reconcileFromWorkingTree(context.Background(), reconciler, ReconciliationRequest{
 		Stack: config.StackSpec{
 			Name:        "app",
 			ComposeFile: "deploy/compose.yaml",
@@ -768,7 +768,7 @@ services:
 	reconciler.preparer = preparation.New(reconciler.cfg, repository, fs.NewLocalFileSystem(), reconciler.composeRotator)
 	reconciler.attachPipeline()
 
-	reconcileErr := reconciler.Reconcile(context.Background(), ReconciliationRequest{
+	reconcileErr := reconcileFromWorkingTree(context.Background(), reconciler, ReconciliationRequest{
 		Stack: config.StackSpec{
 			Name:        "app",
 			ComposeFile: "app.yaml",
@@ -844,7 +844,7 @@ services:
 	reconciler.preparer = preparation.New(reconciler.cfg, repository, fs.NewLocalFileSystem(), reconciler.composeRotator)
 	reconciler.attachPipeline()
 
-	reconcileErr := reconciler.Reconcile(context.Background(), ReconciliationRequest{
+	reconcileErr := reconcileFromWorkingTree(context.Background(), reconciler, ReconciliationRequest{
 		Stack: config.StackSpec{
 			Name:        "app",
 			ComposeFile: "app.yaml",
@@ -853,7 +853,7 @@ services:
 	})
 	require.NoError(t, reconcileErr, "first reconcile")
 
-	reconcileErr = reconciler.Reconcile(context.Background(), ReconciliationRequest{
+	reconcileErr = reconcileFromWorkingTree(context.Background(), reconciler, ReconciliationRequest{
 		Stack: config.StackSpec{
 			Name:        "app",
 			ComposeFile: "app.yaml",
@@ -938,7 +938,7 @@ func TestReconcilePrunesServicesWithoutNewDeployment(t *testing.T) {
 			reconciler.preparer = preparation.New(reconciler.cfg, repository, fs.NewLocalFileSystem(), reconciler.composeRotator)
 			reconciler.attachPipeline()
 
-			reconcileErr := reconciler.Reconcile(context.Background(), ReconciliationRequest{
+			reconcileErr := reconcileFromWorkingTree(context.Background(), reconciler, ReconciliationRequest{
 				Stack: config.StackSpec{
 					Name:        "app",
 					ComposeFile: "app.yaml",
@@ -1036,7 +1036,7 @@ func TestReconcileServiceMissedEventOnDrift(t *testing.T) {
 			reconciler.preparer = preparation.New(reconciler.cfg, repository, fs.NewLocalFileSystem(), reconciler.composeRotator)
 			reconciler.attachPipeline()
 
-			reconcileErr := reconciler.Reconcile(context.Background(), ReconciliationRequest{
+			reconcileErr := reconcileFromWorkingTree(context.Background(), reconciler, ReconciliationRequest{
 				Stack: config.StackSpec{
 					Name:        "app",
 					ComposeFile: "app.yaml",
@@ -1167,7 +1167,7 @@ func TestReconcileSelfHealsMissingService(t *testing.T) {
 			reconciler.preparer = preparation.New(reconciler.cfg, repository, fs.NewLocalFileSystem(), reconciler.composeRotator)
 			reconciler.attachPipeline()
 
-			err = reconciler.Reconcile(context.Background(), ReconciliationRequest{
+			err = reconcileFromWorkingTree(context.Background(), reconciler, ReconciliationRequest{
 				Stack: config.StackSpec{Name: "app", ComposeFile: "app.yaml"}, Commit: "current",
 			})
 			if tt.wantErr {
@@ -1265,7 +1265,7 @@ func TestReconcileSelfHealsReplicaDriftAfterVerification(t *testing.T) {
 	reconciler.preparer = preparation.New(reconciler.cfg, repository, fs.NewLocalFileSystem(), reconciler.composeRotator)
 	reconciler.attachPipeline()
 
-	require.NoError(t, reconciler.Reconcile(context.Background(), ReconciliationRequest{
+	require.NoError(t, reconcileFromWorkingTree(context.Background(), reconciler, ReconciliationRequest{
 		Stack: config.StackSpec{Name: "app", ComposeFile: "app.yaml"}, Commit: "current",
 	}))
 	state := readSQLState(t, stateStore).Stacks["app"].Services["api"]

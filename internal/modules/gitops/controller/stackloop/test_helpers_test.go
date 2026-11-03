@@ -1,6 +1,8 @@
 package stackloop
 
 import (
+	"context"
+
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments"
@@ -37,4 +39,10 @@ func newTestReconciler(
 	return New(
 		cfg, executor, swarmService, eventDispatcher, deployMetrics, stateStore, preparer, rotator, db,
 	)
+}
+
+// reconcileFromWorkingTree loads the stack source like the sync runner does and reconciles it.
+func reconcileFromWorkingTree(ctx context.Context, reconciler StackReconciler, req ReconciliationRequest) error {
+	req.Source, req.SourceErr = reconciler.Load(ctx, req.Stack)
+	return reconciler.Reconcile(ctx, req)
 }
