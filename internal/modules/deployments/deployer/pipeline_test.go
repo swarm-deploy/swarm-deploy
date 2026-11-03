@@ -156,8 +156,8 @@ func TestDeployPipelinesShareLiteralDesiredState(t *testing.T) {
 	assert.Equal(t, applied[0], applied[1])
 	container := applied[0].TaskTemplate.ContainerSpec
 	assert.Equal(t, "alpine:3", container.Image)
-	assert.Equal(t, []string{"sh", "-c", "echo $HOME $(date) $$ ${SD_TEST_TEXT}"}, container.Args)
-	assert.ElementsMatch(t, []string{"ESCAPED=$HOME", "INSERTED=${SD_TEST_TEXT}"}, container.Env)
+	assert.Equal(t, []string{"sh", "-c", "echo $$HOME $$(date) $$$$ ${SD_TEST_TEXT}"}, container.Args)
+	assert.ElementsMatch(t, []string{"ESCAPED=$$HOME", "INSERTED=${SD_TEST_TEXT}"}, container.Env)
 }
 
 func runMinimalStack(t *testing.T, deployer *Deployer) error {

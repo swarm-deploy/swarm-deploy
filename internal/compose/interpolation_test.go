@@ -58,7 +58,7 @@ secrets: {password: {file: password.txt}}
 	require.NoError(t, err)
 	NewEnvFilePopulator().Populate(first)
 	assert.Equal(t, map[string]string{
-		"PRIORITY": "${SD_TEST_TAG}", "FILE_ORDER": "second", "EMPTY": "", "ESCAPED": "$HOME", "LITERAL": "$SD_TEST_TAG $HOME",
+		"PRIORITY": "${SD_TEST_TAG}", "FILE_ORDER": "second", "EMPTY": "", "ESCAPED": "$$HOME", "LITERAL": "$SD_TEST_TAG $$HOME",
 	}, first.Compose.Services[0].Environment.Map)
 	assert.Empty(t, first.Compose.Services[0].EnvFiles)
 	assert.Equal(t, []byte(files["settings.txt"]), first.Compose.Configs["settings"].Data)
@@ -97,9 +97,9 @@ services:
 	assert.Equal(t, "a", schema.Services[1].Name)
 	for _, service := range schema.Services {
 		assert.Equal(t, "nginx:${SD_TEST_TAG}", service.Image)
-		assert.Equal(t, "$$", service.Environment.Map["DOLLAR"])
+		assert.Equal(t, "$$$$", service.Environment.Map["DOLLAR"])
 	}
-	assert.Equal(t, []string{"echo", "$(date)"}, schema.Services[0].Command.Args)
+	assert.Equal(t, []string{"echo", "$$(date)"}, schema.Services[0].Command.Args)
 	assert.Equal(t, []string{"echo $(date) $HOME $$HOME ${SD_TEST_TAG}"}, schema.Services[0].InitJobs[0].Command)
 }
 

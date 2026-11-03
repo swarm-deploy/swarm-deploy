@@ -68,21 +68,21 @@ volumes:
 			spec := result.Services[0]
 			container := spec.TaskTemplate.ContainerSpec
 			assert.Equal(t, "nginx:alpine", container.Image)
-			assert.Equal(t, []string{"sh", "-c", "echo $SD_TEST_VALUE $HOME $(date) $$"}, container.Args)
+			assert.Equal(t, []string{"sh", "-c", "echo $SD_TEST_VALUE $$HOME $$(date) $$$$"}, container.Args)
 			assert.Equal(t, []string{"/bin/${SD_TEST_SHELL:-sh}", "-c"}, container.Command)
 			assert.ElementsMatch(t, []string{
-				"ESCAPED=$HOME", "PID=$$", "INSERTED=${SD_TEST_LITERAL}",
+				"ESCAPED=$$HOME", "PID=$$$$", "INSERTED=${SD_TEST_LITERAL}",
 				"SOFT_DEFAULT=${SD_TEST_EMPTY:-fallback}", "HARD_DEFAULT=${SD_TEST_EMPTY-fallback}",
 				"MISSING_DEFAULT=${SD_TEST_UNSET_217-fallback}", "MISSING=$SD_TEST_UNSET_217",
 				"REQUIRED=${SD_TEST_TAG:?required}", "REQUIRED_SET=${SD_TEST_EMPTY?required}",
 				"NESTED_DEFAULT=${SD_TEST_UNSET_217:-$SD_TEST_TAG}",
 			}, container.Env)
-			assert.Equal(t, []string{"CMD-SHELL", "echo $SD_TEST_VALUE $HOME $(date)"}, container.Healthcheck.Test)
+			assert.Equal(t, []string{"CMD-SHELL", "echo $SD_TEST_VALUE $$HOME $$(date)"}, container.Healthcheck.Test)
 			assert.Equal(t, 2*time.Second, container.Healthcheck.Interval)
 			assert.Equal(t, 3, container.Healthcheck.Retries)
 			assert.Equal(t, uint64(1), *spec.Mode.Replicated.Replicas)
 			assert.Equal(t, "storage", container.Mounts[0].Source)
-			assert.Equal(t, "$HOME", container.Mounts[0].VolumeOptions.DriverConfig.Options["device"])
+			assert.Equal(t, "$$HOME", container.Mounts[0].VolumeOptions.DriverConfig.Options["device"])
 			assert.True(t, result.Networks[0].Spec.Attachable)
 		})
 	}
@@ -99,5 +99,5 @@ func TestConvertInterpolatedHealthcheckList(t *testing.T) {
 	require.NoError(t, err)
 	result, err := converter.Convert(t.Context(), "demo", file.Compose)
 	require.NoError(t, err)
-	assert.Equal(t, []string{"CMD-SHELL", "echo ${SD_TEST_VALUE} $HOME $$"}, result.Services[0].TaskTemplate.ContainerSpec.Healthcheck.Test)
+	assert.Equal(t, []string{"CMD-SHELL", "echo ${SD_TEST_VALUE} $$HOME $$$$"}, result.Services[0].TaskTemplate.ContainerSpec.Healthcheck.Test)
 }
