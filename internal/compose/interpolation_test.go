@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestInterpolationErrorsDoNotExposeValues(t *testing.T) {
+func TestInterpolationExpressionsRemainLiteral(t *testing.T) {
 	t.Setenv("SD_TEST_EMPTY", "")
 	t.Setenv("SD_TEST_PRIVATE", "private-interpolation-value")
 	for _, expression := range []string{
@@ -19,11 +19,9 @@ func TestInterpolationErrorsDoNotExposeValues(t *testing.T) {
 		t.Run(expression, func(t *testing.T) {
 			source := []byte(fmt.Sprintf("services: {app: {image: alpine, environment: {VALUE: '%s'}}}", expression))
 			loader := NewFileLoaderWithReader(func(context.Context, string) ([]byte, error) { return source, nil })
-			_, err := loader.Load(t.Context(), "compose.yaml")
-			var validation *ValidateComposeError
-			require.ErrorAs(t, err, &validation)
-			assert.NotContains(t, err.Error(), "private_error_message")
-			assert.NotContains(t, err.Error(), "private-interpolation-value")
+			file, err := loader.Load(t.Context(), "compose.yaml")
+			require.NoError(t, err)
+			assert.Equal(t, expression, file.Compose.Services[0].Environment.Map["VALUE"])
 		})
 	}
 }
@@ -35,7 +33,7 @@ func TestInterpolationPreservesPayloadsEnvPrecedenceAndSourceDigest(t *testing.T
 		"compose.yaml": `services:
   app:
     image: nginx:${SD_TEST_TAG}
-    env_file: ['${SD_TEST_ENV}', second.env]
+    env_file: [first.env, second.env]
     environment: {PRIORITY: '${SD_TEST_TAG}', EMPTY: '', ESCAPED: '$$HOME'}
 configs: {settings: {file: settings.txt}}
 secrets: {password: {file: password.txt}}
@@ -60,7 +58,7 @@ secrets: {password: {file: password.txt}}
 	require.NoError(t, err)
 	NewEnvFilePopulator().Populate(first)
 	assert.Equal(t, map[string]string{
-		"PRIORITY": "alpine", "FILE_ORDER": "second", "EMPTY": "", "ESCAPED": "$HOME", "LITERAL": "$SD_TEST_TAG $$HOME",
+		"PRIORITY": "${SD_TEST_TAG}", "FILE_ORDER": "second", "EMPTY": "", "ESCAPED": "$HOME", "LITERAL": "$SD_TEST_TAG $HOME",
 	}, first.Compose.Services[0].Environment.Map)
 	assert.Empty(t, first.Compose.Services[0].EnvFiles)
 	assert.Equal(t, []byte(files["settings.txt"]), first.Compose.Configs["settings"].Data)
@@ -68,7 +66,7 @@ secrets: {password: {file: password.txt}}
 	t.Setenv("SD_TEST_TAG", "stable")
 	second, err := loader.Load(t.Context(), "compose.yaml")
 	require.NoError(t, err)
-	assert.Equal(t, "nginx:stable", second.Compose.Services[0].Image)
+	assert.Equal(t, "nginx:${SD_TEST_TAG}", second.Compose.Services[0].Image)
 	assert.Equal(t, first.Digest, second.Digest, "source digest must not hash the process environment")
 	assert.Equal(t, first.ResourceDigests, second.ResourceDigests)
 }
@@ -98,7 +96,7 @@ services:
 	assert.Equal(t, "z", schema.Services[0].Name)
 	assert.Equal(t, "a", schema.Services[1].Name)
 	for _, service := range schema.Services {
-		assert.Equal(t, "nginx:alpine", service.Image)
+		assert.Equal(t, "nginx:${SD_TEST_TAG}", service.Image)
 		assert.Equal(t, "$$", service.Environment.Map["DOLLAR"])
 	}
 	assert.Equal(t, []string{"echo", "$(date)"}, schema.Services[0].Command.Args)

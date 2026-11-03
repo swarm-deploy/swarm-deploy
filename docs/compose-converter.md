@@ -25,8 +25,8 @@ spec, err := converter.Convert(ctx, stackName, preparedCompose)
 - The existing ResourceReconciler still creates configs/secrets. Secret decoding,
   file reads, rotation and external driver configuration remain upstream. The
   prepared definitions' `Name` fields select the exact rotated resources.
-- All env files must have been populated and cleared, and interpolation and
-  source-path preparation must already be complete. Relative bind paths are
+- All env files must have been populated and cleared, and source-path preparation
+  must already be complete. Relative bind paths are
   rejected rather than resolved against the process working directory.
 - The result contains no config/secret payloads or registry credentials. Docker
   lookup errors are replaced with resource-specific diagnostics that cannot echo
@@ -138,38 +138,17 @@ and [stack labels/network conversion](https://github.com/docker/cli/blob/v28.3.3
 as references. Unit tests do not execute Docker CLI or require a cluster. No
 complete Docker CLI/Compose loader is added to the runtime dependency graph.
 
-## Source interpolation
+## Source value handling
 
-`internal/compose` interpolates source YAML values once, before model decoding,
-resource payload reads and GitOps image-policy checks. It uses Docker CLI
-v28.3.3's `cli/compose/template` and `cli/compose/interpolation` packages directly;
-the Converter receives effective values and never interpolates or unescapes them.
-Full-stack deployment and single-service remediation (including JSON snapshots)
-therefore use the same values, independently of subsequent process-environment changes.
+Repository-controlled Compose values are literal. `FileLoader.Load` does not
+interpolate `$VAR`, `${VAR}`, defaults or required-variable expressions, and
+does not read the controller process environment. Service `environment` lists
+require explicit `KEY=value` entries; null mappings become empty strings.
+`env_file` values remain literal and require explicit `KEY=value` entries.
 
-The supported stack-CLI expressions are `$VAR`, `${VAR}`, `${VAR:-default}`,
-`${VAR-default}`, `${VAR:?error}`, `${VAR?error}`, and `$$`. Unset simple variables
-become empty strings. Defaults distinguish unset from empty variables. Inserted
-values and defaults are not recursively expanded; nested expansions and newer
-Compose operators such as `${VAR:+value}` are not added. Mapping keys are literal.
-Scalar commands are interpolated before shell tokenization; list argument
-boundaries remain intact, including `$$(...)` shell commands.
-
-The interpolation environment is the controller process environment, as with the
-previous stack CLI. Service `environment` and `env_file` are not interpolation
-sources, and `.env` files are not loaded automatically. Env-file payloads remain
-literal, with later files taking precedence and explicit `environment` overriding
-them (including empty values). Config and secret payloads are never interpolated.
-The controller's `x-init-deploy-jobs` extension retains its existing literal
-command/environment semantics; those jobs have always executed directly rather
-than through the stack CLI, so their `$()` shell expressions remain untouched.
-
-Source digests still hash source YAML and referenced payloads, not process
-environment values. Changing only the controller environment is not itself a
-source-change trigger. The raw `compose.Parse` API used for Git source diffs
-does not interpolate. Only `FileLoader.Load` builds interpolated effective models.
-Interpolation diagnostics omit input values and custom
-required-variable messages to keep them out of logs and traces.
+The effective definition is passed directly to the native Docker API converter,
+so full-stack and single-service reconciliation use the same values. Source
+digests continue to hash repository files rather than process environment values.
 
 ## Native apply behavior
 
@@ -201,7 +180,5 @@ Single-service remediation uses the same native components and projects the targ
 service and its referenced networks, configs, secrets and volumes without running Init Jobs.
 
 Docker CLI execution helpers and the `swarm.command` configuration have been removed.
-The runtime image contains no Docker CLI binary. The Docker CLI Go template and
-interpolation packages remain library dependencies for source compatibility; they
-do not execute a Docker binary. Registry configuration still uses `config.json`
+The runtime image contains no Docker CLI binary. Repository Compose values are not processed by Docker CLI interpolation. Registry configuration still uses `config.json`
 and `DOCKER_AUTH_CONFIG` (see [registry authentication](./registry-authentication.md)).

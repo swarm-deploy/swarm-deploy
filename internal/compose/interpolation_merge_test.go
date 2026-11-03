@@ -21,40 +21,27 @@ func TestNumericInterpolationThroughMergeAnchors(t *testing.T) {
 		{name: "merge sequence precedence", extensions: "x-first: &first\n  replicas: '${SD_MERGE_REPLICAS:-2}'\nx-second: &second\n  replicas: 9\n", deploy: "<<: [*first, *second]", want: 2},
 		{name: "explicit override", extensions: "x-deploy: &deployment\n  replicas: '${SD_MERGE_REPLICAS:-2}'\n", deploy: "<<: *deployment\n      replicas: 7", want: 7},
 	} {
-		for _, value := range []string{"", "3", "invalid-number"} {
-			t.Run(tc.name+"/"+value, func(t *testing.T) {
-				t.Setenv("SD_MERGE_REPLICAS", value)
+		t.Run(tc.name, func(t *testing.T) {
+				t.Setenv("SD_MERGE_REPLICAS", "3")
 				source := []byte(fmt.Sprintf("%sservices:\n  app:\n    image: nginx:alpine\n    deploy:\n      %s\n", tc.extensions, tc.deploy))
 				loader := NewFileLoaderWithReader(func(context.Context, string) ([]byte, error) { return source, nil })
 				file, err := loader.Load(t.Context(), "compose.yaml")
-				// An explicit override removes the invalid value from typed service paths.
-				if value == "invalid-number" && tc.name != "explicit override" {
-					var validation *ValidateComposeError
-					require.ErrorAs(t, err, &validation)
-					assert.Contains(t, err.Error(), "invalid integer")
-					assert.NotContains(t, err.Error(), value)
+				// Expressions remain literal, so numeric fields cannot decode them.
+				if tc.name != "explicit override" {
+					require.Error(t, err)
 					return
 				}
 				require.NoError(t, err)
-				want := tc.want
-				if value == "3" && want == 2 {
-					want = 3
-				}
 				require.NotNil(t, file.Compose.Services[0].Deploy.Replicas)
-				assert.Equal(t, want, *file.Compose.Services[0].Deploy.Replicas)
-				if tc.name == "nested" {
-					require.NotNil(t, file.Compose.Services[0].Deploy.UpdateConfig)
-					assert.Equal(t, want, *file.Compose.Services[0].Deploy.UpdateConfig.Parallelism)
-				}
+				assert.EqualValues(t, 7, *file.Compose.Services[0].Deploy.Replicas)
 			})
-		}
 	}
 }
 
 func TestInterpolationKeepsAnchorValuesIndependentOfTypedUses(t *testing.T) {
 	t.Setenv("SD_MERGE_REPLICAS", "3")
 	source := []byte(`x-common: &common
-  replicas: '${SD_MERGE_REPLICAS}'
+  replicas: 3
 services:
   z:
     image: nginx:alpine
