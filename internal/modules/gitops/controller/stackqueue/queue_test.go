@@ -13,9 +13,9 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackloop"
-	"go.uber.org/mock/gomock"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
+	"go.uber.org/mock/gomock"
 )
 
 const testWait = 5 * time.Second
@@ -36,6 +36,7 @@ func TestQueueBoundsParallelism(t *testing.T) {
 			ctrl := gomock.NewController(t)
 			reconciler := stackloop.NewMockStackReconciler(ctrl)
 			var inFlight, peak atomic.Int32
+			release := make(chan struct{})
 			reconciler.EXPECT().Reconcile(gomock.Any(), gomock.Any()).DoAndReturn(
 				func(context.Context, stackloop.ReconciliationRequest) error {
 					current := inFlight.Add(1)
@@ -45,7 +46,9 @@ func TestQueueBoundsParallelism(t *testing.T) {
 							break
 						}
 					}
-					time.Sleep(20 * time.Millisecond)
+					// Every operation holds its worker until release, so all workers fill up
+					// deterministically instead of depending on scheduling within a sleep.
+					<-release
 					inFlight.Add(-1)
 					return nil
 				}).Times(6)
@@ -54,8 +57,106 @@ func TestQueueBoundsParallelism(t *testing.T) {
 			replace(t, queue, request("a", "v1", false), request("b", "v1", false), request("c", "v1", false),
 				request("d", "v1", false), request("e", "v1", false), request("f", "v1", false))
 
+			require.Eventually(t, func() bool { return inFlight.Load() == tt.expected }, testWait, time.Millisecond,
+				"every worker should pick up an operation")
+			close(release)
 			waitIdle(t, queue)
-			assert.Equal(t, tt.expected, peak.Load())
+			assert.Equal(t, tt.expected, peak.Load(), "no more operations than workers may run at once")
+		})
+	}
+}
+
+func TestQueueKeepsWaitingOrderAcrossRuns(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	reconciler := stackloop.NewMockStackReconciler(ctrl)
+	started, release := make(chan string), make(chan struct{})
+	reconciler.EXPECT().Reconcile(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, req stackloop.ReconciliationRequest) error {
+			started <- req.Stack.Name
+			<-release
+			return nil
+		}).Times(4)
+	queue := newTestQueue(t, reconciler, 1)
+	periodic := []stackloop.ReconciliationRequest{
+		request("a", "v1", false), request("b", "v1", false), request("c", "v1", false),
+	}
+
+	replace(t, queue, periodic...)
+	assert.Equal(t, "a", receiveName(t, started))
+	release <- struct{}{}
+	assert.Equal(t, "b", receiveName(t, started))
+	// The next periodic run arrives while b is running and a has already had its turn:
+	// a must wait behind c, otherwise passes longer than the interval starve the last stacks.
+	replace(t, queue, periodic...)
+	release <- struct{}{}
+	assert.Equal(t, "c", receiveName(t, started), "a stack that already ran must not overtake a waiting one")
+	release <- struct{}{}
+	assert.Equal(t, "a", receiveName(t, started))
+	release <- struct{}{}
+
+	waitIdle(t, queue)
+}
+
+func TestQueueDropsWaitingWorkWhenRunningOperationIsDesiredAgain(t *testing.T) {
+	reverted := request("app", "v1", false)
+	reverted.Stack.ComposeFile = "reverted.yaml"
+	tests := []struct {
+		name     string
+		waiting  stackloop.ReconciliationRequest
+		expected []string
+	}{
+		{
+			name:     "reverted revision",
+			waiting:  request("app", "v2", false),
+			expected: []string{"app@v1"},
+		},
+		{
+			name:     "reverted specification",
+			waiting:  reverted,
+			expected: []string{"app@v1"},
+		},
+		{
+			name:     "waiting manual request still runs manually at the desired revision",
+			waiting:  request("app", "v2", true),
+			expected: []string{"app@v1", "app@v1(manual)"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			reconciler := stackloop.NewMockStackReconciler(ctrl)
+			started, release := make(chan struct{}), make(chan struct{})
+			var mu sync.Mutex
+			var seen []string
+			reconciler.EXPECT().Reconcile(gomock.Any(), gomock.Any()).DoAndReturn(
+				func(_ context.Context, req stackloop.ReconciliationRequest) error {
+					entry := req.Stack.Name + "@" + req.Commit
+					if req.IsManual {
+						entry += "(manual)"
+					}
+					mu.Lock()
+					seen = append(seen, entry)
+					first := len(seen) == 1
+					mu.Unlock()
+					if first {
+						close(started)
+						<-release
+					}
+					return nil
+				}).Times(len(tt.expected))
+			queue := newTestQueue(t, reconciler, 1)
+
+			replace(t, queue, request("app", "v1", false))
+			receive(t, started)
+			replace(t, queue, tt.waiting)
+			replace(t, queue, request("app", "v1", false))
+			close(release)
+
+			waitIdle(t, queue)
+			mu.Lock()
+			defer mu.Unlock()
+			assert.Equal(t, tt.expected, seen, "work superseded by the running operation must never run")
 		})
 	}
 }
@@ -275,21 +376,6 @@ func TestQueueSkipsRepeatedIntervalDuringRunningReconciliation(t *testing.T) {
 	waitIdle(t, queue)
 }
 
-func TestQueuePreservesNewRevisionDuringRepeatedInterval(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	reconciler := stackloop.NewMockStackReconciler(ctrl)
-	started, release := make(chan struct{}), make(chan struct{})
-	seen := recordReconciliations(reconciler, started, release, 2)
-	queue := newTestQueue(t, reconciler, 1)
-	replace(t, queue, request("app", "v1", false))
-	receive(t, started)
-	replace(t, queue, request("app", "v2", false))
-	replace(t, queue, request("app", "v1", false))
-	close(release)
-	waitIdle(t, queue)
-	assert.Equal(t, []string{"app@v1", "app@v2"}, seen())
-}
-
 func TestQueueManualRequestDuringRunningReconciliation(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	reconciler := stackloop.NewMockStackReconciler(ctrl)
@@ -456,6 +542,17 @@ func waitIdle(t *testing.T, queue *Queue) {
 	ctx, cancel := context.WithTimeout(t.Context(), testWait)
 	defer cancel()
 	require.NoError(t, queue.WaitIdle(ctx), "stack queue did not become idle")
+}
+
+func receiveName(t *testing.T, ch <-chan string) string {
+	t.Helper()
+	select {
+	case name := <-ch:
+		return name
+	case <-time.After(testWait):
+		require.FailNow(t, "timed out waiting for stack operation")
+		return ""
+	}
 }
 
 func receive(t *testing.T, ch <-chan struct{}) {

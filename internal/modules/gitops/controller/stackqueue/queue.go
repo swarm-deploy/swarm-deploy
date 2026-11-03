@@ -8,9 +8,11 @@
 // has replaced it. A run that fails after accepting a new configuration clears all waiting work (Clear)
 // instead of letting older revisions run under it.
 //
-// Stacks changed in Git run first: Replace orders waiting work by the plan of the latest run, and a
-// waiting stack keeps its changed mark until it runs, so a later run without a diff (for example, the
-// periodic one) does not push it back.
+// Stacks changed in Git run first, and a waiting stack keeps its changed mark until it runs, so a later
+// run without a diff (for example, the periodic one) does not push it back. Within each group the queue
+// is first-in, first-out: a stack that is already waiting keeps its place, and a stack that ran and is
+// queued again waits behind the stacks that have not had their turn yet. A run that takes longer than
+// the sync interval therefore cannot starve the stacks at the end of the configuration.
 //
 // A slow stack never delays Git polling, later sync runs or other stacks while a worker is free.
 // Running operations are never interrupted by Replace or Clear; they finish within their lifecycle.
@@ -123,9 +125,10 @@ func (q *Queue) Stop() {
 // changed names stacks whose source changed in Git; it may be nil.
 //
 // A reconciliation already waiting for a stack is superseded, keeping the manual and changed marks of
-// either request, and a waiting cleanup is superseded too. An identical non-manual request for a running
-// stack does not schedule redundant work. Waiting stacks are reordered by this run:
-// changed stacks first, then the others, each group in request order. It returns false after Stop.
+// either request, and a waiting cleanup is superseded too. A non-manual request identical to the running
+// operation of a stack drops the work waiting for that stack: the desired state is already being applied.
+// Changed stacks wait before the others; within each group stacks that were already waiting keep their
+// order and newly queued stacks follow in request order. It returns false after Stop.
 func (q *Queue) Replace(
 	ctx context.Context, requests []stackloop.ReconciliationRequest, changed map[string]bool,
 ) ([]string, bool) {
@@ -157,16 +160,12 @@ func (q *Queue) Replace(
 				op.request.IsManual = op.request.IsManual || previous.request.IsManual
 			}
 		}
-		// A periodic run must not add another pass for a stack already reconciling
-		// the same revision and specification. Manual requests and real changes still wait.
+		// The running operation already applies the desired revision and specification, so any work
+		// waiting for the stack is stale: for example, a revision that was reverted while it waited.
+		// Manual requests (including a manual mark inherited from waiting work) still run again.
 		if running, busy := q.running[name]; busy && running.kind == OperationReconcile &&
 			running.request.Commit == req.Commit && reflect.DeepEqual(running.request.Stack, req.Stack) &&
 			!op.request.IsManual {
-			if previous, hasPrevious := q.pending[name]; hasPrevious && previous.kind == OperationReconcile &&
-				(previous.request.Commit != req.Commit ||
-					!reflect.DeepEqual(previous.request.Stack, req.Stack) || previous.request.IsManual) {
-				continue
-			}
 			delete(q.pending, name)
 			continue
 		}
@@ -179,18 +178,30 @@ func (q *Queue) Replace(
 }
 
 // rebuildReadyLocked orders every waiting stack that is not running: changed stacks first, then the
-// others, each group in request order. Running stacks re-enter the ready list through finish.
+// others. Within each group stacks already in the ready list keep their order, so re-queuing a stack
+// never moves it ahead of stacks that have been waiting longer; stacks that were not waiting follow in
+// request order. Running stacks re-enter the ready list through finish.
 func (q *Queue) rebuildReadyLocked(requests []stackloop.ReconciliationRequest) {
+	previous := q.ready
 	ready := make([]string, 0, len(requests))
 	seen := make(map[string]struct{}, len(requests))
+	add := func(name string, changedPass bool) {
+		if _, isSeen := seen[name]; isSeen || q.isRunningLocked(name) {
+			return
+		}
+		op, isPending := q.pending[name]
+		if !isPending || op.changed != changedPass {
+			return
+		}
+		seen[name] = struct{}{}
+		ready = append(ready, name)
+	}
 	for _, changedPass := range []bool{true, false} {
+		for _, name := range previous {
+			add(name, changedPass)
+		}
 		for _, req := range requests {
-			name := req.Stack.Name
-			if _, isSeen := seen[name]; isSeen || q.isRunningLocked(name) || q.pending[name].changed != changedPass {
-				continue
-			}
-			seen[name] = struct{}{}
-			ready = append(ready, name)
+			add(req.Stack.Name, changedPass)
 		}
 	}
 	q.ready = ready
