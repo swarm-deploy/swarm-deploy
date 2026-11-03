@@ -27,7 +27,7 @@ func TestControllerGracefulShutdownPreservesActiveReconciliation(t *testing.T) {
 	})
 
 	controller := &Controller{
-		scheduler: scheduler.New(controllerTestConfig(), runner),
+		scheduler:    scheduler.New(controllerTestConfig(), runner),
 		shutdownWait: 200 * time.Millisecond,
 	}
 	ctx, cancel := context.WithCancel(t.Context())
@@ -65,7 +65,7 @@ func TestControllerCancelsReconciliationAfterGracePeriod(t *testing.T) {
 		canceled <- ctx.Err()
 	})
 	controller := &Controller{
-		scheduler: scheduler.New(controllerTestConfig(), runner),
+		scheduler:    scheduler.New(controllerTestConfig(), runner),
 		shutdownWait: 100 * time.Millisecond,
 	}
 	ctx, cancel := context.WithCancel(t.Context())
@@ -156,8 +156,8 @@ func TestControllersSharingDataDirectoryDoNotReconcileConcurrently(t *testing.T)
 }
 
 func controllerTestConfig() *config.Config {
-	return &config.Config{Spec: config.Spec{Sync: config.SyncSpec{
-		Mode: config.SyncModeWebhook,
+	return &config.Config{Spec: config.Spec{GitOps: config.GitOpsSpec{Sync: config.SyncSpec{
+		Mode:     config.SyncModeWebhook,
 		Interval: specw.Duration{Value: time.Hour},
-	}}}
+	}}}}
 }

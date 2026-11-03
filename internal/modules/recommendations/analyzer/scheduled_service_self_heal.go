@@ -24,7 +24,7 @@ func NewScheduledServiceSelfHealAnalyzer(cfg *config.Config) *ScheduledServiceSe
 
 // Analyze checks scheduled services against service, stack, and global self-heal policies.
 func (a *ScheduledServiceSelfHealAnalyzer) Analyze(_ context.Context, stack model.Stack) []model.Recommendation {
-	selfHeal := a.cfg.Spec.Sync.Policy.SelfHeal
+	selfHeal := a.cfg.Spec.GitOps.Sync.Policy.SelfHeal
 	for _, configured := range a.cfg.Stacks() {
 		if configured.Name == stack.Name && configured.Sync.Policy.SelfHeal != nil {
 			selfHeal = *configured.Sync.Policy.SelfHeal

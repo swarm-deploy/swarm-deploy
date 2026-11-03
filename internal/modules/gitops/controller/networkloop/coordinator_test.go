@@ -124,11 +124,11 @@ func newNetworkTestConfigStore(t *testing.T, network string) *configstore.Config
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "stacks.yaml"),
 		[]byte("stacks:\n  - name: app\n    composeFile: app.yaml\n"), 0o600))
-	cfg := &config.Config{Spec: config.Spec{StacksSource: config.StacksSourceSpec{File: "stacks.yaml"}}}
+	cfg := &config.Config{Spec: config.Spec{GitOps: config.GitOpsSpec{Stacks: config.StacksSourceSpec{File: "stacks.yaml"}}}}
 	if network != "" {
 		require.NoError(t, os.WriteFile(filepath.Join(dir, "networks.yaml"),
 			[]byte("networks:\n  - name: "+network+"\n"), 0o600))
-		cfg.Spec.NetworksSource.File = "networks.yaml"
+		cfg.Spec.GitOps.Networks.File = "networks.yaml"
 	}
 	_, err := cfg.Reload(dir)
 	require.NoError(t, err)

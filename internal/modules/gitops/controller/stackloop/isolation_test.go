@@ -61,7 +61,7 @@ func TestDeferredDeploymentIsolatesIndependentReconciliation(t *testing.T) {
 			manifest += "  c:\n    image: example/c:1\n"
 			require.NoError(t, os.WriteFile(filepath.Join(dir, "app.yaml"), []byte(manifest), 0o600))
 			mockRepositoryFiles(repository, dir)
-			cfg := &config.Config{Spec: config.Spec{DataDir: filepath.Join(dir, ".data"), Sync: config.SyncSpec{Policy: config.SyncPolicySpec{SelfHeal: tc.global, Prune: true}}}}
+			cfg := &config.Config{Spec: config.Spec{DataDir: filepath.Join(dir, ".data"), GitOps: config.GitOpsSpec{Sync: config.SyncSpec{Policy: config.SyncPolicySpec{SelfHeal: tc.global, Prune: true}}}}}
 			alerts := alertstore.NewSQLStore(db)
 			subscriber := alertmanagement.NewSQLSubscriber(alerts, &dispatcher.NopDispatcher{}, func(alertmodel.AlertKind) []events.AlertRecipient { return nil }, cfg)
 			var published []events.TypeName

@@ -69,12 +69,12 @@ func TestConfigValidateTracing(t *testing.T) {
 				Transport: "udp",
 				Exporter:  TracingExporterSpec{Endpoint: specw.Env[string]{Value: "http://otel-collector:4318"}},
 			},
-			wantErr: "tracing.transport must be one of",
+			wantErr: "system.tracing.transport must be one of",
 		},
 		{
 			name:    "empty endpoint",
 			tracing: &TracingSpec{Transport: TracingTransportHTTP},
-			wantErr: "tracing.exporter.endpoint is required",
+			wantErr: "system.tracing.exporter.endpoint is required",
 		},
 		{
 			name: "endpoint without scheme",
@@ -82,7 +82,7 @@ func TestConfigValidateTracing(t *testing.T) {
 				Transport: TracingTransportGRPC,
 				Exporter:  TracingExporterSpec{Endpoint: specw.Env[string]{Value: "otel-collector:4317"}},
 			},
-			wantErr: "tracing.exporter.endpoint must include http:// or https:// scheme",
+			wantErr: "system.tracing.exporter.endpoint must include http:// or https:// scheme",
 		},
 		{
 			name: "unsupported endpoint scheme",
@@ -90,7 +90,7 @@ func TestConfigValidateTracing(t *testing.T) {
 				Transport: TracingTransportGRPC,
 				Exporter:  TracingExporterSpec{Endpoint: specw.Env[string]{Value: "grpc://otel-collector:4317"}},
 			},
-			wantErr: "tracing.exporter.endpoint scheme must be http or https",
+			wantErr: "system.tracing.exporter.endpoint scheme must be http or https",
 		},
 		{
 			name: "endpoint without host",
@@ -98,7 +98,7 @@ func TestConfigValidateTracing(t *testing.T) {
 				Transport: TracingTransportHTTP,
 				Exporter:  TracingExporterSpec{Endpoint: specw.Env[string]{Value: "http:///v1/traces"}},
 			},
-			wantErr: "tracing.exporter.endpoint must contain host",
+			wantErr: "system.tracing.exporter.endpoint must contain host",
 		},
 		{
 			name: "invalid endpoint",
@@ -106,7 +106,7 @@ func TestConfigValidateTracing(t *testing.T) {
 				Transport: TracingTransportHTTP,
 				Exporter:  TracingExporterSpec{Endpoint: specw.Env[string]{Value: "http://[::1"}},
 			},
-			wantErr: "tracing.exporter.endpoint is invalid",
+			wantErr: "system.tracing.exporter.endpoint is invalid",
 		},
 		{
 			name: "sampler always on",
@@ -134,7 +134,7 @@ func TestConfigValidateTracing(t *testing.T) {
 				Sampler:   TracingSamplerSpec{Strategy: specw.Env[string]{Value: "parentbased_always_on"}},
 				Exporter:  TracingExporterSpec{Endpoint: specw.Env[string]{Value: "http://otel-collector:4318/v1/traces"}},
 			},
-			wantErr: "tracing.sampler.strategy must be one of",
+			wantErr: "system.tracing.sampler.strategy must be one of",
 		},
 		{
 			name: "sampler ratio is too large",
@@ -146,7 +146,7 @@ func TestConfigValidateTracing(t *testing.T) {
 				},
 				Exporter: TracingExporterSpec{Endpoint: specw.Env[string]{Value: "http://otel-collector:4318/v1/traces"}},
 			},
-			wantErr: "tracing.sampler.ratio must be between 0 and 1",
+			wantErr: "system.tracing.sampler.ratio must be between 0 and 1",
 		},
 		{
 			name: "authorization header",
@@ -157,7 +157,7 @@ func TestConfigValidateTracing(t *testing.T) {
 					Headers:  map[string]specw.Env[string]{" Authorization ": {Value: "Bearer forbidden"}},
 				},
 			},
-			wantErr: "tracing.exporter.headers must not contain authorization",
+			wantErr: "system.tracing.exporter.headers must not contain authorization",
 		},
 		{
 			name: "empty bearer token",
@@ -168,7 +168,7 @@ func TestConfigValidateTracing(t *testing.T) {
 					Authentication: TracingAuthenticationSpec{Bearer: specw.File{Path: "/run/secrets/otel-bearer"}},
 				},
 			},
-			wantErr: "tracing.exporter.authentication.bearerPath contains empty token",
+			wantErr: "system.tracing.exporter.authentication.bearerPath contains empty token",
 		},
 		{
 			name: "empty api key",
@@ -179,7 +179,7 @@ func TestConfigValidateTracing(t *testing.T) {
 					Authentication: TracingAuthenticationSpec{APIKey: specw.File{Path: "/run/secrets/otel-api-key"}},
 				},
 			},
-			wantErr: "tracing.exporter.authentication.apiKeyPath contains empty token",
+			wantErr: "system.tracing.exporter.authentication.apiKeyPath contains empty token",
 		},
 		{
 			name: "bearer and api key",
@@ -193,7 +193,7 @@ func TestConfigValidateTracing(t *testing.T) {
 					},
 				},
 			},
-			wantErr: "tracing.exporter.authentication.bearerPath and apiKeyPath cannot be used together",
+			wantErr: "system.tracing.exporter.authentication.bearerPath and apiKeyPath cannot be used together",
 		},
 		{
 			name: "empty x api key",
@@ -204,13 +204,13 @@ func TestConfigValidateTracing(t *testing.T) {
 					Authentication: TracingAuthenticationSpec{XAPIKey: specw.File{Path: "/run/secrets/otel-x-api-key"}},
 				},
 			},
-			wantErr: "tracing.exporter.authentication.xApiKeyPath contains empty token",
+			wantErr: "system.tracing.exporter.authentication.xApiKeyPath contains empty token",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cfg := &Config{Spec: Spec{Tracing: tt.tracing}}
+			cfg := &Config{Spec: Spec{System: SystemSpec{Tracing: tt.tracing}}}
 
 			errs := cfg.validateTracing()
 			if tt.wantErr == "" {

@@ -47,7 +47,7 @@ func newLifecycleFixture(t *testing.T, prune bool) *lifecycleFixture {
 	t.Helper()
 	base := newExternalSwarmFixture(t)
 	cfg := &config.Config{Spec: config.Spec{
-		DataDir: t.TempDir(), Sync: config.SyncSpec{Policy: config.SyncPolicySpec{Prune: prune, SelfHeal: true}},
+		DataDir: t.TempDir(), GitOps: config.GitOpsSpec{Sync: config.SyncSpec{Policy: config.SyncPolicySpec{Prune: prune, SelfHeal: true}}},
 	}}
 	dir := filepath.Dir(base.path)
 	gitCommand(t, base.ctx, dir, "init")
@@ -74,7 +74,7 @@ func newLifecycleComponents(t *testing.T, base *externalSwarmFixture, cfg *confi
 		require.NoError(t, f.bus.Subscribe(typ, "e2e-history", f.history))
 	}
 	f.executor = deployments.NewController(deployments.NewService(db, f.bus), f.deployer, f.sw.Services,
-		pruner.NewServicePruner(f.sw.Services, f.bus, cfg.Spec.Sync.Policy), &metrics.NopDeploys{})
+		pruner.NewServicePruner(f.sw.Services, f.bus, cfg.Spec.GitOps.Sync.Policy), &metrics.NopDeploys{})
 	rotator := stackloop.NewRotator()
 	f.reconciler = stackloop.New(cfg, f.executor, f.sw, f.bus, &metrics.NopDeploys{}, f.state,
 		preparation.New(cfg, repository, rotator), rotator, db)

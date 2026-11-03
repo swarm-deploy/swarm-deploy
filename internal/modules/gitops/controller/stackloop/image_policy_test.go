@@ -167,9 +167,9 @@ func TestImagePolicyViolationLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	cfg := &config.Config{Spec: config.Spec{
 		DataDir: filepath.Join(t.TempDir(), "data"),
-		Sync: config.SyncSpec{Policy: config.SyncPolicySpec{
+		GitOps: config.GitOpsSpec{Sync: config.SyncSpec{Policy: config.SyncPolicySpec{
 			Image: imagePolicy(false, true, false),
-		}},
+		}}},
 	}}
 	subscriber := alertmanagement.NewSQLSubscriber(alerts, bus,
 		func(alertmodel.AlertKind) []events.AlertRecipient { return nil }, cfg)

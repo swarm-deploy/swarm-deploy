@@ -44,54 +44,54 @@ type WebhookRateLimitSpec struct {
 }
 
 func (c *Config) applyWebhookDefaults() {
-	if c.Spec.Sync.Webhook.MaxBodyBytes == 0 {
-		c.Spec.Sync.Webhook.MaxBodyBytes = defaultWebhookMaxBodyBytes
+	if c.Spec.GitOps.Sync.Webhook.MaxBodyBytes == 0 {
+		c.Spec.GitOps.Sync.Webhook.MaxBodyBytes = defaultWebhookMaxBodyBytes
 	}
-	if c.Spec.Sync.Webhook.RateLimit.RequestsPerSecond == 0 {
-		c.Spec.Sync.Webhook.RateLimit.RequestsPerSecond = defaultWebhookRateLimitRequestsPerSecond
+	if c.Spec.GitOps.Sync.Webhook.RateLimit.RequestsPerSecond == 0 {
+		c.Spec.GitOps.Sync.Webhook.RateLimit.RequestsPerSecond = defaultWebhookRateLimitRequestsPerSecond
 	}
-	if c.Spec.Sync.Webhook.RateLimit.Burst == 0 {
-		c.Spec.Sync.Webhook.RateLimit.Burst = defaultWebhookRateLimitBurst
+	if c.Spec.GitOps.Sync.Webhook.RateLimit.Burst == 0 {
+		c.Spec.GitOps.Sync.Webhook.RateLimit.Burst = defaultWebhookRateLimitBurst
 	}
 }
 
 func (c *Config) validateWebhook() []error {
-	if !c.Spec.Sync.Webhook.Enabled {
+	if !c.Spec.GitOps.Sync.Webhook.Enabled {
 		return nil
 	}
 
 	var errs []error
 
-	if len(c.Spec.Sync.Webhook.Auth) == 0 {
-		errs = append(errs, errors.New("sync.webhook.auth must contain at least one authentication method"))
+	if len(c.Spec.GitOps.Sync.Webhook.Auth) == 0 {
+		errs = append(errs, errors.New("gitops.sync.webhook.auth must contain at least one authentication method"))
 	}
 
-	for i, auth := range c.Spec.Sync.Webhook.Auth {
+	for i, auth := range c.Spec.GitOps.Sync.Webhook.Auth {
 		if !auth.Type.IsSupported() {
 			errs = append(
 				errs,
-				fmt.Errorf("sync.webhook.auth[%d].type must be one of github|header|bearer, got %q", i, auth.Type),
+				fmt.Errorf("gitops.sync.webhook.auth[%d].type must be one of github|header|bearer, got %q", i, auth.Type),
 			)
 			continue
 		}
 
 		if strings.TrimSpace(string(auth.Secret.Content)) == "" {
-			errs = append(errs, fmt.Errorf("sync.webhook.auth[%d].secretPath contains empty secret", i))
+			errs = append(errs, fmt.Errorf("gitops.sync.webhook.auth[%d].secretPath contains empty secret", i))
 		}
 
 		if auth.Type == WebhookAuthTypeHeader && strings.TrimSpace(auth.Header) == "" {
-			errs = append(errs, fmt.Errorf("sync.webhook.auth[%d].header is required for type=header", i))
+			errs = append(errs, fmt.Errorf("gitops.sync.webhook.auth[%d].header is required for type=header", i))
 		}
 	}
 
-	if c.Spec.Sync.Webhook.MaxBodyBytes <= 0 {
-		errs = append(errs, errors.New("sync.webhook.maxBodyBytes must be > 0"))
+	if c.Spec.GitOps.Sync.Webhook.MaxBodyBytes <= 0 {
+		errs = append(errs, errors.New("gitops.sync.webhook.maxBodyBytes must be > 0"))
 	}
-	if c.Spec.Sync.Webhook.RateLimit.RequestsPerSecond <= 0 {
-		errs = append(errs, errors.New("sync.webhook.rateLimit.requestsPerSecond must be > 0"))
+	if c.Spec.GitOps.Sync.Webhook.RateLimit.RequestsPerSecond <= 0 {
+		errs = append(errs, errors.New("gitops.sync.webhook.rateLimit.requestsPerSecond must be > 0"))
 	}
-	if c.Spec.Sync.Webhook.RateLimit.Burst <= 0 {
-		errs = append(errs, errors.New("sync.webhook.rateLimit.burst must be > 0"))
+	if c.Spec.GitOps.Sync.Webhook.RateLimit.Burst <= 0 {
+		errs = append(errs, errors.New("gitops.sync.webhook.rateLimit.burst must be > 0"))
 	}
 
 	return errs

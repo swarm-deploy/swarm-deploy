@@ -1,38 +1,77 @@
-# Git repository settings for stack manifests.
-git:
-  # Repository URL (ssh/https).
-  repository: https://github.com/your-org/your-stacks-repo.git
-  # Branch to synchronize.
-  branch: main
-  # Maximum time for Git pull, including waiting for repository access. Defaults to 2m.
-  pullTimeout: 2m
-  # Git authentication settings.
-  auth:
-    # Authentication type: none | http | ssh.
-    type: none
+gitops:
+  # Git repository settings for stack manifests.
+  git:
+    # Repository URL (ssh/https).
+    repository: https://github.com/your-org/your-stacks-repo.git
+    # Branch to synchronize.
+    branch: main
+    # Git authentication settings.
+    auth:
+      # Authentication type: none | http | ssh.
+      type: none
+    pull:
+      # Git polling interval.
+      interval: 30s
+      # Maximum time for Git pull, including waiting for repository access. Defaults to 2m.
+      timeout: 2m
 
-# Git-to-deploy synchronization settings.
-sync:
-  # Synchronization mode: pull | webhook | hybrid.
-  mode: pull
-  # Git polling interval.
-  pollInterval: 30s
-  # Reconciliation interval against the current local desired state.
-  interval: 1m
-  # Maximum number of stacks reconciled at the same time. Defaults to 1.
-  # Set to 4 explicitly to enable parallel deployments across different stacks.
-  parallelism: 1
-  policy:
-    # Removes orphaned managed services that are no longer defined in compose.
-    prune: true
-    # Reapplies services whose live state differs from the desired state.
-    selfHeal: true
-    # Optional service image reference rules. All are disabled by default.
-    image:
-      tag:
-        required: false
-        no_latest: false
-        only_sha: false
+  # Git-to-deploy synchronization settings.
+  sync:
+    # Synchronization mode: pull | webhook | hybrid.
+    mode: pull
+    # Reconciliation interval against the current local desired state.
+    interval: 1m
+    # Maximum number of stacks reconciled at the same time. Defaults to 1.
+    # Set to 4 explicitly to enable parallel deployments across different stacks.
+    parallelism: 1
+    policy:
+      # Removes orphaned managed services that are no longer defined in compose.
+      prune: true
+      # Reapplies services whose live state differs from the desired state.
+      selfHeal: true
+      # Optional service image reference rules. All are disabled by default.
+      image:
+        tag:
+          required: false
+          no_latest: false
+          only_sha: false
+
+  # Stacks source settings.
+  stacks:
+    # Path to stacks definition file in git repository (relative to repo root).
+    file: ./stacks.yaml
+
+  # Managed Docker networks source settings.
+  networks:
+    # Path to network definitions file in git repository (relative to repo root).
+    file: ./networks.yaml
+
+  # Inject Swarm downward environment variables into services.
+  downward:
+    enabled: true
+
+  # Optional age identity file; works even when rotation is disabled.
+  # secrets:
+  #   age:
+  #     identityFile: /run/secrets/swarm_deploy_age_identity
+
+  # Secret/config name rotation settings.
+  resourceRotation:
+    # Enable rotation.
+    enabled: true
+    # Hash suffix length.
+    hashLength: 10
+    # Include source file path in hash.
+    includePath: true
+    # Best-effort cleanup of old managed generations.
+    cleanup:
+      enabled: true
+      # Minimum interval between periodic cleanup attempts.
+      interval: 4h
+      # Keep at least this many newest generations per logical config/secret.
+      keepLast: 2
+      # Never remove generations younger than this age.
+      minAge: 1h
 
 # AI assistant settings.
 assistant:
@@ -62,22 +101,13 @@ assistant:
       # Sampling temperature in range [0, 2].
       temperature: "0.2"
       # Max generated tokens for response.
-      maxTokens: "800"
-
-# Stacks source settings.
-stacks:
-  # Path to stacks definition file in git repository (relative to repo root).
-  file: ./stacks.yaml
-
-# Managed Docker networks source settings.
-networks:
-  # Path to network definitions file in git repository (relative to repo root).
-  file: ./networks.yaml
+      maxTokens: 800
 
 # Event history settings.
-eventHistory:
-  # Maximum number of events stored on disk.
-  capacity: 500
+event:
+  history:
+    # Maximum number of events stored on disk.
+    capacity: 500
 
 # Notification transport, automatic alert delivery and explicit event subscriptions.
 notifications:
@@ -118,61 +148,37 @@ notifications:
             action: reply
             message: "🟢 Node connected: {{ .ResourceID }}"
 
-# Secret/config name rotation settings.
-secretRotation:
-  # Optional age identity file; works even when rotation is disabled.
-  # age:
-  #   identityFile: /run/secrets/swarm_deploy_age_identity
-  # Enable rotation.
-  enabled: true
-  # Hash suffix length.
-  hashLength: 10
-  # Include source file path in hash.
-  includePath: true
-  # Best-effort cleanup of old managed generations.
-  cleanup:
-    enabled: true
-    # Minimum interval between periodic cleanup attempts.
-    interval: 4h
-    # Keep at least this many newest generations per logical config/secret.
-    keepLast: 2
-    # Never remove generations younger than this age.
-    minAge: 1h
-
-# Container runtime settings.
-containers:
-  # Inject Swarm downward environment variables into services.
-  downward: {}
-
 # OpenTelemetry tracing. Uncomment to enable.
-# tracing:
-#   # OTLP transport: http | grpc.
-#   transport: http
-#   sampler:
-#     # Sampling strategy: always_on | always_off | traceidratio | parentbased_traceidratio.
-#     strategy: ${OTEL_TRACES_SAMPLER}
-#     # Sampling ratio for traceidratio strategies. Must be between 0 and 1.
-#     ratio: ${OTEL_TRACES_SAMPLER_ARG}
-#   exporter:
-#     endpoint: $OTEL_EXPORTER_OTLP_ENDPOINT
-#     # Header values can reference environment variables.
-#     # Authorization must be configured via authentication.bearerPath or authentication.apiKeyPath.
-#     headers:
-#       x-tenant: $OTEL_TENANT
-#     authentication:
-#       # Optional path to a file containing bearer token.
-#       bearerPath: /run/secrets/otel-bearer
-#       # Optional path to a file containing API key for Authorization: Api-Key <value>.
-#       apiKeyPath: /run/secrets/otel-api-key
-#       # Optional path to a file containing x-api-key.
-#       xApiKeyPath: /run/secrets/otel-x-api-key
+# system:
+#   tracing:
+#     # OTLP transport: http | grpc.
+#     transport: http
+#     sampler:
+#       # Sampling strategy: always_on | always_off | traceidratio | parentbased_traceidratio.
+#       strategy: ${OTEL_TRACES_SAMPLER}
+#       # Sampling ratio for traceidratio strategies. Must be between 0 and 1.
+#       ratio: ${OTEL_TRACES_SAMPLER_ARG}
+#     exporter:
+#       endpoint: $OTEL_EXPORTER_OTLP_ENDPOINT
+#       # Header values can reference environment variables.
+#       # Authorization must be configured via authentication.bearerPath or authentication.apiKeyPath.
+#       headers:
+#         x-tenant: $OTEL_TENANT
+#       authentication:
+#         # Optional path to a file containing bearer token.
+#         bearerPath: /run/secrets/otel-bearer
+#         # Optional path to a file containing API key for Authorization: Api-Key <value>.
+#         apiKeyPath: /run/secrets/otel-api-key
+#         # Optional path to a file containing x-api-key.
+#         xApiKeyPath: /run/secrets/otel-x-api-key
 
-# Swarm Init Job settings.
-swarm:
-  # Init job polling interval.
-  initJobPollEvery: 2s
-  # Maximum init job duration.
-  initJobMaxDuration: 10m
+# Deployment polling and Init Job settings.
+deployments:
+  # Polling interval for Init Jobs and service convergence.
+  pollInterval: 2s
+  initJobs:
+    # Maximum init job duration.
+    maxDuration: 10m
 
 # UI and API web server address.
 web:
@@ -180,14 +186,11 @@ web:
   address: ":8080"
   # URL prefix for UI and API routes. Use / for root deployment.
   basePath: /
-  # UI/API access control settings.
-  security:
-    authentication:
-      basic:
-        # Path to htpasswd file with bcrypt hashes (mounted secret recommended).
-        # Example: /run/secrets/basic.htpasswd
-        # Leave empty to disable authentication.
-        htpasswdFile: ""
+  # Uncomment to enable basic authentication with a mounted htpasswd file.
+  # security:
+  #   authentication:
+  #     basic:
+  #       htpasswdFile: /run/secrets/basic.htpasswd
 
 # Dedicated health/metrics server.
 healthServer:

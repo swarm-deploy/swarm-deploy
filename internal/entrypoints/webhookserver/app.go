@@ -34,14 +34,14 @@ func NewApplication(address string, cfg *config.Config, control *controller.Cont
 		cfg:     cfg,
 		control: control,
 		limiter: rate.NewLimiter(
-			rate.Limit(cfg.Spec.Sync.Webhook.RateLimit.RequestsPerSecond),
-			cfg.Spec.Sync.Webhook.RateLimit.Burst,
+			rate.Limit(cfg.Spec.GitOps.Sync.Webhook.RateLimit.RequestsPerSecond),
+			cfg.Spec.GitOps.Sync.Webhook.RateLimit.Burst,
 		),
 	}
 
 	var err error
 
-	app.authenticator, err = authenticator.NewAuthenticator(&cfg.Spec.Sync.Webhook)
+	app.authenticator, err = authenticator.NewAuthenticator(&cfg.Spec.GitOps.Sync.Webhook)
 	if err != nil {
 		return nil, fmt.Errorf("create authenticator: %w", err)
 	}
@@ -61,7 +61,7 @@ func (a *Application) Entrypoint() entrypoint.Entrypoint {
 }
 
 func (a *Application) registerRoutes() {
-	a.mux.HandleFunc(a.cfg.Spec.Sync.Webhook.Path, a.handleGitWebhook)
+	a.mux.HandleFunc(a.cfg.Spec.GitOps.Sync.Webhook.Path, a.handleGitWebhook)
 }
 
 func (a *Application) handleGitWebhook(w http.ResponseWriter, r *http.Request) {
@@ -77,7 +77,7 @@ func (a *Application) handleGitWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	body, err := readBody(w, r, a.cfg.Spec.Sync.Webhook.MaxBodyBytes)
+	body, err := readBody(w, r, a.cfg.Spec.GitOps.Sync.Webhook.MaxBodyBytes)
 	if err != nil {
 		var maxBytesErr *http.MaxBytesError
 		if errors.As(err, &maxBytesErr) {

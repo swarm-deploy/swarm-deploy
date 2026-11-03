@@ -179,6 +179,5 @@ service baseline → apply services through Docker API → wait for convergence.
 Single-service remediation uses the same native components and projects the target
 service and its referenced networks, configs, secrets and volumes without running Init Jobs.
 
-Docker CLI execution helpers and the `swarm.command` configuration have been removed.
 The runtime image contains no Docker CLI binary. Repository Compose values are not processed by Docker CLI interpolation. Registry configuration still uses `config.json`
 and `DOCKER_AUTH_CONFIG` (see [registry authentication](./registry-authentication.md)).

@@ -2,8 +2,10 @@ package scheduler
 
 import (
 	"context"
-	"sync"
+	"os"
+	"path/filepath"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/artarts36/specw"
@@ -58,40 +60,60 @@ func TestSchedulePreservesTaskMetadata(t *testing.T) {
 }
 
 func TestRunSchedulesPeriodicPollReconciliationAndCleanup(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	runner := NewMockRunner(ctrl)
-	pollSeen, intervalSeen, cleanupSeen := make(chan struct{}), make(chan struct{}), make(chan struct{})
-	var pollOnce, intervalOnce, cleanupOnce sync.Once
-	runner.EXPECT().Poll(gomock.Any()).Do(func(context.Context) { pollOnce.Do(func() { close(pollSeen) }) }).AnyTimes()
-	runner.EXPECT().Cleanup(gomock.Any()).Do(func(context.Context) { cleanupOnce.Do(func() { close(cleanupSeen) }) }).AnyTimes()
-	runner.EXPECT().Run(gomock.Any(), gomock.Any()).Do(
-		func(_ context.Context, task syncrun.Task) {
-			if task.Reason == syncrun.TriggerInterval {
-				intervalOnce.Do(func() { close(intervalSeen) })
-			}
-		},
-	).AnyTimes()
+	path := filepath.Join(t.TempDir(), "swarm-deploy.yaml")
+	require.NoError(t, os.WriteFile(path, []byte(`gitops:
+  git:
+    repository: https://example.com/infra.git
+    pull:
+      interval: 1s
+  sync:
+    mode: hybrid
+    interval: 2s
+  stacks:
+    file: stacks.yaml
+  resourceRotation:
+    enabled: true
+    cleanup:
+      enabled: true
+      interval: 3s
+`), 0o600))
+	cfg, err := config.Load(path)
+	require.NoError(t, err)
 
-	cfg := testConfig()
-	cfg.Spec.Sync.Mode = config.SyncModeHybrid
-	cfg.Spec.Sync.Interval.Value = time.Millisecond
-	cfg.Spec.Sync.PollInterval.Value = time.Millisecond
-	cfg.Spec.SecretRotation.Cleanup.Enabled = true
-	cfg.Spec.SecretRotation.Cleanup.Interval.Value = time.Millisecond
-	scheduler := New(cfg, runner)
-	ctx, cancel := context.WithCancel(t.Context())
-	done := make(chan error, 1)
-	go func() { done <- scheduler.Run(ctx, context.WithoutCancel(ctx)) }()
-	for _, seen := range []<-chan struct{}{pollSeen, intervalSeen, cleanupSeen} {
-		select {
-		case <-seen:
-		case <-time.After(time.Second):
-			cancel()
-			require.FailNow(t, "periodic scheduler trigger was not observed")
-		}
-	}
-	cancel()
-	require.NoError(t, <-done)
+	synctest.Test(t, func(t *testing.T) {
+		runner := NewMockRunner(gomock.NewController(t))
+		var polls, reconciliations, cleanups int
+		runner.EXPECT().Poll(gomock.Any()).Do(func(context.Context) { polls++ }).AnyTimes()
+		runner.EXPECT().Cleanup(gomock.Any()).Do(func(context.Context) { cleanups++ }).AnyTimes()
+		runner.EXPECT().Run(gomock.Any(), gomock.Any()).Do(func(_ context.Context, task syncrun.Task) {
+			if task.Reason == syncrun.TriggerInterval {
+				reconciliations++
+			}
+		}).AnyTimes()
+		scheduler := New(cfg, runner)
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+		done := make(chan error, 1)
+		go func() { done <- scheduler.Run(ctx, context.WithoutCancel(ctx)) }()
+		synctest.Wait()
+
+		time.Sleep(time.Second)
+		synctest.Wait()
+		assert.Equal(t, 1, polls)
+		assert.Zero(t, reconciliations)
+		assert.Zero(t, cleanups)
+
+		time.Sleep(time.Second)
+		synctest.Wait()
+		assert.Equal(t, 1, reconciliations)
+		assert.Zero(t, cleanups)
+
+		time.Sleep(time.Second)
+		synctest.Wait()
+		assert.Equal(t, 1, cleanups)
+		cancel()
+		require.NoError(t, <-done)
+	})
 }
 
 func TestRunTriggersStartupAndWaitsForActiveReconciliation(t *testing.T) {
@@ -126,9 +148,8 @@ func TestRunTriggersStartupAndWaitsForActiveReconciliation(t *testing.T) {
 }
 
 func testConfig() *config.Config {
-	return &config.Config{Spec: config.Spec{Sync: config.SyncSpec{
-		Mode:         config.SyncModeWebhook,
-		Interval:     specw.Duration{Value: time.Hour},
-		PollInterval: specw.Duration{Value: time.Hour},
+	return &config.Config{Spec: config.Spec{GitOps: config.GitOpsSpec{
+		Sync: config.SyncSpec{Mode: config.SyncModeWebhook, Interval: specw.Duration{Value: time.Hour}},
+		Git:  config.GitSpec{Pull: config.GitPullSpec{Interval: specw.Duration{Value: time.Hour}}},
 	}}}
 }

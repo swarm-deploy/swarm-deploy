@@ -20,9 +20,10 @@ disabled. The existing `selfHeal` boolean controls automatic repair only.
 Enable automatic remediation globally:
 
 ```yaml
-sync:
-  policy:
-    selfHeal: true
+gitops:
+  sync:
+    policy:
+      selfHeal: true
 ```
 
 Override the global policy for one stack in `stacks.yaml`:
@@ -49,7 +50,7 @@ services:
 ```
 
 The service label takes precedence over `stacks[].sync.policy.selfHeal`, which takes
-precedence over the global `sync.policy.selfHeal`. Accepted service-label values are
+precedence over the global `gitops.sync.policy.selfHeal`. Accepted service-label values are
 `true`, `1`, `yes`, `y`, `on`, `false`, `0`, `no`, `n`, and `off` (case-insensitive).
 Whitespace is trimmed. Invalid boolean values are Compose validation errors.
 

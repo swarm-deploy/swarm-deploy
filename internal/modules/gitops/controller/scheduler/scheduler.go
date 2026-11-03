@@ -47,12 +47,12 @@ func (s *Scheduler) Run(ctx, reconciliationCtx context.Context) error {
 	defer s.active.Store(false)
 
 	var pollTicker *time.Ticker
-	if s.cfg.Spec.Sync.Mode == config.SyncModePull || s.cfg.Spec.Sync.Mode == config.SyncModeHybrid {
-		pollTicker = time.NewTicker(s.cfg.Spec.Sync.PollInterval.Value)
+	if s.cfg.Spec.GitOps.Sync.Mode == config.SyncModePull || s.cfg.Spec.GitOps.Sync.Mode == config.SyncModeHybrid {
+		pollTicker = time.NewTicker(s.cfg.Spec.GitOps.Git.Pull.Interval.Value)
 		s.addTicker(pollTicker)
 		defer s.removeTicker(pollTicker)
 	}
-	reconcileTicker := time.NewTicker(s.cfg.Spec.Sync.Interval.Value)
+	reconcileTicker := time.NewTicker(s.cfg.Spec.GitOps.Sync.Interval.Value)
 	s.addTicker(reconcileTicker)
 	defer s.removeTicker(reconcileTicker)
 	cleanupTicker, stopCleanupTicker := s.newCleanupTicker()
@@ -109,10 +109,10 @@ func (s *Scheduler) Schedule(ctx context.Context, task syncrun.Task) bool {
 }
 
 func (s *Scheduler) newCleanupTicker() (*time.Ticker, func()) {
-	if !s.cfg.Spec.SecretRotation.Cleanup.Enabled {
+	if !s.cfg.Spec.GitOps.ResourceRotation.Cleanup.Enabled {
 		return nil, func() {}
 	}
-	ticker := time.NewTicker(s.cfg.Spec.SecretRotation.Cleanup.Interval.Value)
+	ticker := time.NewTicker(s.cfg.Spec.GitOps.ResourceRotation.Cleanup.Interval.Value)
 	s.addTicker(ticker)
 	return ticker, func() { s.removeTicker(ticker) }
 }

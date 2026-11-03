@@ -1,6 +1,6 @@
 # OpenTelemetry Tracing
 
-swarm-deploy can export distributed traces using OpenTelemetry Protocol (OTLP). Tracing is optional and is enabled when the `tracing` section is present in `swarm-deploy.yaml`.
+swarm-deploy can export distributed traces using OpenTelemetry Protocol (OTLP). Tracing is optional and is enabled when the `system.tracing` section is present in `swarm-deploy.yaml`.
 
 ## Overview
 
@@ -15,19 +15,21 @@ swarm-deploy can export distributed traces using OpenTelemetry Protocol (OTLP). 
 ### OTLP over HTTP
 
 ```yaml
-tracing:
-  transport: http
-  exporter:
-    endpoint: http://otel-collector:4318
+system:
+  tracing:
+    transport: http
+    exporter:
+      endpoint: http://otel-collector:4318
 ```
 
 ### OTLP over gRPC
 
 ```yaml
-tracing:
-  transport: grpc
-  exporter:
-    endpoint: http://otel-collector:4317
+system:
+  tracing:
+    transport: grpc
+    exporter:
+      endpoint: http://otel-collector:4317
 ```
 
 `transport` must be either `http` or `grpc`.
@@ -39,10 +41,11 @@ The exporter endpoint must include an `http://` or `https://` scheme.
 Sampling is optional. When `sampler` is omitted, swarm-deploy uses the OpenTelemetry SDK default sampler.
 
 ```yaml
-tracing:
-  sampler:
-    strategy: ${OTEL_TRACES_SAMPLER}
-    ratio: ${OTEL_TRACES_SAMPLER_ARG}
+system:
+  tracing:
+    sampler:
+      strategy: ${OTEL_TRACES_SAMPLER}
+      ratio: ${OTEL_TRACES_SAMPLER_ARG}
 ```
 
 Available sampler strategies:
@@ -59,12 +62,13 @@ Available sampler strategies:
 The exporter endpoint, custom header values, and sampler settings can reference environment variables:
 
 ```yaml
-tracing:
-  transport: http
-  exporter:
-    endpoint: $OTEL_EXPORTER_OTLP_ENDPOINT
-    headers:
-      x-tenant: $OTEL_TENANT
+system:
+  tracing:
+    transport: http
+    exporter:
+      endpoint: $OTEL_EXPORTER_OTLP_ENDPOINT
+      headers:
+        x-tenant: $OTEL_TENANT
 ```
 
 This is useful when the same configuration is reused across environments.
@@ -76,12 +80,13 @@ Credentials can be read from files, including Docker Secrets mounted under `/run
 ### Bearer token
 
 ```yaml
-tracing:
-  transport: http
-  exporter:
-    endpoint: https://otel.example.com
-    authentication:
-      bearerPath: /run/secrets/otel-bearer
+system:
+  tracing:
+    transport: http
+    exporter:
+      endpoint: https://otel.example.com
+      authentication:
+        bearerPath: /run/secrets/otel-bearer
 ```
 
 This sends:
@@ -93,12 +98,13 @@ Authorization: Bearer <token>
 ### API key
 
 ```yaml
-tracing:
-  transport: http
-  exporter:
-    endpoint: https://otel.example.com
-    authentication:
-      apiKeyPath: /run/secrets/otel-api-key
+system:
+  tracing:
+    transport: http
+    exporter:
+      endpoint: https://otel.example.com
+      authentication:
+        apiKeyPath: /run/secrets/otel-api-key
 ```
 
 This sends:
@@ -110,12 +116,13 @@ Authorization: Api-Key <token>
 ### x-api-key
 
 ```yaml
-tracing:
-  transport: http
-  exporter:
-    endpoint: https://otel.example.com
-    authentication:
-      xApiKeyPath: /run/secrets/otel-x-api-key
+system:
+  tracing:
+    transport: http
+    exporter:
+      endpoint: https://otel.example.com
+      authentication:
+        xApiKeyPath: /run/secrets/otel-x-api-key
 ```
 
 This sends:
@@ -124,7 +131,7 @@ This sends:
 x-api-key: <token>
 ```
 
-`bearerPath` and `apiKeyPath` cannot be used together. `Authorization` is reserved for the authentication settings above and cannot be configured through `exporter.headers`.
+`bearerPath` and `apiKeyPath` cannot be used together. `Authorization` is reserved for the authentication settings above and cannot be configured through `system.tracing.exporter.headers`.
 
 ## What is traced
 

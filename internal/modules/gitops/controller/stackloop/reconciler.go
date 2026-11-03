@@ -63,7 +63,7 @@ func New(
 		stateStore:     stateStore,
 		preparer:       preparer,
 		composeRotator: composeRotator,
-		pruner:         pruner.NewServicePruner(swarmService.Services, eventDispatcher, cfg.Spec.Sync.Policy),
+		pruner:         pruner.NewServicePruner(swarmService.Services, eventDispatcher, cfg.Spec.GitOps.Sync.Policy),
 		driftAnalyzer:  drift.NewAnalyzer(),
 		serviceManager: swarmService.Services,
 		secretManager:  swarmService.Secrets,
@@ -72,7 +72,7 @@ func New(
 	reconciler.resourceCleaner = newRotatedResourceCleaner(
 		reconciler.secretManager,
 		reconciler.configManager,
-		cfg.Spec.SecretRotation.Cleanup,
+		cfg.Spec.GitOps.ResourceRotation.Cleanup,
 	)
 
 	reconciler.attachPipeline()
@@ -164,7 +164,7 @@ func (r *Reconciler) Reconcile(
 	if err = r.processResult(ctx, req, prev, desiredState, pl); err != nil {
 		return err
 	}
-	if r.cfg.Spec.SecretRotation.Cleanup.Enabled && (pl.Attempt != nil || pl.IsManualSync) {
+	if r.cfg.Spec.GitOps.ResourceRotation.Cleanup.Enabled && (pl.Attempt != nil || pl.IsManualSync) {
 		if err = r.cleanRotatedResources(ctx, pl); err != nil {
 			slog.ErrorContext(ctx, "post-apply cleanup failed", "stack", req.Stack.Name, "err", err)
 		}

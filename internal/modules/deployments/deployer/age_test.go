@@ -91,7 +91,7 @@ func TestReconcileAgeSecretFailuresDoNotApplyServices(t *testing.T) {
 		createError bool
 		want        string
 	}{
-		{name: "missing identity", contents: []byte("private-marker"), want: "requires secretRotation.age.identityFile"},
+		{name: "missing identity", contents: []byte("private-marker"), want: "requires gitops.secrets.age.identityFile"},
 		{name: "bad ciphertext", key: []byte(identity.String()), contents: []byte("private-marker"), want: "invalid ciphertext"},
 		{name: "driver", driver: "vault", want: "cannot combine a secret file with an external driver"},
 		{name: "remote echo", key: []byte(identity.String()), contents: encryptTestSecret(t, identity.Recipient(), []byte("private-marker"), false), createError: true, want: "Docker API request failed"},

@@ -33,10 +33,17 @@ type GitSpec struct {
 	Repository string `yaml:"repository"`
 	// Branch is a git branch to track.
 	Branch string `yaml:"branch"`
-	// PullTimeout limits the duration of Git pull operations, including lock acquisition.
-	PullTimeout specw.Duration `yaml:"pullTimeout"`
+	// Pull contains Git polling and pull deadline settings.
+	Pull GitPullSpec `yaml:"pull"`
 	// Auth contains git authentication settings.
 	Auth GitAuthSpec `yaml:"auth"`
+}
+
+type GitPullSpec struct {
+	// Interval is the time between Git pull attempts.
+	Interval specw.Duration `yaml:"interval"`
+	// Timeout limits Git pull operations, including lock acquisition.
+	Timeout specw.Duration `yaml:"timeout"`
 }
 
 type GitAuthSpec struct {
