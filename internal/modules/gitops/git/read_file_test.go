@@ -1,6 +1,7 @@
 package git
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -16,7 +17,7 @@ func TestGoGitRepositoryReadFile(t *testing.T) {
 	require.NoError(t, err)
 	worktree, err := repository.Worktree()
 	require.NoError(t, err)
-	repo := &GoGitRepository{path: dir, repository: repository}
+	repo := &GoGitRepository{path: dir, repository: repository, mu: make(chan struct{}, 1)}
 
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, "deep", "nested"), 0o700))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "deep", "value"), []byte("deep"), 0o600))
@@ -71,4 +72,15 @@ func TestGoGitRepositoryReadFile(t *testing.T) {
 		_, err = repo.ReadFile(t.Context(), revision, "README.md")
 		require.Error(t, err)
 	}
+}
+
+// A canceled reconciliation must not wait for a slow Git pull to release the repository lock.
+func TestGoGitRepositoryReadFileCancelsWhileLocked(t *testing.T) {
+	repo := &GoGitRepository{mu: make(chan struct{}, 1)}
+	repo.mu <- struct{}{}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	_, err := repo.ReadFile(ctx, "revision", "README.md")
+	require.ErrorIs(t, err, context.Canceled)
 }

@@ -40,14 +40,15 @@ tree, so a later Git pull can never change what a queued or running operation ap
 repository, both for directories and files, are resolved within the same revision. Absolute symlink targets
 and targets outside the repository are rejected, and cycles fail after 40 hops.
 
-The stack queue runs at most `sync.parallelism` stacks at the same time (default `4`) and never runs two
-operations for the same stack at once. A slow stack therefore occupies one slot but never delays Git polling,
-later sync runs or other stacks:
+The stack queue runs at most `sync.parallelism` stacks at the same time (default `1`) and never runs two
+operations for the same stack at once. By default stacks are processed sequentially; set `parallelism`
+to a higher value explicitly to allow independent stacks to run simultaneously. A slow stack does not
+hold up Git polling or later sync runs, but with `parallelism: 1` it still blocks other stack operations:
 
 ```yaml
 sync:
   # Maximum number of stacks reconciled at the same time.
-  parallelism: 4
+  parallelism: 1
 ```
 
 The queue is keyed by stack name, like a Kubernetes work queue, and every successful sync run atomically
@@ -68,11 +69,27 @@ Operations that are already running are never interrupted and finish within thei
 Periodic rotated-resource cleanup is queued only for idle stacks, so it never overlaps a reconciliation of the
 same stack, and a later run supersedes a cleanup that is still waiting.
 
-Stacks are not ordered relative to each other. With `parallelism: 1` they are processed one by one in dispatch
-order, which preserves the previous sequential behavior.
+With the default `parallelism: 1`, stack operations run one by one in dispatch order. Unlike the former
+fully synchronous run, Git polling, configuration reload and later runs can proceed while an earlier stack
+is still running; a newer revision may supersede pending work. Setting parallelism to one does not
+restore the old whole-run barrier.
 
-The sync run result (`last_sync_result`) covers Git, configuration, networks and dispatch. The outcome of each
-stack is reported on the stack itself and through deployment events. Queue state is exported as
+**Compatibility / monitoring change:** `last_sync_result: success` now means that Git, configuration,
+network reconciliation and queue dispatch succeeded, **not** that any stack deployed successfully.
+`git_revision` is the revision dispatched to the queue, not a guarantee that it was applied to every stack.
+`partial_error` is no longer emitted. Dashboards and alerts using
+`swarm_deploy_sync_runs_total{result="partial_error"}` must instead monitor stack operation failures via
+`swarm_deploy_sync_stack_operations_total{operation="reconcile",result="error"}` (counter increase),
+and inspect per-stack `last_error`, deployment events and the stack status. The Overview displays the
+result as a dispatch status and lists stack failures separately. These changes affect monitoring even
+when `parallelism: 1`.
+
+The Git repository serializes reads and pulls for go-git safety. Network pulls are bounded by a two-minute
+timeout, including time spent waiting for the repository lock; revision readers can abandon the lock wait
+when their context is canceled. A pull in progress can delay reads for up to its timeout, but cannot
+block them indefinitely due solely to a stalled remote.
+
+Queue state is exported as
 `swarm_deploy_sync_stack_queue_pending` and `swarm_deploy_sync_stack_queue_running`, and every stack operation
 is counted in `swarm_deploy_sync_stack_operations_total` and timed in
 `swarm_deploy_sync_stack_operation_duration_seconds`.

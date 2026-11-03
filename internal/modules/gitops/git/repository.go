@@ -9,7 +9,7 @@ import (
 	"os"
 	"sort"
 	"strings"
-	"sync"
+	"time"
 
 	gogit "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
@@ -23,6 +23,10 @@ import (
 	"golang.org/x/crypto/ssh/knownhosts"
 )
 
+// Maximum time spent waiting for the Git lock and fetching/pulling a remote.
+// A slow remote must not block revision reads indefinitely.
+const defaultPullTimeout = 2 * time.Minute
+
 type GoGitRepository struct {
 	path string
 
@@ -32,7 +36,7 @@ type GoGitRepository struct {
 	authType config.GitAuthType
 
 	// go-git mutates its object indexes during both reads and pulls.
-	mu         sync.Mutex
+	mu         chan struct{}
 	repository *gogit.Repository
 }
 
@@ -65,20 +69,38 @@ func NewGoGitRepository(ctx context.Context, spec config.GitSpec, path string) (
 		remote:     spec.Repository,
 		authType:   spec.Auth.Type,
 		repository: repo,
+		mu:         make(chan struct{}, 1),
 	}, nil
 }
+
+// acquire serializes go-git access but lets callers abandon a lock wait when canceled.
+func (r *GoGitRepository) acquire(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	select {
+	case r.mu <- struct{}{}:
+		if err := ctx.Err(); err != nil {
+			<-r.mu
+			return err
+		}
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (r *GoGitRepository) release() { <-r.mu }
 
 func (r *GoGitRepository) WorkingDir() string {
 	return r.path
 }
 
 func (r *GoGitRepository) ReadFile(ctx context.Context, revision, path string) ([]byte, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	if err := ctx.Err(); err != nil {
+	if err := r.acquire(ctx); err != nil {
 		return nil, err
 	}
+	defer r.release()
 	hash, err := hex.DecodeString(revision)
 	if err != nil || len(hash) != len(plumbing.ZeroHash) {
 		return nil, errors.New("revision must be a full Git commit hash")
@@ -104,8 +126,12 @@ func (r *GoGitRepository) ReadFile(ctx context.Context, revision, path string) (
 }
 
 func (r *GoGitRepository) Pull(ctx context.Context) (PullResult, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	ctx, cancel := context.WithTimeout(ctx, defaultPullTimeout)
+	defer cancel()
+	if err := r.acquire(ctx); err != nil {
+		return PullResult{}, err
+	}
+	defer r.release()
 
 	worktree, err := r.repository.Worktree()
 	if err != nil {
@@ -141,9 +167,11 @@ func (r *GoGitRepository) Pull(ctx context.Context) (PullResult, error) {
 	}, nil
 }
 
-func (r *GoGitRepository) Head(context.Context) (string, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+func (r *GoGitRepository) Head(ctx context.Context) (string, error) {
+	if err := r.acquire(ctx); err != nil {
+		return "", err
+	}
+	defer r.release()
 
 	return r.head()
 }
@@ -158,8 +186,10 @@ func (r *GoGitRepository) head() (string, error) {
 }
 
 func (r *GoGitRepository) List(ctx context.Context, limit int) ([]CommitMeta, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	if err := r.acquire(ctx); err != nil {
+		return nil, err
+	}
+	defer r.release()
 
 	if limit <= 0 {
 		return nil, errors.New("limit must be > 0")
@@ -205,8 +235,10 @@ func (r *GoGitRepository) List(ctx context.Context, limit int) ([]CommitMeta, er
 }
 
 func (r *GoGitRepository) Diff(ctx context.Context, oldRevision string, newRevision string) ([]CommitFileDiff, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	if err := r.acquire(ctx); err != nil {
+		return nil, err
+	}
+	defer r.release()
 
 	if oldRevision == "" {
 		return nil, errors.New("old revision is required")
@@ -249,8 +281,10 @@ func (r *GoGitRepository) Diff(ctx context.Context, oldRevision string, newRevis
 }
 
 func (r *GoGitRepository) Show(ctx context.Context, commitHash string) (Commit, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	if err := r.acquire(ctx); err != nil {
+		return Commit{}, err
+	}
+	defer r.release()
 
 	trimmedHash := strings.TrimSpace(commitHash)
 	if trimmedHash == "" {

@@ -29,6 +29,7 @@ let refreshTimer: ReturnType<typeof setInterval> | undefined;
 
 const syncInfo = computed(() => overviewStore.syncInfo);
 const syncRevision = computed(() => String(syncInfo.value?.git_revision ?? "").trim());
+const stackErrorCount = computed(() => overviewStore.stacks.filter((stack) => Boolean(stack.last_error)).length);
 const sortedRecommendations = computed(() =>
   recommendations.value
     .slice()
@@ -200,8 +201,8 @@ onUnmounted(() => {
     <p v-if="overviewStore.loadingError" class="meta">Failed to load state: {{ overviewStore.loadingError }}</p>
     <p v-else-if="!syncInfo" class="meta">Sync status is unavailable.</p>
     <p v-else class="meta">
-      Last sync: {{ formatDate(syncInfo.last_sync_at) }} | reason: {{ syncInfo.last_sync_reason || "n/a" }} | result:
-      {{ syncInfo.last_sync_result || "n/a" }} | revision:
+      Last dispatch: {{ formatDate(syncInfo.last_sync_at) }} | reason: {{ syncInfo.last_sync_reason || "n/a" }} | dispatch result:
+      {{ syncInfo.last_sync_result || "n/a" }} | queued revision:
       <button
         v-if="syncRevision"
         type="button"
@@ -212,6 +213,7 @@ onUnmounted(() => {
       </button>
       <span v-else> n/a</span>
       <template v-if="syncInfo.last_sync_error"> | error: {{ syncInfo.last_sync_error.slice(0, 500) }}</template>
+      <template v-if="stackErrorCount"> | stacks reporting errors: {{ stackErrorCount }}</template>
     </p>
   </section>
 

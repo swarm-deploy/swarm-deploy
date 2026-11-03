@@ -141,9 +141,9 @@ func TestLoadSyncParallelism(t *testing.T) {
 		sync     string
 		expected int
 	}{
-		{name: "default", sync: "  mode: pull\n", expected: 4},
+		{name: "default", sync: "  mode: pull\n", expected: 1},
 		{name: "configured", sync: "  mode: pull\n  parallelism: 2\n", expected: 2},
-		{name: "zero uses default", sync: "  mode: pull\n  parallelism: 0\n", expected: 4},
+		{name: "zero uses default", sync: "  mode: pull\n  parallelism: 0\n", expected: 1},
 	}
 
 	for _, tt := range tests {

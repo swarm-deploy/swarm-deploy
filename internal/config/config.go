@@ -35,7 +35,7 @@ const (
 	defaultEventHistoryCap         = 500
 	defaultSyncPollInterval        = 30 * time.Second
 	defaultSyncInterval            = 1 * time.Minute
-	defaultSyncParallelism         = 4
+	defaultSyncParallelism         = 1
 	defaultInitJobPollEvery        = 2 * time.Second
 	defaultInitJobMaxDuration      = 10 * time.Minute
 	defaultInitJobsTimeout         = 10 * time.Minute

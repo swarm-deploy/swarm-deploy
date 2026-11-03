@@ -17,9 +17,9 @@ sync:
   pollInterval: 30s
   # Reconciliation interval against the current local desired state.
   interval: 1m
-  # Maximum number of stacks reconciled at the same time. Defaults to 4.
-  # A slow stack never blocks Git polling or other stacks while a slot is free.
-  parallelism: 4
+  # Maximum number of stacks reconciled at the same time. Defaults to 1.
+  # Set to 4 explicitly to enable parallel deployments across different stacks.
+  parallelism: 1
   policy:
     # Removes orphaned managed services that are no longer defined in compose.
     prune: true
