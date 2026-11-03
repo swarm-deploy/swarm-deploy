@@ -107,13 +107,13 @@ func TestPipelineErrorIsTraceSafeAndPreservesCause(t *testing.T) {
 	assert.Contains(t, err.Error(), "token=****")
 }
 
-func TestDeployPipelinesShareInterpolatedDesiredState(t *testing.T) {
+func TestDeployPipelinesShareLiteralDesiredState(t *testing.T) {
 	t.Setenv("SD_TEST_TAG", "3")
 	t.Setenv("SD_TEST_TEXT", "$$HOME ${SD_TEST_TAG}")
 	loader := compose.NewFileLoaderWithReader(func(context.Context, string) ([]byte, error) {
 		return []byte(`services:
   api:
-    image: 'alpine:${SD_TEST_TAG}'
+    image: 'alpine:3'
     command: ['sh', '-c', 'echo $$HOME $$(date) $$$$ ${SD_TEST_TEXT}']
     entrypoint: ['/bin/${SD_TEST_SHELL:-sh}']
     environment: {ESCAPED: '$$HOME', INSERTED: '${SD_TEST_TEXT}'}
@@ -122,8 +122,8 @@ func TestDeployPipelinesShareInterpolatedDesiredState(t *testing.T) {
 	})
 	file, err := loader.Load(t.Context(), "source.yaml")
 	require.NoError(t, err)
-	// Persisted snapshots contain effective values. Remediation must not expand
-	// them again, even if the process environment changed in the meantime.
+	// Remediation must preserve literal values and must not expand them
+	// when the controller environment changes.
 	payload, err := json.Marshal(file.Compose)
 	require.NoError(t, err)
 	var restored compose.Compose
@@ -156,8 +156,8 @@ func TestDeployPipelinesShareInterpolatedDesiredState(t *testing.T) {
 	assert.Equal(t, applied[0], applied[1])
 	container := applied[0].TaskTemplate.ContainerSpec
 	assert.Equal(t, "alpine:3", container.Image)
-	assert.Equal(t, []string{"sh", "-c", "echo $HOME $(date) $$ $$HOME ${SD_TEST_TAG}"}, container.Args)
-	assert.ElementsMatch(t, []string{"ESCAPED=$HOME", "INSERTED=$$HOME ${SD_TEST_TAG}"}, container.Env)
+	assert.Equal(t, []string{"sh", "-c", "echo $HOME $(date) $$ ${SD_TEST_TEXT}"}, container.Args)
+	assert.ElementsMatch(t, []string{"ESCAPED=$HOME", "INSERTED=${SD_TEST_TEXT}"}, container.Env)
 }
 
 func runMinimalStack(t *testing.T, deployer *Deployer) error {

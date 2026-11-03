@@ -41,8 +41,8 @@ func TestConvertInterpolatedSource(t *testing.T) {
     healthcheck:
       test: 'echo $SD_TEST_VALUE $$HOME $$(date)'
       interval: '2s'
-      retries: '3'
-    deploy: {replicas: '1'}
+      retries: 3
+    deploy: {replicas: 1}
     networks: [default]
     volumes: ['data:/data:ro']
 networks:

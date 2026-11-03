@@ -104,7 +104,7 @@ func TestPreparePreservesValidationErrorType(t *testing.T) {
 	assert.Equal(t, "check image policy", stepErr.StepName)
 }
 
-func TestImagePolicyUsesInterpolatedSource(t *testing.T) {
+func TestImagePolicyKeepsLiteralSource(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "compose.yaml"),
 		[]byte("services: {api: {image: 'nginx:${SD_TEST_TAG}'}}"), 0o600))
@@ -118,20 +118,12 @@ func TestImagePolicyUsesInterpolatedSource(t *testing.T) {
 			preparer := New(cfg, repository, fs.NewLocalFileSystem(), nil)
 			source, err := preparer.Load(t.Context(), config.StackSpec{ComposeFile: "compose.yaml"})
 			require.NoError(t, err)
-			assert.Equal(t, "nginx:"+tag, source.Compose.Services[0].Image)
+			assert.Equal(t, "nginx:${SD_TEST_TAG}", source.Compose.Services[0].Image)
 			err = ValidateImagePolicy(cfg.Spec.Sync.Policy.Image, source)
-			if tag != "1.27" {
-				var validation *compose.ValidateComposeError
-				require.ErrorAs(t, err, &validation)
-				code := ImageViolationLatest
-				if tag == "private value" {
-					code = ImageViolationInvalid
-				}
-				assert.Equal(t, code, validation.Issues[0].Code)
-				assert.NotContains(t, err.Error(), "nginx:"+tag)
-			} else {
-				require.NoError(t, err)
-			}
+			var validation *compose.ValidateComposeError
+			require.ErrorAs(t, err, &validation)
+			assert.Equal(t, ImageViolationInvalid, validation.Issues[0].Code)
+			assert.NotContains(t, err.Error(), "nginx:"+tag)
 		})
 	}
 }
