@@ -16,7 +16,6 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
-	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/labelsdict"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -65,7 +64,6 @@ type Request struct {
 type Preparer struct {
 	cfg              *config.Config
 	git              gitx.Repository
-	composeLoader    compose.FileLoader
 	envFilePopulator *compose.EnvFilePopulator
 	rotator          Rotator
 	pipeline         *pipe.Pipeline[*preparationPayload]
@@ -77,17 +75,34 @@ type preparationPayload struct {
 }
 
 // New creates a Compose preparer.
-func New(cfg *config.Config, git gitx.Repository, fileSystem fs.FileSystem, rotator Rotator) *Preparer {
+func New(cfg *config.Config, git gitx.Repository, rotator Rotator) *Preparer {
 	preparer := &Preparer{cfg: cfg, git: git,
-		composeLoader:    compose.NewFileLoaderWithReader(fileSystem.ReadFile),
 		envFilePopulator: compose.NewEnvFilePopulator(), rotator: rotator}
 	preparer.attachPipeline(nil)
 	return preparer
 }
 
-// Load reads and validates the source Compose file without applying effective-state mutations.
-func (p *Preparer) Load(ctx context.Context, stack config.StackSpec) (*compose.File, error) {
-	return p.composeLoader.Load(ctx, filepath.Join(p.git.WorkingDir(), stack.ComposeFile))
+// Load reads and validates a Compose file and its referenced sources at one commit.
+func (p *Preparer) Load(ctx context.Context, stack config.StackSpec, revision string) (*compose.File, error) {
+	loader := compose.NewFileLoaderWithReader(func(ctx context.Context, path string) ([]byte, error) {
+		return p.git.ReadFile(ctx, revision, path)
+	})
+	file, err := loader.Load(ctx, stack.ComposeFile)
+	if err != nil {
+		return nil, err
+	}
+	// Preserve the checkout location for resolving relative bind mounts.
+	file.Path = filepath.Join(p.git.WorkingDir(), stack.ComposeFile)
+	return file, nil
+}
+
+// LoadCurrent loads the current revision for standalone resource cleanup.
+func (p *Preparer) LoadCurrent(ctx context.Context, stack config.StackSpec) (*compose.File, error) {
+	revision, err := p.git.Head(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("resolve repository head: %w", err)
+	}
+	return p.Load(ctx, stack, revision)
 }
 
 // Prepare builds the effective definition used directly by native deployment.

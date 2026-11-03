@@ -8,7 +8,7 @@ A reconciliation run loads the configured Compose file, computes its effective d
 
 The current pipeline is:
 
-1. Load Compose without interpolating repository-controlled values.
+1. Load Compose and its referenced files from the reconciliation commit without interpolating repository-controlled values.
 2. [Check image policy when at least one image rule is enabled](./image-policy.md).
 3. Populate service environment from `env_file`.
 4. [Inject Downward metadata when enabled](./downward.md).
@@ -35,6 +35,8 @@ swarm-deploy calculates a source digest for each stack. The digest includes:
 A change to a referenced file therefore triggers reconciliation even when the Compose YAML itself did not change.
 
 The source digest is calculated from the source definition before swarm-deploy mutates the desired state.
+
+Compose files and their `env_file`, config, and secret sources must be committed to Git. Relative paths and symlinks can resolve anywhere within the same commit. Absolute paths, absolute symlink targets, and paths that leave the repository are rejected before deployment.
 
 ## `env_file` normalization
 

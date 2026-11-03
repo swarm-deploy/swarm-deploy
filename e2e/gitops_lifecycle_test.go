@@ -334,7 +334,7 @@ func (f *gitOpsLifecycleFixture) assertRevision(t *testing.T, sha, content strin
 	require.NoError(t, err)
 	require.Equal(t, sha, head)
 	for name, expected := range map[string]string{"compose.yaml": content, "password.txt": desired.secret + "\n", "settings.txt": desired.config + "\n"} {
-		checkedOut, readErr := f.repository.ReadFile(f.ctx, name)
+		checkedOut, readErr := f.repository.ReadFile(f.ctx, sha, name)
 		require.NoError(t, readErr)
 		require.Equal(t, expected, string(checkedOut), "checkout of %s", name)
 	}

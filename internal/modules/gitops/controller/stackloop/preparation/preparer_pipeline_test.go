@@ -13,16 +13,16 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
-	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/labelsdict"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
+	"go.uber.org/mock/gomock"
 )
 
 func TestPrepareRecoversStepPanicWithStage(t *testing.T) {
 	cfg := &config.Config{Spec: config.Spec{SecretRotation: config.SecretRotationSpec{Enabled: true}}}
 	// A missing rotator deliberately causes a panic inside the rotation step.
-	preparer := New(cfg, nil, fs.NewLocalFileSystem(), nil)
+	preparer := New(cfg, nil, nil)
 	_, err := preparer.Prepare(t.Context(), Request{
 		Stack:   config.StackSpec{Name: "app"},
 		Desired: &compose.File{Path: "/app/compose.yaml"},
@@ -43,8 +43,7 @@ func TestPrepareRecordsOriginalStepSpans(t *testing.T) {
 
 	dir := t.TempDir()
 	cfg := &config.Config{Spec: config.Spec{DataDir: filepath.Join(dir, "data")}}
-	repository := gitx.NewRepository(config.GitSpec{}, dir)
-	preparer := New(cfg, repository, fs.NewLocalFileSystem(), nil)
+	preparer := New(cfg, nil, nil)
 	preparer.attachPipeline(provider)
 
 	prepared, err := preparer.Prepare(t.Context(), Request{
@@ -69,7 +68,7 @@ func TestPrepareRecordsOriginalStepSpans(t *testing.T) {
 
 func TestPrepareKeepsExistingManagedLabelWithoutRendering(t *testing.T) {
 	cfg := &config.Config{}
-	preparer := New(cfg, nil, fs.NewLocalFileSystem(), nil)
+	preparer := New(cfg, nil, nil)
 	prepared, err := preparer.Prepare(t.Context(), Request{
 		Stack: config.StackSpec{Name: "app"},
 		Desired: &compose.File{
@@ -90,7 +89,7 @@ func TestPreparePreservesValidationErrorType(t *testing.T) {
 	cfg := &config.Config{Spec: config.Spec{Sync: config.SyncSpec{Policy: config.SyncPolicySpec{
 		Image: config.ImagePolicySpec{Tag: config.ImageTagPolicySpec{NoLatest: true}},
 	}}}}
-	preparer := New(cfg, nil, fs.NewLocalFileSystem(), nil)
+	preparer := New(cfg, nil, nil)
 	_, err := preparer.Prepare(t.Context(), Request{
 		Stack: config.StackSpec{Name: "app"},
 		Desired: &compose.File{Path: "/repo/app.yaml", Compose: compose.Compose{
@@ -111,12 +110,17 @@ func TestImagePolicyKeepsLiteralSource(t *testing.T) {
 	cfg := &config.Config{Spec: config.Spec{DataDir: filepath.Join(dir, "data"), Sync: config.SyncSpec{
 		Policy: config.SyncPolicySpec{Image: config.ImagePolicySpec{Tag: config.ImageTagPolicySpec{NoLatest: true}}},
 	}}}
-	repository := gitx.NewRepository(config.GitSpec{}, dir)
+	repository := gitx.NewMockRepository(gomock.NewController(t))
+	repository.EXPECT().WorkingDir().Return(dir).AnyTimes()
+	repository.EXPECT().ReadFile(gomock.Any(), "test-commit", "compose.yaml").
+		DoAndReturn(func(_ context.Context, _, path string) ([]byte, error) {
+			return os.ReadFile(filepath.Join(dir, path))
+		}).AnyTimes()
 	for _, tag := range []string{"1.27", "latest", "private value"} {
 		t.Run(tag, func(t *testing.T) {
 			t.Setenv("SD_TEST_TAG", tag)
-			preparer := New(cfg, repository, fs.NewLocalFileSystem(), nil)
-			source, err := preparer.Load(t.Context(), config.StackSpec{ComposeFile: "compose.yaml"})
+			preparer := New(cfg, repository, nil)
+			source, err := preparer.Load(t.Context(), config.StackSpec{ComposeFile: "compose.yaml"}, "test-commit")
 			require.NoError(t, err)
 			assert.Equal(t, "nginx:${SD_TEST_TAG}", source.Compose.Services[0].Image)
 			err = ValidateImagePolicy(cfg.Spec.Sync.Policy.Image, source)

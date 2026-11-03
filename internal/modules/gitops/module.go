@@ -17,7 +17,6 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/differ"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/modelstore"
-	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 	"github.com/swarm-deploy/swarm-deploy/internal/storage"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
@@ -30,14 +29,12 @@ type Module struct {
 	GitRepository git.Repository
 	Differ        *differ.Differ
 
-	cfg        *config.Config
-	filesystem fs.FileSystem
+	cfg *config.Config
 }
 
 type Container interface {
 	// GetStorage returns the shared database and transactor.
 	GetStorage() storage.Database
-	GetFileSystem() fs.FileSystem
 	GetSwarm() *swarm.Swarm
 	// GetDeploymentsModule returns deployment execution infrastructure.
 	GetDeploymentsModule() *deployments.Module
@@ -54,7 +51,6 @@ func InitModule(
 ) (*Module, error) {
 	srv := &Module{
 		cfg:           cfg,
-		filesystem:    cnt.GetFileSystem(),
 		GitRepository: git.NewRepository(cfg.Spec.Git, filepath.Join(cfg.Spec.DataDir, "repo")),
 		Differ:        differ.New(),
 	}
@@ -77,7 +73,7 @@ func InitModule(
 		cnt.GetMetrics(),
 		cnt.GetEventModule().Dispatcher,
 		srv.Store,
-		cnt.GetFileSystem(), cnt.GetStorage(),
+		cnt.GetStorage(),
 	)
 	return srv, nil
 }

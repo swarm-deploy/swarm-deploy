@@ -28,7 +28,6 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackloop/drift"
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/model"
-	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	"go.uber.org/mock/gomock"
 )
@@ -94,14 +93,14 @@ func TestReconcileDriftRecoveryPersistsAndDeliversEvents(t *testing.T) {
 					"api": {SyncStatus: model.SyncStatusSynced}, "peer": {SyncStatus: model.SyncStatusSynced},
 				}}
 			}))
-			repository.EXPECT().WorkingDir().Return(dir).AnyTimes()
+			mockRepositoryFiles(repository, dir)
 			// Recreate the reconciler and lifecycle controller on every tick. The clock
 			// stays before the automatic retry deadline to exercise persisted backoff.
 			clock := time.Now().UTC()
 			reconcile := func() error {
 				lifecycle := deployments.NewService(db, publisher, deployments.WithClock(func() time.Time { return clock }))
 				return newTestReconciler(cfg, repository, lifecycle, stackDeployer, &swarm.Swarm{Services: manager}, publisher,
-					&metrics.NopDeploys{}, store, fs.NewLocalFileSystem(), db).Reconcile(ctx, ReconciliationRequest{
+					&metrics.NopDeploys{}, store, db).Reconcile(ctx, ReconciliationRequest{
 					Stack: config.StackSpec{Name: "app", ComposeFile: "app.yaml"}, Commit: "one",
 				})
 			}

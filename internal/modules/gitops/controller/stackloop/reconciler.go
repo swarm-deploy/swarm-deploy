@@ -84,7 +84,7 @@ func New(
 
 // Cleanup runs rotated config/secret cleanup for one stack without performing reconciliation.
 func (r *Reconciler) Cleanup(ctx context.Context, stack config.StackSpec) error {
-	desired, err := r.preparer.Load(ctx, stack)
+	desired, err := r.preparer.LoadCurrent(ctx, stack)
 	if err != nil {
 		return fmt.Errorf("load compose for cleanup: %w", err)
 	}
@@ -123,7 +123,7 @@ func (r *Reconciler) Reconcile(
 	r.reconcileMu.Lock()
 	defer r.reconcileMu.Unlock()
 
-	desiredState, err := r.preparer.Load(ctx, req.Stack)
+	desiredState, err := r.preparer.Load(ctx, req.Stack, req.Commit)
 	if err != nil {
 		persistErr := r.recordFailure(ctx, req.Stack.Name, req.Commit, nil, err)
 

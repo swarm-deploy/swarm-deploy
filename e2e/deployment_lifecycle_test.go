@@ -105,6 +105,7 @@ func TestRealSwarmNativeRollbackHistoryRetryAndRecovery(t *testing.T) {
 	working = strings.Replace(working, "failure_action: pause", "failure_action: rollback", 1)
 	working += "      rollback_config: {monitor: 1s, failure_action: pause}\n"
 	f.manifest(t, working)
+	f.commitManifest(t)
 	f.reconcile(t)
 	originalIDs := f.runningIDs(t, "job", 1)
 	original := f.settled(t, "job")
@@ -112,7 +113,7 @@ func TestRealSwarmNativeRollbackHistoryRetryAndRecovery(t *testing.T) {
 	assertSuccessfulHistory(t, baseline)
 
 	f.manifest(t, strings.Replace(working, "sleep 600", "exit 31", 1))
-	f.request.Commit = "rollback"
+	f.commitManifest(t)
 	err := f.reconciler.Reconcile(f.ctx, f.request)
 	require.Error(t, err)
 	failed := f.latest(t)
@@ -160,8 +161,8 @@ func TestRealSwarmNativeRollbackHistoryRetryAndRecovery(t *testing.T) {
 		service := f.inspect(t, "job")
 		return service.UpdateStatus != nil && service.UpdateStatus.State == dockerswarm.UpdateStateRollbackCompleted
 	})
-	f.request.Commit = "valid-update"
 	f.manifest(t, strings.Replace(working, "sleep 600", "echo recovered; sleep 600", 1))
+	f.commitManifest(t)
 	f.reconcile(t)
 	f.runningIDs(t, "job", 1)
 	assert.Contains(t, f.inspect(t, "job").Spec.TaskTemplate.ContainerSpec.Args, "echo recovered; sleep 600")

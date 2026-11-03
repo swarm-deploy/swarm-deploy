@@ -2,13 +2,14 @@ package git
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 
 	gogit "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
@@ -30,6 +31,8 @@ type GoGitRepository struct {
 	remote   string
 	authType config.GitAuthType
 
+	// go-git mutates its object indexes during both reads and pulls.
+	mu         sync.Mutex
 	repository *gogit.Repository
 }
 
@@ -69,22 +72,47 @@ func (r *GoGitRepository) WorkingDir() string {
 	return r.path
 }
 
-func (r *GoGitRepository) ReadFile(_ context.Context, path string) ([]byte, error) {
-	content, err := os.ReadFile(filepath.Join(r.path, path))
+func (r *GoGitRepository) ReadFile(ctx context.Context, revision, path string) ([]byte, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	hash, err := hex.DecodeString(revision)
+	if err != nil || len(hash) != len(plumbing.ZeroHash) {
+		return nil, errors.New("revision must be a full Git commit hash")
+	}
+	commit, err := r.repository.CommitObject(plumbing.Hash(hash))
 	if err != nil {
-		return nil, fmt.Errorf("read repository file %q: %w", path, err)
+		return nil, fmt.Errorf("find commit %q: %w", revision, err)
+	}
+	tree, err := commit.Tree()
+	if err != nil {
+		return nil, fmt.Errorf("resolve tree of %s: %w", revision, err)
+	}
+	blobHash, err := r.resolveRevisionFile(tree, path)
+	if err != nil {
+		return nil, fmt.Errorf("read repository file %q at %s: %w", path, revision, err)
+	}
+	content, err := r.readBlob(blobHash)
+	if err != nil {
+		return nil, fmt.Errorf("read repository file %q at %s: %w", path, revision, err)
 	}
 
 	return content, nil
 }
 
 func (r *GoGitRepository) Pull(ctx context.Context) (PullResult, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
 	worktree, err := r.repository.Worktree()
 	if err != nil {
 		return PullResult{}, fmt.Errorf("open worktree: %w", err)
 	}
 
-	previousHash, err := r.Head(ctx)
+	previousHash, err := r.head()
 	if err != nil {
 		return PullResult{}, fmt.Errorf("get current head: %w", err)
 	}
@@ -101,7 +129,7 @@ func (r *GoGitRepository) Pull(ctx context.Context) (PullResult, error) {
 		return PullResult{}, ClassifyPullError(fmt.Errorf("git pull: %w", err), r.remote, r.authType)
 	}
 
-	newHash, err := r.Head(ctx)
+	newHash, err := r.head()
 	if err != nil {
 		return PullResult{}, fmt.Errorf("get current head after pull: %w", err)
 	}
@@ -114,6 +142,13 @@ func (r *GoGitRepository) Pull(ctx context.Context) (PullResult, error) {
 }
 
 func (r *GoGitRepository) Head(context.Context) (string, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	return r.head()
+}
+
+func (r *GoGitRepository) head() (string, error) {
 	headRef, err := r.repository.Head()
 	if err != nil {
 		return "", err
@@ -123,6 +158,9 @@ func (r *GoGitRepository) Head(context.Context) (string, error) {
 }
 
 func (r *GoGitRepository) List(ctx context.Context, limit int) ([]CommitMeta, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
 	if limit <= 0 {
 		return nil, errors.New("limit must be > 0")
 	}
@@ -167,6 +205,9 @@ func (r *GoGitRepository) List(ctx context.Context, limit int) ([]CommitMeta, er
 }
 
 func (r *GoGitRepository) Diff(ctx context.Context, oldRevision string, newRevision string) ([]CommitFileDiff, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
 	if oldRevision == "" {
 		return nil, errors.New("old revision is required")
 	}
@@ -208,6 +249,9 @@ func (r *GoGitRepository) Diff(ctx context.Context, oldRevision string, newRevis
 }
 
 func (r *GoGitRepository) Show(ctx context.Context, commitHash string) (Commit, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
 	trimmedHash := strings.TrimSpace(commitHash)
 	if trimmedHash == "" {
 		return Commit{}, errors.New("commit hash is required")

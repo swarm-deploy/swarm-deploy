@@ -1,6 +1,7 @@
 package e2e
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -24,7 +25,6 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackloop/preparation"
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
 	gitopsstore "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/modelstore"
-	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 	"github.com/swarm-deploy/swarm-deploy/internal/storage"
 )
 
@@ -49,7 +49,10 @@ func newLifecycleFixture(t *testing.T, prune bool) *lifecycleFixture {
 	cfg := &config.Config{Spec: config.Spec{
 		DataDir: t.TempDir(), Sync: config.SyncSpec{Policy: config.SyncPolicySpec{Prune: prune, SelfHeal: true}},
 	}}
-	return newLifecycleComponents(t, base, cfg, gitx.NewLazyProxy(config.GitSpec{}, filepath.Dir(base.path)))
+	dir := filepath.Dir(base.path)
+	gitCommand(t, base.ctx, dir, "init")
+	gitCommand(t, base.ctx, dir, "remote", "add", "origin", dir)
+	return newLifecycleComponents(t, base, cfg, gitx.NewRepository(config.GitSpec{Repository: dir}, dir))
 }
 
 func newLifecycleComponents(t *testing.T, base *externalSwarmFixture, cfg *config.Config, repository gitx.Repository) *lifecycleFixture {
@@ -72,12 +75,11 @@ func newLifecycleComponents(t *testing.T, base *externalSwarmFixture, cfg *confi
 	}
 	f.executor = deployments.NewController(deployments.NewService(db, f.bus), f.deployer, f.sw.Services,
 		pruner.NewServicePruner(f.sw.Services, f.bus, cfg.Spec.Sync.Policy), &metrics.NopDeploys{})
-	fileSystem := fs.NewLocalFileSystem()
 	rotator := stackloop.NewRotator()
 	f.reconciler = stackloop.New(cfg, f.executor, f.sw, f.bus, &metrics.NopDeploys{}, f.state,
-		preparation.New(cfg, repository, fileSystem, rotator), rotator, db)
+		preparation.New(cfg, repository, rotator), rotator, db)
 	f.request = stackloop.ReconciliationRequest{
-		Stack: config.StackSpec{Name: f.stack, ComposeFile: filepath.Base(f.path)}, Commit: "initial",
+		Stack: config.StackSpec{Name: f.stack, ComposeFile: filepath.Base(f.path)},
 	}
 	return f
 }
@@ -89,6 +91,18 @@ func (f *lifecycleFixture) manifest(t *testing.T, services string) compose.File 
 	file, err := compose.NewFileLoader().Load(f.ctx, f.path)
 	require.NoError(t, err)
 	return *file
+}
+
+func commitFixtureFiles(t *testing.T, ctx context.Context, dir string, paths ...string) string {
+	t.Helper()
+	gitCommand(t, ctx, dir, append([]string{"add", "--"}, paths...)...)
+	gitCommand(t, ctx, dir, "-c", "user.name=E2E", "-c", "user.email=e2e@example.invalid", "commit", "--allow-empty", "-m", "update fixture")
+	return gitCommand(t, ctx, dir, "rev-parse", "HEAD")
+}
+
+func (f *lifecycleFixture) commitManifest(t *testing.T) {
+	t.Helper()
+	f.request.Commit = commitFixtureFiles(t, f.ctx, filepath.Dir(f.path), filepath.Base(f.path))
 }
 
 func lifecycleService(name, command, policy string) string {
