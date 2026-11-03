@@ -75,6 +75,9 @@ func NewGoGitRepository(ctx context.Context, spec config.GitSpec, path string) (
 	}, nil
 }
 
+// repositoryLockTimeoutDiagnostic reports a pull that timed out before it could access the local repository.
+const repositoryLockTimeoutDiagnostic = "Timed out waiting for access to the local Git repository"
+
 // acquire serializes go-git access but lets callers abandon a lock wait when canceled.
 func (r *GoGitRepository) acquire(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
@@ -131,7 +134,11 @@ func (r *GoGitRepository) Pull(ctx context.Context) (PullResult, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.pullTimeout)
 	defer cancel()
 	if err := r.acquire(ctx); err != nil {
-		return PullResult{}, err
+		if errors.Is(err, context.DeadlineExceeded) {
+			// Local lock contention, not the remote: report it as such instead of a network timeout.
+			return PullResult{}, &PullError{category: FailureOther, diagnostic: repositoryLockTimeoutDiagnostic}
+		}
+		return PullResult{}, ClassifyPullError(fmt.Errorf("wait for repository access: %w", err), r.remote, r.authType)
 	}
 	defer r.release()
 

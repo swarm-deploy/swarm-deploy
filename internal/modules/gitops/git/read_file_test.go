@@ -5,9 +5,11 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	gogit "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing/object"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -83,4 +85,46 @@ func TestGoGitRepositoryReadFileCancelsWhileLocked(t *testing.T) {
 	cancel()
 	_, err := repo.ReadFile(ctx, "revision", "README.md")
 	require.ErrorIs(t, err, context.Canceled)
+}
+
+func TestGoGitRepositoryPullWhileLocked(t *testing.T) {
+	tests := []struct {
+		name               string
+		cancel             bool
+		expectedCategory   FailureCategory
+		expectedDiagnostic string
+	}{
+		{
+			name:               "pull timeout reports lock contention",
+			expectedCategory:   FailureOther,
+			expectedDiagnostic: repositoryLockTimeoutDiagnostic,
+		},
+		{
+			name:               "canceled caller keeps the pull failure classification",
+			cancel:             true,
+			expectedCategory:   FailureNetwork,
+			expectedDiagnostic: "Git repository is temporarily unreachable",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := &GoGitRepository{mu: make(chan struct{}, 1), pullTimeout: 10 * time.Millisecond}
+			repo.mu <- struct{}{}
+			ctx := t.Context()
+			if tt.cancel {
+				canceled, cancel := context.WithCancel(ctx)
+				cancel()
+				ctx = canceled
+			}
+
+			_, err := repo.Pull(ctx)
+
+			var pullErr *PullError
+			require.ErrorAs(t, err, &pullErr)
+			category, diagnostic := PullFailure(err)
+			assert.Equal(t, tt.expectedCategory, category)
+			assert.Equal(t, tt.expectedDiagnostic, diagnostic)
+		})
+	}
 }
