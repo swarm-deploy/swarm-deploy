@@ -29,27 +29,20 @@ type AuthManager interface {
 	ResolveImage(image string) (string, error)
 }
 
-type DockerConfigAuthManager struct {
-	authConfig dockerAuthConfigFile
-	hasAuth    bool
-}
+type DockerConfigAuthManager struct{}
 
 type NopAuthManager struct{}
 
 func NewAuthManager() AuthManager {
-	authConfig, hasAuth, err := loadDockerAuthConfigFile()
-	if err != nil {
-		return &NopAuthManager{}
-	}
-
-	return &DockerConfigAuthManager{
-		authConfig: authConfig,
-		hasAuth:    hasAuth,
-	}
+	return &DockerConfigAuthManager{}
 }
 
 func (m *DockerConfigAuthManager) ResolveImage(image string) (string, error) {
-	if !m.hasAuth {
+	dockerConfig, hasAuth, err := loadDockerAuthConfigFile()
+	if err != nil {
+		return "", fmt.Errorf("load docker registry auth: %w", err)
+	}
+	if !hasAuth {
 		return "", nil
 	}
 
@@ -61,7 +54,7 @@ func (m *DockerConfigAuthManager) ResolveImage(image string) (string, error) {
 		return "", nil
 	}
 
-	authConfig, found := findRegistryAuthConfig(m.authConfig.Auths, registryHost)
+	authConfig, found := findRegistryAuthConfig(dockerConfig.Auths, registryHost)
 	if !found {
 		return "", nil
 	}
