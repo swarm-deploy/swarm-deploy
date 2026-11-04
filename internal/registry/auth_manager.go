@@ -31,13 +31,14 @@ type AuthManager interface {
 }
 
 type DockerConfigAuthManager struct {
-	mu    sync.Mutex
+	envConfig *dockerAuthConfigFile
+	envErr error
+	mu sync.Mutex
 	cache authCache
 }
 
 type authCache struct {
 	config dockerAuthConfigFile
-	env    string
 	path   string
 	info   os.FileInfo
 }
@@ -45,7 +46,13 @@ type authCache struct {
 type NopAuthManager struct{}
 
 func NewAuthManager() AuthManager {
-	return &DockerConfigAuthManager{}
+	m := &DockerConfigAuthManager{}
+	if raw := strings.TrimSpace(os.Getenv("DOCKER_AUTH_CONFIG")); raw != "" {
+		config, err := decodeDockerAuthConfig([]byte(raw))
+		m.envConfig = &config
+		m.envErr = err
+	}
+	return m
 }
 
 func (m *DockerConfigAuthManager) ResolveImage(image string) (string, error) {
@@ -100,36 +107,18 @@ func parseRegistryHost(image string) (string, error) {
 	return reference.Domain(named), nil
 }
 
-// loadConfig returns the cached config while its source is unchanged.
+// loadConfig returns constructor-loaded credentials or the cached file config.
 func (m *DockerConfigAuthManager) loadConfig() (dockerAuthConfigFile, error) {
+	if m.envConfig != nil {
+		return *m.envConfig, m.envErr
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-
-	var (
-		config dockerAuthConfigFile
-		err    error
-	)
-	if raw := strings.TrimSpace(os.Getenv("DOCKER_AUTH_CONFIG")); raw != "" {
-		config, err = m.loadEnv(raw)
-	} else {
-		config, err = m.loadFile()
-	}
+	config, err := m.loadFile()
 	if err != nil {
 		m.cache = authCache{}
 	}
 	return config, err
-}
-
-func (m *DockerConfigAuthManager) loadEnv(raw string) (dockerAuthConfigFile, error) {
-	if m.cache.env == raw {
-		return m.cache.config, nil
-	}
-	config, err := decodeDockerAuthConfig([]byte(raw))
-	if err != nil {
-		return dockerAuthConfigFile{}, err
-	}
-	m.cache = authCache{env: raw, config: config}
-	return config, nil
 }
 
 func (m *DockerConfigAuthManager) loadFile() (dockerAuthConfigFile, error) {
