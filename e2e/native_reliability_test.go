@@ -268,18 +268,36 @@ func TestRealSwarmRegistryCredentialRotationWithoutRestart(t *testing.T) {
 	require.Equal(t, before.Tasks, after.Tasks, "credential-only refresh must not restart tasks")
 	f.unchanged(t, after)
 
-	// Remove only this fixture's private repository reference. The running
-	// container and shared busybox image remain, but the worker must contact
-	// the registry before starting the next task instead of using the cache.
+	// The no-restart assertion above covers credential refresh. Now request an
+	// external scale-down so both image stores can evict the private reference
+	// without deleting an image still used by a running container.
+	scale := func(replicas uint64) {
+		t.Helper()
+		f.poll(t, fmt.Sprintf("external scale to %d accepted", replicas), func() bool {
+			current := f.inspect(t, "private")
+			require.Equal(t, after.Service.ID, current.ID)
+			current.Spec.Mode.Replicated.Replicas = &replicas
+			return f.sw.Services.Update(f.ctx, current.ID, current.Version, current.Spec,
+				dockerswarm.ServiceUpdateOptions{RegistryAuthFrom: dockerswarm.RegistryAuthFromSpec}) == nil
+		})
+	}
+	scale(0)
+	f.poll(t, "scaled-down tasks have stopped", func() bool {
+		for _, task := range f.tasks(t, "private") {
+			switch task.CurrentState {
+			case swarm.TaskStateComplete, swarm.TaskStateShutdown, swarm.TaskStateFailed,
+				swarm.TaskStateRejected, swarm.TaskStateRemove, swarm.TaskStateOrphaned:
+			default:
+				return false
+			}
+		}
+		return true
+	})
+	// Keep the shared busybox image, but require the next task to contact the
+	// registry. Both scale requests reuse Engine auth without resending a token.
 	evictRegistryFixtureReference(t, f, image, after.Service.Spec.TaskTemplate.ContainerSpec.Image)
 	acceptedBeforePull := r.accepted.Load()
-	f.poll(t, "external forced update accepted", func() bool {
-		current := f.inspect(t, "private")
-		current.Spec.TaskTemplate.ForceUpdate++
-		err := f.sw.Services.Update(f.ctx, current.ID, current.Version, current.Spec,
-			dockerswarm.ServiceUpdateOptions{RegistryAuthFrom: dockerswarm.RegistryAuthFromSpec})
-		return err == nil
-	})
+	scale(1)
 	f.poll(t, "new task pulled using stored rotated credentials", func() bool {
 		current, err := f.observer.WaitRunningTasks(f.ctx, f.stack+"_private", 1)
 		if err != nil || r.accepted.Load() <= acceptedBeforePull {
