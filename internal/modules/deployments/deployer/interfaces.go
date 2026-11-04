@@ -85,6 +85,8 @@ func NewServiceWaiter(
 type StackOptions struct {
 	// UnresolvedServices carries prior desired-state failures requiring verification.
 	UnresolvedServices []string
+	// UpdateGenerations carries durable boundaries from interrupted verification.
+	UpdateGenerations map[string]deploymentmodel.UpdateGeneration
 	// RetryFailedUpdates restarts terminal failed updates only when replicas are managed.
 	RetryFailedUpdates bool
 }
@@ -99,6 +101,8 @@ type StackRequest struct {
 	Desired compose.Compose
 	// Options controls recovery of previous failed updates.
 	Options StackOptions
+	// BeforeUpdate optionally records a service generation durably before Docker apply.
+	BeforeUpdate func(context.Context, string, deploymentmodel.UpdateGeneration) error
 }
 
 // ServiceRequest contains one service remediation without stack-wide Init Jobs or pruning.

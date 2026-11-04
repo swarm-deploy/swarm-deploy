@@ -50,8 +50,8 @@ func specificationProgress(
 	}
 	ownUpdate := generation.ServiceID != "" || unresolved || baseline.ID != service.ID ||
 		!services.SpecsEqual(baseline.ServiceSpec, expected)
-	metadataOnly := metadataOnlyServiceUpdate(baseline, service)
-	if ownUpdate && !metadataOnly &&
+	mode := serviceVerificationMode(baseline, service, unresolved, generation)
+	if ownUpdate && mode == services.VerifyNewGeneration &&
 		specificationStatusPending(reference, service, unresolved, generation.ServiceID != "") {
 		progress.Message = waitingForUpdateStatus
 		return progress
@@ -67,7 +67,7 @@ func specificationProgress(
 		return progress
 	}
 	if ownUpdate && !externalExecution &&
-		specificationRolloutPending(baseline, service, expected, unresolved, generation) {
+		specificationRolloutPending(baseline, service, mode, unresolved, generation) {
 		progress.Message = waitingForUpdateStatus
 		return progress
 	}
@@ -103,22 +103,18 @@ func specificationStatusPending(reference, service swarm.StackService, unresolve
 }
 
 func specificationRolloutPending(
-	baseline, service swarm.StackService, expected dockerswarm.ServiceSpec, unresolved bool,
+	baseline, service swarm.StackService, mode services.VerificationMode, unresolved bool,
 	generation services.UpdateGeneration,
 ) bool {
-	// Inherited obligations need current rollout evidence. Idle writes can have no rollout.
-	if unresolved && generation.ServiceID == "" && !metadataOnlyServiceUpdate(baseline, service) {
-		if _, pending := verificationTaskCutoff(baseline, service, true, true); pending {
+	// Initial creation and zero replicas need no rolling update. Externally managed
+	// services still verify rollout completion, but never require healthy tasks.
+	if baseline.ID == service.ID && serviceDesiredTasks(service) > 0 && mode == services.VerifyNewGeneration {
+		if _, pending := verificationTaskCutoff(baseline, service, mode, unresolved, generation); pending {
 			return true
 		}
-	}
-	beforeTemplate := expected
-	beforeTemplate.TaskTemplate = baseline.ServiceSpec.TaskTemplate
-	// Initial creation has no rolling update. Identity, fresh metadata and the
-	// accepted managed spec have already been checked; tasks need not be running.
-	if baseline.ID == service.ID && service.UpdateStatus == nil && serviceDesiredTasks(service) > 0 &&
-		!services.SpecsEqual(beforeTemplate, expected) {
-		return true
+		if service.UpdateStatus == nil || service.UpdateStatus.State != swarm.ServiceUpdateStateCompleted {
+			return true
+		}
 	}
 	return updatePending(service.UpdateStatus)
 }

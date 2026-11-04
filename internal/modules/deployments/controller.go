@@ -148,6 +148,9 @@ func (c *Controller) Execute(ctx context.Context, req ExecuteRequest) (ExecuteRe
 		SourceComposePath: req.Desired.Path,
 		Desired:           req.Desired.Compose,
 		Options:           options,
+		BeforeUpdate: func(ctx context.Context, name string, generation deploymentmodel.UpdateGeneration) error {
+			return c.lifecycle.RecordUpdateGeneration(ctx, attempt.ID, name, generation)
+		},
 	})
 	c.persistInitJobs(ctx, attempt.ID, deployResult.InitJobs)
 	if deployErr != nil {
@@ -395,6 +398,7 @@ func (c *Controller) stackOptions(
 	return deployer.StackOptions{
 		RetryFailedUpdates: attempt.Number > 1,
 		UnresolvedServices: current.Verification.UnresolvedServices,
+		UpdateGenerations:  current.Verification.Generations,
 	}, nil
 }
 

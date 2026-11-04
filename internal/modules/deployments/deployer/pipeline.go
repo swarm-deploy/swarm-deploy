@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"slices"
 	"strings"
 	"time"
@@ -151,9 +152,12 @@ func (d *Deployer) applyStack(ctx context.Context, payload *deployStackPayload) 
 	applyCtx, cancel := payload.stageContext(ctx)
 	defer cancel()
 	changed, err := d.serviceApplier.Apply(applyCtx, payload.stackName, payload.converted.Services,
-		services.ApplyOptions{RetryFailedUpdates: payload.retryFailedUpdates})
+		services.ApplyOptions{RetryFailedUpdates: payload.retryFailedUpdates, BeforeUpdate: payload.beforeUpdate})
 	payload.changed = changed.ChangedServices
-	payload.externalUpdates = changed.ExternalUpdates
+	if payload.updateGenerations == nil {
+		payload.updateGenerations = map[string]services.UpdateGeneration{}
+	}
+	maps.Copy(payload.updateGenerations, changed.UpdateGenerations)
 	return safePipelineError(err)
 }
 
@@ -182,7 +186,7 @@ func (d *Deployer) waitForStack(ctx context.Context, payload *deployStackPayload
 	verification, err := d.wait(waitCtx, waiterpkg.ServiceWaitRequest{
 		StackName: payload.stackName, ServiceNames: names,
 		Baseline: payload.baseline, AppliedServices: payload.changed,
-		ExternalUpdates:    payload.externalUpdates,
+		UpdateGenerations:  payload.updateGenerations,
 		ExpectedSpecs:      expected,
 		UnresolvedServices: payload.unresolvedServices,
 	})
@@ -238,7 +242,10 @@ func (d *Deployer) applyService(ctx context.Context, payload *deployServicePaylo
 		applyCtx, payload.stackName, payload.converted.Services, services.ApplyOptions{},
 	)
 	payload.changed = changed.ChangedServices
-	payload.externalUpdates = changed.ExternalUpdates
+	if payload.updateGenerations == nil {
+		payload.updateGenerations = map[string]services.UpdateGeneration{}
+	}
+	maps.Copy(payload.updateGenerations, changed.UpdateGenerations)
 	return safePipelineError(err)
 }
 
@@ -252,8 +259,8 @@ func (d *Deployer) waitForService(ctx context.Context, payload *deployServicePay
 		StackName:    payload.stackName,
 		ServiceNames: verificationServiceNames(payload.stackName, payload.converted.Services, payload.applyPayload),
 		Baseline:     payload.baseline, AppliedServices: payload.changed,
-		ExternalUpdates: payload.externalUpdates,
-		ExpectedSpecs:   expectedServiceSpecs(payload.stackName, payload.converted.Services),
+		UpdateGenerations: payload.updateGenerations,
+		ExpectedSpecs:     expectedServiceSpecs(payload.stackName, payload.converted.Services),
 	})
 	payload.result.SpecificationOnlyServices = verification.SpecificationOnlyServices
 	payload.result.Verification = deploymentmodel.Verification{

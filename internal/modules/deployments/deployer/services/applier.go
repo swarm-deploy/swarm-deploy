@@ -13,6 +13,7 @@ import (
 
 	dockerregistry "github.com/docker/docker/api/types/registry"
 	dockerswarm "github.com/docker/docker/api/types/swarm"
+	deploymentmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/registry"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/labelsdict"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
@@ -41,24 +42,19 @@ func New(manager swarm.ServiceManager, authManager registry.AuthManager) *Applie
 type ApplyOptions struct {
 	// RetryFailedUpdates restarts terminal failed updates and non-restarting jobs only when replicas are managed.
 	RetryFailedUpdates bool
+	// BeforeUpdate optionally persists the generation before Docker can accept the write.
+	BeforeUpdate func(context.Context, string, UpdateGeneration) error
 }
 
-// UpdateGeneration records the runtime generation preserved by an accepted external service write.
-type UpdateGeneration struct {
-	// ServiceID identifies the service updated by this apply.
-	ServiceID string
-	// ForceUpdate is the external execution generation preserved in the accepted spec.
-	ForceUpdate uint64
-	// After is the last inspected service timestamp before the successful write.
-	After time.Time
-}
+// UpdateGeneration identifies the runtime generation and pre-update boundary of a service write.
+type UpdateGeneration = deploymentmodel.UpdateGeneration
 
-// ApplyResult contains mutations and external generation evidence from this apply.
+// ApplyResult contains mutations and generation evidence from this apply.
 type ApplyResult struct {
 	// ChangedServices lists services created or updated by this apply.
 	ChangedServices []string
-	// ExternalUpdates records accepted writes, rebased on optimistic retries.
-	ExternalUpdates map[string]UpdateGeneration
+	// UpdateGenerations records accepted writes, rebased on optimistic retries.
+	UpdateGenerations map[string]UpdateGeneration
 }
 
 // Apply reconciles services in deterministic name order and returns accepted mutations.
@@ -76,11 +72,12 @@ func (a *Applier) Apply(
 		return 0
 	})
 
-	retryFailed := options.RetryFailedUpdates
-	result := ApplyResult{ChangedServices: make([]string, 0, len(desired)), ExternalUpdates: map[string]UpdateGeneration{}}
+	result := ApplyResult{
+		ChangedServices: make([]string, 0, len(desired)), UpdateGenerations: map[string]UpdateGeneration{},
+	}
 	var blocked []error
 	for _, spec := range desired {
-		serviceName, serviceChanged, err := a.apply(ctx, stackName, spec, retryFailed, result.ExternalUpdates)
+		serviceName, serviceChanged, err := a.apply(ctx, stackName, spec, options, result.UpdateGenerations)
 		if err != nil {
 			if errors.Is(err, ErrUpdateBlocked) {
 				blocked = append(blocked, err)
@@ -158,7 +155,7 @@ func registryAuthRefreshAllowed(current dockerswarm.Service, expected dockerswar
 
 func (a *Applier) apply(
 	ctx context.Context, stackName string, desired dockerswarm.ServiceSpec,
-	retryFailed bool, generations map[string]UpdateGeneration,
+	options ApplyOptions, generations map[string]UpdateGeneration,
 ) (string, bool, error) {
 	displayName := serviceName(stackName, desired.Name)
 	managed, err := ReplicasManaged(desired)
@@ -168,15 +165,16 @@ func (a *Applier) apply(
 	current, created, err := a.inspectOrCreate(ctx, stackName, displayName, desired)
 	if err != nil || created {
 		if created {
-			recordExternalUpdate(generations, displayName, desired, current)
+			generations[displayName] = updateGeneration(desired, current)
 		}
 		return displayName, created, err
 	}
-	required, err := a.updateRequired(ctx, displayName, desired, current, retryFailed && managed)
+	options.RetryFailedUpdates = options.RetryFailedUpdates && managed
+	required, err := a.updateRequired(ctx, displayName, desired, current, options.RetryFailedUpdates)
 	if err != nil || !required {
 		return displayName, false, err
 	}
-	err = a.update(ctx, stackName, displayName, desired, current, retryFailed && managed, generations)
+	err = a.update(ctx, stackName, displayName, desired, current, options, generations)
 	if err != nil {
 		return displayName, false, err
 	}
@@ -239,11 +237,11 @@ func (a *Applier) update(
 	displayName string,
 	desired dockerswarm.ServiceSpec,
 	current dockerswarm.Service,
-	retryFailed bool, generations map[string]UpdateGeneration,
+	options ApplyOptions, generations map[string]UpdateGeneration,
 ) error {
 	for attempt := 0; attempt < serviceUpdateAttempts; attempt++ {
 		refreshed, done, err := a.updateAttempt(
-			ctx, stackName, displayName, desired, current, retryFailed, generations,
+			ctx, stackName, displayName, desired, current, options, generations,
 		)
 		if err != nil {
 			return err
@@ -266,35 +264,41 @@ func (a *Applier) updateAttempt(
 	displayName string,
 	desired dockerswarm.ServiceSpec,
 	current dockerswarm.Service,
-	retryFailed bool,
+	options ApplyOptions,
 	generations map[string]UpdateGeneration,
 ) (dockerswarm.Service, bool, error) {
-	applied, reused, err := a.prepareUpdate(ctx, displayName, desired, current, retryFailed)
+	applied, reused, err := a.prepareUpdate(ctx, displayName, desired, current, options.RetryFailedUpdates)
 	if errors.Is(err, errSafetyInspectionChanged) {
 		return a.refreshConcurrentUpdate(
-			ctx, stackName, displayName, desired, current.UpdatedAt, retryFailed, generations,
+			ctx, stackName, displayName, desired, current.UpdatedAt, options, generations,
 			"external execution inspection",
 		)
 	}
 	if err != nil {
 		return current, false, err
 	}
-	options, auth, err := a.updateOptions(current.ID, applied)
+	updateOptions, auth, err := a.updateOptions(current.ID, applied)
 	if err != nil {
 		return current, false, fmt.Errorf("service %s registry authentication: %w", displayName, err)
 	}
-	options.QueryRegistry = !reused
-	err = a.manager.Update(ctx, current.ID, current.Version, applied, options)
+	updateOptions.QueryRegistry = !reused
+	generation := updateGeneration(applied, current)
+	if options.BeforeUpdate != nil {
+		if err = options.BeforeUpdate(ctx, displayName, generation); err != nil {
+			return current, false, fmt.Errorf("record service %s update generation: %w", displayName, err)
+		}
+	}
+	err = a.manager.Update(ctx, current.ID, current.Version, applied, updateOptions)
 	if err == nil {
 		a.rememberAuth(current.ID, auth)
-		recordExternalUpdate(generations, displayName, applied, current)
+		generations[displayName] = generation
 		return current, true, nil
 	}
 	if !errors.Is(err, swarm.ErrServiceConflict) {
 		return current, false, fmt.Errorf("update service %s: %w", displayName, err)
 	}
 	return a.refreshConcurrentUpdate(
-		ctx, stackName, displayName, desired, current.UpdatedAt, retryFailed, generations, "version conflict",
+		ctx, stackName, displayName, desired, current.UpdatedAt, options, generations, "version conflict",
 	)
 }
 
@@ -304,7 +308,7 @@ func (a *Applier) refreshConcurrentUpdate(
 	displayName string,
 	desired dockerswarm.ServiceSpec,
 	after time.Time,
-	retryFailed bool,
+	options ApplyOptions,
 	generations map[string]UpdateGeneration,
 	reason string,
 ) (dockerswarm.Service, bool, error) {
@@ -315,7 +319,7 @@ func (a *Applier) refreshConcurrentUpdate(
 	if err = validateOwnership(stackName, desired.Name, current); err != nil {
 		return current, false, err
 	}
-	retry, err := a.retryRequired(ctx, current, retryFailed)
+	retry, err := a.retryRequired(ctx, current, options.RetryFailedUpdates)
 	if err != nil {
 		return current, false, err
 	}
@@ -330,7 +334,13 @@ func (a *Applier) refreshConcurrentUpdate(
 	if SpecsEqual(current.Spec, desired) && !retry && !authPending {
 		// A concurrent writer already accepted the expected managed fields.
 		current.UpdatedAt = after
-		recordExternalUpdate(generations, displayName, current.Spec, current)
+		generation := updateGeneration(current.Spec, current)
+		if options.BeforeUpdate != nil {
+			if err = options.BeforeUpdate(ctx, displayName, generation); err != nil {
+				return current, false, err
+			}
+		}
+		generations[displayName] = generation
 		return current, true, nil
 	}
 	return current, false, nil
@@ -462,13 +472,8 @@ func serviceName(stackName, fullName string) string {
 	return fullName
 }
 
-func recordExternalUpdate(generations map[string]UpdateGeneration, name string,
-	spec dockerswarm.ServiceSpec, current dockerswarm.Service,
-) {
-	managed, _ := ReplicasManaged(spec) // Already validated before Docker mutations.
-	if !managed {
-		generations[name] = UpdateGeneration{
-			ServiceID: current.ID, ForceUpdate: spec.TaskTemplate.ForceUpdate, After: current.UpdatedAt,
-		}
+func updateGeneration(spec dockerswarm.ServiceSpec, current dockerswarm.Service) UpdateGeneration {
+	return UpdateGeneration{
+		ServiceID: current.ID, ForceUpdate: spec.TaskTemplate.ForceUpdate, After: current.UpdatedAt,
 	}
 }

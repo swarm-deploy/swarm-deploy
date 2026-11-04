@@ -313,7 +313,7 @@ func TestRetryPausedStackActuallyAppliesNewTaskGeneration(t *testing.T) {
 			return nil
 		})
 	manager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "demo"}).Return([]swarm.StackService{after}, nil)
-	manager.EXPECT().ListTasks(gomock.Any(), "service-id").Return([]swarm.ServiceTask{{ID: "new-task", DesiredState: swarm.TaskStateRunning, CurrentState: swarm.TaskStateRunning, CreatedAt: now}}, nil)
+	manager.EXPECT().ListTasks(gomock.Any(), "service-id").Return([]swarm.ServiceTask{{Spec: swarm.NewTaskSpec(after.ServiceSpec.TaskTemplate), ID: "new-task", DesiredState: swarm.TaskStateRunning, CurrentState: swarm.TaskStateRunning, CreatedAt: now}}, nil)
 	d := &Deployer{secretResolver: newTestSecretResolver(), serviceWaiter: waiterpkg.NewServiceWaiter(manager, nil, time.Millisecond, time.Second)}
 	wireNativeTestDeployerWithServiceManager(t, d, manager, false)
 	_, err := d.DeployStack(t.Context(), StackRequest{
@@ -338,7 +338,7 @@ func TestAcceptedUnchangedRolloutIsVerified(t *testing.T) {
 			manager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "demo"}).Return([]swarm.StackService{before}, nil).Times(2)
 			manager.EXPECT().Inspect(gomock.Any(), "demo_api").Return(dockerswarm.Service{ID: "service-id", Spec: current, UpdateStatus: &dockerswarm.UpdateStatus{State: dockerswarm.UpdateStateUpdating}}, nil)
 			// Even a satisfied running count cannot complete an in-progress update.
-			task := swarm.ServiceTask{ID: "task", DesiredState: swarm.TaskStateRunning, CurrentState: swarm.TaskStateRunning, CreatedAt: now}
+			task := swarm.ServiceTask{Spec: swarm.NewTaskSpec(current.TaskTemplate), ID: "task", DesiredState: swarm.TaskStateRunning, CurrentState: swarm.TaskStateRunning, CreatedAt: now}
 			manager.EXPECT().ListTasks(gomock.Any(), "service-id").Return([]swarm.ServiceTask{task}, nil).Times(2)
 			after := before
 			after.UpdateStatus = &swarm.ServiceUpdateStatus{State: "completed", StartedAt: now.Add(-time.Minute), CompletedAt: now}

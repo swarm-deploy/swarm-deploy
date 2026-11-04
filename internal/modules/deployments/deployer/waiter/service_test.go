@@ -257,7 +257,7 @@ func TestServiceWaiterGlobalServiceConverges(t *testing.T) {
 	manager := swarm.NewMockServiceManager(gomock.NewController(t))
 	service := testGlobalService("agent", "agent-id", 2, serviceWaitTestTime)
 	manager.EXPECT().ListServices(gomock.Any(), gomock.Any()).Return([]swarm.StackService{service}, nil)
-	manager.EXPECT().ListTasks(gomock.Any(), "agent-id").Return(testRunningTasks(2, serviceWaitTestTime), nil)
+	manager.EXPECT().ListTasks(gomock.Any(), "agent-id").Return(testRunningTasks(2, serviceWaitTestTime, service.ServiceSpec.TaskTemplate), nil)
 
 	err := waitForTest(newTestServiceWaiter(manager), t.Context(), ServiceWaitRequest{StackName: "app", ServiceNames: []string{"agent"}})
 	require.NoError(t, err)
@@ -271,7 +271,7 @@ func TestServiceWaiterNewGlobalServiceWaitsForSchedulerPropagation(t *testing.T)
 
 	converged := testGlobalService("agent", "agent-id", 2, serviceWaitTestTime)
 	manager.EXPECT().ListServices(gomock.Any(), gomock.Any()).Return([]swarm.StackService{converged}, nil)
-	manager.EXPECT().ListTasks(gomock.Any(), "agent-id").Return(testRunningTasks(2, serviceWaitTestTime), nil)
+	manager.EXPECT().ListTasks(gomock.Any(), "agent-id").Return(testRunningTasks(2, serviceWaitTestTime, converged.ServiceSpec.TaskTemplate), nil)
 
 	progress := make([]ServiceProgress, 0)
 	err := waitForTest(newTestServiceWaiter(manager), t.Context(), ServiceWaitRequest{
@@ -297,7 +297,7 @@ func TestServiceWaiterGlobalTasksOverrideLaggingServiceStatus(t *testing.T) {
 
 	converged := testGlobalService("agent", "agent-id", 2, serviceWaitTestTime)
 	manager.EXPECT().ListServices(gomock.Any(), gomock.Any()).Return([]swarm.StackService{converged}, nil)
-	manager.EXPECT().ListTasks(gomock.Any(), "agent-id").Return(testRunningTasks(2, serviceWaitTestTime), nil)
+	manager.EXPECT().ListTasks(gomock.Any(), "agent-id").Return(testRunningTasks(2, serviceWaitTestTime, converged.ServiceSpec.TaskTemplate), nil)
 
 	err := waitForTest(newTestServiceWaiter(manager), t.Context(), ServiceWaitRequest{
 		StackName: "app", ServiceNames: []string{"agent"},
@@ -346,7 +346,7 @@ func TestServiceWaiterUpdatedGlobalServiceDoesNotConvergeBeforeSchedulerPropagat
 		State: "completed", StartedAt: serviceWaitTestTime, CompletedAt: serviceWaitTestTime.Add(time.Second),
 	}
 	manager.EXPECT().ListServices(gomock.Any(), gomock.Any()).Return([]swarm.StackService{converged}, nil)
-	manager.EXPECT().ListTasks(gomock.Any(), "agent-id").Return(testRunningTasks(2, serviceWaitTestTime), nil)
+	manager.EXPECT().ListTasks(gomock.Any(), "agent-id").Return(testRunningTasks(2, serviceWaitTestTime, converged.ServiceSpec.TaskTemplate), nil)
 
 	progress := make([]ServiceProgress, 0)
 	err := waitForTest(newTestServiceWaiter(manager), t.Context(), ServiceWaitRequest{
@@ -366,14 +366,14 @@ func TestServiceWaiterGlobalRollingUpdateConverges(t *testing.T) {
 	updating.ServiceSpec.TaskTemplate.ContainerSpec.Image = "agent:2"
 	updating.UpdateStatus = &swarm.ServiceUpdateStatus{State: "updating", StartedAt: serviceWaitTestTime}
 	manager.EXPECT().ListServices(gomock.Any(), gomock.Any()).Return([]swarm.StackService{updating}, nil)
-	manager.EXPECT().ListTasks(gomock.Any(), "agent-id").Return(testRunningTasks(1, serviceWaitTestTime), nil)
+	manager.EXPECT().ListTasks(gomock.Any(), "agent-id").Return(testRunningTasks(1, serviceWaitTestTime, updating.ServiceSpec.TaskTemplate), nil)
 
 	completed := updating
 	completed.UpdateStatus = &swarm.ServiceUpdateStatus{
 		State: "completed", StartedAt: serviceWaitTestTime, CompletedAt: serviceWaitTestTime.Add(time.Second),
 	}
 	manager.EXPECT().ListServices(gomock.Any(), gomock.Any()).Return([]swarm.StackService{completed}, nil)
-	manager.EXPECT().ListTasks(gomock.Any(), "agent-id").Return(testRunningTasks(2, serviceWaitTestTime), nil)
+	manager.EXPECT().ListTasks(gomock.Any(), "agent-id").Return(testRunningTasks(2, serviceWaitTestTime, completed.ServiceSpec.TaskTemplate), nil)
 
 	err := waitForTest(newTestServiceWaiter(manager), t.Context(), ServiceWaitRequest{
 		StackName: "app", ServiceNames: []string{"agent"}, Baseline: []swarm.StackService{baseline},
@@ -405,7 +405,7 @@ func TestServiceWaiterTimeoutIncludesPartialConvergence(t *testing.T) {
 	pending := testReplicatedService("worker", "worker-id", 2, serviceWaitTestTime, "worker:2")
 	manager.EXPECT().ListServices(gomock.Any(), gomock.Any()).Return([]swarm.StackService{ready, pending}, nil).AnyTimes()
 	manager.EXPECT().ListTasks(gomock.Any(), "api-id").Return(testRunningTasks(1, serviceWaitTestTime), nil).AnyTimes()
-	manager.EXPECT().ListTasks(gomock.Any(), "worker-id").Return(testRunningTasks(1, serviceWaitTestTime), nil).AnyTimes()
+	manager.EXPECT().ListTasks(gomock.Any(), "worker-id").Return(testRunningTasks(1, serviceWaitTestTime, pending.ServiceSpec.TaskTemplate), nil).AnyTimes()
 
 	progress := make([]ServiceProgress, 0)
 	waiter := NewServiceWaiter(manager, nil, time.Millisecond, 4*time.Millisecond)
@@ -564,11 +564,16 @@ func testGlobalService(name, id string, desired uint64, updatedAt time.Time) swa
 	}
 }
 
-func testRunningTasks(count int, createdAt time.Time) []swarm.ServiceTask {
+func testRunningTasks(count int, createdAt time.Time, templates ...dockerswarm.TaskSpec) []swarm.ServiceTask {
 	tasks := make([]swarm.ServiceTask, 0, count)
 	for index := 1; index <= count; index++ {
 		tasks = append(tasks, testTask("task-"+time.Duration(index).String(), index,
 			swarm.TaskStateRunning, swarm.TaskStateRunning, createdAt))
+	}
+	if len(templates) > 0 {
+		for i := range tasks {
+			tasks[i].Spec = swarm.NewTaskSpec(templates[0])
+		}
 	}
 	return tasks
 }
@@ -582,6 +587,7 @@ func testTask(
 ) swarm.ServiceTask {
 	return swarm.ServiceTask{
 		ID: id, Slot: slot, DesiredState: desired, CurrentState: current,
+		Spec:      swarm.NewTaskSpec(dockerswarm.TaskSpec{ContainerSpec: &dockerswarm.ContainerSpec{Image: "api:2"}}),
 		CreatedAt: createdAt, UpdatedAt: createdAt,
 	}
 }
@@ -644,6 +650,7 @@ func TestServiceWaiterManualRetryOfInitialFailureUsesNewGeneration(t *testing.T)
 			status := after
 			status.UpdateStatus = &swarm.ServiceUpdateStatus{State: "updating", StartedAt: after.UpdatedAt}
 			current := testTask("retry-task", 1, swarm.TaskStateRunning, swarm.TaskStateStarting, after.UpdatedAt)
+			current.Spec = swarm.NewTaskSpec(after.ServiceSpec.TaskTemplate)
 			finished := status
 			finished.UpdateStatus = &swarm.ServiceUpdateStatus{State: "completed", StartedAt: after.UpdatedAt}
 			if outcome == "failed" {
