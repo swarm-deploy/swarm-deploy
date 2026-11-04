@@ -232,6 +232,8 @@ func failedUpdate(service dockerswarm.Service) bool {
 	case swarm.ServiceUpdateStateFailed, swarm.ServiceUpdateStatePaused, swarm.ServiceUpdateStateRollbackStarted,
 		swarm.ServiceUpdateStateRollbackPaused, swarm.ServiceUpdateStateRollbackCompleted:
 		return true
+	case swarm.ServiceUpdateStateUpdating, swarm.ServiceUpdateStateCompleted:
+		return false
 	default:
 		return false
 	}

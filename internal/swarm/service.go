@@ -173,15 +173,16 @@ type ServiceNetwork struct {
 type ServiceUpdateState = dockerswarm.UpdateState
 
 const (
-	ServiceUpdateStateUpdating = dockerswarm.UpdateStateUpdating
-	ServiceUpdateStatePaused = dockerswarm.UpdateStatePaused
-	ServiceUpdateStateCompleted = dockerswarm.UpdateStateCompleted
-	ServiceUpdateStateRollbackStarted = dockerswarm.UpdateStateRollbackStarted
-	ServiceUpdateStateRollbackPaused = dockerswarm.UpdateStateRollbackPaused
+	ServiceUpdateStateUpdating          = dockerswarm.UpdateStateUpdating
+	ServiceUpdateStatePaused            = dockerswarm.UpdateStatePaused
+	ServiceUpdateStateCompleted         = dockerswarm.UpdateStateCompleted
+	ServiceUpdateStateRollbackStarted   = dockerswarm.UpdateStateRollbackStarted
+	ServiceUpdateStateRollbackPaused    = dockerswarm.UpdateStateRollbackPaused
 	ServiceUpdateStateRollbackCompleted = dockerswarm.UpdateStateRollbackCompleted
-	// ServiceUpdateStateFailed is a failure state handled by deployment consumers.
-	ServiceUpdateStateFailed ServiceUpdateState = "failed"
 )
+
+// ServiceUpdateStateFailed is a failure state handled by deployment consumers.
+const ServiceUpdateStateFailed ServiceUpdateState = "failed"
 
 // ServiceUpdateStatus is a compact projection of service rolling update state.
 type ServiceUpdateStatus struct {
