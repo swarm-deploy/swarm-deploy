@@ -31,12 +31,15 @@ type AuthManager interface {
 }
 
 type DockerConfigAuthManager struct {
-	mu       sync.Mutex
-	config   dockerAuthConfigFile
-	path     string
-	envValue string
-	fileInfo os.FileInfo
-	loaded   bool
+	mu    sync.Mutex
+	cache authCache
+}
+
+type authCache struct {
+	config dockerAuthConfigFile
+	env    string
+	path   string
+	info   os.FileInfo
 }
 
 type NopAuthManager struct{}
@@ -46,11 +49,11 @@ func NewAuthManager() AuthManager {
 }
 
 func (m *DockerConfigAuthManager) ResolveImage(image string) (string, error) {
-	dockerConfig, hasAuth, err := m.loadDockerAuthConfigFile()
+	dockerConfig, err := m.loadConfig()
 	if err != nil {
 		return "", fmt.Errorf("load docker registry auth: %w", err)
 	}
-	if !hasAuth {
+	if len(dockerConfig.Auths) == 0 {
 		return "", nil
 	}
 
@@ -97,106 +100,92 @@ func parseRegistryHost(image string) (string, error) {
 	return reference.Domain(named), nil
 }
 
-// loadDockerAuthConfigFile caches parsed credentials while the source is unchanged.
-// A file's identity, modification time, and size are checked on every lookup.
-func (m *DockerConfigAuthManager) loadDockerAuthConfigFile() (dockerAuthConfigFile, bool, error) {
+// loadConfig returns the cached config while its source is unchanged.
+func (m *DockerConfigAuthManager) loadConfig() (dockerAuthConfigFile, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	var (
+		config dockerAuthConfigFile
+		err    error
+	)
 	if raw := strings.TrimSpace(os.Getenv("DOCKER_AUTH_CONFIG")); raw != "" {
-		if m.loaded && m.envValue == raw {
-			return m.config, len(m.config.Auths) > 0, nil
-		}
-		config, hasAuth, err := decodeDockerAuthConfig([]byte(raw))
-		if err != nil {
-			m.clearCache()
-			return dockerAuthConfigFile{}, false, err
-		}
-		m.config = config
-		m.path = ""
-		m.envValue = raw
-		m.fileInfo = nil
-		m.loaded = true
-		return config, hasAuth, nil
+		config, err = m.loadEnv(raw)
+	} else {
+		config, err = m.loadFile()
 	}
-
-	configPath, ok, err := resolveDockerConfigPath()
 	if err != nil {
-		m.clearCache()
-		return dockerAuthConfigFile{}, false, err
+		m.cache = authCache{}
+	}
+	return config, err
+}
+
+func (m *DockerConfigAuthManager) loadEnv(raw string) (dockerAuthConfigFile, error) {
+	if m.cache.env == raw {
+		return m.cache.config, nil
+	}
+	config, err := decodeDockerAuthConfig([]byte(raw))
+	if err != nil {
+		return dockerAuthConfigFile{}, err
+	}
+	m.cache = authCache{env: raw, config: config}
+	return config, nil
+}
+
+func (m *DockerConfigAuthManager) loadFile() (dockerAuthConfigFile, error) {
+	path, ok, err := resolveDockerConfigPath()
+	if err != nil {
+		return dockerAuthConfigFile{}, err
 	}
 	if !ok {
-		m.clearCache()
-		return dockerAuthConfigFile{}, false, nil
+		m.cache = authCache{}
+		return dockerAuthConfigFile{}, nil
 	}
 
-	info, err := os.Stat(configPath)
+	info, err := os.Stat(path)
 	if errors.Is(err, os.ErrNotExist) {
-		m.clearCache()
-		return dockerAuthConfigFile{}, false, nil
+		m.cache = authCache{}
+		return dockerAuthConfigFile{}, nil
 	}
 	if err != nil {
-		m.clearCache()
-		return dockerAuthConfigFile{}, false, fmt.Errorf("stat docker auth config %s: %w", configPath, err)
+		return dockerAuthConfigFile{}, fmt.Errorf("stat docker auth config %s: %w", path, err)
 	}
 	if !info.Mode().IsRegular() {
-		m.clearCache()
-		return dockerAuthConfigFile{}, false, fmt.Errorf("read docker auth config %s: not a regular file", configPath)
+		return dockerAuthConfigFile{}, fmt.Errorf("read docker auth config %s: not a regular file", path)
 	}
-	if m.loaded && m.path == configPath && m.fileInfo != nil &&
-		os.SameFile(info, m.fileInfo) && info.Size() == m.fileInfo.Size() &&
-		info.ModTime().Equal(m.fileInfo.ModTime()) {
-		return m.config, len(m.config.Auths) > 0, nil
+	if m.cache.matchesFile(path, info) {
+		return m.cache.config, nil
 	}
 
-	configBytes, err := os.ReadFile(configPath)
+	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
-		m.clearCache()
-		return dockerAuthConfigFile{}, false, nil
+		m.cache = authCache{}
+		return dockerAuthConfigFile{}, nil
 	}
 	if err != nil {
-		m.clearCache()
-		return dockerAuthConfigFile{}, false, fmt.Errorf("read docker auth config %s: %w", configPath, err)
+		return dockerAuthConfigFile{}, fmt.Errorf("read docker auth config %s: %w", path, err)
 	}
-	config, hasAuth, err := decodeDockerAuthConfig(configBytes)
+	config, err := decodeDockerAuthConfig(data)
 	if err != nil {
-		m.clearCache()
-		return dockerAuthConfigFile{}, false, err
+		return dockerAuthConfigFile{}, err
 	}
-
-	// Do not cache a snapshot if the file changed while it was being read.
-	after, err := os.Stat(configPath)
-	if err != nil {
-		m.clearCache()
-		return dockerAuthConfigFile{}, false, fmt.Errorf("stat docker auth config %s after read: %w", configPath, err)
-	}
-	if !os.SameFile(info, after) || info.Size() != after.Size() || !info.ModTime().Equal(after.ModTime()) {
-		m.clearCache()
-		return dockerAuthConfigFile{}, false, fmt.Errorf("docker auth config %s changed during read", configPath)
-	}
-
-	m.config = config
-	m.path = configPath
-	m.envValue = ""
-	m.fileInfo = after
-	m.loaded = true
-	return config, hasAuth, nil
+	m.cache = authCache{path: path, info: info, config: config}
+	return config, nil
 }
 
-func (m *DockerConfigAuthManager) clearCache() {
-	m.config = dockerAuthConfigFile{}
-	m.path = ""
-	m.envValue = ""
-	m.fileInfo = nil
-	m.loaded = false
+func (c authCache) matchesFile(path string, info os.FileInfo) bool {
+	return c.path == path && c.info != nil &&
+		os.SameFile(info, c.info) &&
+		info.Size() == c.info.Size() &&
+		info.ModTime().Equal(c.info.ModTime())
 }
 
-func decodeDockerAuthConfig(configBytes []byte) (dockerAuthConfigFile, bool, error) {
-	authConfig := dockerAuthConfigFile{}
-	if err := json.Unmarshal(configBytes, &authConfig); err != nil {
-		return dockerAuthConfigFile{}, false, fmt.Errorf("decode docker auth config: %w", err)
+func decodeDockerAuthConfig(data []byte) (dockerAuthConfigFile, error) {
+	var config dockerAuthConfigFile
+	if err := json.Unmarshal(data, &config); err != nil {
+		return dockerAuthConfigFile{}, fmt.Errorf("decode docker auth config: %w", err)
 	}
-	return authConfig, len(authConfig.Auths) > 0, nil
+	return config, nil
 }
 
 func resolveDockerConfigPath() (string, bool, error) {
