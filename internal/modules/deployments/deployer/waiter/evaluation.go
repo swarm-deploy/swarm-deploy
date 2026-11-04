@@ -4,9 +4,12 @@ package waiter
 import (
 	"fmt"
 	"reflect"
+	"strings"
 	"time"
 
 	dockerswarm "github.com/docker/docker/api/types/swarm"
+	swarmkitapi "github.com/moby/swarmkit/v2/api"
+	"github.com/moby/swarmkit/v2/manager/constraint"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/services"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
@@ -20,6 +23,7 @@ func evaluateService(
 	tasks []swarm.ServiceTask,
 	unresolved bool,
 	expected dockerswarm.ServiceSpec,
+	placementNodes map[string]*swarmkitapi.Node,
 ) ServiceProgress {
 	if service.ID == "" {
 		return ServiceProgress{Name: name, State: ServicePending, Message: "waiting for service to appear"}
@@ -30,16 +34,8 @@ func evaluateService(
 		ServiceID: service.ID, Name: name, State: ServicePending, Desired: desired,
 	}
 	restored := restoredCompletedRollback(baseline, service, expected)
-	if message, failed := terminalUpdateFailure(service.UpdateStatus); failed && !restored {
-		if baseline.ID == service.ID && serviceChanged(baseline, service) &&
-			reflect.DeepEqual(baseline.UpdateStatus, service.UpdateStatus) {
-			progress.Message = "waiting for current update status; previous update was " + string(service.UpdateStatus.State)
-			return progress
-		}
-		progress.State = ServiceFailed
-		progress.Message = message
-		progress.Message += terminalTaskDiagnostic(tasks, service.UpdateStatus.Message)
-		return progress
+	if updateProgress, terminal := terminalServiceUpdateProgress(baseline, service, tasks, restored, progress); terminal {
+		return updateProgress
 	}
 	if service.Mode == replicatedJobServiceMode || service.Mode == globalJobServiceMode {
 		return jobProgress(progress, baseline, service, tasks)
@@ -49,7 +45,6 @@ func evaluateService(
 		progress.Message = boundedDiagnostic(fmt.Sprintf("unsupported service mode %q", service.Mode))
 		return progress
 	}
-
 	desired = observedDesiredTasks(service, tasks)
 	progress.Desired = desired
 	if globalSchedulerPending(baseline, service, desired) {
@@ -64,13 +59,16 @@ func evaluateService(
 	// an earlier failed desired spec left an unresolved verification obligation.
 	unresolved = unresolved && !restored
 	requireCurrentGeneration := requiresTaskGeneration(baseline, service, unresolved)
+	preservePlacementTasks := !requireCurrentGeneration && placementOnlyTaskTemplateChange(baseline, service)
 	cutoff, generationPending := verificationTaskCutoff(baseline, service, requireCurrentGeneration, unresolved)
 	if generationPending {
 		progress.Message = waitingForUpdateStatus
 		return progress
 	}
 
-	progress.Running = countVerifiedRunningTasks(tasks, baseline, service, requireCurrentGeneration, cutoff)
+	progress.Running = countVerifiedRunningTasks(
+		tasks, baseline, service, requireCurrentGeneration, preservePlacementTasks, cutoff, placementNodes,
+	)
 	if service.UpdateStatus == nil {
 		if failed, terminal := services.NonRestartingTaskFailure(service.ServiceSpec, tasks, cutoff); terminal {
 			progress.State = ServiceFailed
@@ -95,6 +93,26 @@ func evaluateService(
 		taskFailureDiagnostic(tasks),
 	))
 	return progress
+}
+
+func terminalServiceUpdateProgress(
+	baseline, service swarm.StackService,
+	tasks []swarm.ServiceTask,
+	restored bool,
+	progress ServiceProgress,
+) (ServiceProgress, bool) {
+	message, failed := terminalUpdateFailure(service.UpdateStatus)
+	if !failed || restored {
+		return progress, false
+	}
+	if baseline.ID == service.ID && serviceChanged(baseline, service) &&
+		reflect.DeepEqual(baseline.UpdateStatus, service.UpdateStatus) {
+		progress.Message = "waiting for current update status; previous update was " + string(service.UpdateStatus.State)
+		return progress, true
+	}
+	progress.State = ServiceFailed
+	progress.Message = message + terminalTaskDiagnostic(tasks, service.UpdateStatus.Message)
+	return progress, true
 }
 
 func restoredCompletedRollback(baseline, service swarm.StackService, expected dockerswarm.ServiceSpec) bool {
@@ -304,8 +322,21 @@ func verificationTaskCutoff(
 }
 
 func requiresTaskGeneration(baseline, service swarm.StackService, unresolved bool) bool {
-	return unresolved || baseline.ID == "" || baseline.ID != service.ID ||
-		!reflect.DeepEqual(baseline.ServiceSpec.TaskTemplate, service.ServiceSpec.TaskTemplate)
+	if unresolved || baseline.ID == "" || baseline.ID != service.ID {
+		return true
+	}
+	return !reflect.DeepEqual(baseline.ServiceSpec.TaskTemplate, service.ServiceSpec.TaskTemplate) &&
+		!placementOnlyTaskTemplateChange(baseline, service)
+}
+
+func placementOnlyTaskTemplateChange(baseline, service swarm.StackService) bool {
+	before := baseline.ServiceSpec.TaskTemplate
+	after := service.ServiceSpec.TaskTemplate
+	if reflect.DeepEqual(before.Placement, after.Placement) {
+		return false
+	}
+	after.Placement = before.Placement
+	return swarm.NewTaskSpec(before).CompareServiceTemplate(after).Equal()
 }
 
 // metadataOnlyServiceUpdate proves that the last write preserved the task template.
@@ -322,12 +353,90 @@ func metadataOnlyServiceUpdate(baseline, service swarm.StackService) bool {
 }
 
 func countVerifiedRunningTasks(
-	tasks []swarm.ServiceTask, baseline, service swarm.StackService, requireCurrentGeneration bool, cutoff time.Time,
+	tasks []swarm.ServiceTask,
+	baseline, service swarm.StackService,
+	requireCurrentGeneration bool,
+	preservePlacementTasks bool,
+	cutoff time.Time,
+	placementNodes map[string]*swarmkitapi.Node,
 ) uint64 {
 	if metadataOnlyServiceUpdate(baseline, service) {
 		return countMatchingRunningTasks(tasks, service.ServiceSpec.TaskTemplate)
 	}
+	if preservePlacementTasks {
+		return countPlacementCompatibleRunningTasks(tasks, service.ServiceSpec.TaskTemplate, placementNodes)
+	}
 	return countCurrentRunningTasks(tasks, requireCurrentGeneration, cutoff)
+}
+
+func countPlacementCompatibleRunningTasks(
+	tasks []swarm.ServiceTask,
+	template dockerswarm.TaskSpec,
+	nodes map[string]*swarmkitapi.Node,
+) uint64 {
+	var constraints []constraint.Constraint
+	if template.Placement != nil {
+		parsed, err := constraint.Parse(template.Placement.Constraints)
+		if err != nil {
+			return 0
+		}
+		constraints = parsed
+	}
+
+	var count uint64
+	for _, task := range tasks {
+		if task.DesiredState != swarm.TaskStateRunning || task.CurrentState != swarm.TaskStateRunning {
+			continue
+		}
+		comparison := task.Spec.CompareServiceTemplate(template)
+		if comparison.Equal() || comparison.PlacementOnly() && nodeMatchesConstraints(constraints, nodes[task.Node]) {
+			count++
+		}
+	}
+	return count
+}
+
+func nodeMatchesConstraints(constraints []constraint.Constraint, node *swarmkitapi.Node) bool {
+	return node != nil && constraint.NodeMatches(constraints, node)
+}
+
+func placementTaskNodesRequired(
+	baseline, service swarm.StackService,
+	tasks []swarm.ServiceTask,
+	unresolved bool,
+) bool {
+	if requiresTaskGeneration(baseline, service, unresolved) || !placementOnlyTaskTemplateChange(baseline, service) {
+		return false
+	}
+	for _, task := range tasks {
+		if task.DesiredState == swarm.TaskStateRunning && task.CurrentState == swarm.TaskStateRunning &&
+			task.Spec.CompareServiceTemplate(service.ServiceSpec.TaskTemplate).PlacementOnly() {
+			return true
+		}
+	}
+	return false
+}
+
+func placementNodesByID(nodes []swarm.Node) map[string]*swarmkitapi.Node {
+	mapped := make(map[string]*swarmkitapi.Node, len(nodes))
+	for _, node := range nodes {
+		role := swarmkitapi.NodeRoleWorker
+		if strings.EqualFold(node.Role, string(dockerswarm.NodeRoleManager)) {
+			role = swarmkitapi.NodeRoleManager
+		}
+		mapped[node.ID] = &swarmkitapi.Node{
+			ID:   node.ID,
+			Role: role,
+			Spec: swarmkitapi.NodeSpec{Annotations: swarmkitapi.Annotations{Labels: node.Labels}},
+			Description: &swarmkitapi.NodeDescription{
+				Hostname: node.Hostname,
+				Platform: &swarmkitapi.Platform{OS: node.PlatformOS, Architecture: node.PlatformArchitecture},
+				Engine:   &swarmkitapi.EngineDescription{Labels: node.EngineLabels},
+			},
+			Status: swarmkitapi.NodeStatus{Addr: node.Addr},
+		}
+	}
+	return mapped
 }
 
 func countMatchingRunningTasks(tasks []swarm.ServiceTask, template dockerswarm.TaskSpec) uint64 {

@@ -28,7 +28,7 @@ func TestInitialDeploymentRecoveryAfterAllocation(t *testing.T) {
 			service.UpdatedAt = service.CreatedAt.Add(tc.age)
 			tasks := testRunningTasks(1, service.CreatedAt)
 			for _, unresolved := range []bool{false, true} {
-				progress := evaluateService("api", service, service, tasks, unresolved, service.ServiceSpec)
+				progress := evaluateService("api", service, service, tasks, unresolved, service.ServiceSpec, nil)
 				assert.Equal(t, ServiceReady, progress.State, progress.Message)
 			}
 		})
@@ -106,7 +106,9 @@ func TestUnresolvedRollingUpdateCannotUseCreationGeneration(t *testing.T) {
 				service.ServiceSpec.TaskTemplate.ForceUpdate = 1
 				baseline.ServiceSpec.TaskTemplate.ForceUpdate = 1
 			}
-			progress := evaluateService("api", baseline, service, testRunningTasks(1, service.CreatedAt), true, service.ServiceSpec)
+			progress := evaluateService(
+				"api", baseline, service, testRunningTasks(1, service.CreatedAt), true, service.ServiceSpec, nil,
+			)
 			assert.Equal(t, ServicePending, progress.State, "old running tasks cannot verify a rolling update")
 		})
 	}

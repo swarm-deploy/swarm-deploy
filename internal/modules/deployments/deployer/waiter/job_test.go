@@ -29,7 +29,7 @@ func TestJobFailureIsObservedWithoutWaitingForDeadline(t *testing.T) {
 				JobIteration: &dockerswarm.Version{}, ID: "failed-job-task", Node: "node", CurrentState: swarm.TaskStateFailed, ExitCode: new(23),
 				Error: "token=private-value " + strings.Repeat("x", 300),
 			}}, nil)
-			w := NewServiceWaiter(manager, time.Millisecond, time.Second)
+			w := NewServiceWaiter(manager, nil, time.Millisecond, time.Second)
 			var observed ServiceProgress
 			_, err := w.Wait(t.Context(), ServiceWaitRequest{StackName: "app", ServiceNames: []string{"job"},
 				Progress: func(p ServiceProgress) { observed = p },

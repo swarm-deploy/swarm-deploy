@@ -12,8 +12,10 @@ func TestNodeManagerMapNodeMapsFields(t *testing.T) {
 		ID: " node-1 ",
 		Description: dockerswarm.NodeDescription{
 			Hostname: " manager-1 ",
+			Platform: dockerswarm.Platform{OS: "linux", Architecture: "amd64"},
 			Engine: dockerswarm.EngineDescription{
 				EngineVersion: " 28.3.0 ",
+				Labels:        map[string]string{"storage": "ssd"},
 			},
 			Resources: dockerswarm.Resources{
 				NanoCPUs:    8_000_000_000,
@@ -25,6 +27,7 @@ func TestNodeManagerMapNodeMapsFields(t *testing.T) {
 			Addr:  " 10.0.0.1 ",
 		},
 		Spec: dockerswarm.NodeSpec{
+			Role:         dockerswarm.NodeRoleManager,
 			Availability: dockerswarm.NodeAvailabilityActive,
 			Annotations: dockerswarm.Annotations{
 				Labels: map[string]string{
@@ -41,11 +44,15 @@ func TestNodeManagerMapNodeMapsFields(t *testing.T) {
 	mapped := (&nodeManager{}).mapNode(node)
 
 	assert.Equal(t, " node-1 ", mapped.ID, "unexpected id")
+	assert.Equal(t, "manager", mapped.Role, "unexpected role")
 	assert.Equal(t, " manager-1 ", mapped.Hostname, "unexpected hostname")
+	assert.Equal(t, "linux", mapped.PlatformOS, "unexpected platform OS")
+	assert.Equal(t, "amd64", mapped.PlatformArchitecture, "unexpected platform architecture")
 	assert.Equal(t, "ready", mapped.Status, "unexpected status")
 	assert.Equal(t, "active", mapped.Availability, "unexpected availability")
 	assert.Equal(t, NodeManagerStatusLeader, mapped.ManagerStatus, "unexpected managerStatus")
 	assert.Equal(t, " 28.3.0 ", mapped.EngineVersion, "unexpected engine version")
+	assert.Equal(t, map[string]string{"storage": "ssd"}, mapped.EngineLabels, "unexpected engine labels")
 	assert.Equal(t, " 10.0.0.1 ", mapped.Addr, "unexpected addr")
 	assert.Equal(t, int64(8_000_000_000), mapped.CPUNano, "unexpected cpu")
 	assert.Equal(t, int64(34_359_738_368), mapped.MemoryBytes, "unexpected memory")

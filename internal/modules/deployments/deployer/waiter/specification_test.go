@@ -91,7 +91,7 @@ func TestExternalExecutionStatusAttribution(t *testing.T) {
 					testTask("completed-job", 1, swarm.TaskStateRunning, swarm.TaskStateComplete, serviceWaitTestTime),
 				}, nil)
 			}
-			result, err := NewServiceWaiter(manager, time.Millisecond, 15*time.Millisecond).Wait(t.Context(), request)
+			result, err := NewServiceWaiter(manager, nil, time.Millisecond, 15*time.Millisecond).Wait(t.Context(), request)
 			switch tc.want {
 			case ServiceReady:
 				require.NoError(t, err)
@@ -165,7 +165,7 @@ func TestExternalInitialCreation(t *testing.T) {
 			manager := swarm.NewMockServiceManager(gomock.NewController(t))
 			manager.EXPECT().ListServices(gomock.Any(), gomock.Any()).Return([]swarm.StackService{observed}, nil).AnyTimes()
 			manager.EXPECT().ListTasks(gomock.Any(), gomock.Any()).Return(tc.tasks, nil).AnyTimes()
-			result, err := NewServiceWaiter(manager, time.Millisecond, 20*time.Millisecond).Wait(t.Context(), ServiceWaitRequest{
+			result, err := NewServiceWaiter(manager, nil, time.Millisecond, 20*time.Millisecond).Wait(t.Context(), ServiceWaitRequest{
 				StackName: "app", ServiceNames: []string{"job"}, AppliedServices: []string{"job"},
 				ExpectedSpecs:   map[string]dockerswarm.ServiceSpec{"job": expected.ServiceSpec},
 				ExternalUpdates: map[string]services.UpdateGeneration{"job": {ServiceID: "job-id"}},

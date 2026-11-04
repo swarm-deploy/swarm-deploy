@@ -271,7 +271,7 @@ func TestUnchangedHistoricalPausedServiceIsNotAnAppliedTarget(t *testing.T) {
 			observed := swarm.StackService{ID: "service-id", Name: "api", Mode: "replicated", Replicas: current.Mode.Replicated.Replicas, ServiceSpec: current, DesiredTasks: 1, UpdateStatus: &swarm.ServiceUpdateStatus{State: "paused"}}
 			manager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "demo"}).Return([]swarm.StackService{observed}, nil)
 			manager.EXPECT().Inspect(gomock.Any(), "demo_api").Return(dockerswarm.Service{ID: "service-id", Spec: current, UpdateStatus: &dockerswarm.UpdateStatus{State: dockerswarm.UpdateStatePaused}}, nil)
-			d := &Deployer{secretResolver: newTestSecretResolver(), serviceWaiter: waiterpkg.NewServiceWaiter(manager, time.Millisecond, time.Second)}
+			d := &Deployer{secretResolver: newTestSecretResolver(), serviceWaiter: waiterpkg.NewServiceWaiter(manager, nil, time.Millisecond, time.Second)}
 			wireNativeTestDeployerWithServiceManager(t, d, manager, false)
 			var err error
 			if single {
@@ -314,7 +314,7 @@ func TestRetryPausedStackActuallyAppliesNewTaskGeneration(t *testing.T) {
 		})
 	manager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "demo"}).Return([]swarm.StackService{after}, nil)
 	manager.EXPECT().ListTasks(gomock.Any(), "service-id").Return([]swarm.ServiceTask{{ID: "new-task", DesiredState: swarm.TaskStateRunning, CurrentState: swarm.TaskStateRunning, CreatedAt: now}}, nil)
-	d := &Deployer{secretResolver: newTestSecretResolver(), serviceWaiter: waiterpkg.NewServiceWaiter(manager, time.Millisecond, time.Second)}
+	d := &Deployer{secretResolver: newTestSecretResolver(), serviceWaiter: waiterpkg.NewServiceWaiter(manager, nil, time.Millisecond, time.Second)}
 	wireNativeTestDeployerWithServiceManager(t, d, manager, false)
 	_, err := d.DeployStack(t.Context(), StackRequest{
 		StackName:         "demo",
@@ -343,7 +343,7 @@ func TestAcceptedUnchangedRolloutIsVerified(t *testing.T) {
 			after := before
 			after.UpdateStatus = &swarm.ServiceUpdateStatus{State: "completed", StartedAt: now.Add(-time.Minute), CompletedAt: now}
 			manager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "demo"}).Return([]swarm.StackService{after}, nil)
-			d := &Deployer{secretResolver: newTestSecretResolver(), serviceWaiter: waiterpkg.NewServiceWaiter(manager, time.Millisecond, time.Second)}
+			d := &Deployer{secretResolver: newTestSecretResolver(), serviceWaiter: waiterpkg.NewServiceWaiter(manager, nil, time.Millisecond, time.Second)}
 			wireNativeTestDeployerWithServiceManager(t, d, manager, false)
 			options := StackOptions{}
 			if retry {

@@ -62,7 +62,7 @@ networks:
 		applied, err := services.New(f.sw.Services, &registry.NopAuthManager{}).Apply(f.ctx, f.stack,
 			[]dockerswarm.ServiceSpec{spec}, services.ApplyOptions{})
 		require.NoError(t, err)
-		result, waitErr := waiter.NewServiceWaiter(f.sw.Services, 100*time.Millisecond, 30*time.Second).Wait(f.ctx, waiter.ServiceWaitRequest{
+		result, waitErr := waiter.NewServiceWaiter(f.sw.Services, f.sw.Nodes, 100*time.Millisecond, 30*time.Second).Wait(f.ctx, waiter.ServiceWaitRequest{
 			StackName: f.stack, ServiceNames: []string{"db"}, Baseline: baseline,
 			AppliedServices: applied.ChangedServices, UnresolvedServices: unresolved,
 			ExpectedSpecs: map[string]dockerswarm.ServiceSpec{"db": spec},
@@ -114,7 +114,7 @@ networks:
 	baseline, err := f.sw.Services.ListServices(f.ctx, swarm.ListServicesFilter{Stack: f.stack})
 	require.NoError(t, err)
 	// A healthy rolled-back service cannot satisfy B, even without another write.
-	_, err = waiter.NewServiceWaiter(f.sw.Services, 100*time.Millisecond, 5*time.Second).Wait(f.ctx, waiter.ServiceWaitRequest{
+	_, err = waiter.NewServiceWaiter(f.sw.Services, f.sw.Nodes, 100*time.Millisecond, 5*time.Second).Wait(f.ctx, waiter.ServiceWaitRequest{
 		StackName: f.stack, ServiceNames: []string{"db"}, Baseline: baseline,
 		UnresolvedServices: []string{"db"}, ExpectedSpecs: map[string]dockerswarm.ServiceSpec{"db": converted.Services[0]},
 	})

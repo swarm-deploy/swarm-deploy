@@ -138,7 +138,7 @@ func TestExternalReplicaUnresolvedCannotSucceedWithStaleSpecOrMetadata(t *testin
 			if tc.staleMetadata {
 				manager.EXPECT().ListTasks(gomock.Any(), "job-id").Return(testRunningTasks(1, observedAt), nil).AnyTimes()
 			}
-			result, err := NewServiceWaiter(manager, time.Millisecond, 10*time.Millisecond).Wait(t.Context(), ServiceWaitRequest{
+			result, err := NewServiceWaiter(manager, nil, time.Millisecond, 10*time.Millisecond).Wait(t.Context(), ServiceWaitRequest{
 				StackName: "app", ServiceNames: []string{"job"}, UnresolvedServices: []string{"job"}, Baseline: []swarm.StackService{baseline},
 				ExpectedSpecs: map[string]dockerswarm.ServiceSpec{"job": baseline.ServiceSpec},
 			})
@@ -156,7 +156,7 @@ func TestOrdinaryReplicasRetainStrictTaskVerificationWithExpectedSpec(t *testing
 	manager.EXPECT().ListTasks(gomock.Any(), "job-id").Return([]swarm.ServiceTask{
 		testTask("completed", 1, swarm.TaskStateRunning, swarm.TaskStateComplete, serviceWaitTestTime),
 	}, nil).AnyTimes()
-	result, err := NewServiceWaiter(manager, time.Millisecond, 10*time.Millisecond).Wait(t.Context(), ServiceWaitRequest{
+	result, err := NewServiceWaiter(manager, nil, time.Millisecond, 10*time.Millisecond).Wait(t.Context(), ServiceWaitRequest{
 		StackName: "app", ServiceNames: []string{"job"}, ExpectedSpecs: map[string]dockerswarm.ServiceSpec{"job": service.ServiceSpec},
 	})
 	require.ErrorIs(t, err, context.DeadlineExceeded)

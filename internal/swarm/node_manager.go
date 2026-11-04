@@ -79,7 +79,9 @@ func (m *nodeManager) updateLabels(ctx context.Context, nodeID string, mutate fu
 
 func (*nodeManager) mapNode(node dockerswarm.Node) Node {
 	managerStatus := NodeManagerStatusWorker
+	role := dockerswarm.NodeRoleWorker
 	if node.ManagerStatus != nil {
+		role = dockerswarm.NodeRoleManager
 		switch {
 		case node.ManagerStatus.Leader:
 			managerStatus = NodeManagerStatusLeader
@@ -91,16 +93,20 @@ func (*nodeManager) mapNode(node dockerswarm.Node) Node {
 	}
 
 	return Node{
-		ID:            node.ID,
-		Hostname:      node.Description.Hostname,
-		Status:        string(node.Status.State),
-		Availability:  string(node.Spec.Availability),
-		ManagerStatus: managerStatus,
-		EngineVersion: node.Description.Engine.EngineVersion,
-		Addr:          node.Status.Addr,
-		CPUNano:       node.Description.Resources.NanoCPUs,
-		MemoryBytes:   node.Description.Resources.MemoryBytes,
-		Labels:        node.Spec.Labels,
+		ID:                   node.ID,
+		Role:                 string(role),
+		Hostname:             node.Description.Hostname,
+		PlatformOS:           node.Description.Platform.OS,
+		PlatformArchitecture: node.Description.Platform.Architecture,
+		Status:               string(node.Status.State),
+		Availability:         string(node.Spec.Availability),
+		ManagerStatus:        managerStatus,
+		EngineVersion:        node.Description.Engine.EngineVersion,
+		EngineLabels:         node.Description.Engine.Labels,
+		Addr:                 node.Status.Addr,
+		CPUNano:              node.Description.Resources.NanoCPUs,
+		MemoryBytes:          node.Description.Resources.MemoryBytes,
+		Labels:               node.Spec.Labels,
 	}
 }
 

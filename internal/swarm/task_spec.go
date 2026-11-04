@@ -3,6 +3,7 @@ package swarm
 import (
 	"reflect"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/docker/docker/api/types/container"
@@ -55,6 +56,19 @@ func (c TaskSpecComparison) Equal() bool {
 // OlderForceUpdateOnly reports whether the task matches the normalized template except for an older generation.
 func (c TaskSpecComparison) OlderForceUpdateOnly() bool {
 	return c.olderForceUpdateOnly
+}
+
+// PlacementOnly reports whether every mismatch is within TaskTemplate.Placement.
+func (c TaskSpecComparison) PlacementOnly() bool {
+	if len(c.mismatchPaths) == 0 {
+		return false
+	}
+	for _, path := range c.mismatchPaths {
+		if path != "TaskTemplate.Placement" && !strings.HasPrefix(path, "TaskTemplate.Placement.") {
+			return false
+		}
+	}
+	return true
 }
 
 // MismatchPaths returns Docker field paths without any specification values.

@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	dockerswarm "github.com/docker/docker/api/types/swarm"
+	swarmkitapi "github.com/moby/swarmkit/v2/api"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/services"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
@@ -21,7 +22,7 @@ func (w *ServiceWaiter) observeService(
 	if !managed {
 		return w.observeExternalService(ctx, name, baseline, service, unresolved, expected, generation)
 	}
-	progress := evaluateService(name, baseline, service, nil, unresolved, expected)
+	progress := evaluateService(name, baseline, service, nil, unresolved, expected, nil)
 	if service.ID == "" {
 		return progress, nil
 	}
@@ -44,5 +45,15 @@ func (w *ServiceWaiter) observeService(
 		progress.Message = boundedDiagnostic(fmt.Sprintf("list tasks: %v", err))
 		return progress, fmt.Errorf("list tasks for service %s: %w", name, err)
 	}
-	return evaluateService(name, baseline, service, tasks, unresolved, expected), nil
+	var placementNodes map[string]*swarmkitapi.Node
+	if placementTaskNodesRequired(baseline, service, tasks, unresolved) {
+		nodes, listErr := w.nodes.List(ctx)
+		if listErr != nil {
+			progress.State = ServicePending
+			progress.Message = boundedDiagnostic(fmt.Sprintf("list nodes: %v", listErr))
+			return progress, fmt.Errorf("list nodes for service %s placement: %w", name, listErr)
+		}
+		placementNodes = placementNodesByID(nodes)
+	}
+	return evaluateService(name, baseline, service, tasks, unresolved, expected, placementNodes), nil
 }

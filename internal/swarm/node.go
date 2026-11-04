@@ -28,8 +28,14 @@ const (
 type Node struct {
 	// ID is a unique Docker Swarm node identifier.
 	ID string `json:"id"`
+	// Role is the node's observed Swarm role used by placement constraints.
+	Role string `json:"-"`
 	// Hostname is a node hostname reported by Docker.
 	Hostname string `json:"hostname"`
+	// PlatformOS is the node operating system used by placement constraints.
+	PlatformOS string `json:"-"`
+	// PlatformArchitecture is the node architecture used by placement constraints.
+	PlatformArchitecture string `json:"-"`
 	// Status is a current node runtime state.
 	Status string `json:"status"`
 	// Availability is a desired scheduling availability.
@@ -38,6 +44,8 @@ type Node struct {
 	ManagerStatus NodeManagerStatus `json:"manager_status"`
 	// EngineVersion is a Docker engine version on node.
 	EngineVersion string `json:"engine_version"`
+	// EngineLabels contains Docker engine labels used by placement constraints.
+	EngineLabels map[string]string `json:"-"`
 	// Addr is a node address from node status.
 	Addr string `json:"addr"`
 	// CPUNano is total CPU capacity in nano-CPU units.

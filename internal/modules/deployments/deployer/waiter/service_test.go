@@ -34,7 +34,7 @@ func TestInitialNonRestartingTaskFailureIsTerminal(t *testing.T) {
 			task.Error = "task startup failed"
 			manager.EXPECT().ListServices(gomock.Any(), gomock.Any()).Return([]swarm.StackService{service}, nil).AnyTimes()
 			manager.EXPECT().ListTasks(gomock.Any(), service.ID).Return([]swarm.ServiceTask{task}, nil).AnyTimes()
-			_, err := NewServiceWaiter(manager, time.Millisecond, 20*time.Millisecond).Wait(t.Context(), ServiceWaitRequest{
+			_, err := NewServiceWaiter(manager, nil, time.Millisecond, 20*time.Millisecond).Wait(t.Context(), ServiceWaitRequest{
 				StackName: "app", ServiceNames: []string{"api"},
 			})
 			require.ErrorIs(t, err, ErrConvergenceFailed)
@@ -325,7 +325,7 @@ func TestServiceWaiterNewGlobalServiceWithZeroDesiredTasksDoesNotConvergePrematu
 	manager.EXPECT().ListServices(gomock.Any(), gomock.Any()).Return([]swarm.StackService{service}, nil).AnyTimes()
 	manager.EXPECT().ListTasks(gomock.Any(), "agent-id").Return(nil, nil).AnyTimes()
 
-	waiter := NewServiceWaiter(manager, time.Millisecond, 4*time.Millisecond)
+	waiter := NewServiceWaiter(manager, nil, time.Millisecond, 4*time.Millisecond)
 	err := waitForTest(waiter, t.Context(), ServiceWaitRequest{StackName: "app", ServiceNames: []string{"agent"}})
 	require.Error(t, err)
 	assert.ErrorIs(t, err, context.DeadlineExceeded)
@@ -408,7 +408,7 @@ func TestServiceWaiterTimeoutIncludesPartialConvergence(t *testing.T) {
 	manager.EXPECT().ListTasks(gomock.Any(), "worker-id").Return(testRunningTasks(1, serviceWaitTestTime), nil).AnyTimes()
 
 	progress := make([]ServiceProgress, 0)
-	waiter := NewServiceWaiter(manager, time.Millisecond, 4*time.Millisecond)
+	waiter := NewServiceWaiter(manager, nil, time.Millisecond, 4*time.Millisecond)
 	err := waitForTest(waiter, t.Context(), ServiceWaitRequest{
 		StackName: "app", ServiceNames: []string{"api", "worker"},
 		Progress: func(update ServiceProgress) { progress = append(progress, update) },
@@ -501,7 +501,7 @@ func TestServiceWaiterRepeatedTemporaryErrorsEndInTimeoutWithLatestDiagnostic(t 
 	manager := swarm.NewMockServiceManager(gomock.NewController(t))
 	manager.EXPECT().ListServices(gomock.Any(), gomock.Any()).Return(nil, temporaryDockerError()).AnyTimes()
 
-	waiter := NewServiceWaiter(manager, time.Millisecond, 4*time.Millisecond)
+	waiter := NewServiceWaiter(manager, nil, time.Millisecond, 4*time.Millisecond)
 	err := waitForTest(waiter, t.Context(), ServiceWaitRequest{StackName: "app", ServiceNames: []string{"api"}})
 	require.Error(t, err)
 	assert.ErrorIs(t, err, context.DeadlineExceeded)
@@ -530,7 +530,7 @@ func temporaryDockerError() error {
 }
 
 func newTestServiceWaiter(manager swarm.ServiceManager) *ServiceWaiter {
-	return NewServiceWaiter(manager, time.Millisecond, time.Second)
+	return NewServiceWaiter(manager, nil, time.Millisecond, time.Second)
 }
 
 func testReplicatedService(
