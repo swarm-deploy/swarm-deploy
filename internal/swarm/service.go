@@ -169,10 +169,24 @@ type ServiceNetwork struct {
 	Aliases []string `json:"aliases,omitempty"`
 }
 
+// ServiceUpdateState is the state of a rolling service update.
+type ServiceUpdateState = dockerswarm.UpdateState
+
+const (
+	ServiceUpdateStateUpdating = dockerswarm.UpdateStateUpdating
+	ServiceUpdateStatePaused = dockerswarm.UpdateStatePaused
+	ServiceUpdateStateCompleted = dockerswarm.UpdateStateCompleted
+	ServiceUpdateStateRollbackStarted = dockerswarm.UpdateStateRollbackStarted
+	ServiceUpdateStateRollbackPaused = dockerswarm.UpdateStateRollbackPaused
+	ServiceUpdateStateRollbackCompleted = dockerswarm.UpdateStateRollbackCompleted
+	// ServiceUpdateStateFailed is a failure state handled by deployment consumers.
+	ServiceUpdateStateFailed ServiceUpdateState = "failed"
+)
+
 // ServiceUpdateStatus is a compact projection of service rolling update state.
 type ServiceUpdateStatus struct {
 	// State is an update status state.
-	State string `json:"state"`
+	State ServiceUpdateState `json:"state"`
 	// StartedAt is update start time.
 	StartedAt time.Time `json:"started_at,omitempty"`
 	// CompletedAt is update completion time.

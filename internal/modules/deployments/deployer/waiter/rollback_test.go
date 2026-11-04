@@ -39,7 +39,7 @@ func TestRollbackStatusBelongsToDesiredDeployment(t *testing.T) {
 			service.ServiceSpec.Labels = map[string]string{labelsdict.StackNamespace: "app"}
 			service.UpdatedAt = serviceWaitTestTime.Add(time.Minute)
 			if tc.status != "" {
-				service.UpdateStatus = &swarm.ServiceUpdateStatus{State: tc.status, StartedAt: serviceWaitTestTime.Add(time.Second)}
+				service.UpdateStatus = &swarm.ServiceUpdateStatus{State: swarm.ServiceUpdateState(tc.status), StartedAt: serviceWaitTestTime.Add(time.Second)}
 			}
 			baseline := service
 			if tc.currentRollback {

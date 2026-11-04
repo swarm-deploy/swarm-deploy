@@ -47,7 +47,7 @@ func TestAppliedTargetWaitsForFreshServiceAndUpdateStatus(t *testing.T) {
 		t.Run(historicalState, func(t *testing.T) {
 			manager := swarm.NewMockServiceManager(gomock.NewController(t))
 			before := testReplicatedService("api", "api-id", 1, serviceWaitTestTime.Add(-time.Hour), "api:1")
-			before.UpdateStatus = &swarm.ServiceUpdateStatus{State: historicalState, StartedAt: serviceWaitTestTime.Add(-time.Hour)}
+			before.UpdateStatus = &swarm.ServiceUpdateStatus{State: swarm.ServiceUpdateState(historicalState), StartedAt: serviceWaitTestTime.Add(-time.Hour)}
 			after := testReplicatedService("api", "api-id", 1, serviceWaitTestTime, "api:2")
 			after.UpdateStatus = before.UpdateStatus
 			// The first observation has not seen the accepted spec yet. The second has

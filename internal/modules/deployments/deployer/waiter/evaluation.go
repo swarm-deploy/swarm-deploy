@@ -11,10 +11,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 
-const (
-	waitingForUpdateStatus = "waiting for current rolling update status"
-	rollbackCompleted      = "rollback_completed"
-)
+const waitingForUpdateStatus = "waiting for current rolling update status"
 
 func evaluateService(
 	name string,
@@ -36,7 +33,7 @@ func evaluateService(
 	if message, failed := terminalUpdateFailure(service.UpdateStatus); failed && !restored {
 		if baseline.ID == service.ID && serviceChanged(baseline, service) &&
 			reflect.DeepEqual(baseline.UpdateStatus, service.UpdateStatus) {
-			progress.Message = "waiting for current update status; previous update was " + service.UpdateStatus.State
+			progress.Message = "waiting for current update status; previous update was " + string(service.UpdateStatus.State)
 			return progress
 		}
 		progress.State = ServiceFailed
@@ -104,7 +101,7 @@ func restoredCompletedRollback(baseline, service swarm.StackService, expected do
 	// Only a rollback already completed before this apply may be stale. A new
 	// rollback, retry generation, or a different desired spec must still fail.
 	return expected.Name != "" && baseline.ID == service.ID && !serviceChanged(baseline, service) &&
-		service.UpdateStatus != nil && service.UpdateStatus.State == rollbackCompleted &&
+		service.UpdateStatus != nil && service.UpdateStatus.State == swarm.ServiceUpdateStateRollbackCompleted &&
 		reflect.DeepEqual(baseline.UpdateStatus, service.UpdateStatus) &&
 		services.SpecsEqual(service.ServiceSpec, expected)
 }
@@ -241,8 +238,9 @@ func terminalUpdateFailure(status *swarm.ServiceUpdateStatus) (string, bool) {
 		return "", false
 	}
 	switch status.State {
-	case "failed", "paused", "rollback_started", "rollback_paused", rollbackCompleted:
-		message := "service update is " + status.State
+	case swarm.ServiceUpdateStateFailed, swarm.ServiceUpdateStatePaused, swarm.ServiceUpdateStateRollbackStarted,
+		swarm.ServiceUpdateStateRollbackPaused, swarm.ServiceUpdateStateRollbackCompleted:
+		message := "service update is " + string(status.State)
 		if diagnostic := boundedDiagnostic(status.Message); diagnostic != "" {
 			message += ": " + diagnostic
 		}
@@ -257,11 +255,12 @@ func updatePending(status *swarm.ServiceUpdateStatus) bool {
 		return false
 	}
 	switch status.State {
-	case "", "paused", "rollback_started", "rollback_paused", rollbackCompleted:
+	case "", swarm.ServiceUpdateStatePaused, swarm.ServiceUpdateStateRollbackStarted,
+		swarm.ServiceUpdateStateRollbackPaused, swarm.ServiceUpdateStateRollbackCompleted:
 		return false
-	case "updating":
+	case swarm.ServiceUpdateStateUpdating:
 		return true
-	case "completed":
+	case swarm.ServiceUpdateStateCompleted:
 		return false
 	default:
 		return true

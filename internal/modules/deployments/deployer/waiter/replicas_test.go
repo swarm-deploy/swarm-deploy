@@ -61,7 +61,7 @@ func TestExternalReplicaVerificationWaitsForExpectedSpecAndFreshRollout(t *testi
 		t.Run(historical, func(t *testing.T) {
 			manager := swarm.NewMockServiceManager(gomock.NewController(t))
 			before := externalService(1, serviceWaitTestTime.Add(-time.Hour), "job:1")
-			before.UpdateStatus = &swarm.ServiceUpdateStatus{State: historical, StartedAt: before.UpdatedAt}
+			before.UpdateStatus = &swarm.ServiceUpdateStatus{State: swarm.ServiceUpdateState(historical), StartedAt: before.UpdatedAt}
 			after := externalService(1, serviceWaitTestTime, "job:2")
 			after.UpdateStatus = before.UpdateStatus
 			// A scheduler mutation is fresh metadata, but is not the requested image update.
@@ -103,7 +103,7 @@ func TestExternalReplicaTerminalFailureStillFailsVerification(t *testing.T) {
 			if state == "rollback_completed" {
 				after.ServiceSpec = before.ServiceSpec
 			}
-			after.UpdateStatus = &swarm.ServiceUpdateStatus{State: state, StartedAt: serviceWaitTestTime, Message: "update failed"}
+			after.UpdateStatus = &swarm.ServiceUpdateStatus{State: swarm.ServiceUpdateState(state), StartedAt: serviceWaitTestTime, Message: "update failed"}
 			manager.EXPECT().ListServices(gomock.Any(), gomock.Any()).Return([]swarm.StackService{after}, nil)
 			manager.EXPECT().ListTasks(gomock.Any(), "job-id").Return(nil, nil)
 			result, err := newTestServiceWaiter(manager).Wait(t.Context(), ServiceWaitRequest{

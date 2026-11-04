@@ -60,7 +60,7 @@ func TestExternalExecutionStatusAttribution(t *testing.T) {
 				after.ServiceSpec.TaskTemplate.ContainerSpec.Image = "job:1"
 			}
 			after.CreatedAt = serviceWaitTestTime.Add(-2 * time.Hour)
-			after.UpdateStatus = &swarm.ServiceUpdateStatus{State: tc.state, StartedAt: serviceWaitTestTime}
+			after.UpdateStatus = &swarm.ServiceUpdateStatus{State: swarm.ServiceUpdateState(tc.state), StartedAt: serviceWaitTestTime}
 			if tc.staleMetadata {
 				after.UpdatedAt = serviceWaitTestTime.Add(-45 * time.Minute)
 			}

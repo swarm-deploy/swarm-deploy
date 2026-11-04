@@ -387,7 +387,7 @@ func verificationServiceNames(stackName string, specs []dockerswarm.ServiceSpec,
 	names := slices.Clone(payload.changed)
 	candidates := convertedServiceNames(stackName, specs)
 	for _, service := range payload.baseline {
-		if service.UpdateStatus != nil && service.UpdateStatus.State == "updating" &&
+		if service.UpdateStatus != nil && service.UpdateStatus.State == swarm.ServiceUpdateStateUpdating &&
 			slices.Contains(candidates, service.Name) && !slices.Contains(names, service.Name) {
 			names = append(names, service.Name)
 		}
