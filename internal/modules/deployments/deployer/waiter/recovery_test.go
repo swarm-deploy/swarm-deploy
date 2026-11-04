@@ -29,7 +29,7 @@ func TestInitialDeploymentRecoveryAfterAllocation(t *testing.T) {
 			tasks := testRunningTasks(1, service.CreatedAt)
 			tasks[0].Spec = swarm.NewTaskSpec(service.ServiceSpec.TaskTemplate)
 			for _, unresolved := range []bool{false, true} {
-				progress := evaluateService("api", service, service, tasks, unresolved, service.ServiceSpec, nil)
+				progress := evaluateTestService("api", service, service, tasks, unresolved, service.ServiceSpec, nil)
 				assert.Equal(t, ServiceReady, progress.State, progress.Message)
 			}
 		})
@@ -108,7 +108,7 @@ func TestUnresolvedRollingUpdateCannotUseCreationGeneration(t *testing.T) {
 				service.ServiceSpec.TaskTemplate.ForceUpdate = 1
 				baseline.ServiceSpec.TaskTemplate.ForceUpdate = 1
 			}
-			progress := evaluateService(
+			progress := evaluateTestService(
 				"api", baseline, service, testRunningTasks(1, service.CreatedAt), true, service.ServiceSpec, nil,
 			)
 			assert.Equal(t, ServicePending, progress.State, "old running tasks cannot verify a rolling update")

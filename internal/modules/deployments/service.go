@@ -119,7 +119,10 @@ func (s *Service) startPrepared(
 			return nil, err
 		}
 	}
-	attempt, err := s.createDeployment(ctx, stack, commit, desired, unresolvedServices(latest, desired.Definition))
+	attempt, err := s.createDeployment(ctx, stack, commit, desired, deploymentmodel.Verification{
+		Known: true, UnresolvedServices: unresolvedServices(latest, desired.Definition),
+		Generations: unresolvedGenerations(latest.Verification, unresolvedServices(latest, desired.Definition)),
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -218,14 +221,14 @@ func (s *Service) createDeployment(
 	stack string,
 	commit string,
 	desired deploymentmodel.Prepared,
-	unresolved ...[]string,
+	unresolved ...deploymentmodel.Verification,
 ) (*deploymentmodel.Attempt, error) {
 	d, attempt, err := s.newDeployment(ctx, stack, commit, desired)
 	if err != nil {
 		return nil, err
 	}
 	if len(unresolved) > 0 {
-		d.Verification = deploymentmodel.Verification{Known: true, UnresolvedServices: unresolved[0]}
+		d.Verification = unresolved[0]
 	}
 	if err = s.store.CreateDeployment(ctx, d, desired, attempt); err != nil {
 		return nil, err

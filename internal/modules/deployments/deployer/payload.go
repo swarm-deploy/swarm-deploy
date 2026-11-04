@@ -11,10 +11,10 @@ import (
 )
 
 type applyPayload struct {
-	deadline        time.Time
-	baseline        []swarm.StackService
-	changed         []string
-	externalUpdates map[string]services.UpdateGeneration
+	deadline          time.Time
+	baseline          []swarm.StackService
+	changed           []string
+	updateGenerations map[string]services.UpdateGeneration
 }
 
 func (p *applyPayload) stageContext(ctx context.Context) (context.Context, context.CancelFunc) {
@@ -31,6 +31,7 @@ type deployStackPayload struct {
 	result             Result
 	retryFailedUpdates bool
 	unresolvedServices []string
+	beforeUpdate       func(context.Context, string, services.UpdateGeneration) (func(context.Context) error, error)
 }
 
 type deployServicePayload struct {

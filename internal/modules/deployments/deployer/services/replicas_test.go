@@ -89,7 +89,7 @@ func TestMetadataUpdateRebasesExternalValuesOnConflict(t *testing.T) {
 	changed, err := New(manager, &registry.NopAuthManager{}).Apply(t.Context(), "demo", []dockerswarm.ServiceSpec{desired}, ApplyOptions{})
 	require.NoError(t, err)
 	assert.Equal(t, []string{"job"}, changed.ChangedServices)
-	assert.Equal(t, uint64(8), changed.ExternalUpdates["job"].ForceUpdate, "receipt must use the generation from the successful optimistic retry")
+	assert.Equal(t, uint64(8), changed.UpdateGenerations["job"].ForceUpdate, "receipt must use the generation from the successful optimistic retry")
 	assert.Zero(t, *desired.Mode.Replicated.Replicas)
 	assert.Zero(t, desired.TaskTemplate.ForceUpdate)
 }
@@ -471,6 +471,6 @@ func TestRetryUnchangedExternalJobAppliesIndependentFailedService(t *testing.T) 
 	result, err := New(manager, &registry.NopAuthManager{}).Apply(t.Context(), "demo", []dockerswarm.ServiceSpec{web, job}, ApplyOptions{RetryFailedUpdates: true})
 	require.NoError(t, err)
 	assert.Equal(t, []string{"web"}, result.ChangedServices)
-	assert.Empty(t, result.ExternalUpdates)
+	assert.Contains(t, result.UpdateGenerations, "web")
 	assert.Equal(t, uint64(42), backup.Spec.TaskTemplate.ForceUpdate)
 }

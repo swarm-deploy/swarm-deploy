@@ -54,7 +54,7 @@ func TestRollbackStatusBelongsToDesiredDeployment(t *testing.T) {
 			}
 			manager.EXPECT().ListServices(gomock.Any(), gomock.Any()).Return([]swarm.StackService{service}, nil).AnyTimes()
 			// Running A tasks may predate the failed B rollout.
-			manager.EXPECT().ListTasks(gomock.Any(), service.ID).Return(testRunningTasks(tc.running, serviceWaitTestTime), nil).AnyTimes()
+			manager.EXPECT().ListTasks(gomock.Any(), service.ID).Return(testRunningTasks(tc.running, serviceWaitTestTime, service.ServiceSpec.TaskTemplate), nil).AnyTimes()
 			request := ServiceWaitRequest{StackName: "app", ServiceNames: []string{"api"}, Baseline: []swarm.StackService{baseline},
 				ExpectedSpecs: map[string]dockerswarm.ServiceSpec{"api": expected}}
 			if tc.unresolved {

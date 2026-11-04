@@ -127,7 +127,7 @@ func TestTerminalFailureDoesNotPreventIndependentTargetsFromFinishing(t *testing
 	manager.EXPECT().ListServices(gomock.Any(), gomock.Any()).Return([]swarm.StackService{failed, pending}, nil)
 	manager.EXPECT().ListServices(gomock.Any(), gomock.Any()).Return([]swarm.StackService{failed, completed}, nil)
 	manager.EXPECT().ListTasks(gomock.Any(), "a-id").Return(nil, nil).Times(2)
-	manager.EXPECT().ListTasks(gomock.Any(), "b-id").Return(testRunningTasks(1, serviceWaitTestTime), nil).Times(2)
+	manager.EXPECT().ListTasks(gomock.Any(), "b-id").Return(testRunningTasks(1, serviceWaitTestTime, completed.ServiceSpec.TaskTemplate), nil).Times(2)
 	var bStates []ServiceState
 	err := waitForTest(newTestServiceWaiter(manager), t.Context(), ServiceWaitRequest{
 		StackName: "app", ServiceNames: []string{"a", "b"}, UnresolvedServices: []string{"a"}, Baseline: []swarm.StackService{failed, pending},

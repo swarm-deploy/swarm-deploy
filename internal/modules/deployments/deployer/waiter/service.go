@@ -94,8 +94,8 @@ type ServiceWaitRequest struct {
 	UnresolvedServices []string
 	// ExpectedSpecs carries converter-produced specifications and their replica ownership policies.
 	ExpectedSpecs map[string]dockerswarm.ServiceSpec
-	// ExternalUpdates records actual runtime generations preserved by successful writes.
-	ExternalUpdates map[string]services.UpdateGeneration
+	// UpdateGenerations records actual runtime generations preserved by successful writes.
+	UpdateGenerations map[string]services.UpdateGeneration
 	// Progress receives de-duplicated convergence transitions when configured.
 	Progress ServiceProgressCallback
 }
@@ -241,7 +241,7 @@ func (w *ServiceWaiter) observeTargets(
 			continue
 		}
 		progress, err := w.observeService(ctx, name, baseline[name], current[name],
-			slices.Contains(request.UnresolvedServices, name), request.ExpectedSpecs[name], request.ExternalUpdates[name])
+			slices.Contains(request.UnresolvedServices, name), request.ExpectedSpecs[name], request.UpdateGenerations[name])
 		state.emit(span, request.Progress, progress)
 		if err != nil {
 			return false, errors.Join(append(failures, err)...)

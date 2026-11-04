@@ -346,8 +346,10 @@ func TestNativeRetryDoesNotTouchUnrelatedPausedExternalJob(t *testing.T) {
 		func(_ any, _ swarm.ListServicesFilter) ([]swarm.StackService, error) {
 			return []swarm.StackService{backup, recovered}, nil
 		}).Times(2)
-	manager.EXPECT().ListTasks(gomock.Any(), web.ID).Return([]swarm.ServiceTask{{ID: "recovered-web",
-		DesiredState: swarm.TaskStateRunning, CurrentState: swarm.TaskStateRunning, CreatedAt: now.Add(time.Second)}}, nil)
+	manager.EXPECT().ListTasks(gomock.Any(), web.ID).DoAndReturn(func(_ context.Context, _ string) ([]swarm.ServiceTask, error) {
+		return []swarm.ServiceTask{{Spec: swarm.NewTaskSpec(recovered.ServiceSpec.TaskTemplate), ID: "recovered-web",
+			DesiredState: swarm.TaskStateRunning, CurrentState: swarm.TaskStateRunning, CreatedAt: now.Add(time.Second)}}, nil
+	})
 	req.ManualRetry = true
 	retry, err := create().Execute(t.Context(), req)
 	require.NoError(t, err)

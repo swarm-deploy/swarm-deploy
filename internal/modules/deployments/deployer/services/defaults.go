@@ -29,12 +29,8 @@ func normalizeDockerDefaults(spec *dockerswarm.ServiceSpec) {
 		replicas := uint64(1)
 		spec.Mode.Replicated.Replicas = &replicas
 	}
-	if spec.EndpointSpec == nil {
-		spec.EndpointSpec = &dockerswarm.EndpointSpec{}
-	}
-	if spec.EndpointSpec.Mode == "" {
-		spec.EndpointSpec.Mode = dockerswarm.ResolutionModeVIP
-	}
+	endpoint := normalizeEndpoint(spec.EndpointSpec)
+	spec.EndpointSpec = &endpoint
 	if spec.TaskTemplate.ContainerSpec != nil {
 		// Engine's SwarmKit conversion returns explicit runtime/isolation
 		// defaults even when they were omitted in the create request.
