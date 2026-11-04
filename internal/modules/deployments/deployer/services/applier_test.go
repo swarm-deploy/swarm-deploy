@@ -173,6 +173,23 @@ func TestApplyPassesRegistryAuthenticationOnUpdate(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestApplyFailsOnMalformedRegistryAuthWithoutCreatingService(t *testing.T) {
+	t.Setenv("DOCKER_AUTH_CONFIG", `{"auths":`)
+	t.Setenv("DOCKER_CONFIG", t.TempDir())
+
+	manager := swarm.NewMockServiceManager(gomock.NewController(t))
+	desired := serviceSpec("api", "registry.example/team/api:1")
+	manager.EXPECT().Inspect(gomock.Any(), "demo_api").Return(dockerswarm.Service{}, swarm.ErrServiceNotFound)
+
+	_, err := New(manager, registry.NewAuthManager()).Apply(
+		t.Context(), "demo", []dockerswarm.ServiceSpec{desired}, ApplyOptions{},
+	)
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "service api registry authentication")
+	assert.ErrorContains(t, err, "decode docker auth config")
+	// The mock deliberately has no Create expectation: malformed auth must prevent the Docker write.
+}
+
 func TestApplyReturnsDockerAPIFailureWithServiceOperation(t *testing.T) {
 	manager := swarm.NewMockServiceManager(gomock.NewController(t))
 	desired := serviceSpec("api", "nginx:1")
