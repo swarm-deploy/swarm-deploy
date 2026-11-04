@@ -1,6 +1,7 @@
 package services
 
 import (
+	"slices"
 	"strconv"
 
 	dockerswarm "github.com/docker/docker/api/types/swarm"
@@ -21,8 +22,9 @@ func JobTaskFailure(
 	policy := spec.TaskTemplate.RestartPolicy
 	// Swarm defaults an empty condition to any. SwarmKit handles any like
 	// on-failure for jobs, because completed tasks must not restart.
-	retriesOnFailure := policy.Condition == dockerswarm.RestartPolicyConditionOnFailure ||
-		policy.Condition == dockerswarm.RestartPolicyConditionAny || policy.Condition == ""
+	retriesOnFailure := slices.Contains([]dockerswarm.RestartPolicyCondition{
+		dockerswarm.RestartPolicyConditionOnFailure, dockerswarm.RestartPolicyConditionAny, "",
+	}, policy.Condition)
 	if policy.Condition != dockerswarm.RestartPolicyConditionNone &&
 		(spec.Mode.ReplicatedJob == nil || !retriesOnFailure ||
 			policy.MaxAttempts == nil || *policy.MaxAttempts == 0 ||

@@ -57,7 +57,7 @@ func (sp *ServicePorts) UnmarshalYAML(root *yaml.Node) error { //nolint:gocognit
 	}
 
 	for i, node := range root.Content {
-		switch node.Kind {
+		switch node.Kind { //nolint:exhaustive // Only mappings and scalars are valid port entries.
 		case yaml.MappingNode:
 			port := defaultServicePort(0, 0)
 			if err := node.Decode(&port); err != nil {
