@@ -40,11 +40,12 @@ func TestMetadataOnlyRecoveryVerifiesExistingTaskTemplates(t *testing.T) {
 			if tc.oldTemplate {
 				template = dockerswarm.TaskSpec{ContainerSpec: &dockerswarm.ContainerSpec{Image: "api:1"}}
 			}
+			tasks[0].Spec = swarm.TaskSpec{}
 			if !tc.missingSpec {
 				tasks[0].Spec = swarm.NewTaskSpec(template)
 			}
 			for _, baseline := range []swarm.StackService{before, after} {
-				progress := evaluateService("api", baseline, after, tasks, true, after.ServiceSpec, nil)
+				progress := evaluateTestService("api", baseline, after, tasks, true, after.ServiceSpec, nil)
 				assert.Equal(t, tc.want, progress.State, progress.Message)
 			}
 		})
@@ -60,7 +61,7 @@ func TestMetadataOnlyExternalRecoveryVerifiesSpecificationWithoutTaskGeneration(
 			if state != "" {
 				service.UpdateStatus = &swarm.ServiceUpdateStatus{State: swarm.ServiceUpdateState(state), StartedAt: serviceWaitTestTime.Add(-time.Minute)}
 			}
-			progress := specificationProgress("job", service, service, true, service.ServiceSpec, services.UpdateGeneration{})
+			progress := specificationProgress("job", service, service, true, service.ServiceSpec, services.UpdateGeneration{}, nil)
 			want := ServiceReady
 			if state == "paused" {
 				want = ServiceFailed

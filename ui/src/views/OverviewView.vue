@@ -249,11 +249,11 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <section class="status-panel overview-sync-panel">
-    <div class="overview-sync-content">
+  <div class="overview-sync-row">
+    <section class="status-panel overview-sync-panel">
       <div class="overview-sync-items">
         <div v-if="hasLastPoll" class="overview-sync-item">
-          <strong>Last poll:</strong>
+          <span class="overview-sync-label">Last poll:</span>
           <template v-if="syncInfo?.last_poll?.at">
             <span
               v-if="pollIndicator()"
@@ -268,7 +268,7 @@ onUnmounted(() => {
         </div>
         <span v-if="hasLastPoll && hasLastWebhook" class="overview-sync-separator" aria-hidden="true"></span>
         <div v-if="hasLastWebhook" class="overview-sync-item">
-          <strong>Last webhook:</strong>
+          <span class="overview-sync-label">Last webhook:</span>
           <template v-if="syncInfo?.last_webhook?.at">
             <span
               v-if="webhookIndicator()"
@@ -291,7 +291,7 @@ onUnmounted(() => {
         </div>
         <span v-if="hasLastRevision && (hasLastPoll || hasLastWebhook)" class="overview-sync-separator" aria-hidden="true"></span>
         <div v-if="hasLastRevision" class="overview-sync-item">
-          <strong>Last revision:</strong>
+          <span class="overview-sync-label">Last revision:</span>
           <button
             v-if="syncRevision"
             type="button"
@@ -304,19 +304,19 @@ onUnmounted(() => {
           <span v-else>—</span>
         </div>
       </div>
-      <button
-        type="button"
-        class="topbar-sync-button overview-sync-button"
-        :disabled="overviewStore.syncPending"
-        @click="overviewStore.triggerManualSync()"
-      >
-        {{ overviewStore.syncPending ? "Syncing..." : "Sync now" }}
-      </button>
-    </div>
-    <p v-if="overviewStore.loadingError" class="meta overview-sync-error" role="alert">
-      Failed to load state: {{ overviewStore.loadingError }}
-    </p>
-  </section>
+      <p v-if="overviewStore.loadingError" class="meta overview-sync-error" role="alert">
+        Failed to load state: {{ overviewStore.loadingError }}
+      </p>
+    </section>
+    <button
+      type="button"
+      class="topbar-sync-button overview-sync-button"
+      :disabled="overviewStore.syncPending"
+      @click="overviewStore.triggerManualSync()"
+    >
+      {{ overviewStore.syncPending ? "Syncing..." : "Sync now" }}
+    </button>
+  </div>
 
   <section class="overview-summary-grid" aria-label="Overview highlights">
     <SummaryPanel

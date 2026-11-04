@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"sync"
 	"time"
 
@@ -124,6 +125,8 @@ func (d *Deployer) DeployStack(ctx context.Context, request StackRequest) (Resul
 		result:             Result{Verification: deploymentmodel.Verification{Known: true}},
 		retryFailedUpdates: request.Options.RetryFailedUpdates,
 		unresolvedServices: request.Options.UnresolvedServices,
+		beforeUpdate:       request.BeforeUpdate,
+		applyPayload:       applyPayload{updateGenerations: maps.Clone(request.Options.UpdateGenerations)},
 	}
 
 	ctx, span := otel.GetTracerProvider().Tracer(deployerTracerName).Start(

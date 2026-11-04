@@ -118,7 +118,8 @@ func (s *Service) complete(
 		if !state.rolloutVerification.Known {
 			unresolved = desiredServiceNames(desired)
 		}
-		deployment.Verification = deploymentmodel.Verification{Known: true, UnresolvedServices: slices.Clone(unresolved)}
+		deployment.Verification.Known = true
+		deployment.Verification.UnresolvedServices = slices.Clone(unresolved)
 		if state.phase == deploymentmodel.PhaseApply {
 			deployment.Verification.UnresolvedServices = append(
 				deployment.Verification.UnresolvedServices, stateInheritedServices...,
@@ -126,6 +127,9 @@ func (s *Service) complete(
 		}
 		slices.Sort(deployment.Verification.UnresolvedServices)
 		deployment.Verification.UnresolvedServices = slices.Compact(deployment.Verification.UnresolvedServices)
+		deployment.Verification.Generations = unresolvedGenerations(
+			deployment.Verification, deployment.Verification.UnresolvedServices,
+		)
 	}
 	if err = s.store.FinishAttempt(ctx, deployment, attempt); err != nil {
 		return err

@@ -8,6 +8,7 @@ import (
 	dockerswarm "github.com/docker/docker/api/types/swarm"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/services"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	"go.uber.org/mock/gomock"
 )
@@ -52,7 +53,7 @@ func TestPlacementOnlyUpdateWaitsForExpectedServiceSpecification(t *testing.T) {
 	container.Image = "api:unexpected"
 	expected.TaskTemplate.ContainerSpec = &container
 
-	progress := evaluateService(
+	progress := evaluateTestService(
 		"api", before, after, tasks, false, expected,
 		placementNodesByID([]swarm.Node{compatiblePlacementNode("node-east")}),
 	)
@@ -163,8 +164,7 @@ func TestPlacementGenerationExemptionRemainsStrictForTaskReplacingChanges(t *tes
 			tc.edit(&container)
 			after.ServiceSpec.TaskTemplate.ContainerSpec = &container
 
-			preservePlacementTasks := placementOnlyTaskPreservation(before, after, false)
-			assert.True(t, requiresTaskGeneration(before, after, false, preservePlacementTasks))
+			assert.Equal(t, services.VerifyNewGeneration, services.ClassifyVerification(before.ServiceSpec, after.ServiceSpec))
 		})
 	}
 }
@@ -200,7 +200,7 @@ func TestUnresolvedPlacementUpdateWaitsForCompatibleTasks(t *testing.T) {
 			before, accepted := placementUpdateServices(mode, 1)
 			old := placementTasks(1, before.ServiceSpec.TaskTemplate, before.CreatedAt, "node-west")
 			incompatibleNodes := placementNodesByID([]swarm.Node{incompatiblePlacementNode("node-west")})
-			progress := evaluateService(
+			progress := evaluateTestService(
 				"api", accepted, accepted, old, true, accepted.ServiceSpec, incompatibleNodes,
 			)
 			assert.Equal(t, ServicePending, progress.State)
@@ -208,7 +208,7 @@ func TestUnresolvedPlacementUpdateWaitsForCompatibleTasks(t *testing.T) {
 
 			replacement := placementTasks(1, accepted.ServiceSpec.TaskTemplate, accepted.UpdatedAt, "node-east")
 			compatibleNodes := placementNodesByID([]swarm.Node{compatiblePlacementNode("node-east")})
-			progress = evaluateService(
+			progress = evaluateTestService(
 				"api", accepted, accepted, replacement, true, accepted.ServiceSpec, compatibleNodes,
 			)
 			assert.Equal(t, ServiceReady, progress.State, progress.Message)
@@ -237,7 +237,7 @@ func TestUnresolvedTaskReplacingUpdateRejectsOldTasks(t *testing.T) {
 			accepted.PreviousSpec = &previous
 			old := placementTasks(1, before.ServiceSpec.TaskTemplate, before.CreatedAt, "node-east")
 
-			progress := evaluateService("api", accepted, accepted, old, true, accepted.ServiceSpec, nil)
+			progress := evaluateTestService("api", accepted, accepted, old, true, accepted.ServiceSpec, nil)
 
 			assert.Equal(t, ServicePending, progress.State)
 			assert.Equal(t, waitingForUpdateStatus, progress.Message)
@@ -252,12 +252,12 @@ func TestUnresolvedPlacementRecoveryRequiresCurrentSpecAndTaskTemplateEvidence(t
 	staleTask := placementTasks(1, oldImage, before.CreatedAt, "node-east")
 	nodes := placementNodesByID([]swarm.Node{compatiblePlacementNode("node-east")})
 
-	progress := evaluateService("api", accepted, accepted, staleTask, true, accepted.ServiceSpec, nodes)
+	progress := evaluateTestService("api", accepted, accepted, staleTask, true, accepted.ServiceSpec, nodes)
 	assert.Equal(t, ServicePending, progress.State, "PreviousSpec alone cannot prove task convergence")
 
 	unexpected := accepted.ServiceSpec
 	unexpected.TaskTemplate.ContainerSpec = &dockerswarm.ContainerSpec{Image: "api:unexpected"}
-	progress = evaluateService("api", accepted, accepted,
+	progress = evaluateTestService("api", accepted, accepted,
 		placementTasks(1, before.ServiceSpec.TaskTemplate, before.CreatedAt, "node-east"),
 		true, unexpected, nodes)
 	assert.Equal(t, ServicePending, progress.State)
@@ -274,7 +274,7 @@ func TestUnresolvedTaskReplacingUpdateRejectsStaleCompletedStatus(t *testing.T) 
 	}
 	old := placementTasks(1, before.ServiceSpec.TaskTemplate, serviceWaitTestTime.Add(-30*time.Minute), "node-east")
 
-	progress := evaluateService("api", accepted, accepted, old, true, accepted.ServiceSpec, nil)
+	progress := evaluateTestService("api", accepted, accepted, old, true, accepted.ServiceSpec, nil)
 
 	assert.Equal(t, ServicePending, progress.State)
 	assert.Equal(t, uint64(0), progress.Running)
@@ -297,7 +297,7 @@ func TestUnresolvedUpdateStatesRemainStrict(t *testing.T) {
 			}
 			tasks := placementTasks(1, before.ServiceSpec.TaskTemplate, before.CreatedAt, "node-east")
 
-			progress := evaluateService("api", baseline, accepted, tasks, true, expected, nil)
+			progress := evaluateTestService("api", baseline, accepted, tasks, true, expected, nil)
 
 			assert.Equal(t, ServiceFailed, progress.State)
 		})
@@ -309,7 +309,7 @@ func TestUnresolvedUpdateStatesRemainStrict(t *testing.T) {
 	}
 	tasks := placementTasks(1, before.ServiceSpec.TaskTemplate, before.CreatedAt, "node-east")
 	nodes := placementNodesByID([]swarm.Node{compatiblePlacementNode("node-east")})
-	progress := evaluateService("api", accepted, accepted, tasks, true, accepted.ServiceSpec, nodes)
+	progress := evaluateTestService("api", accepted, accepted, tasks, true, accepted.ServiceSpec, nodes)
 	assert.Equal(t, ServicePending, progress.State)
 }
 
@@ -327,7 +327,7 @@ func TestPlacementRoleConstraintsUseMappedNodeRole(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			node := compatiblePlacementNode("transitioning")
 			node.Role = string(tc.role)
-			progress := evaluateService(
+			progress := evaluateTestService(
 				"api", accepted, accepted, tasks, true, accepted.ServiceSpec,
 				placementNodesByID([]swarm.Node{node}),
 			)

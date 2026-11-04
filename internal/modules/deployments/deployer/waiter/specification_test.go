@@ -80,7 +80,7 @@ func TestExternalExecutionStatusAttribution(t *testing.T) {
 			}
 			if !tc.unchanged {
 				request.AppliedServices = []string{"job"}
-				request.ExternalUpdates = map[string]services.UpdateGeneration{"job": {
+				request.UpdateGenerations = map[string]services.UpdateGeneration{"job": {
 					ServiceID: "job-id", ForceUpdate: 9, After: serviceWaitTestTime.Add(-30 * time.Minute),
 				}}
 			}
@@ -167,8 +167,8 @@ func TestExternalInitialCreation(t *testing.T) {
 			manager.EXPECT().ListTasks(gomock.Any(), gomock.Any()).Return(tc.tasks, nil).AnyTimes()
 			result, err := NewServiceWaiter(manager, nil, time.Millisecond, 20*time.Millisecond).Wait(t.Context(), ServiceWaitRequest{
 				StackName: "app", ServiceNames: []string{"job"}, AppliedServices: []string{"job"},
-				ExpectedSpecs:   map[string]dockerswarm.ServiceSpec{"job": expected.ServiceSpec},
-				ExternalUpdates: map[string]services.UpdateGeneration{"job": {ServiceID: "job-id"}},
+				ExpectedSpecs:     map[string]dockerswarm.ServiceSpec{"job": expected.ServiceSpec},
+				UpdateGenerations: map[string]services.UpdateGeneration{"job": {ServiceID: "job-id"}},
 			})
 			if tc.want == ServiceReady {
 				require.NoError(t, err)

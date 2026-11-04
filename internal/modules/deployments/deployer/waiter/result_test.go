@@ -30,7 +30,7 @@ func TestWaitResultIsIndependentOfProgressSubscription(t *testing.T) {
 			healthy := testReplicatedService("worker", "worker-id", 1, serviceWaitTestTime, "worker:2")
 			manager.EXPECT().ListServices(gomock.Any(), gomock.Any()).Return([]swarm.StackService{failed, healthy}, nil)
 			manager.EXPECT().ListTasks(gomock.Any(), "api-id").Return(nil, nil)
-			manager.EXPECT().ListTasks(gomock.Any(), "worker-id").Return(testRunningTasks(1, serviceWaitTestTime), nil)
+			manager.EXPECT().ListTasks(gomock.Any(), "worker-id").Return(testRunningTasks(1, serviceWaitTestTime, healthy.ServiceSpec.TaskTemplate), nil)
 			request := ServiceWaitRequest{StackName: "app", ServiceNames: []string{"api", "worker"}}
 			var progress []ServiceProgress
 			if subscribe {

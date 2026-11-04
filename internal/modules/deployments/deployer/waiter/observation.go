@@ -15,6 +15,9 @@ func (w *ServiceWaiter) observeService(
 	ctx context.Context, name string, baseline, service swarm.StackService, unresolved bool,
 	expected dockerswarm.ServiceSpec, generation services.UpdateGeneration,
 ) (ServiceProgress, error) {
+	if generation.ServiceID == service.ID {
+		generation = services.ResolveUpdateGeneration(generation, service.PreviousSpec, service.ServiceSpec)
+	}
 	managed, err := services.ReplicasManaged(expected)
 	if err != nil {
 		return ServiceProgress{Name: name, State: ServicePending}, fmt.Errorf("service %s replicas ownership: %w", name, err)
@@ -22,7 +25,7 @@ func (w *ServiceWaiter) observeService(
 	if !managed {
 		return w.observeExternalService(ctx, name, baseline, service, unresolved, expected, generation)
 	}
-	progress := evaluateService(name, baseline, service, nil, unresolved, expected, nil)
+	progress := evaluateService(name, baseline, service, nil, unresolved, expected, nil, generation)
 	if service.ID == "" {
 		return progress, nil
 	}
@@ -46,7 +49,8 @@ func (w *ServiceWaiter) observeService(
 		return progress, fmt.Errorf("list tasks for service %s: %w", name, err)
 	}
 	var placementNodes map[string]*swarmkitapi.Node
-	if placementTaskNodesRequired(baseline, service, tasks, unresolved) {
+	mode := serviceVerificationMode(baseline, service, unresolved, generation)
+	if mode == services.VerifyPlacementCompatibleTasks {
 		nodes, listErr := w.nodes.List(ctx)
 		if listErr != nil {
 			progress.State = ServicePending
@@ -55,5 +59,5 @@ func (w *ServiceWaiter) observeService(
 		}
 		placementNodes = placementNodesByID(nodes)
 	}
-	return evaluateService(name, baseline, service, tasks, unresolved, expected, placementNodes), nil
+	return evaluateService(name, baseline, service, tasks, unresolved, expected, placementNodes, generation), nil
 }

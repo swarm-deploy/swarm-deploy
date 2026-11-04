@@ -329,6 +329,8 @@ type summaryRow struct {
 }
 
 type deploymentDetails struct {
+	// UpdateGenerations retains only non-secret pre-update boundaries.
+	UpdateGenerations map[string]deploymentmodel.UpdateGeneration `json:"update_generations,omitempty"`
 	// UnresolvedServices retains verification obligations across desired-state deployments.
 	UnresolvedServices []string                          `json:"unresolved_services"`
 	ErrorDiagnostic    string                            `json:"error_diagnostic,omitempty"`
@@ -377,6 +379,7 @@ type attemptRow struct {
 func detailsFromDeployment(d deploymentmodel.Deployment) deploymentDetails {
 	return deploymentDetails{
 		UnresolvedServices: persistedUnresolvedServices(d.Verification),
+		UpdateGenerations:  d.Verification.Generations,
 		ErrorDiagnostic:    d.ErrorDiagnostic, Retryable: d.Retryable, ApplyStatus: d.ApplyStatus,
 		VerificationStatus: d.VerificationStatus, CleanupStatus: d.CleanupStatus,
 		ActualStateStatus: d.ActualStateStatus, ObservedAt: d.ObservedAt,
@@ -422,6 +425,7 @@ func (row deploymentRow) deployment() (deploymentmodel.Deployment, error) {
 		ID: row.ID, Stack: row.Stack, Commit: row.Commit, Status: projectedStatus(row.Status, row.IsSuperseded),
 		Verification: deploymentmodel.Verification{
 			Known: details.UnresolvedServices != nil, UnresolvedServices: details.UnresolvedServices,
+			Generations: details.UpdateGenerations,
 		},
 		StartedAt: row.StartedAt.UTC(), ErrorCode: row.ErrorCode,
 		ErrorDiagnostic: details.ErrorDiagnostic, Retryable: details.Retryable, Phase: row.Phase,
@@ -1029,4 +1033,23 @@ func persistedUnresolvedServices(verification deploymentmodel.Verification) []st
 		return nil
 	}
 	return append([]string{}, verification.UnresolvedServices...)
+}
+
+// SaveVerification records obligations while the matching deployment attempt is running.
+func (s *Store) SaveVerification(ctx context.Context, d deploymentmodel.Deployment) error {
+	details, _, err := marshalDeploymentPayloads(d)
+	if err != nil {
+		return err
+	}
+	query, args, err := s.db.Dialect().Update("deployments").Prepared(true).Set(goqu.Record{
+		"details_payload": details,
+	}).Where(goqu.Ex{"id": d.ID, "status": deploymentmodel.Running}).ToSQL()
+	if err != nil {
+		return err
+	}
+	result, err := s.db.Exec(ctx, query, args...)
+	if err != nil {
+		return err
+	}
+	return requireOneRunning(result)
 }
