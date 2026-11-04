@@ -93,15 +93,16 @@ and the same sort and filters to fetch the next page.
 Existing requests without paging parameters keep the oldest-first response
 order. Overview now reads `/api/v1/deployments` instead of history.
 
-Runtime history size is bounded by `eventHistory.capacity`. New projections remove
+Runtime history size is bounded by `event.history.capacity`. New projections remove
 oldest entries by publication sequence. SQLite filters and cursor queries run directly
 against the projection; source event IDs prevent duplicate projection.
 
 Config example:
 ```yaml
 # Event history configuration.
-eventHistory:
-  capacity: 500
+event:
+  history:
+    capacity: 500
 ```
 Event notifications use PascalCase event type identifiers. Synchronization failures are delivered
 through the `sync_failed` alert lifecycle instead of Event Notifications. Durable payloads intentionally

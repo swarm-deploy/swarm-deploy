@@ -138,8 +138,8 @@ func (r *Reconciler) cleanRotatedResources(ctx context.Context, payload *pipelin
 	desiredConfigs, desiredSecrets, err := r.composeRotator.DesiredResourceNames(
 		payload.Desired,
 		payload.Stack.Name,
-		r.cfg.Spec.SecretRotation.HashLength,
-		r.cfg.Spec.SecretRotation.IncludePath,
+		r.cfg.Spec.GitOps.ResourceRotation.HashLength,
+		r.cfg.Spec.GitOps.ResourceRotation.IncludePath,
 	)
 	if err != nil {
 		slog.WarnContext(ctx, "[rotated-resource-cleaner] cleanup skipped: desired state is incomplete",

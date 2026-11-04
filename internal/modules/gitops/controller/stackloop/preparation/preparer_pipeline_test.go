@@ -20,7 +20,7 @@ import (
 )
 
 func TestPrepareRecoversStepPanicWithStage(t *testing.T) {
-	cfg := &config.Config{Spec: config.Spec{SecretRotation: config.SecretRotationSpec{Enabled: true}}}
+	cfg := &config.Config{Spec: config.Spec{GitOps: config.GitOpsSpec{ResourceRotation: config.ResourceRotationSpec{Enabled: true}}}}
 	// A missing rotator deliberately causes a panic inside the rotation step.
 	preparer := New(cfg, nil, nil)
 	_, err := preparer.Prepare(t.Context(), Request{
@@ -86,9 +86,9 @@ func TestPrepareKeepsExistingManagedLabelWithoutRendering(t *testing.T) {
 }
 
 func TestPreparePreservesValidationErrorType(t *testing.T) {
-	cfg := &config.Config{Spec: config.Spec{Sync: config.SyncSpec{Policy: config.SyncPolicySpec{
+	cfg := &config.Config{Spec: config.Spec{GitOps: config.GitOpsSpec{Sync: config.SyncSpec{Policy: config.SyncPolicySpec{
 		Image: config.ImagePolicySpec{Tag: config.ImageTagPolicySpec{NoLatest: true}},
-	}}}}
+	}}}}}
 	preparer := New(cfg, nil, nil)
 	_, err := preparer.Prepare(t.Context(), Request{
 		Stack: config.StackSpec{Name: "app"},
@@ -107,9 +107,9 @@ func TestImagePolicyKeepsLiteralSource(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "compose.yaml"),
 		[]byte("services: {api: {image: 'nginx:${SD_TEST_TAG}'}}"), 0o600))
-	cfg := &config.Config{Spec: config.Spec{DataDir: filepath.Join(dir, "data"), Sync: config.SyncSpec{
+	cfg := &config.Config{Spec: config.Spec{DataDir: filepath.Join(dir, "data"), GitOps: config.GitOpsSpec{Sync: config.SyncSpec{
 		Policy: config.SyncPolicySpec{Image: config.ImagePolicySpec{Tag: config.ImageTagPolicySpec{NoLatest: true}}},
-	}}}
+	}}}}
 	repository := gitx.NewMockRepository(gomock.NewController(t))
 	repository.EXPECT().WorkingDir().Return(dir).AnyTimes()
 	repository.EXPECT().ReadFile(gomock.Any(), "test-commit", "compose.yaml").
@@ -123,7 +123,7 @@ func TestImagePolicyKeepsLiteralSource(t *testing.T) {
 			source, err := preparer.Load(t.Context(), config.StackSpec{ComposeFile: "compose.yaml"}, "test-commit")
 			require.NoError(t, err)
 			assert.Equal(t, "nginx:${SD_TEST_TAG}", source.Compose.Services[0].Image)
-			err = ValidateImagePolicy(cfg.Spec.Sync.Policy.Image, source)
+			err = ValidateImagePolicy(cfg.Spec.GitOps.Sync.Policy.Image, source)
 			var validation *compose.ValidateComposeError
 			require.ErrorAs(t, err, &validation)
 			assert.Equal(t, ImageViolationInvalid, validation.Issues[0].Code)

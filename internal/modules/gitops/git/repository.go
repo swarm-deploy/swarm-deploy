@@ -59,7 +59,7 @@ func NewGoGitRepository(ctx context.Context, spec config.GitSpec, path string) (
 		return nil, ClassifyPullError(err, spec.Repository, spec.Auth.Type)
 	}
 
-	pullTimeout := spec.PullTimeout.Value
+	pullTimeout := spec.Pull.Timeout.Value
 	if pullTimeout <= 0 {
 		pullTimeout = config.DefaultGitPullTimeout
 	}

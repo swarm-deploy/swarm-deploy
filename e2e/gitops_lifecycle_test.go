@@ -285,12 +285,14 @@ func newGitOpsLifecycleFixture(t *testing.T) *gitOpsLifecycleFixture {
 	gitCommand(t, base.ctx, writer, "remote", "add", "origin", remote)
 	require.NoError(t, os.WriteFile(filepath.Join(writer, "stacks.yaml"), []byte(fmt.Sprintf("stacks:\n  - name: %s\n    composeFile: compose.yaml\n", base.stack)), 0o600))
 	cfg := &config.Config{Spec: config.Spec{
-		DataDir: t.TempDir(), Git: config.GitSpec{Repository: remote, Branch: "main"},
-		StacksSource:   config.StacksSourceSpec{File: "stacks.yaml"},
-		Sync:           config.SyncSpec{Policy: config.SyncPolicySpec{Prune: true, SelfHeal: true}},
-		SecretRotation: config.SecretRotationSpec{Enabled: true, HashLength: 8},
+		DataDir: t.TempDir(), GitOps: config.GitOpsSpec{
+			Git:              config.GitSpec{Repository: remote, Branch: "main"},
+			Stacks:           config.StacksSourceSpec{File: "stacks.yaml"},
+			Sync:             config.SyncSpec{Policy: config.SyncPolicySpec{Prune: true, SelfHeal: true}},
+			ResourceRotation: config.ResourceRotationSpec{Enabled: true, HashLength: 8},
+		},
 	}}
-	repository := gitx.NewRepository(cfg.Spec.Git, checkout)
+	repository := gitx.NewRepository(cfg.Spec.GitOps.Git, checkout)
 	base.path = filepath.Join(checkout, "compose.yaml")
 	f := newLifecycleComponents(t, base, cfg, repository)
 	projection := gitdeployment.NewProjectionSubscriber(f.db, f.store, f.state)
@@ -299,7 +301,7 @@ func newGitOpsLifecycleFixture(t *testing.T) *gitOpsLifecycleFixture {
 	}
 	configs := configstore.New(cfg, f.bus)
 	metricGroup := metrics.NewGroup(metrics.CreateGroupParams{Namespace: "e2e"})
-	puller := gitpull.NewPuller(repository, gitpull.NewMonitor(f.db, f.state, f.bus), metricGroup.Git, cfg.Spec.Git)
+	puller := gitpull.NewPuller(repository, gitpull.NewMonitor(f.db, f.state, f.bus), metricGroup.Git, cfg.Spec.GitOps.Git)
 	networks := networkloop.NewCoordinator(f.db, configs, f.state, networkloop.New(f.sw.Networks), f.bus)
 	stacks := stackqueue.New(f.reconciler, metricGroup.Sync, 1)
 	stacks.Start(context.WithoutCancel(base.ctx))

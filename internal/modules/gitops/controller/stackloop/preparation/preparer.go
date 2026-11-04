@@ -114,11 +114,11 @@ func (p *Preparer) attachPipeline(provider trace.TracerProvider) {
 		TracerProvider: provider,
 	})
 
-	if p.cfg.Spec.Sync.Policy.Image.Enabled() {
+	if p.cfg.Spec.GitOps.Sync.Policy.Image.Enabled() {
 		p.pipeline.Add(pipe.Step[*preparationPayload]{
 			Name: "check image policy",
 			Run: func(_ context.Context, payload *preparationPayload) error {
-				return checkImagePolicy(p.cfg.Spec.Sync.Policy.Image, payload.desired)
+				return checkImagePolicy(p.cfg.Spec.GitOps.Sync.Policy.Image, payload.desired)
 			},
 		})
 	}
@@ -147,7 +147,7 @@ func (p *Preparer) attachPipeline(provider trace.TracerProvider) {
 		},
 	})
 
-	if p.cfg.Spec.Containers.Downward != nil {
+	if p.cfg.Spec.GitOps.Downward.Enabled {
 		p.pipeline.Add(pipe.Step[*preparationPayload]{
 			Name: "add downward",
 			Run: func(_ context.Context, payload *preparationPayload) error {
@@ -165,12 +165,12 @@ func (p *Preparer) attachPipeline(provider trace.TracerProvider) {
 		},
 	})
 
-	if p.cfg.Spec.SecretRotation.Enabled {
+	if p.cfg.Spec.GitOps.ResourceRotation.Enabled {
 		p.pipeline.Add(pipe.Step[*preparationPayload]{
 			Name: "rotate secrets/configs",
 			Run: func(_ context.Context, payload *preparationPayload) error {
 				_, err := p.rotator.Rotate(payload.desired, payload.request.Stack.Name,
-					p.cfg.Spec.SecretRotation.HashLength, p.cfg.Spec.SecretRotation.IncludePath)
+					p.cfg.Spec.GitOps.ResourceRotation.HashLength, p.cfg.Spec.GitOps.ResourceRotation.IncludePath)
 				return err
 			},
 		})

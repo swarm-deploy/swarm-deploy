@@ -54,8 +54,10 @@ func TestScheduledServiceSelfHealAnalyzer(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := &config.Config{Spec: config.Spec{
-				Sync:         config.SyncSpec{Policy: config.SyncPolicySpec{SelfHeal: tt.global}},
-				StacksSource: config.StacksSourceSpec{File: "stacks.yaml"},
+				GitOps: config.GitOpsSpec{
+					Sync:   config.SyncSpec{Policy: config.SyncPolicySpec{SelfHeal: tt.global}},
+					Stacks: config.StacksSourceSpec{File: "stacks.yaml"},
+				},
 			}}
 			reloadRecommendationPolicy(t, cfg, t.TempDir(), tt.stack)
 			labels := map[string]string{}
@@ -107,8 +109,10 @@ func TestScheduledServiceSelfHealAnalyzer(t *testing.T) {
 
 func TestScheduledServiceSelfHealAnalyzerUsesCurrentConfiguration(t *testing.T) {
 	cfg := &config.Config{Spec: config.Spec{
-		Sync:         config.SyncSpec{Policy: config.SyncPolicySpec{SelfHeal: true}},
-		StacksSource: config.StacksSourceSpec{File: "stacks.yaml"},
+		GitOps: config.GitOpsSpec{
+			Sync:   config.SyncSpec{Policy: config.SyncPolicySpec{SelfHeal: true}},
+			Stacks: config.StacksSourceSpec{File: "stacks.yaml"},
+		},
 	}}
 	dir := t.TempDir()
 	analyzer := NewScheduledServiceSelfHealAnalyzer(cfg)
@@ -121,7 +125,7 @@ func TestScheduledServiceSelfHealAnalyzerUsesCurrentConfiguration(t *testing.T) 
 	}
 	reloadRecommendationPolicy(t, cfg, dir, "")
 	require.Len(t, analyzer.Analyze(t.Context(), stack), 1)
-	cfg.Spec.Sync.Policy.SelfHeal = false
+	cfg.Spec.GitOps.Sync.Policy.SelfHeal = false
 	assert.Empty(t, analyzer.Analyze(t.Context(), stack))
 }
 

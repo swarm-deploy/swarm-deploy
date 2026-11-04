@@ -30,7 +30,7 @@ func TestReconcileDeferredFailureProtectsUnresolvedServiceAndFailureProjection(t
 	dir := t.TempDir()
 	require.NoError(t, writeComposeFile(dir))
 	mockRepositoryFiles(repository, dir)
-	cfg := &config.Config{Spec: config.Spec{DataDir: filepath.Join(dir, ".data"), Sync: config.SyncSpec{Policy: config.SyncPolicySpec{SelfHeal: true}}}}
+	cfg := &config.Config{Spec: config.Spec{DataDir: filepath.Join(dir, ".data"), GitOps: config.GitOpsSpec{Sync: config.SyncSpec{Policy: config.SyncPolicySpec{SelfHeal: true}}}}}
 	bus := &dispatcher.NopDispatcher{}
 	lifecycle := deployments.NewService(db, bus)
 	swarmService := &swarm.Swarm{Services: manager}

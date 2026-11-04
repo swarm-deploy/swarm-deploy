@@ -37,13 +37,13 @@ type Container interface {
 // InitModule initializes deployment execution infrastructure.
 func InitModule(_ context.Context, cfg *config.Config, cnt Container) (*Module, error) {
 	stackDeployer := deployer.NewDeployer(
-		cfg.Spec.Swarm.InitJobPollEvery.Value,
-		cfg.Spec.Swarm.InitJobMaxDuration.Value,
+		cfg.Spec.Deployments.PollInterval.Value,
+		cfg.Spec.Deployments.InitJobs.MaxDuration.Value,
 		cnt.GetDockerClient(),
 		cnt.GetSwarm(),
 		cnt.GetMetrics().Deploys,
 		deployer.NewSecretResolver(
-			deployer.NewAgeDecoder(cfg.Spec.SecretRotation.Age.IdentityFile.Content),
+			deployer.NewAgeDecoder(cfg.Spec.GitOps.Secrets.Age.IdentityFile.Content),
 			deployer.PlaintextDecoder{},
 		),
 	)
@@ -54,7 +54,7 @@ func InitModule(_ context.Context, cfg *config.Config, cnt Container) (*Module, 
 		stackDeployer,
 		cnt.GetSwarm().Services,
 		pruner.NewServicePruner(
-			cnt.GetSwarm().Services, cnt.GetEventModule().Dispatcher, cfg.Spec.Sync.Policy,
+			cnt.GetSwarm().Services, cnt.GetEventModule().Dispatcher, cfg.Spec.GitOps.Sync.Policy,
 		),
 		cnt.GetMetrics().Deploys,
 	)

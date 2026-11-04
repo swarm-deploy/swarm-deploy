@@ -1,28 +1,29 @@
 # Webhooks
 
-swarm-deploy can trigger reconciliation from incoming webhooks when `sync.mode` is `webhook` or `hybrid`.
+swarm-deploy can trigger reconciliation from incoming webhooks when `gitops.sync.mode` is `webhook` or `hybrid`.
 
-The webhook endpoint is configured under `sync.webhook`:
+The webhook endpoint is configured under `gitops.sync.webhook`:
 
 ```yaml
-sync:
-  mode: hybrid
-  webhook:
-    enabled: true
-    address: :8082
-    path: /api/v1/webhooks/git
-    maxBodyBytes: 1048576
-    rateLimit:
-      requestsPerSecond: 5
-      burst: 10
-    auth:
-      - type: github
-        secretPath: /run/secrets/github-webhook-secret
-      - type: header
-        header: X-Swarm-Deploy-Secret
-        secretPath: /run/secrets/swarm-deploy-webhook
-      - type: bearer
-        secretPath: /run/secrets/swarm-deploy-webhook
+gitops:
+  sync:
+    mode: hybrid
+    webhook:
+      enabled: true
+      address: :8082
+      path: /api/v1/webhooks/git
+      maxBodyBytes: 1048576
+      rateLimit:
+        requestsPerSecond: 5
+        burst: 10
+      auth:
+        - type: github
+          secretPath: /run/secrets/github-webhook-secret
+        - type: header
+          header: X-Swarm-Deploy-Secret
+          secretPath: /run/secrets/swarm-deploy-webhook
+        - type: bearer
+          secretPath: /run/secrets/swarm-deploy-webhook
 ```
 
 ## Authentication
@@ -37,7 +38,7 @@ Supported methods:
 - `header`: compares the configured request header with the configured secret.
 - `bearer`: validates `Authorization: Bearer <token>` against the configured secret.
 
-The old top-level `sync.webhook.secretPath` setting is not supported. Authentication must be configured explicitly through `sync.webhook.auth`.
+Configure authentication explicitly through `gitops.sync.webhook.auth`.
 
 ## Rate limiting
 

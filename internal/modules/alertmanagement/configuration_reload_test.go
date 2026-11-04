@@ -270,7 +270,7 @@ func TestConcurrentReloadReadsAndOutboxConfigurationProcessing(t *testing.T) {
 }
 
 func stackConfiguration() *config.Config {
-	return &config.Config{Spec: config.Spec{StacksSource: config.StacksSourceSpec{File: "stacks.yaml"}}}
+	return &config.Config{Spec: config.Spec{GitOps: config.GitOpsSpec{Stacks: config.StacksSourceSpec{File: "stacks.yaml"}}}}
 }
 
 func writeStackConfiguration(t *testing.T, stacks ...string) string {

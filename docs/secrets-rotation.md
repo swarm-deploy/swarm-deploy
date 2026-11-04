@@ -23,10 +23,10 @@ file cannot be combined with an external secret driver.
 Mount an age identity file into swarm-deploy and configure its path:
 
 ```yaml
-secretRotation:
-  enabled: true
-  age:
-    identityFile: /run/secrets/swarm_deploy_age_identity
+gitops:
+  secrets:
+    age:
+      identityFile: /run/secrets/swarm_deploy_age_identity
 ```
 
 The file uses the native age identity format: one private identity per line,
@@ -36,7 +36,7 @@ are not supported. Provision the identity file separately from the manifests
 repository; do not commit private keys alongside the encrypted files. The file
 is read when swarm-deploy loads its configuration; restart after replacing it.
 
-Decryption works even with `secretRotation.enabled: false`. Secret file contents
+Decryption works even with `gitops.resourceRotation.enabled: false`. Secret file contents
 are read once from the Git commit when the Compose file is loaded. They travel with
 the in-memory desired state of that revision and are never serialized. A dedicated
 `SecretResolver` decodes the captured contents, so a deployment uses the same files
@@ -91,15 +91,16 @@ Benefits:
 Rotated resources receive ownership labels in the `org.swarm-deploy.rotation.*` namespace. Cleanup only considers resources carrying these labels and the matching Docker stack namespace. Legacy rotated resources created before these labels were introduced are never adopted or removed automatically.
 
 ```yaml
-secretRotation:
-  enabled: true
-  hashLength: 8
-  includePath: true
-  cleanup:
+gitops:
+  resourceRotation:
     enabled: true
-    interval: 4h
-    keepLast: 2
-    minAge: 1h
+    hashLength: 8
+    includePath: true
+    cleanup:
+      enabled: true
+      interval: 4h
+      keepLast: 2
+      minAge: 1h
 ```
 
 Cleanup is stateless. A dedicated controller ticker runs periodic cleanup every `interval` without running the regular reconciliation pipeline. A new desired digest or manual sync also triggers cleanup immediately after reconciliation. Config and secret metadata are loaded from Docker only when cleanup actually runs, so regular interval reconciliations do not issue cleanup-specific `ConfigList`/`SecretList` calls.

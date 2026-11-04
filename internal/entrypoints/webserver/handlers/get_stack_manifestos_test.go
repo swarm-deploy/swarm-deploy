@@ -263,7 +263,7 @@ func newConfigWithStacks(t *testing.T, stacks []config.StackSpec) *config.Config
 		return cfg
 	}
 	dir := t.TempDir()
-	cfg.Spec.StacksSource.File = "stacks.yaml"
+	cfg.Spec.GitOps.Stacks.File = "stacks.yaml"
 	content := "stacks:\n"
 	for _, stack := range stacks {
 		content += "  - name: " + stack.Name + "\n"

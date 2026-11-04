@@ -73,12 +73,12 @@ func New(
 		stateStore, preparer, rotator, db,
 	)
 	puller := gitpull.NewPuller(
-		git, gitpull.NewMonitor(db, stateStore, eventDispatcher), metricGroup.Git, cfg.Spec.Git,
+		git, gitpull.NewMonitor(db, stateStore, eventDispatcher), metricGroup.Git, cfg.Spec.GitOps.Git,
 	)
 	networkCoordinator := networkloop.NewCoordinator(
 		db, configStore, stateStore, networkloop.New(swarmService.Networks), eventDispatcher,
 	)
-	stacks := stackqueue.New(stackReconciler, metricGroup.Sync, cfg.Spec.Sync.Parallelism)
+	stacks := stackqueue.New(stackReconciler, metricGroup.Sync, cfg.Spec.GitOps.Sync.Parallelism)
 	runner := syncrun.New(
 		configStore, git, metricGroup, eventDispatcher, stateStore,
 		networkCoordinator, puller, stacks,

@@ -74,21 +74,32 @@ func TestAgeSecretsOnRealSwarm(t *testing.T) {
 			identityPath := filepath.Join(dir, "identity")
 			require.NoError(t, os.WriteFile(identityPath, []byte(identity.String()), 0o600))
 			cfgPath := filepath.Join(dir, "swarm-deploy.yaml")
-			require.NoError(t, os.WriteFile(cfgPath, fmt.Appendf(nil, `git:
-  repository: https://example.com/fixture.git
-sync:
-  mode: pull
-stacks:
-  file: ./stacks.yaml
-secretRotation:
-  enabled: %t
-  age:
-    identityFile: %s
-  cleanup:
-    enabled: %t
-    keepLast: 1
-    minAge: 1ns
-`, rotation, identityPath, rotation), 0o600))
+			require.NoError(t, os.WriteFile(cfgPath, fmt.Appendf(nil, `gitops:
+  git:
+    repository: https://example.com/fixture.git
+
+  sync:
+    mode: pull
+
+  stacks:
+    file: ./stacks.yaml
+
+  resourceRotation:
+    enabled: %[1]t
+    cleanup:
+      enabled: %[1]t
+      keepLast: 1
+      minAge: 1ns
+
+  secrets:
+    age:
+      identityFile: %[2]s
+
+deployments:
+  pollInterval: 100ms
+  initJobs:
+    maxDuration: 1m
+`, rotation, identityPath), 0o600))
 			cfg, err := config.Load(cfgPath)
 			require.NoError(t, err)
 			db, err := storage.OpenSQLite(ctx, cfg.Spec.DataDir)
@@ -96,21 +107,22 @@ secretRotation:
 			t.Cleanup(func() { assert.NoError(t, db.Close()) })
 
 			swarmService := swarm.NewSwarm(dockerClient)
-			stackDeployer := deployer.NewDeployer(100*time.Millisecond, time.Minute, dockerClient, swarmService, &metrics.NopDeploys{},
-				deployer.NewSecretResolver(deployer.NewAgeDecoder(cfg.Spec.SecretRotation.Age.IdentityFile.Content), deployer.PlaintextDecoder{}))
+			stackDeployer := deployer.NewDeployer(cfg.Spec.Deployments.PollInterval.Value, cfg.Spec.Deployments.InitJobs.MaxDuration.Value,
+				dockerClient, swarmService, &metrics.NopDeploys{},
+				deployer.NewSecretResolver(deployer.NewAgeDecoder(cfg.Spec.GitOps.Secrets.Age.IdentityFile.Content), deployer.PlaintextDecoder{}))
 			bus := eventbus.NewOutboxDispatcher(outbox.New(db))
 			deployMetrics := &metrics.NopDeploys{}
 			executor := deployments.NewController(
 				deployments.NewService(db, bus), stackDeployer, swarmService.Services,
-				pruner.NewServicePruner(swarmService.Services, bus, cfg.Spec.Sync.Policy), deployMetrics,
+				pruner.NewServicePruner(swarmService.Services, bus, cfg.Spec.GitOps.Sync.Policy), deployMetrics,
 			)
 			gitCommand(t, ctx, dir, "init")
-			gitCommand(t, ctx, dir, "remote", "add", "origin", cfg.Spec.Git.Repository)
+			gitCommand(t, ctx, dir, "remote", "add", "origin", cfg.Spec.GitOps.Git.Repository)
 			commitFixture := func() string {
 				t.Helper()
 				return commitFixtureFiles(t, ctx, dir, "compose.yaml", "password.age", "plain.txt")
 			}
-			repository := gitx.NewRepository(cfg.Spec.Git, dir)
+			repository := gitx.NewRepository(cfg.Spec.GitOps.Git, dir)
 			rotator := stackloop.NewRotator()
 			preparer := preparation.New(cfg, repository, rotator)
 			r := stackloop.New(cfg, executor, swarmService, bus, deployMetrics,

@@ -2,6 +2,7 @@ package git
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -11,6 +12,7 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/swarm-deploy/swarm-deploy/internal/config"
 )
 
 func TestGoGitRepositoryReadFile(t *testing.T) {
@@ -109,7 +111,22 @@ func TestGoGitRepositoryPullWhileLocked(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			repo := &GoGitRepository{mu: make(chan struct{}, 1), pullTimeout: 10 * time.Millisecond}
+			dir, ref := initSourceRepository(t)
+			path := filepath.Join(dir, "swarm-deploy.yaml")
+			require.NoError(t, os.WriteFile(path, fmt.Appendf(nil, `gitops:
+  git:
+    repository: %q
+    branch: %q
+    pull:
+      timeout: 10ms
+  stacks:
+    file: stacks.yaml
+`, dir, ref.Name().Short()), 0o600))
+			cfg, err := config.Load(path)
+			require.NoError(t, err)
+			repo, err := NewGoGitRepository(t.Context(), cfg.Spec.GitOps.Git, filepath.Join(t.TempDir(), "clone"))
+			require.NoError(t, err)
+			assert.Equal(t, 10*time.Millisecond, repo.pullTimeout)
 			repo.mu <- struct{}{}
 			ctx := t.Context()
 			if tt.cancel {
@@ -118,7 +135,7 @@ func TestGoGitRepositoryPullWhileLocked(t *testing.T) {
 				ctx = canceled
 			}
 
-			_, err := repo.Pull(ctx)
+			_, err = repo.Pull(ctx)
 
 			var pullErr *PullError
 			require.ErrorAs(t, err, &pullErr)

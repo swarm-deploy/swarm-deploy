@@ -51,7 +51,7 @@ func InitModule(
 ) (*Module, error) {
 	srv := &Module{
 		cfg:           cfg,
-		GitRepository: git.NewRepository(cfg.Spec.Git, filepath.Join(cfg.Spec.DataDir, "repo")),
+		GitRepository: git.NewRepository(cfg.Spec.GitOps.Git, filepath.Join(cfg.Spec.DataDir, "repo")),
 		Differ:        differ.New(),
 	}
 

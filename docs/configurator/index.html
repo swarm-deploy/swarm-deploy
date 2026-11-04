@@ -1466,63 +1466,65 @@ docker secret create git_ssh_passphrase ./id_ed25519.passphrase</pre>
         const stacksFile = document.getElementById("stacksFile").value.trim() || "./stacks.yaml";
 
         const lines = [];
-        lines.push("git:");
-        lines.push(`  repository: ${yamlString(repository)}`);
-        lines.push(`  branch: ${yamlString(branch)}`);
-        lines.push(`  pullTimeout: ${yamlString(document.getElementById("gitPullTimeout").value.trim())}`);
-        lines.push("  auth:");
-        lines.push(`    type: ${yamlString(authType)}`);
+        lines.push("gitops:");
+        lines.push("  git:");
+        lines.push(`    repository: ${yamlString(repository)}`);
+        lines.push(`    branch: ${yamlString(branch)}`);
+        lines.push("    auth:");
+        lines.push(`      type: ${yamlString(authType)}`);
 
         if (authType === "http") {
-          lines.push("    http:");
+          lines.push("      http:");
           const httpMode = getSelectedRadio("httpMode");
           if (httpMode === "token") {
             lines.push(
-              `      tokenPath: ${yamlString(document.getElementById("httpTokenPath").value.trim())}`,
+              `        tokenPath: ${yamlString(document.getElementById("httpTokenPath").value.trim())}`,
             );
           } else {
             lines.push(
-              `      username: ${yamlString(document.getElementById("httpUsername").value.trim())}`,
+              `        username: ${yamlString(document.getElementById("httpUsername").value.trim())}`,
             );
             lines.push(
-              `      passwordPath: ${yamlString(document.getElementById("httpPasswordPath").value.trim())}`,
+              `        passwordPath: ${yamlString(document.getElementById("httpPasswordPath").value.trim())}`,
             );
           }
         } else if (authType === "ssh") {
-          lines.push("    ssh:");
-          lines.push(`      user: ${yamlString(document.getElementById("sshUser").value.trim() || "git")}`);
+          lines.push("      ssh:");
+          lines.push(`        user: ${yamlString(document.getElementById("sshUser").value.trim() || "git")}`);
           lines.push(
-            `      privateKeyPath: ${yamlString(document.getElementById("sshPrivateKeyPath").value.trim())}`,
+            `        privateKeyPath: ${yamlString(document.getElementById("sshPrivateKeyPath").value.trim())}`,
           );
           lines.push(
-            `      knownHostsPath: ${yamlString(document.getElementById("sshKnownHostsPath").value.trim())}`,
+            `        knownHostsPath: ${yamlString(document.getElementById("sshKnownHostsPath").value.trim())}`,
           );
           const passphrasePath = document.getElementById("sshPassphrasePath").value.trim();
           if (passphrasePath) {
-            lines.push(`      passphrasePath: ${yamlString(passphrasePath)}`);
+            lines.push(`        passphrasePath: ${yamlString(passphrasePath)}`);
           }
           if (document.getElementById("sshInsecureIgnoreHostKey").checked) {
-            lines.push("      insecureIgnoreHostKey: true");
+            lines.push("        insecureIgnoreHostKey: true");
           }
         }
 
-        lines.push("");
-        lines.push("sync:");
-        lines.push('  mode: "pull"');
-        lines.push('  pollInterval: "30s"');
-        lines.push('  interval: "1m"');
-        lines.push(`  parallelism: ${Number(document.getElementById("syncParallelism").value)}`);
-        lines.push("");
-        lines.push("stacks:");
-        lines.push(`  file: ${yamlString(stacksFile)}`);
+        lines.push("    pull:");
+        lines.push('      interval: "30s"');
+        lines.push(`      timeout: ${yamlString(document.getElementById("gitPullTimeout").value.trim())}`);
 
         lines.push("");
-        lines.push("# Swarm Init Job settings.");
-        lines.push("swarm:");
-        lines.push("  # Init job polling interval.");
-        lines.push("  initJobPollEvery: 2s");
-        lines.push("  # Maximum init job duration.");
-        lines.push("  initJobMaxDuration: 10m");
+        lines.push("  sync:");
+        lines.push('    mode: "pull"');
+        lines.push('    interval: "1m"');
+        lines.push(`    parallelism: ${Number(document.getElementById("syncParallelism").value)}`);
+        lines.push("");
+        lines.push("  stacks:");
+        lines.push(`    file: ${yamlString(stacksFile)}`);
+
+        lines.push("");
+        lines.push("deployments:");
+        lines.push("  # Polling interval for Init Jobs and service convergence.");
+        lines.push("  pollInterval: 2s");
+        lines.push("  initJobs:");
+        lines.push("    maxDuration: 10m");
 
         const notificationsEnabled = getSelectedRadio("notificationsEnabled") === "yes";
         if (notificationsEnabled) {

@@ -103,27 +103,30 @@ Start with the [basic example](./example/01-basic) or generate a configuration w
 A minimal configuration looks like this:
 
 ```yaml
-git:
-  repository: https://github.com/your-org/your-stacks-repo.git
-  branch: main
-  pullTimeout: 2m # default; maximum duration of a Git pull
-  auth:
-    type: none
+gitops:
+  git:
+    repository: https://github.com/your-org/your-stacks-repo.git
+    branch: main
+    auth:
+      type: none
+    pull:
+      # Git polling interval.
+      interval: 30s
+      timeout: 2m # default; maximum duration of a Git pull
 
-sync:
-  mode: pull
-  pollInterval: 30s
-  interval: 1m
-  parallelism: 1 # default; increase explicitly for concurrent stack deployments
-  policy:
-    prune: true
-    selfHeal: true
+  sync:
+    mode: pull
+    interval: 1m
+    parallelism: 1 # default; increase explicitly for concurrent stack deployments
+    policy:
+      prune: true
+      selfHeal: true
 
-stacks:
-  file: ./stacks.yaml
+  stacks:
+    file: ./stacks.yaml
 
-networks:
-  file: ./networks.yaml
+  networks:
+    file: ./networks.yaml
 
 web:
   address: ":8080"
@@ -138,7 +141,9 @@ healthServer:
     path: /healthz
 ```
 
-`git.pullTimeout` defaults to `2m` and bounds pull operations, including waiting for Git access. `sync.parallelism` defaults to `1`, running stacks one at a time; increase it explicitly to enable parallel stack reconciliation. Git sync runs dispatch operations asynchronously even when parallelism is `1`.
+`gitops.git.pull.interval` defaults to `30s` and controls Git polling. `gitops.sync.interval` defaults to `1m` and controls reconciliation against the local desired state. `gitops.git.pull.timeout` defaults to `2m` and bounds pull operations, including waiting for Git access. `gitops.sync.parallelism` defaults to `1`, running stacks one at a time; increase it explicitly to enable parallel stack reconciliation. Git sync runs dispatch operations asynchronously even when parallelism is `1`.
+
+The 0.15.0 runtime configuration uses module sections. Update older configurations before starting this version. The loader rejects unknown fields, including legacy paths. Stack and network definition files keep their existing formats.
 
 `web.basePath` defaults to `/`. A trailing slash is normalized, so `/infrastructure/swarm/` serves the UI at `/infrastructure/swarm/` and the API below `/infrastructure/swarm/api/`. Path segments must use URL-unreserved ASCII characters (letters, digits, `-`, `_`, `.`, `~`); percent-encoding and ServeMux wildcard syntax are not accepted. The configured value is authoritative; `X-Forwarded-Prefix` is not used. Health, metrics, and webhook endpoints keep their independently configured paths.
 

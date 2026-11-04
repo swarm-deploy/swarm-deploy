@@ -81,12 +81,6 @@ func joinNotificationErrors(errs []error) string {
 	return result
 }
 
-func TestNotificationRejectsOldOnKey(t *testing.T) {
-	var cfg NotificationSpec
-	err := yaml.Unmarshal([]byte("on:\n  DeploySuccess: {}\n"), &cfg)
-	require.ErrorContains(t, err, "notifications.on is no longer supported")
-}
-
 func TestNotificationEventsRejectInternalSynchronizationFailures(t *testing.T) {
 	cfg := NotificationSpec{
 		Events: map[events.TypeName]NotificationEventRoutes{

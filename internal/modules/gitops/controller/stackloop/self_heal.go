@@ -64,7 +64,7 @@ func (r *Reconciler) healService(
 	policyName, enabled, err := resolveSelfHeal(
 		service,
 		payload.Stack.Sync.Policy.SelfHeal,
-		r.cfg.Spec.Sync.Policy.SelfHeal,
+		r.cfg.Spec.GitOps.Sync.Policy.SelfHeal,
 	)
 	if err != nil {
 		resolveErr := fmt.Errorf("resolve service %s self-heal policy: %w", service.Name, err)

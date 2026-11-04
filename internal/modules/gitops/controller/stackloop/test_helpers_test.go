@@ -32,7 +32,7 @@ func newTestReconciler(
 ) *Reconciler {
 	executor := deployments.NewController(
 		lifecycle, stackDeployer, swarmService.Services,
-		pruner.NewServicePruner(swarmService.Services, eventDispatcher, cfg.Spec.Sync.Policy),
+		pruner.NewServicePruner(swarmService.Services, eventDispatcher, cfg.Spec.GitOps.Sync.Policy),
 		deployMetrics,
 	)
 	rotator := NewRotator()

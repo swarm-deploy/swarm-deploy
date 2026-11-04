@@ -160,7 +160,7 @@ stacks:
   - name: kept
     composeFile: kept.yaml
 `), 0o600))
-	cfg := &config.Config{Spec: config.Spec{StacksSource: config.StacksSourceSpec{File: "stacks.yaml"}}}
+	cfg := &config.Config{Spec: config.Spec{GitOps: config.GitOpsSpec{Stacks: config.StacksSourceSpec{File: "stacks.yaml"}}}}
 	_, err = cfg.Reload(dir)
 	require.NoError(t, err)
 	subscriber := NewSQLSubscriber(repo, &dispatcher.NopDispatcher{},

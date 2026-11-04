@@ -350,14 +350,16 @@ func newTestRunnerWithNetworks(
 	t.Helper()
 	db, store := newSQLState(t)
 	cfg := &config.Config{Spec: config.Spec{
-		Git:            config.GitSpec{Repository: "repo"},
-		StacksSource:   config.StacksSourceSpec{File: "stacks.yaml"},
-		NetworksSource: config.NetworksSourceSpec{File: networksFile},
+		GitOps: config.GitOpsSpec{
+			Git:      config.GitSpec{Repository: "repo"},
+			Stacks:   config.StacksSourceSpec{File: "stacks.yaml"},
+			Networks: config.NetworksSourceSpec{File: networksFile},
+		},
 	}}
 	events := &dispatcher.NopDispatcher{}
 	namespace := strings.NewReplacer("/", "_", " ", "_").Replace("test_" + t.Name())
 	metricGroup := metrics.NewGroup(metrics.CreateGroupParams{Namespace: namespace})
-	puller := gitpull.NewPuller(repository, gitpull.NewMonitor(db, store, events), metricGroup.Git, cfg.Spec.Git)
+	puller := gitpull.NewPuller(repository, gitpull.NewMonitor(db, store, events), metricGroup.Git, cfg.Spec.GitOps.Git)
 	configuration := configstore.New(cfg, events)
 	networkCoordinator := networkloop.NewCoordinator(db, configuration, store, networkloop.New(networkManager), events)
 	queue := stackqueue.New(reconciler, metricGroup.Sync, parallelism)

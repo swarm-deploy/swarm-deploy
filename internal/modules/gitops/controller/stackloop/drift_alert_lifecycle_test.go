@@ -145,10 +145,10 @@ func TestReconcileDriftRecoveryPersistsAndDeliversEvents(t *testing.T) {
 				require.NoError(t, err)
 				require.Equal(t, deploymentmodel.Failed, failedAttempt.Status)
 				assert.Equal(t, !tc.failureOnly, readSQLState(t, store).Stacks["app"].DriftedServices["api"], "failure must preserve drift provenance")
-				cfg.Spec.Sync.Policy.SelfHeal = true
+				cfg.Spec.GitOps.Sync.Policy.SelfHeal = true
 			}
 			if tc.selfHealVerificationFails {
-				cfg.Spec.Sync.Policy.SelfHeal = true
+				cfg.Spec.GitOps.Sync.Policy.SelfHeal = true
 			}
 			before := readSQLState(t, store).Stacks["app"]
 			live := healthy

@@ -1,7 +1,10 @@
 package config
 
 import (
+	"bytes"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 
@@ -24,9 +27,18 @@ func Load(path string) (*Config, error) {
 	}
 
 	cfg := &Config{}
-	err = yaml.Unmarshal(data, cfg)
-	if err != nil {
-		return nil, fmt.Errorf("decode config yaml: %w", err)
+	decoder := yaml.NewDecoder(bytes.NewReader(data))
+	decoder.KnownFields(true)
+	// Decode the spec directly so its nested structs inherit KnownFields.
+	if decodeErr := decoder.Decode(&cfg.Spec); decodeErr != nil && !errors.Is(decodeErr, io.EOF) {
+		return nil, fmt.Errorf("decode config yaml: %w", decodeErr)
+	}
+
+	if decodeErr := decoder.Decode(&Spec{}); !errors.Is(decodeErr, io.EOF) {
+		if decodeErr != nil {
+			return nil, fmt.Errorf("decode config yaml: %w", decodeErr)
+		}
+		return nil, errors.New("runtime configuration must contain a single YAML document")
 	}
 
 	configDir := filepath.Dir(path)

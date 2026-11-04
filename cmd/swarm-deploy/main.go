@@ -124,10 +124,10 @@ func main() {
 		os.Exit(1)
 	}
 
-	logHandler := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: cfg.Spec.Log.Level.Level()})
+	logHandler := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: cfg.Spec.System.Log.Level.Level()})
 	slog.SetDefault(slog.New(slogx.NewChain(logHandler, loggingMiddlewares()...)))
 
-	tracerProvider, err := sd.InitTracerProvider(ctx, cfg.Spec.Tracing, buildinfo.Info{
+	tracerProvider, err := sd.InitTracerProvider(ctx, cfg.Spec.System.Tracing, buildinfo.Info{
 		Version: Version,
 		Date:    BuildDate,
 	})
@@ -259,8 +259,10 @@ func main() {
 		},
 	}
 
-	if cfg.Spec.Sync.Webhook.Enabled {
-		webhookApplication, werr := webhookserver.NewApplication(cfg.Spec.Sync.Webhook.Address, cfg, cnt.GitOps.Controller)
+	if cfg.Spec.GitOps.Sync.Webhook.Enabled {
+		webhookApplication, werr := webhookserver.NewApplication(
+			cfg.Spec.GitOps.Sync.Webhook.Address, cfg, cnt.GitOps.Controller,
+		)
 		if werr != nil {
 			slog.ErrorContext(ctx, "failed to create webhook application", slog.Any("err", werr))
 			os.Exit(1)
@@ -275,14 +277,14 @@ func main() {
 		slog.String("web.address", cfg.Spec.Web.Address),
 		slog.String("web.basePath", cfg.Spec.Web.BasePath),
 		slog.String("web.security", cfg.Spec.Web.Security.Authentication.Strategy()),
-		slog.String("webhook.address", cfg.Spec.Sync.Webhook.Address),
-		slog.Bool("webhook.enabled", cfg.Spec.Sync.Webhook.Enabled),
+		slog.String("webhook.address", cfg.Spec.GitOps.Sync.Webhook.Address),
+		slog.Bool("webhook.enabled", cfg.Spec.GitOps.Sync.Webhook.Enabled),
 		slog.String("healthServer.address", cfg.Spec.HealthServer.Address),
 		slog.String("healthz.path", cfg.Spec.HealthServer.Healthz.Path),
 		slog.String("metrics.path", cfg.Spec.HealthServer.Metrics.Path),
-		slog.String("mode", cfg.Spec.Sync.Mode),
-		slog.String("repo", repositoryLogValue(cfg.Spec.Git.Repository)),
-		slog.String("log.level", cfg.Spec.Log.Level.String()),
+		slog.String("mode", cfg.Spec.GitOps.Sync.Mode),
+		slog.String("repo", repositoryLogValue(cfg.Spec.GitOps.Git.Repository)),
+		slog.String("log.level", cfg.Spec.System.Log.Level.String()),
 		slog.Bool("assistant.enabled", cfg.Spec.Assistant.Enabled),
 	)
 	err = runner.Run()

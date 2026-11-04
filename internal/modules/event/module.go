@@ -45,7 +45,7 @@ func InitModule(ctx context.Context, cfg *config.Config, cnt Container) (*Module
 		db:  cnt.GetStorage(),
 	}
 
-	historyStore, err := history.NewSQLStore(cnt.GetStorage(), cfg.Spec.EventHistory.Capacity)
+	historyStore, err := history.NewSQLStore(cnt.GetStorage(), cfg.Spec.Event.History.Capacity)
 	if err != nil {
 		return nil, fmt.Errorf("init history store: %w", err)
 	}

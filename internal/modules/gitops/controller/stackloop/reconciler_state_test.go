@@ -221,11 +221,11 @@ func TestReconcileSeparatesPostApplyOutcomes(t *testing.T) {
 			stackDeployer.EXPECT().DeployStack(gomock.Any(), gomock.Cond(func(req deployer.StackRequest) bool { return req.StackName == "app" })).Return(deployer.Result{}, nil)
 			tt.setupServices(serviceManager)
 			cfg := &config.Config{Spec: config.Spec{DataDir: filepath.Join(repoDir, ".data"),
-				Sync: config.SyncSpec{Policy: config.SyncPolicySpec{Prune: true}}}}
+				GitOps: config.GitOpsSpec{Sync: config.SyncSpec{Policy: config.SyncPolicySpec{Prune: true}}}}}
 			eventDispatcher := &dispatcher.NopDispatcher{}
 			reconciler := &Reconciler{
 				cfg: cfg, event: eventDispatcher,
-				deployMetrics: &metrics.NopDeploys{}, stateStore: stateStore, pruner: pruner.NewServicePruner(serviceManager, eventDispatcher, cfg.Spec.Sync.Policy),
+				deployMetrics: &metrics.NopDeploys{}, stateStore: stateStore, pruner: pruner.NewServicePruner(serviceManager, eventDispatcher, cfg.Spec.GitOps.Sync.Policy),
 			}
 			reconciler.db = db
 			reconciler.executor = deployments.NewController(
@@ -310,17 +310,17 @@ secrets:
 
 	cfg := &config.Config{Spec: config.Spec{
 		DataDir: filepath.Join(repoDir, ".data"),
-		SecretRotation: config.SecretRotationSpec{
+		GitOps: config.GitOpsSpec{ResourceRotation: config.ResourceRotationSpec{
 			Enabled:    true,
 			HashLength: 8,
-			Cleanup: config.SecretRotationCleanupSpec{
+			Cleanup: config.ResourceRotationCleanupSpec{
 				Enabled:  true,
 				KeepLast: 1,
 				MinAge:   specw.Duration{Value: time.Hour},
 			},
-		},
+		}},
 	}}
-	cleaner := newRotatedResourceCleaner(secretManager, configManager, cfg.Spec.SecretRotation.Cleanup)
+	cleaner := newRotatedResourceCleaner(secretManager, configManager, cfg.Spec.GitOps.ResourceRotation.Cleanup)
 	cleaner.now = func() time.Time { return now }
 	reconciler := &Reconciler{
 		cfg: cfg, event: &dispatcher.NopDispatcher{},
@@ -385,12 +385,12 @@ func TestReconcileReadsPreviousDigestFromStateStore(t *testing.T) {
 		cfg: &config.Config{
 			Spec: config.Spec{
 				DataDir: filepath.Join(repoDir, ".data"),
-				SecretRotation: config.SecretRotationSpec{
+				GitOps: config.GitOpsSpec{ResourceRotation: config.ResourceRotationSpec{
 					Enabled: true,
-					Cleanup: config.SecretRotationCleanupSpec{
+					Cleanup: config.ResourceRotationCleanupSpec{
 						Enabled: true,
 					},
-				},
+				}},
 			},
 		}, event: eventDispatcher,
 		deployMetrics:  deployMetrics,
@@ -494,10 +494,10 @@ configs:
 		cfg: &config.Config{
 			Spec: config.Spec{
 				DataDir: filepath.Join(repoDir, ".data"),
-				SecretRotation: config.SecretRotationSpec{
+				GitOps: config.GitOpsSpec{ResourceRotation: config.ResourceRotationSpec{
 					Enabled:    true,
 					HashLength: 8,
-				},
+				}},
 			},
 		}, event: eventDispatcher,
 		deployMetrics:  deployMetrics,
@@ -716,14 +716,24 @@ services:
 }
 
 func TestReconcilePreparesDownwardEnvironment(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	repository := gitx.NewMockRepository(ctrl)
-	serviceManager := swarm.NewMockServiceManager(ctrl)
-	stackDeployer := deployer.NewMockStackDeployer(ctrl)
-	db, stateStore := newSQLState(t)
-	repoDir := t.TempDir()
+	for _, tt := range []struct {
+		name         string
+		downward     string
+		wantInjected bool
+	}{
+		{name: "omitted"},
+		{name: "disabled", downward: "  downward: {enabled: false}\n"},
+		{name: "enabled", downward: "  downward: {enabled: true}\n", wantInjected: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			repository := gitx.NewMockRepository(ctrl)
+			serviceManager := swarm.NewMockServiceManager(ctrl)
+			stackDeployer := deployer.NewMockStackDeployer(ctrl)
+			db, stateStore := newSQLState(t)
+			repoDir := t.TempDir()
 
-	require.NoError(t, os.WriteFile(filepath.Join(repoDir, "app.yaml"), []byte(fmt.Sprintf(`
+			require.NoError(t, os.WriteFile(filepath.Join(repoDir, "app.yaml"), []byte(fmt.Sprintf(`
 services:
   api:
     image: nginx:latest
@@ -732,62 +742,72 @@ services:
         %s: %q
 `, labelsdict.ServiceManagedLabelKey, labelsdict.ServiceManagedLabelValue)), 0o600), "write compose")
 
-	mockRepositoryFiles(repository, repoDir)
-	var preparedCompose *compose.Compose
-	stackDeployer.EXPECT().
-		DeployStack(gomock.Any(), gomock.Cond(func(req deployer.StackRequest) bool {
-			return req.StackName == "app" &&
-				req.SourceComposePath == filepath.Join(repoDir, "app.yaml")
-		})).
-		Do(func(_ context.Context, request deployer.StackRequest) {
-			preparedCompose = &request.Desired
-		}).
-		Return(deployer.Result{}, nil)
-	serviceManager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "app"}).Return(nil, nil)
+			configPath := filepath.Join(repoDir, "swarm-deploy.yaml")
+			require.NoError(t, os.WriteFile(configPath, []byte(`gitops:
+  git:
+    repository: https://example.com/repo.git
+  stacks:
+    file: stacks.yaml
+`+tt.downward), 0o600))
+			cfg, err := config.Load(configPath)
+			require.NoError(t, err)
 
-	reconciler := &Reconciler{
-		cfg: &config.Config{
-			Spec: config.Spec{
-				DataDir: filepath.Join(repoDir, ".data"),
-				Containers: config.ContainersSpec{
-					Downward: &struct{}{},
+			mockRepositoryFiles(repository, repoDir)
+			var preparedCompose *compose.Compose
+			stackDeployer.EXPECT().
+				DeployStack(gomock.Any(), gomock.Cond(func(req deployer.StackRequest) bool {
+					return req.StackName == "app" &&
+						req.SourceComposePath == filepath.Join(repoDir, "app.yaml")
+				})).
+				Do(func(_ context.Context, request deployer.StackRequest) {
+					preparedCompose = &request.Desired
+				}).
+				Return(deployer.Result{}, nil)
+			serviceManager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "app"}).Return(nil, nil)
+
+			reconciler := &Reconciler{
+				cfg:            cfg,
+				event:          &dispatcher.NopDispatcher{},
+				deployMetrics:  &metrics.NopDeploys{},
+				stateStore:     stateStore,
+				pruner:         pruner.NewServicePruner(serviceManager, &dispatcher.NopDispatcher{}, config.SyncPolicySpec{}),
+				composeRotator: NewRotator(),
+				serviceManager: serviceManager,
+			}
+			reconciler.db = db
+			reconciler.executor = deployments.NewController(
+				deployments.NewService(db, reconciler.event), stackDeployer, serviceManager, reconciler.pruner, reconciler.deployMetrics,
+			)
+			reconciler.preparer = preparation.New(reconciler.cfg, repository, reconciler.composeRotator)
+			reconciler.attachPipeline()
+
+			reconcileErr := reconciler.Reconcile(context.Background(), ReconciliationRequest{
+				Stack: config.StackSpec{
+					Name:        "app",
+					ComposeFile: "app.yaml",
 				},
-			},
-		}, event: &dispatcher.NopDispatcher{},
-		deployMetrics:  &metrics.NopDeploys{},
-		stateStore:     stateStore,
-		pruner:         pruner.NewServicePruner(serviceManager, &dispatcher.NopDispatcher{}, config.SyncPolicySpec{}),
-		composeRotator: NewRotator(),
-		serviceManager: serviceManager,
+				Commit: "commit-downward-1",
+			})
+
+			require.NoError(t, reconcileErr, "reconcile")
+			require.NotNil(t, preparedCompose, "expected prepared compose during deploy")
+			require.Len(t, preparedCompose.Services, 1, "expected one service")
+
+			service := preparedCompose.Services[0]
+			if !tt.wantInjected {
+				assert.Empty(t, service.Environment.Map)
+				return
+			}
+			assert.Equal(t, "app", service.Environment.Map[downward.EnvStackName], "unexpected stack env")
+			assert.Equal(t, "{{.Service.ID}}", service.Environment.Map[downward.EnvServiceID], "unexpected service id env")
+			assert.Equal(t, "{{.Service.Name}}", service.Environment.Map[downward.EnvServiceName], "unexpected service name env")
+			assert.Equal(t, "{{.Task.ID}}", service.Environment.Map[downward.EnvTaskID], "unexpected task id env")
+			assert.Equal(t, "{{.Task.Name}}", service.Environment.Map[downward.EnvTaskName], "unexpected task name env")
+			assert.Equal(t, "{{.Task.Slot}}", service.Environment.Map[downward.EnvTaskSlot], "unexpected task slot env")
+			assert.Equal(t, "{{.Node.ID}}", service.Environment.Map[downward.EnvNodeID], "unexpected node id env")
+			assert.Equal(t, "{{.Node.Hostname}}", service.Environment.Map[downward.EnvNodeName], "unexpected node name env")
+		})
 	}
-	reconciler.db = db
-	reconciler.executor = deployments.NewController(
-		deployments.NewService(db, reconciler.event), stackDeployer, serviceManager, reconciler.pruner, reconciler.deployMetrics,
-	)
-	reconciler.preparer = preparation.New(reconciler.cfg, repository, reconciler.composeRotator)
-	reconciler.attachPipeline()
-
-	reconcileErr := reconciler.Reconcile(context.Background(), ReconciliationRequest{
-		Stack: config.StackSpec{
-			Name:        "app",
-			ComposeFile: "app.yaml",
-		},
-		Commit: "commit-downward-1",
-	})
-
-	require.NoError(t, reconcileErr, "reconcile")
-	require.NotNil(t, preparedCompose, "expected prepared compose during deploy")
-	require.Len(t, preparedCompose.Services, 1, "expected one service")
-
-	service := preparedCompose.Services[0]
-	assert.Equal(t, "app", service.Environment.Map[downward.EnvStackName], "unexpected stack env")
-	assert.Equal(t, "{{.Service.ID}}", service.Environment.Map[downward.EnvServiceID], "unexpected service id env")
-	assert.Equal(t, "{{.Service.Name}}", service.Environment.Map[downward.EnvServiceName], "unexpected service name env")
-	assert.Equal(t, "{{.Task.ID}}", service.Environment.Map[downward.EnvTaskID], "unexpected task id env")
-	assert.Equal(t, "{{.Task.Name}}", service.Environment.Map[downward.EnvTaskName], "unexpected task name env")
-	assert.Equal(t, "{{.Task.Slot}}", service.Environment.Map[downward.EnvTaskSlot], "unexpected task slot env")
-	assert.Equal(t, "{{.Node.ID}}", service.Environment.Map[downward.EnvNodeID], "unexpected node id env")
-	assert.Equal(t, "{{.Node.Hostname}}", service.Environment.Map[downward.EnvNodeName], "unexpected node name env")
 }
 
 func TestReconcileDoesNotRedeployForDownwardOnUnchangedDigest(t *testing.T) {
@@ -824,9 +844,7 @@ services:
 		cfg: &config.Config{
 			Spec: config.Spec{
 				DataDir: filepath.Join(repoDir, ".data"),
-				Containers: config.ContainersSpec{
-					Downward: &struct{}{},
-				},
+				GitOps:  config.GitOpsSpec{Downward: config.DownwardSpec{Enabled: true}},
 			},
 		}, event: &dispatcher.NopDispatcher{},
 		deployMetrics:  &metrics.NopDeploys{},
@@ -917,11 +935,11 @@ func TestReconcilePrunesServicesWithoutNewDeployment(t *testing.T) {
 				cfg: &config.Config{
 					Spec: config.Spec{
 						DataDir: filepath.Join(repoDir, ".data"),
-						Sync: config.SyncSpec{
+						GitOps: config.GitOpsSpec{Sync: config.SyncSpec{
 							Policy: config.SyncPolicySpec{
 								Prune: tc.globalPrune,
 							},
-						},
+						}},
 					},
 				}, event: eventDispatcher,
 				deployMetrics:  deployMetrics,
@@ -1153,7 +1171,7 @@ func TestReconcileSelfHealsMissingService(t *testing.T) {
 			reconciler := &Reconciler{
 				cfg: &config.Config{Spec: config.Spec{
 					DataDir: filepath.Join(repoDir, ".data"),
-					Sync:    config.SyncSpec{Policy: config.SyncPolicySpec{SelfHeal: true}},
+					GitOps:  config.GitOpsSpec{Sync: config.SyncSpec{Policy: config.SyncPolicySpec{SelfHeal: true}}},
 				}}, event: eventDispatcher,
 				deployMetrics: metricGroup.Deploys, stateStore: stateStore,
 				pruner:        pruner.NewServicePruner(serviceManager, eventDispatcher, config.SyncPolicySpec{}),
@@ -1251,7 +1269,7 @@ func TestReconcileSelfHealsReplicaDriftAfterVerification(t *testing.T) {
 	reconciler := &Reconciler{
 		cfg: &config.Config{Spec: config.Spec{
 			DataDir: filepath.Join(repoDir, ".data"),
-			Sync:    config.SyncSpec{Policy: config.SyncPolicySpec{SelfHeal: true}},
+			GitOps:  config.GitOpsSpec{Sync: config.SyncSpec{Policy: config.SyncPolicySpec{SelfHeal: true}}},
 		}}, event: eventDispatcher,
 		deployMetrics: &metrics.NopDeploys{}, stateStore: stateStore,
 		pruner:        pruner.NewServicePruner(serviceManager, eventDispatcher, config.SyncPolicySpec{}),

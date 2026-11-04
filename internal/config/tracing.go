@@ -58,54 +58,56 @@ type TracingAuthenticationSpec struct {
 }
 
 func (c *Config) validateTracing() []error {
-	if c.Spec.Tracing == nil {
+	if c.Spec.System.Tracing == nil {
 		return nil
 	}
 
 	var errs []error
 
-	switch c.Spec.Tracing.Transport {
+	switch c.Spec.System.Tracing.Transport {
 	case TracingTransportHTTP, TracingTransportGRPC:
 	default:
 		errs = append(
 			errs,
 			fmt.Errorf(
-				"tracing.transport must be one of %q|%q",
+				"system.tracing.transport must be one of %q|%q",
 				TracingTransportHTTP,
 				TracingTransportGRPC,
 			),
 		)
 	}
 
-	if err := validateTracingEndpoint(c.Spec.Tracing.Exporter.Endpoint.Value); err != nil {
+	if err := validateTracingEndpoint(c.Spec.System.Tracing.Exporter.Endpoint.Value); err != nil {
 		errs = append(errs, err)
 	}
 
-	if err := validateTracingSampler(c.Spec.Tracing.Sampler); err != nil {
+	if err := validateTracingSampler(c.Spec.System.Tracing.Sampler); err != nil {
 		errs = append(errs, err)
 	}
 
-	for key := range c.Spec.Tracing.Exporter.Headers {
+	for key := range c.Spec.System.Tracing.Exporter.Headers {
 		if strings.EqualFold(strings.TrimSpace(key), "authorization") {
-			errs = append(errs, errors.New("tracing.exporter.headers must not contain authorization"))
+			errs = append(errs, errors.New("system.tracing.exporter.headers must not contain authorization"))
 		}
 	}
 
-	auth := c.Spec.Tracing.Exporter.Authentication
+	auth := c.Spec.System.Tracing.Exporter.Authentication
 	if auth.Bearer.Path != "" && strings.TrimSpace(string(auth.Bearer.Content)) == "" {
-		errs = append(errs, errors.New("tracing.exporter.authentication.bearerPath contains empty token"))
+		errs = append(errs, errors.New("system.tracing.exporter.authentication.bearerPath contains empty token"))
 	}
 
 	if auth.APIKey.Path != "" && strings.TrimSpace(string(auth.APIKey.Content)) == "" {
-		errs = append(errs, errors.New("tracing.exporter.authentication.apiKeyPath contains empty token"))
+		errs = append(errs, errors.New("system.tracing.exporter.authentication.apiKeyPath contains empty token"))
 	}
 
 	if auth.Bearer.Path != "" && auth.APIKey.Path != "" {
-		errs = append(errs, errors.New("tracing.exporter.authentication.bearerPath and apiKeyPath cannot be used together"))
+		errs = append(errs, errors.New(
+			"system.tracing.exporter.authentication.bearerPath and apiKeyPath cannot be used together",
+		))
 	}
 
 	if auth.XAPIKey.Path != "" && strings.TrimSpace(string(auth.XAPIKey.Content)) == "" {
-		errs = append(errs, errors.New("tracing.exporter.authentication.xApiKeyPath contains empty token"))
+		errs = append(errs, errors.New("system.tracing.exporter.authentication.xApiKeyPath contains empty token"))
 	}
 
 	return errs
@@ -122,13 +124,13 @@ func validateTracingSampler(sampler TracingSamplerSpec) error {
 		return nil
 	case TracingSamplerTraceIDRatio, TracingSamplerParentBasedTraceIDRatio:
 		if sampler.Ratio.Value < 0 || sampler.Ratio.Value > 1 {
-			return errors.New("tracing.sampler.ratio must be between 0 and 1")
+			return errors.New("system.tracing.sampler.ratio must be between 0 and 1")
 		}
 
 		return nil
 	default:
 		return fmt.Errorf(
-			"tracing.sampler.strategy must be one of %q|%q|%q|%q",
+			"system.tracing.sampler.strategy must be one of %q|%q|%q|%q",
 			TracingSamplerAlwaysOn,
 			TracingSamplerAlwaysOff,
 			TracingSamplerTraceIDRatio,
@@ -140,24 +142,24 @@ func validateTracingSampler(sampler TracingSamplerSpec) error {
 func validateTracingEndpoint(endpoint string) error {
 	endpoint = strings.TrimSpace(endpoint)
 	if endpoint == "" {
-		return errors.New("tracing.exporter.endpoint is required")
+		return errors.New("system.tracing.exporter.endpoint is required")
 	}
 
 	if !strings.Contains(endpoint, "://") {
-		return errors.New("tracing.exporter.endpoint must include http:// or https:// scheme")
+		return errors.New("system.tracing.exporter.endpoint must include http:// or https:// scheme")
 	}
 
 	parsedEndpoint, err := url.Parse(endpoint)
 	if err != nil {
-		return fmt.Errorf("tracing.exporter.endpoint is invalid: %w", err)
+		return fmt.Errorf("system.tracing.exporter.endpoint is invalid: %w", err)
 	}
 
 	if parsedEndpoint.Scheme != "http" && parsedEndpoint.Scheme != "https" {
-		return errors.New("tracing.exporter.endpoint scheme must be http or https")
+		return errors.New("system.tracing.exporter.endpoint scheme must be http or https")
 	}
 
 	if parsedEndpoint.Host == "" {
-		return errors.New("tracing.exporter.endpoint must contain host")
+		return errors.New("system.tracing.exporter.endpoint must contain host")
 	}
 
 	return nil

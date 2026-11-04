@@ -42,9 +42,9 @@ func TestControllerManualAndWebhookTriggers(t *testing.T) {
 		return nil
 	}).Times(2)
 
-	cfg := &config.Config{Spec: config.Spec{Sync: config.SyncSpec{
+	cfg := &config.Config{Spec: config.Spec{GitOps: config.GitOpsSpec{Sync: config.SyncSpec{
 		Mode: config.SyncModeWebhook, Interval: specw.Duration{Value: time.Hour},
-	}}}
+	}}}}
 	queue := scheduler.New(cfg, runner)
 	controller := &Controller{scheduler: queue, event: bus}
 

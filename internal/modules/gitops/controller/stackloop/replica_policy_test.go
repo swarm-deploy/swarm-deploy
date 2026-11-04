@@ -102,7 +102,7 @@ func TestReconcileReplicaDriftPolicy(t *testing.T) {
 			}
 			cfg := &config.Config{Spec: config.Spec{
 				DataDir: filepath.Join(dir, ".data"),
-				Sync:    config.SyncSpec{Policy: config.SyncPolicySpec{SelfHeal: tt.selfHeal}},
+				GitOps:  config.GitOpsSpec{Sync: config.SyncSpec{Policy: config.SyncPolicySpec{SelfHeal: tt.selfHeal}}},
 			}}
 			r := &Reconciler{
 				cfg: cfg, db: db, event: publisher, stateStore: stateStore, deployMetrics: &metrics.NopDeploys{},

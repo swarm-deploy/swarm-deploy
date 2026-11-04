@@ -5,8 +5,9 @@ swarm-deploy can keep shared Docker networks in Git together with the stacks tha
 Configure the network definition file in `swarm-deploy.yaml`:
 
 ```yaml
-networks:
-  file: ./networks.yaml
+gitops:
+  networks:
+    file: ./networks.yaml
 ```
 
 The file is resolved from the synchronized Git repository and contains the desired networks:

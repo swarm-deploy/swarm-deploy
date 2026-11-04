@@ -25,7 +25,7 @@ Some steps are conditional. For example, the image policy step is absent when ev
 
 ## Sync runs and the stack queue
 
-A sync run (startup, Git poll with a new revision, webhook, manual sync or the periodic `sync.interval`) does
+A sync run (startup, Git poll with a new revision, webhook, manual sync or the periodic `gitops.sync.interval`) does
 only the work that needs a stable Git working tree:
 
 1. pull Git (or read `HEAD` for interval runs);
@@ -40,15 +40,16 @@ tree, so a later Git pull can never change what a queued or running operation ap
 repository, both for directories and files, are resolved within the same revision. Absolute symlink targets
 and targets outside the repository are rejected, and cycles fail after 40 hops.
 
-The stack queue runs at most `sync.parallelism` stacks at the same time (default `1`) and never runs two
+The stack queue runs at most `gitops.sync.parallelism` stacks at the same time (default `1`) and never runs two
 operations for the same stack at once. By default stacks are processed sequentially; set `parallelism`
 to a higher value explicitly to allow independent stacks to run simultaneously. A slow stack does not
 hold up Git polling or later sync runs, but with `parallelism: 1` it still blocks other stack operations:
 
 ```yaml
-sync:
-  # Maximum number of stacks reconciled at the same time.
-  parallelism: 1
+gitops:
+  sync:
+    # Maximum number of stacks reconciled at the same time.
+    parallelism: 1
 ```
 
 The queue is keyed by stack name, like a Kubernetes work queue, and every successful sync run atomically
@@ -63,7 +64,7 @@ replaces the whole set of waiting reconciliations with every configured stack at
   without a diff (such as the periodic one) does not push it back;
 - within the changed and the unchanged group the queue is first-in, first-out: a waiting stack keeps its
   place across runs, and a stack that already had its turn is queued behind the stacks still waiting. A pass
-  over all stacks that takes longer than `sync.interval` therefore never starves the stacks at the end of the
+  over all stacks that takes longer than `gitops.sync.interval` therefore never starves the stacks at the end of the
   configuration;
 - when a run fails after the new configuration was accepted (for example, while reconciling networks), all
   waiting work is dropped instead of running under that configuration; the next successful run queues every
@@ -100,7 +101,7 @@ result as a dispatch status and lists stack failures separately. These changes a
 when `parallelism: 1`.
 
 The Git repository serializes reads and pulls for go-git safety. Git pulls are bounded by
-`git.pullTimeout` (default `2m`), including time spent waiting for the repository lock (a pull that times
+`gitops.git.pull.timeout` (default `2m`), including time spent waiting for the repository lock (a pull that times
 out while waiting reports `Timed out waiting for access to the local Git repository`);
 revision readers can abandon the lock wait
 when their context is canceled. A pull in progress can delay reads for up to the configured timeout, but cannot
@@ -195,4 +196,4 @@ from older versions are removed after the controller acquires ownership.
 
 ## Configuration compatibility
 
-`swarm.command` has been removed: Deployments uses the Docker API and no longer accepts a Docker executable setting. Remove it from existing YAML configuration, along with obsolete `swarm.stackDeployArgs` entries. No migration is required. The `swarm.initJobPollEvery` and `swarm.initJobMaxDuration` settings and their defaults are unchanged. The runtime image no longer installs Docker CLI; CA certificates and timezone data remain included.
+Deployments uses the Docker API. Set `deployments.pollInterval` for Init Job and service convergence polling (default `2s`) and `deployments.initJobs.maxDuration` for the Init Job execution limit (default `10m`). The runtime image includes CA certificates and timezone data.
