@@ -78,7 +78,7 @@ func TestUpdateBoundaryIsRecordedBeforeDockerWrite(t *testing.T) {
 			result, err := New(manager, &registry.NopAuthManager{}).Apply(t.Context(), "demo", []dockerswarm.ServiceSpec{desired}, ApplyOptions{
 				BeforeUpdate: func(_ context.Context, name string, generation UpdateGeneration) (func(context.Context) error, error) {
 					assert.Equal(t, "api", name)
-					assert.Equal(t, UpdateGeneration{ServiceID: before.ID, After: before.UpdatedAt, Mode: VerifyNewGeneration}, generation)
+					assert.Equal(t, UpdateGeneration{ServiceID: before.ID, After: before.UpdatedAt, Mode: VerifyNewGeneration, BeforeSpecDigest: verificationSpecDigest(before.Spec)}, generation)
 					recorded = true
 					if fail {
 						return nil, cause
@@ -123,11 +123,14 @@ func TestUpdatePreservesUnresolvedGeneration(t *testing.T) {
 			}
 			previous := UpdateGeneration{ServiceID: current.ID, After: boundary, Mode: VerifyNewGeneration}
 			generation := updateGeneration(desired, current, previous)
-			assert.Equal(t, tc.wantMode, generation.Mode)
-			assert.Equal(t, tc.wantCutoff, generation.TasksAfter)
+			resolved := ResolveUpdateGeneration(generation, &current.Spec, desired)
+			assert.Equal(t, tc.wantMode, resolved.Mode)
+			assert.Equal(t, tc.wantCutoff, resolved.TasksAfter)
 			assert.Equal(t, current.UpdatedAt, generation.After, "the latest write still needs acceptance evidence")
 			if tc.nextPort == 0 {
 				current.UpdatedAt = current.UpdatedAt.Add(time.Second)
+				previousSpec := current.Spec
+				current.PreviousSpec = &previousSpec
 				current.Spec = desired
 				current.UpdateStatus = nil
 				third := updateGeneration(desired, current, generation)
@@ -166,6 +169,66 @@ func TestRejectedUpdateRestoresPreviousObligation(t *testing.T) {
 			} else {
 				assert.Equal(t, previous, result.UpdateGenerations["api"])
 			}
+		})
+	}
+}
+
+func TestRecordedVerificationUsesOnlyTheOriginalPredecessor(t *testing.T) {
+	before := service("api-id", 7, serviceSpec("api", "api:1"))
+	before.UpdatedAt = time.Now().UTC()
+	before.Spec.TaskTemplate.Networks = []dockerswarm.NetworkAttachmentConfig{{Target: "swarm-host-network"}}
+	submitted := cloneSpec(before.Spec)
+	submitted.TaskTemplate.Networks[0].Target = "engine-host-network"
+	submitted.Labels["release"] = "new"
+	generation := updateGeneration(submitted, before, UpdateGeneration{})
+	require.Equal(t, VerifyNewGeneration, generation.Mode)
+	accepted := cloneSpec(submitted)
+	accepted.TaskTemplate.Networks[0].Target = "swarm-host-network"
+	assert.Equal(t, VerifyExistingTasks, ResolveUpdateGeneration(generation, &before.Spec, accepted).Mode,
+		"Engine resolved the network reference without replacing tasks")
+	before.Spec.EndpointSpec = endpointSpec(8080)
+	submitted = cloneSpec(before.Spec)
+	submitted.EndpointSpec = endpointSpec(8081)
+	generation = updateGeneration(submitted, before, UpdateGeneration{})
+	assert.Equal(t, VerifyNewGeneration, ResolveUpdateGeneration(generation, &before.Spec, submitted).Mode)
+	accepted = cloneSpec(submitted)
+	accepted.Labels["release"] = "later metadata"
+	assert.Equal(t, VerifyNewGeneration, ResolveUpdateGeneration(generation, &submitted, accepted).Mode,
+		"overwritten PreviousSpec cannot weaken the endpoint obligation")
+}
+
+func TestNormalizedFollowupCannotWeakenEarlierVerification(t *testing.T) {
+	for _, mode := range []VerificationMode{VerifyNewGeneration, VerifyPlacementCompatibleTasks} {
+		t.Run(fmt.Sprint(mode), func(t *testing.T) {
+			before := service("api-id", 7, serviceSpec("api", "api:1"))
+			before.UpdatedAt = time.Now().UTC().Add(-time.Minute)
+			before.Spec.TaskTemplate.Networks = []dockerswarm.NetworkAttachmentConfig{{Target: "swarm-host-network"}}
+			after := before
+			after.Spec = cloneSpec(before.Spec)
+			after.PreviousSpec = &before.Spec
+			if mode == VerifyNewGeneration {
+				after.Spec.EndpointSpec = endpointSpec(8081)
+			} else {
+				after.Spec.TaskTemplate.Placement = &dockerswarm.Placement{Constraints: []string{"node.role == manager"}}
+			}
+			first := updateGeneration(after.Spec, before, UpdateGeneration{})
+			after.UpdatedAt = before.UpdatedAt.Add(time.Second)
+			submitted := cloneSpec(after.Spec)
+			submitted.TaskTemplate.Networks[0].Target = "engine-host-network"
+			submitted.Labels["release"] = "metadata"
+			second := updateGeneration(submitted, after, first)
+			accepted := cloneSpec(submitted)
+			accepted.TaskTemplate.Networks[0].Target = "swarm-host-network"
+			resolved := ResolveUpdateGeneration(second, &after.Spec, accepted)
+			assert.Equal(t, mode, resolved.Mode)
+			if mode == VerifyNewGeneration {
+				assert.Equal(t, after.UpdatedAt, resolved.TasksAfter)
+			}
+			// A third writer erased the predecessor; no weaker classification or
+			// status-free proof can be inferred from an unrelated PreviousSpec.
+			lost := ResolveUpdateGeneration(second, &before.Spec, accepted)
+			assert.Equal(t, VerifyNewGeneration, lost.Mode)
+			assert.Zero(t, lost.TasksAfter)
 		})
 	}
 }

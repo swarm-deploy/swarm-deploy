@@ -15,6 +15,9 @@ func (w *ServiceWaiter) observeService(
 	ctx context.Context, name string, baseline, service swarm.StackService, unresolved bool,
 	expected dockerswarm.ServiceSpec, generation services.UpdateGeneration,
 ) (ServiceProgress, error) {
+	if generation.ServiceID == service.ID {
+		generation = services.ResolveUpdateGeneration(generation, service.PreviousSpec, service.ServiceSpec)
+	}
 	managed, err := services.ReplicasManaged(expected)
 	if err != nil {
 		return ServiceProgress{Name: name, State: ServicePending}, fmt.Errorf("service %s replicas ownership: %w", name, err)

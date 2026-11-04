@@ -36,6 +36,8 @@ type UpdateGeneration struct {
 	After time.Time `json:"after"`
 	// Mode retains the verification obligation when a later write replaces PreviousSpec.
 	Mode VerificationMode `json:"mode,omitempty"`
+	// BeforeSpecDigest identifies the original predecessor without persisting its contents.
+	BeforeSpecDigest string `json:"before_spec_digest,omitempty"`
 	// TasksAfter preserves the original task boundary when a non-replacing write clears
 	// its UpdateStatus. Zero means a fresh rollout status is still required.
 	TasksAfter time.Time `json:"tasks_after,omitzero"`

@@ -1,7 +1,11 @@
 package services
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"reflect"
+	"time"
 
 	dockerswarm "github.com/docker/docker/api/types/swarm"
 	deploymentmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/model"
@@ -64,11 +68,12 @@ func updateGeneration(
 ) UpdateGeneration {
 	generation := UpdateGeneration{
 		ServiceID: current.ID, ForceUpdate: spec.TaskTemplate.ForceUpdate, After: current.UpdatedAt,
-		Mode: ClassifyVerification(current.Spec, spec),
+		Mode: ClassifyVerification(current.Spec, spec), BeforeSpecDigest: verificationSpecDigest(current.Spec),
 	}
-	if previous.ServiceID != current.ID || generation.Mode == VerifyNewGeneration {
+	if previous.ServiceID != current.ID {
 		return generation
 	}
+	previous = ResolveUpdateGeneration(previous, current.PreviousSpec, current.Spec)
 	if previous.Mode == VerifyPlacementCompatibleTasks {
 		generation.Mode = VerifyPlacementCompatibleTasks
 	}
@@ -86,4 +91,38 @@ func updateGeneration(
 		}
 	}
 	return generation
+}
+
+// ResolveUpdateGeneration uses the accepted transition only while PreviousSpec
+// still identifies this write. Engine/SDK normalization may preserve tasks even
+// when the submitted spec appeared to require replacement. A later write must
+// not erase an inherited obligation when it overwrites PreviousSpec.
+func ResolveUpdateGeneration(
+	generation UpdateGeneration, previous *dockerswarm.ServiceSpec, current dockerswarm.ServiceSpec,
+) UpdateGeneration {
+	if generation.BeforeSpecDigest == "" {
+		return generation // Legacy receipt.
+	}
+	if previous == nil || generation.BeforeSpecDigest != verificationSpecDigest(*previous) {
+		generation.Mode = VerifyNewGeneration
+		generation.TasksAfter = time.Time{} // The accepted transition is no longer identifiable.
+		return generation
+	}
+	mode := ClassifyVerification(*previous, current)
+	if mode == VerifyNewGeneration {
+		generation.Mode = mode
+		generation.TasksAfter = time.Time{} // This write needs its own new rollout.
+	} else if generation.TasksAfter.IsZero() && generation.Mode != VerifyPlacementCompatibleTasks {
+		generation.Mode = mode
+	}
+	return generation
+}
+
+func verificationSpecDigest(spec dockerswarm.ServiceSpec) string {
+	spec = cloneSpec(spec)
+	normalizeDockerDefaults(&spec)
+	normalizeServiceSets(&spec)
+	payload, _ := json.Marshal(canonicalSpec(spec))
+	digest := sha256.Sum256(payload)
+	return hex.EncodeToString(digest[:])
 }
