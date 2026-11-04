@@ -24,7 +24,7 @@ import (
 const deployerTracerName = "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer"
 
 const (
-	serviceApplyTimeout       = 2 * time.Minute
+	serviceApplyTimeout       = 15 * time.Minute
 	defaultServiceWaitTimeout = 10 * time.Minute
 )
 
