@@ -924,7 +924,7 @@ func toServiceUpdateStatus(status *dockerswarm.UpdateStatus) *ServiceUpdateStatu
 	}
 
 	return &ServiceUpdateStatus{
-		State:       string(status.State),
+		State:       status.State,
 		StartedAt:   startedAt,
 		CompletedAt: completedAt,
 		Message:     status.Message,

@@ -75,7 +75,7 @@ func TestNativeDeploymentCarriesUnresolvedRolloutAcrossDesiredDigests(t *testing
 	recoveredDesired := desired("example/a:2", "example/b:3")
 	recoveredSpec := specs(recoveredDesired)
 	now := time.Now().UTC()
-	observed := func(name string, spec dockerswarm.ServiceSpec, stamp time.Time, status string) swarm.StackService {
+	observed := func(name string, spec dockerswarm.ServiceSpec, stamp time.Time, status swarm.ServiceUpdateState) swarm.StackService {
 		replicas := uint64(1)
 		return swarm.StackService{ID: name + "-id", Name: name, Mode: "replicated", Replicas: &replicas, DesiredTasks: 1, ServiceSpec: spec, CreatedAt: now.Add(-time.Hour), UpdatedAt: stamp, UpdateStatus: &swarm.ServiceUpdateStatus{State: status, StartedAt: stamp}}
 	}

@@ -109,7 +109,7 @@ func TestServiceManagerListServices(t *testing.T) {
 	assert.Equal(t, uint64(1), all[2].DesiredTasks)
 	assert.Equal(t, time.Date(2026, time.October, 28, 11, 0, 0, 0, time.UTC), all[2].UpdatedAt)
 	require.NotNil(t, all[2].UpdateStatus)
-	assert.Equal(t, "completed", all[2].UpdateStatus.State)
+	assert.Equal(t, ServiceUpdateStateCompleted, all[2].UpdateStatus.State)
 	assert.Equal(t, "node-exporter", all[3].Name)
 	assert.Empty(t, all[3].Stack)
 	assert.Equal(t, "global", all[3].Mode)
