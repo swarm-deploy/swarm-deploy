@@ -10,7 +10,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
+	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/scheduler"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackloop"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackqueue"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/syncrun"
 	"go.uber.org/mock/gomock"
 )
@@ -28,6 +31,7 @@ func TestControllerGracefulShutdownPreservesActiveReconciliation(t *testing.T) {
 
 	controller := &Controller{
 		scheduler:    scheduler.New(controllerTestConfig(), runner),
+		stacks:       newControllerTestStackQueue(ctrl),
 		shutdownWait: 200 * time.Millisecond,
 	}
 	ctx, cancel := context.WithCancel(t.Context())
@@ -66,6 +70,7 @@ func TestControllerCancelsReconciliationAfterGracePeriod(t *testing.T) {
 	})
 	controller := &Controller{
 		scheduler:    scheduler.New(controllerTestConfig(), runner),
+		stacks:       newControllerTestStackQueue(ctrl),
 		shutdownWait: 100 * time.Millisecond,
 	}
 	ctx, cancel := context.WithCancel(t.Context())
@@ -117,10 +122,12 @@ func TestControllersSharingDataDirectoryDoNotReconcileConcurrently(t *testing.T)
 
 	first := &Controller{
 		scheduler: scheduler.New(cfg, firstRunner), ownership: newControllerOwnership(dataDir),
+		stacks:       newControllerTestStackQueue(ctrl),
 		shutdownWait: time.Second,
 	}
 	second := &Controller{
 		scheduler: scheduler.New(cfg, secondRunner), ownership: newControllerOwnership(dataDir),
+		stacks:       newControllerTestStackQueue(ctrl),
 		shutdownWait: time.Second,
 	}
 	first.ownership.retryInterval = time.Millisecond
@@ -153,6 +160,11 @@ func TestControllersSharingDataDirectoryDoNotReconcileConcurrently(t *testing.T)
 	}
 	cancel2()
 	require.NoError(t, <-secondDone)
+}
+
+func newControllerTestStackQueue(ctrl *gomock.Controller) *stackqueue.Queue {
+	syncMetrics := metrics.NewGroup(metrics.CreateGroupParams{Namespace: "test"}).Sync
+	return stackqueue.New(stackloop.NewMockStackReconciler(ctrl), syncMetrics, 1)
 }
 
 func controllerTestConfig() *config.Config {

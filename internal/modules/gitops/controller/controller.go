@@ -130,12 +130,10 @@ func (c *Controller) Run(ctx context.Context) error {
 			return fmt.Errorf("recover orphaned deployments: %w", err)
 		}
 	}
-	if c.stacks != nil {
-		// Stack operations run until they finish or the graceful shutdown deadline cancels them.
-		// Stop is deferred after ownership acquisition, so ownership is released only once they ended.
-		c.stacks.Start(reconciliationCtx)
-		defer c.stacks.Stop()
-	}
+	// Stack operations run until they finish or the graceful shutdown deadline cancels them.
+	// Stop is deferred after ownership acquisition, so ownership is released only once they ended.
+	c.stacks.Start(reconciliationCtx)
+	defer c.stacks.Stop()
 	return c.scheduler.Run(ctx, reconciliationCtx)
 }
 

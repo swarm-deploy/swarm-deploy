@@ -143,9 +143,9 @@ func TestDeployStackResourceFailuresStopDeployment(t *testing.T) {
 			{name: "create config", stage: "create", config: true, errorMatch: "create config demo_app"},
 			{name: "missing external config", config: true, external: true, errorMatch: "external config app does not exist"},
 			{name: "list secrets", stage: "list", errorMatch: "list secrets"},
-			{name: "create secret", stage: "create", errorMatch: "create secret demo_password"},
+			{name: "create secret", stage: "create", errorMatch: "create secret ****: Docker API request failed"},
 			{name: "missing external secret", external: true, errorMatch: "external secret password does not exist"},
-			{name: "read secret", stage: "read", errorMatch: "read secret demo_password"},
+			{name: "read secret", stage: "read", errorMatch: "read secret ****: file content was not loaded"},
 		} {
 			t.Run(initJobTestName(withInitJobs)+"/"+tt.name, func(t *testing.T) {
 				ctrl := gomock.NewController(t)
