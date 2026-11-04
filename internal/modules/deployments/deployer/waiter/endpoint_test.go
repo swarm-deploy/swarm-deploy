@@ -164,3 +164,13 @@ func TestEndpointRolloutSurvivesMetadataWrite(t *testing.T) {
 		})
 	}
 }
+
+func TestExternalCreationRecoveryDoesNotRequireRolloutStatus(t *testing.T) {
+	service := testReplicatedService("api", "api-id", 1, serviceWaitTestTime, "api:2")
+	for _, baseline := range []swarm.StackService{{}, service} {
+		t.Run(baseline.ID, func(t *testing.T) {
+			progress := specificationProgress("api", baseline, service, true, service.ServiceSpec, services.UpdateGeneration{}, nil)
+			assert.Equal(t, ServiceReady, progress.State, "initial creation has no rolling update or task-health requirement")
+		})
+	}
+}
