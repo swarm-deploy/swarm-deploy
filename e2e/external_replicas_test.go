@@ -406,6 +406,14 @@ func TestSwarmCronjob116OnRealSwarm(t *testing.T) {
 	external = f.settledJob(t)
 	f.deploy(t, desired, deployer.StackOptions{RetryFailedUpdates: true})
 	f.unchanged(t, external)
+	result := f.deploy(t, changed, deployer.StackOptions{})
+	require.Equal(t, []string{"job"}, result.SpecificationOnlyServices)
+	parked := f.inspect(t, "job")
+	require.Zero(t, *parked.Spec.Mode.Replicated.Replicas)
+	require.Subset(t, ids, taskIDs(f.tasks(t, "job")), "completed scheduled task must not be recreated")
+	updated := f.settledJob(t)
+	f.deploy(t, changed, deployer.StackOptions{})
+	f.unchanged(t, updated)
 }
 
 func TestManagedFailureWithExternalJobOnRealSwarm(t *testing.T) {

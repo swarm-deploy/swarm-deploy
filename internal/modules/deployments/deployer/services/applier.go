@@ -157,47 +157,89 @@ func (a *Applier) update(
 	retryFailed bool, generations map[string]UpdateGeneration,
 ) error {
 	for attempt := 0; attempt < serviceUpdateAttempts; attempt++ {
-		applied, reused, err := a.prepareUpdate(ctx, displayName, desired, current, retryFailed)
+		refreshed, done, err := a.updateAttempt(
+			ctx, stackName, displayName, desired, current, retryFailed, generations,
+		)
 		if err != nil {
 			return err
 		}
-		options, err := a.updateOptions(applied)
-		if err != nil {
-			return fmt.Errorf("service %s registry authentication: %w", displayName, err)
-		}
-		options.QueryRegistry = !reused
-		err = a.manager.Update(ctx, current.ID, current.Version, applied, options)
-		if err == nil {
-			recordExternalUpdate(generations, displayName, applied, current)
+		if done {
 			return nil
 		}
-		if !errors.Is(err, swarm.ErrServiceConflict) {
-			return fmt.Errorf("update service %s: %w", displayName, err)
-		}
-		after := current.UpdatedAt
-		current, err = a.manager.Inspect(ctx, desired.Name)
-		if err != nil {
-			return fmt.Errorf("reinspect service %s after version conflict: %w", displayName, err)
-		}
-		if err = validateOwnership(stackName, desired.Name, current); err != nil {
-			return err
-		}
-		retry, retryErr := a.retryRequired(ctx, current, retryFailed)
-		if retryErr != nil {
-			return retryErr
-		}
-		if SpecsEqual(current.Spec, desired) && !retry {
-			// A concurrent writer already accepted the expected managed fields.
-			current.UpdatedAt = after
-			recordExternalUpdate(generations, displayName, current.Spec, current)
-			return nil
-		}
+		current = refreshed
 	}
 	return fmt.Errorf(
 		"update service %s: version conflict after %d attempts",
 		displayName,
 		serviceUpdateAttempts,
 	)
+}
+
+func (a *Applier) updateAttempt(
+	ctx context.Context,
+	stackName string,
+	displayName string,
+	desired dockerswarm.ServiceSpec,
+	current dockerswarm.Service,
+	retryFailed bool,
+	generations map[string]UpdateGeneration,
+) (dockerswarm.Service, bool, error) {
+	applied, reused, err := a.prepareUpdate(ctx, displayName, desired, current, retryFailed)
+	if errors.Is(err, errSafetyInspectionChanged) {
+		return a.refreshConcurrentUpdate(
+			ctx, stackName, displayName, desired, current.UpdatedAt, retryFailed, generations,
+			"external execution inspection",
+		)
+	}
+	if err != nil {
+		return current, false, err
+	}
+	options, err := a.updateOptions(applied)
+	if err != nil {
+		return current, false, fmt.Errorf("service %s registry authentication: %w", displayName, err)
+	}
+	options.QueryRegistry = !reused
+	err = a.manager.Update(ctx, current.ID, current.Version, applied, options)
+	if err == nil {
+		recordExternalUpdate(generations, displayName, applied, current)
+		return current, true, nil
+	}
+	if !errors.Is(err, swarm.ErrServiceConflict) {
+		return current, false, fmt.Errorf("update service %s: %w", displayName, err)
+	}
+	return a.refreshConcurrentUpdate(
+		ctx, stackName, displayName, desired, current.UpdatedAt, retryFailed, generations, "version conflict",
+	)
+}
+
+func (a *Applier) refreshConcurrentUpdate(
+	ctx context.Context,
+	stackName string,
+	displayName string,
+	desired dockerswarm.ServiceSpec,
+	after time.Time,
+	retryFailed bool,
+	generations map[string]UpdateGeneration,
+	reason string,
+) (dockerswarm.Service, bool, error) {
+	current, err := a.manager.Inspect(ctx, desired.Name)
+	if err != nil {
+		return current, false, fmt.Errorf("reinspect service %s after %s: %w", displayName, reason, err)
+	}
+	if err = validateOwnership(stackName, desired.Name, current); err != nil {
+		return current, false, err
+	}
+	retry, err := a.retryRequired(ctx, current, retryFailed)
+	if err != nil {
+		return current, false, err
+	}
+	if SpecsEqual(current.Spec, desired) && !retry {
+		// A concurrent writer already accepted the expected managed fields.
+		current.UpdatedAt = after
+		recordExternalUpdate(generations, displayName, current.Spec, current)
+		return current, true, nil
+	}
+	return current, false, nil
 }
 
 func (a *Applier) prepareUpdate(

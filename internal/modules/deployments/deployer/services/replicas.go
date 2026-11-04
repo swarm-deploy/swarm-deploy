@@ -4,7 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"reflect"
+	"strings"
+	"time"
 
 	dockerswarm "github.com/docker/docker/api/types/swarm"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
@@ -20,6 +21,30 @@ var ErrUpdateDeferred = errors.New("externally managed service update deferred u
 
 // errUpdateBusy keeps the ErrUpdateBlocked message while marking a transient block.
 var errUpdateBusy = fmt.Errorf("%w", ErrUpdateBlocked)
+
+// errSafetyInspectionChanged restarts preparation with a newly inspected service.
+var errSafetyInspectionChanged = errors.New("service changed during external execution inspection")
+
+const (
+	templateMismatchRechecks       = 3
+	templateMismatchInitialBackoff = 100 * time.Millisecond
+)
+
+type executionSettlementReason string
+
+const (
+	executionSettledReason          executionSettlementReason = "settled"
+	executionMissingSlotReason      executionSettlementReason = "missing slot"
+	executionActiveTaskReason       executionSettlementReason = "active task"
+	executionRemovedTaskReason      executionSettlementReason = "removed task"
+	executionTemplateMismatchReason executionSettlementReason = "template mismatch"
+)
+
+type executionSettlement struct {
+	reason        executionSettlementReason
+	slot          int
+	mismatchPaths []string
+}
 
 // blockedApplyError joins per-service blocked errors and marks them deferred
 // only when every block is expected to clear after active tasks finish.
@@ -80,13 +105,52 @@ func (a *Applier) checkUpdateSafety(
 	if err != nil {
 		return fmt.Errorf("check service %s idle tasks: %w", name, err)
 	}
-	for _, task := range tasks {
-		if taskActive(task.CurrentState) {
-			return fmt.Errorf("%w: service %s still has active tasks", errUpdateBusy, name)
+	settlement := executionSettlement{reason: executionSettledReason}
+	if park {
+		settlement = executionSettled(current.Spec.TaskTemplate, replicas, tasks)
+	} else {
+		for _, task := range tasks {
+			if taskActive(task.CurrentState) {
+				settlement = executionSettlement{reason: executionActiveTaskReason, slot: task.Slot}
+				break
+			}
 		}
 	}
-	if park && !executionSettled(current.Spec.TaskTemplate, replicas, tasks) {
-		return fmt.Errorf("%w: service %s has a requested execution without a finished task", errUpdateBusy, name)
+	if settlement.reason == executionTemplateMismatchReason {
+		settlement, err = a.recheckTemplateMismatch(ctx, name, current, replicas, settlement)
+		if err != nil {
+			return err
+		}
+	}
+	switch settlement.reason {
+	case executionSettledReason:
+	case executionMissingSlotReason:
+		return fmt.Errorf(
+			"%w: service %s execution is unsettled: missing task for slot %d",
+			errUpdateBusy, name, settlement.slot,
+		)
+	case executionActiveTaskReason:
+		return fmt.Errorf(
+			"%w: service %s execution is unsettled: active task in slot %d",
+			errUpdateBusy, name, settlement.slot,
+		)
+	case executionRemovedTaskReason:
+		return fmt.Errorf(
+			"%w: service %s execution is unsettled: newest task for slot %d is being removed",
+			errUpdateBusy, name, settlement.slot,
+		)
+	case executionTemplateMismatchReason:
+		return fmt.Errorf(
+			"%w: service %s task template mismatch persisted across %d observations over %s at fields %s; "+
+				"retry after Docker finishes scheduling or verify Engine/API compatibility",
+			ErrUpdateBlocked,
+			name,
+			templateMismatchRechecks+1,
+			templateMismatchTotalBackoff(),
+			mismatchPathDiagnostic(settlement.mismatchPaths),
+		)
+	default:
+		return fmt.Errorf("%w: service %s execution settlement is unknown", ErrUpdateBlocked, name)
 	}
 	if park {
 		zero := uint64(0)
@@ -113,7 +177,12 @@ func restartDisabled(spec dockerswarm.ServiceSpec) bool {
 // newest task was created from the current template (including ForceUpdate), is terminal and
 // is not being removed. A missing slot, a removed slot task, or a newest task from an older
 // template means Swarm may still create the execution requested by the external scheduler.
-func executionSettled(template dockerswarm.TaskSpec, replicas uint64, tasks []swarm.ServiceTask) bool {
+func executionSettled(template dockerswarm.TaskSpec, replicas uint64, tasks []swarm.ServiceTask) executionSettlement {
+	for _, task := range tasks {
+		if taskActive(task.CurrentState) {
+			return executionSettlement{reason: executionActiveTaskReason, slot: task.Slot}
+		}
+	}
 	newest := make(map[int]swarm.ServiceTask, replicas)
 	for _, task := range tasks {
 		if task.Slot < 1 || uint64(task.Slot) > replicas { //nolint:gosec // Positive int slots fit uint64.
@@ -124,24 +193,77 @@ func executionSettled(template dockerswarm.TaskSpec, replicas uint64, tasks []sw
 			newest[task.Slot] = task
 		}
 	}
-	if uint64(len(newest)) != replicas {
-		return false
-	}
-	for _, task := range newest {
-		if task.DesiredState == swarm.TaskStateRemove || taskActive(task.CurrentState) ||
-			!sameTaskTemplate(task.Spec, template) {
-			return false
+	for slot := 1; uint64(slot) <= replicas; slot++ {
+		task, exists := newest[slot]
+		if !exists {
+			return executionSettlement{reason: executionMissingSlotReason, slot: slot}
+		}
+		if task.DesiredState == swarm.TaskStateRemove {
+			return executionSettlement{reason: executionRemovedTaskReason, slot: slot}
+		}
+		comparison := task.Spec.CompareServiceTemplate(template)
+		if !comparison.Equal() {
+			return executionSettlement{
+				reason: executionTemplateMismatchReason, slot: slot, mismatchPaths: comparison.MismatchPaths(),
+			}
 		}
 	}
-	return true
+	return executionSettlement{reason: executionSettledReason}
 }
 
-// sameTaskTemplate compares a task's spec with the service template it was created from.
-// Docker's service conversion sets Runtime explicitly for container services, while its
-// task conversion leaves it empty; the runtime is already implied by the populated spec.
-func sameTaskTemplate(task, template dockerswarm.TaskSpec) bool {
-	task.Runtime, template.Runtime = "", ""
-	return reflect.DeepEqual(task, template)
+func (a *Applier) recheckTemplateMismatch(
+	ctx context.Context, name string, current dockerswarm.Service, replicas uint64, settlement executionSettlement,
+) (executionSettlement, error) {
+	for attempt := 0; attempt <= templateMismatchRechecks; attempt++ {
+		latest, err := a.manager.Inspect(ctx, current.ID)
+		if err != nil {
+			return settlement, fmt.Errorf("reinspect service %s during task template comparison: %w", name, err)
+		}
+		if latest.ID != current.ID || latest.Version.Index != current.Version.Index {
+			return settlement, errSafetyInspectionChanged
+		}
+		if settlement.reason != executionTemplateMismatchReason {
+			return settlement, nil
+		}
+		if attempt == templateMismatchRechecks {
+			return settlement, nil
+		}
+		backoff := templateMismatchInitialBackoff << attempt
+		timer := time.NewTimer(backoff)
+		select {
+		case <-ctx.Done():
+			if !timer.Stop() {
+				<-timer.C
+			}
+			return settlement, ctx.Err()
+		case <-timer.C:
+		}
+		tasks, err := a.manager.ListTasks(ctx, current.ID)
+		if err != nil {
+			return settlement, fmt.Errorf("recheck service %s idle tasks: %w", name, err)
+		}
+		settlement = executionSettled(current.Spec.TaskTemplate, replicas, tasks)
+	}
+	return settlement, nil
+}
+
+func templateMismatchTotalBackoff() time.Duration {
+	total := time.Duration(0)
+	for attempt := 0; attempt < templateMismatchRechecks; attempt++ {
+		total += templateMismatchInitialBackoff << attempt
+	}
+	return total
+}
+
+func mismatchPathDiagnostic(paths []string) string {
+	const maximumPaths = 6
+	if len(paths) == 0 {
+		return "TaskTemplate"
+	}
+	if len(paths) <= maximumPaths {
+		return strings.Join(paths, ", ")
+	}
+	return fmt.Sprintf("%s (+%d more fields)", strings.Join(paths[:maximumPaths], ", "), len(paths)-maximumPaths)
 }
 
 func taskActive(state swarm.TaskState) bool {

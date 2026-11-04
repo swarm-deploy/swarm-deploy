@@ -195,6 +195,9 @@ func TestServiceManagerListTasksByIDOrFullName(t *testing.T) {
 						JobIteration: &dockerswarm.Version{Index: 7},
 						Slot:         3,
 						NodeID:       "node-1",
+						Spec: dockerswarm.TaskSpec{
+							ContainerSpec: &dockerswarm.ContainerSpec{Image: "alpine:3"},
+						},
 						DesiredState: dockerswarm.TaskStateRunning,
 						Status: dockerswarm.TaskStatus{
 							State: dockerswarm.TaskStateRunning,
@@ -226,6 +229,10 @@ func TestServiceManagerListTasksByIDOrFullName(t *testing.T) {
 			assert.Equal(t, 17, *tasks[0].ExitCode)
 			assert.Empty(t, tasks[1].ContainerID)
 			assert.Nil(t, tasks[1].ExitCode)
+			comparison := tasks[0].Spec.CompareServiceTemplate(dockerswarm.TaskSpec{
+				Runtime: dockerswarm.RuntimeContainer, ContainerSpec: &dockerswarm.ContainerSpec{Image: "alpine:3"},
+			})
+			assert.True(t, comparison.Equal())
 		})
 	}
 }
