@@ -118,6 +118,6 @@ or `credHelpers` are **not** supported. A `config.json` containing only helper
 references does not provide usable registry credentials to swarm-deploy. Use a
 `config.json` with inline `auths` entries or `DOCKER_AUTH_CONFIG` instead.
 
-`DOCKER_AUTH_CONFIG` takes precedence over the file and is cached by its current
-value. Updating a running container's environment is not supported. Restart or
-recreate the service when changing this variable.
+`DOCKER_AUTH_CONFIG` takes precedence over the file and is read and parsed once when
+`AuthManager` is created. It is not reloaded during deployment. Restart or recreate
+the service when changing this variable.
