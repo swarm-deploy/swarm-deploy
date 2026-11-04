@@ -122,22 +122,18 @@ func specificationRolloutPending(
 ) bool {
 	// Initial creation and zero replicas need no rolling update. Externally managed
 	// services still verify rollout completion, but never require healthy tasks.
-	if baseline.ID == service.ID && serviceDesiredTasks(service) > 0 && mode == services.VerifyNewGeneration {
-		cutoff, pending := verificationTaskCutoff(baseline, service, mode, unresolved, generation)
-		if pending {
-			return true
-		}
-		if service.UpdateStatus == nil {
-			if cutoff.Equal(service.CreatedAt) {
-				return false // Recovery of initial creation still has no rolling update.
-			}
-			return !desiredTasksFromGeneration(service, tasks, generation.TasksAfter)
-		}
-		if service.UpdateStatus.State != swarm.ServiceUpdateStateCompleted {
-			return true
-		}
+	if baseline.ID != service.ID || serviceDesiredTasks(service) == 0 || mode != services.VerifyNewGeneration {
+		return updatePending(service.UpdateStatus)
 	}
-	return updatePending(service.UpdateStatus)
+	cutoff, pending := verificationTaskCutoff(baseline, service, mode, unresolved, generation)
+	if pending {
+		return true
+	}
+	if service.UpdateStatus == nil {
+		// Recovery of initial creation still has no rolling update.
+		return !cutoff.Equal(service.CreatedAt) && !desiredTasksFromGeneration(service, tasks, generation.TasksAfter)
+	}
+	return service.UpdateStatus.State != swarm.ServiceUpdateStateCompleted
 }
 
 func desiredTasksFromGeneration(service swarm.StackService, tasks []swarm.ServiceTask, cutoff time.Time) bool {
