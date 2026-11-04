@@ -84,6 +84,9 @@ History can be viewed via API:
     - `sort` - `time` or `severity`; enables paginated sorting
     - `order` - `asc` or `desc` (default `desc` when paging)
     - `cursor` - opaque `nextCursor` returned by the previous page
+- `GET /api/v1/events/{id}` - returns one retained event with the same fields and
+  detail semantics as the list API. It returns `404 Not Found` when the ID is
+  unknown or the event has been removed by retention.
 
 When `sort`, `order`, or `cursor` is supplied, API pagination returns at
 most 50 events by default, ordered by the requested field. If more events
@@ -91,7 +94,9 @@ exist, the response includes `nextCursor`; repeat the request with that cursor
 and the same sort and filters to fetch the next page.
 
 Existing requests without paging parameters keep the oldest-first response
-order. Overview now reads `/api/v1/deployments` instead of history.
+order. Overview reads `/api/v1/deployments` for recent deployments and uses the
+direct event endpoint to open the latest retained webhook receipt reported by
+`GET /api/v1/stacks`.
 
 Runtime history size is bounded by `event.history.capacity`. New projections remove
 oldest entries by publication sequence. SQLite filters and cursor queries run directly

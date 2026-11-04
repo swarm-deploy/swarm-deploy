@@ -53,6 +53,10 @@ type Handler interface {
 	//
 	// GET /api/v1/deployments/filters
 	GetDeploymentFilters(ctx context.Context) (*DeploymentFilterOptions, error)
+	// GetEvent implements getEvent operation.
+	//
+	// GET /api/v1/events/{id}
+	GetEvent(ctx context.Context, params GetEventParams) (GetEventRes, error)
 	// GetEventFilters implements getEventFilters operation.
 	//
 	// GET /api/v1/events/filters

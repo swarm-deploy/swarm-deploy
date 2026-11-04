@@ -9,6 +9,7 @@ import type {
   Deployment,
   AlertStatus,
   EventHistoryResponse,
+  EventHistoryItem,
   EventFilterOptions,
   GitCommitDetailsResponse,
   QueueResponse,
@@ -113,6 +114,10 @@ export function fetchEvents(options: FetchEventsOptions = {}): Promise<EventHist
 
   const query = params.toString();
   return apiRequest<EventHistoryResponse>(`/api/v1/events${query ? `?${query}` : ""}`);
+}
+
+export function fetchEvent(id: string): Promise<EventHistoryItem> {
+  return apiRequest<EventHistoryItem>(`/api/v1/events/${encodeURIComponent(id)}`);
 }
 
 export function fetchEventFilters(): Promise<EventFilterOptions> {

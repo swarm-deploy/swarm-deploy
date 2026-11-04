@@ -46,5 +46,10 @@ func (s *ConfigStore) Ready() bool { return s.initialReloadDone.Load() }
 // Stacks returns an isolated copy of the currently accepted stacks.
 func (s *ConfigStore) Stacks() []config.StackSpec { return s.cfg.Stacks() }
 
+// GitOpsStatusConfig returns the configuration which controls public GitOps status sections.
+func (s *ConfigStore) GitOpsStatusConfig() config.GitOpsStatusConfig {
+	return s.cfg.GitOpsStatusConfig()
+}
+
 // Networks returns an isolated copy of the currently accepted networks.
 func (s *ConfigStore) Networks() []config.NetworkSpec { return s.cfg.Networks() }

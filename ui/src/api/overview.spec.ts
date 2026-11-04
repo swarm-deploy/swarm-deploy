@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from "vitest";
-import { fetchAlerts, fetchDeployments, fetchServiceRealtime, fetchStackDeploymentActivity, fetchStackResources } from "./overview";
+import { fetchAlerts, fetchDeployments, fetchEvent, fetchServiceRealtime, fetchStackDeploymentActivity, fetchStackResources } from "./overview";
 
 afterEach(() => vi.unstubAllGlobals());
 it("encodes stack resource paths and passes the alert stack filter", async () => {
@@ -35,4 +35,13 @@ it("encodes repeated deployment filters", async () => {
     "/api/v1/deployments?stack=app&stack=infra&service_name=api&service_name=worker&limit=20",
     undefined,
   );
+});
+
+it("encodes an event ID for direct history lookup", async () => {
+  const fetch = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({}) });
+  vi.stubGlobal("fetch", fetch);
+
+  await fetchEvent("event/id");
+
+  expect(fetch).toHaveBeenLastCalledWith("/api/v1/events/event%2Fid", undefined);
 });

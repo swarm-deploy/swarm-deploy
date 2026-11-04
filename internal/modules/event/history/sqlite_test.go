@@ -117,6 +117,34 @@ func TestSQLiteQueryFiltersAttributesBeforePagination(t *testing.T) {
 	assert.Empty(t, missing.Entries, "events without service_name must not match")
 }
 
+func TestSQLiteGetUsesRetainedHistory(t *testing.T) {
+	t.Parallel()
+	db, err := storage.OpenSQLite(t.Context(), t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	repo, err := NewSQLStore(db, 1)
+	require.NoError(t, err)
+	at := time.Date(2026, time.November, 4, 13, 42, 7, 0, time.UTC)
+
+	for sequence, id := range []string{"c0e8a2f1-1234-4567-890a-123456789abc", "d1f9b3a2-2345-4678-9012-23456789abcd"} {
+		require.NoError(t, repo.Handle(t.Context(), events.Envelope{
+			ID: id, OccurredAt: at.Add(time.Duration(sequence) * time.Second),
+			PublicationSequence: int64(sequence + 1), Event: &events.WebhookReceived{Queued: sequence == 1},
+		}))
+	}
+
+	entry, err := repo.Get(t.Context(), "d1f9b3a2-2345-4678-9012-23456789abcd")
+	require.NoError(t, err)
+	assert.Equal(t, events.TypeWebhookReceived, entry.Type)
+	assert.Equal(t, "true", entry.Details["queued"])
+	assert.Equal(t, at.Add(time.Second), entry.CreatedAt)
+
+	_, err = repo.Get(t.Context(), "c0e8a2f1-1234-4567-890a-123456789abc")
+	assert.ErrorIs(t, err, ErrNotFound, "an event removed by retention must no longer be addressable")
+	_, err = repo.Get(t.Context(), "e2aac4b3-3456-4789-8123-3456789abcde")
+	assert.ErrorIs(t, err, ErrNotFound)
+}
+
 func TestSQLiteFilterOptionsUsesRetainedHistory(t *testing.T) {
 	t.Parallel()
 	db, err := storage.OpenSQLite(t.Context(), t.TempDir())

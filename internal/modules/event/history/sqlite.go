@@ -3,6 +3,7 @@ package history
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -15,10 +16,15 @@ import (
 
 const legacySyncFailedEventType = "SyncFailed"
 
+// ErrNotFound means that an event is not present in retained public history.
+var ErrNotFound = errors.New("event history item not found")
+
 // Repository provides context-aware history reads.
 type Repository interface {
 	// List returns retained history in publication order.
 	Read(context.Context) ([]Entry, error)
+	// Get returns one retained public event by its persisted ID.
+	Get(context.Context, string) (Entry, error)
 	// FilterOptions returns distinct stack and service values from retained history.
 	FilterOptions(context.Context) (FilterOptions, error)
 	// ReadRecent filters by SQL and returns the latest matching publication sequence oldest first.
@@ -123,6 +129,21 @@ func (s *SQLStore) Read(ctx context.Context) ([]Entry, error) {
 		Where(publicHistoryFilter()).
 		Order(goqu.I("publication_sequence").Asc())
 	return s.queryEntriesDataset(ctx, dataset)
+}
+
+// Get returns one retained public event by its persisted ID.
+func (s *SQLStore) Get(ctx context.Context, id string) (Entry, error) {
+	dataset := s.db.Dialect().From("event_history").Prepared(true).Select(historyColumns...).
+		Where(publicHistoryFilter(), goqu.C("id").Eq(id)).
+		Limit(1)
+	entries, err := s.queryEntriesDataset(ctx, dataset)
+	if err != nil {
+		return Entry{}, err
+	}
+	if len(entries) == 0 {
+		return Entry{}, ErrNotFound
+	}
+	return entries[0], nil
 }
 
 // FilterOptions returns sorted, deduplicated resources directly from retained history.

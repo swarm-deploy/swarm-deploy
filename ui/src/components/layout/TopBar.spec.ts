@@ -45,8 +45,6 @@ describe("TopBar search", () => {
 
     const wrapper = mount(TopBar, {
       props: {
-        syncDisabled: false,
-        syncPending: false,
         assistantEnabled: false,
       },
       global: { plugins: [router] },
@@ -54,6 +52,7 @@ describe("TopBar search", () => {
 
     const input = wrapper.get<HTMLInputElement>('input[type="search"]');
     expect(input.attributes("placeholder")).toBe("Search services, secrets, and stacks");
+    expect(wrapper.text()).not.toContain("Sync now");
 
     await input.setValue("payments");
     await vi.advanceTimersByTimeAsync(300);
