@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -17,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/distribution/reference"
 	dockerswarm "github.com/docker/docker/api/types/swarm"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -170,6 +172,34 @@ func dockerFixtureCommand(t *testing.T, ctx context.Context, args ...string) str
 	return string(output)
 }
 
+func evictRegistryFixtureReference(t *testing.T, f *externalSwarmFixture, tagged, resolved string) {
+	t.Helper()
+	shared, err := f.sw.Images.Get(f.ctx, "busybox:1.36")
+	require.NoError(t, err)
+	taggedName, err := reference.ParseNormalizedNamed(tagged)
+	require.NoError(t, err)
+	require.Equal(t, f.stack, reference.Path(taggedName), "evict only this fixture's private repository")
+	resolvedName, err := reference.ParseNormalizedNamed(resolved)
+	require.NoError(t, err)
+	require.Equal(t, taggedName.Name(), resolvedName.Name(), "evict only this fixture's private repository")
+	pinned, ok := resolvedName.(reference.Canonical)
+	require.True(t, ok, "the service must use a resolved image")
+	digestReference, err := reference.WithDigest(reference.TrimNamed(taggedName), pinned.Digest())
+	require.NoError(t, err)
+	dockerFixtureCommand(t, f.ctx, "image", "rm", "--force", tagged)
+	if _, err = f.sw.Images.Get(f.ctx, resolved); !errors.Is(err, swarm.ErrImageNotFound) {
+		require.NoError(t, err)
+		// The containerd image store keeps the repository's digest reference
+		// separately from its tag; the classic store may already have removed it.
+		dockerFixtureCommand(t, f.ctx, "image", "rm", "--force", digestReference.String())
+	}
+	_, err = f.sw.Images.Get(f.ctx, resolved)
+	require.ErrorIs(t, err, swarm.ErrImageNotFound)
+	preserved, err := f.sw.Images.Get(f.ctx, "busybox:1.36")
+	require.NoError(t, err)
+	require.Equal(t, shared.ID, preserved.ID, "shared fixture image must remain available")
+}
+
 func registryManifest(t *testing.T, f *externalSwarmFixture, image string, replicas uint64, label string) compose.Compose {
 	t.Helper()
 	manifest := fmt.Sprintf(`services:
@@ -241,9 +271,7 @@ func TestRealSwarmRegistryCredentialRotationWithoutRestart(t *testing.T) {
 	// Remove only this fixture's private repository reference. The running
 	// container and shared busybox image remain, but the worker must contact
 	// the registry before starting the next task instead of using the cache.
-	dockerFixtureCommand(t, f.ctx, "image", "rm", "--force", image)
-	_, err = f.sw.Images.Get(f.ctx, after.Service.Spec.TaskTemplate.ContainerSpec.Image)
-	require.ErrorIs(t, err, swarm.ErrImageNotFound)
+	evictRegistryFixtureReference(t, f, image, after.Service.Spec.TaskTemplate.ContainerSpec.Image)
 	acceptedBeforePull := r.accepted.Load()
 	f.poll(t, "external forced update accepted", func() bool {
 		current := f.inspect(t, "private")
@@ -333,9 +361,7 @@ func TestRealSwarmCredentialRotationDoesNotRerunCompletedJobs(t *testing.T) {
 			require.NoError(t, f.observer.WaitUnchanged(f.ctx, before, time.Second))
 
 			// The next requested template change must still carry the new token.
-			dockerFixtureCommand(t, f.ctx, "image", "rm", "--force", image)
-			_, err = f.sw.Images.Get(f.ctx, before.Service.Spec.TaskTemplate.ContainerSpec.Image)
-			require.ErrorIs(t, err, swarm.ErrImageNotFound)
+			evictRegistryFixtureReference(t, f, image, before.Service.Spec.TaskTemplate.ContainerSpec.Image)
 			acceptedBeforePull := r.accepted.Load()
 			desired.Services[0].Command = compose.NewCommand([]string{"sh", "-c", "echo requested-execution"})
 			require.Equal(t, []string{"private"}, apply().ChangedServices)
