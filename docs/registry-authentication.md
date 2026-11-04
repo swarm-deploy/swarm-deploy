@@ -8,6 +8,12 @@ and passes them in Docker service create/update options. Docker CLI is not neede
 inside the container. Credentials available only on the host are not automatically
 visible to swarm-deploy.
 
+Registry authentication is reloaded on each image-auth lookup (service create/update,
+Init Job create, or registry version lookup), without restarting swarm-deploy.
+Malformed or unreadable configuration causes the operation to fail with an explicit error,
+rather than silently falling back to anonymous access. If no config file exists and
+`DOCKER_AUTH_CONFIG` is unset, anonymous access remains available.
+
 The same registry authentication is also used when swarm-deploy:
 
 - creates Init Deploy Job services that use private images;
@@ -51,6 +57,14 @@ Do not commit this file to Git. Docker `config.json` commonly contains reusable 
 Using a Docker Secret is preferred over a bind mount because it does not depend on a node-local path and limits the
 credential file to the service that explicitly consumes the secret.
 
+**Token rotation:** Docker Swarm secrets are immutable. Updating the source file does not
+update a running task's mounted secret. To rotate credentials supplied by a Docker Secret,
+create a new secret and update the swarm-deploy service to use it. For short-lived tokens
+(such as AWS ECR authorization tokens), use a regularly refreshed bind-mounted config file
+or another mechanism that replaces the file visible inside the container. The refreshed
+credentials will be picked up by the next registry auth lookup; this implementation does
+not refresh expired tokens itself.
+
 ## Alternative: read-only bind mount
 
 For installations where the credential file is managed directly on the Swarm manager, mount it read-only:
@@ -91,3 +105,15 @@ Registry authentication is loaded in this order:
 
 For containerized swarm-deploy installations, explicitly setting `DOCKER_CONFIG` is recommended so the credential
 location is deterministic.
+
+## Limitations
+
+Only inline entries in `auths` are supported (including `auth`, `username`/`password`,
+and `identitytoken` fields). Docker CLI credential helpers configured with `credsStore`
+or `credHelpers` are **not** supported. A `config.json` containing only helper
+references does not provide usable registry credentials to swarm-deploy. Use a
+`config.json` with inline `auths` entries or `DOCKER_AUTH_CONFIG` instead.
+
+`DOCKER_AUTH_CONFIG` takes precedence over the file and is read from the process
+environment; updating a running container's environment is not supported. Restart or
+recreate the service when changing this variable.
