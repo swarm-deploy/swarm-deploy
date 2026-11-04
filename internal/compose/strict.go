@@ -15,13 +15,13 @@ const yamlNullTag = "!!null"
 // excluded from the effective state, not retained as arbitrary model data.
 func validateComposeSyntax(node *yaml.Node) ([]string, error) {
 	var ignored []string
-	if err := checkComposeFields(node, reflect.TypeFor[Compose](), "compose", &ignored); err != nil {
+	if err := checkComposeFields(node, reflect.TypeFor[Compose](), "compose", &ignored, make(map[*yaml.Node]bool)); err != nil {
 		return nil, err
 	}
 	return ignored, nil
 }
 
-func checkComposeFields(node *yaml.Node, typ reflect.Type, path string, ignored *[]string) error {
+func checkComposeFields(node *yaml.Node, typ reflect.Type, path string, ignored *[]string, active map[*yaml.Node]bool) error {
 	if node == nil {
 		return nil
 	}
@@ -29,10 +29,15 @@ func checkComposeFields(node *yaml.Node, typ reflect.Type, path string, ignored 
 		if len(node.Content) == 0 {
 			return nil
 		}
-		return checkComposeFields(node.Content[0], typ, path, ignored)
+		return checkComposeFields(node.Content[0], typ, path, ignored, active)
 	}
 	if node.Kind == yaml.AliasNode {
-		return checkComposeFields(node.Alias, typ, path, ignored)
+		if active[node.Alias] {
+			return fmt.Errorf("%s: cyclic YAML alias", path)
+		}
+		active[node.Alias] = true
+		defer delete(active, node.Alias)
+		return checkComposeFields(node.Alias, typ, path, ignored, active)
 	}
 	if node.Kind == yaml.ScalarNode || node.Tag == yamlNullTag {
 		return nil // The YAML decoder validates scalar types.
@@ -43,13 +48,13 @@ func checkComposeFields(node *yaml.Node, typ reflect.Type, path string, ignored 
 
 	switch typ {
 	case reflect.TypeFor[Services]():
-		return checkMappedComposeValues(node, reflect.TypeFor[Service](), path, ignored)
+		return checkMappedComposeValues(node, reflect.TypeFor[Service](), path, ignored, active)
 	case reflect.TypeFor[ServiceNetworks]():
-		return checkMappedComposeValues(node, reflect.TypeFor[ServiceNetwork](), path, ignored)
+		return checkMappedComposeValues(node, reflect.TypeFor[ServiceNetwork](), path, ignored, active)
 	case reflect.TypeFor[ServiceVolumes]():
-		return checkSequenceComposeValues(node, reflect.TypeFor[serviceVolumeSchema](), path, ignored)
+		return checkSequenceComposeValues(node, reflect.TypeFor[serviceVolumeSchema](), path, ignored, active)
 	case reflect.TypeFor[ServicePorts]():
-		return checkSequenceComposeValues(node, reflect.TypeFor[ServicePort](), path, ignored)
+		return checkSequenceComposeValues(node, reflect.TypeFor[ServicePort](), path, ignored, active)
 	case reflect.TypeFor[Environment](), reflect.TypeFor[Labels](),
 		reflect.TypeFor[EnvFiles](), reflect.TypeFor[Command](),
 		reflect.TypeFor[StringList](), reflect.TypeFor[StringMap](),
@@ -59,24 +64,24 @@ func checkComposeFields(node *yaml.Node, typ reflect.Type, path string, ignored 
 
 	switch typ.Kind() { //nolint:exhaustive // Only container kinds require recursive YAML validation.
 	case reflect.Map:
-		return checkMappedComposeValues(node, typ.Elem(), path, ignored)
+		return checkMappedComposeValues(node, typ.Elem(), path, ignored, active)
 	case reflect.Slice, reflect.Array:
-		return checkSequenceComposeValues(node, typ.Elem(), path, ignored)
+		return checkSequenceComposeValues(node, typ.Elem(), path, ignored, active)
 	case reflect.Struct:
-		return checkComposeStructFields(node, typ, path, ignored)
+		return checkComposeStructFields(node, typ, path, ignored, active)
 	default:
 		return nil
 	}
 }
 
-func checkComposeStructFields(node *yaml.Node, typ reflect.Type, path string, ignored *[]string) error {
+func checkComposeStructFields(node *yaml.Node, typ reflect.Type, path string, ignored *[]string, active map[*yaml.Node]bool) error {
 	if node.Kind != yaml.MappingNode {
 		return nil // The YAML decoder reports malformed shapes.
 	}
 	for i := 0; i+1 < len(node.Content); i += 2 {
 		key, value := node.Content[i].Value, node.Content[i+1]
 		if key == "<<" {
-			if err := checkComposeMerge(value, typ, path, ignored); err != nil {
+			if err := checkComposeMerge(value, typ, path, ignored, active); err != nil {
 				return err
 			}
 			continue
@@ -88,7 +93,7 @@ func checkComposeStructFields(node *yaml.Node, typ reflect.Type, path string, ig
 			}
 			continue
 		}
-		if err := checkComposeFields(value, fieldType, path+"."+key, ignored); err != nil {
+		if err := checkComposeFields(value, fieldType, path+"."+key, ignored, active); err != nil {
 			return err
 		}
 	}
@@ -106,7 +111,7 @@ func checkUnknownComposeField(typ reflect.Type, path, key string, ignored *[]str
 	return fmt.Errorf("%s.%s: unsupported Compose option", path, key)
 }
 
-func checkMappedComposeValues(node *yaml.Node, typ reflect.Type, path string, ignored *[]string) error {
+func checkMappedComposeValues(node *yaml.Node, typ reflect.Type, path string, ignored *[]string, active map[*yaml.Node]bool) error {
 	if node.Kind != yaml.MappingNode {
 		return nil
 	}
@@ -114,30 +119,30 @@ func checkMappedComposeValues(node *yaml.Node, typ reflect.Type, path string, ig
 		if strings.HasPrefix(node.Content[i].Value, "x-") && typ == reflect.TypeFor[Service]() {
 			continue
 		}
-		if err := checkComposeFields(node.Content[i+1], typ, path+"."+node.Content[i].Value, ignored); err != nil {
+		if err := checkComposeFields(node.Content[i+1], typ, path+"."+node.Content[i].Value, ignored, active); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func checkSequenceComposeValues(node *yaml.Node, typ reflect.Type, path string, ignored *[]string) error {
+func checkSequenceComposeValues(node *yaml.Node, typ reflect.Type, path string, ignored *[]string, active map[*yaml.Node]bool) error {
 	if node.Kind != yaml.SequenceNode {
 		return nil
 	}
 	for i, child := range node.Content {
-		if err := checkComposeFields(child, typ, fmt.Sprintf("%s[%d]", path, i), ignored); err != nil {
+		if err := checkComposeFields(child, typ, fmt.Sprintf("%s[%d]", path, i), ignored, active); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func checkComposeMerge(node *yaml.Node, typ reflect.Type, path string, ignored *[]string) error {
+func checkComposeMerge(node *yaml.Node, typ reflect.Type, path string, ignored *[]string, active map[*yaml.Node]bool) error {
 	if node.Kind == yaml.SequenceNode {
-		return checkSequenceComposeValues(node, typ, path, ignored)
+		return checkSequenceComposeValues(node, typ, path, ignored, active)
 	}
-	return checkComposeFields(node, typ, path, ignored)
+	return checkComposeFields(node, typ, path, ignored, active)
 }
 
 func composeFieldType(typ reflect.Type, key string) (reflect.Type, bool) {

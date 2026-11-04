@@ -1,6 +1,7 @@
 package git
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
@@ -468,6 +469,34 @@ func TestLazyProxyInitializesRepositoryLazily(t *testing.T) {
 
 	_, err = proxy.Pull(t.Context())
 	require.NoError(t, err, "pull lazy proxy repository")
+}
+
+func TestLazyProxyInitialCloneRespectsPullTimeout(t *testing.T) {
+	started := make(chan struct{}, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, request *http.Request) {
+		select {
+		case started <- struct{}{}:
+		default:
+		}
+		<-request.Context().Done()
+	}))
+	defer server.Close()
+
+	proxy := NewLazyProxy(config.GitSpec{
+		Repository: server.URL + "/team/app.git", Branch: "main",
+		Pull: config.GitPullSpec{Timeout: specw.Duration{Value: 200 * time.Millisecond}},
+	}, filepath.Join(t.TempDir(), "clone"))
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+	defer cancel()
+	begin := time.Now()
+	_, err := proxy.Pull(ctx)
+	require.Error(t, err)
+	assert.Less(t, time.Since(begin), 800*time.Millisecond, "the clone must use the pull timeout, not the caller deadline")
+	select {
+	case <-started:
+	default:
+		t.Fatal("the clone never reached the stalled Git server")
+	}
 }
 
 func TestGoGitRepositoryShowReturnsCommitMetadataAndFileDiff(t *testing.T) {

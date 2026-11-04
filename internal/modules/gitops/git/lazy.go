@@ -36,6 +36,13 @@ func (p *LazyProxy) ReadFile(ctx context.Context, revision, path string) ([]byte
 }
 
 func (p *LazyProxy) Pull(ctx context.Context) (PullResult, error) {
+	timeout := p.spec.Pull.Timeout.Value
+	if timeout <= 0 {
+		timeout = config.DefaultGitPullTimeout
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
 	repo, err := p.init(ctx)
 	if err != nil {
 		return PullResult{}, err

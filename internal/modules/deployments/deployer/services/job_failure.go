@@ -8,22 +8,30 @@ import (
 )
 
 // JobTaskFailure finds an unreplaced terminal failure in the current job iteration
-// when restarts are explicitly disabled. Missing iteration metadata is not proof
-// of failure. Replicated job slots start at zero; global jobs are keyed by node.
+// when restarts are disabled or a finite retry limit is exhausted. Missing
+// iteration metadata is not proof of failure. Replicated job slots start at
+// zero; global jobs are keyed by node.
 func JobTaskFailure(
 	spec dockerswarm.ServiceSpec, status *dockerswarm.JobStatus, tasks []swarm.ServiceTask,
 ) (swarm.ServiceTask, bool) {
 	if status == nil || (spec.Mode.ReplicatedJob == nil && spec.Mode.GlobalJob == nil) ||
-		spec.TaskTemplate.RestartPolicy == nil ||
-		spec.TaskTemplate.RestartPolicy.Condition != dockerswarm.RestartPolicyConditionNone {
+		spec.TaskTemplate.RestartPolicy == nil {
+		return swarm.ServiceTask{}, false
+	}
+	policy := spec.TaskTemplate.RestartPolicy
+	if policy.Condition != dockerswarm.RestartPolicyConditionNone &&
+		(policy.Condition != dockerswarm.RestartPolicyConditionOnFailure || policy.MaxAttempts == nil ||
+			*policy.MaxAttempts == 0 || (policy.Window != nil && *policy.Window > 0)) {
 		return swarm.ServiceTask{}, false
 	}
 	latest := make(map[string]swarm.ServiceTask)
+	attempts := make(map[string]uint64)
 	for _, task := range tasks {
 		key, relevant := jobTaskKey(spec, status, task)
 		if !relevant {
 			continue
 		}
+		attempts[key]++
 		previous, exists := latest[key]
 		// Prefer replacement/completion evidence on equal creation timestamps, too.
 		if !exists || task.CreatedAt.After(previous.CreatedAt) ||
@@ -32,8 +40,10 @@ func JobTaskFailure(
 		}
 	}
 	var failed swarm.ServiceTask
-	for _, task := range latest {
-		if terminalJobTask(task) && (failed.ID == "" || task.UpdatedAt.After(failed.UpdatedAt)) {
+	for key, task := range latest {
+		if terminalJobTask(task) &&
+			(policy.Condition == dockerswarm.RestartPolicyConditionNone || attempts[key] > *policy.MaxAttempts) &&
+			(failed.ID == "" || task.UpdatedAt.After(failed.UpdatedAt)) {
 			failed = task
 		}
 	}

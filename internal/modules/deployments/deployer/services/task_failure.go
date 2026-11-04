@@ -56,7 +56,7 @@ func (a *Applier) retryRequired(ctx context.Context, service dockerswarm.Service
 	}
 	if (!job && service.UpdateStatus != nil) || (job && service.JobStatus == nil) ||
 		service.Spec.TaskTemplate.RestartPolicy == nil ||
-		service.Spec.TaskTemplate.RestartPolicy.Condition != dockerswarm.RestartPolicyConditionNone {
+		(!job && service.Spec.TaskTemplate.RestartPolicy.Condition != dockerswarm.RestartPolicyConditionNone) {
 		return false, nil
 	}
 	tasks, err := a.manager.ListTasks(ctx, service.ID)

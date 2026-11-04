@@ -183,3 +183,53 @@ func TestJobRetryRechecksIterationAfterVersionConflict(t *testing.T) {
 		}
 	}
 }
+
+func TestApplyJobManualRetryAfterMaxAttempts(t *testing.T) {
+	now := time.Now()
+	for _, mode := range []string{"replicated-job", "global-job"} {
+		for _, tc := range []struct {
+			name   string
+			retry  bool
+			states []swarm.TaskState
+			update bool
+		}{
+			{"exhausted", true, []swarm.TaskState{swarm.TaskStateFailed, swarm.TaskStateFailed}, true},
+			{"automatic attempt remains", true, []swarm.TaskState{swarm.TaskStateFailed}, false},
+			{"replacement pending", true, []swarm.TaskState{swarm.TaskStateFailed, swarm.TaskStatePending}, false},
+			{"completed", true, []swarm.TaskState{swarm.TaskStateFailed, swarm.TaskStateComplete}, false},
+			{"manual retry disabled", false, []swarm.TaskState{swarm.TaskStateFailed, swarm.TaskStateFailed}, false},
+		} {
+			t.Run(mode+"/"+tc.name, func(t *testing.T) {
+				manager := swarm.NewMockServiceManager(gomock.NewController(t))
+				desired := jobSpec(mode)
+				desired.TaskTemplate.RestartPolicy.Condition = dockerswarm.RestartPolicyConditionOnFailure
+				desired.TaskTemplate.RestartPolicy.MaxAttempts = new(uint64(1))
+				current := service("job-id", 4, cloneSpec(desired))
+				current.JobStatus = &dockerswarm.JobStatus{JobIteration: dockerswarm.Version{Index: 7}}
+				current.Spec.TaskTemplate.ForceUpdate = 9
+				manager.EXPECT().Inspect(gomock.Any(), desired.Name).Return(current, nil)
+				var tasks []swarm.ServiceTask
+				for i, state := range tc.states {
+					tasks = append(tasks, jobTask(strconv.Itoa(i), state, 7, now.Add(time.Duration(i)*time.Second)))
+				}
+				if tc.retry {
+					calls := 1
+					if tc.update {
+						calls++
+					}
+					manager.EXPECT().ListTasks(gomock.Any(), current.ID).Return(tasks, nil).Times(calls)
+				}
+				if tc.update {
+					manager.EXPECT().Update(gomock.Any(), current.ID, current.Version, gomock.Any(), gomock.Any()).DoAndReturn(
+						func(_ any, _ string, _ dockerswarm.Version, spec dockerswarm.ServiceSpec, _ dockerswarm.ServiceUpdateOptions) error {
+							assert.Equal(t, uint64(10), spec.TaskTemplate.ForceUpdate)
+							return nil
+						})
+				}
+				result, err := New(manager, &registry.NopAuthManager{}).Apply(t.Context(), "demo", []dockerswarm.ServiceSpec{desired}, ApplyOptions{RetryFailedUpdates: tc.retry})
+				require.NoError(t, err)
+				assert.Equal(t, tc.update, len(result.ChangedServices) > 0)
+			})
+		}
+	}
+}

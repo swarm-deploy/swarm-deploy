@@ -47,6 +47,31 @@ services:
 	assert.Equal(t, "always", parsed.Services[0].Restart)
 }
 
+
+func TestStrictComposeRejectsCyclicAliases(t *testing.T) {
+	for _, tc := range []struct{ name, content string }{
+		{"direct", `services: {api: &api {image: busybox:1.36, <<: *api}}`},
+		{"indirect", `services: {api: &api {image: busybox:1.36, <<: &middle {<<: *api}}}`},
+		{"merge sequence", `services: {api: {image: busybox:1.36, <<: &merges [*merges]}}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := Parse([]byte(tc.content))
+			require.ErrorContains(t, err, "cyclic YAML alias")
+		})
+	}
+}
+
+func TestStrictComposeAcceptsSharedAliases(t *testing.T) {
+	parsed, err := Parse([]byte(`services:
+  api: &api
+    image: busybox:1.36
+  worker: *api
+  backup: *api
+`))
+	require.NoError(t, err)
+	assert.Len(t, parsed.Services, 3)
+}
+
 func TestStrictComposeLoaderRejectsBeforeDeployment(t *testing.T) {
 	loader := NewFileLoaderWithReader(func(_ context.Context, _ string) ([]byte, error) {
 		return []byte("services: {api: {image: alpine, unexpected: true}}"), nil
