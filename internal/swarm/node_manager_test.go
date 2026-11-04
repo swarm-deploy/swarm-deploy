@@ -59,13 +59,44 @@ func TestNodeManagerMapNodeMapsFields(t *testing.T) {
 	assert.Equal(t, map[string]string{"role": "manager", "zone": "eu-1"}, mapped.Labels, "unexpected labels")
 }
 
-func TestNodeManagerMapNodeSetsWorkerManagerStatusForWorkers(t *testing.T) {
-	node := dockerswarm.Node{
-		ID: "node-2",
+func TestNodeManagerMapNodeUsesSpecRoleIndependentlyOfManagerStatus(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		role          dockerswarm.NodeRole
+		managerStatus *dockerswarm.ManagerStatus
+		wantRole      string
+		wantStatus    NodeManagerStatus
+	}{
+		{
+			name: "manager role with manager status", role: dockerswarm.NodeRoleManager,
+			managerStatus: &dockerswarm.ManagerStatus{Leader: true},
+			wantRole:      "manager", wantStatus: NodeManagerStatusLeader,
+		},
+		{
+			name: "worker role without manager status", role: dockerswarm.NodeRoleWorker,
+			wantRole: "worker", wantStatus: NodeManagerStatusWorker,
+		},
+		{
+			name: "worker role while manager status remains", role: dockerswarm.NodeRoleWorker,
+			managerStatus: &dockerswarm.ManagerStatus{Reachability: dockerswarm.ReachabilityReachable},
+			wantRole:      "worker", wantStatus: NodeManagerStatusReachable,
+		},
+		{
+			name: "manager role before manager status appears", role: dockerswarm.NodeRoleManager,
+			wantRole: "manager", wantStatus: NodeManagerStatusWorker,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			node := dockerswarm.Node{
+				ID: "node-transition", Spec: dockerswarm.NodeSpec{Role: tc.role},
+				ManagerStatus: tc.managerStatus,
+			}
+
+			mapped := (&nodeManager{}).mapNode(node)
+
+			assert.Equal(t, tc.wantRole, mapped.Role)
+			assert.Equal(t, tc.wantStatus, mapped.ManagerStatus)
+			assert.Nil(t, mapped.Labels)
+		})
 	}
-
-	mapped := (&nodeManager{}).mapNode(node)
-
-	assert.Equal(t, NodeManagerStatusWorker, mapped.ManagerStatus, "worker node must have worker managerStatus")
-	assert.Nil(t, mapped.Labels, "worker node without labels must keep labels nil")
 }

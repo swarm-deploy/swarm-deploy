@@ -84,6 +84,22 @@ func TestRealSwarmPlacementOnlyUpdatePreservesCompatibleTask(t *testing.T) {
 	assert.Equal(t, before[0].ID, after[0].ID, "SwarmKit must preserve the compatible task")
 	assert.Equal(t, before[0].CreatedAt, after[0].CreatedAt, "the preserved task keeps its creation generation")
 	assert.Nil(t, f.inspect(t, "job").UpdateStatus, "placement-only preservation does not start a rolling update")
+
+	recoveryBaseline, err := f.sw.Services.ListServices(f.ctx, swarm.ListServicesFilter{Stack: f.stack})
+	require.NoError(t, err)
+	retried, err := applier.Apply(f.ctx, f.stack, []dockerswarm.ServiceSpec{updated}, services.ApplyOptions{})
+	require.NoError(t, err)
+	require.Empty(t, retried.ChangedServices, "recovery must not submit another service update")
+	result, err := waiter.NewServiceWaiter(f.sw.Services, f.sw.Nodes, 100*time.Millisecond, 30*time.Second).
+		Wait(f.ctx, waiter.ServiceWaitRequest{
+			StackName: f.stack, ServiceNames: []string{"job"}, Baseline: recoveryBaseline,
+			UnresolvedServices: []string{"job"}, ExpectedSpecs: map[string]dockerswarm.ServiceSpec{"job": updated},
+		})
+	require.NoError(t, err)
+	require.Empty(t, result.UnresolvedServices)
+	afterRecovery := f.tasks(t, "job")
+	require.Len(t, afterRecovery, 1)
+	assert.Equal(t, before[0].ID, afterRecovery[0].ID, "recovery verifies the preserved task without replacement")
 }
 
 func TestRealSwarmMetadataUpdatePartialApplyRetry(t *testing.T) {

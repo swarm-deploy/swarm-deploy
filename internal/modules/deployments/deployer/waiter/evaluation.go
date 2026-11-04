@@ -45,6 +45,11 @@ func evaluateService(
 		progress.Message = boundedDiagnostic(fmt.Sprintf("unsupported service mode %q", service.Mode))
 		return progress
 	}
+	if unresolved && placementOnlyTaskPreservation(baseline, service, unresolved) &&
+		expected.Name != "" && !services.SpecsEqual(service.ServiceSpec, expected) {
+		progress.Message = "waiting for expected service specification"
+		return progress
+	}
 	desired = observedDesiredTasks(service, tasks)
 	progress.Desired = desired
 	if globalSchedulerPending(baseline, service, desired) {
@@ -58,8 +63,8 @@ func evaluateService(
 	// A no-op sync of the restored spec verifies its existing tasks, even when
 	// an earlier failed desired spec left an unresolved verification obligation.
 	unresolved = unresolved && !restored
-	requireCurrentGeneration := requiresTaskGeneration(baseline, service, unresolved)
-	preservePlacementTasks := !requireCurrentGeneration && placementOnlyTaskTemplateChange(baseline, service)
+	preservePlacementTasks := placementOnlyTaskPreservation(baseline, service, unresolved)
+	requireCurrentGeneration := requiresTaskGeneration(baseline, service, unresolved, preservePlacementTasks)
 	cutoff, generationPending := verificationTaskCutoff(baseline, service, requireCurrentGeneration, unresolved)
 	if generationPending {
 		progress.Message = waitingForUpdateStatus
@@ -67,7 +72,7 @@ func evaluateService(
 	}
 
 	progress.Running = countVerifiedRunningTasks(
-		tasks, baseline, service, requireCurrentGeneration, preservePlacementTasks, cutoff, placementNodes,
+		tasks, baseline, service, unresolved, requireCurrentGeneration, preservePlacementTasks, cutoff, placementNodes,
 	)
 	if service.UpdateStatus == nil {
 		if failed, terminal := services.NonRestartingTaskFailure(service.ServiceSpec, tasks, cutoff); terminal {
@@ -300,6 +305,10 @@ func verificationTaskCutoff(
 		// Metadata acceptance has no task birth cutoff; actual task templates prove convergence.
 		return time.Time{}, false
 	}
+	if !requireCurrentGeneration {
+		// SwarmKit preserves placement-compatible tasks without starting a rolling update.
+		return time.Time{}, false
+	}
 	if !unresolved || baseline.ID == "" || baseline.ID != service.ID ||
 		!reflect.DeepEqual(baseline.ServiceSpec.TaskTemplate, service.ServiceSpec.TaskTemplate) {
 		return taskGenerationCutoff(baseline, service, requireCurrentGeneration)
@@ -321,22 +330,51 @@ func verificationTaskCutoff(
 	return service.UpdateStatus.StartedAt, false
 }
 
-func requiresTaskGeneration(baseline, service swarm.StackService, unresolved bool) bool {
-	if unresolved || baseline.ID == "" || baseline.ID != service.ID {
+func requiresTaskGeneration(
+	baseline, service swarm.StackService,
+	unresolved bool,
+	preservePlacementTasks bool,
+) bool {
+	if baseline.ID == "" || baseline.ID != service.ID {
 		return true
 	}
-	return !reflect.DeepEqual(baseline.ServiceSpec.TaskTemplate, service.ServiceSpec.TaskTemplate) &&
-		!placementOnlyTaskTemplateChange(baseline, service)
+	if preservePlacementTasks {
+		return false
+	}
+	return unresolved || !reflect.DeepEqual(baseline.ServiceSpec.TaskTemplate, service.ServiceSpec.TaskTemplate)
 }
 
 func placementOnlyTaskTemplateChange(baseline, service swarm.StackService) bool {
-	before := baseline.ServiceSpec.TaskTemplate
-	after := service.ServiceSpec.TaskTemplate
+	return placementOnlyTaskTemplateDifference(
+		baseline.ServiceSpec.TaskTemplate,
+		service.ServiceSpec.TaskTemplate,
+	)
+}
+
+func placementOnlyTaskTemplateDifference(before, after dockerswarm.TaskSpec) bool {
 	if reflect.DeepEqual(before.Placement, after.Placement) {
 		return false
 	}
 	after.Placement = before.Placement
 	return swarm.NewTaskSpec(before).CompareServiceTemplate(after).Equal()
+}
+
+// placementOnlyTaskPreservation classifies the accepted transition. PreviousSpec
+// is only classification evidence; task templates and assigned nodes are still verified below.
+func placementOnlyTaskPreservation(
+	baseline, service swarm.StackService,
+	unresolved bool,
+) bool {
+	if baseline.ID == "" || baseline.ID != service.ID || service.UpdatedAt.Before(baseline.UpdatedAt) {
+		return false
+	}
+	if placementOnlyTaskTemplateChange(baseline, service) {
+		return true
+	}
+	return unresolved && service.PreviousSpec != nil && placementOnlyTaskTemplateDifference(
+		service.PreviousSpec.TaskTemplate,
+		service.ServiceSpec.TaskTemplate,
+	)
 }
 
 // metadataOnlyServiceUpdate proves that the last write preserved the task template.
@@ -355,6 +393,7 @@ func metadataOnlyServiceUpdate(baseline, service swarm.StackService) bool {
 func countVerifiedRunningTasks(
 	tasks []swarm.ServiceTask,
 	baseline, service swarm.StackService,
+	unresolved bool,
 	requireCurrentGeneration bool,
 	preservePlacementTasks bool,
 	cutoff time.Time,
@@ -366,7 +405,28 @@ func countVerifiedRunningTasks(
 	if preservePlacementTasks {
 		return countPlacementCompatibleRunningTasks(tasks, service.ServiceSpec.TaskTemplate, placementNodes)
 	}
+	if unresolved && baseline.ID == service.ID &&
+		reflect.DeepEqual(baseline.ServiceSpec.TaskTemplate, service.ServiceSpec.TaskTemplate) {
+		// A historical UpdateStatus supplies only a birth cutoff. The task template
+		// prevents an unrelated old rollout from attributing stale tasks to this spec.
+		return countMatchingCurrentRunningTasks(tasks, service.ServiceSpec.TaskTemplate, cutoff)
+	}
 	return countCurrentRunningTasks(tasks, requireCurrentGeneration, cutoff)
+}
+
+func countMatchingCurrentRunningTasks(
+	tasks []swarm.ServiceTask,
+	template dockerswarm.TaskSpec,
+	cutoff time.Time,
+) uint64 {
+	var count uint64
+	for _, task := range tasks {
+		if task.DesiredState == swarm.TaskStateRunning && task.CurrentState == swarm.TaskStateRunning &&
+			!task.CreatedAt.Before(cutoff) && task.Spec.CompareServiceTemplate(template).Equal() {
+			count++
+		}
+	}
+	return count
 }
 
 func countPlacementCompatibleRunningTasks(
@@ -389,7 +449,8 @@ func countPlacementCompatibleRunningTasks(
 			continue
 		}
 		comparison := task.Spec.CompareServiceTemplate(template)
-		if comparison.Equal() || comparison.PlacementOnly() && nodeMatchesConstraints(constraints, nodes[task.Node]) {
+		if (comparison.Equal() || comparison.PlacementOnly()) &&
+			nodeMatchesConstraints(constraints, nodes[task.Node]) {
 			count++
 		}
 	}
@@ -405,13 +466,15 @@ func placementTaskNodesRequired(
 	tasks []swarm.ServiceTask,
 	unresolved bool,
 ) bool {
-	if requiresTaskGeneration(baseline, service, unresolved) || !placementOnlyTaskTemplateChange(baseline, service) {
+	if !placementOnlyTaskPreservation(baseline, service, unresolved) {
 		return false
 	}
 	for _, task := range tasks {
-		if task.DesiredState == swarm.TaskStateRunning && task.CurrentState == swarm.TaskStateRunning &&
-			task.Spec.CompareServiceTemplate(service.ServiceSpec.TaskTemplate).PlacementOnly() {
-			return true
+		if task.DesiredState == swarm.TaskStateRunning && task.CurrentState == swarm.TaskStateRunning {
+			comparison := task.Spec.CompareServiceTemplate(service.ServiceSpec.TaskTemplate)
+			if comparison.Equal() || comparison.PlacementOnly() {
+				return true
+			}
 		}
 	}
 	return false

@@ -79,9 +79,7 @@ func (m *nodeManager) updateLabels(ctx context.Context, nodeID string, mutate fu
 
 func (*nodeManager) mapNode(node dockerswarm.Node) Node {
 	managerStatus := NodeManagerStatusWorker
-	role := dockerswarm.NodeRoleWorker
 	if node.ManagerStatus != nil {
-		role = dockerswarm.NodeRoleManager
 		switch {
 		case node.ManagerStatus.Leader:
 			managerStatus = NodeManagerStatusLeader
@@ -94,7 +92,7 @@ func (*nodeManager) mapNode(node dockerswarm.Node) Node {
 
 	return Node{
 		ID:                   node.ID,
-		Role:                 string(role),
+		Role:                 string(node.Spec.Role),
 		Hostname:             node.Description.Hostname,
 		PlatformOS:           node.Description.Platform.OS,
 		PlatformArchitecture: node.Description.Platform.Architecture,

@@ -27,6 +27,7 @@ func TestInitialDeploymentRecoveryAfterAllocation(t *testing.T) {
 			service := testReplicatedService("api", "api-id", 1, serviceWaitTestTime, "nginx:alpine")
 			service.UpdatedAt = service.CreatedAt.Add(tc.age)
 			tasks := testRunningTasks(1, service.CreatedAt)
+			tasks[0].Spec = swarm.NewTaskSpec(service.ServiceSpec.TaskTemplate)
 			for _, unresolved := range []bool{false, true} {
 				progress := evaluateService("api", service, service, tasks, unresolved, service.ServiceSpec, nil)
 				assert.Equal(t, ServiceReady, progress.State, progress.Message)
@@ -56,6 +57,7 @@ func TestInitialDeploymentInterruptedThenRepeatedSyncDoesNotForceUpdate(t *testi
 	require.Equal(t, []string{"api"}, result.UnresolvedServices)
 	request.UnresolvedServices = result.UnresolvedServices
 	tasks := testRunningTasks(1, service.CreatedAt)
+	tasks[0].Spec = swarm.NewTaskSpec(service.ServiceSpec.TaskTemplate)
 	manager := swarm.NewMockServiceManager(gomock.NewController(t))
 	applier := services.New(manager, &registry.NopAuthManager{})
 	for _, manual := range []bool{false, true, false, true} {
