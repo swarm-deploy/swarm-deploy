@@ -1,10 +1,13 @@
 package deployer
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
+	"net"
 	"testing"
 	"time"
 
@@ -15,6 +18,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/tracing"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	"go.opentelemetry.io/otel"
@@ -54,25 +58,63 @@ func TestDeployPipelinesPreserveRequiredPhaseOrdering(t *testing.T) {
 	})
 }
 
-func TestDeployPipelineFailureSetsSafeRootSpanError(t *testing.T) {
-	recorder := setupPipelineTracing(t)
-	manager := swarm.NewMockServiceManager(gomock.NewController(t))
-	manager.EXPECT().Inspect(gomock.Any(), "demo_api").Return(dockerswarm.Service{}, swarm.ErrServiceNotFound)
-	manager.EXPECT().Create(gomock.Any(), gomock.Any(), gomock.Any()).Return(
-		"", errors.New("registry failed: token=private-value"),
-	)
-	deployer := &Deployer{
-		secretResolver: newTestSecretResolver(), initJobRunner: &fakeInitJobExecutor{},
-		serviceWaiter: newSuccessfulServiceWaiter(t),
+func TestDeployPipelineFailureMasksCredentials(t *testing.T) {
+	tests := []struct {
+		name string
+		raw  string
+		want string
+	}{
+		{name: "password assignment", raw: "password=private-value", want: "password=****"},
+		{name: "password field", raw: "password: private-value", want: "password: ****"},
+		{name: "token assignment", raw: "token=private-value", want: "token=****"},
+		{name: "HTTP credentials", raw: "https://private-user:private-value@registry.example/path",
+			want: "https://****:****@registry.example/path"},
+		{name: "PostgreSQL DSN", raw: "postgres://private-user:private-value@db.example/db", want: "postgres://****"},
+		{name: "bare DSN", raw: "private-user:private-value@db.example", want: "****:****@db.example"},
 	}
-	wireNativeTestDeployerWithServiceManager(t, deployer, manager, false)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			recorder := setupPipelineTracing(t)
+			var logs bytes.Buffer
+			previous := slog.Default()
+			slog.SetDefault(slog.New(slog.NewJSONHandler(&logs, nil)))
+			t.Cleanup(func() { slog.SetDefault(previous) })
 
-	err := runMinimalStack(t, deployer)
-	require.Error(t, err)
-	root := requireSpan(t, recorder.Ended(), deployStackOperationName)
-	assert.Equal(t, codes.Error, root.Status().Code)
-	assert.NotContains(t, fmt.Sprint(root.Status(), root.Events()), "private-value")
-	assert.Contains(t, fmt.Sprint(root.Status(), root.Events()), "token=****")
+			cause := errors.New("registry failed: " + tt.raw + " (connection refused)")
+			manager := swarm.NewMockServiceManager(gomock.NewController(t))
+			manager.EXPECT().Inspect(gomock.Any(), "demo_api").Return(dockerswarm.Service{}, swarm.ErrServiceNotFound)
+			manager.EXPECT().Create(gomock.Any(), gomock.Any(), gomock.Any()).Return("", cause)
+			deployer := &Deployer{
+				secretResolver: newTestSecretResolver(), initJobRunner: &fakeInitJobExecutor{},
+				serviceWaiter: newSuccessfulServiceWaiter(t),
+			}
+			wireNativeTestDeployerWithServiceManager(t, deployer, manager, false)
+
+			err := runMinimalStack(t, deployer)
+			require.ErrorIs(t, err, cause)
+			want := "registry failed: " + tt.want + " (connection refused)"
+			assert.Contains(t, err.Error(), want)
+			assert.NotContains(t, err.Error(), "private-value")
+			assert.NotContains(t, err.Error(), "private-user")
+
+			output := logs.String()
+			assert.Contains(t, output, `"msg":"[gopipe] step failed"`)
+			assert.Contains(t, output, want)
+			assert.NotContains(t, output, "private-value")
+			assert.NotContains(t, output, "private-user")
+
+			spans := recorder.Ended()
+			for _, name := range []string{stepApplyStack, deployStackPipelineName, deployStackOperationName} {
+				span := requireSpan(t, spans, name)
+				assert.Equal(t, codes.Error, span.Status().Code, name)
+				for _, diagnostic := range []string{span.Status().Description, fmt.Sprint(span.Events())} {
+					assert.Contains(t, diagnostic, want, name)
+					assert.NotContains(t, diagnostic, "private-value", name)
+					assert.NotContains(t, diagnostic, "private-user", name)
+				}
+			}
+		})
+	}
 }
 
 func TestDeployStackStepErrorPreservesJobFailureType(t *testing.T) {
@@ -99,12 +141,22 @@ func TestDeployStackStepErrorPreservesJobFailureType(t *testing.T) {
 	assert.Equal(t, stepRunInitJobs, stepErr.StepName)
 }
 
-func TestPipelineErrorIsTraceSafeAndPreservesCause(t *testing.T) {
-	cause := errors.New("registry failed: token=private-value")
-	err := safePipelineError(cause)
-	assert.ErrorIs(t, err, cause)
-	assert.NotContains(t, err.Error(), "private-value")
-	assert.Contains(t, err.Error(), "token=****")
+func TestPipelineErrorPreservesCauseAndClassification(t *testing.T) {
+	for _, temporary := range []bool{false, true} {
+		t.Run(fmt.Sprintf("temporary=%t", temporary), func(t *testing.T) {
+			cause := &net.DNSError{Err: "lookup failed", IsTemporary: temporary}
+			wrapped := fmt.Errorf("registry failed: %w", cause)
+			err := safePipelineError(wrapped)
+			assert.Same(t, cause, errors.Unwrap(errors.Unwrap(err)))
+			assert.ErrorIs(t, err, cause)
+			var lookup *net.DNSError
+			require.ErrorAs(t, err, &lookup)
+			assert.Same(t, cause, lookup)
+			var classified faults.Error
+			require.ErrorAs(t, err, &classified)
+			assert.Equal(t, temporary, classified.Temporary())
+		})
+	}
 }
 
 func TestDeployPipelinesShareLiteralDesiredState(t *testing.T) {

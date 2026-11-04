@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -267,10 +266,8 @@ type pipelineError struct {
 	cause error
 }
 
-var pipelineCredential = regexp.MustCompile(`(?i)\b(password|passwd|secret|token|credential|api[_-]?key)=([^\s]+)`)
-
 func (e pipelineError) Error() string {
-	return pipelineCredential.ReplaceAllString(e.cause.Error(), `${1}=****`)
+	return faults.SafeDiagnostic(e.cause)
 }
 func (e pipelineError) Unwrap() error { return e.cause }
 
