@@ -337,19 +337,24 @@ button:hover,
 }
 
 .overview-sync-panel {
+  min-width: 0;
+  flex: 1 1 auto;
+  margin-bottom: 0;
   border-left-color: var(--control-primary);
+  padding-block: 8px;
 }
 
-.overview-sync-content,
+.overview-sync-row,
 .overview-sync-items,
 .overview-sync-item {
   display: flex;
   align-items: center;
 }
 
-.overview-sync-content {
+.overview-sync-row {
   min-width: 0;
   gap: 16px;
+  margin-bottom: 20px;
 }
 
 .overview-sync-items {
@@ -367,9 +372,9 @@ button:hover,
   white-space: nowrap;
 }
 
-.overview-sync-item strong {
+.overview-sync-label {
   color: var(--text);
-  font-weight: 600;
+  font-weight: 400;
 }
 
 .overview-sync-separator {
@@ -3957,13 +3962,10 @@ a.overview-summary-row:focus-visible {
     padding-top: 20px;
   }
 
-  .overview-sync-content {
-    align-items: flex-start;
-    flex-wrap: wrap;
-  }
-
-  .overview-sync-items {
-    flex-basis: 100%;
+  .overview-sync-row {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 10px;
   }
 
   .overview-sync-separator {
@@ -3971,7 +3973,7 @@ a.overview-summary-row:focus-visible {
   }
 
   .overview-sync-button {
-    margin-left: 0;
+    align-self: flex-end;
   }
 
   .modal-card {

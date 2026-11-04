@@ -137,6 +137,10 @@ describe("GitOps status bar", () => {
     expect(wrapper.text()).toContain("Last revision:");
     expect(wrapper.findAll(".overview-sync-separator")).toHaveLength(2);
     expect(wrapper.get(".overview-sync-indicator--success").text()).toBe("✓");
+    expect(wrapper.findAll(".overview-sync-label")).toHaveLength(3);
+    expect(wrapper.find(".overview-sync-panel strong").exists()).toBe(false);
+    expect(wrapper.get(".overview-sync-button").element.parentElement).toBe(wrapper.get(".overview-sync-row").element);
+    expect(wrapper.get(".overview-sync-button").element.parentElement).not.toBe(wrapper.get(".overview-sync-panel").element);
 
     await wrapper.get(".overview-webhook-details").trigger("click");
     expect(fetchEvent).toHaveBeenCalledWith("c0e8a2f1-1234-4567-890a-123456789abc");
