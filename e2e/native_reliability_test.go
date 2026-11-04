@@ -114,7 +114,11 @@ func TestRealSwarmMetadataUpdatePartialApplyRetry(t *testing.T) {
 		if other {
 			services += lifecycleService("b", "sleep 600", "")
 		}
-		return f.manifest(t, services)
+		file := f.manifest(t, services)
+		// These regressions concern service state, so use host networking on
+		// single-node Swarm runners that cannot create a VXLAN interface.
+		file.Compose.Networks = map[string]compose.Network{"default": {External: true, Name: "host"}}
+		return file
 	}
 	req := deployments.ExecuteRequest{
 		Stack: config.StackSpec{Name: f.stack}, Commit: "initial", Desired: load("initial", false), SourceChanged: true,
