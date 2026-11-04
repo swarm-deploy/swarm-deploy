@@ -83,7 +83,7 @@ func checkComposeFields(node *yaml.Node, typ reflect.Type, path string, ignored 
 		return nil // These custom forms accept arbitrary mapping keys or scalar/list syntax.
 	}
 
-	switch typ.Kind() { //nolint:exhaustive // Only container kinds require recursive YAML validation.
+	switch typ.Kind() {
 	case reflect.Map:
 		return checkMappedComposeValues(node, typ.Elem(), path, ignored)
 	case reflect.Slice, reflect.Array:
