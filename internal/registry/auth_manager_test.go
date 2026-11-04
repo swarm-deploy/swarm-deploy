@@ -42,7 +42,7 @@ func TestAuthManagerResolveImageReturnsEmptyWithoutAuthConfig(t *testing.T) {
 	assert.Empty(t, encodedAuth, "registry auth must be empty without auth config")
 }
 
-func TestAuthManagerResolveImageReloadsAuthConfig(t *testing.T) {
+func TestAuthManagerResolveImageKeepsConstructorEnvConfig(t *testing.T) {
 	firstRawAuth := base64.StdEncoding.EncodeToString([]byte("robot:secret"))
 	t.Setenv("DOCKER_AUTH_CONFIG", `{"auths":{"wmb-prod.cr.cloud.ru":{"auth":"`+firstRawAuth+`"}}}`)
 	t.Setenv("DOCKER_CONFIG", t.TempDir())
@@ -58,8 +58,8 @@ func TestAuthManagerResolveImageReloadsAuthConfig(t *testing.T) {
 
 	authConfig, err := dockerregistry.DecodeAuthConfig(encodedAuth)
 	require.NoError(t, err, "decode encoded registry auth")
-	assert.Equal(t, "robot-updated", authConfig.Username, "updated config should be used")
-	assert.Equal(t, "secret-updated", authConfig.Password, "updated config should be used")
+	assert.Equal(t, "robot", authConfig.Username, "constructor config should be used")
+	assert.Equal(t, "secret", authConfig.Password, "constructor config should be used")
 }
 
 func TestAuthManagerResolveImageReturnsErrorOnInvalidConfig(t *testing.T) {
@@ -71,6 +71,17 @@ func TestAuthManagerResolveImageReturnsErrorOnInvalidConfig(t *testing.T) {
 	require.Error(t, err)
 	assert.ErrorContains(t, err, "decode docker auth config")
 	assert.Empty(t, encodedAuth)
+}
+
+func TestAuthManagerInvalidConstructorEnvDoesNotFallBackToFile(t *testing.T) {
+	t.Setenv("DOCKER_AUTH_CONFIG", `{"auths":`)
+	t.Setenv("DOCKER_CONFIG", t.TempDir())
+
+	manager := NewAuthManager()
+	t.Setenv("DOCKER_AUTH_CONFIG", "")
+
+	_, err := manager.ResolveImage(privateImage)
+	require.ErrorContains(t, err, "decode docker auth config")
 }
 
 func TestAuthManagerResolveImageReloadsDockerConfigFile(t *testing.T) {
