@@ -32,9 +32,9 @@ type AuthManager interface {
 
 type DockerConfigAuthManager struct {
 	envConfig *dockerAuthConfigFile
-	envErr error
-	mu sync.Mutex
-	cache authCache
+	envErr    error
+	mu        sync.Mutex
+	cache     authCache
 }
 
 type authCache struct {
