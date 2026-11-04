@@ -61,16 +61,17 @@ func checkComposeFields(node *yaml.Node, typ reflect.Type, path string, ignored 
 		return nil // These custom forms accept arbitrary mapping keys or scalar/list syntax.
 	}
 
-	switch typ.Kind() { //nolint:exhaustive // Only container kinds require recursive YAML validation.
-	case reflect.Map:
+	kind := typ.Kind()
+	if kind == reflect.Map {
 		return checkMappedComposeValues(node, typ.Elem(), path, ignored)
-	case reflect.Slice, reflect.Array:
-		return checkSequenceComposeValues(node, typ.Elem(), path, ignored)
-	case reflect.Struct:
-		return checkComposeStructFields(node, typ, path, ignored)
-	default:
-		return nil
 	}
+	if kind == reflect.Slice || kind == reflect.Array {
+		return checkSequenceComposeValues(node, typ.Elem(), path, ignored)
+	}
+	if kind == reflect.Struct {
+		return checkComposeStructFields(node, typ, path, ignored)
+	}
+	return nil
 }
 
 func checkComposeStructFields(node *yaml.Node, typ reflect.Type, path string, ignored *[]string) error {
