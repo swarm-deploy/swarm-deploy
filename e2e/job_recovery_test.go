@@ -138,8 +138,12 @@ networks:
 }
 
 func TestRealSwarmJobManualRetryAfterMaxAttempts(t *testing.T) {
-	for _, mode := range []string{"replicated-job"} {
-		t.Run(mode, func(t *testing.T) {
+	for _, tc := range []struct{ name, condition string }{
+		{"on-failure", "condition: on-failure, "},
+		{"any", "condition: any, "},
+		{"default", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
 			f := newLifecycleFixture(t, true)
 			input := t.TempDir()
 			exitFile := filepath.Join(input, "exit-code")
@@ -153,9 +157,9 @@ func TestRealSwarmJobManualRetryAfterMaxAttempts(t *testing.T) {
         target: /input
         read_only: true
     deploy:
-      mode: %s
-      restart_policy: {condition: on-failure, max_attempts: 1, delay: 100ms}
-`, input, mode)
+      mode: replicated-job
+      restart_policy: {%smax_attempts: 1, delay: 100ms}
+`, input, tc.condition)
 			req := deployments.ExecuteRequest{
 				Stack: f.request.Stack, Desired: f.manifest(t, services), Commit: "failed", SourceChanged: true,
 			}

@@ -186,7 +186,9 @@ func TestJobRetryRechecksIterationAfterVersionConflict(t *testing.T) {
 
 func TestApplyJobManualRetryAfterMaxAttempts(t *testing.T) {
 	now := time.Now()
-	for _, mode := range []string{"replicated-job"} {
+	for _, condition := range []dockerswarm.RestartPolicyCondition{
+		dockerswarm.RestartPolicyConditionOnFailure, dockerswarm.RestartPolicyConditionAny, "",
+	} {
 		for _, tc := range []struct {
 			name   string
 			retry  bool
@@ -199,10 +201,10 @@ func TestApplyJobManualRetryAfterMaxAttempts(t *testing.T) {
 			{"completed", true, []swarm.TaskState{swarm.TaskStateFailed, swarm.TaskStateComplete}, false},
 			{"manual retry disabled", false, []swarm.TaskState{swarm.TaskStateFailed, swarm.TaskStateFailed}, false},
 		} {
-			t.Run(mode+"/"+tc.name, func(t *testing.T) {
+			t.Run("condition="+string(condition)+"/"+tc.name, func(t *testing.T) {
 				manager := swarm.NewMockServiceManager(gomock.NewController(t))
-				desired := jobSpec(mode)
-				desired.TaskTemplate.RestartPolicy.Condition = dockerswarm.RestartPolicyConditionOnFailure
+				desired := jobSpec("replicated-job")
+				desired.TaskTemplate.RestartPolicy.Condition = condition
 				desired.TaskTemplate.RestartPolicy.MaxAttempts = new(uint64(1))
 				current := service("job-id", 4, cloneSpec(desired))
 				current.JobStatus = &dockerswarm.JobStatus{JobIteration: dockerswarm.Version{Index: 7}}

@@ -10,11 +10,12 @@ import (
 
 const yamlNullTag = "!!null"
 
-// validateComposeSyntax rejects unsupported keys before YAML decoding can silently
-// discard them. Extension fields and Swarm-ignored service options are deliberately
-// excluded from the effective state, not retained as arbitrary model data.
+// validateComposeSyntax checks the raw keys so typed decoding cannot hide unsupported options.
 func validateComposeSyntax(node *yaml.Node) ([]string, error) {
-	if err := validateAliasCycles(node, make(map[*yaml.Node]bool)); err != nil {
+	// Decode without the Compose schema first: typed decoding skips extensions
+	// and starts a fresh decoder in custom unmarshaling methods.
+	var document any
+	if err := node.Decode(&document); err != nil {
 		return nil, err
 	}
 	var ignored []string
@@ -22,29 +23,6 @@ func validateComposeSyntax(node *yaml.Node) ([]string, error) {
 		return nil, err
 	}
 	return ignored, nil
-}
-
-// validateAliasCycles walks the YAML graph before schema-specific branches skip nodes.
-func validateAliasCycles(node *yaml.Node, active map[*yaml.Node]bool) error {
-	if node == nil {
-		return nil
-	}
-	if active[node] {
-		return fmt.Errorf("cyclic YAML alias at line %d", node.Line)
-	}
-	active[node] = true
-	defer delete(active, node)
-	if node.Alias != nil {
-		if err := validateAliasCycles(node.Alias, active); err != nil {
-			return err
-		}
-	}
-	for _, child := range node.Content {
-		if err := validateAliasCycles(child, active); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 func checkComposeFields(node *yaml.Node, typ reflect.Type, path string, ignored *[]string) error {
@@ -160,6 +138,12 @@ func checkSequenceComposeValues(node *yaml.Node, typ reflect.Type, path string, 
 }
 
 func checkComposeMerge(node *yaml.Node, typ reflect.Type, path string, ignored *[]string) error {
+	// The document decoder can skip overridden merge values. Decode the
+	// merge on its own before checking all its fields, including overrides.
+	var merged any
+	if err := node.Decode(&merged); err != nil {
+		return err
+	}
 	if node.Kind == yaml.SequenceNode {
 		return checkSequenceComposeValues(node, typ, path, ignored)
 	}

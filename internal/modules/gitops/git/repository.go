@@ -59,20 +59,23 @@ func NewGoGitRepository(ctx context.Context, spec config.GitSpec, path string) (
 		return nil, ClassifyPullError(err, spec.Repository, spec.Auth.Type)
 	}
 
-	pullTimeout := spec.Pull.Timeout.Value
-	if pullTimeout <= 0 {
-		pullTimeout = config.DefaultGitPullTimeout
-	}
 	return &GoGitRepository{
 		path:        path,
 		branch:      spec.Branch,
-		pullTimeout: pullTimeout,
+		pullTimeout: gitPullTimeout(spec),
 		auth:        authMethod,
 		remote:      spec.Repository,
 		authType:    spec.Auth.Type,
 		repository:  repo,
 		mu:          make(chan struct{}, 1),
 	}, nil
+}
+
+func gitPullTimeout(spec config.GitSpec) time.Duration {
+	if timeout := spec.Pull.Timeout.Value; timeout > 0 {
+		return timeout
+	}
+	return config.DefaultGitPullTimeout
 }
 
 // repositoryLockTimeoutDiagnostic reports a pull that timed out before it could access the local repository.
