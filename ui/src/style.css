@@ -148,6 +148,10 @@ body {
   opacity: 0.65;
 }
 
+.topbar-assistant-icon {
+  display: none;
+}
+
 .topbar-sync-button,
 .button-primary {
   border-color: var(--accent-border);
@@ -816,13 +820,25 @@ body {
   .topbar-shell {
     position: static;
     height: auto;
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px;
     padding: 14px 18px;
   }
 
-  .topbar-actions {
-    flex-wrap: wrap;
-    justify-content: flex-start;
+  .topbar-assistant-button {
+    width: 44px;
+    height: 44px;
+    padding: 0;
+  }
+
+  .topbar-assistant-label {
+    display: none;
+  }
+
+  .topbar-assistant-icon {
+    display: grid;
+    height: 100%;
+    place-items: center;
   }
 
   .shell-view {
