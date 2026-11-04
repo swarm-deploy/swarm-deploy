@@ -104,12 +104,13 @@ func (a *Applier) RefreshRegistryAuth(
 	slices.SortFunc(expected, func(left, right dockerswarm.ServiceSpec) int {
 		return strings.Compare(left.Name, right.Name)
 	})
+	var refreshErrors []error
 	for _, spec := range expected {
 		if err := a.refreshRegistryAuth(ctx, stackName, spec); err != nil {
-			return err
+			refreshErrors = append(refreshErrors, err)
 		}
 	}
-	return nil
+	return errors.Join(refreshErrors...)
 }
 
 func (a *Applier) refreshRegistryAuth(ctx context.Context, stackName string, expected dockerswarm.ServiceSpec) error {
