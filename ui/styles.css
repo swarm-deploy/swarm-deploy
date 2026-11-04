@@ -390,19 +390,18 @@ button:hover,
 
 .overview-webhook-details {
   border: 0;
+  border-bottom: 1px dashed currentColor;
   border-radius: 3px;
   background: transparent;
-  color: var(--accent-strong);
+  color: inherit;
   padding: 1px 2px;
   font: inherit;
   font-weight: 500;
-  text-decoration: underline;
-  text-underline-offset: 2px;
 }
 
 .overview-webhook-details:hover,
 .overview-webhook-details:focus-visible {
-  color: var(--text);
+  color: inherit;
   background: var(--surface-hover);
   filter: none;
   transform: none;
