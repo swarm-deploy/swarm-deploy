@@ -186,7 +186,7 @@ func TestJobRetryRechecksIterationAfterVersionConflict(t *testing.T) {
 
 func TestApplyJobManualRetryAfterMaxAttempts(t *testing.T) {
 	now := time.Now()
-	for _, mode := range []string{"replicated-job", "global-job"} {
+	for _, mode := range []string{"replicated-job"} {
 		for _, tc := range []struct {
 			name   string
 			retry  bool

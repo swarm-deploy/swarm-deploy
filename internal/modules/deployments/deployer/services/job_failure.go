@@ -20,8 +20,9 @@ func JobTaskFailure(
 	}
 	policy := spec.TaskTemplate.RestartPolicy
 	if policy.Condition != dockerswarm.RestartPolicyConditionNone &&
-		(policy.Condition != dockerswarm.RestartPolicyConditionOnFailure || policy.MaxAttempts == nil ||
-			*policy.MaxAttempts == 0 || (policy.Window != nil && *policy.Window > 0)) {
+		(spec.Mode.ReplicatedJob == nil || policy.Condition != dockerswarm.RestartPolicyConditionOnFailure ||
+			policy.MaxAttempts == nil || *policy.MaxAttempts == 0 ||
+			(policy.Window != nil && *policy.Window > 0)) {
 		return swarm.ServiceTask{}, false
 	}
 	latest := make(map[string]swarm.ServiceTask)

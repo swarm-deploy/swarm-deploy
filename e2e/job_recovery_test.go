@@ -138,7 +138,7 @@ networks:
 }
 
 func TestRealSwarmJobManualRetryAfterMaxAttempts(t *testing.T) {
-	for _, mode := range []string{"replicated-job", "global-job"} {
+	for _, mode := range []string{"replicated-job"} {
 		t.Run(mode, func(t *testing.T) {
 			f := newLifecycleFixture(t, true)
 			input := t.TempDir()
