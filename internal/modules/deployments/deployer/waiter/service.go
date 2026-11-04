@@ -103,6 +103,7 @@ type ServiceWaitRequest struct {
 // ServiceWaiter observes Docker Swarm service convergence after a detached apply.
 type ServiceWaiter struct {
 	services     swarm.ServiceManager
+	nodes        swarm.NodeManager
 	pollInterval time.Duration
 	timeout      time.Duration
 }
@@ -110,10 +111,11 @@ type ServiceWaiter struct {
 // NewServiceWaiter creates a bounded Docker Swarm service convergence waiter.
 func NewServiceWaiter(
 	services swarm.ServiceManager,
+	nodes swarm.NodeManager,
 	pollInterval time.Duration,
 	timeout time.Duration,
 ) *ServiceWaiter {
-	return &ServiceWaiter{services: services, pollInterval: pollInterval, timeout: timeout}
+	return &ServiceWaiter{services: services, nodes: nodes, pollInterval: pollInterval, timeout: timeout}
 }
 
 // Snapshot returns the current services belonging to a stack.

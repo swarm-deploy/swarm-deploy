@@ -72,7 +72,7 @@ func TestRollbackStatusBelongsToDesiredDeployment(t *testing.T) {
 			}
 			var progress ServiceProgress
 			request.Progress = func(p ServiceProgress) { progress = p }
-			result, err := NewServiceWaiter(manager, time.Millisecond, 20*time.Millisecond).Wait(t.Context(), request)
+			result, err := NewServiceWaiter(manager, nil, time.Millisecond, 20*time.Millisecond).Wait(t.Context(), request)
 			switch tc.want {
 			case ServiceReady:
 				require.NoError(t, err)

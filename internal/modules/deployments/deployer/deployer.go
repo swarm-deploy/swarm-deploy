@@ -78,6 +78,7 @@ func NewDeployer(
 		),
 		serviceWaiter: waiterpkg.NewServiceWaiter(
 			swarmService.Services,
+			swarmService.Nodes,
 			initJobPoll,
 			defaultServiceWaitTimeout,
 		),

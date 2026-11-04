@@ -74,10 +74,11 @@ func NewInitJobRunner(
 
 func NewServiceWaiter(
 	services swarm.ServiceManager,
+	nodes swarm.NodeManager,
 	pollInterval time.Duration,
 	timeout time.Duration,
 ) *ServiceWaiter {
-	return waiter.NewServiceWaiter(services, pollInterval, timeout)
+	return waiter.NewServiceWaiter(services, nodes, pollInterval, timeout)
 }
 
 // StackOptions controls recovery during a deployment retry.

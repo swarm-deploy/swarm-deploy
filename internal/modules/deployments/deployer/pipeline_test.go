@@ -271,7 +271,7 @@ func TestUnchangedHistoricalPausedServiceIsNotAnAppliedTarget(t *testing.T) {
 			observed := swarm.StackService{ID: "service-id", Name: "api", Mode: "replicated", Replicas: current.Mode.Replicated.Replicas, ServiceSpec: current, DesiredTasks: 1, UpdateStatus: &swarm.ServiceUpdateStatus{State: "paused"}}
 			manager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "demo"}).Return([]swarm.StackService{observed}, nil)
 			manager.EXPECT().Inspect(gomock.Any(), "demo_api").Return(dockerswarm.Service{ID: "service-id", Spec: current, UpdateStatus: &dockerswarm.UpdateStatus{State: dockerswarm.UpdateStatePaused}}, nil)
-			d := &Deployer{secretResolver: newTestSecretResolver(), serviceWaiter: waiterpkg.NewServiceWaiter(manager, time.Millisecond, time.Second)}
+			d := &Deployer{secretResolver: newTestSecretResolver(), serviceWaiter: waiterpkg.NewServiceWaiter(manager, nil, time.Millisecond, time.Second)}
 			wireNativeTestDeployerWithServiceManager(t, d, manager, false)
 			var err error
 			if single {
@@ -314,7 +314,7 @@ func TestRetryPausedStackActuallyAppliesNewTaskGeneration(t *testing.T) {
 		})
 	manager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "demo"}).Return([]swarm.StackService{after}, nil)
 	manager.EXPECT().ListTasks(gomock.Any(), "service-id").Return([]swarm.ServiceTask{{ID: "new-task", DesiredState: swarm.TaskStateRunning, CurrentState: swarm.TaskStateRunning, CreatedAt: now}}, nil)
-	d := &Deployer{secretResolver: newTestSecretResolver(), serviceWaiter: waiterpkg.NewServiceWaiter(manager, time.Millisecond, time.Second)}
+	d := &Deployer{secretResolver: newTestSecretResolver(), serviceWaiter: waiterpkg.NewServiceWaiter(manager, nil, time.Millisecond, time.Second)}
 	wireNativeTestDeployerWithServiceManager(t, d, manager, false)
 	_, err := d.DeployStack(t.Context(), StackRequest{
 		StackName:         "demo",
@@ -343,7 +343,7 @@ func TestAcceptedUnchangedRolloutIsVerified(t *testing.T) {
 			after := before
 			after.UpdateStatus = &swarm.ServiceUpdateStatus{State: "completed", StartedAt: now.Add(-time.Minute), CompletedAt: now}
 			manager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "demo"}).Return([]swarm.StackService{after}, nil)
-			d := &Deployer{secretResolver: newTestSecretResolver(), serviceWaiter: waiterpkg.NewServiceWaiter(manager, time.Millisecond, time.Second)}
+			d := &Deployer{secretResolver: newTestSecretResolver(), serviceWaiter: waiterpkg.NewServiceWaiter(manager, nil, time.Millisecond, time.Second)}
 			wireNativeTestDeployerWithServiceManager(t, d, manager, false)
 			options := StackOptions{}
 			if retry {
@@ -387,4 +387,83 @@ func TestFailuresDistinguishPreApplyChecksFromPartialServiceApply(t *testing.T) 
 			}
 		})
 	}
+}
+
+func TestPlacementOnlyPartialApplyRecoversUnresolvedServiceWithoutNewUpdate(t *testing.T) {
+	controller := gomock.NewController(t)
+	manager := swarm.NewMockServiceManager(controller)
+	nodes := swarm.NewMockNodeManager(controller)
+	now := time.Now().UTC()
+	replicas := uint64(1)
+	beforeSpec := nativeMinimalServiceSpec("a")
+	before := swarm.StackService{
+		ID: "a-id", Name: "a", Mode: "replicated", Replicas: &replicas, DesiredTasks: replicas,
+		CreatedAt: now.Add(-time.Hour), UpdatedAt: now.Add(-time.Hour), ServiceSpec: beforeSpec,
+	}
+	desired := minimalCompose("a", "b")
+	desired.Services[0].Deploy.Placement = &compose.ServiceDeployPlacement{
+		Constraints: []string{"node.labels.zone == east"},
+	}
+
+	var acceptedSpec dockerswarm.ServiceSpec
+	manager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "demo"}).
+		Return([]swarm.StackService{before}, nil)
+	manager.EXPECT().Inspect(gomock.Any(), "demo_a").Return(dockerswarm.Service{
+		ID: "a-id", Spec: beforeSpec,
+		Meta: dockerswarm.Meta{CreatedAt: before.CreatedAt, UpdatedAt: before.UpdatedAt},
+	}, nil)
+	manager.EXPECT().Update(gomock.Any(), "a-id", gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, _ string, _ dockerswarm.Version, spec dockerswarm.ServiceSpec,
+			_ dockerswarm.ServiceUpdateOptions,
+		) error {
+			acceptedSpec = spec
+			return nil
+		})
+	manager.EXPECT().Inspect(gomock.Any(), "demo_b").Return(dockerswarm.Service{}, assert.AnError)
+
+	d := &Deployer{
+		secretResolver: newTestSecretResolver(),
+		serviceWaiter:  waiterpkg.NewServiceWaiter(manager, nodes, time.Millisecond, time.Second),
+	}
+	wireNativeTestDeployerWithServiceManager(t, d, manager, false)
+	first, err := d.DeployStack(t.Context(), StackRequest{
+		StackName: "demo", SourceComposePath: "source.yaml", Desired: desired,
+	})
+	require.ErrorIs(t, err, assert.AnError)
+	assert.False(t, first.Verification.Known)
+	require.NotNil(t, acceptedSpec.TaskTemplate.Placement)
+
+	previous := beforeSpec
+	accepted := swarm.StackService{
+		ID: "a-id", Name: "a", Mode: "replicated", Replicas: &replicas, DesiredTasks: replicas,
+		CreatedAt: before.CreatedAt, UpdatedAt: now, ServiceSpec: acceptedSpec, PreviousSpec: &previous,
+	}
+	manager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "demo"}).
+		Return([]swarm.StackService{accepted}, nil)
+	manager.EXPECT().Inspect(gomock.Any(), "demo_a").Return(dockerswarm.Service{
+		ID: "a-id", Spec: acceptedSpec,
+		Meta:         dockerswarm.Meta{CreatedAt: before.CreatedAt, UpdatedAt: now},
+		PreviousSpec: &previous,
+	}, nil)
+	manager.EXPECT().Inspect(gomock.Any(), "demo_b").Return(dockerswarm.Service{
+		ID: "b-id", Spec: nativeMinimalServiceSpec("b"),
+	}, nil)
+	manager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "demo"}).
+		Return([]swarm.StackService{accepted}, nil)
+	manager.EXPECT().ListTasks(gomock.Any(), "a-id").Return([]swarm.ServiceTask{{
+		ID: "preserved-task", Node: "node-east", DesiredState: swarm.TaskStateRunning,
+		CurrentState: swarm.TaskStateRunning, CreatedAt: before.CreatedAt, Spec: swarm.NewTaskSpec(beforeSpec.TaskTemplate),
+	}}, nil)
+	nodes.EXPECT().List(gomock.Any()).Return([]swarm.Node{{
+		ID: "node-east", Role: "worker", Labels: map[string]string{"zone": "east"},
+	}}, nil)
+
+	second, err := d.DeployStack(t.Context(), StackRequest{
+		StackName: "demo", SourceComposePath: "source.yaml", Desired: desired,
+		Options: StackOptions{UnresolvedServices: []string{"a"}},
+	})
+
+	require.NoError(t, err)
+	assert.True(t, second.Verification.Known)
+	assert.Empty(t, second.Verification.UnresolvedServices)
 }

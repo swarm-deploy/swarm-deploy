@@ -91,16 +91,20 @@ func (*nodeManager) mapNode(node dockerswarm.Node) Node {
 	}
 
 	return Node{
-		ID:            node.ID,
-		Hostname:      node.Description.Hostname,
-		Status:        string(node.Status.State),
-		Availability:  string(node.Spec.Availability),
-		ManagerStatus: managerStatus,
-		EngineVersion: node.Description.Engine.EngineVersion,
-		Addr:          node.Status.Addr,
-		CPUNano:       node.Description.Resources.NanoCPUs,
-		MemoryBytes:   node.Description.Resources.MemoryBytes,
-		Labels:        node.Spec.Labels,
+		ID:                   node.ID,
+		Role:                 string(node.Spec.Role),
+		Hostname:             node.Description.Hostname,
+		PlatformOS:           node.Description.Platform.OS,
+		PlatformArchitecture: node.Description.Platform.Architecture,
+		Status:               string(node.Status.State),
+		Availability:         string(node.Spec.Availability),
+		ManagerStatus:        managerStatus,
+		EngineVersion:        node.Description.Engine.EngineVersion,
+		EngineLabels:         node.Description.Engine.Labels,
+		Addr:                 node.Status.Addr,
+		CPUNano:              node.Description.Resources.NanoCPUs,
+		MemoryBytes:          node.Description.Resources.MemoryBytes,
+		Labels:               node.Spec.Labels,
 	}
 }
 

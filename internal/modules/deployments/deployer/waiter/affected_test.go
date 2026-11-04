@@ -95,7 +95,9 @@ func TestUnresolvedRolloutNeedsTasksFromDesiredGeneration(t *testing.T) {
 				manager.EXPECT().ListServices(gomock.Any(), gomock.Any()).Return([]swarm.StackService{first}, nil)
 				manager.EXPECT().ListTasks(gomock.Any(), "api-id").Return(testRunningTasks(1, serviceWaitTestTime.Add(-time.Hour)), nil)
 				manager.EXPECT().ListServices(gomock.Any(), gomock.Any()).Return([]swarm.StackService{completed}, nil)
-				manager.EXPECT().ListTasks(gomock.Any(), "api-id").Return(testRunningTasks(1, serviceWaitTestTime), nil)
+				currentTasks := testRunningTasks(1, serviceWaitTestTime)
+				currentTasks[0].Spec = swarm.NewTaskSpec(completed.ServiceSpec.TaskTemplate)
+				manager.EXPECT().ListTasks(gomock.Any(), "api-id").Return(currentTasks, nil)
 				var appliedNames []string
 				if applied {
 					appliedNames = []string{"api"}
@@ -144,7 +146,7 @@ func TestUnresolvedGenerationWithoutUpdateMetadataCannotSucceed(t *testing.T) {
 	accepted := testReplicatedService("api", "api-id", 1, serviceWaitTestTime, "api:2")
 	manager.EXPECT().ListServices(gomock.Any(), gomock.Any()).Return([]swarm.StackService{accepted}, nil).AnyTimes()
 	manager.EXPECT().ListTasks(gomock.Any(), "api-id").Return(testRunningTasks(1, serviceWaitTestTime.Add(-time.Hour)), nil).AnyTimes()
-	err := waitForTest(NewServiceWaiter(manager, time.Millisecond, 5*time.Millisecond), t.Context(), ServiceWaitRequest{
+	err := waitForTest(NewServiceWaiter(manager, nil, time.Millisecond, 5*time.Millisecond), t.Context(), ServiceWaitRequest{
 		StackName: "app", ServiceNames: []string{"api"}, UnresolvedServices: []string{"api"}, Baseline: []swarm.StackService{accepted},
 	})
 	require.ErrorIs(t, err, context.DeadlineExceeded)
@@ -160,8 +162,10 @@ func TestUnresolvedInitialCreationCanRecoverWithoutUpdateStatus(t *testing.T) {
 				accepted.PreviousSpec = &previous.ServiceSpec
 			}
 			manager.EXPECT().ListServices(gomock.Any(), gomock.Any()).Return([]swarm.StackService{accepted}, nil).AnyTimes()
-			manager.EXPECT().ListTasks(gomock.Any(), "api-id").Return(testRunningTasks(1, serviceWaitTestTime), nil).AnyTimes()
-			err := waitForTest(NewServiceWaiter(manager, time.Millisecond, 5*time.Millisecond), t.Context(), ServiceWaitRequest{
+			tasks := testRunningTasks(1, serviceWaitTestTime)
+			tasks[0].Spec = swarm.NewTaskSpec(accepted.ServiceSpec.TaskTemplate)
+			manager.EXPECT().ListTasks(gomock.Any(), "api-id").Return(tasks, nil).AnyTimes()
+			err := waitForTest(NewServiceWaiter(manager, nil, time.Millisecond, 5*time.Millisecond), t.Context(), ServiceWaitRequest{
 				StackName: "app", ServiceNames: []string{"api"}, UnresolvedServices: []string{"api"}, Baseline: []swarm.StackService{accepted},
 			})
 			if previouslyUpdated {

@@ -30,8 +30,77 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/waiter"
 	deploymentmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/registry"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/labelsdict"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
+
+func TestRealSwarmPlacementOnlyUpdatePreservesCompatibleTask(t *testing.T) {
+	f := newExternalSwarmFixture(t)
+	replicas := uint64(1)
+	spec := dockerswarm.ServiceSpec{
+		Annotations: dockerswarm.Annotations{
+			Name: f.stack + "_job",
+			Labels: map[string]string{
+				labelsdict.StackNamespace: f.stack,
+				"com.docker.stack.image":  "busybox:1.36",
+			},
+		},
+		TaskTemplate: dockerswarm.TaskSpec{
+			ContainerSpec: &dockerswarm.ContainerSpec{Image: "busybox:1.36", Command: []string{"sleep", "600"}},
+		},
+		Mode: dockerswarm.ServiceMode{Replicated: &dockerswarm.ReplicatedService{Replicas: &replicas}},
+	}
+	applier := services.New(f.sw.Services, &registry.NopAuthManager{})
+	apply := func(expected dockerswarm.ServiceSpec) {
+		t.Helper()
+		baseline, err := f.sw.Services.ListServices(f.ctx, swarm.ListServicesFilter{Stack: f.stack})
+		require.NoError(t, err)
+		applied, err := applier.Apply(f.ctx, f.stack, []dockerswarm.ServiceSpec{expected}, services.ApplyOptions{})
+		require.NoError(t, err)
+		require.Equal(t, []string{"job"}, applied.ChangedServices)
+		result, err := waiter.NewServiceWaiter(f.sw.Services, f.sw.Nodes, 100*time.Millisecond, 30*time.Second).
+			Wait(f.ctx, waiter.ServiceWaitRequest{
+				StackName: f.stack, ServiceNames: []string{"job"}, Baseline: baseline,
+				AppliedServices: applied.ChangedServices, ExpectedSpecs: map[string]dockerswarm.ServiceSpec{"job": expected},
+			})
+		require.NoError(t, err)
+		require.Empty(t, result.UnresolvedServices)
+	}
+
+	apply(spec)
+	f.running(t, 1)
+	before := f.tasks(t, "job")
+	require.Len(t, before, 1)
+	require.NotEmpty(t, before[0].Node)
+
+	updated := f.inspect(t, "job").Spec
+	updated.TaskTemplate.Placement = &dockerswarm.Placement{
+		Constraints: []string{"node.id == " + before[0].Node},
+	}
+	apply(updated)
+
+	after := f.tasks(t, "job")
+	require.Len(t, after, 1)
+	assert.Equal(t, before[0].ID, after[0].ID, "SwarmKit must preserve the compatible task")
+	assert.Equal(t, before[0].CreatedAt, after[0].CreatedAt, "the preserved task keeps its creation generation")
+	assert.Nil(t, f.inspect(t, "job").UpdateStatus, "placement-only preservation does not start a rolling update")
+
+	recoveryBaseline, err := f.sw.Services.ListServices(f.ctx, swarm.ListServicesFilter{Stack: f.stack})
+	require.NoError(t, err)
+	retried, err := applier.Apply(f.ctx, f.stack, []dockerswarm.ServiceSpec{updated}, services.ApplyOptions{})
+	require.NoError(t, err)
+	require.Empty(t, retried.ChangedServices, "recovery must not submit another service update")
+	result, err := waiter.NewServiceWaiter(f.sw.Services, f.sw.Nodes, 100*time.Millisecond, 30*time.Second).
+		Wait(f.ctx, waiter.ServiceWaitRequest{
+			StackName: f.stack, ServiceNames: []string{"job"}, Baseline: recoveryBaseline,
+			UnresolvedServices: []string{"job"}, ExpectedSpecs: map[string]dockerswarm.ServiceSpec{"job": updated},
+		})
+	require.NoError(t, err)
+	require.Empty(t, result.UnresolvedServices)
+	afterRecovery := f.tasks(t, "job")
+	require.Len(t, afterRecovery, 1)
+	assert.Equal(t, before[0].ID, afterRecovery[0].ID, "recovery verifies the preserved task without replacement")
+}
 
 func TestRealSwarmMetadataUpdatePartialApplyRetry(t *testing.T) {
 	f := newLifecycleFixture(t, false)
@@ -225,7 +294,7 @@ func applyRegistryService(t *testing.T, f *externalSwarmFixture, applier *servic
 	require.NoError(t, err)
 	applied, err := applier.Apply(f.ctx, f.stack, []dockerswarm.ServiceSpec{spec}, services.ApplyOptions{})
 	require.NoError(t, err)
-	result, err := waiter.NewServiceWaiter(f.sw.Services, 100*time.Millisecond, 30*time.Second).Wait(f.ctx, waiter.ServiceWaitRequest{
+	result, err := waiter.NewServiceWaiter(f.sw.Services, f.sw.Nodes, 100*time.Millisecond, 30*time.Second).Wait(f.ctx, waiter.ServiceWaitRequest{
 		StackName: f.stack, ServiceNames: []string{"private"}, Baseline: baseline,
 		AppliedServices: applied.ChangedServices, ExpectedSpecs: map[string]dockerswarm.ServiceSpec{"private": spec},
 	})

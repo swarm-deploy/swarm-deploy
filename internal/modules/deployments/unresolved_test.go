@@ -94,12 +94,15 @@ func TestNativeDeploymentCarriesUnresolvedRolloutAcrossDesiredDigests(t *testing
 	list := func(live ...swarm.StackService) {
 		manager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "app"}).Return(live, nil)
 	}
-	running := func(id string, created time.Time) swarm.ServiceTask {
-		return swarm.ServiceTask{ID: id, DesiredState: swarm.TaskStateRunning, CurrentState: swarm.TaskStateRunning, CreatedAt: created}
+	running := func(id string, created time.Time, spec dockerswarm.TaskSpec) swarm.ServiceTask {
+		return swarm.ServiceTask{
+			ID: id, DesiredState: swarm.TaskStateRunning, CurrentState: swarm.TaskStateRunning,
+			CreatedAt: created, Spec: swarm.NewTaskSpec(spec),
+		}
 	}
 	exit := 1
 	failedTask := swarm.ServiceTask{ID: "failed-new-task", DesiredState: swarm.TaskStateShutdown, CurrentState: swarm.TaskStateFailed, CreatedAt: now, ExitCode: &exit}
-	oldTasks := []swarm.ServiceTask{running("old-running", now.Add(-time.Hour)), failedTask}
+	oldTasks := []swarm.ServiceTask{running("old-running", now.Add(-time.Hour), beforeSpec[0].TaskTemplate), failedTask}
 	// First rollout mutates a and fails while an old generation remains Running.
 	list(aOld, bOld, historical)
 	inspect("a", beforeSpec[0], dockerswarm.UpdateStateCompleted)
@@ -123,7 +126,9 @@ func TestNativeDeploymentCarriesUnresolvedRolloutAcrossDesiredDigests(t *testing
 	manager.EXPECT().Update(gomock.Any(), "b-id", gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
 	list(aFailed, bNew, historical)
 	manager.EXPECT().ListTasks(gomock.Any(), "a-id").Return(oldTasks, nil)
-	manager.EXPECT().ListTasks(gomock.Any(), "b-id").Return([]swarm.ServiceTask{running("new-b", bNew.UpdatedAt)}, nil)
+	manager.EXPECT().ListTasks(gomock.Any(), "b-id").Return([]swarm.ServiceTask{
+		running("new-b", bNew.UpdatedAt, nextSpec[1].TaskTemplate),
+	}, nil)
 	req.Commit, req.Desired = "two", nextDesired
 	second, err := create().Execute(t.Context(), req)
 	require.Error(t, err)
@@ -154,8 +159,12 @@ func TestNativeDeploymentCarriesUnresolvedRolloutAcrossDesiredDigests(t *testing
 	inspect("historical", beforeSpec[2], dockerswarm.UpdateStatePaused)
 	manager.EXPECT().Update(gomock.Any(), "b-id", gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
 	list(aRecovered, bRecovered, historical)
-	manager.EXPECT().ListTasks(gomock.Any(), "a-id").Return([]swarm.ServiceTask{running("recovered-a", now)}, nil)
-	manager.EXPECT().ListTasks(gomock.Any(), "b-id").Return([]swarm.ServiceTask{running("recovered-b", bRecovered.UpdatedAt)}, nil)
+	manager.EXPECT().ListTasks(gomock.Any(), "a-id").Return([]swarm.ServiceTask{
+		running("recovered-a", now, failedSpec[0].TaskTemplate),
+	}, nil)
+	manager.EXPECT().ListTasks(gomock.Any(), "b-id").Return([]swarm.ServiceTask{
+		running("recovered-b", bRecovered.UpdatedAt, recoveredSpec[1].TaskTemplate),
+	}, nil)
 	list(aRecovered, bRecovered, historical)
 	req.Commit, req.Desired = "three", recoveredDesired
 	recovered, err := create().Execute(t.Context(), req)

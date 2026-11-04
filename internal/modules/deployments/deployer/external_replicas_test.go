@@ -87,7 +87,7 @@ func TestIdleExternalTemplateUpdateReportsSpecificationOnly(t *testing.T) {
 					return []swarm.StackService{after}, nil
 				})
 			d := &Deployer{secretResolver: newTestSecretResolver(),
-				serviceWaiter: waiterpkg.NewServiceWaiter(manager, time.Millisecond, time.Second)}
+				serviceWaiter: waiterpkg.NewServiceWaiter(manager, nil, time.Millisecond, time.Second)}
 			wireNativeTestDeployerWithServiceManager(t, d, manager, false)
 			desired := minimalCompose("job")
 			desired.Services[0].Deploy.Replicas = &zero
@@ -208,7 +208,7 @@ func TestExternalSchedulerRaceUsesActualAppliedGeneration(t *testing.T) {
 				func(_ any, _ swarm.ListServicesFilter) ([]swarm.StackService, error) {
 					return []swarm.StackService{observed}, nil
 				})
-			d := &Deployer{secretResolver: newTestSecretResolver(), serviceWaiter: waiterpkg.NewServiceWaiter(manager, time.Millisecond, time.Second)}
+			d := &Deployer{secretResolver: newTestSecretResolver(), serviceWaiter: waiterpkg.NewServiceWaiter(manager, nil, time.Millisecond, time.Second)}
 			wireNativeTestDeployerWithServiceManager(t, d, manager, false)
 			desired := minimalCompose("job")
 			desired.Services[0].Deploy.Replicas = &zero
@@ -251,7 +251,7 @@ func TestExternalInitialCreationAndSubsequentDeploy(t *testing.T) {
 						return dockerswarm.Service{ID: "job-id", Spec: created}, nil
 					}).Times(1)
 				d := &Deployer{secretResolver: newTestSecretResolver(),
-					serviceWaiter: waiterpkg.NewServiceWaiter(manager, time.Millisecond, time.Second)}
+					serviceWaiter: waiterpkg.NewServiceWaiter(manager, nil, time.Millisecond, time.Second)}
 				wireNativeTestDeployerWithServiceManager(t, d, manager, false)
 				desired := minimalCompose("job")
 				desired.Services[0].Deploy.Replicas = &replicas

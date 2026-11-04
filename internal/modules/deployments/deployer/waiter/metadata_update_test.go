@@ -44,7 +44,7 @@ func TestMetadataOnlyRecoveryVerifiesExistingTaskTemplates(t *testing.T) {
 				tasks[0].Spec = swarm.NewTaskSpec(template)
 			}
 			for _, baseline := range []swarm.StackService{before, after} {
-				progress := evaluateService("api", baseline, after, tasks, true, after.ServiceSpec)
+				progress := evaluateService("api", baseline, after, tasks, true, after.ServiceSpec, nil)
 				assert.Equal(t, tc.want, progress.State, progress.Message)
 			}
 		})

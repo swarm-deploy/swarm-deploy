@@ -36,6 +36,7 @@ func TestTaskSpecEquivalentDockerRepresentations(t *testing.T) {
 
 	assert.True(t, comparison.Equal())
 	assert.False(t, comparison.OlderForceUpdateOnly())
+	assert.False(t, comparison.PlacementOnly())
 	assert.Empty(t, comparison.MismatchPaths())
 }
 
@@ -58,6 +59,7 @@ func TestTaskSpecMeaningfulDifferencesRemainStrict(t *testing.T) {
 		path                 string
 		edit                 func(*dockerswarm.TaskSpec)
 		olderForceUpdateOnly bool
+		placementOnly        bool
 	}{
 		{name: "newer force update", path: "TaskTemplate.ForceUpdate", edit: func(spec *dockerswarm.TaskSpec) { spec.ForceUpdate++ }},
 		{name: "older force update", path: "TaskTemplate.ForceUpdate", edit: func(spec *dockerswarm.TaskSpec) { spec.ForceUpdate-- },
@@ -73,7 +75,7 @@ func TestTaskSpecMeaningfulDifferencesRemainStrict(t *testing.T) {
 		{name: "restart attempts", path: "TaskTemplate.RestartPolicy.MaxAttempts", edit: func(spec *dockerswarm.TaskSpec) { value := uint64(1); spec.RestartPolicy.MaxAttempts = &value }},
 		{name: "placement", path: "TaskTemplate.Placement.Constraints", edit: func(spec *dockerswarm.TaskSpec) {
 			spec.Placement = &dockerswarm.Placement{Constraints: []string{"node.role == manager"}}
-		}},
+		}, placementOnly: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			actual := cloneDockerTaskSpec(base)
@@ -81,6 +83,7 @@ func TestTaskSpecMeaningfulDifferencesRemainStrict(t *testing.T) {
 			comparison := NewTaskSpec(actual).CompareServiceTemplate(base)
 			require.False(t, comparison.Equal())
 			assert.Equal(t, tc.olderForceUpdateOnly, comparison.OlderForceUpdateOnly())
+			assert.Equal(t, tc.placementOnly, comparison.PlacementOnly())
 			assert.Contains(t, comparison.MismatchPaths(), tc.path)
 			diagnostic := strings.Join(comparison.MismatchPaths(), ",")
 			assert.NotContains(t, diagnostic, "secret-value")
