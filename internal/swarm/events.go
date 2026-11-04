@@ -185,7 +185,7 @@ func (e *Events) dispatch(ctx context.Context, event dockerevents.Message) {
 	overflow := ResyncEvent{Time: time.Now(), Reason: ResyncReasonOverflow}
 	var droppedSubscribers int
 
-	switch event.Type {
+	switch event.Type { //nolint:exhaustive // The Docker event stream is filtered to node and secret events.
 	case dockerevents.NodeEventType:
 		droppedSubscribers = e.nodes.publish(NodeEvent{
 			NodeID:     event.Actor.ID,
