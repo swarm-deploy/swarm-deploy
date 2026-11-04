@@ -45,7 +45,9 @@ func evaluateService(
 		progress.Message = boundedDiagnostic(fmt.Sprintf("unsupported service mode %q", service.Mode))
 		return progress
 	}
-	if expected.Name != "" && !services.SpecsEqual(service.ServiceSpec, expected) {
+	unresolved = unresolved && !restored
+	preservePlacementTasks := placementOnlyTaskPreservation(baseline, service, unresolved)
+	if preservePlacementTasks && expected.Name != "" && !services.SpecsEqual(service.ServiceSpec, expected) {
 		progress.Message = "waiting for expected service specification"
 		return progress
 	}
@@ -61,8 +63,6 @@ func evaluateService(
 
 	// A no-op sync of the restored spec verifies its existing tasks, even when
 	// an earlier failed desired spec left an unresolved verification obligation.
-	unresolved = unresolved && !restored
-	preservePlacementTasks := placementOnlyTaskPreservation(baseline, service, unresolved)
 	requireCurrentGeneration := requiresTaskGeneration(baseline, service, unresolved, preservePlacementTasks)
 	cutoff, generationPending := verificationTaskCutoff(baseline, service, requireCurrentGeneration, unresolved)
 	if generationPending {
