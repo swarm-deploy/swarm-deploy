@@ -148,6 +148,10 @@ body {
   opacity: 0.65;
 }
 
+.topbar-assistant-icon {
+  display: none;
+}
+
 .topbar-sync-button,
 .button-primary {
   border-color: var(--accent-border);
@@ -816,13 +820,34 @@ body {
   .topbar-shell {
     position: static;
     height: auto;
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px;
     padding: 14px 18px;
   }
 
+  .topbar-search input {
+    display: block;
+  }
+
   .topbar-actions {
-    flex-wrap: wrap;
-    justify-content: flex-start;
+    align-self: stretch;
+    align-items: stretch;
+  }
+
+  .topbar-assistant-button {
+    display: grid;
+    width: 38px;
+    padding: 0;
+  }
+
+  .topbar-assistant-label {
+    display: none;
+  }
+
+  .topbar-assistant-icon {
+    display: grid;
+    place-items: center;
+    color: var(--control-primary);
   }
 
   .shell-view {

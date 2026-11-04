@@ -218,8 +218,30 @@ onUnmounted(() => {
     </div>
 
     <div class="topbar-actions">
-      <button type="button" class="button-ghost" :disabled="!assistantEnabled" @click="emit('toggleAssistant')">
-        Assistant
+      <button
+        type="button"
+        class="button-ghost topbar-assistant-button"
+        aria-label="Assistant"
+        :disabled="!assistantEnabled"
+        @click="emit('toggleAssistant')"
+      >
+        <span class="topbar-assistant-label">Assistant</span>
+        <span class="topbar-assistant-icon" title="Assistant" aria-hidden="true">
+          <svg
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.75"
+            stroke-linecap="round"
+          >
+            <rect x="4" y="7" width="16" height="13" rx="3" />
+            <path d="M12 7V3M9.5 15Q12 18 14.5 15" />
+            <circle cx="9" cy="12" r="1" fill="currentColor" stroke="none" />
+            <circle cx="15" cy="12" r="1" fill="currentColor" stroke="none" />
+          </svg>
+        </span>
       </button>
     </div>
   </header>
