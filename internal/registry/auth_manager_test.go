@@ -4,7 +4,9 @@ import (
 	"encoding/base64"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
+	"time"
 
 	dockerregistry "github.com/docker/docker/api/types/registry"
 	"github.com/stretchr/testify/assert"
@@ -121,4 +123,74 @@ func TestAuthManagerResolveImageRejectsUnreadableConfigPath(t *testing.T) {
 
 	_, err := NewAuthManager().ResolveImage(privateImage)
 	require.ErrorContains(t, err, "read docker auth config")
+}
+
+func TestAuthManagerResolveImageReloadsAtomicReplacementWithSameMetadata(t *testing.T) {
+	t.Setenv("DOCKER_AUTH_CONFIG", "")
+	configDir := t.TempDir()
+	t.Setenv("DOCKER_CONFIG", configDir)
+	configPath := filepath.Join(configDir, "config.json")
+	first := []byte(`{"auths":{"wmb-prod.cr.cloud.ru":{"username":"first","password":"secret"}}}`)
+	second := []byte(`{"auths":{"wmb-prod.cr.cloud.ru":{"username":"other","password":"secret"}}}`)
+	require.Equal(t, len(first), len(second))
+	require.NoError(t, os.WriteFile(configPath, first, 0o600))
+	stamp := time.Now().Add(-time.Hour)
+	require.NoError(t, os.Chtimes(configPath, stamp, stamp))
+
+	manager := NewAuthManager()
+	encoded, err := manager.ResolveImage(privateImage)
+	require.NoError(t, err)
+	auth, err := dockerregistry.DecodeAuthConfig(encoded)
+	require.NoError(t, err)
+	assert.Equal(t, "first", auth.Username)
+
+	replacement := filepath.Join(configDir, "replacement.json")
+	require.NoError(t, os.WriteFile(replacement, second, 0o600))
+	require.NoError(t, os.Chtimes(replacement, stamp, stamp))
+	require.NoError(t, os.Rename(replacement, configPath))
+
+	encoded, err = manager.ResolveImage(privateImage)
+	require.NoError(t, err)
+	auth, err = dockerregistry.DecodeAuthConfig(encoded)
+	require.NoError(t, err)
+	assert.Equal(t, "other", auth.Username)
+}
+
+func TestAuthManagerResolveImageDoesNotReuseStaleCredentialsAfterInvalidUpdate(t *testing.T) {
+	t.Setenv("DOCKER_AUTH_CONFIG", "")
+	configDir := t.TempDir()
+	t.Setenv("DOCKER_CONFIG", configDir)
+	configPath := filepath.Join(configDir, "config.json")
+	require.NoError(t, os.WriteFile(configPath, []byte(`{"auths":{"wmb-prod.cr.cloud.ru":{"username":"first","password":"secret"}}}`), 0o600))
+
+	manager := NewAuthManager()
+	_, err := manager.ResolveImage(privateImage)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(configPath, []byte(`{"auths":`), 0o600))
+	encoded, err := manager.ResolveImage(privateImage)
+	require.ErrorContains(t, err, "decode docker auth config")
+	assert.Empty(t, encoded)
+}
+
+func TestAuthManagerResolveImageConcurrentLookups(t *testing.T) {
+	t.Setenv("DOCKER_AUTH_CONFIG", `{"auths":{"wmb-prod.cr.cloud.ru":{"username":"robot","password":"secret"}}}`)
+	manager := NewAuthManager()
+	var wg sync.WaitGroup
+	for range 32 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for range 20 {
+				encoded, err := manager.ResolveImage(privateImage)
+				assert.NoError(t, err)
+				if err != nil {
+					return
+				}
+				auth, err := dockerregistry.DecodeAuthConfig(encoded)
+				assert.NoError(t, err)
+				assert.Equal(t, "robot", auth.Username)
+			}
+		}()
+	}
+	wg.Wait()
 }
