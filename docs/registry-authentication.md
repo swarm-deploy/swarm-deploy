@@ -8,8 +8,12 @@ and passes them in Docker service create/update options. Docker CLI is not neede
 inside the container. Credentials available only on the host are not automatically
 visible to swarm-deploy.
 
-Registry authentication is reloaded on each image-auth lookup (service create/update,
-Init Job create, or registry version lookup), without restarting swarm-deploy.
+Registry authentication is cached in memory. On each image-auth lookup (service
+create/update, Init Job create, or registry version lookup), swarm-deploy checks
+the configuration file's identity, modification time, and size. Unchanged files
+are not reread or reparsed; changed files are loaded automatically without a
+restart. Credential files should be updated with an atomic file replacement
+(or a write that changes the modification time).
 Malformed or unreadable configuration causes the operation to fail with an explicit error,
 rather than silently falling back to anonymous access. If no config file exists and
 `DOCKER_AUTH_CONFIG` is unset, anonymous access remains available.
@@ -62,8 +66,8 @@ update a running task's mounted secret. To rotate credentials supplied by a Dock
 create a new secret and update the swarm-deploy service to use it. For short-lived tokens
 (such as AWS ECR authorization tokens), use a regularly refreshed bind-mounted config file
 or another mechanism that replaces the file visible inside the container. The refreshed
-credentials will be picked up by the next registry auth lookup; this implementation does
-not refresh expired tokens itself.
+credentials will be picked up by the next registry auth lookup when the file
+metadata changes; this implementation does not refresh expired tokens itself.
 
 ## Alternative: read-only bind mount
 
@@ -114,6 +118,6 @@ or `credHelpers` are **not** supported. A `config.json` containing only helper
 references does not provide usable registry credentials to swarm-deploy. Use a
 `config.json` with inline `auths` entries or `DOCKER_AUTH_CONFIG` instead.
 
-`DOCKER_AUTH_CONFIG` takes precedence over the file and is read from the process
-environment; updating a running container's environment is not supported. Restart or
+`DOCKER_AUTH_CONFIG` takes precedence over the file and is cached by its current
+value. Updating a running container's environment is not supported. Restart or
 recreate the service when changing this variable.
