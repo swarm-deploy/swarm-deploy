@@ -5,6 +5,7 @@ import { useRoute } from "vue-router";
 import { fetchAlerts, fetchDeployments, fetchStackResources, fetchStacks } from "../api/overview";
 import { fetchServices } from "../api/services";
 import type { Alert, DeploymentSummary, NetworkInfo, ServiceInfo, StackResourceInfo, StackView } from "../api/types";
+import AppButton from "../components/common/AppButton.vue";
 import AppTableEmpty from "../components/common/AppTableEmpty.vue";
 import DeploymentIcon from "../components/overview/DeploymentIcon.vue";
 import RecentDeploymentsPanel from "../components/overview/RecentDeploymentsPanel.vue";
@@ -109,7 +110,7 @@ onUnmounted(() => { request++; });
   <section class="stack-details-page">
     <AppTableEmpty v-if="loading" role="status" message="Loading stack..." />
     <AppTableEmpty v-else-if="error" role="alert">
-      Failed to load stack: {{ error }} <button type="button" class="button-ghost" @click="load">Retry</button>
+      Failed to load stack: {{ error }} <AppButton variant="secondary" compact @click="load">Retry</AppButton>
     </AppTableEmpty>
     <AppTableEmpty v-else-if="!stack" message="Stack not found." />
     <template v-else>
@@ -135,7 +136,7 @@ onUnmounted(() => { request++; });
             </dd></div>
           </dl>
         </div>
-        <button type="button" class="stack-compare-button" @click="store.openStackManifestModal(stack.name)">Compare state</button>
+        <AppButton variant="secondary" class="stack-compare-button" @click="store.openStackManifestModal(stack.name)">Compare state</AppButton>
       </header>
 
       <p v-if="stack.last_error" class="stack-error" role="alert">{{ stack.last_error }}</p>

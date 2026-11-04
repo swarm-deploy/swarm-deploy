@@ -143,44 +143,6 @@ body {
   justify-content: flex-end;
 }
 
-.topbar-actions button:disabled {
-  cursor: not-allowed;
-  opacity: 0.65;
-}
-
-.topbar-sync-button,
-.button-primary {
-  border-color: var(--accent-border);
-  border-radius: 6px;
-  background: var(--control-primary);
-  font-weight: 600;
-  box-shadow: none;
-}
-
-.topbar-sync-button:hover:not(:disabled),
-.button-primary:hover:not(:disabled) {
-  background: var(--control-primary-hover);
-  filter: none;
-}
-
-.topbar-sync-button:focus-visible,
-.button-primary:focus-visible {
-  outline: 2px solid var(--accent-focus);
-  outline-offset: 2px;
-  box-shadow: none;
-}
-
-.topbar-sync-button:disabled:hover {
-  transform: none;
-  filter: none;
-}
-
-.button-ghost {
-  border-color: var(--border-default);
-  color: var(--text);
-  background: var(--surface-control);
-}
-
 .sidebar {
   position: sticky;
   z-index: 7;

@@ -4,6 +4,7 @@ import { useRoute, useRouter } from "vue-router";
 
 import { fetchAlerts } from "../api/overview";
 import type { Alert } from "../api/types";
+import AppButton from "../components/common/AppButton.vue";
 import AppTable from "../components/common/AppTable.vue";
 import AppTableEmpty from "../components/common/AppTableEmpty.vue";
 import { useOverviewStore } from "../stores/overview";
@@ -57,7 +58,7 @@ onMounted(() => void loadAlerts());
         <input v-model="showResolved" type="checkbox" />
         <span>Show resolved alerts</span>
       </label>
-      <p v-if="stackFilter" class="meta">Stack: <strong>{{ stackFilter }}</strong> <button type="button" class="button-ghost" @click="clearStackFilter">Clear stack filter</button></p>
+      <p v-if="stackFilter" class="meta">Stack: <strong>{{ stackFilter }}</strong> <AppButton variant="secondary" compact @click="clearStackFilter">Clear stack filter</AppButton></p>
     </header>
 
     <AppTableEmpty v-if="loading && alerts.length === 0" message="Loading alerts..." />

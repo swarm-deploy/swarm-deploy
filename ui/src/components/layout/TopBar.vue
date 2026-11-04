@@ -6,6 +6,7 @@ import { fetchSearch } from "../../api/search";
 import type { SearchResult } from "../../api/types";
 import { useOverviewStore } from "../../stores/overview";
 import { useSecretDetailsStore } from "../../stores/secretDetails";
+import AppButton from "../common/AppButton.vue";
 
 defineProps<{
   syncDisabled: boolean;
@@ -223,17 +224,15 @@ onUnmounted(() => {
     </div>
 
     <div class="topbar-actions">
-      <button
-        type="button"
-        class="topbar-sync-button"
+      <AppButton
         :disabled="syncDisabled || syncPending"
         @click="emit('syncNow')"
       >
         {{ syncPending ? "Syncing..." : "Sync now" }}
-      </button>
-      <button type="button" class="button-ghost" :disabled="!assistantEnabled" @click="emit('toggleAssistant')">
+      </AppButton>
+      <AppButton variant="secondary" :disabled="!assistantEnabled" @click="emit('toggleAssistant')">
         Assistant
-      </button>
+      </AppButton>
     </div>
   </header>
 </template>

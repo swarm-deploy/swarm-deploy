@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 
 import { fetchGraph } from "../api/graph";
 import type { GraphNode, GraphResponse } from "../api/types";
+import AppButton from "../components/common/AppButton.vue";
 
 interface Point {
   x: number;
@@ -588,20 +589,20 @@ onBeforeUnmount(() => {
       </div>
 
       <div class="graph-actions">
-        <button type="button" class="button-ghost graph-action-button" :disabled="!hasGraph" @click="resetLayout">
+        <AppButton variant="secondary" class="graph-action-button" :disabled="!hasGraph" @click="resetLayout">
           Reset layout
-        </button>
-        <button
-          type="button"
-          class="button-ghost graph-action-button"
+        </AppButton>
+        <AppButton
+          variant="secondary"
+          class="graph-action-button"
           :disabled="!hasGraph || exportingImage"
           @click="downloadGraphImage"
         >
           {{ exportingImage ? "Downloading..." : "Download PNG" }}
-        </button>
-        <button type="button" class="graph-action-button" :disabled="loading" @click="loadGraph">
+        </AppButton>
+        <AppButton class="graph-action-button" :disabled="loading" @click="loadGraph">
           {{ loading ? "Loading..." : "Reload" }}
-        </button>
+        </AppButton>
       </div>
     </header>
 

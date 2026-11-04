@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from "vue";
 
 import { fetchSecretManagers, fetchSecrets, syncSecretManager } from "../api/secrets";
 import type { SecretInfo, SecretManagerInfo, SecretManagerSyncResponse } from "../api/types";
+import AppButton from "../components/common/AppButton.vue";
 import AppTable from "../components/common/AppTable.vue";
 import AppTableEmpty from "../components/common/AppTableEmpty.vue";
 import CreateSecretModal from "../components/secrets/CreateSecretModal.vue";
@@ -233,7 +234,7 @@ function formatDate(value: string): string {
         placeholder="Search by name, service, description, version, external path..."
         aria-label="Search secrets"
       />
-      <button type="button" class="secrets-create-button" @click="createModalOpen = true">Create Secret</button>
+      <AppButton compact class="secrets-create-button" @click="createModalOpen = true">Create Secret</AppButton>
     </div>
 
     <AppTableEmpty v-if="loading && secrets.length === 0" message="Loading..." />
@@ -305,9 +306,7 @@ function formatDate(value: string): string {
 <style scoped>
 .secrets-toolbar-actions { width: 100%; max-width: none; align-items: center; justify-content: space-between; gap: 10px; }
 .secrets-toolbar-actions .secrets-search-input { flex: 1 1 360px; max-width: 520px; min-width: 0; }
-.secrets-create-button { flex: 0 0 auto; border-color: var(--accent-border); border-radius: 6px; background: var(--control-primary); padding: 8px 13px; font-weight: 600; box-shadow: none; }
-.secrets-create-button:hover { background: var(--control-primary-hover); filter: none; }
-.secrets-create-button:focus-visible { outline: 2px solid var(--accent-focus); outline-offset: 2px; box-shadow: none; }
+.secrets-create-button { flex: 0 0 auto; }
 .secrets-create-feedback { margin: 0; border: 1px solid var(--success-border); border-radius: 8px; background: var(--success-muted); color: var(--success); padding: 8px 10px; font-size: .82rem; }
 .secrets-table :deep(td) { overflow-wrap: anywhere; }
 </style>
