@@ -44,6 +44,24 @@ func TestPlacementOnlyUpdateReusesCompatibleRunningTasks(t *testing.T) {
 	}
 }
 
+func TestPlacementOnlyUpdateWaitsForExpectedServiceSpecification(t *testing.T) {
+	before, after := placementUpdateServices(replicatedServiceMode, 1)
+	tasks := placementTasks(1, before.ServiceSpec.TaskTemplate, before.CreatedAt, "node-east")
+	expected := after.ServiceSpec
+	container := *expected.TaskTemplate.ContainerSpec
+	container.Image = "api:unexpected"
+	expected.TaskTemplate.ContainerSpec = &container
+
+	progress := evaluateService(
+		"api", before, after, tasks, false, expected,
+		placementNodesByID([]swarm.Node{compatiblePlacementNode("node-east")}),
+	)
+
+	assert.Equal(t, ServicePending, progress.State)
+	assert.Equal(t, "waiting for expected service specification", progress.Message)
+	assert.Equal(t, uint64(0), progress.Running)
+}
+
 func TestPlacementUpdateWaitsForIncompatibleTasksToBeReplaced(t *testing.T) {
 	for _, mode := range []string{replicatedServiceMode, globalServiceMode} {
 		t.Run(mode, func(t *testing.T) {

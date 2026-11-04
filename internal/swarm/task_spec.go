@@ -136,7 +136,7 @@ func taskSpecDifferencePaths(left, right reflect.Value, path string, paths *[]st
 		return
 	}
 
-	switch left.Kind() { //nolint:exhaustive // Scalar and collection kinds share the safe field-only fallback.
+	switch left.Kind() {
 	case reflect.Interface, reflect.Pointer:
 		if left.IsNil() || right.IsNil() {
 			*paths = append(*paths, path)
@@ -155,9 +155,35 @@ func taskSpecDifferencePaths(left, right reflect.Value, path string, paths *[]st
 		if len(*paths) == before {
 			*paths = append(*paths, path)
 		}
+	case reflect.Invalid,
+		reflect.Bool,
+		reflect.Int,
+		reflect.Int8,
+		reflect.Int16,
+		reflect.Int32,
+		reflect.Int64,
+		reflect.Uint,
+		reflect.Uint8,
+		reflect.Uint16,
+		reflect.Uint32,
+		reflect.Uint64,
+		reflect.Uintptr,
+		reflect.Float32,
+		reflect.Float64,
+		reflect.Complex64,
+		reflect.Complex128,
+		reflect.Array,
+		reflect.Chan,
+		reflect.Func,
+		reflect.Map,
+		reflect.Slice,
+		reflect.String,
+		reflect.UnsafePointer:
+		// Scalar and collection kinds stop at their field name so indexes,
+		// map keys, and potentially sensitive values never enter diagnostics.
+		*paths = append(*paths, path)
 	default:
-		// Slices and maps stop at their field name so indexes, map keys, and
-		// potentially sensitive values never enter diagnostics.
+		// Preserve the safe field-only fallback for future reflect kinds.
 		*paths = append(*paths, path)
 	}
 }

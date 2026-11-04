@@ -45,8 +45,7 @@ func evaluateService(
 		progress.Message = boundedDiagnostic(fmt.Sprintf("unsupported service mode %q", service.Mode))
 		return progress
 	}
-	if unresolved && placementOnlyTaskPreservation(baseline, service, unresolved) &&
-		expected.Name != "" && !services.SpecsEqual(service.ServiceSpec, expected) {
+	if expected.Name != "" && !services.SpecsEqual(service.ServiceSpec, expected) {
 		progress.Message = "waiting for expected service specification"
 		return progress
 	}
