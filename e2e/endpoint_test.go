@@ -142,6 +142,10 @@ func testEndpointControllerRecovery(t *testing.T, followup string) {
 	require.NoError(t, err)
 	require.Equal(t, []string{"job"}, applied.ChangedServices)
 	accepted := f.inspect(t, "job")
+	// CI runners can have registry credentials. Isolate the actual no-op and
+	// label-only cases from the separate credential-refresh scenario below.
+	t.Setenv("DOCKER_AUTH_CONFIG", "")
+	t.Setenv("DOCKER_CONFIG", t.TempDir())
 	if followup != "no-op" {
 		// Force the important clean-slots case: the first rollout has replacement
 		// tasks, but its monitor has not completed when the second write arrives.
@@ -176,7 +180,8 @@ func testEndpointControllerRecovery(t *testing.T, followup string) {
 	require.NoError(t, err)
 	require.Equal(t, deploymentmodel.Succeeded, result.Status)
 	finished := f.inspect(t, "job")
-	if finished.UpdateStatus != nil {
+	if followup == "no-op" {
+		require.NotNil(t, finished.UpdateStatus, "a true no-op must retain the original rollout status")
 		require.Equal(t, dockerswarm.UpdateStateCompleted, finished.UpdateStatus.State)
 		require.NotNil(t, finished.UpdateStatus.StartedAt)
 		assert.True(t, finished.UpdateStatus.StartedAt.After(stored.Verification.Generations["job"].After))
@@ -184,6 +189,7 @@ func testEndpointControllerRecovery(t *testing.T, followup string) {
 		// A metadata/auth write can cancel the original monitor and leave clean
 		// slots without any status. Replacement tasks must still be proven below.
 		require.NotNil(t, finished.PreviousSpec)
+		require.Nil(t, finished.UpdateStatus, "non-replacing follow-up writes leave clean task slots without status")
 		assert.Equal(t, finished.Spec.EndpointSpec, finished.PreviousSpec.EndpointSpec)
 	}
 	assert.Equal(t, accepted.Spec.TaskTemplate.ForceUpdate, finished.Spec.TaskTemplate.ForceUpdate, "recovery must not force a task restart")
