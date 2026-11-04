@@ -2,6 +2,8 @@ package registry
 
 import (
 	"encoding/base64"
+	"os"
+	"path/filepath"
 	"testing"
 
 	dockerregistry "github.com/docker/docker/api/types/registry"
@@ -38,7 +40,7 @@ func TestAuthManagerResolveImageReturnsEmptyWithoutAuthConfig(t *testing.T) {
 	assert.Empty(t, encodedAuth, "registry auth must be empty without auth config")
 }
 
-func TestAuthManagerResolveImageUsesConfigLoadedInConstructor(t *testing.T) {
+func TestAuthManagerResolveImageReloadsAuthConfig(t *testing.T) {
 	firstRawAuth := base64.StdEncoding.EncodeToString([]byte("robot:secret"))
 	t.Setenv("DOCKER_AUTH_CONFIG", `{"auths":{"wmb-prod.cr.cloud.ru":{"auth":"`+firstRawAuth+`"}}}`)
 	t.Setenv("DOCKER_CONFIG", t.TempDir())
@@ -54,19 +56,69 @@ func TestAuthManagerResolveImageUsesConfigLoadedInConstructor(t *testing.T) {
 
 	authConfig, err := dockerregistry.DecodeAuthConfig(encodedAuth)
 	require.NoError(t, err, "decode encoded registry auth")
-	assert.Equal(t, "robot", authConfig.Username, "constructor-loaded config should be used")
-	assert.Equal(t, "secret", authConfig.Password, "constructor-loaded config should be used")
+	assert.Equal(t, "robot-updated", authConfig.Username, "updated config should be used")
+	assert.Equal(t, "secret-updated", authConfig.Password, "updated config should be used")
 }
 
-func TestNewAuthManagerReturnsNopOnInvalidConfig(t *testing.T) {
+func TestAuthManagerResolveImageReturnsErrorOnInvalidConfig(t *testing.T) {
 	t.Setenv("DOCKER_AUTH_CONFIG", `{"auths":`)
 	t.Setenv("DOCKER_CONFIG", t.TempDir())
 
 	manager := NewAuthManager()
-	_, isNop := manager.(*NopAuthManager)
-	require.True(t, isNop, "invalid docker config should fallback to NopAuthManager")
-
 	encodedAuth, err := manager.ResolveImage(privateImage)
-	require.NoError(t, err, "nop manager should not return error")
-	assert.Empty(t, encodedAuth, "nop manager should not resolve auth")
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "decode docker auth config")
+	assert.Empty(t, encodedAuth)
+}
+
+func TestAuthManagerResolveImageReloadsDockerConfigFile(t *testing.T) {
+	t.Setenv("DOCKER_AUTH_CONFIG", "")
+	configDir := t.TempDir()
+	t.Setenv("DOCKER_CONFIG", configDir)
+	configPath := filepath.Join(configDir, "config.json")
+	require.NoError(t, os.WriteFile(configPath, []byte(`{"auths":{"wmb-prod.cr.cloud.ru":{"username":"first","password":"old"}}}`), 0o600))
+
+	manager := NewAuthManager()
+	first, err := manager.ResolveImage(privateImage)
+	require.NoError(t, err)
+	firstAuth, err := dockerregistry.DecodeAuthConfig(first)
+	require.NoError(t, err)
+	assert.Equal(t, "first", firstAuth.Username)
+
+	require.NoError(t, os.WriteFile(configPath, []byte(`{"auths":{"wmb-prod.cr.cloud.ru":{"username":"second","password":"new"}}}`), 0o600))
+	second, err := manager.ResolveImage(privateImage)
+	require.NoError(t, err)
+	secondAuth, err := dockerregistry.DecodeAuthConfig(second)
+	require.NoError(t, err)
+	assert.Equal(t, "second", secondAuth.Username)
+	assert.Equal(t, "new", secondAuth.Password)
+}
+
+func TestAuthManagerResolveImageRecoversAfterConfigRepair(t *testing.T) {
+	t.Setenv("DOCKER_AUTH_CONFIG", "")
+	configDir := t.TempDir()
+	t.Setenv("DOCKER_CONFIG", configDir)
+	configPath := filepath.Join(configDir, "config.json")
+	require.NoError(t, os.WriteFile(configPath, []byte(`{"auths":`), 0o600))
+
+	manager := NewAuthManager()
+	_, err := manager.ResolveImage(privateImage)
+	require.ErrorContains(t, err, "decode docker auth config")
+
+	require.NoError(t, os.WriteFile(configPath, []byte(`{"auths":{"wmb-prod.cr.cloud.ru":{"username":"repaired","password":"secret"}}}`), 0o600))
+	encoded, err := manager.ResolveImage(privateImage)
+	require.NoError(t, err)
+	auth, err := dockerregistry.DecodeAuthConfig(encoded)
+	require.NoError(t, err)
+	assert.Equal(t, "repaired", auth.Username)
+}
+
+func TestAuthManagerResolveImageRejectsUnreadableConfigPath(t *testing.T) {
+	t.Setenv("DOCKER_AUTH_CONFIG", "")
+	configDir := t.TempDir()
+	t.Setenv("DOCKER_CONFIG", configDir)
+	require.NoError(t, os.Mkdir(filepath.Join(configDir, "config.json"), 0o700))
+
+	_, err := NewAuthManager().ResolveImage(privateImage)
+	require.ErrorContains(t, err, "read docker auth config")
 }
