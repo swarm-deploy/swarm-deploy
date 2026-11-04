@@ -103,6 +103,14 @@ func isServiceUpdateConflict(err error) bool {
 	return cerrdefs.IsConflict(err) || (err != nil && strings.Contains(err.Error(), "update out of sequence"))
 }
 
+// ServiceUpdateRejected reports definite refusals, for which no write was accepted.
+// Transport failures, deadlines and server errors may follow a committed write.
+func ServiceUpdateRejected(err error) bool {
+	return errors.Is(err, ErrServiceConflict) || errors.Is(err, ErrServiceNotFound) ||
+		cerrdefs.IsInvalidArgument(err) || cerrdefs.IsPermissionDenied(err) ||
+		cerrdefs.IsUnauthorized(err) || cerrdefs.IsNotImplemented(err)
+}
+
 func logServiceWarnings(ctx context.Context, service string, warnings []string) {
 	for _, warning := range warnings {
 		slog.WarnContext(ctx, "Docker service warning", "service", service,

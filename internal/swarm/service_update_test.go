@@ -1,6 +1,8 @@
 package swarm
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -10,6 +12,26 @@ import (
 	dockerswarm "github.com/docker/docker/api/types/swarm"
 	"github.com/stretchr/testify/assert"
 )
+
+func TestServiceUpdateRejected(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{name: "invalid published port", err: cerrdefs.ErrInvalidArgument, want: true},
+		{name: "version conflict", err: ErrServiceConflict, want: true},
+		{name: "missing service", err: ErrServiceNotFound, want: true},
+		{name: "authorization", err: cerrdefs.ErrPermissionDenied, want: true},
+		{name: "timeout", err: context.DeadlineExceeded},
+		{name: "connection lost", err: errors.New("connection reset by peer")},
+		{name: "server unavailable", err: cerrdefs.ErrUnavailable},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, ServiceUpdateRejected(fmt.Errorf("update: %w", tc.err)))
+		})
+	}
+}
 
 func TestServiceUpdateConflictClassification(t *testing.T) {
 	t.Parallel()

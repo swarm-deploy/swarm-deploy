@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 	"sync"
@@ -42,8 +43,11 @@ func New(manager swarm.ServiceManager, authManager registry.AuthManager) *Applie
 type ApplyOptions struct {
 	// RetryFailedUpdates restarts terminal failed updates and non-restarting jobs only when replicas are managed.
 	RetryFailedUpdates bool
-	// BeforeUpdate optionally persists the generation before Docker can accept the write.
-	BeforeUpdate func(context.Context, string, UpdateGeneration) error
+	// UpdateGenerations carries unresolved obligations from earlier applies.
+	UpdateGenerations map[string]UpdateGeneration
+	// BeforeUpdate persists intent before Docker can accept the write and returns
+	// a restoration callback used only when Docker definitively rejects it.
+	BeforeUpdate func(context.Context, string, UpdateGeneration) (func(context.Context) error, error)
 }
 
 // UpdateGeneration identifies the runtime generation and pre-update boundary of a service write.
@@ -53,7 +57,7 @@ type UpdateGeneration = deploymentmodel.UpdateGeneration
 type ApplyResult struct {
 	// ChangedServices lists services created or updated by this apply.
 	ChangedServices []string
-	// UpdateGenerations records accepted writes, rebased on optimistic retries.
+	// UpdateGenerations retains accepted or uncertain writes and inherited obligations.
 	UpdateGenerations map[string]UpdateGeneration
 }
 
@@ -73,7 +77,10 @@ func (a *Applier) Apply(
 	})
 
 	result := ApplyResult{
-		ChangedServices: make([]string, 0, len(desired)), UpdateGenerations: map[string]UpdateGeneration{},
+		ChangedServices: make([]string, 0, len(desired)), UpdateGenerations: maps.Clone(options.UpdateGenerations),
+	}
+	if result.UpdateGenerations == nil {
+		result.UpdateGenerations = map[string]UpdateGeneration{}
 	}
 	var blocked []error
 	for _, spec := range desired {
@@ -165,7 +172,7 @@ func (a *Applier) apply(
 	current, created, err := a.inspectOrCreate(ctx, stackName, displayName, desired)
 	if err != nil || created {
 		if created {
-			generations[displayName] = updateGeneration(desired, current)
+			generations[displayName] = updateGeneration(desired, current, UpdateGeneration{})
 		}
 		return displayName, created, err
 	}
@@ -252,9 +259,10 @@ func (a *Applier) update(
 		current = refreshed
 	}
 	return fmt.Errorf(
-		"update service %s: version conflict after %d attempts",
+		"update service %s: version conflict after %d attempts: %w",
 		displayName,
 		serviceUpdateAttempts,
+		swarm.ErrServiceConflict,
 	)
 }
 
@@ -282,17 +290,30 @@ func (a *Applier) updateAttempt(
 		return current, false, fmt.Errorf("service %s registry authentication: %w", displayName, err)
 	}
 	updateOptions.QueryRegistry = !reused
-	generation := updateGeneration(applied, current)
+	previous := generations[displayName]
+	generation := updateGeneration(applied, current, previous)
+	var restore func(context.Context) error
 	if options.BeforeUpdate != nil {
-		if err = options.BeforeUpdate(ctx, displayName, generation); err != nil {
+		if restore, err = options.BeforeUpdate(ctx, displayName, generation); err != nil {
 			return current, false, fmt.Errorf("record service %s update generation: %w", displayName, err)
 		}
 	}
+	generations[displayName] = generation
 	err = a.manager.Update(ctx, current.ID, current.Version, applied, updateOptions)
 	if err == nil {
 		a.rememberAuth(current.ID, auth)
-		generations[displayName] = generation
 		return current, true, nil
+	}
+	if swarm.ServiceUpdateRejected(err) {
+		if restore != nil {
+			if restoreErr := restore(ctx); restoreErr != nil {
+				return current, false, errors.Join(err, fmt.Errorf("restore service %s verification: %w", displayName, restoreErr))
+			}
+		}
+		delete(generations, displayName)
+		if previous.ServiceID != "" {
+			generations[displayName] = previous
+		}
 	}
 	if !errors.Is(err, swarm.ErrServiceConflict) {
 		return current, false, fmt.Errorf("update service %s: %w", displayName, err)
@@ -333,10 +354,15 @@ func (a *Applier) refreshConcurrentUpdate(
 	}
 	if SpecsEqual(current.Spec, desired) && !retry && !authPending {
 		// A concurrent writer already accepted the expected managed fields.
-		current.UpdatedAt = after
-		generation := updateGeneration(current.Spec, current)
+		// Recover the accepted transition rather than classifying the matching spec as a no-op.
+		before := current
+		before.UpdatedAt = after
+		if current.PreviousSpec != nil {
+			before.Spec = *current.PreviousSpec
+		}
+		generation := updateGeneration(current.Spec, before, generations[displayName])
 		if options.BeforeUpdate != nil {
-			if err = options.BeforeUpdate(ctx, displayName, generation); err != nil {
+			if _, err = options.BeforeUpdate(ctx, displayName, generation); err != nil {
 				return current, false, err
 			}
 		}
@@ -470,10 +496,4 @@ func serviceName(stackName, fullName string) string {
 		return fullName[len(prefix):]
 	}
 	return fullName
-}
-
-func updateGeneration(spec dockerswarm.ServiceSpec, current dockerswarm.Service) UpdateGeneration {
-	return UpdateGeneration{
-		ServiceID: current.ID, ForceUpdate: spec.TaskTemplate.ForceUpdate, After: current.UpdatedAt,
-	}
 }

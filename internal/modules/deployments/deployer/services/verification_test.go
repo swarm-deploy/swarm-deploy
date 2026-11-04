@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	cerrdefs "github.com/containerd/errdefs"
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/registry"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
@@ -75,14 +76,14 @@ func TestUpdateBoundaryIsRecordedBeforeDockerWrite(t *testing.T) {
 			}
 			cause := errors.New("persistence unavailable")
 			result, err := New(manager, &registry.NopAuthManager{}).Apply(t.Context(), "demo", []dockerswarm.ServiceSpec{desired}, ApplyOptions{
-				BeforeUpdate: func(_ context.Context, name string, generation UpdateGeneration) error {
+				BeforeUpdate: func(_ context.Context, name string, generation UpdateGeneration) (func(context.Context) error, error) {
 					assert.Equal(t, "api", name)
-					assert.Equal(t, UpdateGeneration{ServiceID: before.ID, After: before.UpdatedAt}, generation)
+					assert.Equal(t, UpdateGeneration{ServiceID: before.ID, After: before.UpdatedAt, Mode: VerifyNewGeneration}, generation)
 					recorded = true
 					if fail {
-						return cause
+						return nil, cause
 					}
-					return nil
+					return nil, nil
 				},
 			})
 			if fail {
@@ -90,6 +91,80 @@ func TestUpdateBoundaryIsRecordedBeforeDockerWrite(t *testing.T) {
 			} else {
 				require.NoError(t, err)
 				assert.Equal(t, before.UpdatedAt, result.UpdateGenerations["api"].After)
+			}
+		})
+	}
+}
+
+func TestUpdatePreservesUnresolvedGeneration(t *testing.T) {
+	boundary := time.Now().UTC().Add(-time.Minute)
+	started := boundary.Add(time.Second)
+	for _, tc := range []struct {
+		name       string
+		status     *dockerswarm.UpdateStatus
+		nextPort   uint32
+		wantMode   VerificationMode
+		wantCutoff time.Time
+	}{
+		{name: "labels before rollout starts", wantMode: VerifyNewGeneration, wantCutoff: boundary.Add(2 * time.Second)},
+		{name: "labels during rollout", status: &dockerswarm.UpdateStatus{State: dockerswarm.UpdateStateUpdating, StartedAt: &started}, wantMode: VerifyNewGeneration, wantCutoff: started},
+		{name: "labels after completion", status: &dockerswarm.UpdateStatus{State: dockerswarm.UpdateStateCompleted, StartedAt: &started}, wantMode: VerifyNewGeneration, wantCutoff: started},
+		{name: "another port change", nextPort: 8082, wantMode: VerifyNewGeneration},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			current := service("api-id", 8, serviceSpec("api", "api:1"))
+			current.UpdatedAt = boundary.Add(2 * time.Second)
+			current.Spec.EndpointSpec = endpointSpec(8081)
+			current.UpdateStatus = tc.status
+			desired := cloneSpec(current.Spec)
+			desired.Labels["release"] = "two"
+			if tc.nextPort != 0 {
+				desired.EndpointSpec = endpointSpec(tc.nextPort)
+			}
+			previous := UpdateGeneration{ServiceID: current.ID, After: boundary, Mode: VerifyNewGeneration}
+			generation := updateGeneration(desired, current, previous)
+			assert.Equal(t, tc.wantMode, generation.Mode)
+			assert.Equal(t, tc.wantCutoff, generation.TasksAfter)
+			assert.Equal(t, current.UpdatedAt, generation.After, "the latest write still needs acceptance evidence")
+			if tc.nextPort == 0 {
+				current.UpdatedAt = current.UpdatedAt.Add(time.Second)
+				current.Spec = desired
+				current.UpdateStatus = nil
+				third := updateGeneration(desired, current, generation)
+				assert.Equal(t, generation.TasksAfter, third.TasksAfter, "credential refresh must retain the original task boundary too")
+			}
+		})
+	}
+}
+
+func TestRejectedUpdateRestoresPreviousObligation(t *testing.T) {
+	for _, uncertain := range []bool{false, true} {
+		t.Run(fmt.Sprint(uncertain), func(t *testing.T) {
+			manager := swarm.NewMockServiceManager(gomock.NewController(t))
+			current := service("api-id", 7, serviceSpec("api", "api:1"))
+			current.UpdatedAt = time.Now().UTC()
+			desired := cloneSpec(current.Spec)
+			desired.EndpointSpec = endpointSpec(8081)
+			cause := error(cerrdefs.ErrInvalidArgument)
+			if uncertain {
+				cause = context.DeadlineExceeded
+			}
+			manager.EXPECT().Inspect(gomock.Any(), desired.Name).Return(current, nil)
+			manager.EXPECT().Update(gomock.Any(), current.ID, current.Version, gomock.Any(), gomock.Any()).Return(cause)
+			previous := UpdateGeneration{ServiceID: current.ID, After: current.UpdatedAt.Add(-time.Minute), Mode: VerifyNewGeneration}
+			restored := false
+			result, err := New(manager, &registry.NopAuthManager{}).Apply(t.Context(), "demo", []dockerswarm.ServiceSpec{desired}, ApplyOptions{
+				UpdateGenerations: map[string]UpdateGeneration{"api": previous},
+				BeforeUpdate: func(context.Context, string, UpdateGeneration) (func(context.Context) error, error) {
+					return func(context.Context) error { restored = true; return nil }, nil
+				},
+			})
+			require.ErrorIs(t, err, cause)
+			assert.Equal(t, !uncertain, restored)
+			if uncertain {
+				assert.Equal(t, current.UpdatedAt, result.UpdateGenerations["api"].After)
+			} else {
+				assert.Equal(t, previous, result.UpdateGenerations["api"])
 			}
 		})
 	}

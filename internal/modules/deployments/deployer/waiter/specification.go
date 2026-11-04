@@ -13,12 +13,24 @@ func (w *ServiceWaiter) observeExternalService(
 	ctx context.Context, name string, baseline, service swarm.StackService, unresolved bool,
 	expected dockerswarm.ServiceSpec, generation services.UpdateGeneration,
 ) (ServiceProgress, error) {
-	progress := specificationProgress(name, baseline, service, unresolved, expected, generation)
+	var tasks []swarm.ServiceTask
+	if service.UpdateStatus == nil && !generation.TasksAfter.IsZero() {
+		// When a later write cleared rollout status, task creation (not health)
+		// supplies the missing generation evidence for externally managed replicas.
+		var err error
+		tasks, err = w.services.ListTasks(ctx, service.ID)
+		if err != nil {
+			return ServiceProgress{}, err
+		}
+	}
+	progress := specificationProgress(name, baseline, service, unresolved, expected, generation, tasks)
 	if progress.State == ServicePending {
 		return progress, nil
 	}
 	// Task health is outside specification-only verification. Diagnostics are best effort.
-	tasks, _ := w.services.ListTasks(ctx, service.ID)
+	if tasks == nil {
+		tasks, _ = w.services.ListTasks(ctx, service.ID)
+	}
 	progress.Running = countCurrentRunningTasks(tasks, false, time.Time{})
 	if progress.State == ServiceFailed {
 		progress.Message += terminalTaskDiagnostic(tasks, service.UpdateStatus.Message)
@@ -31,6 +43,7 @@ func (w *ServiceWaiter) observeExternalService(
 func specificationProgress(
 	name string, baseline, service swarm.StackService, unresolved bool,
 	expected dockerswarm.ServiceSpec, generation services.UpdateGeneration,
+	tasks []swarm.ServiceTask,
 ) ServiceProgress {
 	progress := ServiceProgress{ServiceID: service.ID, Name: name, State: ServicePending,
 		Desired: serviceDesiredTasks(service), SpecificationOnly: true}
@@ -67,7 +80,7 @@ func specificationProgress(
 		return progress
 	}
 	if ownUpdate && !externalExecution &&
-		specificationRolloutPending(baseline, service, mode, unresolved, generation) {
+		specificationRolloutPending(baseline, service, mode, unresolved, generation, tasks) {
 		progress.Message = waitingForUpdateStatus
 		return progress
 	}
@@ -105,6 +118,7 @@ func specificationStatusPending(reference, service swarm.StackService, unresolve
 func specificationRolloutPending(
 	baseline, service swarm.StackService, mode services.VerificationMode, unresolved bool,
 	generation services.UpdateGeneration,
+	tasks []swarm.ServiceTask,
 ) bool {
 	// Initial creation and zero replicas need no rolling update. Externally managed
 	// services still verify rollout completion, but never require healthy tasks.
@@ -112,9 +126,25 @@ func specificationRolloutPending(
 		if _, pending := verificationTaskCutoff(baseline, service, mode, unresolved, generation); pending {
 			return true
 		}
-		if service.UpdateStatus == nil || service.UpdateStatus.State != swarm.ServiceUpdateStateCompleted {
+		if service.UpdateStatus == nil {
+			return !desiredTasksFromGeneration(service, tasks, generation.TasksAfter)
+		}
+		if service.UpdateStatus.State != swarm.ServiceUpdateStateCompleted {
 			return true
 		}
 	}
 	return updatePending(service.UpdateStatus)
+}
+
+func desiredTasksFromGeneration(service swarm.StackService, tasks []swarm.ServiceTask, cutoff time.Time) bool {
+	if cutoff.IsZero() || countDesiredTasks(tasks) != serviceDesiredTasks(service) {
+		return false
+	}
+	for _, task := range tasks {
+		if task.DesiredState == swarm.TaskStateRunning && (task.CreatedAt.Before(cutoff) ||
+			!task.Spec.CompareServiceTemplate(service.ServiceSpec.TaskTemplate).Equal()) {
+			return false
+		}
+	}
+	return true
 }

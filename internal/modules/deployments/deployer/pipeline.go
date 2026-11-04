@@ -152,12 +152,25 @@ func (d *Deployer) applyStack(ctx context.Context, payload *deployStackPayload) 
 	applyCtx, cancel := payload.stageContext(ctx)
 	defer cancel()
 	changed, err := d.serviceApplier.Apply(applyCtx, payload.stackName, payload.converted.Services,
-		services.ApplyOptions{RetryFailedUpdates: payload.retryFailedUpdates, BeforeUpdate: payload.beforeUpdate})
+		services.ApplyOptions{
+			RetryFailedUpdates: payload.retryFailedUpdates, BeforeUpdate: payload.beforeUpdate,
+			UpdateGenerations: payload.updateGenerations,
+		})
 	payload.changed = changed.ChangedServices
 	if payload.updateGenerations == nil {
 		payload.updateGenerations = map[string]services.UpdateGeneration{}
 	}
 	maps.Copy(payload.updateGenerations, changed.UpdateGenerations)
+	if swarm.ServiceUpdateRejected(err) {
+		// A definite refusal creates no obligation for the rejected specification.
+		// Keep earlier accepted writes and inherited unresolved services.
+		payload.result.Verification = deploymentmodel.Verification{
+			Known: true, UnresolvedServices: slices.Clone(payload.unresolvedServices),
+		}
+		for name := range changed.UpdateGenerations {
+			payload.result.Verification.UnresolvedServices = append(payload.result.Verification.UnresolvedServices, name)
+		}
+	}
 	return safePipelineError(err)
 }
 

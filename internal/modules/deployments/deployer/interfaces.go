@@ -102,7 +102,7 @@ type StackRequest struct {
 	// Options controls recovery of previous failed updates.
 	Options StackOptions
 	// BeforeUpdate optionally records a service generation durably before Docker apply.
-	BeforeUpdate func(context.Context, string, deploymentmodel.UpdateGeneration) error
+	BeforeUpdate func(context.Context, string, deploymentmodel.UpdateGeneration) (func(context.Context) error, error)
 }
 
 // ServiceRequest contains one service remediation without stack-wide Init Jobs or pruning.

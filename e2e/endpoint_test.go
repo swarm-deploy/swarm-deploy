@@ -97,6 +97,12 @@ func TestRealSwarmEndpointUpdates(t *testing.T) {
 }
 
 func TestRealSwarmEndpointControllerRecovery(t *testing.T) {
+	for _, followup := range []string{"no-op", "labels", "credentials"} {
+		t.Run(followup, func(t *testing.T) { testEndpointControllerRecovery(t, followup) })
+	}
+}
+
+func testEndpointControllerRecovery(t *testing.T, followup string) {
 	f := newLifecycleFixture(t, false)
 	load := func(port int) compose.File {
 		file := f.manifest(t, fmt.Sprintf(`  job:
@@ -107,7 +113,7 @@ func TestRealSwarmEndpointControllerRecovery(t *testing.T) {
       - {target: 80, published: %d, mode: host}
     deploy:
       replicas: 1
-      update_config: {monitor: 3s, failure_action: pause}
+      update_config: {monitor: 10s, failure_action: pause}
 `, port))
 		// Single-node runners without VXLAN may provide an existing Swarm network.
 		if network := os.Getenv("SWARM_DEPLOY_E2E_NETWORK"); network != "" {
@@ -129,13 +135,34 @@ func TestRealSwarmEndpointControllerRecovery(t *testing.T) {
 	converted, err := converter.New(f.sw.Networks, f.sw.Configs, f.sw.Secrets).Convert(f.ctx, f.stack, req.Desired.Compose)
 	require.NoError(t, err)
 	applied, err := services.New(f.sw.Services, &registry.NopAuthManager{}).Apply(f.ctx, f.stack, converted.Services, services.ApplyOptions{
-		BeforeUpdate: func(ctx context.Context, name string, generation services.UpdateGeneration) error {
+		BeforeUpdate: func(ctx context.Context, name string, generation services.UpdateGeneration) (func(context.Context) error, error) {
 			return lifecycle.RecordUpdateGeneration(ctx, attempt.ID, name, generation)
 		},
 	})
 	require.NoError(t, err)
 	require.Equal(t, []string{"job"}, applied.ChangedServices)
 	accepted := f.inspect(t, "job")
+	if followup != "no-op" {
+		// Force the important clean-slots case: the first rollout has replacement
+		// tasks, but its monitor has not completed when the second write arrives.
+		f.poll(t, "replacement running while endpoint rollout is still updating", func() bool {
+			service := f.inspect(t, "job")
+			tasks := endpointRunningTasks(t, f.externalSwarmFixture)
+			return service.UpdateStatus != nil && service.UpdateStatus.State == dockerswarm.UpdateStateUpdating &&
+				len(tasks) == 1 && tasks[0].ID != original[0].ID
+		})
+		if followup == "labels" {
+			req.Desired.Compose.Services[0].Deploy.Labels = *compose.NewLabels(map[string]string{"release": "metadata"})
+			req.Commit = "metadata"
+		} else {
+			// The image is already cached by digest; this exercises the independent
+			// credential write without requiring a private registry or changing tasks.
+			t.Setenv("DOCKER_AUTH_CONFIG", `{"auths":{"docker.io":{"username":"e2e","password":"unused"}}}`)
+		}
+	}
+	auth, err := registry.NewAuthManager().ResolveImage(converted.Services[0].TaskTemplate.ContainerSpec.Image)
+	require.NoError(t, err)
+	t.Logf("recovery: matching spec=%t, nonempty registry credentials=%t", services.SpecsEqual(accepted.Spec, converted.Services[0]), auth != "")
 	// Simulate losing the controller immediately after Docker accepts the write:
 	// leave the Attempt running, then rebuild execution components from SQLite.
 	freshDeployer := deployer.NewDeployer(20*time.Millisecond, 40*time.Second, f.docker, f.sw, nil, deployer.NewSecretResolver(deployer.PlaintextDecoder{}))
@@ -149,15 +176,25 @@ func TestRealSwarmEndpointControllerRecovery(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, deploymentmodel.Succeeded, result.Status)
 	finished := f.inspect(t, "job")
-	require.NotNil(t, finished.UpdateStatus)
-	require.Equal(t, dockerswarm.UpdateStateCompleted, finished.UpdateStatus.State)
-	require.NotNil(t, finished.UpdateStatus.StartedAt)
-	assert.True(t, finished.UpdateStatus.StartedAt.After(stored.Verification.Generations["job"].After))
+	if finished.UpdateStatus != nil {
+		require.Equal(t, dockerswarm.UpdateStateCompleted, finished.UpdateStatus.State)
+		require.NotNil(t, finished.UpdateStatus.StartedAt)
+		assert.True(t, finished.UpdateStatus.StartedAt.After(stored.Verification.Generations["job"].After))
+	} else {
+		// A metadata/auth write can cancel the original monitor and leave clean
+		// slots without any status. Replacement tasks must still be proven below.
+		require.NotNil(t, finished.PreviousSpec)
+		assert.Equal(t, finished.Spec.EndpointSpec, finished.PreviousSpec.EndpointSpec)
+	}
 	assert.Equal(t, accepted.Spec.TaskTemplate.ForceUpdate, finished.Spec.TaskTemplate.ForceUpdate, "recovery must not force a task restart")
 	tasks := endpointRunningTasks(t, f.externalSwarmFixture)
 	require.Len(t, tasks, 1)
 	assert.NotEqual(t, original[0].ID, tasks[0].ID)
-	assert.False(t, tasks[0].CreatedAt.Before(*finished.UpdateStatus.StartedAt))
+	cutoff := accepted.UpdatedAt
+	if accepted.UpdateStatus != nil && accepted.UpdateStatus.StartedAt != nil {
+		cutoff = *accepted.UpdateStatus.StartedAt
+	}
+	assert.False(t, tasks[0].CreatedAt.Before(cutoff), "task must belong to the accepted endpoint generation")
 	assert.Empty(t, f.latest(t).Verification.Generations)
 }
 

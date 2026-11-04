@@ -31,7 +31,7 @@ type deployStackPayload struct {
 	result             Result
 	retryFailedUpdates bool
 	unresolvedServices []string
-	beforeUpdate       func(context.Context, string, services.UpdateGeneration) error
+	beforeUpdate       func(context.Context, string, services.UpdateGeneration) (func(context.Context) error, error)
 }
 
 type deployServicePayload struct {

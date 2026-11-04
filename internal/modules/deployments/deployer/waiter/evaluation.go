@@ -260,11 +260,7 @@ func countCurrentRunningTasks(tasks []swarm.ServiceTask, requireCurrentGeneratio
 func taskGenerationCutoff(
 	baseline swarm.StackService,
 	service swarm.StackService,
-	requireCurrentGeneration bool,
 ) (time.Time, bool) {
-	if !requireCurrentGeneration {
-		return time.Time{}, false
-	}
 	if baseline.ID == "" || baseline.ID != service.ID {
 		return service.CreatedAt, false
 	}
@@ -317,8 +313,8 @@ func updateProgressMessage(status *swarm.ServiceUpdateStatus) string {
 	return message
 }
 
-// serviceVerificationMode selects the accepted transition. After recovery the
-// current baseline may already match; Docker's PreviousSpec supplies the transition.
+// serviceVerificationMode retains unresolved obligations across later writes.
+// Legacy receipts fall back to the accepted transition in Docker's PreviousSpec.
 func serviceVerificationMode(
 	baseline, service swarm.StackService, unresolved bool, generation services.UpdateGeneration,
 ) services.VerificationMode {
@@ -326,6 +322,10 @@ func serviceVerificationMode(
 		return services.VerifyNewGeneration
 	}
 	mode := services.ClassifyVerification(baseline.ServiceSpec, service.ServiceSpec)
+	// A later non-replacing write cannot weaken an unresolved obligation.
+	if generation.ServiceID == service.ID && generation.Mode > mode {
+		return generation.Mode
+	}
 	if mode != services.VerifyExistingTasks || (!unresolved && generation.ServiceID == "") {
 		return mode
 	}
@@ -344,11 +344,21 @@ func verificationTaskCutoff(
 	}
 	if generation.ServiceID == service.ID && !generation.After.IsZero() {
 		baseline.UpdatedAt = generation.After
-		return taskGenerationCutoff(baseline, service, true)
+		if !generation.TasksAfter.IsZero() {
+			// A later non-replacing write can cancel the old updater with clean
+			// slots and leave no UpdateStatus. Its accepted metadata plus all tasks
+			// from the original generation establish convergence in that case.
+			if service.UpdateStatus == nil {
+				return generation.TasksAfter, false
+			}
+			_, pending := taskGenerationCutoff(baseline, service)
+			return generation.TasksAfter, pending
+		}
+		return taskGenerationCutoff(baseline, service)
 	}
 	if !unresolved || baseline.ID == "" || baseline.ID != service.ID ||
 		services.ClassifyVerification(baseline.ServiceSpec, service.ServiceSpec) != services.VerifyExistingTasks {
-		return taskGenerationCutoff(baseline, service, true)
+		return taskGenerationCutoff(baseline, service)
 	}
 	if service.UpdatedAt.Before(baseline.UpdatedAt) {
 		return time.Time{}, true
@@ -366,7 +376,7 @@ func verificationTaskCutoff(
 	// task templates cannot distinguish a historical rollout, so require fresh evidence.
 	if service.PreviousSpec != nil && swarm.NewTaskSpec(service.PreviousSpec.TaskTemplate).
 		CompareServiceTemplate(service.ServiceSpec.TaskTemplate).Equal() {
-		return taskGenerationCutoff(baseline, service, true)
+		return taskGenerationCutoff(baseline, service)
 	}
 	return service.UpdateStatus.StartedAt, false
 }

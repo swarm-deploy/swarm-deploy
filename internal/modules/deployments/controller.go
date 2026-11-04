@@ -148,7 +148,9 @@ func (c *Controller) Execute(ctx context.Context, req ExecuteRequest) (ExecuteRe
 		SourceComposePath: req.Desired.Path,
 		Desired:           req.Desired.Compose,
 		Options:           options,
-		BeforeUpdate: func(ctx context.Context, name string, generation deploymentmodel.UpdateGeneration) error {
+		BeforeUpdate: func(
+			ctx context.Context, name string, generation deploymentmodel.UpdateGeneration,
+		) (func(context.Context) error, error) {
 			return c.lifecycle.RecordUpdateGeneration(ctx, attempt.ID, name, generation)
 		},
 	})

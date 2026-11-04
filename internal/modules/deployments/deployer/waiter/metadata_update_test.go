@@ -61,7 +61,7 @@ func TestMetadataOnlyExternalRecoveryVerifiesSpecificationWithoutTaskGeneration(
 			if state != "" {
 				service.UpdateStatus = &swarm.ServiceUpdateStatus{State: swarm.ServiceUpdateState(state), StartedAt: serviceWaitTestTime.Add(-time.Minute)}
 			}
-			progress := specificationProgress("job", service, service, true, service.ServiceSpec, services.UpdateGeneration{})
+			progress := specificationProgress("job", service, service, true, service.ServiceSpec, services.UpdateGeneration{}, nil)
 			want := ServiceReady
 			if state == "paused" {
 				want = ServiceFailed

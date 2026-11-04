@@ -70,7 +70,7 @@ func TestEndpointRolloutVerification(t *testing.T) {
 				progress := evaluateService("api", baseline, after, tasks, recovery, after.ServiceSpec, nil, generation)
 				assert.Equal(t, tc.want, progress.State, progress.Message)
 				// External replicas use the same rollout attribution without requiring task health.
-				external := specificationProgress("api", baseline, after, recovery, after.ServiceSpec, generation)
+				external := specificationProgress("api", baseline, after, recovery, after.ServiceSpec, generation, nil)
 				wantExternal := tc.want
 				if tc.state == swarm.ServiceUpdateStateCompleted && !tc.historical {
 					wantExternal = ServiceReady
@@ -108,4 +108,59 @@ func TestLegacyEndpointRecoveryDoesNotTrustHistoricalCompletion(t *testing.T) {
 	progress := evaluateTestService("api", service, service, testRunningTasks(1, serviceWaitTestTime.Add(-time.Minute)), true, service.ServiceSpec, nil)
 	assert.Equal(t, ServicePending, progress.State)
 	assert.Equal(t, waitingForUpdateStatus, progress.Message)
+}
+
+func TestEndpointRolloutSurvivesMetadataWrite(t *testing.T) {
+	started := serviceWaitTestTime
+	for _, tc := range []struct {
+		name                              string
+		state                             swarm.ServiceUpdateState
+		historical, replacement, starting bool
+		want                              ServiceState
+	}{
+		{name: "old tasks and absent status", want: ServicePending},
+		{name: "old tasks restarted before port update", want: ServicePending},
+		{name: "historical completion", state: swarm.ServiceUpdateStateCompleted, historical: true, replacement: true, want: ServicePending},
+		{name: "replacement still starting", replacement: true, starting: true, want: ServicePending},
+		{name: "replacement running without status", replacement: true, want: ServiceReady},
+		{name: "replacement running while updating", state: swarm.ServiceUpdateStateUpdating, replacement: true, want: ServicePending},
+		{name: "completed with replacement", state: swarm.ServiceUpdateStateCompleted, replacement: true, want: ServiceReady},
+		{name: "paused", state: swarm.ServiceUpdateStatePaused, want: ServiceFailed},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			current := testReplicatedService("api", "api-id", 1, started.Add(10*time.Second), "api:2")
+			current.ServiceSpec.EndpointSpec = &dockerswarm.EndpointSpec{Ports: []dockerswarm.PortConfig{{TargetPort: 80, PublishedPort: 8081}}}
+			previous := current.ServiceSpec
+			current.PreviousSpec = &previous // Docker has overwritten the original endpoint transition.
+			current.ServiceSpec.Labels = map[string]string{"release": "metadata"}
+			generation := services.UpdateGeneration{ServiceID: current.ID, Mode: services.VerifyNewGeneration,
+				After: started.Add(5 * time.Second), TasksAfter: started}
+			if tc.state != "" {
+				statusStarted := started.Add(6 * time.Second)
+				if tc.historical {
+					statusStarted = started
+				}
+				current.UpdateStatus = &swarm.ServiceUpdateStatus{State: tc.state, StartedAt: statusStarted}
+			}
+			created := started.Add(-time.Minute)
+			if tc.name == "old tasks restarted before port update" {
+				created = started.Add(-time.Second)
+			}
+			if tc.replacement {
+				created = started.Add(time.Second)
+			} // Before the metadata write and its new rollout status.
+			tasks := testRunningTasks(1, created)
+			if tc.starting {
+				tasks[0].CurrentState = swarm.TaskStateStarting
+			}
+			progress := evaluateService("api", current, current, tasks, true, current.ServiceSpec, nil, generation)
+			assert.Equal(t, tc.want, progress.State, progress.Message)
+			wantExternal := tc.want
+			if tc.starting || (tc.state == swarm.ServiceUpdateStateCompleted && !tc.historical) {
+				wantExternal = ServiceReady
+			}
+			external := specificationProgress("api", current, current, true, current.ServiceSpec, generation, tasks)
+			assert.Equal(t, wantExternal, external.State, external.Message)
+		})
+	}
 }
