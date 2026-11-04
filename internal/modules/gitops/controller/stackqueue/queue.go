@@ -66,6 +66,7 @@ type Queue struct {
 	running map[string]operation
 	// changedAfterFailure retains priority when a failed run drops pending work.
 	changedAfterFailure map[string]bool
+	paused              bool
 	started             bool
 	stopped             bool
 	idle                chan struct{}
@@ -118,6 +119,27 @@ func (q *Queue) Stop() {
 	q.mu.Unlock()
 
 	q.done.Wait()
+}
+
+// Pause prevents pending work from becoming running while configuration is accepted.
+// Running operations continue. No queue lock is held after this call returns.
+// The serialized sync runner must pair a successful Pause with Resume.
+func (q *Queue) Pause() bool {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if q.stopped {
+		return false
+	}
+	q.paused = true
+	return true
+}
+
+// Resume admits workers after pending work has been replaced or cleared.
+func (q *Queue) Resume() {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.paused = false
+	q.cond.Broadcast()
 }
 
 // Replace atomically makes requests the complete set of reconciliations waiting in the queue and returns
@@ -239,7 +261,7 @@ func (q *Queue) isRunningLocked(name string) bool {
 func (q *Queue) SubmitCleanup(ctx context.Context, stack config.StackSpec, commit string) bool {
 	q.mu.Lock()
 	defer q.mu.Unlock()
-	if q.stopped || q.isRunningLocked(stack.Name) {
+	if q.stopped || q.paused || q.isRunningLocked(stack.Name) {
 		return false
 	}
 	if _, hasPending := q.pending[stack.Name]; hasPending {
@@ -284,7 +306,7 @@ func (q *Queue) work(ctx context.Context) {
 func (q *Queue) next() (string, operation, bool) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
-	for len(q.ready) == 0 && !q.stopped {
+	for (len(q.ready) == 0 || q.paused) && !q.stopped {
 		q.cond.Wait()
 	}
 	if q.stopped {

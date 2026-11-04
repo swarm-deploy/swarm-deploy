@@ -89,7 +89,8 @@ type ServiceWaitRequest struct {
 	// AppliedServices contains services actually created or updated by this apply.
 	// These must become visible before their tasks or update status can satisfy verification.
 	AppliedServices []string
-	// UnresolvedServices requires proof of the rollout generation even without a new apply.
+	// UnresolvedServices carries verification obligations even without a new apply.
+	// Task generation evidence is required only for writes that can replace tasks.
 	UnresolvedServices []string
 	// ExpectedSpecs carries converter-produced specifications and their replica ownership policies.
 	ExpectedSpecs map[string]dockerswarm.ServiceSpec

@@ -3,11 +3,14 @@ package services
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"slices"
+	"sync"
 	"time"
 
+	dockerregistry "github.com/docker/docker/api/types/registry"
 	dockerswarm "github.com/docker/docker/api/types/swarm"
 	"github.com/swarm-deploy/swarm-deploy/internal/registry"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/labelsdict"
@@ -23,11 +26,14 @@ const (
 type Applier struct {
 	manager     swarm.ServiceManager
 	authManager registry.AuthManager
+	// Auth acknowledgements are process-local and contain only fingerprints of successful writes.
+	authMu sync.Mutex
+	auth   map[string][sha256.Size]byte
 }
 
 // New creates a native Docker service applier.
 func New(manager swarm.ServiceManager, authManager registry.AuthManager) *Applier {
-	return &Applier{manager: manager, authManager: authManager}
+	return &Applier{manager: manager, authManager: authManager, auth: make(map[string][sha256.Size]byte)}
 }
 
 // ApplyOptions controls recovery when a deployment is retried.
@@ -104,20 +110,36 @@ func (a *Applier) apply(
 		}
 		return displayName, created, err
 	}
-	if SpecsEqual(current.Spec, desired) {
-		retry, retryErr := a.retryRequired(ctx, current, retryFailed && managed)
-		if retryErr != nil {
-			return displayName, false, retryErr
-		}
-		if !retry {
-			return displayName, false, nil
-		}
+	required, err := a.updateRequired(ctx, displayName, desired, current, retryFailed && managed)
+	if err != nil || !required {
+		return displayName, false, err
 	}
 	err = a.update(ctx, stackName, displayName, desired, current, retryFailed && managed, generations)
 	if err != nil {
 		return displayName, false, err
 	}
 	return displayName, true, nil
+}
+
+func (a *Applier) updateRequired(
+	ctx context.Context, displayName string, desired dockerswarm.ServiceSpec,
+	current dockerswarm.Service, retryFailed bool,
+) (bool, error) {
+	if !SpecsEqual(current.Spec, desired) {
+		return true, nil
+	}
+	retry, err := a.retryRequired(ctx, current, retryFailed)
+	if err != nil || retry {
+		return retry, err
+	}
+	if !authOnlyUpdateSafe(current.Spec) {
+		return false, nil
+	}
+	auth, err := a.resolveAuth(desired)
+	if err != nil {
+		return false, fmt.Errorf("service %s registry authentication: %w", displayName, err)
+	}
+	return a.authRefreshRequired(current.ID, auth), nil
 }
 
 func (a *Applier) inspectOrCreate(
@@ -133,6 +155,7 @@ func (a *Applier) inspectOrCreate(
 			return current, false, fmt.Errorf("service %s registry authentication: %w", displayName, optionsErr)
 		}
 		if id, createErr := a.manager.Create(ctx, desired, options); createErr == nil {
+			a.rememberAuth(id, options.EncodedRegistryAuth)
 			return dockerswarm.Service{ID: id, Spec: desired}, true, nil
 		} else if !errors.Is(createErr, swarm.ErrServiceConflict) {
 			return current, false, fmt.Errorf("create service %s: %w", displayName, createErr)
@@ -199,8 +222,18 @@ func (a *Applier) updateAttempt(
 		return current, false, fmt.Errorf("service %s registry authentication: %w", displayName, err)
 	}
 	options.QueryRegistry = !reused
+	auth := options.EncodedRegistryAuth
+	if auth == "" && a.authRefreshRequired(current.ID, auth) {
+		// An empty header with RegistryAuthFromSpec preserves Engine's old credentials.
+		// A nonempty encoding of anonymous auth explicitly replaces a known old credential.
+		options.EncodedRegistryAuth, err = dockerregistry.EncodeAuthConfig(dockerregistry.AuthConfig{})
+		if err != nil {
+			return current, false, fmt.Errorf("service %s registry authentication: %w", displayName, err)
+		}
+	}
 	err = a.manager.Update(ctx, current.ID, current.Version, applied, options)
 	if err == nil {
+		a.rememberAuth(current.ID, auth)
 		recordExternalUpdate(generations, displayName, applied, current)
 		return current, true, nil
 	}
@@ -233,7 +266,15 @@ func (a *Applier) refreshConcurrentUpdate(
 	if err != nil {
 		return current, false, err
 	}
-	if SpecsEqual(current.Spec, desired) && !retry {
+	authPending := false
+	if authOnlyUpdateSafe(current.Spec) {
+		auth, authErr := a.resolveAuth(desired)
+		if authErr != nil {
+			return current, false, fmt.Errorf("service %s registry authentication: %w", displayName, authErr)
+		}
+		authPending = a.authRefreshRequired(current.ID, auth)
+	}
+	if SpecsEqual(current.Spec, desired) && !retry && !authPending {
 		// A concurrent writer already accepted the expected managed fields.
 		current.UpdatedAt = after
 		recordExternalUpdate(generations, displayName, current.Spec, current)
@@ -255,6 +296,10 @@ func (a *Applier) prepareUpdate(
 	}
 	if retry {
 		applied.TaskTemplate.ForceUpdate++
+	} else if SpecsEqual(current.Spec, desired) {
+		// Credential refresh preserves the exact task template and runtime-owned fields.
+		// Resolving an unchanged tag here could replace otherwise healthy tasks.
+		return cloneSpec(current.Spec), true, nil
 	}
 	reused := normalizeImageResolution(&current.Spec, &applied)
 	if !managed {
@@ -298,6 +343,41 @@ func (a *Applier) resolveAuth(spec dockerswarm.ServiceSpec) (string, error) {
 		return "", nil
 	}
 	return a.authManager.ResolveImage(spec.TaskTemplate.ContainerSpec.Image)
+}
+
+// authOnlyUpdateSafe excludes writes that Swarm can treat as a new job execution.
+// Live task inspection cannot remove the race with completion or retry exhaustion.
+func authOnlyUpdateSafe(spec dockerswarm.ServiceSpec) bool {
+	if spec.Mode.ReplicatedJob != nil || spec.Mode.GlobalJob != nil {
+		return false // Every native-job ServiceUpdate advances JobIteration.
+	}
+	if replicas, known := currentReplicas(spec); known && replicas == 0 {
+		return true
+	}
+	policy := spec.TaskTemplate.RestartPolicy
+	if policy == nil {
+		return true
+	}
+	if policy.MaxAttempts != nil && *policy.MaxAttempts > 0 {
+		return false
+	}
+	return policy.Condition == "" || policy.Condition == dockerswarm.RestartPolicyConditionAny
+}
+
+// authRefreshRequired forces one write for unknown nonempty credentials after restart.
+// Unknown anonymous state retains Docker's RegistryAuthFromSpec behavior; a known
+// credential removal is sent explicitly. Engine does not expose its stored pull auth.
+func (a *Applier) authRefreshRequired(serviceID, auth string) bool {
+	a.authMu.Lock()
+	defer a.authMu.Unlock()
+	previous, known := a.auth[serviceID]
+	return (known || auth != "") && (!known || previous != sha256.Sum256([]byte(auth)))
+}
+
+func (a *Applier) rememberAuth(serviceID, auth string) {
+	a.authMu.Lock()
+	defer a.authMu.Unlock()
+	a.auth[serviceID] = sha256.Sum256([]byte(auth))
 }
 
 func validateOwnership(stackName, desiredName string, current dockerswarm.Service) error {

@@ -146,6 +146,7 @@ jobs:
           docker swarm init --advertise-addr 127.0.0.1
           docker pull busybox:1.36
           docker pull crazymax/swarm-cronjob:1.16.0
+          docker pull registry:2
 
       - name: Test real Swarm deployments and scheduler integration
         env:

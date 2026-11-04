@@ -127,3 +127,70 @@ func TestDigestPinnedMetadataReusedForUnchangedReference(t *testing.T) {
 		})
 	}
 }
+
+func TestMissingDigestRetriesResolutionOnApplicableUpdate(t *testing.T) {
+	for _, change := range []string{"none", "environment", "service labels"} {
+		t.Run(change, func(t *testing.T) {
+			manager := swarm.NewMockServiceManager(gomock.NewController(t))
+			desired := serviceSpec("api", "registry.example/api:1")
+			current := cloneSpec(desired) // A prior registry warning left only repo:tag.
+			manager.EXPECT().Inspect(gomock.Any(), desired.Name).Return(service("api-id", 7, current), nil)
+			switch change {
+			case "environment":
+				desired.TaskTemplate.ContainerSpec.Env = []string{"NEW=yes"}
+			case "service labels":
+				desired.Labels["release"] = "new"
+			}
+			if change != "none" {
+				manager.EXPECT().Update(gomock.Any(), "api-id", gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+					func(_ any, _ string, _ dockerswarm.Version, _ dockerswarm.ServiceSpec, options dockerswarm.ServiceUpdateOptions) error {
+						assert.True(t, options.QueryRegistry)
+						return nil
+					})
+			}
+			result, err := New(manager, &registry.NopAuthManager{}).Apply(t.Context(), "demo", []dockerswarm.ServiceSpec{desired}, ApplyOptions{})
+			require.NoError(t, err)
+			assert.Equal(t, change != "none", len(result.ChangedServices) > 0)
+		})
+	}
+}
+
+func TestMatchingTagWithoutDigestIsNotResolutionEvidence(t *testing.T) {
+	assert.False(t, resolvedImageMatches("registry.example/api:1", "registry.example/api:1"))
+	assert.False(t, resolvedImageMatches("docker.io/library/alpine:latest", "alpine"))
+}
+
+func TestSDKTaggedUnresolvedReferencePreservesNoopAndRegistryDecisions(t *testing.T) {
+	for _, change := range []string{"none", "metadata", "credentials"} {
+		t.Run(change, func(t *testing.T) {
+			t.Setenv("DOCKER_AUTH_CONFIG", "")
+			t.Setenv("DOCKER_CONFIG", t.TempDir())
+			manager := swarm.NewMockServiceManager(gomock.NewController(t))
+			desired := serviceSpec("api", "registry.example/api")
+			current := cloneSpec(desired)
+			// The SDK adds :latest before resolution, including when lookup warns.
+			current.TaskTemplate.ContainerSpec.Image += ":latest"
+			assert.True(t, SpecsEqual(current, desired))
+			manager.EXPECT().Inspect(gomock.Any(), desired.Name).Return(service("api-id", 7, current), nil)
+			switch change {
+			case "metadata":
+				desired.Labels["release"] = "new"
+			case "credentials":
+				t.Setenv("DOCKER_AUTH_CONFIG", `{"auths":{"registry.example":{"username":"robot","password":"new-token"}}}`)
+			}
+			if change != "none" {
+				manager.EXPECT().Update(gomock.Any(), "api-id", gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+					func(_ any, _ string, _ dockerswarm.Version, applied dockerswarm.ServiceSpec, options dockerswarm.ServiceUpdateOptions) error {
+						assert.Equal(t, change == "metadata", options.QueryRegistry)
+						if change == "credentials" {
+							assert.Equal(t, current, applied, "auth-only writes preserve the SDK-normalized task template")
+						}
+						return nil
+					})
+			}
+			result, err := New(manager, registry.NewAuthManager()).Apply(t.Context(), "demo", []dockerswarm.ServiceSpec{desired}, ApplyOptions{})
+			require.NoError(t, err)
+			assert.Equal(t, change != "none", len(result.ChangedServices) > 0)
+		})
+	}
+}

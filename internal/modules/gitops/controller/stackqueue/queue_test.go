@@ -563,3 +563,42 @@ func receive(t *testing.T, ch <-chan struct{}) {
 		require.FailNow(t, "timed out waiting for stack operation")
 	}
 }
+
+func TestPausedAdmissionPreservesOrReplacesPendingWork(t *testing.T) {
+	for _, replacePending := range []bool{false, true} {
+		t.Run(map[bool]string{false: "reload failure resumes old work", true: "accepted configuration replaces old work"}[replacePending], func(t *testing.T) {
+			reconciler := stackloop.NewMockStackReconciler(gomock.NewController(t))
+			queue := New(reconciler, newTestMetrics(t), 2)
+			t.Cleanup(queue.Stop)
+			require.True(t, queue.Pause())
+			replace(t, queue, request("app", "A", false))
+			queue.Start(context.WithoutCancel(t.Context()))
+			assert.False(t, queue.SubmitCleanup(t.Context(), config.StackSpec{Name: "other"}, "A"))
+			expectedCommit := "A"
+			if replacePending {
+				replace(t, queue, request("app", "B", false))
+				expectedCommit = "B"
+			}
+			reconciler.EXPECT().Reconcile(gomock.Any(), request("app", expectedCommit, false)).Return(nil)
+			queue.Resume()
+			waitIdle(t, queue)
+		})
+	}
+}
+
+func TestStopDoesNotWaitForPausedAdmission(t *testing.T) {
+	reconciler := stackloop.NewMockStackReconciler(gomock.NewController(t))
+	queue := New(reconciler, newTestMetrics(t), 2)
+	require.True(t, queue.Pause())
+	replace(t, queue, request("app", "A", false))
+	queue.Start(context.WithoutCancel(t.Context()))
+	stopped := make(chan struct{})
+	go func() {
+		queue.Stop()
+		close(stopped)
+	}()
+	receive(t, stopped)
+	queue.Resume()
+	assert.False(t, queue.Pause())
+	waitIdle(t, queue)
+}
