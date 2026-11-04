@@ -869,6 +869,9 @@ services:
 		Commit: "commit-downward-2",
 	})
 	require.NoError(t, reconcileErr, "first reconcile")
+	stackDeployer.EXPECT().RefreshRegistryAuth(gomock.Any(), gomock.Cond(func(req deployer.StackRequest) bool {
+		return req.StackName == "app" && req.SourceComposePath == filepath.Join(repoDir, "app.yaml")
+	})).Return(nil)
 
 	reconcileErr = reconciler.Reconcile(context.Background(), ReconciliationRequest{
 		Stack: config.StackSpec{

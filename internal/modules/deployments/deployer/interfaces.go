@@ -118,4 +118,6 @@ type StackDeployer interface {
 	DeployStack(ctx context.Context, request StackRequest) (Result, error)
 	// DeployService reconciles resources and applies one service without Init Jobs or pruning.
 	DeployService(ctx context.Context, request ServiceRequest) (Result, error)
+	// RefreshRegistryAuth maintains existing matching services without deploying desired state or running Init Jobs.
+	RefreshRegistryAuth(ctx context.Context, request StackRequest) error
 }

@@ -35,6 +35,7 @@ var externalSubnetSequence atomic.Uint32
 // doubles or production hooks are used, including for external scheduler writes.
 type externalSwarmFixture struct {
 	ctx         context.Context
+	docker      *client.Client
 	sw          *swarm.Swarm
 	observer    *dockertester.ServiceTester
 	deployer    deployer.StackDeployer
@@ -57,7 +58,7 @@ func newExternalSwarmFixtureWithTimeout(t *testing.T, timeout time.Duration) *ex
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	require.NoError(t, err)
 	t.Cleanup(func() { assert.NoError(t, cli.Close()) })
-	f := &externalSwarmFixture{ctx: ctx, sw: swarm.NewSwarm(cli),
+	f := &externalSwarmFixture{ctx: ctx, docker: cli, sw: swarm.NewSwarm(cli),
 		stack: fmt.Sprintf("sdexternal%d", time.Now().UnixNano()), path: filepath.Join(t.TempDir(), "compose.yaml"),
 		subnet: fmt.Sprintf("198.18.%d.0/24", externalSubnetSequence.Add(1))}
 	f.observer = newSwarmObserver(t)

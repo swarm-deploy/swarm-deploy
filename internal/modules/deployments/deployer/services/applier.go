@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -92,6 +93,66 @@ func (a *Applier) Apply(
 		}
 	}
 	return result, blockedApplyError(blocked)
+}
+
+// RefreshRegistryAuth maintains credentials only for existing services matching expected specs.
+// It never creates a service, repairs drift, starts a rollout, or resolves an image.
+func (a *Applier) RefreshRegistryAuth(
+	ctx context.Context, stackName string, specs []dockerswarm.ServiceSpec,
+) error {
+	expected := slices.Clone(specs)
+	slices.SortFunc(expected, func(left, right dockerswarm.ServiceSpec) int {
+		return strings.Compare(left.Name, right.Name)
+	})
+	for _, spec := range expected {
+		if err := a.refreshRegistryAuth(ctx, stackName, spec); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (a *Applier) refreshRegistryAuth(ctx context.Context, stackName string, expected dockerswarm.ServiceSpec) error {
+	name := serviceName(stackName, expected.Name)
+	for range serviceUpdateAttempts {
+		current, err := a.manager.Inspect(ctx, expected.Name)
+		if errors.Is(err, swarm.ErrServiceNotFound) {
+			return nil // Missing services remain the responsibility of deployment and drift remediation.
+		}
+		if err != nil {
+			return fmt.Errorf("inspect service %s for registry authentication: %w", name, err)
+		}
+		if err = validateOwnership(stackName, expected.Name, current); err != nil {
+			return err
+		}
+		if !registryAuthRefreshAllowed(current, expected) {
+			return nil
+		}
+		options, auth, err := a.updateOptions(current.ID, current.Spec)
+		if err != nil {
+			return fmt.Errorf("service %s registry authentication: %w", name, err)
+		}
+		if !a.authRefreshRequired(current.ID, auth) {
+			return nil
+		}
+		err = a.manager.Update(ctx, current.ID, current.Version, cloneSpec(current.Spec), options)
+		if err == nil {
+			a.rememberAuth(current.ID, auth)
+			return nil
+		}
+		if !errors.Is(err, swarm.ErrServiceConflict) {
+			return fmt.Errorf("refresh service %s registry authentication: %w", name, err)
+		}
+	}
+	return fmt.Errorf("refresh service %s registry authentication: version conflict after %d attempts",
+		name, serviceUpdateAttempts)
+}
+
+func registryAuthRefreshAllowed(current dockerswarm.Service, expected dockerswarm.ServiceSpec) bool {
+	if current.UpdateStatus != nil && current.UpdateStatus.State != dockerswarm.UpdateStateCompleted {
+		return false
+	}
+	return authOnlyUpdateSafe(current.Spec) && SpecsEqual(current.Spec, expected)
 }
 
 func (a *Applier) apply(
@@ -217,20 +278,11 @@ func (a *Applier) updateAttempt(
 	if err != nil {
 		return current, false, err
 	}
-	options, err := a.updateOptions(applied)
+	options, auth, err := a.updateOptions(current.ID, applied)
 	if err != nil {
 		return current, false, fmt.Errorf("service %s registry authentication: %w", displayName, err)
 	}
 	options.QueryRegistry = !reused
-	auth := options.EncodedRegistryAuth
-	if auth == "" && a.authRefreshRequired(current.ID, auth) {
-		// An empty header with RegistryAuthFromSpec preserves Engine's old credentials.
-		// A nonempty encoding of anonymous auth explicitly replaces a known old credential.
-		options.EncodedRegistryAuth, err = dockerregistry.EncodeAuthConfig(dockerregistry.AuthConfig{})
-		if err != nil {
-			return current, false, fmt.Errorf("service %s registry authentication: %w", displayName, err)
-		}
-	}
 	err = a.manager.Update(ctx, current.ID, current.Version, applied, options)
 	if err == nil {
 		a.rememberAuth(current.ID, auth)
@@ -331,11 +383,22 @@ func (a *Applier) createOptions(spec dockerswarm.ServiceSpec) (dockerswarm.Servi
 	return dockerswarm.ServiceCreateOptions{EncodedRegistryAuth: auth, QueryRegistry: true}, err
 }
 
-func (a *Applier) updateOptions(spec dockerswarm.ServiceSpec) (dockerswarm.ServiceUpdateOptions, error) {
+func (a *Applier) updateOptions(
+	serviceID string, spec dockerswarm.ServiceSpec,
+) (dockerswarm.ServiceUpdateOptions, string, error) {
 	auth, err := a.resolveAuth(spec)
+	if err != nil {
+		return dockerswarm.ServiceUpdateOptions{}, "", err
+	}
+	encoded := auth
+	if auth == "" && a.authRefreshRequired(serviceID, auth) {
+		// An empty header with RegistryAuthFromSpec preserves Engine's old credentials.
+		// A nonempty encoding of anonymous auth replaces a known removed credential.
+		encoded, err = dockerregistry.EncodeAuthConfig(dockerregistry.AuthConfig{})
+	}
 	return dockerswarm.ServiceUpdateOptions{
-		EncodedRegistryAuth: auth, RegistryAuthFrom: dockerswarm.RegistryAuthFromSpec, QueryRegistry: true,
-	}, err
+		EncodedRegistryAuth: encoded, RegistryAuthFrom: dockerswarm.RegistryAuthFromSpec,
+	}, auth, err
 }
 
 func (a *Applier) resolveAuth(spec dockerswarm.ServiceSpec) (string, error) {

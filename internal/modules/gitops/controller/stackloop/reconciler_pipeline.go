@@ -2,6 +2,7 @@ package stackloop
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"time"
 
@@ -33,6 +34,8 @@ type pipelinePayload struct {
 	PrunedServices []string
 	ExecutionError string
 	RetryDeferred  bool
+	// RegistryAuthError is reported after ordinary reconciliation without changing deployment lifecycle.
+	RegistryAuthError error
 	// ProtectedServices cannot be remediated automatically while retry is deferred.
 	ProtectedServices []string
 	CleanupResult     rotatedCleanupResult
@@ -104,6 +107,10 @@ func (r *Reconciler) executeDeployment(ctx context.Context, payload *pipelinePay
 	payload.ExecutionError = result.ErrorCode
 	payload.RetryDeferred = result.RetryDeferred
 	payload.ProtectedServices = result.UnresolvedServices
+	if errors.Is(err, deployments.ErrRegistryAuthRefresh) {
+		payload.RegistryAuthError = err
+		return nil // Maintenance must not block normal drift observation or remediation.
+	}
 	return err
 }
 

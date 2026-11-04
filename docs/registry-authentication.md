@@ -28,6 +28,14 @@ credentials are not persisted or logged. Removing credentials observed by this p
 sends anonymous auth explicitly. If the process starts without configured credentials,
 Docker's existing service credentials are retained (`RegistryAuthFromSpec`).
 
+Successful, unchanged GitOps reconciliations also perform this credential maintenance.
+They inspect existing services against the converted desired specification and skip
+missing, drifted, or actively updating/failed services. Maintenance does not create
+Deployments or Attempts, repeat Init Jobs, reconcile resources, or repair drift.
+Credential lookup and Docker update failures are returned as maintenance errors and
+retried on later reconciliations; ordinary drift handling continues, and maintenance
+alone does not turn a successful deployment into a lifecycle or preparation failure.
+
 **Job execution safety:** Docker Swarm advances the execution iteration on every
 update of a native `replicated-job` or `global-job`, even if only credentials change.
 For ordinary services with `restart_policy.condition: none`, `on-failure`, or a finite

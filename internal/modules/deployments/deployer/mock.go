@@ -69,3 +69,17 @@ func (mr *MockStackDeployerMockRecorder) DeployStack(ctx, request any) *gomock.C
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeployStack", reflect.TypeOf((*MockStackDeployer)(nil).DeployStack), ctx, request)
 }
+
+// RefreshRegistryAuth mocks base method.
+func (m *MockStackDeployer) RefreshRegistryAuth(ctx context.Context, request StackRequest) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RefreshRegistryAuth", ctx, request)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// RefreshRegistryAuth indicates an expected call of RefreshRegistryAuth.
+func (mr *MockStackDeployerMockRecorder) RefreshRegistryAuth(ctx, request any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RefreshRegistryAuth", reflect.TypeOf((*MockStackDeployer)(nil).RefreshRegistryAuth), ctx, request)
+}
