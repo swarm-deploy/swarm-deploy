@@ -18,6 +18,37 @@ Malformed or unreadable configuration causes the operation to fail with an expli
 rather than silently falling back to anonymous access. If no config file exists and
 `DOCKER_AUTH_CONFIG` is unset, anonymous access remains available.
 
+For services where a credential-only update is safe (see job execution safety below),
+the applier checks credentials even when the service specification is unchanged.
+Changed credentials are sent to Docker without changing the task template or resolving
+an unchanged image again. Successful credential writes are tracked by an in-memory
+fingerprint per service; after restart, configured nonempty credentials are refreshed
+once because Docker does not expose its stored pull credentials. Fingerprints and
+credentials are not persisted or logged. Removing credentials observed by this process
+sends anonymous auth explicitly. If the process starts without configured credentials,
+Docker's existing service credentials are retained (`RegistryAuthFromSpec`).
+
+Successful, unchanged GitOps reconciliations also perform this credential maintenance.
+They inspect existing services against the converted desired specification and skip
+missing, drifted, or actively updating/failed services. Maintenance does not create
+Deployments or Attempts, repeat Init Jobs, reconcile resources, or repair drift.
+Credential lookup and Docker update failures are returned as maintenance errors and
+retried on later reconciliations; ordinary drift handling continues, and maintenance
+alone does not turn a successful deployment into a lifecycle or preparation failure.
+
+**Job execution safety:** Docker Swarm advances the execution iteration on every
+update of a native `replicated-job` or `global-job`, even if only credentials change.
+For ordinary services with `restart_policy.condition: none`, `on-failure`, or a finite
+`max_attempts`, changing pull credentials can also rerun completed or exhausted tasks.
+A task may finish between inspection and update, so checking running tasks cannot
+make this safe. Credential-only updates are deferred for these services, without
+acknowledging the new credentials, until an intentional specification update or
+explicit failed-execution retry already requires a write. Ordinary replicated
+services can also refresh safely once their current replicas are zero. Until then,
+Docker retains the previous credentials; newly scheduled tasks (including global
+jobs on added nodes) can still use them. Externally scheduled services retain their
+existing replica and execution ownership.
+
 The same registry authentication is also used when swarm-deploy:
 
 - creates Init Deploy Job services that use private images;
@@ -71,18 +102,22 @@ metadata changes; this implementation does not refresh expired tokens itself.
 
 ## Alternative: read-only bind mount
 
-For installations where the credential file is managed directly on the Swarm manager, mount it read-only:
+For installations where credentials are refreshed on the Swarm manager, mount the containing directory read-only:
 
 ```yaml
 services:
   swarm-deploy:
     environment:
-      DOCKER_CONFIG: /root/.docker
+      DOCKER_CONFIG: /run/registry-auth
     volumes:
-      - /root/.docker/config.json:/root/.docker/config.json:ro
+      - /root/.docker:/run/registry-auth:ro
 ```
 
-The file must exist on every node where the swarm-deploy task may be scheduled. If the service is constrained to one
+Replace `config.json` atomically within the mounted directory (write a temporary file, then rename it).
+The container sees the new directory entry on its next lookup. Mounting the individual file instead
+would pin the old inode and can hide atomic replacements.
+
+The directory and file must exist on every node where the swarm-deploy task may be scheduled. If the service is constrained to one
 manager node, it only needs to exist on that node.
 
 ## `DOCKER_AUTH_CONFIG`

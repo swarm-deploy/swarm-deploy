@@ -50,7 +50,9 @@ func specificationProgress(
 	}
 	ownUpdate := generation.ServiceID != "" || unresolved || baseline.ID != service.ID ||
 		!services.SpecsEqual(baseline.ServiceSpec, expected)
-	if ownUpdate && specificationStatusPending(reference, service, unresolved, generation.ServiceID != "") {
+	metadataOnly := metadataOnlyServiceUpdate(baseline, service)
+	if ownUpdate && !metadataOnly &&
+		specificationStatusPending(reference, service, unresolved, generation.ServiceID != "") {
 		progress.Message = waitingForUpdateStatus
 		return progress
 	}
@@ -105,7 +107,7 @@ func specificationRolloutPending(
 	generation services.UpdateGeneration,
 ) bool {
 	// Inherited obligations need current rollout evidence. Idle writes can have no rollout.
-	if unresolved && generation.ServiceID == "" {
+	if unresolved && generation.ServiceID == "" && !metadataOnlyServiceUpdate(baseline, service) {
 		if _, pending := verificationTaskCutoff(baseline, service, true, true); pending {
 			return true
 		}

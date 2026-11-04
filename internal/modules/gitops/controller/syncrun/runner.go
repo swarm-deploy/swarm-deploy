@@ -168,10 +168,19 @@ func (r *Runner) run(ctx context.Context, task Task, gitResult *gitx.PullResult)
 	gitResult = &resolvedGitResult
 
 	slog.InfoContext(ctx, "[controller] run sync", slog.String("reason", string(task.Reason)))
+	// Reload accepts configuration before returning (including event publication).
+	// Close admission first, without holding the queue mutex across reload or I/O.
+	if !r.stacks.Pause() {
+		r.finishStageFailure(ctx, task.Reason, startedAt, gitResult.NewRevision, "stacks dispatch", errQueueStopped)
+		return
+	}
+	defer r.stacks.Resume()
 	if err = r.configStore.Reload(ctx, r.git.WorkingDir()); err != nil {
 		r.finishStageFailure(ctx, task.Reason, startedAt, gitResult.NewRevision, "configuration reload", err)
 		return
 	}
+	// Cleanup must not recreate operations from the previously accepted configuration.
+	r.invalidateDispatch()
 	slog.InfoContext(ctx, "[controller] configuration reloaded",
 		slog.Int("stacks", len(r.configStore.Stacks())), slog.Int("networks", len(r.configStore.Networks())))
 
@@ -221,14 +230,19 @@ func (r *Runner) run(ctx context.Context, task Task, gitResult *gitx.PullResult)
 	r.metrics.Sync.RecordSyncRun(string(task.Reason), result, time.Since(startedAt))
 }
 
-// Cleanup queues rotated-resource cleanup for every idle stack of the latest dispatch, at the revision and
-// with the specification that dispatch queued. The Git HEAD and the reloaded configuration may already be
-// ahead of it when a later run failed, and cleanup must match what the stacks are deployed from.
+func (r *Runner) invalidateDispatch() {
+	r.dispatchMu.Lock()
+	defer r.dispatchMu.Unlock()
+	r.lastDispatch = nil
+}
+
+// Cleanup queues rotated-resource cleanup for idle stacks of the latest accepted dispatch.
+// Accepted configurations invalidate the previous dispatch, including when network reconciliation fails.
 // Busy stacks are skipped until a later tick, so cleanup never overlaps a reconciliation of the same stack.
 func (r *Runner) Cleanup(ctx context.Context) {
 	r.dispatchMu.Lock()
+	defer r.dispatchMu.Unlock()
 	latest := r.lastDispatch
-	r.dispatchMu.Unlock()
 	if latest == nil {
 		slog.DebugContext(ctx, "[controller] rotated resource cleanup skipped: no stacks dispatched yet")
 		return

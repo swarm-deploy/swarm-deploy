@@ -155,21 +155,21 @@ func (r *Reconciler) Reconcile(
 	if err != nil {
 		pipeErr, _ := errors.AsType[*pipe.StepError](err)
 		if pl.RetryDeferred {
-			return wrapReconcileError(pipeErr.StepName, nil, err)
+			return errors.Join(wrapReconcileError(pipeErr.StepName, nil, err), pl.RegistryAuthError)
 		}
 
-		return r.recordPipelineFailure(ctx, req, prev, pl, pipeErr)
+		return errors.Join(r.recordPipelineFailure(ctx, req, prev, pl, pipeErr), pl.RegistryAuthError)
 	}
 
 	if err = r.processResult(ctx, req, prev, desiredState, pl); err != nil {
-		return err
+		return errors.Join(err, pl.RegistryAuthError)
 	}
 	if r.cfg.Spec.GitOps.ResourceRotation.Cleanup.Enabled && (pl.Attempt != nil || pl.IsManualSync) {
 		if err = r.cleanRotatedResources(ctx, pl); err != nil {
 			slog.ErrorContext(ctx, "post-apply cleanup failed", "stack", req.Stack.Name, "err", err)
 		}
 	}
-	return nil
+	return wrapReconcileError("refresh registry authentication", nil, pl.RegistryAuthError)
 }
 
 func stackHasDrift(stack model.Stack) bool {

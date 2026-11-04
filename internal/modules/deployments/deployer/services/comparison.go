@@ -59,6 +59,8 @@ func SpecsEqual(current, desired dockerswarm.ServiceSpec) bool {
 	}
 	desired.TaskTemplate.ForceUpdate = current.TaskTemplate.ForceUpdate
 	normalizeImageResolution(&current, &desired)
+	normalizeUnresolvedImageReference(&current)
+	normalizeUnresolvedImageReference(&desired)
 	normalizeDockerDefaults(&current)
 	normalizeDockerDefaults(&desired)
 	normalizeServiceSets(&current)
@@ -96,6 +98,21 @@ func normalizeImageResolution(current, desired *dockerswarm.ServiceSpec) bool {
 	return true
 }
 
+// normalizeUnresolvedImageReference compares SDK-added default tags without claiming
+// registry resolution or copying platform metadata. It is used only for spec comparison.
+func normalizeUnresolvedImageReference(spec *dockerswarm.ServiceSpec) {
+	if spec.TaskTemplate.ContainerSpec == nil {
+		return
+	}
+	named, err := reference.ParseNormalizedNamed(spec.TaskTemplate.ContainerSpec.Image)
+	if err != nil {
+		return
+	}
+	if _, pinned := named.(reference.Canonical); !pinned {
+		spec.TaskTemplate.ContainerSpec.Image = reference.TagNameOnly(named).String()
+	}
+}
+
 func resolvedImageMatches(actual, wanted string) bool {
 	current, err := reference.ParseNormalizedNamed(actual)
 	if err != nil {
@@ -108,6 +125,10 @@ func resolvedImageMatches(actual, wanted string) bool {
 	if pinned, ok := desired.(reference.Canonical); ok {
 		resolved, canonical := current.(reference.Canonical)
 		return canonical && pinned.Digest() == resolved.Digest()
+	}
+	// A matching tag alone may be the result of a failed registry lookup.
+	if _, resolved := current.(reference.Canonical); !resolved {
+		return false
 	}
 	desired = reference.TagNameOnly(desired)
 	current = reference.TagNameOnly(current)

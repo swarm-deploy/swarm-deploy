@@ -2,6 +2,8 @@ package deployer
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"sync"
 	"time"
 
@@ -85,6 +87,32 @@ func NewDeployer(
 	}
 	d.attachPipelines()
 	return d
+}
+
+// RefreshRegistryAuth converts accepted desired state read-only and refreshes only matching live services.
+// It does not reconcile resources, run Init Jobs, or create deployment verification obligations.
+func (d *Deployer) RefreshRegistryAuth(ctx context.Context, request StackRequest) error {
+	ctx, cancel := context.WithTimeout(ctx, serviceApplyTimeout)
+	defer cancel()
+	ctx, span := otel.GetTracerProvider().Tracer(deployerTracerName).Start(
+		ctx, "deployer.RefreshRegistryAuth", oteltrace.WithAttributes(
+			tracing.ResourceStackName.String(request.StackName),
+		),
+	)
+	defer span.End()
+	converted, err := d.converter.Convert(ctx, request.StackName, request.Desired)
+	if err != nil {
+		err = fmt.Errorf("convert registry authentication targets: %w", err)
+	} else {
+		err = d.serviceApplier.RefreshRegistryAuth(ctx, request.StackName, converted.Services)
+	}
+	if err != nil {
+		// Converter diagnostics are sanitized, so retain the maintenance context's
+		// cancellation classification without exposing the original API request.
+		err = safePipelineError(errors.Join(err, ctx.Err()))
+		tracing.FailSpan(span, err)
+	}
+	return err
 }
 
 // DeployStack runs the full stack deployment pipeline.

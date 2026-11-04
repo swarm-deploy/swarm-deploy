@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
@@ -21,6 +22,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackqueue"
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/modelstore"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/labelsdict"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	"go.uber.org/mock/gomock"
 )
@@ -228,7 +230,7 @@ func TestCleanupSkipsBusyStacks(t *testing.T) {
 	waitIdle(t, queue)
 }
 
-func TestCleanupUsesLatestDispatchAfterFailedRun(t *testing.T) {
+func TestCleanupSkipsInvalidatedDispatchAfterFailedRun(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	repoDir := t.TempDir()
 	stacksPath, networksPath := filepath.Join(repoDir, "stacks.yaml"), filepath.Join(repoDir, "networks.yaml")
@@ -252,8 +254,7 @@ func TestCleanupUsesLatestDispatchAfterFailedRun(t *testing.T) {
 	require.Equal(t, syncRunResultError, state.LastSyncResult)
 	assert.Equal(t, "A", state.GitRevision, "revision B was never queued")
 
-	// Cleanup matches what the stacks are deployed from, not the newer configuration and revision.
-	reconciler.EXPECT().Cleanup(gomock.Any(), config.StackSpec{Name: "app", ComposeFile: "app.yaml"}, "A").Return(nil)
+	// The accepted configuration invalidated A; cleanup must not recreate obsolete operations.
 	runner.Cleanup(t.Context())
 	waitIdle(t, queue)
 }
@@ -386,4 +387,102 @@ func receive[T any](t *testing.T, ch <-chan T) T {
 		var zero T
 		return zero
 	}
+}
+
+func TestRunBlocksObsoleteAdmissionDuringNetworkReconciliation(t *testing.T) {
+	for _, outcome := range []string{"removed", "updated", "network failure", "canceled"} {
+		t.Run(outcome, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			repoDir := t.TempDir()
+			stacksPath, networksPath := filepath.Join(repoDir, "stacks.yaml"), filepath.Join(repoDir, "networks.yaml")
+			require.NoError(t, writeStacks(stacksPath, []string{"slow", "waiting"}))
+			require.NoError(t, os.WriteFile(networksPath, []byte("networks: []\n"), 0o600))
+			repository := gitx.NewMockRepository(ctrl)
+			repository.EXPECT().WorkingDir().Return(repoDir).AnyTimes()
+			reconciler := stackloop.NewMockStackReconciler(ctrl)
+			slowStarted, releaseSlow, slowReturned := make(chan struct{}), make(chan struct{}), make(chan struct{})
+			reconciler.EXPECT().Reconcile(gomock.Any(), stackloop.ReconciliationRequest{
+				Stack: config.StackSpec{Name: "slow", ComposeFile: "slow.yaml"}, Commit: "A",
+			}).DoAndReturn(func(context.Context, stackloop.ReconciliationRequest) error {
+				close(slowStarted)
+				<-releaseSlow
+				close(slowReturned)
+				return nil
+			})
+			networkManager := swarm.NewMockNetworkManager(ctrl)
+			networkEntered, releaseNetwork := make(chan struct{}), make(chan struct{})
+			networkManager.EXPECT().Get(gomock.Any(), "edge").DoAndReturn(func(ctx context.Context, _ string) (swarm.Network, error) {
+				close(networkEntered)
+				if outcome == "canceled" {
+					<-ctx.Done()
+					return swarm.Network{}, ctx.Err()
+				}
+				<-releaseNetwork
+				if outcome == "network failure" {
+					return swarm.Network{}, errors.New("network unavailable")
+				}
+				return swarm.Network{Name: "edge", Driver: "overlay", Labels: map[string]string{labelsdict.NetworkManagedKey: labelsdict.NetworkManagedValue}}, nil
+			})
+			runner, _, queue := newTestRunnerWithNetworks(t, repository, reconciler, 1, networkManager, "networks.yaml")
+			runner.run(t.Context(), Task{Reason: TriggerInterval}, &gitx.PullResult{NewRevision: "A"})
+			receive(t, slowStarted)
+			stacks := []string{"slow"}
+			if outcome == "updated" {
+				stacks = append(stacks, "waiting")
+			}
+			require.NoError(t, writeStacks(stacksPath, stacks))
+			// Keep the existing driver so the successful Get result exactly matches the desired network.
+			require.NoError(t, os.WriteFile(networksPath, []byte("networks:\n  - name: edge\n    driver: overlay\n"), 0o600))
+			if outcome == "removed" || outcome == "updated" {
+				for _, name := range stacks {
+					reconciler.EXPECT().Reconcile(gomock.Any(), stackloop.ReconciliationRequest{
+						Stack: config.StackSpec{Name: name, ComposeFile: name + ".yaml"}, Commit: "B",
+					}).Return(nil)
+				}
+			}
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			runDone := make(chan struct{})
+			go func() {
+				runner.run(ctx, Task{Reason: TriggerInterval}, &gitx.PullResult{OldRevision: "B", NewRevision: "B"})
+				close(runDone)
+			}()
+			receive(t, networkEntered)
+			close(releaseSlow)
+			receive(t, slowReturned)
+			waitQueueState(t, runner, 1, 0)
+			// Cleanup must not recreate old A operations while B's networks are blocked.
+			runner.Cleanup(t.Context())
+			if outcome == "canceled" {
+				cancel()
+			} else {
+				close(releaseNetwork)
+			}
+			receive(t, runDone)
+			waitIdle(t, queue)
+		})
+	}
+}
+
+// waitQueueState confirms that queue.finish has released a worker while stage barriers remain closed.
+func waitQueueState(t *testing.T, runner *Runner, pending, running int) {
+	t.Helper()
+	registry := prometheus.NewRegistry()
+	registry.MustRegister(runner.metrics)
+	require.Eventually(t, func() bool {
+		families, err := registry.Gather()
+		if err != nil {
+			return false
+		}
+		observedPending, observedRunning := -1.0, -1.0
+		for _, family := range families {
+			switch {
+			case strings.HasSuffix(family.GetName(), "_sync_stack_queue_pending"):
+				observedPending = family.Metric[0].GetGauge().GetValue()
+			case strings.HasSuffix(family.GetName(), "_sync_stack_queue_running"):
+				observedRunning = family.Metric[0].GetGauge().GetValue()
+			}
+		}
+		return observedPending == float64(pending) && observedRunning == float64(running)
+	}, testWait, time.Millisecond, "queue did not release its worker while admission was closed")
 }

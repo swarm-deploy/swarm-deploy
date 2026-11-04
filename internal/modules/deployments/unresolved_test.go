@@ -29,6 +29,8 @@ import (
 )
 
 func TestNativeDeploymentCarriesUnresolvedRolloutAcrossDesiredDigests(t *testing.T) {
+	// This convergence fixture must not inherit the runner's registry credentials.
+	t.Setenv("DOCKER_AUTH_CONFIG", `{"auths":{}}`)
 	db, _, bus := openService(t)
 	ctrl := gomock.NewController(t)
 	manager := swarm.NewMockServiceManager(ctrl)
@@ -267,6 +269,8 @@ func TestPreApplyFailuresRetainOnlyExistingRolloutObligations(t *testing.T) {
 }
 
 func TestNativeRetryDoesNotTouchUnrelatedPausedExternalJob(t *testing.T) {
+	// This convergence fixture must not inherit the runner's registry credentials.
+	t.Setenv("DOCKER_AUTH_CONFIG", `{"auths":{}}`)
 	db, _, bus := openService(t)
 	ctrl := gomock.NewController(t)
 	manager := swarm.NewMockServiceManager(ctrl)

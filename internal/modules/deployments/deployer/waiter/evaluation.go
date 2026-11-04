@@ -70,7 +70,7 @@ func evaluateService(
 		return progress
 	}
 
-	progress.Running = countCurrentRunningTasks(tasks, requireCurrentGeneration, cutoff)
+	progress.Running = countVerifiedRunningTasks(tasks, baseline, service, requireCurrentGeneration, cutoff)
 	if service.UpdateStatus == nil {
 		if failed, terminal := services.NonRestartingTaskFailure(service.ServiceSpec, tasks, cutoff); terminal {
 			progress.State = ServiceFailed
@@ -278,6 +278,10 @@ func updateProgressMessage(status *swarm.ServiceUpdateStatus) string {
 func verificationTaskCutoff(
 	baseline, service swarm.StackService, requireCurrentGeneration bool, unresolved bool,
 ) (time.Time, bool) {
+	if metadataOnlyServiceUpdate(baseline, service) {
+		// Metadata acceptance has no task birth cutoff; actual task templates prove convergence.
+		return time.Time{}, false
+	}
 	if !unresolved || baseline.ID == "" || baseline.ID != service.ID ||
 		!reflect.DeepEqual(baseline.ServiceSpec.TaskTemplate, service.ServiceSpec.TaskTemplate) {
 		return taskGenerationCutoff(baseline, service, requireCurrentGeneration)
@@ -302,4 +306,37 @@ func verificationTaskCutoff(
 func requiresTaskGeneration(baseline, service swarm.StackService, unresolved bool) bool {
 	return unresolved || baseline.ID == "" || baseline.ID != service.ID ||
 		!reflect.DeepEqual(baseline.ServiceSpec.TaskTemplate, service.ServiceSpec.TaskTemplate)
+}
+
+// metadataOnlyServiceUpdate proves that the last write preserved the task template.
+// PreviousSpec alone is insufficient: a metadata write can follow an unfinished rollout,
+// so managed verification must additionally compare the actual running task templates.
+func metadataOnlyServiceUpdate(baseline, service swarm.StackService) bool {
+	if baseline.ID == "" || baseline.ID != service.ID || service.PreviousSpec == nil ||
+		service.UpdatedAt.Before(baseline.UpdatedAt) {
+		return false
+	}
+	template := service.ServiceSpec.TaskTemplate
+	return swarm.NewTaskSpec(baseline.ServiceSpec.TaskTemplate).CompareServiceTemplate(template).Equal() &&
+		swarm.NewTaskSpec(service.PreviousSpec.TaskTemplate).CompareServiceTemplate(template).Equal()
+}
+
+func countVerifiedRunningTasks(
+	tasks []swarm.ServiceTask, baseline, service swarm.StackService, requireCurrentGeneration bool, cutoff time.Time,
+) uint64 {
+	if metadataOnlyServiceUpdate(baseline, service) {
+		return countMatchingRunningTasks(tasks, service.ServiceSpec.TaskTemplate)
+	}
+	return countCurrentRunningTasks(tasks, requireCurrentGeneration, cutoff)
+}
+
+func countMatchingRunningTasks(tasks []swarm.ServiceTask, template dockerswarm.TaskSpec) uint64 {
+	var count uint64
+	for _, task := range tasks {
+		if task.DesiredState == swarm.TaskStateRunning && task.CurrentState == swarm.TaskStateRunning &&
+			task.Spec.CompareServiceTemplate(template).Equal() {
+			count++
+		}
+	}
+	return count
 }

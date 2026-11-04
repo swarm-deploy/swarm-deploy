@@ -21,7 +21,8 @@ func TestImageResolutionEquivalence(t *testing.T) {
 		equal                 bool
 	}{
 		{"matching", "alpine:3", "alpine:3", true},
-		{"normalized", "alpine", "docker.io/library/alpine:latest", true},
+		{"normalized unresolved", "alpine", "docker.io/library/alpine:latest", true},
+		{"normalized resolved", "alpine", "docker.io/library/alpine:latest@" + digest1, true},
 		{"resolved", "alpine:3", "alpine:3@" + digest1, true},
 		{"repository drift", "alpine:3", "other:3@" + digest1, false},
 		{"tag drift", "alpine:3", "alpine:wrong@" + digest1, false},

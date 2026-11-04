@@ -99,6 +99,9 @@ func TestControllerExecuteCompletesSuccessAndAvoidsDuplicateExecution(t *testing
 	require.NoError(t, err)
 	assert.Equal(t, deploymentmodel.Succeeded, stored.Status)
 
+	stackDeployer.EXPECT().RefreshRegistryAuth(gomock.Any(), deployer.StackRequest{
+		StackName: req.Stack.Name, SourceComposePath: req.Desired.Path, Desired: req.Desired.Compose,
+	}).Return(nil)
 	unchanged, err := controller.Execute(t.Context(), req)
 	require.NoError(t, err)
 	assert.Nil(t, unchanged.Attempt)
@@ -312,4 +315,40 @@ func executionRequest(image string) ExecuteRequest {
 		}},
 		SourceChanged: true,
 	}
+}
+
+func TestSuccessfulUnchangedDeploymentMaintenanceDoesNotChangeLifecycle(t *testing.T) {
+	db, lifecycle, bus := openService(t)
+	ctrl := gomock.NewController(t)
+	stackDeployer := deployer.NewMockStackDeployer(ctrl)
+	manager := swarm.NewMockServiceManager(ctrl)
+	controller := NewController(lifecycle, stackDeployer, manager,
+		pruner.NewServicePruner(manager, bus, config.SyncPolicySpec{}), &metrics.NopDeploys{})
+	req := executionRequest("api:1")
+	attempt, err := lifecycle.StartIfChanged(t.Context(), req.Stack.Name, req.Commit, req.Desired, true)
+	require.NoError(t, err)
+	require.NoError(t, lifecycle.Complete(t.Context(), attempt.ID, Completion{Outcome: CompletionSucceeded}))
+	store := deploymentstore.NewStore(db)
+	before, err := store.Get(t.Context(), attempt.DeploymentID)
+	require.NoError(t, err)
+	req.SourceChanged = false
+	request := deployer.StackRequest{StackName: req.Stack.Name, SourceComposePath: req.Desired.Path, Desired: req.Desired.Compose}
+	failure := errors.New("synthetic maintenance failure")
+	gomock.InOrder(
+		stackDeployer.EXPECT().RefreshRegistryAuth(gomock.Any(), request).Return(failure),
+		stackDeployer.EXPECT().RefreshRegistryAuth(gomock.Any(), request).Return(nil),
+	)
+	result, err := controller.Execute(t.Context(), req)
+	require.ErrorIs(t, err, ErrRegistryAuthRefresh)
+	require.ErrorIs(t, err, failure)
+	assert.Nil(t, result.Attempt)
+	assert.Equal(t, deploymentmodel.Succeeded, result.Status)
+	assert.Empty(t, result.ErrorCode)
+	assert.False(t, result.RetryDeferred)
+	result, err = controller.Execute(t.Context(), req)
+	require.NoError(t, err)
+	assert.Nil(t, result.Attempt)
+	after, err := store.Get(t.Context(), attempt.DeploymentID)
+	require.NoError(t, err)
+	assert.Equal(t, before, after, "credential maintenance must not create or alter an Attempt")
 }

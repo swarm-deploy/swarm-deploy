@@ -27,6 +27,9 @@ const (
 	maxInitJobDiagnosticBytes = 1600
 )
 
+// ErrRegistryAuthRefresh marks credential maintenance failure without a deployment Attempt.
+var ErrRegistryAuthRefresh = errors.New("registry authentication maintenance failed")
+
 // Executor is the synchronous public deployment execution boundary.
 type Executor interface {
 	// Execute runs and completes one stack deployment when the desired state needs an Attempt.
@@ -133,16 +136,7 @@ func (c *Controller) Execute(ctx context.Context, req ExecuteRequest) (ExecuteRe
 		return result, err
 	}
 	if attempt == nil {
-		latest, _, latestErr := c.lifecycle.store.Latest(ctx, req.Stack.Name)
-		if latestErr != nil && !errors.Is(latestErr, deploymentstore.ErrNotFound) {
-			return result, latestErr
-		}
-		result.Status, result.ErrorCode = latest.Status, latest.ErrorCode
-		result.RetryDeferred = latest.Status == deploymentmodel.Failed || latest.Status == deploymentmodel.Interrupted
-		if result.RetryDeferred {
-			result.UnresolvedServices = deferredServices(latest, req.Desired)
-		}
-		return result, nil
+		return c.unchangedResult(ctx, req)
 	}
 
 	options, err := c.stackOptions(ctx, *attempt)
@@ -200,6 +194,27 @@ func (c *Controller) Execute(ctx context.Context, req ExecuteRequest) (ExecuteRe
 		return result, err
 	}
 	c.record(req, "success")
+	return result, nil
+}
+
+func (c *Controller) unchangedResult(ctx context.Context, req ExecuteRequest) (ExecuteResult, error) {
+	latest, _, err := c.lifecycle.store.Latest(ctx, req.Stack.Name)
+	if err != nil && !errors.Is(err, deploymentstore.ErrNotFound) {
+		return ExecuteResult{}, err
+	}
+	result := ExecuteResult{Status: latest.Status, ErrorCode: latest.ErrorCode}
+	result.RetryDeferred = latest.Status == deploymentmodel.Failed || latest.Status == deploymentmodel.Interrupted
+	if result.RetryDeferred {
+		result.UnresolvedServices = deferredServices(latest, req.Desired)
+	}
+	if latest.Status == deploymentmodel.Succeeded {
+		err = c.deployer.RefreshRegistryAuth(ctx, deployer.StackRequest{
+			StackName: req.Stack.Name, SourceComposePath: req.Desired.Path, Desired: req.Desired.Compose,
+		})
+		if err != nil {
+			return result, fmt.Errorf("%w: %w", ErrRegistryAuthRefresh, err)
+		}
+	}
 	return result, nil
 }
 
