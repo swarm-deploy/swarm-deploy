@@ -825,9 +825,18 @@ body {
     padding: 14px 18px;
   }
 
+  .topbar-search input {
+    display: block;
+  }
+
+  .topbar-actions {
+    align-self: stretch;
+    align-items: stretch;
+  }
+
   .topbar-assistant-button {
-    width: 44px;
-    height: 44px;
+    display: grid;
+    width: 38px;
     padding: 0;
   }
 
@@ -837,8 +846,8 @@ body {
 
   .topbar-assistant-icon {
     display: grid;
-    height: 100%;
     place-items: center;
+    color: var(--control-primary);
   }
 
   .shell-view {
