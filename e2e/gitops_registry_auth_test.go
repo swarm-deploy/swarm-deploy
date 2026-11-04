@@ -52,6 +52,10 @@ networks:
 	require.Len(t, beforeDeployment.Attempts, 1)
 	require.Len(t, beforeDeployment.Attempts[0].InitJobs, 1)
 	require.EqualValues(t, 1, registryInitJobRuns(t, metricRegistry))
+	// Zero replicas converge before the allocator necessarily finishes its
+	// metadata writes. Settle that work before asserting no-op versions.
+	_, err := f.observer.WaitStable(f.ctx, f.stack+"_private", time.Second)
+	require.NoError(t, err)
 	before := f.inspect(t, "private")
 	beforeTasks := f.tasks(t, "private")
 	require.Empty(t, beforeTasks)
@@ -64,6 +68,8 @@ networks:
 	require.Equal(t, before.Version, f.inspect(t, "private").Version)
 	auth.rotate(t, "rotated-token")
 	f.reconcile(t)
+	_, err = f.observer.WaitStable(f.ctx, f.stack+"_private", time.Second)
+	require.NoError(t, err)
 	after := f.inspect(t, "private")
 	require.Greater(t, after.Version.Index, before.Version.Index, "unchanged GitOps must still send rotated auth")
 	require.Equal(t, before.Spec, after.Spec)
