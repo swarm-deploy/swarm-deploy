@@ -87,13 +87,15 @@ components:
             last_deploy_at: '2026-10-27T10:05:51Z'
             source_digest: sha256:7a58bbb3575d5fe734743bda0a1ee795e4bb1c4f87627d8b1e7664033c7551a2
         sync:
-          last_poll_at: '2026-10-27T20:18:00Z'
-          last_poll_result: success
-          last_sync_at: '2026-10-27T20:18:03Z'
-          last_sync_reason: scheduled poll
-          last_sync_result: partial_success
-          git_revision: 4a82f313ef3d457e55370cc2864fc4b81600102e
-          last_sync_error: 2 services remain out of sync across payments and sandbox
+          last_poll:
+            at: '2026-11-04T13:57:43Z'
+            result: no_change
+            error: ''
+          last_webhook:
+            event_id: c0e8a2f1-1234-4567-890a-123456789abc
+            at: '2026-11-04T13:42:07Z'
+            queued: true
+          last_revision: 4a82f313ef3d457e55370cc2864fc4b81600102e
     ServicesResponse:
       summary: Services belonging to the ten representative stacks.
       value:

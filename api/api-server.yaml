@@ -38,6 +38,8 @@ paths:
     $ref: './assistant.yaml#/paths/~1api~1v1~1assistant~1chats~1{conversationID}'
   /api/v1/events:
     $ref: './events.yaml#/paths/~1api~1v1~1events'
+  /api/v1/events/{id}:
+    $ref: './events.yaml#/paths/~1api~1v1~1events~1{id}'
   /api/v1/events/filters:
     $ref: './events.yaml#/paths/~1api~1v1~1events~1filters'
   /api/v1/alerts:
@@ -206,6 +208,10 @@ components:
       $ref: './resources/secrets.yaml#/components/schemas/SecretExternalInfo'
     SyncInfo:
       $ref: './gitops.yaml#/components/schemas/SyncInfo'
+    LastPollStatus:
+      $ref: './gitops.yaml#/components/schemas/LastPollStatus'
+    LastWebhookStatus:
+      $ref: './gitops.yaml#/components/schemas/LastWebhookStatus'
     GitCommitDetailsResponse:
       $ref: './gitops.yaml#/components/schemas/GitCommitDetailsResponse'
     ServiceView:

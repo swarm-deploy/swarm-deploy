@@ -87,17 +87,26 @@ fully synchronous run, Git polling, configuration reload and later runs can proc
 is still running; a newer revision may supersede pending work. Setting parallelism to one does not
 restore the old whole-run barrier.
 
-**Compatibility / monitoring change:** `last_sync_result: success` now means that Git, configuration,
+**Compatibility / monitoring change:** the internal successful sync-run result means that Git, configuration,
 network reconciliation and queue dispatch succeeded (a run during shutdown, whose stacks the stopped queue
 no longer accepts, is reported as `error`), **not** that any stack deployed successfully.
-`git_revision` is the latest revision dispatched to the queue, not a guarantee that it was applied to every
-stack. A run that fails before dispatch (configuration reload, network reconciliation or a stopped queue)
-keeps the previous `git_revision`; the failed revision appears only in the logs of that run.
+The `GET /api/v1/stacks` response exposes this input-side state as a compact `sync` object:
+
+- `last_poll` is present only in `pull` and `hybrid` modes and reports the latest polling attempt as
+  `updated`, `no_change`, or `error` with its sanitized diagnostic;
+- `last_webhook` is present only when webhooks are enabled and reports the latest retained
+  `WebhookReceived` event. Its `queued` value means accepted for reconciliation scheduling, not deployed;
+- `last_revision` is the full revision most recently dispatched to the stack queue.
+
+An enabled status source with no recorded data is represented by an empty object. An unavailable revision is
+omitted. Poll completion, webhook receipt, and a dispatched revision are not proof that any stack deployment
+succeeded. A run that fails before dispatch (configuration reload, network reconciliation or a stopped queue)
+keeps the previous `last_revision`; the failed revision appears only in the logs of that run.
 `partial_error` is no longer emitted. Dashboards and alerts using
 `swarm_deploy_sync_runs_total{result="partial_error"}` must instead monitor stack operation failures via
 `swarm_deploy_sync_stack_operations_total{operation="reconcile",result="error"}` (counter increase),
-and inspect per-stack `last_error`, deployment events and the stack status. The Overview displays the
-result as a dispatch status and lists stack failures separately. These changes affect monitoring even
+and inspect per-stack `last_error`, deployment records and the stack status. Overview displays the compact
+poll, webhook, and dispatched-revision status bar separately from deployment results. These changes affect monitoring even
 when `parallelism: 1`.
 
 The Git repository serializes reads and pulls for go-git safety. Git pulls are bounded by

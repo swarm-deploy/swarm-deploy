@@ -2,6 +2,8 @@ package handlers
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -11,6 +13,19 @@ import (
 )
 
 const defaultEventPageSize int32 = 50
+
+// GetEvent returns one retained event-history item by its persisted ID.
+func (h *handler) GetEvent(ctx context.Context, params generated.GetEventParams) (generated.GetEventRes, error) {
+	entry, err := h.history.Get(ctx, params.ID)
+	if errors.Is(err, history.ErrNotFound) {
+		return nil, withStatusError(http.StatusNotFound, fmt.Errorf("event %q not found", params.ID))
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get event: %w", err)
+	}
+	item := toGeneratedEvent(entry)
+	return &item, nil
+}
 
 // GetEventFilters returns contextual stack and service options from retained event history.
 func (h *handler) GetEventFilters(ctx context.Context) (*generated.EventFilterOptions, error) {

@@ -244,25 +244,25 @@ func toGeneratedServiceSpecNetworks(networks []swarm.ServiceNetwork) []generated
 func toGeneratedEvents(entries []history.Entry) []generated.EventHistoryItem {
 	mapped := make([]generated.EventHistoryItem, 0, len(entries))
 	for _, entry := range entries {
-		item := generated.EventHistoryItem{
-			ID:        entry.ID,
-			Type:      entry.Type.String(),
-			Severity:  toGeneratedEventSeverity(entry.Severity),
-			Category:  toGeneratedEventCategory(entry.Category),
-			CreatedAt: entry.CreatedAt,
-			Message:   entry.Message,
-		}
-		if len(entry.Details) > 0 {
-			details := make(map[string]string, len(entry.Details))
-			for key, value := range entry.Details {
-				details[key] = value
-			}
-			item.Details = generated.NewOptEventHistoryItemDetails(details)
-		}
-		mapped = append(mapped, item)
+		mapped = append(mapped, toGeneratedEvent(entry))
 	}
 
 	return mapped
+}
+
+func toGeneratedEvent(entry history.Entry) generated.EventHistoryItem {
+	item := generated.EventHistoryItem{
+		ID: entry.ID, Type: entry.Type.String(), Severity: toGeneratedEventSeverity(entry.Severity),
+		Category: toGeneratedEventCategory(entry.Category), CreatedAt: entry.CreatedAt, Message: entry.Message,
+	}
+	if len(entry.Details) > 0 {
+		details := make(map[string]string, len(entry.Details))
+		for key, value := range entry.Details {
+			details[key] = value
+		}
+		item.Details = generated.NewOptEventHistoryItemDetails(details)
+	}
+	return item
 }
 
 func toGeneratedEventSeverity(severity events.Severity) generated.EventSeverity {

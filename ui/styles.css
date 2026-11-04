@@ -340,6 +340,88 @@ button:hover,
   border-left-color: var(--control-primary);
 }
 
+.overview-sync-content,
+.overview-sync-items,
+.overview-sync-item {
+  display: flex;
+  align-items: center;
+}
+
+.overview-sync-content {
+  min-width: 0;
+  gap: 16px;
+}
+
+.overview-sync-items {
+  min-width: 0;
+  flex: 1 1 auto;
+  flex-wrap: wrap;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.overview-sync-item {
+  min-width: 0;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.overview-sync-item strong {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.overview-sync-separator {
+  width: 1px;
+  height: 18px;
+  flex: 0 0 1px;
+  margin-block: 4px;
+  background: var(--border-strong);
+}
+
+.overview-sync-indicator {
+  font-weight: 800;
+}
+
+.overview-sync-indicator--success { color: var(--success); }
+.overview-sync-indicator--warning { color: var(--warning); }
+.overview-sync-indicator--error { color: var(--error); }
+
+.overview-webhook-details {
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--accent-strong);
+  padding: 1px 2px;
+  font: inherit;
+  font-weight: 500;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.overview-webhook-details:hover,
+.overview-webhook-details:focus-visible {
+  color: var(--text);
+  background: var(--surface-hover);
+  filter: none;
+  transform: none;
+}
+
+.overview-sync-commit-badge {
+  min-height: 23px;
+  padding: 3px 7px;
+}
+
+.overview-sync-button {
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+
+.overview-sync-error {
+  margin: 10px 0 0;
+}
+
 .services-link-panel {
   margin-bottom: 20px;
   display: flex;
@@ -3874,6 +3956,23 @@ a.overview-summary-row:focus-visible {
 @media (max-width: 650px) {
   .layout {
     padding-top: 20px;
+  }
+
+  .overview-sync-content {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .overview-sync-items {
+    flex-basis: 100%;
+  }
+
+  .overview-sync-separator {
+    display: none;
+  }
+
+  .overview-sync-button {
+    margin-left: 0;
   }
 
   .modal-card {

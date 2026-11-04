@@ -18,6 +18,7 @@ const (
 	GetDeploymentOperation              OperationName = "GetDeployment"
 	GetDeploymentFiltersOperation       OperationName = "GetDeploymentFilters"
 	GetDeploymentInitJobLogsOperation   OperationName = "GetDeploymentInitJobLogs"
+	GetEventOperation                   OperationName = "GetEvent"
 	GetEventFiltersOperation            OperationName = "GetEventFilters"
 	GetGitCommitOperation               OperationName = "GetGitCommit"
 	GetGraphOperation                   OperationName = "GetGraph"

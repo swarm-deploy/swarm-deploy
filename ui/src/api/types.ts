@@ -1,13 +1,15 @@
 export interface SyncInfo {
-  last_poll_at?: string;
-  last_poll_result?: string;
-  last_poll_error?: string;
-  last_sync_at?: string;
-  last_sync_reason?: string;
-  last_sync_result?: string;
-  git_revision?: string;
-  last_sync_error?: string;
-  [key: string]: string | undefined;
+  last_poll?: {
+    at?: string;
+    result?: "updated" | "no_change" | "error";
+    error?: string;
+  };
+  last_webhook?: {
+    event_id?: string;
+    at?: string;
+    queued?: boolean;
+  };
+  last_revision?: string;
 }
 
 export interface StackStatus {

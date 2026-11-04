@@ -91,6 +91,27 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/EventFilterOptions'
+  /api/v1/events/{id}:
+    get:
+      operationId: getEvent
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            minLength: 36
+            maxLength: 36
+            pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+      responses:
+        '200':
+          description: One retained event-history item.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventHistoryItem'
+        '404':
+          description: Event is unknown or has been removed by history retention.
   /api/v1/alerts:
     get:
       operationId: listAlerts

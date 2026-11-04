@@ -99,6 +99,13 @@ func (UnimplementedHandler) GetDeploymentInitJobLogs(ctx context.Context, params
 	return ht.ErrNotImplemented
 }
 
+// GetEvent implements getEvent operation.
+//
+// GET /api/v1/events/{id}
+func (UnimplementedHandler) GetEvent(ctx context.Context, params GetEventParams) (r GetEventRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // GetEventFilters implements getEventFilters operation.
 //
 // GET /api/v1/events/filters

@@ -5,6 +5,10 @@ type GetDeploymentInitJobLogsRes interface {
 	getDeploymentInitJobLogsRes()
 }
 
+type GetEventRes interface {
+	getEventRes()
+}
+
 type GetTaskLogsRes interface {
 	getTaskLogsRes()
 }
