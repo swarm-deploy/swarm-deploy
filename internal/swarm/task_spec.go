@@ -21,7 +21,8 @@ type TaskSpec struct {
 
 // TaskSpecComparison describes whether a task was created from a service template.
 type TaskSpecComparison struct {
-	mismatchPaths []string
+	mismatchPaths        []string
+	olderForceUpdateOnly bool
 }
 
 // NewTaskSpec wraps an actual Docker task specification for safe comparison.
@@ -38,12 +39,22 @@ func (s TaskSpec) CompareServiceTemplate(template dockerswarm.TaskSpec) TaskSpec
 
 	var paths []string
 	taskSpecDifferencePaths(reflect.ValueOf(template), reflect.ValueOf(s.value), "TaskTemplate", &paths)
-	return TaskSpecComparison{mismatchPaths: paths}
+	olderForceUpdateOnly := s.value.ForceUpdate < template.ForceUpdate &&
+		len(paths) == 1 && paths[0] == "TaskTemplate.ForceUpdate"
+	return TaskSpecComparison{
+		mismatchPaths:        paths,
+		olderForceUpdateOnly: olderForceUpdateOnly,
+	}
 }
 
 // Equal reports whether the normalized task and service template are equivalent.
 func (c TaskSpecComparison) Equal() bool {
 	return len(c.mismatchPaths) == 0
+}
+
+// OlderForceUpdateOnly reports whether the task matches the normalized template except for an older generation.
+func (c TaskSpecComparison) OlderForceUpdateOnly() bool {
+	return c.olderForceUpdateOnly
 }
 
 // MismatchPaths returns Docker field paths without any specification values.

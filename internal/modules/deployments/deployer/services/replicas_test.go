@@ -101,6 +101,7 @@ func TestExternalTaskRecreatingUpdateSafety(t *testing.T) {
 		task      swarm.TaskState
 		restart   bool
 		stale     bool
+		wrongEnv  bool
 		removed   bool
 		retry     bool
 		unchanged bool
@@ -117,7 +118,12 @@ func TestExternalTaskRecreatingUpdateSafety(t *testing.T) {
 		{name: "completed restart-none job is parked", replicas: 1, task: swarm.TaskStateComplete, restart: true},
 		{name: "failed restart-none job is parked", replicas: 1, task: swarm.TaskStateFailed, restart: true},
 		{name: "restart-none job without a task in its slot is deferred", replicas: 1, restart: true, blocked: true, deferred: true},
-		{name: "stable unexplained task template mismatch is blocked", replicas: 1, task: swarm.TaskStateComplete, restart: true, stale: true, blocked: true},
+		{name: "previous ForceUpdate generation stays deferred after rechecks", replicas: 1, task: swarm.TaskStateComplete,
+			restart: true, stale: true, blocked: true, deferred: true},
+		{name: "persistent environment mismatch is blocked", replicas: 1, task: swarm.TaskStateComplete,
+			restart: true, wrongEnv: true, blocked: true},
+		{name: "previous generation with an environment mismatch is blocked", replicas: 1, task: swarm.TaskStateComplete,
+			restart: true, stale: true, wrongEnv: true, blocked: true},
 		{name: "restart-none job with removed slot task is deferred", replicas: 1, task: swarm.TaskStateComplete, restart: true, removed: true, blocked: true, deferred: true},
 		{name: "running restart-none job is deferred", replicas: 1, task: swarm.TaskStateRunning, restart: true, blocked: true, deferred: true},
 		{name: "retry does not execute unchanged job outside schedule", replicas: 1, retry: true, unchanged: true},
@@ -147,6 +153,11 @@ func TestExternalTaskRecreatingUpdateSafety(t *testing.T) {
 					if tc.stale {
 						taskSpec.ForceUpdate-- // Created before the scheduler's latest ForceUpdate.
 					}
+					if tc.wrongEnv {
+						containerSpec := *taskSpec.ContainerSpec
+						containerSpec.Env = []string{"TOKEN=private-value"}
+						taskSpec.ContainerSpec = &containerSpec
+					}
 					task := swarm.ServiceTask{
 						Slot: 1, CurrentState: tc.task, DesiredState: swarm.TaskStateShutdown, Spec: swarm.NewTaskSpec(taskSpec),
 					}
@@ -156,7 +167,7 @@ func TestExternalTaskRecreatingUpdateSafety(t *testing.T) {
 					tasks = []swarm.ServiceTask{task}
 				}
 				listTasks := manager.EXPECT().ListTasks(gomock.Any(), "id").Return(tasks, nil)
-				if tc.stale {
+				if tc.stale || tc.wrongEnv {
 					listTasks.Times(templateMismatchRechecks + 1)
 					manager.EXPECT().Inspect(gomock.Any(), "id").Return(current, nil).Times(templateMismatchRechecks + 1)
 				}
@@ -174,9 +185,16 @@ func TestExternalTaskRecreatingUpdateSafety(t *testing.T) {
 				require.ErrorIs(t, err, ErrUpdateBlocked)
 				assert.ErrorContains(t, err, "service job")
 				assert.Equal(t, tc.deferred, errors.Is(err, ErrUpdateDeferred))
-				if tc.stale {
+				if tc.stale && !tc.wrongEnv {
+					assert.ErrorContains(t, err, "older ForceUpdate generation")
+				}
+				if tc.stale && tc.wrongEnv {
 					assert.ErrorContains(t, err, "TaskTemplate.ForceUpdate")
-					assert.NotContains(t, err.Error(), "CHANGED=yes")
+				}
+				if tc.wrongEnv {
+					assert.ErrorContains(t, err, "TaskTemplate.ContainerSpec.Env")
+					assert.NotContains(t, err.Error(), "TOKEN")
+					assert.NotContains(t, err.Error(), "private-value")
 				}
 				assert.Empty(t, changed.ChangedServices)
 			} else {
@@ -252,6 +270,7 @@ func TestTemplateMismatchRecheckObservesCompletedCurrentTask(t *testing.T) {
 		manager.EXPECT().Update(gomock.Any(), "id", current.Version, gomock.Any(), gomock.Any()).DoAndReturn(
 			func(_ any, _ string, _ dockerswarm.Version, spec dockerswarm.ServiceSpec, _ dockerswarm.ServiceUpdateOptions) error {
 				assert.Zero(t, *spec.Mode.Replicated.Replicas)
+				assert.Equal(t, current.Spec.TaskTemplate.ForceUpdate, spec.TaskTemplate.ForceUpdate)
 				return nil
 			},
 		),
@@ -318,6 +337,8 @@ func TestExecutionSettled(t *testing.T) {
 	}
 	older := template
 	older.ForceUpdate = 4
+	differentImage := template
+	differentImage.ContainerSpec = &dockerswarm.ContainerSpec{Image: "alpine:4"}
 	at := func(seconds int) time.Time { return time.Unix(int64(seconds), 0) }
 	done := func(slot, created int, spec dockerswarm.TaskSpec) swarm.ServiceTask {
 		spec.Runtime = "" // Docker's task conversion omits the container runtime.
@@ -325,12 +346,13 @@ func TestExecutionSettled(t *testing.T) {
 			DesiredState: swarm.TaskStateShutdown, Spec: swarm.NewTaskSpec(spec)}
 	}
 	for _, tc := range []struct {
-		name     string
-		replicas uint64
-		tasks    []swarm.ServiceTask
-		reason   executionSettlementReason
-		slot     int
-		path     string
+		name                 string
+		replicas             uint64
+		tasks                []swarm.ServiceTask
+		reason               executionSettlementReason
+		slot                 int
+		path                 string
+		olderForceUpdateOnly bool
 	}{
 		{name: "every slot ran the current template", replicas: 2,
 			tasks: []swarm.ServiceTask{done(1, 1, template), done(2, 1, template)}, reason: executionSettledReason},
@@ -338,7 +360,10 @@ func TestExecutionSettled(t *testing.T) {
 			reason: executionMissingSlotReason, slot: 2},
 		{name: "newest slot task predates ForceUpdate", replicas: 1,
 			tasks: []swarm.ServiceTask{done(1, 1, template), done(1, 2, older)}, reason: executionTemplateMismatchReason,
-			slot: 1, path: "TaskTemplate.ForceUpdate"},
+			slot: 1, path: "TaskTemplate.ForceUpdate", olderForceUpdateOnly: true},
+		{name: "older task does not mask a template mismatch in another slot", replicas: 2,
+			tasks:  []swarm.ServiceTask{done(1, 1, older), done(2, 1, differentImage)},
+			reason: executionTemplateMismatchReason, slot: 2, path: "TaskTemplate.ContainerSpec.Image"},
 		{name: "history before the current run is ignored", replicas: 1,
 			tasks: []swarm.ServiceTask{done(1, 1, older), done(1, 2, template)}, reason: executionSettledReason},
 		{name: "tasks outside desired slots are ignored", replicas: 1,
@@ -361,6 +386,7 @@ func TestExecutionSettled(t *testing.T) {
 			settlement := executionSettled(template, tc.replicas, tc.tasks)
 			assert.Equal(t, tc.reason, settlement.reason)
 			assert.Equal(t, tc.slot, settlement.slot)
+			assert.Equal(t, tc.olderForceUpdateOnly, settlement.olderForceUpdateOnly)
 			if tc.path != "" {
 				assert.Contains(t, settlement.mismatchPaths, tc.path)
 			}

@@ -35,6 +35,7 @@ func TestTaskSpecEquivalentDockerRepresentations(t *testing.T) {
 	}).CompareServiceTemplate(template)
 
 	assert.True(t, comparison.Equal())
+	assert.False(t, comparison.OlderForceUpdateOnly())
 	assert.Empty(t, comparison.MismatchPaths())
 }
 
@@ -53,11 +54,14 @@ func TestTaskSpecMeaningfulDifferencesRemainStrict(t *testing.T) {
 	}
 
 	for _, tc := range []struct {
-		name string
-		path string
-		edit func(*dockerswarm.TaskSpec)
+		name                 string
+		path                 string
+		edit                 func(*dockerswarm.TaskSpec)
+		olderForceUpdateOnly bool
 	}{
-		{name: "force update", path: "TaskTemplate.ForceUpdate", edit: func(spec *dockerswarm.TaskSpec) { spec.ForceUpdate++ }},
+		{name: "newer force update", path: "TaskTemplate.ForceUpdate", edit: func(spec *dockerswarm.TaskSpec) { spec.ForceUpdate++ }},
+		{name: "older force update", path: "TaskTemplate.ForceUpdate", edit: func(spec *dockerswarm.TaskSpec) { spec.ForceUpdate-- },
+			olderForceUpdateOnly: true},
 		{name: "image", path: "TaskTemplate.ContainerSpec.Image", edit: func(spec *dockerswarm.TaskSpec) { spec.ContainerSpec.Image = "alpine:4" }},
 		{name: "command", path: "TaskTemplate.ContainerSpec.Command", edit: func(spec *dockerswarm.TaskSpec) { spec.ContainerSpec.Command = []string{"bash"} }},
 		{name: "environment", path: "TaskTemplate.ContainerSpec.Env", edit: func(spec *dockerswarm.TaskSpec) { spec.ContainerSpec.Env = []string{"TOKEN=other-secret"} }},
@@ -76,6 +80,7 @@ func TestTaskSpecMeaningfulDifferencesRemainStrict(t *testing.T) {
 			tc.edit(&actual)
 			comparison := NewTaskSpec(actual).CompareServiceTemplate(base)
 			require.False(t, comparison.Equal())
+			assert.Equal(t, tc.olderForceUpdateOnly, comparison.OlderForceUpdateOnly())
 			assert.Contains(t, comparison.MismatchPaths(), tc.path)
 			diagnostic := strings.Join(comparison.MismatchPaths(), ",")
 			assert.NotContains(t, diagnostic, "secret-value")

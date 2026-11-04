@@ -16,7 +16,7 @@ import (
 var ErrUpdateBlocked = errors.New("externally managed service update blocked")
 
 // ErrUpdateDeferred marks an apply whose only failures are external updates waiting for
-// active tasks to finish. Such an apply can succeed later without operator action.
+// requested executions to settle. Such an apply can succeed later without operator action.
 var ErrUpdateDeferred = errors.New("externally managed service update deferred until active tasks finish")
 
 // errUpdateBusy keeps the ErrUpdateBlocked message while marking a transient block.
@@ -41,13 +41,14 @@ const (
 )
 
 type executionSettlement struct {
-	reason        executionSettlementReason
-	slot          int
-	mismatchPaths []string
+	reason               executionSettlementReason
+	slot                 int
+	mismatchPaths        []string
+	olderForceUpdateOnly bool
 }
 
 // blockedApplyError joins per-service blocked errors and marks them deferred
-// only when every block is expected to clear after active tasks finish.
+// only when every block is expected to clear after requested executions settle.
 func blockedApplyError(blocked []error) error {
 	if len(blocked) == 0 {
 		return nil
@@ -140,6 +141,12 @@ func (a *Applier) checkUpdateSafety(
 			errUpdateBusy, name, settlement.slot,
 		)
 	case executionTemplateMismatchReason:
+		if settlement.olderForceUpdateOnly {
+			return fmt.Errorf(
+				"%w: service %s execution is unsettled: newest task for slot %d has an older ForceUpdate generation",
+				errUpdateBusy, name, settlement.slot,
+			)
+		}
 		return fmt.Errorf(
 			"%w: service %s task template mismatch persisted across %d observations over %s at fields %s; "+
 				"retry after Docker finishes scheduling or verify Engine/API compatibility",
@@ -193,6 +200,7 @@ func executionSettled(template dockerswarm.TaskSpec, replicas uint64, tasks []sw
 			newest[task.Slot] = task
 		}
 	}
+	settlement := executionSettlement{reason: executionSettledReason}
 	for slot := 1; uint64(slot) <= replicas; slot++ {
 		task, exists := newest[slot]
 		if !exists {
@@ -202,13 +210,20 @@ func executionSettled(template dockerswarm.TaskSpec, replicas uint64, tasks []sw
 			return executionSettlement{reason: executionRemovedTaskReason, slot: slot}
 		}
 		comparison := task.Spec.CompareServiceTemplate(template)
-		if !comparison.Equal() {
-			return executionSettlement{
-				reason: executionTemplateMismatchReason, slot: slot, mismatchPaths: comparison.MismatchPaths(),
-			}
+		if comparison.Equal() {
+			continue
 		}
+		mismatch := executionSettlement{
+			reason: executionTemplateMismatchReason, slot: slot, mismatchPaths: comparison.MismatchPaths(),
+			olderForceUpdateOnly: comparison.OlderForceUpdateOnly(),
+		}
+		if !mismatch.olderForceUpdateOnly {
+			return mismatch
+		}
+		// A stale generation in this slot must not mask a different mismatch in a later slot.
+		settlement = mismatch
 	}
-	return executionSettlement{reason: executionSettledReason}
+	return settlement
 }
 
 func (a *Applier) recheckTemplateMismatch(
