@@ -1,6 +1,7 @@
 package deployments
 
 import (
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -19,28 +20,52 @@ import (
 
 func TestInitJobCreationFailureRetryEligibilityPersistsAcrossRestart(t *testing.T) {
 	for _, tc := range []struct {
-		name      string
-		status    int
-		retryable bool
+		name                                   string
+		status                                 int
+		retryable                              bool
+		dropConnection, closeServer, tlsServer bool
 	}{
-		{"unavailable", http.StatusServiceUnavailable, true},
-		{"invalid", http.StatusBadRequest, false},
-		{"server error", http.StatusInternalServerError, false},
+		{name: "unavailable", status: http.StatusServiceUnavailable, retryable: true},
+		{name: "invalid", status: http.StatusBadRequest},
+		{name: "server error", status: http.StatusInternalServerError},
+		{name: "dropped connection", dropConnection: true, retryable: true},
+		{name: "connection refused", closeServer: true, retryable: true},
+		{name: "invalid TLS", tlsServer: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv("DOCKER_AUTH_CONFIG", "")
 			t.Setenv("DOCKER_CONFIG", t.TempDir())
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				assert.Equal(t, http.MethodPost, r.Method)
 				assert.Equal(t, "/v1.48/services/create", r.URL.Path)
+				if tc.dropConnection {
+					_, readErr := io.Copy(io.Discard, r.Body)
+					require.NoError(t, readErr)
+					conn, _, hijackErr := http.NewResponseController(w).Hijack()
+					require.NoError(t, hijackErr)
+					require.NoError(t, conn.Close())
+					return
+				}
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(tc.status)
 				_, _ = w.Write([]byte(`{"message":"Docker API failure"}`))
 			}))
+			scheme := "http"
+			if tc.tlsServer {
+				server.StartTLS()
+				scheme = "https"
+			} else {
+				server.Start()
+			}
 			t.Cleanup(server.Close)
-			dockerClient, err := client.NewClientWithOpts(client.WithHost(server.URL), client.WithVersion("1.48"))
+			dockerClient, err := client.NewClientWithOpts(
+				client.WithHost(server.URL), client.WithScheme(scheme), client.WithVersion("1.48"),
+			)
 			require.NoError(t, err)
 			t.Cleanup(func() { require.NoError(t, dockerClient.Close()) })
+			if tc.closeServer {
+				server.Close()
+			}
 			runner := initjob.NewInitJobRunner(dockerClient, swarm.NewSwarm(dockerClient),
 				time.Millisecond, time.Second, &metrics.NopDeploys{})
 			_, creationErr := runner.Run(t.Context(), initjob.Spec{StackName: "app", ServiceName: "api",

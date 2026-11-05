@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	dockerregistry "github.com/docker/docker/api/types/registry"
 	dockerswarm "github.com/docker/docker/api/types/swarm"
 	"github.com/docker/docker/client"
 	"github.com/stretchr/testify/assert"
@@ -58,22 +59,49 @@ func TestInitJobRunnerUsesServiceManagerWithCompleteSpecAndOptions(t *testing.T)
 					Environment: compose.Environment{Map: map[string]string{"MODE": "migration"}}},
 			}
 			spec.Job.Timeout.Value = time.Minute
-			wantOptions, err := runner.buildInitServiceCreateOptions(spec.Job.Image)
-			require.NoError(t, err)
-			assert.Equal(t, authenticated, wantOptions.QueryRegistry)
-			assert.Equal(t, authenticated, wantOptions.EncodedRegistryAuth != "")
 			contextKey := struct{}{}
 			ctx := context.WithValue(t.Context(), contextKey, "propagated")
-			manager.EXPECT().Create(gomock.Any(), gomock.Any(), wantOptions).DoAndReturn(
-				func(createCtx context.Context, got dockerswarm.ServiceSpec, _ dockerswarm.ServiceCreateOptions) (string, error) {
+			manager.EXPECT().Create(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+				func(createCtx context.Context, got dockerswarm.ServiceSpec, options dockerswarm.ServiceCreateOptions) (string, error) {
 					assert.Equal(t, "propagated", createCtx.Value(contextKey))
 					deadline, ok := createCtx.Deadline()
 					require.True(t, ok)
 					assert.InDelta(t, time.Minute.Seconds(), time.Until(deadline).Seconds(), 2)
 					assert.Regexp(t, `^app_migrate-[0-9]+$`, got.Name)
-					want, buildErr := runner.buildInitServiceSpec(createCtx, spec, got.Name)
-					require.NoError(t, buildErr)
-					assert.Equal(t, want, got)
+					assert.Equal(t, map[string]string{
+						"org.swarm-deploy.init-job.name":    got.Name,
+						"org.swarm-deploy.init-job.stack":   "app",
+						"org.swarm-deploy.init-job.service": "api",
+					}, got.Labels)
+					container := got.TaskTemplate.ContainerSpec
+					require.NotNil(t, container)
+					assert.Equal(t, "registry.example/app:1", container.Image)
+					assert.Equal(t, []string{"sh", "-c"}, container.Command)
+					assert.Equal(t, []string{"migrate up"}, container.Args)
+					assert.Equal(t, []string{"MODE=migration"}, container.Env)
+					assert.Equal(t, []dockerswarm.NetworkAttachmentConfig{{Target: "network-id"}}, got.TaskTemplate.Networks)
+					assert.Equal(t, []*dockerswarm.SecretReference{{
+						SecretID: "secret-id", SecretName: "app_password",
+						File: &dockerswarm.SecretReferenceFileTarget{Name: "/run/secrets/password", UID: "0", GID: "0", Mode: 0o444},
+					}}, container.Secrets)
+					assert.Equal(t, []*dockerswarm.ConfigReference{{
+						ConfigID: "config-id", ConfigName: "app_settings",
+						File: &dockerswarm.ConfigReferenceFileTarget{Name: "/etc/app", UID: "0", GID: "0", Mode: 0o444},
+					}}, container.Configs)
+					assert.Equal(t, &dockerswarm.RestartPolicy{Condition: dockerswarm.RestartPolicyConditionNone}, got.TaskTemplate.RestartPolicy)
+					require.NotNil(t, got.Mode.Replicated)
+					require.NotNil(t, got.Mode.Replicated.Replicas)
+					assert.Equal(t, uint64(1), *got.Mode.Replicated.Replicas)
+					assert.Equal(t, authenticated, options.QueryRegistry)
+					if authenticated {
+						auth, decodeErr := dockerregistry.DecodeAuthConfig(options.EncodedRegistryAuth)
+						require.NoError(t, decodeErr)
+						assert.Equal(t, &dockerregistry.AuthConfig{
+							Username: "robot", Password: "test-value", ServerAddress: "registry.example",
+						}, auth)
+					} else {
+						assert.Empty(t, options.EncodedRegistryAuth)
+					}
 					return "created-id", nil
 				})
 			manager.EXPECT().ListTasks(gomock.Any(), "created-id").Return([]swarm.ServiceTask{{
@@ -137,7 +165,9 @@ func TestInitJobRunnerMissingNetworkUsesStackCandidateThenOriginalName(t *testin
 				manager.EXPECT().Get(gomock.Any(), "app_default").Return(swarm.Network{}, missing)
 			}
 			runner := &InitJobRunner{swarmService: &swarm.Swarm{Networks: manager}}
-			assert.Equal(t, want, runner.resolveNetworkTarget(t.Context(), "app", "default"))
+			target, err := runner.resolveNetworkTarget(t.Context(), "app", "default")
+			require.NoError(t, err)
+			assert.Equal(t, want, target)
 		})
 	}
 }
@@ -188,6 +218,69 @@ func TestInitJobCreationPreservesCancellationAndTimeout(t *testing.T) {
 			_, err := runner.Run(ctx, Spec{StackName: "app", Job: compose.InitJob{Name: "migrate", Image: "busybox:1.36"}})
 			require.ErrorIs(t, err, want)
 			assert.Empty(t, runner.deleteTasks)
+		})
+	}
+}
+
+func TestInitJobRunnerNetworkResolutionFailureStopsCreation(t *testing.T) {
+	for _, tc := range []struct {
+		name                   string
+		firstMissing, canceled bool
+	}{
+		{name: "unavailable"},
+		{name: "fallback unavailable", firstMissing: true},
+		{name: "canceled", canceled: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			requests := make(chan string, 2)
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				assert.Equal(t, http.MethodGet, r.Method)
+				requests <- r.URL.Path
+				w.Header().Set("Content-Type", "application/json")
+				if tc.firstMissing && r.URL.Path == "/v1.48/networks/default" {
+					w.WriteHeader(http.StatusNotFound)
+				} else {
+					w.WriteHeader(http.StatusServiceUnavailable)
+				}
+				_, _ = w.Write([]byte(`{"message":"network inspection failed"}`))
+			}))
+			t.Cleanup(server.Close)
+			cli, err := client.NewClientWithOpts(client.WithHost(server.URL), client.WithVersion("1.48"))
+			require.NoError(t, err)
+			t.Cleanup(func() { require.NoError(t, cli.Close()) })
+			services := swarm.NewMockServiceManager(gomock.NewController(t))
+			// No Create expectation: network failures must stop Run before a write.
+			runner := &InitJobRunner{
+				swarmService: &swarm.Swarm{Services: services, Networks: swarm.NewSwarm(cli).Networks},
+				metrics:      &metrics.NopDeploys{}, timeout: time.Second,
+			}
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			if tc.canceled {
+				cancel()
+			}
+			_, err = runner.Run(ctx, Spec{StackName: "app", DefaultNetwork: []string{"default"},
+				Job: compose.InitJob{Name: "migrate", Image: "busybox:1.36"}})
+			require.Error(t, err)
+			var unavailable *swarm.DockerUnavailableError
+			if tc.canceled {
+				assert.ErrorIs(t, err, context.Canceled)
+				assert.NotErrorAs(t, err, &unavailable)
+				assert.Empty(t, requests)
+			} else {
+				require.ErrorAs(t, err, &unavailable)
+				assert.True(t, unavailable.Temporary())
+				assert.ErrorContains(t, err, "network inspection failed")
+				wantRequests := []string{"/v1.48/networks/default"}
+				if tc.firstMissing {
+					wantRequests = append(wantRequests, "/v1.48/networks/app_default")
+				}
+				require.Len(t, requests, len(wantRequests))
+				for _, want := range wantRequests {
+					assert.Equal(t, want, <-requests)
+				}
+			}
+			assert.ErrorContains(t, err, "resolve init job network ")
 		})
 	}
 }
