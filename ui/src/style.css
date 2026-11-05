@@ -842,6 +842,8 @@ body {
     display: grid;
     width: 38px;
     padding: 0;
+    border-color: transparent;
+    background: transparent;
   }
 
   .topbar-assistant-label {

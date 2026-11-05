@@ -228,18 +228,24 @@ onUnmounted(() => {
         <span class="topbar-assistant-label">Assistant</span>
         <span class="topbar-assistant-icon" title="Assistant" aria-hidden="true">
           <svg
-            width="20"
-            height="20"
+            width="26"
+            height="26"
             viewBox="0 0 24 24"
             fill="none"
-            stroke="currentColor"
+            stroke="url(#topbar-assistant-gradient)"
             stroke-width="1.75"
             stroke-linecap="round"
           >
+            <defs>
+              <linearGradient id="topbar-assistant-gradient" x1="0%" y1="100%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="currentColor" />
+                <stop offset="100%" stop-color="#796092" />
+              </linearGradient>
+            </defs>
             <rect x="4" y="7" width="16" height="13" rx="3" />
             <path d="M12 7V3M9.5 15Q12 18 14.5 15" />
-            <circle cx="9" cy="12" r="1" fill="currentColor" stroke="none" />
-            <circle cx="15" cy="12" r="1" fill="currentColor" stroke="none" />
+            <circle cx="9" cy="12" r="1" fill="url(#topbar-assistant-gradient)" stroke="none" />
+            <circle cx="15" cy="12" r="1" fill="url(#topbar-assistant-gradient)" stroke="none" />
           </svg>
         </span>
       </button>
