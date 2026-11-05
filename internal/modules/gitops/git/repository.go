@@ -6,8 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
+	"net/url"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -21,6 +24,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/tracing"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/knownhosts"
+	"golang.org/x/net/proxy"
 )
 
 type GoGitRepository struct {
@@ -76,6 +80,58 @@ func gitPullTimeout(spec config.GitSpec) time.Duration {
 		return timeout
 	}
 	return config.DefaultGitPullTimeout
+}
+
+// go-git v5.17.0 uses a background context for SSH dialing and does not
+// enforce its dial timeout during the SSH handshake. A socket deadline also
+// bounds the handshake so a stalled server cannot hold lazy initialization.
+const sshDeadlineProxyScheme = "swarm-deploy-ssh-deadline"
+
+func init() {
+	proxy.RegisterDialerType(sshDeadlineProxyScheme, func(u *url.URL, forward proxy.Dialer) (proxy.Dialer, error) {
+		nanos, err := strconv.ParseInt(u.Query().Get("deadline"), 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("invalid SSH connection deadline: %w", err)
+		}
+		base, ok := proxy.FromEnvironmentUsing(forward).(proxy.ContextDialer)
+		if !ok {
+			return nil, errors.New("SSH proxy does not support context-aware dialing")
+		}
+		return sshDeadlineDialer{base: base, deadline: time.Unix(0, nanos)}, nil
+	})
+}
+
+type sshDeadlineDialer struct {
+	base     proxy.ContextDialer
+	deadline time.Time
+}
+
+func (d sshDeadlineDialer) Dial(network, addr string) (net.Conn, error) {
+	return d.DialContext(context.Background(), network, addr)
+}
+
+func (d sshDeadlineDialer) DialContext(ctx context.Context, network, addr string) (net.Conn, error) {
+	ctx, cancel := context.WithDeadline(ctx, d.deadline)
+	defer cancel()
+	conn, err := d.base.DialContext(ctx, network, addr)
+	if err != nil {
+		return nil, err
+	}
+	if err := conn.SetDeadline(d.deadline); err != nil {
+		_ = conn.Close()
+		return nil, err
+	}
+	return conn, nil
+}
+
+func sshDeadlineProxyOptions(ctx context.Context, remote string) transport.ProxyOptions {
+	deadline, ok := ctx.Deadline()
+	if !ok || !isSSHRemote(remote) {
+		return transport.ProxyOptions{}
+	}
+	return transport.ProxyOptions{URL: fmt.Sprintf(
+		"%s://direct?deadline=%d", sshDeadlineProxyScheme, deadline.UnixNano(),
+	)}
 }
 
 // repositoryLockTimeoutDiagnostic reports a pull that timed out before it could access the local repository.
@@ -162,6 +218,7 @@ func (r *GoGitRepository) Pull(ctx context.Context) (PullResult, error) {
 		ReferenceName: plumbing.NewBranchReferenceName(r.branch),
 		Auth:          r.auth,
 		Force:         true,
+		ProxyOptions:  sshDeadlineProxyOptions(ctx, r.remote),
 	})
 	if err != nil && !errors.Is(err, gogit.NoErrAlreadyUpToDate) {
 		return PullResult{}, ClassifyPullError(fmt.Errorf("git pull: %w", err), r.remote, r.authType)
@@ -455,6 +512,7 @@ func openRepository(
 		Auth:          auth,
 		SingleBranch:  true,
 		ReferenceName: plumbing.NewBranchReferenceName(branch),
+		ProxyOptions:  sshDeadlineProxyOptions(ctx, url),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("git clone: %w", err)
