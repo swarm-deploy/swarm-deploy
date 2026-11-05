@@ -221,7 +221,7 @@ func TestRealSwarmServiceManualRetryAfterTerminalFailure(t *testing.T) {
 			require.NoError(t, os.WriteFile(exitFile, []byte("23"), 0o600))
 			replicas := ""
 			if tc.mode == "replicated" {
-				replicas = "      replicas: 1\\n"
+				replicas = "      replicas: 1\n"
 			}
 			command := `code=$(cat /input/exit-code); if [ "$code" != 0 ]; then exit "$code"; fi; sleep 600`
 			service := fmt.Sprintf(`  api:
