@@ -136,3 +136,70 @@ networks:
 		}
 	}
 }
+
+func TestRealSwarmJobManualRetryAfterMaxAttempts(t *testing.T) {
+	for _, tc := range []struct{ name, condition string }{
+		{"on-failure", "condition: on-failure, "},
+		{"any", "condition: any, "},
+		{"default", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newLifecycleFixture(t, true)
+			input := t.TempDir()
+			exitFile := filepath.Join(input, "exit-code")
+			require.NoError(t, os.WriteFile(exitFile, []byte("23"), 0o600))
+			services := fmt.Sprintf(`  job:
+    image: busybox:1.36
+    command: ["sh", "-c", "exit $(cat /input/exit-code)"]
+    volumes:
+      - type: bind
+        source: %s
+        target: /input
+        read_only: true
+    deploy:
+      mode: replicated-job
+      restart_policy: {%smax_attempts: 1, delay: 100ms}
+`, input, tc.condition)
+			req := deployments.ExecuteRequest{
+				Stack: f.request.Stack, Desired: f.manifest(t, services), Commit: "failed", SourceChanged: true,
+			}
+			failed, err := f.executor.Execute(f.ctx, req)
+			require.ErrorIs(t, err, waiter.ErrConvergenceFailed)
+			require.Equal(t, model.Failed, failed.Status)
+			first := f.inspect(t, "job")
+			require.NotNil(t, first.JobStatus)
+			var failedIDs []string
+			for _, task := range f.tasks(t, "job") {
+				if task.JobIteration != nil && *task.JobIteration == first.JobStatus.JobIteration &&
+					task.CurrentState == swarm.TaskStateFailed {
+					failedIDs = append(failedIDs, task.ID)
+				}
+			}
+			require.Len(t, failedIDs, 2, "Docker must exhaust the initial execution and one automatic retry")
+
+			require.NoError(t, os.WriteFile(exitFile, []byte("0"), 0o600))
+			req.ManualRetry = true
+			retried, err := f.executor.Execute(f.ctx, req)
+			require.NoError(t, err)
+			require.Equal(t, model.Succeeded, retried.Status)
+			second := f.inspect(t, "job")
+			require.Greater(t, second.JobStatus.JobIteration.Index, first.JobStatus.JobIteration.Index)
+			require.Equal(t, first.Spec.TaskTemplate.ForceUpdate+1, second.Spec.TaskTemplate.ForceUpdate)
+			var completedID string
+			for _, task := range f.tasks(t, "job") {
+				if task.JobIteration != nil && *task.JobIteration == second.JobStatus.JobIteration &&
+					task.CurrentState == swarm.TaskStateComplete {
+					completedID = task.ID
+				}
+			}
+			require.NotEmpty(t, completedID, "Docker must schedule a new successful job task")
+			require.NotContains(t, failedIDs, completedID)
+
+			_, err = f.executor.Execute(f.ctx, req)
+			require.NoError(t, err)
+			completed := f.inspect(t, "job")
+			assert.Equal(t, second.JobStatus.JobIteration, completed.JobStatus.JobIteration)
+			assert.Equal(t, second.Spec.TaskTemplate.ForceUpdate, completed.Spec.TaskTemplate.ForceUpdate)
+		})
+	}
+}
