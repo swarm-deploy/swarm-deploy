@@ -522,15 +522,23 @@ func TestLazyProxyInitialCloneReturnsWhileSSHHandshakeIsStalled(t *testing.T) {
 	listener, err := net.Listen("tcp4", "127.0.0.1:0")
 	require.NoError(t, err)
 	defer listener.Close()
-	connected := make(chan struct{})
-	release := make(chan struct{})
-	defer close(release)
+	connected := make(chan struct{}, 2)
+	closed := make(chan struct{}, 2)
 	go func() {
-		conn, acceptErr := listener.Accept()
-		if acceptErr == nil {
-			defer conn.Close()
-			close(connected)
-			<-release
+		for range 2 {
+			conn, acceptErr := listener.Accept()
+			if acceptErr != nil {
+				return
+			}
+			connected <- struct{}{}
+			// An SSH client that enforces a socket deadline closes this
+			// connection when the handshake cannot complete.
+			go func() {
+				defer conn.Close()
+				var buffer [1]byte
+				_, _ = conn.Read(buffer[:])
+				closed <- struct{}{}
+			}()
 		}
 	}()
 
@@ -545,23 +553,30 @@ func TestLazyProxyInitialCloneReturnsWhileSSHHandshakeIsStalled(t *testing.T) {
 		},
 	}, filepath.Join(t.TempDir(), "clone"))
 
-	result := make(chan error, 1)
-	go func() {
-		_, headErr := proxy.Head(t.Context())
-		result <- headErr
-	}()
-	select {
-	case <-connected:
-	case <-time.After(2 * time.Second):
-		t.Fatal("the clone never connected to the stalled SSH server")
-	}
-	select {
-	case err = <-result:
-		category, diagnostic := PullFailure(err)
-		assert.Equal(t, FailureNetwork, category)
-		assert.Equal(t, "Git repository connection timed out", diagnostic)
-	case <-time.After(2 * time.Second):
-		t.Fatal("Head waited for the stalled SSH handshake")
+	for attempt := range 2 {
+		result := make(chan error, 1)
+		go func() {
+			_, headErr := proxy.Head(t.Context())
+			result <- headErr
+		}()
+		select {
+		case <-connected:
+		case <-time.After(2 * time.Second):
+			t.Fatalf("attempt %d did not connect to the SSH server", attempt+1)
+		}
+		select {
+		case err = <-result:
+			category, diagnostic := PullFailure(err)
+			assert.Equal(t, FailureNetwork, category)
+			assert.Equal(t, "Git repository connection timed out", diagnostic)
+		case <-time.After(2 * time.Second):
+			t.Fatalf("attempt %d waited for the stalled SSH handshake", attempt+1)
+		}
+		select {
+		case <-closed:
+		case <-time.After(2 * time.Second):
+			t.Fatalf("attempt %d did not close its timed-out SSH socket", attempt+1)
+		}
 	}
 }
 
