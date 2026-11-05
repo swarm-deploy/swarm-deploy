@@ -93,7 +93,7 @@ func init() {
 		if err != nil {
 			return nil, fmt.Errorf("invalid SSH connection deadline: %w", err)
 		}
-		base, ok := proxy.FromEnvironmentUsing(forward).(proxy.ContextDialer)
+		base, ok := forward.(proxy.ContextDialer)
 		if !ok {
 			return nil, errors.New("SSH proxy does not support context-aware dialing")
 		}
