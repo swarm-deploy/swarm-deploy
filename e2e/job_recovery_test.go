@@ -219,9 +219,14 @@ func TestRealSwarmServiceManualRetryAfterTerminalFailure(t *testing.T) {
 			input := t.TempDir()
 			exitFile := filepath.Join(input, "exit-code")
 			require.NoError(t, os.WriteFile(exitFile, []byte("23"), 0o600))
+			replicas := ""
+			if tc.mode == "replicated" {
+				replicas = "      replicas: 1\\n"
+			}
+			command := `code=$(cat /input/exit-code); if [ "$code" != 0 ]; then exit "$code"; fi; sleep 600`
 			service := fmt.Sprintf(`  api:
     image: busybox:1.36
-    command: ["sh", "-c", "exit $(cat /input/exit-code)"]
+    command: ["sh", "-c", %q]
     volumes:
       - type: bind
         source: %s
@@ -229,9 +234,8 @@ func TestRealSwarmServiceManualRetryAfterTerminalFailure(t *testing.T) {
         read_only: true
     deploy:
       mode: %s
-      replicas: 1
-      restart_policy: {%s}
-`, input, tc.mode, tc.policy)
+%s      restart_policy: {%s}
+`, command, input, tc.mode, replicas, tc.policy)
 			desired := f.manifest(t, service)
 			desired.Compose.Networks = map[string]compose.Network{"default": {External: true, Name: "host"}}
 			req := deployments.ExecuteRequest{
