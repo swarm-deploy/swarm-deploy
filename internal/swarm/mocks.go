@@ -13,6 +13,7 @@ import (
 	context "context"
 	reflect "reflect"
 
+	network "github.com/docker/docker/api/types/network"
 	swarm "github.com/docker/docker/api/types/swarm"
 	gomock "go.uber.org/mock/gomock"
 )
@@ -538,18 +539,23 @@ func (mr *MockNetworkManagerMockRecorder) Create(ctx, req any) *gomock.Call {
 }
 
 // Get mocks base method.
-func (m *MockNetworkManager) Get(ctx context.Context, name string) (Network, error) {
+func (m *MockNetworkManager) Get(ctx context.Context, name string, options ...network.InspectOptions) (Network, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Get", ctx, name)
+	varargs := []any{ctx, name}
+	for _, a := range options {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "Get", varargs...)
 	ret0, _ := ret[0].(Network)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // Get indicates an expected call of Get.
-func (mr *MockNetworkManagerMockRecorder) Get(ctx, name any) *gomock.Call {
+func (mr *MockNetworkManagerMockRecorder) Get(ctx, name any, options ...any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Get", reflect.TypeOf((*MockNetworkManager)(nil).Get), ctx, name)
+	varargs := append([]any{ctx, name}, options...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Get", reflect.TypeOf((*MockNetworkManager)(nil).Get), varargs...)
 }
 
 // List mocks base method.

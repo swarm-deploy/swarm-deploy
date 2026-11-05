@@ -88,8 +88,14 @@ func (m *networkManager) Map(ctx context.Context, ids []string) (map[string]Netw
 	return mapped, nil
 }
 
-func (m *networkManager) Get(ctx context.Context, name string) (Network, error) {
-	network, err := m.dockerClient.NetworkInspect(ctx, name, dockernetwork.InspectOptions{})
+func (m *networkManager) Get(
+	ctx context.Context, name string, options ...dockernetwork.InspectOptions,
+) (Network, error) {
+	var inspectOptions dockernetwork.InspectOptions
+	if len(options) > 0 {
+		inspectOptions = options[0]
+	}
+	network, err := m.dockerClient.NetworkInspect(ctx, name, inspectOptions)
 	if err != nil {
 		if isNotFoundErr(err) {
 			return Network{}, fmt.Errorf("%w: %w", ErrNetworkNotFound, err)

@@ -4,6 +4,7 @@ package swarm
 import (
 	"context"
 
+	dockernetwork "github.com/docker/docker/api/types/network"
 	dockerswarm "github.com/docker/docker/api/types/swarm"
 )
 
@@ -100,8 +101,8 @@ type ConfigManager interface {
 }
 
 type NetworkManager interface {
-	// Get returns Docker network by name or identifier.
-	Get(ctx context.Context, name string) (Network, error)
+	// Get returns Docker network by name or identifier, with optional inspection options.
+	Get(ctx context.Context, name string, options ...dockernetwork.InspectOptions) (Network, error)
 
 	// List returns Docker networks matching the provided filter.
 	List(ctx context.Context, filter ListNetworksFilter) ([]Network, error)

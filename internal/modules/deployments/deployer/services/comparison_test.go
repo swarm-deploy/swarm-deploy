@@ -39,7 +39,12 @@ func TestRepeatedApplyIgnoresSetOrderingAndDaemonDefaults(t *testing.T) {
 		change func(*dockerswarm.ServiceSpec)
 	}{
 		{"environment", func(s *dockerswarm.ServiceSpec) { s.TaskTemplate.ContainerSpec.Env[0] = "B=3" }},
-		{"network", func(s *dockerswarm.ServiceSpec) { s.TaskTemplate.Networks[0].Target = "other" }},
+		{"network target", func(s *dockerswarm.ServiceSpec) { s.TaskTemplate.Networks[0].Target = "other" }},
+		{"network aliases", func(s *dockerswarm.ServiceSpec) { s.TaskTemplate.Networks[0].Aliases[0] = "other" }},
+		{"network driver options", func(s *dockerswarm.ServiceSpec) {
+			s.TaskTemplate.Networks[0].DriverOpts = map[string]string{"option": "changed"}
+		}},
+		{"removed network attachment", func(s *dockerswarm.ServiceSpec) { s.TaskTemplate.Networks = s.TaskTemplate.Networks[:1] }},
 		{"capability", func(s *dockerswarm.ServiceSpec) { s.TaskTemplate.ContainerSpec.CapabilityAdd[0] = "CAP_CHOWN" }},
 		{"constraint", func(s *dockerswarm.ServiceSpec) { s.TaskTemplate.Placement.Constraints[0] = "node.role==manager" }},
 	} {

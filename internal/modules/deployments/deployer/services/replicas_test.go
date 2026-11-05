@@ -117,6 +117,8 @@ func TestExternalTaskRecreatingUpdateSafety(t *testing.T) {
 		{name: "idle without tasks"},
 		{name: "completed restart-none job is parked", replicas: 1, task: swarm.TaskStateComplete, restart: true},
 		{name: "failed restart-none job is parked", replicas: 1, task: swarm.TaskStateFailed, restart: true},
+		{name: "rejected restart-none job is parked without forcing retry", replicas: 1, task: swarm.TaskStateRejected, restart: true, retry: true},
+		{name: "retry does not execute unchanged rejected job", replicas: 1, task: swarm.TaskStateRejected, restart: true, retry: true, unchanged: true},
 		{name: "restart-none job without a task in its slot is deferred", replicas: 1, restart: true, blocked: true, deferred: true},
 		{name: "previous ForceUpdate generation stays deferred after rechecks", replicas: 1, task: swarm.TaskStateComplete,
 			restart: true, stale: true, blocked: true, deferred: true},

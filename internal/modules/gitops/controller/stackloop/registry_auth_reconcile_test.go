@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	dockernetwork "github.com/docker/docker/api/types/network"
 	dockerregistry "github.com/docker/docker/api/types/registry"
 	dockerswarm "github.com/docker/docker/api/types/swarm"
 	"github.com/stretchr/testify/assert"
@@ -165,7 +166,7 @@ func newCredentialReconcileFixture(t *testing.T, extra string) *credentialReconc
 	networks := swarm.NewMockNetworkManager(ctrl)
 	configs := swarm.NewMockConfigManager(ctrl)
 	secrets := swarm.NewMockSecretManager(ctrl)
-	networks.EXPECT().Get(gomock.Any(), "app_default").DoAndReturn(func(context.Context, string) (swarm.Network, error) {
+	networks.EXPECT().Get(gomock.Any(), "app_default").DoAndReturn(func(context.Context, string, ...dockernetwork.InspectOptions) (swarm.Network, error) {
 		if f.networkError != nil {
 			err := f.networkError
 			f.networkError = nil

@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	dockernetwork "github.com/docker/docker/api/types/network"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -411,7 +412,7 @@ func TestRunBlocksObsoleteAdmissionDuringNetworkReconciliation(t *testing.T) {
 			})
 			networkManager := swarm.NewMockNetworkManager(ctrl)
 			networkEntered, releaseNetwork := make(chan struct{}), make(chan struct{})
-			networkManager.EXPECT().Get(gomock.Any(), "edge").DoAndReturn(func(ctx context.Context, _ string) (swarm.Network, error) {
+			networkManager.EXPECT().Get(gomock.Any(), "edge").DoAndReturn(func(ctx context.Context, _ string, _ ...dockernetwork.InspectOptions) (swarm.Network, error) {
 				close(networkEntered)
 				if outcome == "canceled" {
 					<-ctx.Done()
