@@ -49,8 +49,7 @@ func NonRestartingTaskFailure(
 }
 
 // TerminalServiceTaskFailure finds an unreplaced terminal task failure for
-// which Swarm will not schedule another attempt. Replicated instances are keyed
-// by slot, global instances by node, as in SwarmKit's restart supervisor.
+// which Swarm has exhausted a finite restart policy or restarts are disabled.
 func TerminalServiceTaskFailure(
 	spec dockerswarm.ServiceSpec, tasks []swarm.ServiceTask, since time.Time,
 ) (swarm.ServiceTask, bool) {
@@ -62,11 +61,25 @@ func TerminalServiceTaskFailure(
 		(policy.MaxAttempts == nil || *policy.MaxAttempts == 0) {
 		return swarm.ServiceTask{}, false
 	}
+	var failed swarm.ServiceTask
+	for _, history := range serviceTaskHistories(spec, tasks, since) {
+		task, exhausted := terminalExhaustedTask(history, policy)
+		if exhausted && (failed.ID == "" || task.UpdatedAt.After(failed.UpdatedAt)) {
+			failed = task
+		}
+	}
+	return failed, failed.ID != ""
+}
+
+// SwarmKit keys replicated restart history by slot and global history by node.
+func serviceTaskHistories(
+	spec dockerswarm.ServiceSpec, tasks []swarm.ServiceTask, since time.Time,
+) map[string][]swarm.ServiceTask {
+	byInstance := make(map[string][]swarm.ServiceTask)
 	replicas := uint64(1)
 	if spec.Mode.Replicated != nil && spec.Mode.Replicated.Replicas != nil {
 		replicas = *spec.Mode.Replicated.Replicas
 	}
-	byInstance := make(map[string][]swarm.ServiceTask)
 	for _, task := range tasks {
 		if task.CreatedAt.Before(since) || !task.Spec.CompareServiceTemplate(spec.TaskTemplate).Equal() {
 			continue
@@ -82,43 +95,47 @@ func TerminalServiceTaskFailure(
 		}
 		byInstance[key] = append(byInstance[key], task)
 	}
-	var failed swarm.ServiceTask
-	for _, history := range byInstance {
-		first, latest := history[0], history[0]
-		for _, task := range history[1:] {
-			if task.CreatedAt.Before(first.CreatedAt) {
-				first = task
-			}
-			if task.CreatedAt.After(latest.CreatedAt) ||
-				(task.CreatedAt.Equal(latest.CreatedAt) && !terminalServiceTask(task)) {
-				latest = task
-			}
+	return byInstance
+}
+
+func terminalExhaustedTask(
+	history []swarm.ServiceTask, policy *dockerswarm.RestartPolicy,
+) (swarm.ServiceTask, bool) {
+	first, latest := history[0], history[0]
+	for _, task := range history[1:] {
+		if task.CreatedAt.Before(first.CreatedAt) {
+			first = task
 		}
-		if !terminalServiceTask(latest) {
-			continue
-		}
-		if policy.Condition != dockerswarm.RestartPolicyConditionNone {
-			var restarts uint64
-			for _, task := range history {
-				if task.ID == first.ID {
-					continue // The first task is not a restart.
-				}
-				if policy.Window != nil && *policy.Window > 0 &&
-					(!task.CreatedAt.After(latest.UpdatedAt.Add(-*policy.Window)) ||
-						!task.CreatedAt.Before(latest.UpdatedAt)) {
-					continue
-				}
-				restarts++
-			}
-			if restarts < *policy.MaxAttempts {
-				continue
-			}
-		}
-		if failed.ID == "" || latest.UpdatedAt.After(failed.UpdatedAt) {
-			failed = latest
+		if task.CreatedAt.After(latest.CreatedAt) ||
+			(task.CreatedAt.Equal(latest.CreatedAt) && !terminalServiceTask(task)) {
+			latest = task
 		}
 	}
-	return failed, failed.ID != ""
+	if !terminalServiceTask(latest) {
+		return swarm.ServiceTask{}, false
+	}
+	if policy.Condition != dockerswarm.RestartPolicyConditionNone &&
+		!retryLimitExhausted(history, first.ID, latest.UpdatedAt, policy) {
+		return swarm.ServiceTask{}, false
+	}
+	return latest, true
+}
+
+func retryLimitExhausted(
+	history []swarm.ServiceTask, firstID string, lastFailure time.Time, policy *dockerswarm.RestartPolicy,
+) bool {
+	var restarts uint64
+	for _, task := range history {
+		if task.ID == firstID {
+			continue
+		}
+		if policy.Window != nil && *policy.Window > 0 &&
+			(!task.CreatedAt.After(lastFailure.Add(-*policy.Window)) || !task.CreatedAt.Before(lastFailure)) {
+			continue
+		}
+		restarts++
+	}
+	return restarts >= *policy.MaxAttempts
 }
 
 func terminalServiceTask(task swarm.ServiceTask) bool {
@@ -134,11 +151,12 @@ func (a *Applier) retryRequired(ctx context.Context, service dockerswarm.Service
 	if !job && failedUpdate(service) {
 		return true, nil
 	}
-	if (!job && service.UpdateStatus != nil) || (job && service.JobStatus == nil) ||
-		service.Spec.TaskTemplate.RestartPolicy == nil ||
-		(!job && service.Spec.TaskTemplate.RestartPolicy.Condition != dockerswarm.RestartPolicyConditionNone &&
-		(service.Spec.TaskTemplate.RestartPolicy.MaxAttempts == nil ||
-			*service.Spec.TaskTemplate.RestartPolicy.MaxAttempts == 0)) {
+	policy := service.Spec.TaskTemplate.RestartPolicy
+	if (!job && service.UpdateStatus != nil) || (job && service.JobStatus == nil) || policy == nil {
+		return false, nil
+	}
+	if !job && policy.Condition != dockerswarm.RestartPolicyConditionNone &&
+		(policy.MaxAttempts == nil || *policy.MaxAttempts == 0) {
 		return false, nil
 	}
 	tasks, err := a.manager.ListTasks(ctx, service.ID)
@@ -151,6 +169,10 @@ func (a *Applier) retryRequired(ctx context.Context, service dockerswarm.Service
 	}
 	// UpdatedAt may follow initial task creation because of allocation metadata.
 	// Filter by task template generation instead of treating UpdatedAt as a cutoff.
+	if service.Spec.Mode.Replicated != nil && policy.Condition == dockerswarm.RestartPolicyConditionNone {
+		_, failed := NonRestartingTaskFailure(service.Spec, tasks, service.CreatedAt)
+		return failed, nil
+	}
 	_, failed := TerminalServiceTaskFailure(service.Spec, tasks, service.CreatedAt)
 	return failed, nil
 }
