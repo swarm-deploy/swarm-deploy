@@ -7,6 +7,7 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"errors"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -535,8 +536,7 @@ func TestLazyProxyInitialCloneReturnsWhileSSHHandshakeIsStalled(t *testing.T) {
 			// connection when the handshake cannot complete.
 			go func() {
 				defer conn.Close()
-				var buffer [1]byte
-				_, _ = conn.Read(buffer[:])
+				_, _ = io.Copy(io.Discard, conn)
 				closed <- struct{}{}
 			}()
 		}
