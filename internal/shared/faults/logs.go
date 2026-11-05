@@ -16,6 +16,7 @@ const (
 )
 
 var maskedDiagnosticURL = regexp.MustCompile(`[[:alpha:]][[:alnum:]+.-]*://\*{4}(?::\*{4}@[^\s'"<>]+)?`)
+var unstructuredSecret = regexp.MustCompile(`(?i)(?:^|[^[:alnum:]])secret(?:$|[^[:alnum:]]|key\b|value\b)`)
 
 // DiagnosticLogLines masks credentials and bounds sanitized log content.
 // Limits include newline separators; callers can share a budget across log streams.
@@ -66,8 +67,11 @@ func mayContainCredentials(line string) bool {
 	})
 	line = maskedDiagnosticURL.ReplaceAllString(line, "")
 	value := strings.ToLower(line)
+	if unstructuredSecret.MatchString(value) {
+		return true
+	}
 	for _, marker := range []string{
-		"password", "passwd", "secret", "token", "credential", "authorization", "bearer",
+		"password", "passwd", "token", "credential", "authorization", "bearer",
 		"private_key", "private-key", "api_key", "api-key", "apikey", "dsn", "database_url", "db_url",
 		"database-url", "db-url", "connection_string", "connection-string", "postgres://", "postgresql://",
 		"://", "-----begin",

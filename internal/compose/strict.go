@@ -10,10 +10,14 @@ import (
 
 const yamlNullTag = "!!null"
 
-// validateComposeSyntax rejects unsupported keys before YAML decoding can silently
-// discard them. Extension fields and Swarm-ignored service options are deliberately
-// excluded from the effective state, not retained as arbitrary model data.
+// validateComposeSyntax checks the raw keys so typed decoding cannot hide unsupported options.
 func validateComposeSyntax(node *yaml.Node) ([]string, error) {
+	// Decode without the Compose schema first: typed decoding skips extensions
+	// and starts a fresh decoder in custom unmarshaling methods.
+	var document any
+	if err := node.Decode(&document); err != nil {
+		return nil, err
+	}
 	var ignored []string
 	if err := checkComposeFields(node, reflect.TypeFor[Compose](), "compose", &ignored); err != nil {
 		return nil, err
@@ -57,16 +61,17 @@ func checkComposeFields(node *yaml.Node, typ reflect.Type, path string, ignored 
 		return nil // These custom forms accept arbitrary mapping keys or scalar/list syntax.
 	}
 
-	switch typ.Kind() { //nolint:exhaustive // Only container kinds require recursive YAML validation.
-	case reflect.Map:
+	kind := typ.Kind()
+	if kind == reflect.Map {
 		return checkMappedComposeValues(node, typ.Elem(), path, ignored)
-	case reflect.Slice, reflect.Array:
-		return checkSequenceComposeValues(node, typ.Elem(), path, ignored)
-	case reflect.Struct:
-		return checkComposeStructFields(node, typ, path, ignored)
-	default:
-		return nil
 	}
+	if kind == reflect.Slice || kind == reflect.Array {
+		return checkSequenceComposeValues(node, typ.Elem(), path, ignored)
+	}
+	if kind == reflect.Struct {
+		return checkComposeStructFields(node, typ, path, ignored)
+	}
+	return nil
 }
 
 func checkComposeStructFields(node *yaml.Node, typ reflect.Type, path string, ignored *[]string) error {
@@ -134,6 +139,12 @@ func checkSequenceComposeValues(node *yaml.Node, typ reflect.Type, path string, 
 }
 
 func checkComposeMerge(node *yaml.Node, typ reflect.Type, path string, ignored *[]string) error {
+	// The document decoder can skip overridden merge values. Decode the
+	// merge on its own before checking all its fields, including overrides.
+	var merged any
+	if err := node.Decode(&merged); err != nil {
+		return err
+	}
 	if node.Kind == yaml.SequenceNode {
 		return checkSequenceComposeValues(node, typ, path, ignored)
 	}
