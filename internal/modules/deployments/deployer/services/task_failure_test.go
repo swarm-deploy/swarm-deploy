@@ -152,8 +152,11 @@ func TestTerminalServiceTaskFailureWithFiniteRetries(t *testing.T) {
 	pending.CurrentState = swarm.TaskStatePending
 	old := retryOne
 	old.ID = "old-generation"
-	old.CreatedAt = now.Add(-time.Minute)
+	old.CreatedAt = now.Add(-2 * time.Minute)
 	old.UpdatedAt = old.CreatedAt
+	oldRetry := retryOne
+	oldRetry.CreatedAt = now.Add(-time.Minute)
+	oldRetry.UpdatedAt = oldRetry.CreatedAt.Add(time.Second)
 
 	for _, tc := range []struct {
 		name      string
@@ -179,7 +182,7 @@ func TestTerminalServiceTaskFailureWithFiniteRetries(t *testing.T) {
 		{name: "unlimited restarts", condition: dockerswarm.RestartPolicyConditionOnFailure,
 			tasks: []swarm.ServiceTask{initial, retryOne, retryTwo}},
 		{name: "window limits counted attempts", condition: dockerswarm.RestartPolicyConditionOnFailure,
-			max: &maxAttempts, window: &window, tasks: []swarm.ServiceTask{old, retryOne, retryTwo}},
+			max: &maxAttempts, window: &window, tasks: []swarm.ServiceTask{old, oldRetry, retryTwo}},
 		{name: "global healthy node does not override failure", global: true,
 			condition: dockerswarm.RestartPolicyConditionNone, tasks: []swarm.ServiceTask{initial,
 				{ID: "healthy", Node: "node-b", CurrentState: swarm.TaskStateRunning,
