@@ -12,7 +12,7 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
-func TestTerminalServiceTaskFailure(t *testing.T) {
+func TestNonRestartingTaskFailure(t *testing.T) {
 	now := time.Now()
 	exit, zero := 23, 0
 	failed := swarm.ServiceTask{ID: "failed", Slot: 1, CurrentState: swarm.TaskStateFailed,
@@ -71,7 +71,7 @@ func TestTerminalServiceTaskFailure(t *testing.T) {
 			for i := range tc.tasks {
 				tc.tasks[i].Spec = swarm.NewTaskSpec(spec.TaskTemplate)
 			}
-			actual, found := TerminalServiceTaskFailure(spec, tc.tasks, tc.since)
+			actual, found := NonRestartingTaskFailure(spec, tc.tasks, tc.since)
 			assert.Equal(t, tc.want, found)
 			if found {
 				assert.Equal(t, failed.ID, actual.ID)
