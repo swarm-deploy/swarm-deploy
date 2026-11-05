@@ -175,7 +175,7 @@ func (e *Events) watchOnce(parent context.Context, resyncReason ResyncReason) er
 				return errors.New("docker events errors channel closed")
 			}
 			if streamErr != nil {
-				return fmt.Errorf("watch docker events: %w", streamErr)
+				return fmt.Errorf("watch docker events: %w", classifyDockerError(streamErr))
 			}
 		}
 	}

@@ -3,8 +3,6 @@ package faults
 import (
 	"context"
 	"errors"
-
-	cerrdefs "github.com/containerd/errdefs"
 )
 
 // SanitizeError replaces all original diagnostics with a trusted message while
@@ -16,7 +14,6 @@ func SanitizeError(err error, diagnostic string) error {
 	}
 	var classified Error
 	temporary := errors.Is(err, context.DeadlineExceeded) ||
-		cerrdefs.IsUnavailable(err) ||
 		(errors.As(err, &classified) && classified.Temporary())
 	return sanitizedError{diagnostic: diagnostic, temporary: temporary}
 }

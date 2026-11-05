@@ -2,15 +2,16 @@ package initjob
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
 	"time"
 
-	cerrdefs "github.com/containerd/errdefs"
 	dockerswarm "github.com/docker/docker/api/types/swarm"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/resources"
+	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 
 func (r *InitJobRunner) buildInitServiceSpec(
@@ -22,8 +23,11 @@ func (r *InitJobRunner) buildInitServiceSpec(
 		Image: spec.Job.Image, Command: spec.Job.Entrypoint, Args: spec.Job.Command,
 	}
 	containerSpec.Env = initJobEnvironment(spec.Job.Environment.Map)
-	networkAttachments := r.initJobNetworks(ctx, spec)
-	if err := r.addInitJobObjects(ctx, spec, containerSpec); err != nil {
+	networkAttachments, err := r.initJobNetworks(ctx, spec)
+	if err != nil {
+		return dockerswarm.ServiceSpec{}, err
+	}
+	if err = r.addInitJobObjects(ctx, spec, containerSpec); err != nil {
 		return dockerswarm.ServiceSpec{}, err
 	}
 
@@ -50,7 +54,7 @@ func initJobEnvironment(environment map[string]string) []string {
 	return env
 }
 
-func (r *InitJobRunner) initJobNetworks(ctx context.Context, spec Spec) []dockerswarm.NetworkAttachmentConfig {
+func (r *InitJobRunner) initJobNetworks(ctx context.Context, spec Spec) ([]dockerswarm.NetworkAttachmentConfig, error) {
 	networks := networkAliases(spec.Job.Networks)
 	if len(networks) == 0 {
 		networks = spec.DefaultNetwork
@@ -60,13 +64,17 @@ func (r *InitJobRunner) initJobNetworks(ctx context.Context, spec Spec) []docker
 	for _, network := range uniqueStrings(networks) {
 		target := spec.NetworkTargets[network]
 		if target == "" {
-			target = r.resolveNetworkTarget(ctx, spec.StackName, network)
+			var err error
+			target, err = r.resolveNetworkTarget(ctx, spec.StackName, network)
+			if err != nil {
+				return nil, err
+			}
 		}
 		if target != "" {
 			attachments = append(attachments, dockerswarm.NetworkAttachmentConfig{Target: target})
 		}
 	}
-	return attachments
+	return attachments, nil
 }
 
 func (r *InitJobRunner) addInitJobObjects(
@@ -162,7 +170,7 @@ func objectOwner(object compose.ObjectRef) (string, string) {
 	return uid, gid
 }
 
-func (r *InitJobRunner) resolveNetworkTarget(ctx context.Context, stackName, network string) string {
+func (r *InitJobRunner) resolveNetworkTarget(ctx context.Context, stackName, network string) (string, error) {
 	candidates := []string{network}
 	if !strings.HasPrefix(network, stackName+"_") {
 		candidates = append(candidates, stackName+"_"+network)
@@ -173,13 +181,13 @@ func (r *InitJobRunner) resolveNetworkTarget(ctx context.Context, stackName, net
 	for _, candidate := range uniqueStrings(candidates) {
 		netResource, err := r.swarmService.Networks.Get(ctx, candidate)
 		if err == nil {
-			return netResource.ID
+			return netResource.ID, nil
 		}
-		if !cerrdefs.IsNotFound(err) {
-			continue
+		if !errors.Is(err, swarm.ErrNetworkNotFound) {
+			return "", fmt.Errorf("resolve init job network %s: %w", candidate, err)
 		}
 	}
-	return network
+	return network, nil
 }
 
 // BuildName returns the ephemeral Docker service name for one Init Job execution.

@@ -5,9 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
-	cerrdefs "github.com/containerd/errdefs"
+	"github.com/docker/docker/client"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
@@ -17,15 +19,26 @@ import (
 )
 
 func TestMetadataFailuresPreserveRetryClassificationWithoutSensitiveCause(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte(`{"message":"private-value"}`))
+	}))
+	t.Cleanup(server.Close)
+	dockerClient, err := client.NewClientWithOpts(client.WithHost(server.URL), client.WithVersion("1.48"))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, dockerClient.Close()) })
+	_, unavailable := swarm.NewSwarm(dockerClient).Networks.Get(t.Context(), "default")
+	require.Error(t, unavailable)
 	for _, resource := range []string{"network", "config", "secret"} {
 		for _, failure := range []struct {
 			name      string
 			cause     error
 			temporary bool
 		}{
+			{"unavailable", unavailable, true},
 			{"temporary", &net.DNSError{Err: "private-value", IsTemporary: true}, true},
 			{"deadline", fmt.Errorf("private-value: %w", context.DeadlineExceeded), true},
-			{"unavailable", fmt.Errorf("private-value: %w", cerrdefs.ErrUnavailable), true},
 			{"permanent", errors.New("private-value"), false},
 		} {
 			t.Run(resource+"/"+failure.name, func(t *testing.T) {

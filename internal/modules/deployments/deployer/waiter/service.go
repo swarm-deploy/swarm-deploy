@@ -10,7 +10,6 @@ import (
 	"sort"
 	"time"
 
-	cerrdefs "github.com/containerd/errdefs"
 	dockerswarm "github.com/docker/docker/api/types/swarm"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/services"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
@@ -278,10 +277,6 @@ func servicesByName(services []swarm.StackService) map[string]swarm.StackService
 }
 
 func isTransientDockerAPIError(err error) bool {
-	if cerrdefs.IsUnavailable(err) {
-		return true
-	}
-
 	var temporary faults.Error
 	if errors.As(err, &temporary) && temporary.Temporary() {
 		return true

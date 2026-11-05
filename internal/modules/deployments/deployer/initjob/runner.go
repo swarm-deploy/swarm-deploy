@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/docker/docker/api/types/filters"
 	dockerswarm "github.com/docker/docker/api/types/swarm"
 	"github.com/docker/docker/client"
 	"github.com/swarm-deploy/swarm-deploy/internal/registry"
@@ -110,19 +109,19 @@ func (r *InitJobRunner) Run(
 	)
 
 	startedAt := time.Now().UTC()
-	serviceCreate, err := r.dockerClient.ServiceCreate(jobCtx, serviceSpec, serviceCreateOptions)
+	serviceID, err := r.swarmService.Services.Create(jobCtx, serviceSpec, serviceCreateOptions)
 	if err != nil {
 		return Result{}, fmt.Errorf("create init job service %s: %w", serviceRef.Name(), err)
 	}
 
 	defer r.enqueueDeleteTask(initJobDeleteTask{
-		serviceID:   serviceCreate.ID,
+		serviceID:   serviceID,
 		serviceName: serviceRef.Name(),
 	})
 
-	waitErr := r.waitJob(jobCtx, serviceCreate.ID, serviceRef.Name())
+	waitErr := r.waitJob(jobCtx, serviceID, serviceRef.Name())
 	finishedAt := time.Now().UTC()
-	logs, truncated, logsErr := r.loadServiceLogs(ctx, serviceCreate.ID, serviceRef.Name())
+	logs, truncated, logsErr := r.loadServiceLogs(ctx, serviceID, serviceRef.Name())
 	logsAvailable := logsErr == nil
 	if logsErr != nil {
 		slog.WarnContext(
@@ -156,9 +155,7 @@ func (r *InitJobRunner) waitJob(
 		case <-ctx.Done():
 			return fmt.Errorf("wait init job %s: %w", jobName, ctx.Err())
 		case <-ticker.C:
-			tasks, err := r.dockerClient.TaskList(ctx, dockerswarm.TaskListOptions{
-				Filters: filters.NewArgs(filters.Arg("service", serviceID)),
-			})
+			tasks, err := r.swarmService.Services.ListTasks(ctx, serviceID)
 			if err != nil {
 				return fmt.Errorf("inspect init job %s status: %w", jobName, err)
 			}
@@ -171,7 +168,7 @@ func (r *InitJobRunner) waitJob(
 			})
 
 			task := tasks[0]
-			state := task.Status.State
+			state := dockerswarm.TaskState(task.CurrentState)
 			switch state {
 			case dockerswarm.TaskStateNew,
 				dockerswarm.TaskStateAllocated,
@@ -190,9 +187,9 @@ func (r *InitJobRunner) waitJob(
 				dockerswarm.TaskStateShutdown,
 				dockerswarm.TaskStateOrphaned,
 				dockerswarm.TaskStateRemove:
-				reason := strings.TrimSpace(task.Status.Err)
+				reason := strings.TrimSpace(task.Error)
 				if reason == "" {
-					reason = strings.TrimSpace(task.Status.Message)
+					reason = strings.TrimSpace(task.Message)
 				}
 				if reason == "" {
 					reason = string(state)

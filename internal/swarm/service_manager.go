@@ -17,7 +17,6 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
 
 	"github.com/avast/retry-go/v5"
-	cerrdefs "github.com/containerd/errdefs"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
 	dockerswarm "github.com/docker/docker/api/types/swarm"
@@ -52,9 +51,9 @@ func (m *serviceManager) Inspect(ctx context.Context, serviceIDOrName string) (d
 	)
 	if err != nil {
 		if isNotFoundErr(err) {
-			return dockerswarm.Service{}, ErrServiceNotFound
+			return dockerswarm.Service{}, fmt.Errorf("%w: %w", ErrServiceNotFound, err)
 		}
-		return dockerswarm.Service{}, fmt.Errorf("inspect service %s: %w", serviceIDOrName, err)
+		return dockerswarm.Service{}, fmt.Errorf("inspect service %s: %w", serviceIDOrName, classifyDockerError(err))
 	}
 	return service, nil
 }
@@ -67,8 +66,8 @@ func (m *serviceManager) Create(
 ) (string, error) {
 	response, err := m.dockerClient.ServiceCreate(ctx, spec, options)
 	if err != nil {
-		if cerrdefs.IsConflict(err) {
-			return "", fmt.Errorf("create service %s: %w", spec.Name, ErrServiceConflict)
+		if isConflictErr(err) {
+			return "", fmt.Errorf("create service %s: %w: %w", spec.Name, ErrServiceConflict, err)
 		}
 		return "", fmt.Errorf("create service %s: %w", spec.Name, classifyDockerError(err))
 	}
@@ -86,29 +85,16 @@ func (m *serviceManager) Update(
 ) error {
 	response, err := m.dockerClient.ServiceUpdate(ctx, serviceID, version, spec, options)
 	if err != nil {
-		if isServiceUpdateConflict(err) {
-			return fmt.Errorf("update service %s: %w", spec.Name, ErrServiceConflict)
+		if isUpdateConflict(err) {
+			return fmt.Errorf("update service %s: %w: %w", spec.Name, ErrServiceConflict, err)
 		}
 		if isNotFoundErr(err) {
-			return fmt.Errorf("update service %s: %w", spec.Name, ErrServiceNotFound)
+			return fmt.Errorf("update service %s: %w: %w", spec.Name, ErrServiceNotFound, err)
 		}
 		return fmt.Errorf("update service %s: %w", spec.Name, classifyDockerError(err))
 	}
 	logServiceWarnings(ctx, spec.Name, response.Warnings)
 	return nil
-}
-
-func isServiceUpdateConflict(err error) bool {
-	// SwarmKit sequence conflicts may be returned as Unknown/HTTP 500.
-	return cerrdefs.IsConflict(err) || (err != nil && strings.Contains(err.Error(), "update out of sequence"))
-}
-
-// ServiceUpdateRejected reports definite refusals, for which no write was accepted.
-// Transport failures, deadlines and server errors may follow a committed write.
-func ServiceUpdateRejected(err error) bool {
-	return errors.Is(err, ErrServiceConflict) || errors.Is(err, ErrServiceNotFound) ||
-		cerrdefs.IsInvalidArgument(err) || cerrdefs.IsPermissionDenied(err) ||
-		cerrdefs.IsUnauthorized(err) || cerrdefs.IsNotImplemented(err)
 }
 
 func logServiceWarnings(ctx context.Context, service string, warnings []string) {
@@ -150,10 +136,10 @@ func (m *serviceManager) ListServices(ctx context.Context, filter ListServicesFi
 	})
 	if err != nil {
 		if filter.Stack != "" {
-			return nil, fmt.Errorf("list services for stack %s: %w", filter.Stack, err)
+			return nil, fmt.Errorf("list services for stack %s: %w", filter.Stack, classifyDockerError(err))
 		}
 
-		return nil, fmt.Errorf("list services: %w", err)
+		return nil, fmt.Errorf("list services: %w", classifyDockerError(err))
 	}
 
 	mapped := make([]StackService, 0, len(services))
@@ -214,10 +200,10 @@ func (m *serviceManager) Remove(ctx context.Context, serviceIDOrName string) err
 	err := m.dockerClient.ServiceRemove(ctx, serviceIDOrName)
 	if err != nil {
 		if isNotFoundErr(err) {
-			return ErrServiceNotFound
+			return fmt.Errorf("%w: %w", ErrServiceNotFound, err)
 		}
 
-		return fmt.Errorf("remove service %s: %w", serviceIDOrName, err)
+		return fmt.Errorf("remove service %s: %w", serviceIDOrName, classifyDockerError(err))
 	}
 
 	return nil
@@ -274,11 +260,12 @@ func (m *serviceManager) scale(
 	if err != nil {
 		switch {
 		case isNotFoundErr(err):
-			return ServiceScaleResult{}, ErrServiceNotFound
-		case isServiceUpdateConflict(err):
-			return ServiceScaleResult{}, ErrServiceUpdateConflict
+			return ServiceScaleResult{}, fmt.Errorf("%w: %w", ErrServiceNotFound, err)
+		case isUpdateConflict(err):
+			return ServiceScaleResult{}, fmt.Errorf("%w: %w", ErrServiceUpdateConflict, err)
 		default:
-			return ServiceScaleResult{}, fmt.Errorf("update service %s replicas to %d: %w", service.ID, replicas, err)
+			return ServiceScaleResult{}, fmt.Errorf("update service %s replicas to %d: %w",
+				service.ID, replicas, classifyDockerError(err))
 		}
 	}
 
@@ -345,10 +332,10 @@ func (m *serviceManager) ListTasks(ctx context.Context, serviceIDOrName string) 
 	})
 	if err != nil {
 		if isNotFoundErr(err) {
-			return nil, ErrServiceNotFound
+			return nil, fmt.Errorf("%w: %w", ErrServiceNotFound, err)
 		}
 
-		return nil, fmt.Errorf("list tasks for service %s: %w", serviceIDOrName, err)
+		return nil, fmt.Errorf("list tasks for service %s: %w", serviceIDOrName, classifyDockerError(err))
 	}
 
 	out := make([]ServiceTask, 0, len(tasks))
@@ -363,6 +350,7 @@ func (m *serviceManager) ListTasks(ctx context.Context, serviceIDOrName string) 
 			UpdatedAt:    task.UpdatedAt,
 			CurrentState: TaskState(task.Status.State),
 			Error:        task.Status.Err,
+			Message:      task.Status.Message,
 			Spec:         NewTaskSpec(task.Spec),
 		}
 		if task.Status.ContainerStatus != nil {
@@ -381,10 +369,10 @@ func (m *serviceManager) GetTask(ctx context.Context, taskID string) (ServiceTas
 	task, _, err := m.dockerClient.TaskInspectWithRaw(ctx, taskID)
 	if err != nil {
 		if isNotFoundErr(err) {
-			return ServiceTaskDetails{}, ErrTaskNotFound
+			return ServiceTaskDetails{}, fmt.Errorf("%w: %w", ErrTaskNotFound, err)
 		}
 
-		return ServiceTaskDetails{}, fmt.Errorf("inspect task %s: %w", taskID, err)
+		return ServiceTaskDetails{}, fmt.Errorf("inspect task %s: %w", taskID, classifyDockerError(err))
 	}
 
 	details := ServiceTaskDetails{
@@ -466,16 +454,16 @@ func (m *serviceManager) Logs(
 	reader, err := m.dockerClient.ServiceLogs(ctx, fullServiceName, buildDockerServiceLogsOptions(options))
 	if err != nil {
 		if isNotFoundErr(err) {
-			return nil, ErrServiceNotFound
+			return nil, fmt.Errorf("%w: %w", ErrServiceNotFound, err)
 		}
 
-		return nil, fmt.Errorf("read logs for service %s: %w", fullServiceName, err)
+		return nil, fmt.Errorf("read logs for service %s: %w", fullServiceName, classifyDockerError(err))
 	}
 	defer reader.Close()
 
 	rawLogs, err := io.ReadAll(reader)
 	if err != nil {
-		return nil, fmt.Errorf("read logs stream for service %s: %w", fullServiceName, err)
+		return nil, fmt.Errorf("read logs stream for service %s: %w", fullServiceName, classifyDockerError(err))
 	}
 
 	decodedLogs := demultiplexDockerLogStream(rawLogs)
@@ -496,7 +484,7 @@ func (m *serviceManager) Logs(
 		logs = append(logs, line)
 	}
 	if scanErr := scanner.Err(); scanErr != nil {
-		return nil, fmt.Errorf("scan logs for service %s: %w", fullServiceName, scanErr)
+		return nil, fmt.Errorf("scan logs for service %s: %w", fullServiceName, classifyDockerError(scanErr))
 	}
 
 	return logs, nil
@@ -511,10 +499,10 @@ func (m *serviceManager) TaskLogs(
 	reader, err := m.dockerClient.TaskLogs(ctx, taskID, buildDockerTaskLogsOptions(options))
 	if err != nil {
 		if isNotFoundErr(err) {
-			return nil, nil, ErrServiceNotFound
+			return nil, nil, fmt.Errorf("%w: %w", ErrServiceNotFound, err)
 		}
 
-		return nil, nil, fmt.Errorf("read logs for task %s: %w", taskID, err)
+		return nil, nil, fmt.Errorf("read logs for task %s: %w", taskID, classifyDockerError(err))
 	}
 
 	entries := make(chan LogEntry)
@@ -526,7 +514,7 @@ func (m *serviceManager) TaskLogs(
 		defer reader.Close()
 
 		if readErr := readDockerLogEntries(ctx, reader, entries); readErr != nil {
-			errs <- fmt.Errorf("read task %s logs stream: %w", taskID, readErr)
+			errs <- fmt.Errorf("read task %s logs stream: %w", taskID, classifyDockerError(readErr))
 		}
 	}()
 
@@ -1046,17 +1034,14 @@ func (m *serviceManager) inspectService(
 	service, _, err := m.dockerClient.ServiceInspectWithRaw(ctx, fullServiceName, dockerswarm.ServiceInspectOptions{})
 	if err != nil {
 		if isNotFoundErr(err) {
-			return dockerswarm.Service{}, fullServiceName, ErrServiceNotFound
+			return dockerswarm.Service{}, fullServiceName, fmt.Errorf("%w: %w", ErrServiceNotFound, err)
 		}
 
-		return dockerswarm.Service{}, fullServiceName, fmt.Errorf("inspect service %s: %w", fullServiceName, err)
+		return dockerswarm.Service{}, fullServiceName, fmt.Errorf("inspect service %s: %w",
+			fullServiceName, classifyDockerError(err))
 	}
 
 	return service, fullServiceName, nil
-}
-
-func isNotFoundErr(err error) bool {
-	return cerrdefs.IsNotFound(err)
 }
 
 func stackServiceNameFromFullName(stackName string, fullName string) string {

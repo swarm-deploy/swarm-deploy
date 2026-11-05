@@ -49,7 +49,7 @@ func TestServiceUpdateConflictClassification(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			assert.Equal(t, tc.conflict, isServiceUpdateConflict(tc.err))
+			assert.Equal(t, tc.conflict, isUpdateConflict(tc.err))
 		})
 	}
 }
@@ -61,14 +61,16 @@ func TestServiceManagerUpdateMapsSequenceConflict(t *testing.T) {
 		status        int
 		want          error
 	}{
-		{name: "HTTP conflict", status: http.StatusConflict, message: "update out of sequence", want: ErrServiceConflict},
+		{name: "HTTP conflict", status: http.StatusConflict, message: "concurrent update", want: ErrServiceConflict},
 		{name: "SwarmKit unknown conflict", status: http.StatusInternalServerError, message: "rpc error: code = Unknown desc = update out of sequence", want: ErrServiceConflict},
 		{name: "unrelated server error", status: http.StatusInternalServerError, message: "manager unavailable"},
 		{name: "missing service", status: http.StatusNotFound, message: "no such service", want: ErrServiceNotFound},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
+			updates := 0
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+				updates++
 				assert.Equal(t, http.MethodPost, req.Method)
 				assert.Equal(t, "/v1.48/services/service-id/update", req.URL.Path)
 				assert.Equal(t, "7", req.URL.Query().Get("version"))
@@ -81,6 +83,8 @@ func TestServiceManagerUpdateMapsSequenceConflict(t *testing.T) {
 			err := manager.Update(t.Context(), "service-id", dockerswarm.Version{Index: 7}, dockerswarm.ServiceSpec{
 				Annotations: dockerswarm.Annotations{Name: "demo_api"},
 			}, dockerswarm.ServiceUpdateOptions{})
+			assert.Equal(t, 1, updates, "conflicts must not retry a stale specification")
+			assert.Equal(t, tc.want != nil, ServiceUpdateRejected(err))
 			if tc.want != nil {
 				assert.ErrorIs(t, err, tc.want)
 			} else {
