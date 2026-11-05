@@ -79,6 +79,8 @@ type ServiceTask struct {
 	ExitCode *int
 	// Error is a task runtime error.
 	Error string
+	// Message is the task status diagnostic reported by Docker.
+	Message string
 	// Spec is the comparable task template the task was created from, including its ForceUpdate generation.
 	Spec TaskSpec
 }

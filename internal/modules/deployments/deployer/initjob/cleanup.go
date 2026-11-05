@@ -2,10 +2,11 @@ package initjob
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 
 	"github.com/avast/retry-go/v5"
-	cerrdefs "github.com/containerd/errdefs"
+	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 
 func (r *InitJobRunner) enqueueDeleteTask(task initJobDeleteTask) {
@@ -37,8 +38,8 @@ func (r *InitJobRunner) removeServiceWithRetry(ctx context.Context, task initJob
 		removeCtx, cancel := context.WithTimeout(ctx, initJobDeleteAttemptTimeout)
 		defer cancel()
 
-		removeErr := r.dockerClient.ServiceRemove(removeCtx, task.serviceID)
-		if removeErr == nil || cerrdefs.IsNotFound(removeErr) {
+		removeErr := r.swarmService.Services.Remove(removeCtx, task.serviceID)
+		if removeErr == nil || errors.Is(removeErr, swarm.ErrServiceNotFound) {
 			return nil
 		}
 		return removeErr

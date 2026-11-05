@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"sort"
 
-	cerrdefs "github.com/containerd/errdefs"
 	dockerswarm "github.com/docker/docker/api/types/swarm"
 	"github.com/docker/docker/client"
 )
@@ -25,7 +24,7 @@ func newNodeManager(dockerClient *client.Client) NodeManager {
 func (m *nodeManager) List(ctx context.Context) ([]Node, error) {
 	nodes, err := m.dockerClient.NodeList(ctx, dockerswarm.NodeListOptions{})
 	if err != nil {
-		return nil, fmt.Errorf("list swarm nodes: %w", err)
+		return nil, fmt.Errorf("list swarm nodes: %w", classifyDockerError(err))
 	}
 
 	mapped := make([]Node, 0, len(nodes))
@@ -55,10 +54,10 @@ func (m *nodeManager) updateLabels(ctx context.Context, nodeID string, mutate fu
 	node, _, err := m.dockerClient.NodeInspectWithRaw(ctx, nodeID)
 	if err != nil {
 		if isNotFoundErr(err) {
-			return ErrNodeNotFound
+			return fmt.Errorf("%w: %w", ErrNodeNotFound, err)
 		}
 
-		return fmt.Errorf("inspect node %s: %w", nodeID, err)
+		return fmt.Errorf("inspect node %s: %w", nodeID, classifyDockerError(err))
 	}
 
 	spec := node.Spec
@@ -67,11 +66,14 @@ func (m *nodeManager) updateLabels(ctx context.Context, nodeID string, mutate fu
 	spec.Labels = labels
 
 	if err = m.dockerClient.NodeUpdate(ctx, node.ID, node.Version, spec); err != nil {
-		if cerrdefs.IsConflict(err) {
-			return ErrNodeUpdateConflict
+		if isNotFoundErr(err) {
+			return fmt.Errorf("%w: %w", ErrNodeNotFound, err)
+		}
+		if isUpdateConflict(err) {
+			return fmt.Errorf("%w: %w", ErrNodeUpdateConflict, err)
 		}
 
-		return fmt.Errorf("update node %s labels: %w", nodeID, err)
+		return fmt.Errorf("update node %s labels: %w", nodeID, classifyDockerError(err))
 	}
 
 	return nil

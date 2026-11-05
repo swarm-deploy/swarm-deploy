@@ -2,15 +2,16 @@ package initjob
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
 	"time"
 
-	cerrdefs "github.com/containerd/errdefs"
 	dockerswarm "github.com/docker/docker/api/types/swarm"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/resources"
+	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 
 func (r *InitJobRunner) buildInitServiceSpec(
@@ -175,7 +176,7 @@ func (r *InitJobRunner) resolveNetworkTarget(ctx context.Context, stackName, net
 		if err == nil {
 			return netResource.ID
 		}
-		if !cerrdefs.IsNotFound(err) {
+		if !errors.Is(err, swarm.ErrNetworkNotFound) {
 			continue
 		}
 	}

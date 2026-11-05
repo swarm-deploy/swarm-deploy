@@ -1,6 +1,8 @@
 package swarm
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"net"
 	"testing"
@@ -32,11 +34,31 @@ func TestClassifyDockerError(t *testing.T) {
 	}{
 		{name: "nil"},
 		{name: "permanent", err: cerrdefs.ErrInvalidArgument},
+		{name: "canceled", err: fmt.Errorf("request: %w", context.Canceled)},
+		{name: "deadline", err: fmt.Errorf("request: %w", context.DeadlineExceeded)},
+		{name: "unavailable with cancellation", err: errors.Join(cerrdefs.ErrUnavailable, context.Canceled)},
+		{name: "unavailable with deadline", err: errors.Join(cerrdefs.ErrUnavailable, context.DeadlineExceeded)},
 		{name: "already classified", err: classified},
 		{name: "context around classified", err: fmt.Errorf("apply service: %w", classified)},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			assert.Equal(t, tc.err, classifyDockerError(tc.err))
 		})
+	}
+}
+
+func TestDockerCreateConflictClassification(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"nil", nil, false},
+		{"conflict", cerrdefs.ErrConflict, true},
+		{"already exists", fmt.Errorf("Docker create: %w", cerrdefs.ErrAlreadyExists), true},
+		{"unavailable", cerrdefs.ErrUnavailable, false},
+		{"invalid", cerrdefs.ErrInvalidArgument, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) { assert.Equal(t, tc.want, isConflictErr(tc.err)) })
 	}
 }

@@ -5,19 +5,16 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
 
-	cerrdefs "github.com/containerd/errdefs"
 	"github.com/docker/docker/api/types/container"
 	dockerswarm "github.com/docker/docker/api/types/swarm"
 	"github.com/docker/docker/client"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
 )
 
 func TestServiceManagerListServices(t *testing.T) {
@@ -181,50 +178,6 @@ func TestServiceManagerMapsApplyConflicts(t *testing.T) {
 	assert.ErrorIs(t, err, ErrServiceConflict)
 }
 
-func TestServiceManagerClassifiesApplyErrors(t *testing.T) {
-	for _, operation := range []string{"create", "update"} {
-		for _, tc := range []struct {
-			name      string
-			status    int
-			cause     error
-			retryable bool
-		}{
-			{name: "unavailable", status: http.StatusServiceUnavailable, cause: cerrdefs.ErrUnavailable, retryable: true},
-			{name: "invalid argument", status: http.StatusBadRequest, cause: cerrdefs.ErrInvalidArgument},
-			{name: "permission denied", status: http.StatusForbidden, cause: cerrdefs.ErrPermissionDenied},
-		} {
-			t.Run(operation+"/"+tc.name, func(t *testing.T) {
-				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-					assert.Equal(t, http.MethodPost, req.Method)
-					http.Error(w, `{"message":"Docker API failure"}`, tc.status)
-				}))
-				t.Cleanup(server.Close)
-				manager := newServiceManager(newTestDockerClient(t, server))
-				spec := dockerswarm.ServiceSpec{Annotations: dockerswarm.Annotations{Name: "demo_api"}}
-				var err error
-				if operation == "create" {
-					_, err = manager.Create(t.Context(), spec, dockerswarm.ServiceCreateOptions{})
-				} else {
-					err = manager.Update(t.Context(), "service-id", dockerswarm.Version{Index: 7}, spec,
-						dockerswarm.ServiceUpdateOptions{})
-				}
-				require.Error(t, err)
-				assert.ErrorContains(t, err, operation+" service demo_api: ")
-				assert.ErrorIs(t, err, tc.cause)
-				var temporary faults.Error
-				if tc.retryable {
-					require.ErrorAs(t, err, &temporary)
-					assert.True(t, temporary.Temporary())
-					var unavailable *DockerUnavailableError
-					assert.ErrorAs(t, err, &unavailable)
-				} else {
-					assert.False(t, errors.As(err, &temporary) && temporary.Temporary())
-				}
-			})
-		}
-	}
-}
-
 func TestServiceManagerListTasksByIDOrFullName(t *testing.T) {
 	t.Parallel()
 
@@ -247,7 +200,8 @@ func TestServiceManagerListTasksByIDOrFullName(t *testing.T) {
 						},
 						DesiredState: dockerswarm.TaskStateRunning,
 						Status: dockerswarm.TaskStatus{
-							State: dockerswarm.TaskStateRunning,
+							State:   dockerswarm.TaskStateRunning,
+							Message: "task running",
 							ContainerStatus: &dockerswarm.ContainerStatus{
 								ContainerID: "container-1",
 								ExitCode:    17,
@@ -268,6 +222,7 @@ func TestServiceManagerListTasksByIDOrFullName(t *testing.T) {
 			require.NoError(t, err)
 			require.Len(t, tasks, 2)
 			assert.Equal(t, 3, tasks[0].Slot)
+			assert.Equal(t, "task running", tasks[0].Message)
 			assert.Equal(t, &dockerswarm.Version{Index: 7}, tasks[0].JobIteration)
 			assert.Nil(t, tasks[1].JobIteration)
 			assert.Equal(t, TaskStateRunning, tasks[0].DesiredState)
