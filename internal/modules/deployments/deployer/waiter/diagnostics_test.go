@@ -21,7 +21,7 @@ func TestPausedUpdateIncludesLatestFailedTask(t *testing.T) {
 			exit := 137
 			manager.EXPECT().ListTasks(gomock.Any(), "api-id").Return([]swarm.ServiceTask{
 				{ID: "old-task", CurrentState: swarm.TaskStateFailed, UpdatedAt: serviceWaitTestTime.Add(-time.Minute), Error: "old failure"},
-				{ID: "latest-task", CurrentState: state, UpdatedAt: serviceWaitTestTime, Error: "container startup failed", ExitCode: &exit},
+				{ID: "latest-task", CurrentState: state, CreatedAt: serviceWaitTestTime, UpdatedAt: serviceWaitTestTime, Error: "container startup failed", ExitCode: &exit},
 			}, nil)
 			err := waitForTest(newTestServiceWaiter(manager), t.Context(), ServiceWaitRequest{
 				StackName: "demo", ServiceNames: []string{"api"}, Baseline: []swarm.StackService{service},
@@ -48,10 +48,61 @@ func TestPausedUpdateRemainsFailedWhenTaskDiagnosticsUnavailable(t *testing.T) {
 
 func TestTerminalDiagnosticUsesTaskNamedByDockerIncludingEarlySuccessfulExit(t *testing.T) {
 	exit := 0
-	diagnostic := terminalTaskDiagnostic([]swarm.ServiceTask{
+	diagnostic := formatTaskDiagnostic(terminalFailureTask([]swarm.ServiceTask{
 		{ID: "unrelated", CurrentState: swarm.TaskStateFailed, UpdatedAt: serviceWaitTestTime},
 		{ID: "early-exit", CurrentState: swarm.TaskStateComplete, ExitCode: &exit, UpdatedAt: serviceWaitTestTime.Add(-time.Minute)},
-	}, "update paused due to early termination of task early-exit")
+	}, "update paused due to early termination of task early-exit", serviceWaitTestTime))
 	assert.Contains(t, diagnostic, "id=early-exit state=complete exit_code=0")
 	assert.NotContains(t, diagnostic, "unrelated")
+}
+
+func TestTerminalFailureTaskSelectionExcludesHistoricalFailures(t *testing.T) {
+	now := serviceWaitTestTime
+	current := swarm.ServiceTask{ID: "new-task", CurrentState: swarm.TaskStateFailed, CreatedAt: now, UpdatedAt: now}
+	historical := swarm.ServiceTask{ID: "historical-task", CurrentState: swarm.TaskStateFailed,
+		CreatedAt: now.Add(-time.Hour), UpdatedAt: now.Add(time.Hour)}
+	for _, tc := range []struct {
+		name, message string
+		tasks         []swarm.ServiceTask
+		want          string
+	}{
+		{name: "current failure", tasks: []swarm.ServiceTask{historical, current}, want: current.ID},
+		{name: "historical failure only", tasks: []swarm.ServiceTask{historical}},
+		{name: "no tasks"},
+		{name: "Docker identifies older task", tasks: []swarm.ServiceTask{current, historical},
+			message: "failure of task historical-task", want: historical.ID},
+		{name: "ID must match completely", tasks: []swarm.ServiceTask{historical}, message: "failure of task historical-task-longer"},
+		{name: "quoted Docker ID", tasks: []swarm.ServiceTask{historical}, message: "failure of task \"historical-task\"", want: historical.ID},
+		{name: "healthy task never a fallback", tasks: []swarm.ServiceTask{{ID: "healthy", CurrentState: swarm.TaskStateRunning, CreatedAt: now}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, terminalFailureTask(tc.tasks, tc.message, now).ID)
+		})
+	}
+}
+
+func TestTerminalTaskFallbackUsesRolloutBoundary(t *testing.T) {
+	now := serviceWaitTestTime
+	for _, tc := range []struct {
+		name     string
+		baseline swarm.StackService
+		service  swarm.StackService
+		want     time.Time
+	}{
+		{name: "update start", service: swarm.StackService{UpdatedAt: now.Add(time.Minute),
+			UpdateStatus: &swarm.ServiceUpdateStatus{StartedAt: now}}, want: now},
+		{name: "missing update start uses metadata", service: swarm.StackService{UpdatedAt: now,
+			UpdateStatus: &swarm.ServiceUpdateStatus{}}, want: now},
+		{name: "pre-apply boundary", baseline: swarm.StackService{ID: "api", UpdatedAt: now},
+			service: swarm.StackService{ID: "api", UpdatedAt: now.Add(time.Minute), UpdateStatus: &swarm.ServiceUpdateStatus{}}, want: now},
+		{name: "rollback starts after failed new task", baseline: swarm.StackService{ID: "api", UpdatedAt: now},
+			service: swarm.StackService{ID: "api", UpdatedAt: now.Add(time.Minute),
+				UpdateStatus: &swarm.ServiceUpdateStatus{State: "rollback_started", StartedAt: now.Add(time.Minute)}}, want: now},
+		{name: "creation boundary", service: swarm.StackService{CreatedAt: now, UpdateStatus: &swarm.ServiceUpdateStatus{}}, want: now},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, terminalTaskCutoff(tc.baseline, tc.service))
+		})
+	}
+	assert.Empty(t, terminalFailureTask([]swarm.ServiceTask{{ID: "unknown-generation", CurrentState: swarm.TaskStateFailed}}, "", time.Time{}).ID)
 }

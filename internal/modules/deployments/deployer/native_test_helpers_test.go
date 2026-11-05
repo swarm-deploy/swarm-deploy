@@ -62,6 +62,7 @@ func wireNativeTestDeployerWithServiceManager(
 		serviceManager.EXPECT().Create(gomock.Any(), gomock.Any(), gomock.Any()).Return("service-id", nil).AnyTimes()
 	}
 
+	deployer.services = serviceManager
 	deployer.converter = converter.New(networkManager, configManager, secretManager)
 	deployer.networks = networks.New(networkManager)
 	deployer.serviceApplier = services.New(serviceManager, &registry.NopAuthManager{})

@@ -20,7 +20,16 @@ var embeddedSecretToken = regexp.MustCompile(
 var diagnosticCredential = regexp.MustCompile(
 	`(?i)((?:^|[^[:alnum:]_.-])(?:--?)?(?:password[\t ]*:|` +
 		`(?:password|passwd|secret|token|credential|api[_-]?key)[\t ]*=)[\t ]*)` +
-		`("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|[^\s'"<>&#,;)\]}]+)`,
+		`("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|[^\s'"<>&#]+)`,
+)
+
+var diagnosticField = regexp.MustCompile(
+	`((?:^|[\t ])([[:alnum:]_.-]+)[\t ]*=[\t ]*)("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|[^\s'"<>]+)`,
+)
+
+var diagnosticAuthorization = regexp.MustCompile(
+	`(?i)(\bauthorization[\t ]*[:=][\t ]*)` +
+		`("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|(?:bearer|basic)[\t ]+[^\s'"<>]+|\*{4})`,
 )
 
 // Give envmasker individual tokens, leading credential fields, and explicit CLI
@@ -56,6 +65,14 @@ func SafeDiagnostic(err error) string {
 		return ""
 	}
 	diagnostic = bareDSNUserInfo.ReplaceAllString(diagnostic, envmasker.MaskValue+":"+envmasker.MaskValue+"${1}")
+	diagnostic = diagnosticAuthorization.ReplaceAllString(diagnostic, "${1}"+envmasker.MaskValue)
+	diagnostic = diagnosticField.ReplaceAllStringFunc(diagnostic, func(field string) string {
+		parts := diagnosticField.FindStringSubmatch(field)
+		if _, sensitive := envmasker.Mask(parts[2], envmasker.MaskValue); sensitive {
+			return parts[1] + envmasker.MaskValue
+		}
+		return field
+	})
 	diagnostic = diagnosticCredential.ReplaceAllString(diagnostic, "${1}"+envmasker.MaskValue)
 	diagnostic = diagnosticToken.ReplaceAllStringFunc(diagnostic, func(token string) string {
 		masked, _ := envmasker.Mask("", token)

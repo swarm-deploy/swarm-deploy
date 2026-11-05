@@ -37,6 +37,7 @@ func jobProgress(
 	progress.Desired = desired
 	if task, failed := services.JobTaskFailure(service.ServiceSpec, service.JobStatus, tasks); failed {
 		progress.State = ServiceFailed
+		progress.FailedTaskID = task.ID
 		diagnostic := "job task exited without further retries" + formatTaskDiagnostic(task)
 		progress.Message = boundedDiagnostic(faults.SafeDiagnostic(errors.New(diagnostic)))
 		return progress

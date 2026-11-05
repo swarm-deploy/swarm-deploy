@@ -95,6 +95,7 @@ func runningServiceProgress(
 	if service.UpdateStatus == nil {
 		if failed, terminal := services.NonRestartingTaskFailure(service.ServiceSpec, tasks, cutoff); terminal {
 			progress.State = ServiceFailed
+			progress.FailedTaskID = failed.ID
 			progress.Message = "task exited with restart disabled" + formatTaskDiagnostic(failed)
 			return progress
 		}
@@ -135,7 +136,9 @@ func terminalServiceUpdateProgress(
 		return progress, true
 	}
 	progress.State = ServiceFailed
-	progress.Message = message + terminalTaskDiagnostic(tasks, service.UpdateStatus.Message)
+	task := terminalFailureTask(tasks, service.UpdateStatus.Message, terminalTaskCutoff(baseline, service))
+	progress.FailedTaskID = task.ID
+	progress.Message = message + formatTaskDiagnostic(task)
 	return progress, true
 }
 

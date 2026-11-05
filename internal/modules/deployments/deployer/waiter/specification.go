@@ -33,7 +33,12 @@ func (w *ServiceWaiter) observeExternalService(
 	}
 	progress.Running = countCurrentRunningTasks(tasks, false, time.Time{})
 	if progress.State == ServiceFailed {
-		progress.Message += terminalTaskDiagnostic(tasks, service.UpdateStatus.Message)
+		if generation.ServiceID == service.ID && !generation.After.IsZero() {
+			baseline.UpdatedAt = generation.After
+		}
+		task := terminalFailureTask(tasks, service.UpdateStatus.Message, terminalTaskCutoff(baseline, service))
+		progress.FailedTaskID = task.ID
+		progress.Message += formatTaskDiagnostic(task)
 	}
 	return progress, nil
 }
