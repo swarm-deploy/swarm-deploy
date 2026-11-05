@@ -75,7 +75,8 @@ func (d *Deployer) collectTaskLogs(
 		return nil, err
 	}
 	var lines []string
-	used, received := 0, 0
+	var messages []string
+	received := 0
 	for entries != nil || errs != nil {
 		select {
 		case <-ctx.Done():
@@ -86,13 +87,10 @@ func (d *Deployer) collectTaskLogs(
 				continue
 			}
 			received++
-			remaining := maxBytes - used
-			if len(lines) > 0 {
-				remaining--
-			}
-			safe := faults.DiagnosticLogLines([]string{entry.Message}, maxLines-len(lines), remaining)
-			lines = append(lines, safe...)
-			used = len(strings.Join(lines, "\n"))
+			// Filter the bounded batch together so split private key blocks stay excluded.
+			messages = append(messages, entry.Message)
+			lines = faults.DiagnosticLogLines(messages, maxLines, maxBytes)
+			used := len(strings.Join(lines, "\n"))
 			if received >= faults.MaxDiagnosticLogLines || len(lines) >= maxLines || used >= maxBytes {
 				return lines, nil
 			}

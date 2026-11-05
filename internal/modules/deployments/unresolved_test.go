@@ -102,13 +102,19 @@ func TestNativeDeploymentCarriesUnresolvedRolloutAcrossDesiredDigests(t *testing
 		}
 	}
 	exit := 1
+	startupFailure := `ERROR failed to load config err="unknown configuration field" password="private-value" token=private-value api_key=private-value dsn="postgres://user:private-value@db/app" authorization="Bearer private-value"`
+	safeStartupFailure := `ERROR failed to load config err="unknown configuration field" password=**** token=**** api_key=**** dsn=**** authorization=****`
 	failedTask := swarm.ServiceTask{ID: "failed-new-task", DesiredState: swarm.TaskStateShutdown, CurrentState: swarm.TaskStateFailed, CreatedAt: now, ExitCode: &exit}
 	manager.EXPECT().TaskLogs(gomock.Any(), "failed-new-task", swarm.TaskLogsOptions{Follow: false, Limit: 20}).DoAndReturn(
 		func(_ context.Context, _ string, _ swarm.TaskLogsOptions) (<-chan swarm.LogEntry, <-chan error, error) {
-			entries := make(chan swarm.LogEntry, 3)
+			entries := make(chan swarm.LogEntry, 7)
 			entries <- swarm.LogEntry{Stream: "stdout", Message: "application starting"}
 			entries <- swarm.LogEntry{Stream: "stderr", Message: "migration failed: missing table"}
 			entries <- swarm.LogEntry{Stream: "stderr", Message: "password=private-value"}
+			entries <- swarm.LogEntry{Stream: "stderr", Message: startupFailure}
+			entries <- swarm.LogEntry{Stream: "stderr", Message: "-----BEGIN PRIVATE KEY-----"}
+			entries <- swarm.LogEntry{Stream: "stderr", Message: "private-value"}
+			entries <- swarm.LogEntry{Stream: "stderr", Message: "-----END PRIVATE KEY-----"}
 			close(entries)
 			errs := make(chan error)
 			close(errs)
@@ -127,6 +133,7 @@ func TestNativeDeploymentCarriesUnresolvedRolloutAcrossDesiredDigests(t *testing
 	first, err := create().Execute(t.Context(), req)
 	require.ErrorIs(t, err, waiter.ErrConvergenceFailed)
 	assert.ErrorContains(t, err, "migration failed: missing table")
+	assert.ErrorContains(t, err, safeStartupFailure)
 	assert.NotContains(t, err.Error(), "private-value")
 	require.NotNil(t, first.Attempt)
 	assert.Equal(t, deploymentmodel.Failed, first.Status)
@@ -156,6 +163,7 @@ func TestNativeDeploymentCarriesUnresolvedRolloutAcrossDesiredDigests(t *testing
 	assert.Equal(t, 1, stored.AttemptCount)
 	for _, text := range []string{stored.ErrorDiagnostic, stored.Attempts[0].ErrorDiagnostic} {
 		assert.Contains(t, text, "migration failed: missing table")
+		assert.Contains(t, text, safeStartupFailure)
 		assert.Contains(t, text, "service a task failed-new-task logs:")
 		assert.NotContains(t, text, "private-value")
 	}
@@ -165,6 +173,7 @@ func TestNativeDeploymentCarriesUnresolvedRolloutAcrossDesiredDigests(t *testing
 		failed, ok := publication.Envelope.Event.(*events.DeployFailed)
 		require.True(t, ok)
 		assert.Contains(t, failed.Error.Error(), "migration failed: missing table")
+		assert.Contains(t, failed.Error.Error(), safeStartupFailure)
 		assert.NotContains(t, failed.Error.Error(), "private-value")
 	}
 	drain()
@@ -183,6 +192,7 @@ func TestNativeDeploymentCarriesUnresolvedRolloutAcrossDesiredDigests(t *testing
 		assert.Contains(t, incident.Message, detail)
 	}
 	assert.NotContains(t, incident.Message, "private-value")
+	assert.Contains(t, incident.Message, safeStartupFailure)
 	// After a genuinely recovers, another desired digest may complete. No update of a or historical is allowed.
 	list(aRecovered, bNew, historical)
 	inspect("a", failedSpec[0], dockerswarm.UpdateStateCompleted)

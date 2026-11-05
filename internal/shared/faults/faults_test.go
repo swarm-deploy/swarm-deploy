@@ -44,6 +44,16 @@ func TestSafeDiagnostic(t *testing.T) {
 			want: "pull registry:5000/app:stable@sha256:abc123: image not found"},
 		{name: "URL query", err: errors.New("GET https://registry.example/path?token=value&state=pending failed"),
 			want: "GET https://registry.example/path?token=****&state=pending failed"},
+		{name: "slog config failure", err: errors.New(`level=ERROR msg="failed to load config" err="unknown configuration field"`),
+			want: `level=ERROR msg="failed to load config" err="unknown configuration field"`},
+		{name: "slog secret field", err: errors.New(`err="unknown configuration field" api_key="private value"`),
+			want: `err="unknown configuration field" api_key=****`},
+		{name: "quoted secret failure detail", err: errors.New(`err="cannot read secret file"`),
+			want: `err="cannot read secret file"`},
+		{name: "authorization header", err: errors.New("request failed Authorization: Bearer private-value status=401"),
+			want: "request failed Authorization: **** status=401"},
+		{name: "quoted DSN", err: errors.New(`connect dsn="host=db password=private-value" failed`),
+			want: "connect dsn=**** failed"},
 		{name: "empty", err: nil, want: ""},
 	}
 	for _, tt := range tests {

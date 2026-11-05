@@ -39,6 +39,12 @@ func TestWaitEnrichesOnlyConfirmedConvergenceFailures(t *testing.T) {
 		{name: "logs available", cause: failure, request: true,
 			messages: []string{"application starting", "migration failed: missing table"},
 			want:     []string{"application starting", "migration failed: missing table", "service api task new-task logs:"}},
+		{name: "configuration startup failure", cause: failure, request: true,
+			messages: []string{`ERROR failed to load config err="unknown configuration field" password="private-value"`},
+			want:     []string{`err="unknown configuration field" password=****`}},
+		{name: "split private key", cause: failure, request: true,
+			messages: []string{"-----BEGIN PRIVATE KEY-----", "private-value", "-----END PRIVATE KEY-----", "startup failed reason=config"},
+			want:     []string{"startup failed reason=config"}},
 		{name: "no logs", cause: failure, request: true, want: []string{"Task logs unavailable: no logs found"}},
 		{name: "API failure", cause: failure, request: true, apiErr: apiErr,
 			want: []string{"Task logs unavailable: Docker API error: access denied", "****"}},
@@ -51,8 +57,11 @@ func TestWaitEnrichesOnlyConfirmedConvergenceFailures(t *testing.T) {
 		{name: "credentials filtered", cause: failure, request: true,
 			messages: []string{"password private-value", "Authorization: Bearer private-value", "api_key=private-value",
 				"postgres://private-value@db/app", "database_url=private-value", "-----BEGIN PRIVATE KEY-----",
-				"startup failed: missing table"}, want: []string{"startup failed: missing table"}},
-		{name: "only sensitive logs", cause: failure, request: true, messages: []string{"token=private-value"},
+				"private-value", "-----END PRIVATE KEY-----", "startup failed: missing table"},
+			want: []string{"startup failed: missing table"}},
+		{name: "masked sensitive logs", cause: failure, request: true, messages: []string{"token=private-value"},
+			want: []string{"token=****"}},
+		{name: "only unsupported sensitive logs", cause: failure, request: true, messages: []string{"startup password private-value"},
 			want: []string{"Task logs unavailable: no logs found"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -173,6 +182,8 @@ func TestMultipleFailedServiceLogsAreBounded(t *testing.T) {
 		{name: "line count", messages: []string{strings.Repeat("failure\n", 25)}, requests: 1},
 		{name: "byte count", messages: []string{strings.Repeat("x", 3000)}, requests: 1},
 		{name: "newline byte budget", messages: []string{"first", strings.Repeat("x", 3000)}, requests: 1},
+		{name: "shared lines with fields", messages: []string{strings.Repeat("state=failed\n", 8)}, requests: 3},
+		{name: "shared bytes with fields", messages: []string{"err=" + strings.Repeat("x", 600)}, requests: 3},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ctrl := gomock.NewController(t)

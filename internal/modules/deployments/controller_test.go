@@ -34,6 +34,7 @@ func (e *failedJobWithLogs) Logs() []string { return e.logs }
 func TestInitJobDiagnosticsAreBoundedAndSanitized(t *testing.T) {
 	failure := &failedJobWithLogs{logs: []string{
 		"migration failed: missing table",
+		`ERROR failed to load config err="unknown configuration field" password="do-not-persist"`,
 		"token=do-not-persist",
 		"database_url=postgres://do-not-persist",
 		"password do-not-persist",
@@ -44,6 +45,7 @@ func TestInitJobDiagnosticsAreBoundedAndSanitized(t *testing.T) {
 	require.True(t, found)
 	require.ErrorIs(t, diagnostic, failure)
 	assert.Contains(t, diagnostic.Error(), "migration failed: missing table")
+	assert.Contains(t, diagnostic.Error(), `err="unknown configuration field" password=****`)
 	assert.Contains(t, diagnostic.Error(), "init job logs:")
 	assert.NotContains(t, diagnostic.Error(), "do-not-persist")
 	assert.LessOrEqual(t, len(diagnostic.Error()),
@@ -55,7 +57,9 @@ func TestInitJobDiagnosticsAreBoundedAndSanitized(t *testing.T) {
 		want []string
 	}{
 		{name: "empty"},
-		{name: "filtered", logs: []string{"password=hidden", "  "}},
+		{name: "masked", logs: []string{"password=hidden", "  "}, want: []string{"password=****"}},
+		{name: "unsupported credentials", logs: []string{"startup password hidden", "  "}},
+		{name: "private key", logs: []string{"-----BEGIN PRIVATE KEY-----", "hidden", "-----END PRIVATE KEY-----"}},
 		{name: "multiline", logs: []string{" first\n\n second "}, want: []string{"first", "second"}},
 		{
 			name: "byte limit includes separators",
