@@ -2,9 +2,9 @@ package handlers
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
-	"fmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
