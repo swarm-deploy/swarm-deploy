@@ -70,7 +70,7 @@ func (m *serviceManager) Create(
 		if cerrdefs.IsConflict(err) {
 			return "", fmt.Errorf("create service %s: %w", spec.Name, ErrServiceConflict)
 		}
-		return "", fmt.Errorf("create service %s: %w", spec.Name, err)
+		return "", fmt.Errorf("create service %s: %w", spec.Name, classifyDockerError(err))
 	}
 	logServiceWarnings(ctx, spec.Name, response.Warnings)
 	return response.ID, nil
@@ -92,7 +92,7 @@ func (m *serviceManager) Update(
 		if isNotFoundErr(err) {
 			return fmt.Errorf("update service %s: %w", spec.Name, ErrServiceNotFound)
 		}
-		return fmt.Errorf("update service %s: %w", spec.Name, err)
+		return fmt.Errorf("update service %s: %w", spec.Name, classifyDockerError(err))
 	}
 	logServiceWarnings(ctx, spec.Name, response.Warnings)
 	return nil

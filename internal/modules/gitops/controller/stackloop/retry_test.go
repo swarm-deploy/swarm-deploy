@@ -2,10 +2,16 @@ package stackloop
 
 import (
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"path/filepath"
 	"testing"
+	"time"
 
 	pipe "github.com/artarts36/gopipe"
+	cerrdefs "github.com/containerd/errdefs"
+	dockerswarm "github.com/docker/docker/api/types/swarm"
+	"github.com/docker/docker/client"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
@@ -65,4 +71,103 @@ func TestReconcileDeferredFailureProtectsUnresolvedServiceAndFailureProjection(t
 	assert.Equal(t, stored.ID, retried.ID)
 	assert.Equal(t, 2, retried.AttemptCount)
 	assert.Equal(t, deploymentmodel.Succeeded, retried.Status)
+}
+
+func TestReconcileRetriesDockerUnavailableAfterBackoff(t *testing.T) {
+	for _, operation := range []string{"create", "update"} {
+		for _, tc := range []struct {
+			name      string
+			status    int
+			retryable bool
+		}{
+			{name: "unavailable", status: http.StatusServiceUnavailable, retryable: true},
+			{name: "permanent", status: http.StatusBadRequest},
+		} {
+			t.Run(operation+"/"+tc.name, func(t *testing.T) {
+				ctrl := gomock.NewController(t)
+				repository := gitx.NewMockRepository(ctrl)
+				manager := swarm.NewMockServiceManager(ctrl)
+				stackDeployer := deployer.NewMockStackDeployer(ctrl)
+				db, stateStore := newSQLState(t)
+				dir := t.TempDir()
+				require.NoError(t, writeComposeFile(dir))
+				mockRepositoryFiles(repository, dir)
+				cfg := &config.Config{Spec: config.Spec{DataDir: filepath.Join(dir, ".data")}}
+				bus := &dispatcher.NopDispatcher{}
+				now := time.Now().UTC()
+				clock := func() time.Time { return now }
+				newReconciler := func() *Reconciler {
+					return newTestReconciler(cfg, repository, deployments.NewService(db, bus, deployments.WithClock(clock)),
+						stackDeployer, &swarm.Swarm{Services: manager}, bus, &metrics.NopDeploys{}, stateStore, db)
+				}
+				req := ReconciliationRequest{Stack: config.StackSpec{Name: "app", ComposeFile: "app.yaml"}, Commit: "one"}
+				applyErr := dockerApplyError(t, operation, tc.status)
+				if tc.retryable {
+					require.ErrorIs(t, applyErr, cerrdefs.ErrUnavailable)
+				}
+				stackDeployer.EXPECT().DeployStack(gomock.Any(), gomock.Any()).Return(deployer.Result{},
+					&pipe.StepError{StepName: "apply stack", Err: applyErr})
+				require.Error(t, newReconciler().Reconcile(t.Context(), req))
+				store := deploymentstore.NewStore(db)
+				failed, desired, err := store.Latest(t.Context(), "app")
+				require.NoError(t, err)
+				assert.Equal(t, deploymentmodel.Failed, failed.Status)
+				assert.Equal(t, "apply_failed", failed.ErrorCode)
+				assert.Equal(t, tc.retryable, failed.Retryable)
+				attempt, err := store.GetAttempt(t.Context(), failed.LatestAttemptID)
+				require.NoError(t, err)
+				assert.Equal(t, tc.retryable, attempt.Retryable)
+
+				// A new reconciler and lifecycle use only persisted retry eligibility.
+				now = now.Add(time.Minute - time.Nanosecond)
+				manager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "app"}).Return(nil, nil)
+				require.NoError(t, newReconciler().Reconcile(t.Context(), req))
+				deferred, _, err := store.Latest(t.Context(), "app")
+				require.NoError(t, err)
+				assert.Equal(t, 1, deferred.AttemptCount)
+
+				now = now.Add(time.Nanosecond)
+				if tc.retryable {
+					stackDeployer.EXPECT().DeployStack(gomock.Any(), gomock.Any()).Return(deployer.Result{}, nil)
+				}
+				manager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "app"}).Return(nil, nil)
+				require.NoError(t, newReconciler().Reconcile(t.Context(), req))
+				after, unchanged, err := store.Latest(t.Context(), "app")
+				require.NoError(t, err)
+				assert.Equal(t, failed.ID, after.ID)
+				assert.Equal(t, desired.Digest, unchanged.Digest)
+				assert.Equal(t, req.Commit, after.Commit)
+				if tc.retryable {
+					assert.Equal(t, 2, after.AttemptCount)
+					assert.Equal(t, deploymentmodel.Succeeded, after.Status)
+					assert.NotEqual(t, failed.LatestAttemptID, after.LatestAttemptID)
+				} else {
+					assert.Equal(t, 1, after.AttemptCount)
+					assert.Equal(t, deploymentmodel.Failed, after.Status)
+				}
+			})
+		}
+	}
+}
+
+func dockerApplyError(t *testing.T, operation string, status int) error {
+	t.Helper()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, `{"message":"Docker API failure"}`, status)
+	}))
+	t.Cleanup(server.Close)
+	dockerClient, err := client.NewClientWithOpts(client.WithHost(server.URL),
+		client.WithHTTPClient(server.Client()), client.WithVersion("1.48"))
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, dockerClient.Close()) })
+	manager := swarm.NewSwarm(dockerClient).Services
+	spec := dockerswarm.ServiceSpec{Annotations: dockerswarm.Annotations{Name: "app_api"}}
+	if operation == "create" {
+		_, err = manager.Create(t.Context(), spec, dockerswarm.ServiceCreateOptions{})
+	} else {
+		err = manager.Update(t.Context(), "service-id", dockerswarm.Version{Index: 7}, spec,
+			dockerswarm.ServiceUpdateOptions{})
+	}
+	require.Error(t, err)
+	return err
 }
