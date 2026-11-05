@@ -117,9 +117,9 @@ func (d sshDeadlineDialer) DialContext(ctx context.Context, network, addr string
 	if err != nil {
 		return nil, err
 	}
-	if err := conn.SetDeadline(d.deadline); err != nil {
+	if deadlineErr := conn.SetDeadline(d.deadline); deadlineErr != nil {
 		_ = conn.Close()
-		return nil, err
+		return nil, deadlineErr
 	}
 	return conn, nil
 }
