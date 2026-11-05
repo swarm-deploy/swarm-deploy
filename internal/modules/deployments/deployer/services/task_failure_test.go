@@ -186,7 +186,7 @@ func TestTerminalServiceTaskFailureWithFiniteRetries(t *testing.T) {
 		{name: "global healthy node does not override failure", global: true,
 			condition: dockerswarm.RestartPolicyConditionNone, tasks: []swarm.ServiceTask{initial,
 				{ID: "healthy", Node: "node-b", CurrentState: swarm.TaskStateRunning,
-					CreatedAt: now, UpdatedAt: now}}},
+					CreatedAt: now, UpdatedAt: now}}, want: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			spec := serviceSpec("api", "busybox:1.36")
