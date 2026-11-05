@@ -446,7 +446,7 @@ onUnmounted(() => {
           :class="`deployment-outcome--${detail.status}`"
           aria-labelledby="deployment-outcome-title"
         >
-          <span class="deployment-outcome-icon"><DeploymentIcon :name="statusIcon" /></span>
+          <span v-if="detail.status !== 'failed'" class="deployment-outcome-icon"><DeploymentIcon :name="statusIcon" /></span>
           <div>
             <strong id="deployment-outcome-title">{{ statusTitle }}</strong>
             <p>{{ statusDescription }}</p>
@@ -749,7 +749,7 @@ onUnmounted(() => {
   padding: 14px 16px;
   background: var(--surface-muted);
 }
-.deployment-outcome--failed { border-color: rgba(248, 113, 113, .18); background: linear-gradient(90deg, rgba(126, 45, 45, .2), rgba(126, 45, 45, .08)); }
+.deployment-outcome--failed { grid-template-columns: minmax(0, 1fr); border-color: rgba(248, 113, 113, .18); background: linear-gradient(90deg, rgba(126, 45, 45, .2), rgba(126, 45, 45, .08)); }
 .deployment-outcome--interrupted { border-color: rgba(250, 204, 21, .18); background: linear-gradient(90deg, rgba(161, 98, 7, .18), rgba(161, 98, 7, .07)); }
 .deployment-outcome-icon { width: 36px; height: 36px; display: grid; place-items: center; border-radius: 50%; }
 .deployment-outcome--failed .deployment-outcome-icon { color: var(--text-on-status); background: var(--status-error-bg); }
@@ -1028,6 +1028,7 @@ summary.deployment-resource-heading { cursor: pointer; }
   .deployment-date-mobile { display: inline; font-size: .74rem; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 
   .deployment-outcome { grid-template-columns: 34px minmax(0, 1fr); gap: 12px; padding: 14px; }
+  .deployment-outcome--failed { grid-template-columns: minmax(0, 1fr); }
   .deployment-outcome-icon { width: 32px; height: 32px; }
   .deployment-tabs { margin-top: 12px; }
   .deployment-tab-panel { padding-top: 12px; }
