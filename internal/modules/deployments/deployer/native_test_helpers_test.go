@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	dockernetwork "github.com/docker/docker/api/types/network"
 	dockerswarm "github.com/docker/docker/api/types/swarm"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/converter"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/networks"
@@ -29,7 +30,7 @@ func wireNativeTestDeployerWithServiceManager(
 	ctrl := gomock.NewController(t)
 	networkManager := swarm.NewMockNetworkManager(ctrl)
 	networkManager.EXPECT().Get(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, name string) (swarm.Network, error) {
+		func(_ context.Context, name string, _ ...dockernetwork.InspectOptions) (swarm.Network, error) {
 			stack := strings.SplitN(name, "_", 2)[0]
 			return swarm.Network{ID: "network-" + name, Name: name, Scope: "swarm", Driver: "overlay",
 				Labels: map[string]string{labelsdict.StackNamespace: stack}}, nil

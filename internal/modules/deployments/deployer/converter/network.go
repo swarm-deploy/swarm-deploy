@@ -54,7 +54,13 @@ func (c *Converter) convertNetworks(
 		existing, found := byName[name]
 		if !found {
 			var err error
-			existing, err = c.networks.Get(ctx, name)
+			var options []dockernetwork.InspectOptions
+			if definition.External && name == "host" {
+				// Service attachments use the predefined Swarm identity, which
+				// differs from the local host network returned by unscoped inspection.
+				options = []dockernetwork.InspectOptions{{Scope: "swarm"}}
+			}
+			existing, err = c.networks.Get(ctx, name, options...)
 			if errors.Is(err, swarm.ErrNetworkNotFound) {
 				return nil, fmt.Errorf("networks.%s: required network missing; reconcile it before conversion", alias)
 			}

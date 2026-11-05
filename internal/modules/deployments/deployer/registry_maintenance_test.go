@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	dockernetwork "github.com/docker/docker/api/types/network"
 	dockerswarm "github.com/docker/docker/api/types/swarm"
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
@@ -73,7 +74,7 @@ func TestRegistryAuthMaintenanceRetainsCallerCancellation(t *testing.T) {
 			}
 			cancel()
 			networks.EXPECT().Get(gomock.Any(), "demo_default").DoAndReturn(
-				func(actual context.Context, _ string) (swarm.Network, error) {
+				func(actual context.Context, _ string, _ ...dockernetwork.InspectOptions) (swarm.Network, error) {
 					if expected, exists := ctx.Deadline(); exists {
 						deadline, bounded := actual.Deadline()
 						require.True(t, bounded)
