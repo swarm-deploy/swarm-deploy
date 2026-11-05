@@ -21,11 +21,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 
-const (
-	initJobPersistenceTimeout = 2 * time.Second
-	maxInitJobDiagnosticLines = 20
-	maxInitJobDiagnosticBytes = 1600
-)
+const initJobPersistenceTimeout = 2 * time.Second
 
 // ErrRegistryAuthRefresh marks credential maintenance failure without a deployment Attempt.
 var ErrRegistryAuthRefresh = errors.New("registry authentication maintenance failed")
@@ -339,52 +335,11 @@ func withInitJobLogs(err error) (error, bool) {
 	if !errors.As(err, &logged) {
 		return err, false
 	}
-	lines := initJobDiagnosticLines(logged.Logs())
+	lines := faults.DiagnosticLogLines(logged.Logs(), faults.MaxDiagnosticLogLines, faults.MaxDiagnosticLogBytes)
 	if len(lines) == 0 {
 		return err, true
 	}
 	return fmt.Errorf("%w\ninit job logs:\n%s", err, strings.Join(lines, "\n")), true
-}
-
-func initJobDiagnosticLines(logs []string) []string {
-	var lines []string
-	used := 0
-	for _, raw := range logs {
-		for _, line := range strings.Split(raw, "\n") {
-			line = strings.TrimSpace(line)
-			if line == "" || mayContainCredentials(line) {
-				continue
-			}
-			line = faults.SafeDiagnostic(errors.New(line))
-			remaining := maxInitJobDiagnosticBytes - used - len(lines)
-			if line == "" || remaining <= 0 || len(lines) >= maxInitJobDiagnosticLines {
-				break
-			}
-			if len(line) > remaining {
-				line = line[:remaining]
-			}
-			lines = append(lines, line)
-			used += len(line)
-		}
-		if used+len(lines) >= maxInitJobDiagnosticBytes || len(lines) >= maxInitJobDiagnosticLines {
-			break
-		}
-	}
-	return lines
-}
-
-func mayContainCredentials(line string) bool {
-	value := strings.ToLower(line)
-	for _, marker := range []string{
-		"password", "passwd", "secret", "token", "credential", "authorization", "bearer",
-		"private_key", "api_key", "apikey", "dsn", "database_url", "postgres://", "postgresql://",
-		"://", "-----begin", "=",
-	} {
-		if strings.Contains(value, marker) {
-			return true
-		}
-	}
-	return false
 }
 
 func (c *Controller) stackOptions(

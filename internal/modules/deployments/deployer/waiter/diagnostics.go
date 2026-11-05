@@ -3,24 +3,59 @@ package waiter
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
+	"time"
+	"unicode"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 
-func terminalTaskDiagnostic(tasks []swarm.ServiceTask, updateMessage string) string {
-	// Swarm can pause after an early successful exit too. Prefer the task Docker
-	// names in its update message over a newer, unrelated historical failure.
-	for _, task := range tasks {
-		if task.ID != "" && strings.Contains(updateMessage, task.ID) {
-			return formatTaskDiagnostic(task)
+func terminalTaskCutoff(baseline, service swarm.StackService) time.Time {
+	cutoff := service.UpdateStatus.StartedAt
+	if cutoff.IsZero() {
+		cutoff = service.UpdatedAt
+		if baseline.ID == service.ID && !baseline.UpdatedAt.IsZero() {
+			cutoff = baseline.UpdatedAt
+		}
+		if cutoff.IsZero() {
+			cutoff = service.CreatedAt
 		}
 	}
-	return taskFailureDiagnostic(tasks)
+	if strings.HasPrefix(string(service.UpdateStatus.State), "rollback_") &&
+		baseline.ID == service.ID && serviceChanged(baseline, service) && !baseline.UpdatedAt.IsZero() {
+		cutoff = baseline.UpdatedAt
+	}
+	return cutoff
+}
+
+func terminalFailureTask(tasks []swarm.ServiceTask, updateMessage string, cutoff time.Time) swarm.ServiceTask {
+	// Match a complete ID in Docker's message, including an early successful exit.
+	words := strings.FieldsFunc(updateMessage, func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsDigit(r) && r != '-' && r != '_'
+	})
+	for _, task := range tasks {
+		if task.ID != "" && slices.Contains(words, task.ID) {
+			return task
+		}
+	}
+	if cutoff.IsZero() {
+		return swarm.ServiceTask{} // No generation evidence for a safe fallback.
+	}
+	// Historical failures cannot explain this rollout. Rollback callers use the
+	// pre-apply boundary because failed new tasks can predate rollback StartedAt.
+	current := slices.DeleteFunc(slices.Clone(tasks), func(task swarm.ServiceTask) bool {
+		return task.CreatedAt.Before(cutoff)
+	})
+	return latestFailedTask(current)
 }
 
 func taskFailureDiagnostic(tasks []swarm.ServiceTask) string {
+	return formatTaskDiagnostic(latestFailedTask(tasks))
+}
+
+func latestFailedTask(tasks []swarm.ServiceTask) swarm.ServiceTask {
 	failed := make([]swarm.ServiceTask, 0)
 	for _, task := range tasks {
 		if task.CurrentState == swarm.TaskStateFailed ||
@@ -30,13 +65,16 @@ func taskFailureDiagnostic(tasks []swarm.ServiceTask) string {
 		}
 	}
 	if len(failed) == 0 {
-		return ""
+		return swarm.ServiceTask{}
 	}
 	sort.Slice(failed, func(i, j int) bool { return failed[i].UpdatedAt.After(failed[j].UpdatedAt) })
-	return formatTaskDiagnostic(failed[0])
+	return failed[0]
 }
 
 func formatTaskDiagnostic(task swarm.ServiceTask) string {
+	if task.ID == "" {
+		return ""
+	}
 	diagnostic := fmt.Sprintf("; latest task failure: id=%s state=%s", task.ID, task.CurrentState)
 	if task.ExitCode != nil {
 		diagnostic += fmt.Sprintf(" exit_code=%d", *task.ExitCode)

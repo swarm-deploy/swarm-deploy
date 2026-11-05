@@ -49,6 +49,7 @@ type Deployer struct {
 	secretResolver *SecretResolver
 	initJobRunner  initJobExecutor
 	serviceWaiter  serviceWaitExecutor
+	services       swarm.ServiceManager
 	converter      *converter.Converter
 	networks       *networks.Reconciler
 	serviceApplier *services.Applier
@@ -69,6 +70,7 @@ func NewDeployer(
 ) StackDeployer {
 	d := &Deployer{
 		secretResolver: secretResolver,
+		services:       swarmService.Services,
 		resources:      newResourceReconciler(swarmService),
 		initJobRunner: initjob.NewInitJobRunner(
 			dockerClient,

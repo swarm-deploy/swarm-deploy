@@ -33,6 +33,7 @@ func finishServiceWaitSpan(span trace.Span, startedAt time.Time, state waitState
 type waitState struct {
 	targets              map[string]struct{}
 	last                 map[string]ServiceProgress
+	failedTasks          map[string]ServiceProgress
 	observed             int
 	converged            int
 	lastObservationError error
@@ -42,6 +43,12 @@ type waitState struct {
 func (s *waitState) emit(span trace.Span, callback ServiceProgressCallback, progress ServiceProgress) {
 	if previous, ok := s.last[progress.Name]; ok && previous == progress {
 		return
+	}
+	if progress.State == ServiceFailed && progress.FailedTaskID != "" {
+		if s.failedTasks == nil {
+			s.failedTasks = make(map[string]ServiceProgress)
+		}
+		s.failedTasks[progress.Name] = progress
 	}
 	s.last[progress.Name] = progress
 	span.AddEvent("service convergence state changed", trace.WithAttributes(
@@ -111,6 +118,9 @@ func (s *waitState) handleObservationError(
 
 func (s *waitState) result() ServiceWaitResult {
 	result := ServiceWaitResult{}
+	for _, name := range sortedProgressNames(s.failedTasks) {
+		result.FailedTasks = append(result.FailedTasks, s.failedTasks[name])
+	}
 	for _, name := range sortedTargetNames(s.targets) {
 		if s.last[name].State != ServiceReady {
 			result.UnresolvedServices = append(result.UnresolvedServices, name)

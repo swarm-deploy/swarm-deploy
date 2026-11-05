@@ -336,6 +336,7 @@ func (d *Deployer) wait(
 ) (waiterpkg.ServiceWaitResult, error) {
 	result, err := d.serviceWaiter.Wait(ctx, request)
 	if err != nil {
+		err = d.withConvergenceTaskLogs(ctx, result, err)
 		return result, fmt.Errorf("wait for stack %s service convergence: %w", request.StackName, err)
 	}
 	return result, nil

@@ -20,6 +20,7 @@ import (
 	deploymentmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/model"
 	deploymentstore "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/pruner"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/labelsdict"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	"go.uber.org/mock/gomock"
@@ -46,7 +47,7 @@ func TestInitJobDiagnosticsAreBoundedAndSanitized(t *testing.T) {
 	assert.Contains(t, diagnostic.Error(), "init job logs:")
 	assert.NotContains(t, diagnostic.Error(), "do-not-persist")
 	assert.LessOrEqual(t, len(diagnostic.Error()),
-		maxInitJobDiagnosticBytes+len(wrapped.Error())+len("\ninit job logs:\n"))
+		faults.MaxDiagnosticLogBytes+len(wrapped.Error())+len("\ninit job logs:\n"))
 
 	for _, testCase := range []struct {
 		name string
@@ -58,18 +59,18 @@ func TestInitJobDiagnosticsAreBoundedAndSanitized(t *testing.T) {
 		{name: "multiline", logs: []string{" first\n\n second "}, want: []string{"first", "second"}},
 		{
 			name: "byte limit includes separators",
-			logs: []string{"first", strings.Repeat("x", maxInitJobDiagnosticBytes)},
-			want: []string{"first", strings.Repeat("x", maxInitJobDiagnosticBytes-len("first\n"))},
+			logs: []string{"first", strings.Repeat("x", faults.MaxDiagnosticLogBytes)},
+			want: []string{"first", strings.Repeat("x", faults.MaxDiagnosticLogBytes-len("first\n"))},
 		},
 		{
-			name: "line limit", logs: []string{strings.Repeat("line\n", maxInitJobDiagnosticLines+1)},
-			want: strings.Split(strings.TrimSuffix(strings.Repeat("line\n", maxInitJobDiagnosticLines), "\n"), "\n"),
+			name: "line limit", logs: []string{strings.Repeat("line\n", faults.MaxDiagnosticLogLines+1)},
+			want: strings.Split(strings.TrimSuffix(strings.Repeat("line\n", faults.MaxDiagnosticLogLines), "\n"), "\n"),
 		},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
-			lines := initJobDiagnosticLines(testCase.logs)
+			lines := faults.DiagnosticLogLines(testCase.logs, faults.MaxDiagnosticLogLines, faults.MaxDiagnosticLogBytes)
 			assert.Equal(t, testCase.want, lines)
-			assert.LessOrEqual(t, len(strings.Join(lines, "\n")), maxInitJobDiagnosticBytes)
+			assert.LessOrEqual(t, len(strings.Join(lines, "\n")), faults.MaxDiagnosticLogBytes)
 		})
 	}
 }

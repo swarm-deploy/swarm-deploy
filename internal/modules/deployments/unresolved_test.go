@@ -17,6 +17,7 @@ import (
 	alertstore "github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/converter"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/waiter"
 	deploymentmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/model"
 	deploymentstore "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/pruner"
@@ -102,6 +103,17 @@ func TestNativeDeploymentCarriesUnresolvedRolloutAcrossDesiredDigests(t *testing
 	}
 	exit := 1
 	failedTask := swarm.ServiceTask{ID: "failed-new-task", DesiredState: swarm.TaskStateShutdown, CurrentState: swarm.TaskStateFailed, CreatedAt: now, ExitCode: &exit}
+	manager.EXPECT().TaskLogs(gomock.Any(), "failed-new-task", swarm.TaskLogsOptions{Follow: false, Limit: 20}).DoAndReturn(
+		func(_ context.Context, _ string, _ swarm.TaskLogsOptions) (<-chan swarm.LogEntry, <-chan error, error) {
+			entries := make(chan swarm.LogEntry, 3)
+			entries <- swarm.LogEntry{Stream: "stdout", Message: "application starting"}
+			entries <- swarm.LogEntry{Stream: "stderr", Message: "migration failed: missing table"}
+			entries <- swarm.LogEntry{Stream: "stderr", Message: "password=private-value"}
+			close(entries)
+			errs := make(chan error)
+			close(errs)
+			return entries, errs, nil
+		}).Times(2)
 	oldTasks := []swarm.ServiceTask{running("old-running", now.Add(-time.Hour), beforeSpec[0].TaskTemplate), failedTask}
 	// First rollout mutates a and fails while an old generation remains Running.
 	list(aOld, bOld, historical)
@@ -113,7 +125,9 @@ func TestNativeDeploymentCarriesUnresolvedRolloutAcrossDesiredDigests(t *testing
 	manager.EXPECT().ListTasks(gomock.Any(), "a-id").Return(oldTasks, nil)
 	req := ExecuteRequest{Stack: config.StackSpec{Name: "app"}, Commit: "one", Desired: failedDesired, SourceChanged: true}
 	first, err := create().Execute(t.Context(), req)
-	require.Error(t, err)
+	require.ErrorIs(t, err, waiter.ErrConvergenceFailed)
+	assert.ErrorContains(t, err, "migration failed: missing table")
+	assert.NotContains(t, err.Error(), "private-value")
 	require.NotNil(t, first.Attempt)
 	assert.Equal(t, deploymentmodel.Failed, first.Status)
 	assert.Equal(t, "convergence_failed", first.ErrorCode)
@@ -140,6 +154,19 @@ func TestNativeDeploymentCarriesUnresolvedRolloutAcrossDesiredDigests(t *testing
 	require.NoError(t, err)
 	assert.Equal(t, []string{"a"}, stored.Verification.UnresolvedServices, "b has genuinely converged and historical was never affected")
 	assert.Equal(t, 1, stored.AttemptCount)
+	for _, text := range []string{stored.ErrorDiagnostic, stored.Attempts[0].ErrorDiagnostic} {
+		assert.Contains(t, text, "migration failed: missing table")
+		assert.Contains(t, text, "service a task failed-new-task logs:")
+		assert.NotContains(t, text, "private-value")
+	}
+	failedEvents := publications(t, db, events.TypeNameDeployFailed)
+	require.Len(t, failedEvents, 1)
+	for _, publication := range failedEvents {
+		failed, ok := publication.Envelope.Event.(*events.DeployFailed)
+		require.True(t, ok)
+		assert.Contains(t, failed.Error.Error(), "migration failed: missing table")
+		assert.NotContains(t, failed.Error.Error(), "private-value")
+	}
 	drain()
 	for range 3 {
 		result, executeErr := create().Execute(t.Context(), req)
@@ -152,6 +179,10 @@ func TestNativeDeploymentCarriesUnresolvedRolloutAcrossDesiredDigests(t *testing
 	incident, err := alerts.FindOpenByFingerprint(t.Context(), alertmodel.SyncFailedFingerprint("app"))
 	require.NoError(t, err)
 	assert.EqualValues(t, 2, incident.Occurrences, "only two real failed Attempts")
+	for _, detail := range []string{"service a", "failed-new-task", "state=failed exit_code=1", "application starting", "migration failed: missing table"} {
+		assert.Contains(t, incident.Message, detail)
+	}
+	assert.NotContains(t, incident.Message, "private-value")
 	// After a genuinely recovers, another desired digest may complete. No update of a or historical is allowed.
 	list(aRecovered, bNew, historical)
 	inspect("a", failedSpec[0], dockerswarm.UpdateStateCompleted)

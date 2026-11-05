@@ -62,6 +62,8 @@ type ServiceProgress struct {
 	Running uint64
 	// SpecificationOnly limits verification to spec acceptance, without checking task health.
 	SpecificationOnly bool
+	// FailedTaskID identifies the task responsible for a confirmed terminal failure.
+	FailedTaskID string
 	// Message contains a bounded convergence diagnostic.
 	Message string
 }
@@ -73,6 +75,8 @@ type ServiceProgressCallback func(ServiceProgress)
 type ServiceWaitResult struct {
 	// SpecificationOnlyServices lists services verified for spec acceptance rather than task health.
 	SpecificationOnlyServices []string
+	// FailedTasks retains confirmed terminal task failures, ordered by service name.
+	FailedTasks []ServiceProgress
 	// UnresolvedServices contains every target whose last observed state was not ready.
 	UnresolvedServices []string
 }
