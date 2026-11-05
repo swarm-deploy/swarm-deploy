@@ -10,6 +10,44 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 
+// NonRestartingTaskFailure finds a failed or rejected current-generation replica that cannot
+// be replaced under an explicit restart_policy.condition=none. Pending/running
+// replacements and failures outside the desired slots never establish failure.
+func NonRestartingTaskFailure(
+	spec dockerswarm.ServiceSpec, tasks []swarm.ServiceTask, since time.Time,
+) (swarm.ServiceTask, bool) {
+	if spec.Mode.Replicated == nil || spec.TaskTemplate.RestartPolicy == nil ||
+		spec.TaskTemplate.RestartPolicy.Condition != dockerswarm.RestartPolicyConditionNone {
+		return swarm.ServiceTask{}, false
+	}
+	replicas := uint64(1)
+	if spec.Mode.Replicated.Replicas != nil {
+		replicas = *spec.Mode.Replicated.Replicas
+	}
+	latest := make(map[int]swarm.ServiceTask)
+	for _, task := range tasks {
+		if task.Slot <= 0 || task.CreatedAt.Before(since) {
+			continue
+		}
+		if uint64(task.Slot) > replicas { //nolint:gosec // Positive int task slots always fit uint64.
+			continue
+		}
+		previous, exists := latest[task.Slot]
+		if !exists || task.CreatedAt.After(previous.CreatedAt) {
+			latest[task.Slot] = task
+		}
+	}
+	var failed swarm.ServiceTask
+	for _, task := range latest {
+		terminalFailure := task.CurrentState == swarm.TaskStateRejected ||
+			(task.CurrentState == swarm.TaskStateFailed && (task.ExitCode == nil || *task.ExitCode != 0))
+		if terminalFailure && (failed.ID == "" || task.UpdatedAt.After(failed.UpdatedAt)) {
+			failed = task
+		}
+	}
+	return failed, failed.ID != ""
+}
+
 // TerminalServiceTaskFailure finds an unreplaced terminal task failure for
 // which Swarm will not schedule another attempt. Replicated instances are keyed
 // by slot, global instances by node, as in SwarmKit's restart supervisor.
