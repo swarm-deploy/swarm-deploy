@@ -30,6 +30,7 @@ func TestInitialNonRestartingTaskFailureIsTerminal(t *testing.T) {
 			service := testReplicatedService("api", "api-id", 1, serviceWaitTestTime, "busybox:1.36")
 			service.ServiceSpec.TaskTemplate.RestartPolicy = &dockerswarm.RestartPolicy{Condition: dockerswarm.RestartPolicyConditionNone}
 			task := testTask("failed-initial", 1, swarm.TaskStateShutdown, swarm.TaskStateFailed, serviceWaitTestTime.Add(time.Second))
+			task.Spec = swarm.NewTaskSpec(service.ServiceSpec.TaskTemplate)
 			task.ExitCode = tc.exitCode
 			task.Error = "task startup failed"
 			manager.EXPECT().ListServices(gomock.Any(), gomock.Any()).Return([]swarm.StackService{service}, nil).AnyTimes()
