@@ -338,25 +338,25 @@ func (m *serviceManager) ListTasks(ctx context.Context, serviceIDOrName string) 
 		return nil, fmt.Errorf("list tasks for service %s: %w", serviceIDOrName, classifyDockerError(err))
 	}
 
-	nodeAvailability, err := m.taskNodeAvailability(ctx, tasks)
+	nodes, err := m.taskNodes(ctx, tasks)
 	if err != nil {
 		return nil, fmt.Errorf("list nodes for service %s tasks: %w", serviceIDOrName, err)
 	}
 	out := make([]ServiceTask, 0, len(tasks))
 	for _, task := range tasks {
 		mapped := ServiceTask{
-			ID:               task.ID,
-			Node:             task.NodeID,
-			NodeAvailability: nodeAvailability[task.NodeID],
-			Slot:             task.Slot,
-			JobIteration:     task.JobIteration,
-			DesiredState:     TaskState(task.DesiredState),
-			CreatedAt:        task.CreatedAt,
-			UpdatedAt:        task.UpdatedAt,
-			CurrentState:     TaskState(task.Status.State),
-			Error:            task.Status.Err,
-			Message:          task.Status.Message,
-			Spec:             NewTaskSpec(task.Spec),
+			ID:           task.ID,
+			Node:         task.NodeID,
+			NodeInfo:     nodes[task.NodeID],
+			Slot:         task.Slot,
+			JobIteration: task.JobIteration,
+			DesiredState: TaskState(task.DesiredState),
+			CreatedAt:    task.CreatedAt,
+			UpdatedAt:    task.UpdatedAt,
+			CurrentState: TaskState(task.Status.State),
+			Error:        task.Status.Err,
+			Message:      task.Status.Message,
+			Spec:         NewTaskSpec(task.Spec),
 		}
 		if task.Status.ContainerStatus != nil {
 			exitCode := task.Status.ContainerStatus.ExitCode
@@ -369,9 +369,9 @@ func (m *serviceManager) ListTasks(ctx context.Context, serviceIDOrName string) 
 	return out, nil
 }
 
-func (m *serviceManager) taskNodeAvailability(
+func (m *serviceManager) taskNodes(
 	ctx context.Context, tasks []dockerswarm.Task,
-) (map[string]string, error) {
+) (map[string]*Node, error) {
 	needsNodes := false
 	for _, task := range tasks {
 		policy := task.Spec.RestartPolicy
@@ -385,18 +385,18 @@ func (m *serviceManager) taskNodeAvailability(
 			break
 		}
 	}
-	availability := make(map[string]string)
+	byID := make(map[string]*Node)
 	if !needsNodes {
-		return availability, nil
+		return byID, nil
 	}
 	nodes, err := newNodeManager(m.dockerClient).List(ctx)
 	if err != nil {
 		return nil, err
 	}
 	for _, node := range nodes {
-		availability[node.ID] = node.Availability
+		byID[node.ID] = &node
 	}
-	return availability, nil
+	return byID, nil
 }
 
 // GetTask returns compact runtime details for a Docker task identifier.

@@ -93,7 +93,7 @@ func TestServiceWaiterTerminalTaskFailures(t *testing.T) {
 				task.Spec = swarm.NewTaskSpec(service.ServiceSpec.TaskTemplate)
 				task.Node, task.ExitCode, task.Error = "node-a", &exit, "task startup failed"
 				if tc.global {
-					task.NodeAvailability = "active"
+					task.NodeInfo = &swarm.Node{Availability: "active"}
 				}
 				tasks = append(tasks, task)
 			}
@@ -136,11 +136,11 @@ func TestServiceWaiterGlobalFailureAfterDrain(t *testing.T) {
 			}
 			failed := testTask("failed", 0, swarm.TaskStateShutdown, swarm.TaskStateFailed, serviceWaitTestTime)
 			failed.Node, failed.Spec = "node-a", swarm.NewTaskSpec(service.ServiceSpec.TaskTemplate)
-			failed.NodeAvailability = "active"
+			failed.NodeInfo = &swarm.Node{Availability: "active"}
 			healthy := testTask("healthy", 0, swarm.TaskStateRunning, swarm.TaskStateRunning, serviceWaitTestTime)
 			healthy.Node, healthy.Spec = "node-b", failed.Spec
 			if tc.drained {
-				failed.NodeAvailability = "drain"
+				failed.NodeInfo = &swarm.Node{Availability: "drain"}
 				service.DesiredTasks = 1
 			}
 			manager := swarm.NewMockServiceManager(gomock.NewController(t))
@@ -163,6 +163,63 @@ func TestServiceWaiterGlobalFailureAfterDrain(t *testing.T) {
 				require.ErrorIs(t, err, ErrConvergenceFailed)
 				assert.Equal(t, ServiceFailed, progress[0].State)
 				assert.Equal(t, failed.ID, progress[0].FailedTaskID)
+			}
+		})
+	}
+}
+
+func TestServiceWaiterGlobalFailureAfterPlacementChange(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		zone        string
+		maxAttempts uint64
+	}{
+		{name: "eligible failure", zone: "east"},
+		{name: "ineligible historical failure", zone: "west"},
+		{name: "eligible exhausted attempts", zone: "east", maxAttempts: 2},
+		{name: "ineligible exhausted attempts", zone: "west", maxAttempts: 2},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			service := testGlobalService("api", "api-id", 1, serviceWaitTestTime)
+			service.ServiceSpec.TaskTemplate.Placement = &dockerswarm.Placement{Constraints: []string{"node.labels.zone == east"}}
+			policy := &dockerswarm.RestartPolicy{Condition: dockerswarm.RestartPolicyConditionNone}
+			if tc.maxAttempts > 0 {
+				policy.Condition, policy.MaxAttempts = dockerswarm.RestartPolicyConditionOnFailure, &tc.maxAttempts
+			}
+			service.ServiceSpec.TaskTemplate.RestartPolicy = policy
+			var tasks []swarm.ServiceTask
+			for attempt := uint64(0); attempt <= tc.maxAttempts; attempt++ {
+				failed := testTask("failed-"+time.Duration(attempt).String(), 0,
+					swarm.TaskStateShutdown, swarm.TaskStateFailed, serviceWaitTestTime.Add(time.Duration(attempt)*time.Second))
+				failed.Node = "node-a"
+				failed.NodeInfo = &swarm.Node{ID: "node-a", Availability: "active", Labels: map[string]string{"zone": tc.zone}}
+				failed.Spec = swarm.NewTaskSpec(service.ServiceSpec.TaskTemplate)
+				tasks = append(tasks, failed)
+			}
+			healthy := testTask("healthy", 0, swarm.TaskStateRunning, swarm.TaskStateRunning, serviceWaitTestTime)
+			healthy.Node, healthy.Spec = "node-b", swarm.NewTaskSpec(service.ServiceSpec.TaskTemplate)
+			healthy.NodeInfo = &swarm.Node{ID: "node-b", Availability: "active", Labels: map[string]string{"zone": "east"}}
+			tasks = append(tasks, healthy)
+			manager := swarm.NewMockServiceManager(gomock.NewController(t))
+			manager.EXPECT().ListServices(gomock.Any(), gomock.Any()).Return([]swarm.StackService{service}, nil)
+			manager.EXPECT().ListTasks(gomock.Any(), service.ID).Return(tasks, nil)
+			var progress []ServiceProgress
+			result, err := newTestServiceWaiter(manager).Wait(t.Context(), ServiceWaitRequest{
+				StackName: "app", ServiceNames: []string{"api"},
+				ExpectedSpecs: map[string]dockerswarm.ServiceSpec{"api": service.ServiceSpec},
+				Progress:      func(p ServiceProgress) { progress = append(progress, p) },
+			})
+			require.Len(t, progress, 1)
+			assert.EqualValues(t, 1, progress[0].Running)
+			assert.EqualValues(t, 1, progress[0].Desired)
+			if tc.zone == "west" {
+				require.NoError(t, err)
+				assert.Equal(t, ServiceReady, progress[0].State)
+				assert.Empty(t, result.FailedTasks)
+			} else {
+				require.ErrorIs(t, err, ErrConvergenceFailed)
+				assert.Equal(t, ServiceFailed, progress[0].State)
+				assert.Equal(t, tasks[len(tasks)-2].ID, progress[0].FailedTaskID)
 			}
 		})
 	}

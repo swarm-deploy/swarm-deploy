@@ -135,7 +135,7 @@ func TestTerminalServiceTaskFailureWithFiniteRetries(t *testing.T) {
 	exit := 1
 	maxAttempts := uint64(2)
 	window := 30 * time.Second
-	initial := swarm.ServiceTask{ID: "first", Slot: 1, Node: "node-a", NodeAvailability: "active",
+	initial := swarm.ServiceTask{ID: "first", Slot: 1, Node: "node-a", NodeInfo: &swarm.Node{Availability: "active"},
 		DesiredState: swarm.TaskStateShutdown, CurrentState: swarm.TaskStateFailed,
 		CreatedAt: now, UpdatedAt: now.Add(time.Second), ExitCode: &exit}
 	retryOne := initial
@@ -239,7 +239,8 @@ func TestApplyManualRetryRestartsExhaustedServices(t *testing.T) {
 			manager.EXPECT().Inspect(gomock.Any(), desired.Name).Return(current, nil)
 			if tc.retry {
 				first := swarm.ServiceTask{ID: "initial", Slot: 1, Node: "node-a",
-					NodeAvailability: "active", DesiredState: swarm.TaskStateShutdown, CurrentState: swarm.TaskStateFailed, ExitCode: &exit,
+					NodeInfo: &swarm.Node{Availability: "active"}, DesiredState: swarm.TaskStateShutdown,
+					CurrentState: swarm.TaskStateFailed, ExitCode: &exit,
 					CreatedAt: now.Add(-3 * time.Second), UpdatedAt: now.Add(-2 * time.Second),
 					Spec: swarm.NewTaskSpec(desired.TaskTemplate)}
 				tasks := []swarm.ServiceTask{first}
@@ -270,6 +271,7 @@ func TestApplyRetryAfterCompletedRollout(t *testing.T) {
 		name        string
 		global      bool
 		drained     bool
+		ineligible  bool
 		finite      bool
 		healthy     bool
 		replacement swarm.TaskState
@@ -283,6 +285,8 @@ func TestApplyRetryAfterCompletedRollout(t *testing.T) {
 		{name: "global finite attempts exhausted", global: true, finite: true, wantUpdate: true},
 		{name: "drained global failure", global: true, drained: true},
 		{name: "drained global exhausted attempts", global: true, drained: true, finite: true},
+		{name: "global node no longer matches placement", global: true, ineligible: true},
+		{name: "exhausted global node no longer matches placement", global: true, ineligible: true, finite: true},
 		{name: "healthy service", healthy: true},
 		{name: "healthy global service", global: true, healthy: true},
 		{name: "replicated replacement pending", replacement: swarm.TaskStatePending},
@@ -299,6 +303,9 @@ func TestApplyRetryAfterCompletedRollout(t *testing.T) {
 			desired.TaskTemplate.RestartPolicy = &dockerswarm.RestartPolicy{Condition: dockerswarm.RestartPolicyConditionNone}
 			if tc.global {
 				desired.Mode = dockerswarm.ServiceMode{Global: &dockerswarm.GlobalService{}}
+			}
+			if tc.ineligible {
+				desired.TaskTemplate.Placement = &dockerswarm.Placement{Constraints: []string{"node.labels.zone == east"}}
 			}
 			if tc.finite {
 				one := uint64(1)
@@ -317,12 +324,16 @@ func TestApplyRetryAfterCompletedRollout(t *testing.T) {
 			if !tc.disabled && !tc.external {
 				exit := 23
 				task := swarm.ServiceTask{ID: "failed", Slot: 1, Node: "node-a", ExitCode: &exit,
-					NodeAvailability: "active", DesiredState: swarm.TaskStateShutdown,
+					DesiredState: swarm.TaskStateShutdown,
+					NodeInfo:     &swarm.Node{ID: "node-a", Availability: "active", Labels: map[string]string{"zone": "east"}},
 					CurrentState: swarm.TaskStateFailed, CreatedAt: now, UpdatedAt: now,
 					Spec: swarm.NewTaskSpec(desired.TaskTemplate)}
 				if tc.healthy {
 					task.CurrentState = swarm.TaskStateRunning
 					task.DesiredState = swarm.TaskStateRunning
+				}
+				if tc.ineligible {
+					task.NodeInfo.Labels["zone"] = "west"
 				}
 				tasks := []swarm.ServiceTask{task}
 				if tc.finite || tc.replacement != "" {
@@ -334,14 +345,17 @@ func TestApplyRetryAfterCompletedRollout(t *testing.T) {
 					}
 					tasks = append(tasks, next)
 				}
-				if tc.drained {
-					for i := range tasks {
-						tasks[i].DesiredState = swarm.TaskStateShutdown
-						tasks[i].NodeAvailability = "drain"
+				if tc.drained || tc.ineligible {
+					if tc.drained {
+						for i := range tasks {
+							tasks[i].DesiredState = swarm.TaskStateShutdown
+							tasks[i].NodeInfo = &swarm.Node{ID: "node-a", Availability: "drain"}
+						}
 					}
 					healthy := task
 					healthy.ID, healthy.Node, healthy.CurrentState = "healthy", "node-b", swarm.TaskStateRunning
 					healthy.DesiredState = swarm.TaskStateRunning
+					healthy.NodeInfo = &swarm.Node{ID: "node-b", Availability: "active", Labels: map[string]string{"zone": "east"}}
 					tasks = append(tasks, healthy)
 				}
 				calls := 1
@@ -376,11 +390,12 @@ func TestTerminalServiceTaskFailureDesiredNodes(t *testing.T) {
 	active.ID, active.CreatedAt, active.UpdatedAt = "active", now.Add(4*time.Second), now.Add(5*time.Second)
 	active.DesiredState = swarm.TaskStateRunning
 	shutdownActive := active
-	shutdownActive.DesiredState, shutdownActive.NodeAvailability = swarm.TaskStateShutdown, "active"
+	shutdownActive.DesiredState = swarm.TaskStateShutdown
+	shutdownActive.NodeInfo = &swarm.Node{Availability: "active"}
 	paused := shutdownActive
-	paused.NodeAvailability = "pause"
+	paused.NodeInfo = &swarm.Node{Availability: "pause"}
 	drained := shutdownActive
-	drained.NodeAvailability = "drain"
+	drained.NodeInfo = &swarm.Node{Availability: "drain"}
 	rejected := active
 	rejected.CurrentState = swarm.TaskStateRejected
 	removed := initial

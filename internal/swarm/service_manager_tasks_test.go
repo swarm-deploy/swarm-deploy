@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestServiceManagerTerminalGlobalTaskNodeAvailability(t *testing.T) {
+func TestServiceManagerTerminalGlobalTaskNodes(t *testing.T) {
 	for _, tc := range []struct {
 		name         string
 		availability dockerswarm.NodeAvailability
@@ -65,7 +65,14 @@ func TestServiceManagerTerminalGlobalTaskNodeAvailability(t *testing.T) {
 					}
 					var nodes []dockerswarm.Node
 					if !tc.nodeMissing {
-						nodes = []dockerswarm.Node{{ID: "node-a", Spec: dockerswarm.NodeSpec{Availability: tc.availability}}}
+						nodes = []dockerswarm.Node{{ID: "node-a",
+							Spec: dockerswarm.NodeSpec{Availability: tc.availability, Role: dockerswarm.NodeRoleWorker,
+								Annotations: dockerswarm.Annotations{Labels: map[string]string{"zone": "east"}}},
+							Description: dockerswarm.NodeDescription{Hostname: "worker-a",
+								Platform: dockerswarm.Platform{OS: "linux", Architecture: "amd64"},
+								Engine:   dockerswarm.EngineDescription{Labels: map[string]string{"storage": "ssd"}}},
+							Status: dockerswarm.NodeStatus{Addr: "10.0.0.10"},
+						}}
 					}
 					require.NoError(t, json.NewEncoder(w).Encode(nodes))
 				default:
@@ -83,7 +90,20 @@ func TestServiceManagerTerminalGlobalTaskNodeAvailability(t *testing.T) {
 			require.NoError(t, err)
 			require.Len(t, tasks, 2)
 			for _, task := range tasks {
-				assert.Equal(t, string(tc.availability), task.NodeAvailability)
+				if tc.lookups == 0 || tc.nodeMissing {
+					assert.Nil(t, task.NodeInfo)
+					continue
+				}
+				require.NotNil(t, task.NodeInfo)
+				assert.Equal(t, "node-a", task.NodeInfo.ID)
+				assert.Equal(t, string(tc.availability), task.NodeInfo.Availability)
+				assert.Equal(t, map[string]string{"zone": "east"}, task.NodeInfo.Labels)
+				assert.Equal(t, "worker", task.NodeInfo.Role)
+				assert.Equal(t, "worker-a", task.NodeInfo.Hostname)
+				assert.Equal(t, "linux", task.NodeInfo.PlatformOS)
+				assert.Equal(t, "amd64", task.NodeInfo.PlatformArchitecture)
+				assert.Equal(t, map[string]string{"storage": "ssd"}, task.NodeInfo.EngineLabels)
+				assert.Equal(t, "10.0.0.10", task.NodeInfo.Addr)
 			}
 		})
 	}
