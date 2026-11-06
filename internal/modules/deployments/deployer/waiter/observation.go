@@ -4,6 +4,7 @@ package waiter
 import (
 	"context"
 	"fmt"
+	"slices"
 
 	dockerswarm "github.com/docker/docker/api/types/swarm"
 	swarmkitapi "github.com/moby/swarmkit/v2/api"
@@ -50,7 +51,11 @@ func (w *ServiceWaiter) observeService(
 	}
 	var placementNodes map[string]*swarmkitapi.Node
 	mode := serviceVerificationMode(baseline, service, unresolved, generation)
-	if mode == services.VerifyPlacementCompatibleTasks {
+	if (mode == services.VerifyExistingTasks || mode == services.VerifyPlacementCompatibleTasks) &&
+		slices.ContainsFunc(tasks, func(task swarm.ServiceTask) bool {
+			return task.DesiredState == swarm.TaskStateRunning && task.CurrentState == swarm.TaskStateRunning &&
+				task.Spec.CompareServiceTemplate(service.ServiceSpec.TaskTemplate).PlacementOnly()
+		}) {
 		nodes, listErr := w.nodes.List(ctx)
 		if listErr != nil {
 			progress.State = ServicePending
