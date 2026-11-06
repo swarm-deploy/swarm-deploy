@@ -36,6 +36,12 @@ func TestTerminalServiceTaskFailurePlacement(t *testing.T) {
 			{name: "eligible attempts remaining", maxAttempts: 2, restarts: 1, eligible: true},
 			{name: "ineligible exhausted attempts", maxAttempts: 2, restarts: 2, changeNode: func(n *swarm.Node) { n.Labels["zone"] = "west" }},
 			{name: "drained matching node", changeNode: func(n *swarm.Node) { n.Availability = "drain" }},
+			{name: "down matching node", changeNode: func(n *swarm.Node) { n.Status = "down" }},
+			{name: "desired running on down node", desired: swarm.TaskStateRunning, changeNode: func(n *swarm.Node) { n.Status = "down" }},
+			{name: "down exhausted attempts", maxAttempts: 2, restarts: 2, changeNode: func(n *swarm.Node) { n.Status = "down" }},
+			{name: "disconnected matching node", changeNode: func(n *swarm.Node) { n.Status = "disconnected" }, eligible: true},
+			{name: "unknown matching node", changeNode: func(n *swarm.Node) { n.Status = "unknown" }, eligible: true},
+			{name: "missing node status", changeNode: func(n *swarm.Node) { n.Status = "" }, eligible: true},
 			{name: "paused matching node", changeNode: func(n *swarm.Node) { n.Availability = "pause" }, eligible: true},
 			{name: "removed node", missingNode: true},
 			{name: "role changed", constraints: []string{"node.role == manager"}},
@@ -54,7 +60,7 @@ func TestTerminalServiceTaskFailurePlacement(t *testing.T) {
 		} {
 			t.Run(mode+"/"+tc.name, func(t *testing.T) {
 				now := time.Now()
-				node := &swarm.Node{ID: "node-a", Availability: "active", Role: "worker", Hostname: "worker-a",
+				node := &swarm.Node{ID: "node-a", Availability: "active", Status: "ready", Role: "worker", Hostname: "worker-a",
 					PlatformOS: "linux", PlatformArchitecture: "amd64", Addr: "10.0.0.10",
 					Labels: map[string]string{"zone": "east"}, EngineLabels: map[string]string{"storage": "ssd"}}
 				if tc.changeNode != nil {

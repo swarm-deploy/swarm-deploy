@@ -88,21 +88,54 @@ func TestApplyUpdatesChangedServiceAndPreservesMounts(t *testing.T) {
 }
 
 func TestApplyRetriesBoundedVersionConflicts(t *testing.T) {
-	manager := swarm.NewMockServiceManager(gomock.NewController(t))
-	desired := serviceSpec("api", "nginx:2")
-	manager.EXPECT().Inspect(gomock.Any(), "demo_api").Return(service("api-id", 1, serviceSpec("api", "nginx:1")), nil)
-	for version := uint64(1); version <= serviceUpdateAttempts; version++ {
-		manager.EXPECT().Update(gomock.Any(), "api-id", dockerswarm.Version{Index: version}, desired, gomock.Any()).
-			Return(swarm.ErrServiceConflict)
-		manager.EXPECT().Inspect(gomock.Any(), "demo_api").Return(
-			service("api-id", version+1, serviceSpec("api", "nginx:1")), nil,
-		)
-	}
+	permanent := errors.New("invalid service specification")
+	for _, tc := range []struct {
+		name      string
+		updates   []error
+		wantError error
+		retryable bool
+	}{
+		{name: "first attempt succeeds", updates: []error{nil}},
+		{name: "second attempt succeeds", updates: []error{swarm.ErrServiceConflict, nil}},
+		{name: "third attempt succeeds", updates: []error{swarm.ErrServiceConflict, swarm.ErrServiceConflict, nil}},
+		{name: "conflicts exhausted", updates: []error{swarm.ErrServiceConflict, swarm.ErrServiceConflict, swarm.ErrServiceConflict},
+			wantError: swarm.ErrServiceConflict, retryable: true},
+		{name: "permanent rejection", updates: []error{permanent}, wantError: permanent},
+		{name: "permanent rejection after conflict", updates: []error{swarm.ErrServiceConflict, permanent}, wantError: permanent},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			manager := swarm.NewMockServiceManager(gomock.NewController(t))
+			desired := serviceSpec("api", "nginx:2")
+			calls := []any{manager.EXPECT().Inspect(gomock.Any(), "demo_api").
+				Return(service("api-id", 1, serviceSpec("api", "nginx:1")), nil)}
+			for i, updateErr := range tc.updates {
+				version := uint64(i + 1)
+				calls = append(calls, manager.EXPECT().Update(gomock.Any(), "api-id", dockerswarm.Version{Index: version}, desired, gomock.Any()).
+					Return(updateErr))
+				if errors.Is(updateErr, swarm.ErrServiceConflict) {
+					calls = append(calls, manager.EXPECT().Inspect(gomock.Any(), "demo_api").
+						Return(service("api-id", version+1, serviceSpec("api", "nginx:1")), nil))
+				}
+			}
+			gomock.InOrder(calls...)
 
-	changed, err := New(manager, &registry.NopAuthManager{}).Apply(t.Context(), "demo", []dockerswarm.ServiceSpec{desired}, ApplyOptions{})
-	require.Error(t, err)
-	assert.Empty(t, changed.ChangedServices)
-	assert.ErrorContains(t, err, "version conflict after 3 attempts")
+			changed, err := New(manager, &registry.NopAuthManager{}).Apply(t.Context(), "demo", []dockerswarm.ServiceSpec{desired}, ApplyOptions{})
+			if tc.wantError == nil {
+				require.NoError(t, err)
+				assert.Equal(t, []string{"api"}, changed.ChangedServices)
+				return
+			}
+			require.ErrorIs(t, err, tc.wantError)
+			assert.Empty(t, changed.ChangedServices)
+			var temporary *swarm.DockerUnavailableError
+			assert.Equal(t, tc.retryable, errors.As(err, &temporary))
+			if tc.retryable {
+				require.NotNil(t, temporary)
+				assert.True(t, temporary.Temporary())
+				assert.ErrorContains(t, err, "version conflict after 3 attempts")
+			}
+		})
+	}
 }
 
 func TestApplyRejectsForeignServiceAndPreservesPartialApplication(t *testing.T) {

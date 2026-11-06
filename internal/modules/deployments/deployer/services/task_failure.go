@@ -122,7 +122,8 @@ func globalServiceTaskNodes(spec dockerswarm.ServiceSpec, tasks []swarm.ServiceT
 			}
 			continue
 		}
-		if node.Availability == string(dockerswarm.NodeAvailabilityDrain) {
+		if node.Availability == string(dockerswarm.NodeAvailabilityDrain) ||
+			node.Status == string(dockerswarm.NodeStateDown) {
 			continue
 		}
 		// Swarm also shuts down exhausted tasks on eligible nodes. Check current
