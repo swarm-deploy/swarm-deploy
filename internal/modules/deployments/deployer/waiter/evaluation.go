@@ -387,7 +387,7 @@ func countVerifiedRunningTasks(
 ) uint64 {
 	switch mode {
 	case services.VerifyExistingTasks, services.VerifyPlacementCompatibleTasks:
-		return countPlacementCompatibleRunningTasks(tasks, template, nodes)
+		return countPlacementCompatibleRunningTasks(tasks, template, nodes, mode == services.VerifyPlacementCompatibleTasks)
 	case services.VerifyNewGeneration:
 		return countMatchingCurrentRunningTasks(tasks, template, cutoff)
 	default:
@@ -414,6 +414,7 @@ func countPlacementCompatibleRunningTasks(
 	tasks []swarm.ServiceTask,
 	template dockerswarm.TaskSpec,
 	nodes map[string]*swarmkitapi.Node,
+	requireNodeMatch bool,
 ) uint64 {
 	var constraints []constraint.Constraint
 	if template.Placement != nil {
@@ -430,8 +431,13 @@ func countPlacementCompatibleRunningTasks(
 			continue
 		}
 		comparison := task.Spec.CompareServiceTemplate(template)
-		// Swarm can preserve an older placement across later metadata-only writes.
-		if comparison.Equal() || (comparison.PlacementOnly() && nodeMatchesConstraints(constraints, nodes[task.Node])) {
+		// Metadata-only writes can verify exact matches without a node lookup.
+		if comparison.Equal() && !requireNodeMatch {
+			count++
+			continue
+		}
+		if (comparison.Equal() || comparison.PlacementOnly()) &&
+			nodeMatchesConstraints(constraints, nodes[task.Node]) {
 			count++
 		}
 	}

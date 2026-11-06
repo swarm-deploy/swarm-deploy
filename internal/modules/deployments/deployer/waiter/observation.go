@@ -53,8 +53,9 @@ func (w *ServiceWaiter) observeService(
 	mode := serviceVerificationMode(baseline, service, unresolved, generation)
 	if (mode == services.VerifyExistingTasks || mode == services.VerifyPlacementCompatibleTasks) &&
 		slices.ContainsFunc(tasks, func(task swarm.ServiceTask) bool {
+			comparison := task.Spec.CompareServiceTemplate(service.ServiceSpec.TaskTemplate)
 			return task.DesiredState == swarm.TaskStateRunning && task.CurrentState == swarm.TaskStateRunning &&
-				task.Spec.CompareServiceTemplate(service.ServiceSpec.TaskTemplate).PlacementOnly()
+				(comparison.PlacementOnly() || (mode == services.VerifyPlacementCompatibleTasks && comparison.Equal()))
 		}) {
 		nodes, listErr := w.nodes.List(ctx)
 		if listErr != nil {

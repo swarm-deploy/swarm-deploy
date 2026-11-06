@@ -136,6 +136,44 @@ func TestMetadataUpdateVerifiesPreservedTaskCompatibility(t *testing.T) {
 	}
 }
 
+func TestPlacementUpdateChecksNodesForMatchingTasks(t *testing.T) {
+	for _, mode := range []string{replicatedServiceMode, globalServiceMode} {
+		for _, tc := range []struct {
+			name string
+			node swarm.Node
+			want ServiceState
+		}{
+			{name: "compatible node", node: compatiblePlacementNode("node-east"), want: ServiceReady},
+			{name: "node labels changed", node: incompatiblePlacementNode("node-east"), want: ServicePending},
+			{name: "missing node", want: ServicePending},
+		} {
+			t.Run(mode+"/"+tc.name, func(t *testing.T) {
+				controller := gomock.NewController(t)
+				manager := swarm.NewMockServiceManager(controller)
+				nodes := swarm.NewMockNodeManager(controller)
+				before, after := placementUpdateServices(mode, 1)
+				// A task with the latest template can still be running after its node's labels change.
+				tasks := placementTasks(1, after.ServiceSpec.TaskTemplate, after.UpdatedAt, "node-east")
+				manager.EXPECT().ListTasks(gomock.Any(), after.ID).Return(tasks, nil)
+				nodes.EXPECT().List(gomock.Any()).Return([]swarm.Node{tc.node}, nil)
+
+				progress, err := NewServiceWaiter(manager, nodes, time.Millisecond, time.Second).observeService(
+					t.Context(), "api", before, after, false, after.ServiceSpec, services.UpdateGeneration{},
+				)
+
+				require.NoError(t, err)
+				assert.Equal(t, tc.want, progress.State, progress.Message)
+				assert.Equal(t, uint64(1), progress.Desired)
+				if tc.want == ServiceReady {
+					assert.Equal(t, uint64(1), progress.Running)
+				} else {
+					assert.Zero(t, progress.Running)
+				}
+			})
+		}
+	}
+}
+
 func TestPlacementOnlyUpdateReusesCompatibleRunningTasks(t *testing.T) {
 	for _, mode := range []string{replicatedServiceMode, globalServiceMode} {
 		t.Run(mode, func(t *testing.T) {
@@ -206,6 +244,7 @@ func TestPlacementUpdateWaitsForIncompatibleTasksToBeReplaced(t *testing.T) {
 				services.EXPECT().ListServices(gomock.Any(), gomock.Any()).Return([]swarm.StackService{after}, nil),
 				services.EXPECT().ListTasks(gomock.Any(), after.ID).
 					Return([]swarm.ServiceTask{stopping, replacement}, nil),
+				nodes.EXPECT().List(gomock.Any()).Return([]swarm.Node{compatiblePlacementNode("node-east")}, nil),
 			)
 
 			var progress []ServiceProgress
