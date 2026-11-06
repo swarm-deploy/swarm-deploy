@@ -92,6 +92,11 @@ func TestRealSwarmPausedUpdateRetryAndRecovery(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, deploymentmodel.PhaseVerification, stored.Phase)
 	assert.Contains(t, stored.ErrorDiagnostic, "exit_code=1")
+	// Terminal task failure can be observed before Swarm pauses the rollout.
+	require.Eventually(t, func() bool {
+		current, inspectErr := sw.Services.Inspect(ctx, stack+"_api")
+		return inspectErr == nil && current.UpdateStatus != nil && current.UpdateStatus.State == "paused"
+	}, 30*time.Second, 100*time.Millisecond, "Swarm must pause the failed rollout")
 	service, err := sw.Services.Inspect(ctx, stack+"_api")
 	require.NoError(t, err)
 	require.NotNil(t, service.UpdateStatus)

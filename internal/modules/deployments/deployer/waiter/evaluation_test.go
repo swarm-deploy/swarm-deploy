@@ -67,6 +67,7 @@ func TestServiceWaiterTerminalTaskFailures(t *testing.T) {
 		{name: "global restart disabled", global: true},
 		{name: "replicated retries exhausted", maxAttempts: 2},
 		{name: "global retries exhausted", global: true, maxAttempts: 2},
+		{name: "restart disabled before update pauses", status: swarm.ServiceUpdateStateUpdating},
 		{name: "restart disabled after completed update", status: swarm.ServiceUpdateStateCompleted},
 		{name: "retries exhausted after completed update", maxAttempts: 2, status: swarm.ServiceUpdateStateCompleted},
 	} {
