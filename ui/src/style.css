@@ -185,6 +185,10 @@ body {
   background: var(--surface-control);
 }
 
+:root:not([data-theme="light"]) .topbar-assistant-button {
+  background: transparent;
+}
+
 .sidebar {
   position: sticky;
   z-index: 7;
@@ -838,6 +842,8 @@ body {
     display: grid;
     width: 38px;
     padding: 0;
+    border-color: transparent;
+    background: transparent;
   }
 
   .topbar-assistant-label {
