@@ -23,6 +23,8 @@ func TestDiagnosticLogLines(t *testing.T) {
 		logs []string
 		want []string
 	}{
+		{name: "short ordinary messages", logs: []string{"INFO", "true", "node", "starting"},
+			want: []string{"INFO", "true", "node", "starting"}},
 		{name: "slog error", logs: []string{`ERROR failed to load config err="unknown configuration field"`},
 			want: []string{`ERROR failed to load config err="unknown configuration field"`}},
 		{name: "configuration fields", logs: []string{`level=ERROR msg="failed to load config" err="unknown configuration field" file=/etc/app.yaml`},
@@ -149,7 +151,8 @@ func TestDiagnosticLogLinesPEMFragments(t *testing.T) {
 				{name: "without END", logs: lines[:len(lines)-1]},
 				{name: "without markers", logs: body},
 				{name: "partial line", logs: []string{body[0][3:24]}},
-				{name: "short fragment", logs: []string{body[0][20:24]}},
+				{name: "short fragment inside block", logs: []string{lines[0], body[0][20:24], lines[len(lines)-1]}},
+				{name: "short padded tail", logs: []string{"YQ=="}},
 			} {
 				t.Run(tc.name, func(t *testing.T) {
 					assert.Empty(t, DiagnosticLogLines(tc.logs, MaxDiagnosticLogLines, MaxDiagnosticLogBytes))

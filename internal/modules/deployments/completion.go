@@ -45,6 +45,8 @@ type Completion struct {
 	Outcome CompletionOutcome
 	// Diagnostic contains optional technical context and is sanitized before persistence or publication.
 	Diagnostic error
+	// Retryable explicitly permits automatic retry of an apply failure before DeployStack is invoked.
+	Retryable bool
 	// ObservedAt records when post-apply Swarm state was read successfully.
 	ObservedAt *time.Time
 }
@@ -156,7 +158,8 @@ func (completion Completion) state() (completionState, error) {
 	case CompletionApplyFailed, CompletionInitJobFailed, CompletionCleanupFailed:
 		var temporary faults.Error
 		// An update deferred only by active external tasks succeeds once they finish.
-		state.retryable = errors.Is(completion.Diagnostic, context.DeadlineExceeded) ||
+		state.retryable = (completion.Outcome == CompletionApplyFailed && completion.Retryable) ||
+			errors.Is(completion.Diagnostic, context.DeadlineExceeded) ||
 			errors.Is(completion.Diagnostic, services.ErrUpdateDeferred) ||
 			(errors.As(completion.Diagnostic, &temporary) && temporary.Temporary())
 	case CompletionSucceeded, CompletionPolicyRejected, CompletionConvergenceFailed:

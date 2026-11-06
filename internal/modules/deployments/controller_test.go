@@ -406,7 +406,8 @@ func TestControllerExecuteCompletesStackOptionsFailure(t *testing.T) {
 			metricGroup := metrics.NewGroup(metrics.CreateGroupParams{Namespace: "test"})
 			registry := prometheus.NewRegistry()
 			registry.MustRegister(metricGroup)
-			lifecycle := NewService(mockDB, bus)
+			now := time.Date(2026, time.November, 6, 12, 0, 0, 0, time.UTC)
+			lifecycle := NewService(mockDB, bus, WithClock(func() time.Time { return now }))
 			controller := NewController(lifecycle, stackDeployer, manager,
 				pruner.NewServicePruner(manager, bus, config.SyncPolicySpec{}), metricGroup.Deploys)
 			req := executionRequest("api:1")
@@ -447,18 +448,46 @@ func TestControllerExecuteCompletesStackOptionsFailure(t *testing.T) {
 				require.True(t, ok)
 				assert.Equal(t, result.Attempt.ID, pending.attemptID)
 				assert.Equal(t, CompletionApplyFailed, pending.completion.Outcome)
+				assert.True(t, pending.completion.Retryable)
 				assert.ErrorIs(t, pending.completion.Diagnostic, optionsErr)
 			} else {
 				assert.Equal(t, deploymentmodel.Failed, stored.Status)
 				assert.Equal(t, deploymentmodel.Failed, stored.Attempts[0].Status)
 				assert.Equal(t, "apply_failed", stored.ErrorCode)
+				assert.True(t, stored.Retryable)
+				assert.True(t, stored.Attempts[0].Retryable)
 				assert.Empty(t, controller.pending)
 			}
 
 			// Restore database access while retaining the controller's pending completion.
 			lifecycle.db, lifecycle.store = db, store
-			req.ManualRetry = true
 			req.SourceChanged = false
+			deferred, err := controller.Execute(t.Context(), req)
+			require.NoError(t, err)
+			assert.Nil(t, deferred.Attempt)
+			assert.True(t, deferred.RetryDeferred)
+			assert.Empty(t, controller.pending)
+			failed, err := store.GetAttempt(t.Context(), result.Attempt.ID)
+			require.NoError(t, err)
+			assert.Equal(t, deploymentmodel.Failed, failed.Status)
+			assert.Equal(t, "apply_failed", failed.ErrorCode)
+			assert.Equal(t, optionsErr.Error(), failed.ErrorDiagnostic)
+			assert.True(t, failed.Retryable)
+			require.NotNil(t, failed.FinishedAt)
+			stored, err = store.Get(t.Context(), result.Attempt.DeploymentID)
+			require.NoError(t, err)
+			assert.Equal(t, deploymentmodel.Failed, stored.Status)
+			assert.True(t, stored.Retryable)
+
+			// Recreate the lifecycle to verify the backoff uses only persisted retry metadata.
+			controller.lifecycle = NewService(db, bus, WithClock(func() time.Time { return now }))
+			now = failed.FinishedAt.Add(automaticRetryDelay - time.Nanosecond)
+			deferred, err = controller.Execute(t.Context(), req)
+			require.NoError(t, err)
+			assert.Nil(t, deferred.Attempt)
+			assert.True(t, deferred.RetryDeferred)
+
+			now = now.Add(time.Nanosecond)
 			stackDeployer.EXPECT().DeployStack(gomock.Any(), gomock.Any()).Return(deployer.Result{}, nil)
 			manager.EXPECT().ListServices(gomock.Any(), gomock.Any()).Return(nil, nil)
 			retry, err := controller.Execute(t.Context(), req)
@@ -472,11 +501,12 @@ func TestControllerExecuteCompletesStackOptionsFailure(t *testing.T) {
 			stored, err = store.Get(t.Context(), result.Attempt.DeploymentID)
 			require.NoError(t, err)
 			assert.Equal(t, deploymentmodel.Succeeded, stored.Status)
-			failed, err := store.GetAttempt(t.Context(), result.Attempt.ID)
+			failed, err = store.GetAttempt(t.Context(), result.Attempt.ID)
 			require.NoError(t, err)
 			assert.Equal(t, deploymentmodel.Failed, failed.Status)
 			assert.Equal(t, "apply_failed", failed.ErrorCode)
 			assert.Equal(t, optionsErr.Error(), failed.ErrorDiagnostic)
+			assert.True(t, failed.Retryable)
 			assert.NotNil(t, failed.FinishedAt)
 		})
 	}

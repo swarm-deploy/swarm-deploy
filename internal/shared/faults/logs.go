@@ -19,8 +19,8 @@ var maskedDiagnosticURL = regexp.MustCompile(`[[:alpha:]][[:alnum:]+.-]*://\*{4}
 var unstructuredSecret = regexp.MustCompile(`(?i)(?:^|[^[:alnum:]])secret(?:$|[^[:alnum:]]|key\b|value\b)`)
 
 // Accept false positives for standalone Base64: a log tail can omit both PEM markers.
-// Match full encoding groups, padded tails, and longer fragments cut within a group.
-var pemKeyFragment = regexp.MustCompile(`^(?:[A-Za-z0-9+/]{16,}={0,2}|(?:[A-Za-z0-9+/]{4})+|[A-Za-z0-9+/]{2,}={1,2})$`)
+// Match long fragments and padded tails; short unpadded words are ordinary diagnostics too.
+var pemKeyFragment = regexp.MustCompile(`^(?:[A-Za-z0-9+/]{16,}={0,2}|[A-Za-z0-9+/]{2,}={1,2})$`)
 
 // DiagnosticLogLines masks credentials and bounds sanitized log content.
 // Limits include newline separators; callers can share a budget across log streams.
