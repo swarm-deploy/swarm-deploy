@@ -1,6 +1,7 @@
 package waiter
 
 import (
+	"errors"
 	"testing"
 	"time"
 
@@ -12,6 +13,166 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	"go.uber.org/mock/gomock"
 )
+
+func TestMetadataUpdateAfterPlacementUpdateReusesOriginalTask(t *testing.T) {
+	for _, mode := range []string{replicatedServiceMode, globalServiceMode} {
+		t.Run(mode, func(t *testing.T) {
+			controller := gomock.NewController(t)
+			manager := swarm.NewMockServiceManager(controller)
+			nodes := swarm.NewMockNodeManager(controller)
+			created, placed := placementUpdateServices(mode, 1)
+			metadata := placed
+			metadata.UpdatedAt = placed.UpdatedAt.Add(time.Minute)
+			metadata.ServiceSpec.Labels = map[string]string{"release": "new"}
+			metadata.PreviousSpec = &placed.ServiceSpec
+			// Swarm preserves the original task and its specification across both writes.
+			tasks := placementTasks(1, created.ServiceSpec.TaskTemplate, created.CreatedAt, "node-east")
+			w := NewServiceWaiter(manager, nodes, time.Millisecond, time.Second)
+
+			for _, step := range []struct {
+				name          string
+				before, after swarm.StackService
+				verification  services.VerificationMode
+			}{
+				{"create", swarm.StackService{}, created, services.VerifyNewGeneration},
+				{"placement", created, placed, services.VerifyPlacementCompatibleTasks},
+				{"deploy labels", placed, metadata, services.VerifyExistingTasks},
+			} {
+				t.Run(step.name, func(t *testing.T) {
+					manager.EXPECT().ListServices(gomock.Any(), gomock.Any()).Return([]swarm.StackService{step.after}, nil)
+					manager.EXPECT().ListTasks(gomock.Any(), created.ID).Return(tasks, nil)
+					if step.name != "create" {
+						nodes.EXPECT().List(gomock.Any()).Return([]swarm.Node{compatiblePlacementNode("node-east")}, nil)
+					}
+					assert.Equal(t, step.verification, serviceVerificationMode(step.before, step.after, false, services.UpdateGeneration{}))
+					var progress ServiceProgress
+					result, err := w.Wait(t.Context(), placementWaitRequest(step.before, step.after, func(update ServiceProgress) {
+						progress = update
+					}))
+
+					require.NoError(t, err, "convergence must not require a replacement task or time out")
+					assert.Empty(t, result.UnresolvedServices)
+					assert.Equal(t, ServiceReady, progress.State)
+					assert.Equal(t, uint64(1), progress.Running)
+					assert.Equal(t, uint64(1), progress.Desired)
+					assert.Nil(t, step.after.UpdateStatus, "no new rolling-update generation is needed")
+				})
+			}
+		})
+	}
+}
+
+func TestMetadataUpdateVerifiesPreservedTaskCompatibility(t *testing.T) {
+	lookupErr := errors.New("node lookup unavailable")
+	for _, mode := range []string{replicatedServiceMode, globalServiceMode} {
+		for _, tc := range []struct {
+			name      string
+			exact     bool
+			edit      func(*dockerswarm.TaskSpec)
+			node      swarm.Node
+			lookup    bool
+			lookupErr error
+			want      ServiceState
+		}{
+			{name: "compatible placement", node: compatiblePlacementNode("node-east"), lookup: true, want: ServiceReady},
+			{name: "incompatible placement", node: incompatiblePlacementNode("node-east"), lookup: true, want: ServicePending},
+			{name: "missing node", lookup: true, want: ServicePending},
+			{name: "node lookup failure", lookup: true, lookupErr: lookupErr, want: ServicePending},
+			{name: "different image", edit: func(spec *dockerswarm.TaskSpec) { spec.ContainerSpec.Image = "api:old" }, want: ServicePending},
+			{name: "different environment", edit: func(spec *dockerswarm.TaskSpec) { spec.ContainerSpec.Env = []string{"MODE=old"} }, want: ServicePending},
+			{name: "outdated force update and placement", edit: func(spec *dockerswarm.TaskSpec) { spec.ForceUpdate-- }, want: ServicePending},
+			{name: "outdated force update", exact: true, edit: func(spec *dockerswarm.TaskSpec) { spec.ForceUpdate-- }, want: ServicePending},
+			{name: "exact match without node lookup", exact: true, want: ServiceReady},
+			{name: "normalized match without node lookup", exact: true, edit: func(spec *dockerswarm.TaskSpec) {
+				spec.Runtime = dockerswarm.RuntimeContainer
+				spec.Resources = &dockerswarm.ResourceRequirements{}
+			}, want: ServiceReady},
+		} {
+			t.Run(mode+"/"+tc.name, func(t *testing.T) {
+				controller := gomock.NewController(t)
+				manager := swarm.NewMockServiceManager(controller)
+				nodes := swarm.NewMockNodeManager(controller)
+				original, before := placementUpdateServices(mode, 1)
+				before.ServiceSpec.TaskTemplate.ForceUpdate = 1
+				after := before
+				after.UpdatedAt = before.UpdatedAt.Add(time.Minute)
+				after.ServiceSpec.Labels = map[string]string{"release": "new"}
+				after.PreviousSpec = &before.ServiceSpec
+				template := after.ServiceSpec.TaskTemplate
+				if !tc.exact {
+					template.Placement = original.ServiceSpec.TaskTemplate.Placement
+				}
+				container := *template.ContainerSpec
+				template.ContainerSpec = &container
+				if tc.edit != nil {
+					tc.edit(&template)
+				}
+				tasks := placementTasks(1, template, original.CreatedAt, "node-east")
+				manager.EXPECT().ListTasks(gomock.Any(), after.ID).Return(tasks, nil)
+				if tc.lookup {
+					nodes.EXPECT().List(gomock.Any()).Return([]swarm.Node{tc.node}, tc.lookupErr)
+				}
+
+				progress, err := NewServiceWaiter(manager, nodes, time.Millisecond, time.Second).observeService(
+					t.Context(), "api", before, after, false, after.ServiceSpec, services.UpdateGeneration{},
+				)
+
+				if tc.lookupErr != nil {
+					require.ErrorIs(t, err, tc.lookupErr)
+					assert.Contains(t, err.Error(), "list nodes for service api placement")
+					assert.Contains(t, progress.Message, "list nodes:")
+				} else {
+					require.NoError(t, err)
+				}
+				assert.Equal(t, tc.want, progress.State, progress.Message)
+				assert.Equal(t, uint64(1), progress.Desired)
+				if tc.want == ServiceReady {
+					assert.Equal(t, uint64(1), progress.Running)
+				} else {
+					assert.Zero(t, progress.Running)
+				}
+			})
+		}
+	}
+}
+
+func TestPlacementUpdateChecksNodesForMatchingTasks(t *testing.T) {
+	for _, mode := range []string{replicatedServiceMode, globalServiceMode} {
+		for _, tc := range []struct {
+			name string
+			node swarm.Node
+			want ServiceState
+		}{
+			{name: "compatible node", node: compatiblePlacementNode("node-east"), want: ServiceReady},
+			{name: "node labels changed", node: incompatiblePlacementNode("node-east"), want: ServicePending},
+			{name: "missing node", want: ServicePending},
+		} {
+			t.Run(mode+"/"+tc.name, func(t *testing.T) {
+				controller := gomock.NewController(t)
+				manager := swarm.NewMockServiceManager(controller)
+				nodes := swarm.NewMockNodeManager(controller)
+				before, after := placementUpdateServices(mode, 1)
+				// A task with the latest template can still be running after its node's labels change.
+				tasks := placementTasks(1, after.ServiceSpec.TaskTemplate, after.UpdatedAt, "node-east")
+				manager.EXPECT().ListTasks(gomock.Any(), after.ID).Return(tasks, nil)
+				nodes.EXPECT().List(gomock.Any()).Return([]swarm.Node{tc.node}, nil)
+
+				progress, err := NewServiceWaiter(manager, nodes, time.Millisecond, time.Second).observeService(
+					t.Context(), "api", before, after, false, after.ServiceSpec, services.UpdateGeneration{},
+				)
+
+				require.NoError(t, err)
+				assert.Equal(t, tc.want, progress.State, progress.Message)
+				assert.Equal(t, uint64(1), progress.Desired)
+				if tc.want == ServiceReady {
+					assert.Equal(t, uint64(1), progress.Running)
+				} else {
+					assert.Zero(t, progress.Running)
+				}
+			})
+		}
+	}
+}
 
 func TestPlacementOnlyUpdateReusesCompatibleRunningTasks(t *testing.T) {
 	for _, mode := range []string{replicatedServiceMode, globalServiceMode} {
