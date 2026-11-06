@@ -49,6 +49,10 @@ func evaluateService(
 	if updateProgress, terminal := terminalServiceUpdateProgress(baseline, service, tasks, restored, progress); terminal {
 		return updateProgress
 	}
+	if expected.Name != "" && !services.SpecsEqual(service.ServiceSpec, expected) {
+		progress.Message = "waiting for expected service specification"
+		return progress
+	}
 	if service.Mode == replicatedJobServiceMode || service.Mode == globalJobServiceMode {
 		return jobProgress(progress, baseline, service, tasks)
 	}
@@ -59,10 +63,6 @@ func evaluateService(
 	}
 	unresolved = unresolved && !restored
 	mode := serviceVerificationMode(baseline, service, unresolved, generation)
-	if expected.Name != "" && !services.SpecsEqual(service.ServiceSpec, expected) {
-		progress.Message = "waiting for expected service specification"
-		return progress
-	}
 	desired = observedDesiredTasks(service, tasks)
 	progress.Desired = desired
 	if globalSchedulerPending(baseline, service, desired) {
