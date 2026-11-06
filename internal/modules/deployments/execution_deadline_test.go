@@ -23,6 +23,36 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
+func TestExecuteServiceRejectsLateSuccess(t *testing.T) {
+	for _, cancelEarly := range []bool{false, true} {
+		t.Run(map[bool]string{false: "deadline", true: "caller cancellation"}[cancelEarly], func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				mock := deployer.NewMockStackDeployer(gomock.NewController(t))
+				controller := NewController(nil, mock, nil, nil, nil)
+				ctx, cancel := context.WithCancel(t.Context())
+				defer cancel()
+				started := time.Now()
+				mock.EXPECT().DeployService(gomock.Any(), gomock.Any()).DoAndReturn(
+					func(ctx context.Context, _ deployer.ServiceRequest) (deployer.Result, error) {
+						if cancelEarly {
+							cancel()
+						}
+						<-ctx.Done()
+						return deployer.Result{}, nil
+					})
+				_, err := controller.ExecuteService(ctx, ExecuteServiceRequest{StackName: "app", ServiceName: "api"})
+				wantErr := context.DeadlineExceeded
+				if cancelEarly {
+					wantErr = context.Canceled
+				} else {
+					assert.Equal(t, 15*time.Minute, time.Since(started))
+				}
+				require.ErrorIs(t, err, wantErr)
+			})
+		})
+	}
+}
+
 func TestExecutionDeadlinePersistsTerminalLifecycle(t *testing.T) {
 	for _, tc := range []struct {
 		name   string

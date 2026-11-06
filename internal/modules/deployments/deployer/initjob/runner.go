@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	dockerswarm "github.com/docker/docker/api/types/swarm"
@@ -40,7 +41,10 @@ type InitJobRunner struct {
 	pollInterval time.Duration
 	timeout      time.Duration
 
-	deleteTasks chan initJobDeleteTask
+	deleteTasks    chan initJobDeleteTask
+	deleteWake     chan struct{}
+	deleteMu       sync.Mutex
+	deleteOverflow []initJobDeleteTask
 }
 
 // NewInitJobRunner creates init job runner with async cleanup queue.
@@ -59,6 +63,7 @@ func NewInitJobRunner(
 		pollInterval: pollInterval,
 		timeout:      timeout,
 		deleteTasks:  make(chan initJobDeleteTask, initJobDeleteTasksBuffer),
+		deleteWake:   make(chan struct{}, 1),
 	}
 
 	go runner.runDeleteWorker()

@@ -48,7 +48,8 @@ func TestInitJobCleanupFallbackHonorsExecutionDeadline(t *testing.T) {
 		manager := swarm.NewMockServiceManager(gomock.NewController(t))
 		runner := &InitJobRunner{
 			swarmService: &swarm.Swarm{Services: manager},
-			deleteTasks:  make(chan initJobDeleteTask), // Full queue forces synchronous cleanup.
+			deleteTasks: make(chan initJobDeleteTask), // Full queue forces synchronous cleanup.
+			deleteWake:  make(chan struct{}, 1),
 		}
 		ctx, cancel := context.WithTimeout(t.Context(), time.Second)
 		defer cancel()
@@ -60,4 +61,49 @@ func TestInitJobCleanupFallbackHonorsExecutionDeadline(t *testing.T) {
 		runner.enqueueDeleteTask(ctx, initJobDeleteTask{serviceID: "job-id"})
 		assert.Equal(t, time.Second, time.Since(started), "retry delays cannot extend the parent deadline")
 	})
+}
+
+func TestCancelledInitJobCleanupFallbackRequeuesForExistingWorker(t *testing.T) {
+	manager := swarm.NewMockServiceManager(gomock.NewController(t))
+	runner := &InitJobRunner{
+		swarmService: &swarm.Swarm{Services: manager},
+		deleteTasks:  make(chan initJobDeleteTask, 1),
+		deleteWake:   make(chan struct{}, 1),
+	}
+	// Keep the queue full until the fallback has failed under cancellation.
+	runner.deleteTasks <- initJobDeleteTask{serviceID: "queued"}
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	removed := make(chan string, 2)
+	manager.EXPECT().Remove(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(ctx context.Context, serviceID string) error {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			removed <- serviceID
+			return nil
+		},
+	).AnyTimes()
+
+	runner.enqueueDeleteTask(ctx, initJobDeleteTask{serviceID: "fallback"})
+	require.Len(t, runner.deleteOverflow, 1, "failed fallback must remain queued for cleanup")
+
+	workerDone := make(chan struct{})
+	go func() {
+		runner.runDeleteWorker()
+		close(workerDone)
+	}()
+	for i := 0; i < 2; i++ {
+		select {
+		case <-removed:
+		case <-time.After(time.Second):
+			t.Fatal("existing cleanup worker did not remove both services")
+		}
+	}
+	close(runner.deleteTasks)
+	select {
+	case <-workerDone:
+	case <-time.After(time.Second):
+		t.Fatal("cleanup worker did not stop")
+	}
 }

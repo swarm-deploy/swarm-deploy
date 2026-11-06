@@ -255,13 +255,14 @@ func (c *Controller) ExecuteService(ctx context.Context, req ExecuteServiceReque
 	ctx, cancel := context.WithTimeout(ctx, deploymentExecutionTimeout)
 	defer cancel()
 
-	return c.deployer.DeployService(ctx, deployer.ServiceRequest{
+	result, err := c.deployer.DeployService(ctx, deployer.ServiceRequest{
 		VerifyOnly:        req.VerifyOnly,
 		StackName:         req.StackName,
 		SourceComposePath: req.SourceComposePath,
 		ServiceName:       req.ServiceName,
 		Desired:           req.Desired,
 	})
+	return result, executionError(ctx, err)
 }
 
 // Recover interrupts Attempts that were still running when the previous process stopped.
