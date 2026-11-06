@@ -2,12 +2,19 @@ package faults
 
 import (
 	"bytes"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"encoding/pem"
 	"errors"
 	"log/slog"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestDiagnosticLogLines(t *testing.T) {
@@ -93,8 +100,8 @@ func TestDiagnosticLogLinesLimits(t *testing.T) {
 	}{
 		{name: "line limit", logs: []string{strings.Repeat("state=failed\n", 21)}, maxLines: 20, maxBytes: 1600,
 			want: strings.Split(strings.TrimSuffix(strings.Repeat("state=failed\n", 20), "\n"), "\n")},
-		{name: "byte limit includes separators", logs: []string{"first", strings.Repeat("x", 1600)}, maxLines: 20, maxBytes: 1600,
-			want: []string{"first", strings.Repeat("x", 1594)}},
+		{name: "byte limit includes separators", logs: []string{"first", strings.Repeat(".", 1600)}, maxLines: 20, maxBytes: 1600,
+			want: []string{"first", strings.Repeat(".", 1594)}},
 		{name: "mask before truncation", logs: []string{"password=private-value err=failed"}, maxLines: 20, maxBytes: 11,
 			want: []string{"password=**"}},
 		{name: "zero lines", logs: []string{"state=failed"}, maxBytes: 1600},
@@ -105,6 +112,72 @@ func TestDiagnosticLogLinesLimits(t *testing.T) {
 			assert.Equal(t, tc.want, got)
 			assert.LessOrEqual(t, len(got), tc.maxLines)
 			assert.LessOrEqual(t, len(strings.Join(got, "\n")), tc.maxBytes)
+		})
+	}
+}
+
+func TestDiagnosticLogLinesPEMFragments(t *testing.T) {
+	// Generate disposable keys so the fixtures exercise real PEM line lengths and tails.
+	rsaKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+	ecKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+	ecDER, err := x509.MarshalECPrivateKey(ecKey)
+	require.NoError(t, err)
+	pkcs8DER, err := x509.MarshalPKCS8PrivateKey(rsaKey)
+	require.NoError(t, err)
+
+	for _, key := range []struct {
+		name string
+		der  []byte
+	}{
+		{name: "RSA PRIVATE KEY", der: x509.MarshalPKCS1PrivateKey(rsaKey)},
+		{name: "EC PRIVATE KEY", der: ecDER},
+		{name: "PRIVATE KEY", der: pkcs8DER},
+	} {
+		t.Run(key.name, func(t *testing.T) {
+			lines := strings.Split(strings.TrimSpace(string(pem.EncodeToMemory(&pem.Block{
+				Type: key.name, Bytes: key.der,
+			}))), "\n")
+			body := lines[1 : len(lines)-1]
+			for _, tc := range []struct {
+				name string
+				logs []string
+			}{
+				{name: "complete", logs: lines},
+				{name: "without BEGIN", logs: lines[1:]},
+				{name: "without END", logs: lines[:len(lines)-1]},
+				{name: "without markers", logs: body},
+				{name: "partial line", logs: []string{body[0][3:24]}},
+				{name: "short fragment", logs: []string{body[0][20:24]}},
+			} {
+				t.Run(tc.name, func(t *testing.T) {
+					assert.Empty(t, DiagnosticLogLines(tc.logs, MaxDiagnosticLogLines, MaxDiagnosticLogBytes))
+				})
+			}
+			for i, fragment := range body {
+				assert.Empty(t, DiagnosticLogLines([]string{fragment}, MaxDiagnosticLogLines, MaxDiagnosticLogBytes),
+					"standalone key line %d", i)
+			}
+			logs := append([]string{"startup failed"}, lines...)
+			logs = append(logs, "retry=1")
+			assert.Equal(t, []string{"startup failed", "retry=1"},
+				DiagnosticLogLines(logs, MaxDiagnosticLogLines, MaxDiagnosticLogBytes))
+
+			if key.name == "RSA PRIVATE KEY" {
+				// Reproduce collectTaskLogs' last-20-lines window: 19 RSA body lines and END, no BEGIN.
+				require.Greater(t, len(body), 19)
+				window := lines[len(lines)-20:]
+				require.Len(t, window, 20)
+				assert.Empty(t, DiagnosticLogLines(window, MaxDiagnosticLogLines, MaxDiagnosticLogBytes))
+
+				// The same body fragments must be removed even if neither marker is retrieved.
+				window = append([]string{}, body[len(body)-19:]...)
+				window = append(window, "startup failed: invalid configuration")
+				require.Len(t, window, 20)
+				assert.Equal(t, []string{"startup failed: invalid configuration"},
+					DiagnosticLogLines(window, MaxDiagnosticLogLines, MaxDiagnosticLogBytes))
+			}
 		})
 	}
 }

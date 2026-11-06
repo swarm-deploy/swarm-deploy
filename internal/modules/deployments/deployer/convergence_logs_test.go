@@ -180,8 +180,8 @@ func TestMultipleFailedServiceLogsAreBounded(t *testing.T) {
 	}{
 		{name: "task count", messages: []string{"startup failed"}, requests: 3},
 		{name: "line count", messages: []string{strings.Repeat("failure\n", 25)}, requests: 1},
-		{name: "byte count", messages: []string{strings.Repeat("x", 3000)}, requests: 1},
-		{name: "newline byte budget", messages: []string{"first", strings.Repeat("x", 3000)}, requests: 1},
+		{name: "byte count", messages: []string{strings.Repeat(".", 3000)}, requests: 1},
+		{name: "newline byte budget", messages: []string{"first", strings.Repeat(".", 3000)}, requests: 1},
 		{name: "shared lines with fields", messages: []string{strings.Repeat("state=failed\n", 8)}, requests: 3},
 		{name: "shared bytes with fields", messages: []string{"err=" + strings.Repeat("x", 600)}, requests: 3},
 	} {

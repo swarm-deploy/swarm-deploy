@@ -18,6 +18,10 @@ const (
 var maskedDiagnosticURL = regexp.MustCompile(`[[:alpha:]][[:alnum:]+.-]*://\*{4}(?::\*{4}@[^\s'"<>]+)?`)
 var unstructuredSecret = regexp.MustCompile(`(?i)(?:^|[^[:alnum:]])secret(?:$|[^[:alnum:]]|key\b|value\b)`)
 
+// Accept false positives for standalone Base64: a log tail can omit both PEM markers.
+// Match full encoding groups, padded tails, and longer fragments cut within a group.
+var pemKeyFragment = regexp.MustCompile(`^(?:[A-Za-z0-9+/]{16,}={0,2}|(?:[A-Za-z0-9+/]{4})+|[A-Za-z0-9+/]{2,}={1,2})$`)
+
 // DiagnosticLogLines masks credentials and bounds sanitized log content.
 // Limits include newline separators; callers can share a budget across log streams.
 func DiagnosticLogLines(logs []string, maxLines, maxBytes int) []string {
@@ -34,10 +38,11 @@ func DiagnosticLogLines(logs []string, maxLines, maxBytes int) []string {
 		if strings.Contains(upper, "-----BEGIN") && strings.Contains(upper, "PRIVATE KEY-----") {
 			privateKey = true
 		}
-		if privateKey {
-			if strings.Contains(upper, "-----END") && strings.Contains(upper, "PRIVATE KEY-----") {
-				privateKey = false
-			}
+		if strings.Contains(upper, "-----END") && strings.Contains(upper, "PRIVATE KEY-----") {
+			privateKey = false
+			continue
+		}
+		if privateKey || pemKeyFragment.MatchString(line) {
 			continue
 		}
 		line = SafeDiagnostic(errors.New(line))

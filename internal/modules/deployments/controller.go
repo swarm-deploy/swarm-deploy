@@ -142,7 +142,11 @@ func (c *Controller) Execute(ctx context.Context, req ExecuteRequest) (ExecuteRe
 
 	options, err := c.stackOptions(ctx, *attempt)
 	if err != nil {
-		return result, err
+		completion := Completion{Outcome: CompletionApplyFailed, Diagnostic: err}
+		result.Status, result.ErrorCode = deploymentmodel.Failed, completion.ErrorCode()
+		completeErr := c.complete(ctx, req.Stack.Name, attempt.ID, completion)
+		c.record(req, "failed")
+		return result, errors.Join(err, completeErr)
 	}
 	deployResult, deployErr := c.deployer.DeployStack(ctx, deployer.StackRequest{
 		StackName:         req.Stack.Name,

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	pipe "github.com/artarts36/gopipe"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
@@ -22,6 +23,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/pruner"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/labelsdict"
+	"github.com/swarm-deploy/swarm-deploy/internal/storage"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	"go.uber.org/mock/gomock"
 )
@@ -38,7 +40,7 @@ func TestInitJobDiagnosticsAreBoundedAndSanitized(t *testing.T) {
 		"token=do-not-persist",
 		"database_url=postgres://do-not-persist",
 		"password do-not-persist",
-		strings.Repeat("x", 3000),
+		strings.Repeat(".", 3000),
 	}}
 	wrapped := fmt.Errorf("deploy: %w", failure)
 	diagnostic, found := withInitJobLogs(wrapped)
@@ -63,12 +65,12 @@ func TestInitJobDiagnosticsAreBoundedAndSanitized(t *testing.T) {
 		{name: "multiline", logs: []string{" first\n\n second "}, want: []string{"first", "second"}},
 		{
 			name: "byte limit includes separators",
-			logs: []string{"first", strings.Repeat("x", faults.MaxDiagnosticLogBytes)},
-			want: []string{"first", strings.Repeat("x", faults.MaxDiagnosticLogBytes-len("first\n"))},
+			logs: []string{"first", strings.Repeat(".", faults.MaxDiagnosticLogBytes)},
+			want: []string{"first", strings.Repeat(".", faults.MaxDiagnosticLogBytes-len("first\n"))},
 		},
 		{
-			name: "line limit", logs: []string{strings.Repeat("line\n", faults.MaxDiagnosticLogLines+1)},
-			want: strings.Split(strings.TrimSuffix(strings.Repeat("line\n", faults.MaxDiagnosticLogLines), "\n"), "\n"),
+			name: "line limit", logs: []string{strings.Repeat("log line\n", faults.MaxDiagnosticLogLines+1)},
+			want: strings.Split(strings.TrimSuffix(strings.Repeat("log line\n", faults.MaxDiagnosticLogLines), "\n"), "\n"),
 		},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -356,4 +358,126 @@ func TestSuccessfulUnchangedDeploymentMaintenanceDoesNotChangeLifecycle(t *testi
 	after, err := store.Get(t.Context(), attempt.DeploymentID)
 	require.NoError(t, err)
 	assert.Equal(t, before, after, "credential maintenance must not create or alter an Attempt")
+}
+
+func TestControllerExecuteCompletesStackOptionsFailure(t *testing.T) {
+	for _, tc := range []struct {
+		name           string
+		failCompletion bool
+	}{
+		{name: "completion persisted"},
+		{name: "completion recovered on next execution", failCompletion: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			db, _, bus := openService(t)
+			mocks := gomock.NewController(t)
+			mockDB := storage.NewMockDatabase(mocks)
+			optionsErr := errors.New("read stack options failed")
+			completionErr := errors.New("persist completion failed")
+			transactions := 0
+			failNextRead := false
+			mockDB.EXPECT().Dialect().Return(db.Dialect()).AnyTimes()
+			mockDB.EXPECT().WithinTransaction(gomock.Any(), gomock.Any()).DoAndReturn(
+				func(ctx context.Context, fn func(context.Context) error) error {
+					transactions++
+					if transactions == 2 && tc.failCompletion {
+						return completionErr
+					}
+					err := db.WithinTransaction(ctx, fn)
+					if transactions == 1 && err == nil {
+						// Fail the options read only after StartIfChanged has committed the Attempt.
+						failNextRead = true
+					}
+					return err
+				}).AnyTimes()
+			mockDB.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+				func(ctx context.Context, dest any, query string, args ...any) error {
+					if failNextRead {
+						failNextRead = false
+						return optionsErr
+					}
+					return db.Get(ctx, dest, query, args...)
+				}).AnyTimes()
+			mockDB.EXPECT().Select(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+				DoAndReturn(db.Select).AnyTimes()
+			mockDB.EXPECT().Exec(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(db.Exec).AnyTimes()
+			stackDeployer := deployer.NewMockStackDeployer(mocks)
+			manager := swarm.NewMockServiceManager(mocks)
+			metricGroup := metrics.NewGroup(metrics.CreateGroupParams{Namespace: "test"})
+			registry := prometheus.NewRegistry()
+			registry.MustRegister(metricGroup)
+			lifecycle := NewService(mockDB, bus)
+			controller := NewController(lifecycle, stackDeployer, manager,
+				pruner.NewServicePruner(manager, bus, config.SyncPolicySpec{}), metricGroup.Deploys)
+			req := executionRequest("api:1")
+
+			// No DeployStack expectation: calling it before the retry must fail the test.
+			result, err := controller.Execute(t.Context(), req)
+			require.ErrorIs(t, err, optionsErr)
+			require.NotNil(t, result.Attempt)
+			assert.Equal(t, deploymentmodel.Failed, result.Status)
+			assert.Equal(t, "apply_failed", result.ErrorCode)
+			families, gatherErr := registry.Gather()
+			require.NoError(t, gatherErr)
+			foundDeploys := false
+			for _, family := range families {
+				if family.GetName() != "test_deploys_total" {
+					continue
+				}
+				foundDeploys = true
+				require.Len(t, family.Metric, 1)
+				assert.Equal(t, float64(1), family.Metric[0].GetCounter().GetValue())
+				labels := map[string]string{}
+				for _, label := range family.Metric[0].Label {
+					labels[label.GetName()] = label.GetValue()
+				}
+				assert.Equal(t, map[string]string{"stack": "app", "service": "api", "status": "failed"}, labels)
+			}
+			assert.True(t, foundDeploys)
+
+			store := deploymentstore.NewStore(db)
+			stored, readErr := store.Get(t.Context(), result.Attempt.DeploymentID)
+			require.NoError(t, readErr)
+			require.Len(t, stored.Attempts, 1)
+			if tc.failCompletion {
+				require.ErrorIs(t, err, completionErr)
+				assert.Equal(t, deploymentmodel.Running, stored.Status)
+				assert.Equal(t, deploymentmodel.Running, stored.Attempts[0].Status)
+				pending, ok := controller.pending[req.Stack.Name]
+				require.True(t, ok)
+				assert.Equal(t, result.Attempt.ID, pending.attemptID)
+				assert.Equal(t, CompletionApplyFailed, pending.completion.Outcome)
+				assert.ErrorIs(t, pending.completion.Diagnostic, optionsErr)
+			} else {
+				assert.Equal(t, deploymentmodel.Failed, stored.Status)
+				assert.Equal(t, deploymentmodel.Failed, stored.Attempts[0].Status)
+				assert.Equal(t, "apply_failed", stored.ErrorCode)
+				assert.Empty(t, controller.pending)
+			}
+
+			// Restore database access while retaining the controller's pending completion.
+			lifecycle.db, lifecycle.store = db, store
+			req.ManualRetry = true
+			req.SourceChanged = false
+			stackDeployer.EXPECT().DeployStack(gomock.Any(), gomock.Any()).Return(deployer.Result{}, nil)
+			manager.EXPECT().ListServices(gomock.Any(), gomock.Any()).Return(nil, nil)
+			retry, err := controller.Execute(t.Context(), req)
+			require.NoError(t, err)
+			require.NotNil(t, retry.Attempt)
+			assert.Equal(t, result.Attempt.DeploymentID, retry.Attempt.DeploymentID)
+			assert.NotEqual(t, result.Attempt.ID, retry.Attempt.ID)
+			assert.Equal(t, 2, retry.Attempt.Number)
+			assert.Equal(t, deploymentmodel.Succeeded, retry.Status)
+			assert.Empty(t, controller.pending)
+			stored, err = store.Get(t.Context(), result.Attempt.DeploymentID)
+			require.NoError(t, err)
+			assert.Equal(t, deploymentmodel.Succeeded, stored.Status)
+			failed, err := store.GetAttempt(t.Context(), result.Attempt.ID)
+			require.NoError(t, err)
+			assert.Equal(t, deploymentmodel.Failed, failed.Status)
+			assert.Equal(t, "apply_failed", failed.ErrorCode)
+			assert.Equal(t, optionsErr.Error(), failed.ErrorDiagnostic)
+			assert.NotNil(t, failed.FinishedAt)
+		})
+	}
 }
