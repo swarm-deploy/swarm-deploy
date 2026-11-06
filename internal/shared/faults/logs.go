@@ -21,14 +21,17 @@ var unstructuredSecret = regexp.MustCompile(`(?i)(?:^|[^[:alnum:]])secret(?:$|[^
 // Accept false positives for standalone Base64: a log tail can omit both PEM markers.
 // Match long fragments and padded tails; short unpadded words are ordinary diagnostics too.
 var pemKeyFragment = regexp.MustCompile(`^(?:[A-Za-z0-9+/]{16,}={0,2}|[A-Za-z0-9+/]{2,}={1,2})$`)
+var pemBase64Line = regexp.MustCompile(`^[A-Za-z0-9+/]+={0,2}$`)
 
 // DiagnosticLogLines masks credentials and bounds sanitized log content.
 // Limits include newline separators; callers can share a budget across log streams.
 func DiagnosticLogLines(logs []string, maxLines, maxBytes int) []string {
+	logLines := strings.Split(strings.Join(logs, "\n"), "\n")
+	removePEMKeyFragments(logLines)
 	var lines []string
 	used := 0
 	privateKey := false
-	for _, line := range strings.Split(strings.Join(logs, "\n"), "\n") {
+	for _, line := range logLines {
 		remaining := maxBytes - used - len(lines)
 		if remaining <= 0 || len(lines) >= maxLines {
 			break
@@ -42,7 +45,7 @@ func DiagnosticLogLines(logs []string, maxLines, maxBytes int) []string {
 			privateKey = false
 			continue
 		}
-		if privateKey || pemKeyFragment.MatchString(line) {
+		if privateKey {
 			continue
 		}
 		line = SafeDiagnostic(errors.New(line))
@@ -56,6 +59,30 @@ func DiagnosticLogLines(logs []string, maxLines, maxBytes int) []string {
 		used += len(line)
 	}
 	return lines
+}
+
+// Remove entire Base64 runs when a long/padded fragment or an adjacent END marker
+// suggests a truncated PEM body. Short unpadded diagnostic words alone stay visible.
+func removePEMKeyFragments(lines []string) {
+	start := 0
+	suspected := false
+	for i, line := range lines {
+		line = strings.TrimSpace(line)
+		if pemBase64Line.MatchString(line) {
+			suspected = suspected || pemKeyFragment.MatchString(line)
+			continue
+		}
+		upper := strings.ToUpper(line)
+		keyEnd := strings.Contains(upper, "-----END") && strings.Contains(upper, "PRIVATE KEY-----")
+		if suspected || keyEnd {
+			clear(lines[start:i])
+		}
+		start = i + 1
+		suspected = false
+	}
+	if suspected {
+		clear(lines[start:])
+	}
 }
 
 func mayContainCredentials(line string) bool {

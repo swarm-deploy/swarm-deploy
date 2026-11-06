@@ -78,6 +78,42 @@ func TestDiagnosticLogLines(t *testing.T) {
 	}
 }
 
+func TestDiagnosticLogLinesShortPEMFragments(t *testing.T) {
+	longFragment := strings.Repeat("A", 64)
+	for _, tc := range []struct {
+		name string
+		logs []string
+		want []string
+	}{
+		{name: "without BEGIN", logs: []string{longFragment, longFragment, "AQIDBAUG", "-----END RSA PRIVATE KEY-----"}},
+		{name: "short fragment before END", logs: []string{"AQIDBAUG", "-----END RSA PRIVATE KEY-----"}},
+		{name: "adjacent short fragments before END", logs: []string{"AQID", "BAUG", "-----END RSA PRIVATE KEY-----"}},
+		{name: "without either marker", logs: []string{longFragment, "AQIDBAUG"}},
+		{name: "short fragments around long line", logs: []string{"AQID", longFragment, "BAUG", "BwgJCgsM"}},
+		{name: "multiline entry", logs: []string{longFragment + "\nAQIDBAUG\n-----END RSA PRIVATE KEY-----"}},
+		{name: "whitespace", logs: []string{"  " + longFragment, "\tAQIDBAUG  ", "  -----END RSA PRIVATE KEY-----"}},
+		{name: "ordinary short diagnostics", logs: []string{"INFO", "true", "node", "starting"},
+			want: []string{"INFO", "true", "node", "starting"}},
+		{name: "diagnostics separated from fragments", logs: []string{
+			"INFO", "true", "", longFragment, "AQIDBAUG", "-----END RSA PRIVATE KEY-----", "node", "starting",
+		}, want: []string{"INFO", "true", "node", "starting"}},
+		{name: "diagnostic breaks Base64 run", logs: []string{longFragment, "startup failed", "node", "starting"},
+			want: []string{"startup failed", "node", "starting"}},
+		{name: "complete block", logs: []string{"-----BEGIN PRIVATE KEY-----", "AQIDBAUG", "-----END PRIVATE KEY-----"}},
+		{name: "standalone long fragment", logs: []string{longFragment}},
+		{name: "standalone padded fragment", logs: []string{"YQ=="}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := DiagnosticLogLines(tc.logs, MaxDiagnosticLogLines, MaxDiagnosticLogBytes)
+			assert.Equal(t, tc.want, got)
+			text := strings.Join(got, "\n")
+			for _, fragment := range []string{longFragment, "AQID", "BAUG", "BwgJCgsM", "YQ=="} {
+				assert.NotContains(t, text, fragment)
+			}
+		})
+	}
+}
+
 func TestDiagnosticLogLinesWithSlogTextHandler(t *testing.T) {
 	var output bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&output, nil))
@@ -106,6 +142,10 @@ func TestDiagnosticLogLinesLimits(t *testing.T) {
 			want: []string{"first", strings.Repeat(".", 1594)}},
 		{name: "mask before truncation", logs: []string{"password=private-value err=failed"}, maxLines: 20, maxBytes: 11,
 			want: []string{"password=**"}},
+		{name: "PEM END beyond line budget", logs: []string{"state=failed", "AQIDBAUG", "-----END RSA PRIVATE KEY-----"},
+			maxLines: 2, maxBytes: 1600, want: []string{"state=failed"}},
+		{name: "PEM END beyond byte budget", logs: []string{"state=failed", "AQIDBAUG", "-----END RSA PRIVATE KEY-----"},
+			maxLines: 20, maxBytes: 16, want: []string{"state=failed"}},
 		{name: "zero lines", logs: []string{"state=failed"}, maxBytes: 1600},
 		{name: "zero bytes", logs: []string{"state=failed"}, maxLines: 20},
 	} {
