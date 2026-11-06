@@ -159,3 +159,43 @@ func TestWaiterWaitsForRecoverableOrHistoricalFailures(t *testing.T) {
 		})
 	}
 }
+
+func TestJobsVerifyExpectedSpecification(t *testing.T) {
+	for _, mode := range []string{replicatedJobServiceMode, globalJobServiceMode} {
+		for _, tc := range []struct {
+			name        string
+			image       string
+			missingSpec bool
+			want        ServiceState
+		}{
+			{name: "unexpected image", image: "api:3", want: ServicePending},
+			{name: "matching image", image: "api:2", want: ServiceReady},
+			{name: "expected specification unavailable", image: "api:3", missingSpec: true, want: ServiceReady},
+		} {
+			t.Run(mode+"/"+tc.name, func(t *testing.T) {
+				service := swarm.StackService{
+					ID: "job-id", Name: "job", Mode: mode, CompletedTasks: 1,
+					JobStatus: &dockerswarm.JobStatus{},
+				}
+				service.ServiceSpec.Name = "job"
+				service.ServiceSpec.TaskTemplate.ContainerSpec = &dockerswarm.ContainerSpec{Image: tc.image}
+				if mode == replicatedJobServiceMode {
+					service.ServiceSpec.Mode.ReplicatedJob = &dockerswarm.ReplicatedJob{}
+				} else {
+					service.ServiceSpec.Mode.GlobalJob = &dockerswarm.GlobalJob{}
+				}
+				expected := service.ServiceSpec
+				if tc.missingSpec {
+					expected = dockerswarm.ServiceSpec{}
+				} else {
+					expected.TaskTemplate.ContainerSpec = &dockerswarm.ContainerSpec{Image: "api:2"}
+				}
+				progress := evaluateTestService("job", swarm.StackService{}, service, nil, false, expected, nil)
+				assert.Equal(t, tc.want, progress.State, progress.Message)
+				if tc.want == ServicePending {
+					assert.Contains(t, progress.Message, "expected service specification")
+				}
+			})
+		}
+	}
+}
