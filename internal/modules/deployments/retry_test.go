@@ -50,8 +50,12 @@ func TestTerminalFailureSuppressesTicksAcrossRestartButAllowsManualAndChangedDes
 }
 
 func TestAutomaticRetryBackoffIsCappedAndPersistsAcrossRestart(t *testing.T) {
-	for _, outcome := range []CompletionOutcome{CompletionVerificationInterrupted, CompletionProcessInterrupted} {
-		t.Run(string(outcome), func(t *testing.T) {
+	for _, completion := range []Completion{
+		{Outcome: CompletionVerificationInterrupted},
+		{Outcome: CompletionProcessInterrupted},
+		{Outcome: CompletionApplyFailed, Diagnostic: errors.New("database read failed"), Retryable: true},
+	} {
+		t.Run(string(completion.Outcome), func(t *testing.T) {
 			now := time.Now().UTC()
 			clock := func() time.Time { return now }
 			db, service, bus := openService(t, WithClock(clock))
@@ -61,7 +65,6 @@ func TestAutomaticRetryBackoffIsCappedAndPersistsAcrossRestart(t *testing.T) {
 			for number := 1; number <= 20; number++ {
 				require.NotNil(t, attempt)
 				assert.Equal(t, number, attempt.Number)
-				completion := Completion{Outcome: outcome}
 				require.NoError(t, service.Complete(t.Context(), attempt.ID, completion))
 				service = NewService(db, bus, WithClock(clock))
 				for range 3 {
@@ -78,7 +81,7 @@ func TestAutomaticRetryBackoffIsCappedAndPersistsAcrossRestart(t *testing.T) {
 				require.NoError(t, err)
 			}
 			require.NotNil(t, attempt, "transient errors must remain retryable after many attempts")
-			require.NoError(t, service.Complete(t.Context(), attempt.ID, Completion{Outcome: outcome}))
+			require.NoError(t, service.Complete(t.Context(), attempt.ID, completion))
 			manual, err := service.StartIfChanged(t.Context(), "app", "manual", desired, false, StartOptions{ManualRetry: true})
 			require.NoError(t, err)
 			require.NotNil(t, manual)
@@ -91,14 +94,17 @@ func TestAutomaticRetryBackoffIsCappedAndPersistsAcrossRestart(t *testing.T) {
 	}
 }
 
-func TestApplyFailuresRetryOnlyWhenExplicitlyTemporary(t *testing.T) {
+func TestFailureRetryEligibility(t *testing.T) {
 	for _, tc := range []struct {
-		name       string
-		outcome    CompletionOutcome
-		diagnostic error
-		retry      bool
+		name          string
+		outcome       CompletionOutcome
+		diagnostic    error
+		explicitRetry bool
+		retry         bool
 	}{
 		{name: "unclassified apply", outcome: CompletionApplyFailed, diagnostic: errors.New("invalid service")},
+		{name: "pre-apply preparation", outcome: CompletionApplyFailed, diagnostic: errors.New("database read failed"), explicitRetry: true, retry: true},
+		{name: "policy rejection ignores explicit retry", outcome: CompletionPolicyRejected, explicitRetry: true},
 		{name: "unclassified init job", outcome: CompletionInitJobFailed, diagnostic: errors.New("exit 1")},
 		{name: "unclassified cleanup", outcome: CompletionCleanupFailed, diagnostic: errors.New("invalid operation")},
 		{name: "sanitized metadata deadline", outcome: CompletionApplyFailed, diagnostic: faults.SanitizeError(fmt.Errorf("private request: %w", context.DeadlineExceeded), "metadata lookup failed"), retry: true},
@@ -114,11 +120,14 @@ func TestApplyFailuresRetryOnlyWhenExplicitlyTemporary(t *testing.T) {
 			desired := desiredServices("api")
 			attempt, err := service.StartIfChanged(t.Context(), "app", "first", desired, true)
 			require.NoError(t, err)
-			completion := Completion{Outcome: tc.outcome, Diagnostic: tc.diagnostic}
+			completion := Completion{Outcome: tc.outcome, Diagnostic: tc.diagnostic, Retryable: tc.explicitRetry}
 			if tc.outcome == CompletionCleanupFailed {
 				completion.ObservedAt = &now
 			}
 			require.NoError(t, service.Complete(t.Context(), attempt.ID, completion))
+			stored, err := deploymentstore.NewStore(db).GetAttempt(t.Context(), attempt.ID)
+			require.NoError(t, err)
+			assert.Equal(t, tc.retry, stored.Retryable)
 			service = NewService(db, bus, WithClock(func() time.Time { return now }))
 			now = now.Add(2 * time.Hour)
 			next, err := service.StartIfChanged(t.Context(), "app", "tick", desired, false)
