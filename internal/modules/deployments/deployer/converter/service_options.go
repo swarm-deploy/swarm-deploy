@@ -3,6 +3,7 @@ package converter
 import (
 	"fmt"
 	"maps"
+	"net/netip"
 	"slices"
 	"strings"
 
@@ -38,7 +39,7 @@ func containerOptions(target *dockerswarm.ContainerSpec, service compose.Service
 		if !exists || host == "" || ip == "" {
 			return fmt.Errorf("extra_hosts: expected host:ip or host=ip")
 		}
-		target.Hosts = append(target.Hosts, ip+" "+host)
+		target.Hosts = append(target.Hosts, normalizeExtraHostIP(ip)+" "+host)
 	}
 	for _, name := range sortedKeys(service.Ulimits) {
 		limit := service.Ulimits[name]
@@ -49,6 +50,16 @@ func containerOptions(target *dockerswarm.ContainerSpec, service compose.Service
 		target.Ulimits = append(target.Ulimits, &container.Ulimit{Name: name, Soft: limit.Soft, Hard: limit.Hard})
 	}
 	return credentialSpec(target, service.CredentialSpec, resolved)
+}
+
+func normalizeExtraHostIP(ip string) string {
+	if strings.HasPrefix(ip, "[") && strings.HasSuffix(ip, "]") {
+		unbracketed := ip[1 : len(ip)-1]
+		if address, err := netip.ParseAddr(unbracketed); err == nil && address.Is6() && address.Zone() == "" {
+			return unbracketed
+		}
+	}
+	return ip
 }
 
 func credentialSpec(

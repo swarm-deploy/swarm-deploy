@@ -92,6 +92,9 @@ func TestServiceWaiterTerminalTaskFailures(t *testing.T) {
 					swarm.TaskStateShutdown, swarm.TaskStateFailed, serviceWaitTestTime.Add(time.Duration(attempt)*time.Second))
 				task.Spec = swarm.NewTaskSpec(service.ServiceSpec.TaskTemplate)
 				task.Node, task.ExitCode, task.Error = "node-a", &exit, "task startup failed"
+				if tc.global {
+					task.NodeAvailability = "active"
+				}
 				tasks = append(tasks, task)
 			}
 			manager := swarm.NewMockServiceManager(gomock.NewController(t))
@@ -113,6 +116,54 @@ func TestServiceWaiterTerminalTaskFailures(t *testing.T) {
 			assert.ErrorContains(t, err, failed.Error)
 			require.Len(t, result.FailedTasks, 1)
 			assert.Equal(t, failed.ID, result.FailedTasks[0].FailedTaskID)
+		})
+	}
+}
+
+func TestServiceWaiterGlobalFailureAfterDrain(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		drained bool
+	}{
+		{name: "active failure"},
+		{name: "drained failure", drained: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			service := testGlobalService("api", "api-id", 2, serviceWaitTestTime)
+			service.RunningTasks = 1
+			service.ServiceSpec.TaskTemplate.RestartPolicy = &dockerswarm.RestartPolicy{
+				Condition: dockerswarm.RestartPolicyConditionNone,
+			}
+			failed := testTask("failed", 0, swarm.TaskStateShutdown, swarm.TaskStateFailed, serviceWaitTestTime)
+			failed.Node, failed.Spec = "node-a", swarm.NewTaskSpec(service.ServiceSpec.TaskTemplate)
+			failed.NodeAvailability = "active"
+			healthy := testTask("healthy", 0, swarm.TaskStateRunning, swarm.TaskStateRunning, serviceWaitTestTime)
+			healthy.Node, healthy.Spec = "node-b", failed.Spec
+			if tc.drained {
+				failed.NodeAvailability = "drain"
+				service.DesiredTasks = 1
+			}
+			manager := swarm.NewMockServiceManager(gomock.NewController(t))
+			manager.EXPECT().ListServices(gomock.Any(), gomock.Any()).Return([]swarm.StackService{service}, nil).AnyTimes()
+			manager.EXPECT().ListTasks(gomock.Any(), service.ID).Return([]swarm.ServiceTask{failed, healthy}, nil).AnyTimes()
+			var progress []ServiceProgress
+			result, err := newTestServiceWaiter(manager).Wait(t.Context(), ServiceWaitRequest{
+				StackName: "app", ServiceNames: []string{"api"},
+				ExpectedSpecs: map[string]dockerswarm.ServiceSpec{"api": service.ServiceSpec},
+				Progress:      func(p ServiceProgress) { progress = append(progress, p) },
+			})
+			require.Len(t, progress, 1)
+			if tc.drained {
+				require.NoError(t, err)
+				assert.Equal(t, ServiceReady, progress[0].State)
+				assert.EqualValues(t, 1, progress[0].Running)
+				assert.EqualValues(t, 1, progress[0].Desired)
+				assert.Empty(t, result.FailedTasks)
+			} else {
+				require.ErrorIs(t, err, ErrConvergenceFailed)
+				assert.Equal(t, ServiceFailed, progress[0].State)
+				assert.Equal(t, failed.ID, progress[0].FailedTaskID)
+			}
 		})
 	}
 }

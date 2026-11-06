@@ -76,6 +76,17 @@ func serviceTaskHistories(
 	spec dockerswarm.ServiceSpec, tasks []swarm.ServiceTask, since time.Time,
 ) map[string][]swarm.ServiceTask {
 	byInstance := make(map[string][]swarm.ServiceTask)
+	desiredNodes := make(map[string]bool)
+	for _, task := range tasks {
+		// Swarm also shuts down terminal tasks on active nodes when restarts
+		// are exhausted. Node availability distinguishes those from drained history.
+		if spec.Mode.Global != nil && task.NodeAvailability != string(dockerswarm.NodeAvailabilityDrain) &&
+			(task.DesiredState == swarm.TaskStateRunning ||
+				task.NodeAvailability == string(dockerswarm.NodeAvailabilityActive) ||
+				task.NodeAvailability == string(dockerswarm.NodeAvailabilityPause)) {
+			desiredNodes[task.Node] = true
+		}
+	}
 	replicas := uint64(1)
 	if spec.Mode.Replicated != nil && spec.Mode.Replicated.Replicas != nil {
 		replicas = *spec.Mode.Replicated.Replicas
@@ -90,9 +101,10 @@ func serviceTaskHistories(
 				continue
 			}
 			key = strconv.Itoa(task.Slot)
-		} else if key == "" {
+		} else if key == "" || !desiredNodes[key] {
 			continue
 		}
+		// Keep shutdown attempts on relevant nodes so restart limits include history.
 		byInstance[key] = append(byInstance[key], task)
 	}
 	return byInstance

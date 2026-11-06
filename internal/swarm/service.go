@@ -61,6 +61,8 @@ type ServiceTask struct {
 	ID string
 	// Node is a task node identifier.
 	Node string
+	// NodeAvailability is current node availability, populated for terminal global-service tasks.
+	NodeAvailability string
 	// Slot is the task slot within a replicated service.
 	Slot int
 	// JobIteration identifies the job execution that created this task; nil for ordinary services.
