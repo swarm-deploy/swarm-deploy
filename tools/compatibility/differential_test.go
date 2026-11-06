@@ -25,6 +25,12 @@ func TestDockerCLIDifferential(t *testing.T) {
 		`command: 'echo "" end'`,
 		`entrypoint: 'echo hello # ignored'`,
 		`command: [echo, '', 'a b', '$VALUE']`,
+		`extra_hosts: ['db=[2001:db8::1]']`,
+		`extra_hosts: ['db:[2001:db8::1]']`,
+		`extra_hosts: ['db:2001:db8::1']`,
+		`extra_hosts: ['db=2001:db8::1']`,
+		`extra_hosts: {db: '[2001:db8::1]'}`,
+		`extra_hosts: {db: '2001:db8::1'}`,
 		`user: '1000:1000'
     working_dir: /app
     hostname: web

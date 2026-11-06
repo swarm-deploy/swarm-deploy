@@ -4,7 +4,6 @@ package waiter
 import (
 	"fmt"
 	"reflect"
-	"strings"
 	"time"
 
 	dockerswarm "github.com/docker/docker/api/types/swarm"
@@ -451,21 +450,7 @@ func nodeMatchesConstraints(constraints []constraint.Constraint, node *swarmkita
 func placementNodesByID(nodes []swarm.Node) map[string]*swarmkitapi.Node {
 	mapped := make(map[string]*swarmkitapi.Node, len(nodes))
 	for _, node := range nodes {
-		role := swarmkitapi.NodeRoleWorker
-		if strings.EqualFold(node.Role, string(dockerswarm.NodeRoleManager)) {
-			role = swarmkitapi.NodeRoleManager
-		}
-		mapped[node.ID] = &swarmkitapi.Node{
-			ID:   node.ID,
-			Role: role,
-			Spec: swarmkitapi.NodeSpec{Annotations: swarmkitapi.Annotations{Labels: node.Labels}},
-			Description: &swarmkitapi.NodeDescription{
-				Hostname: node.Hostname,
-				Platform: &swarmkitapi.Platform{OS: node.PlatformOS, Architecture: node.PlatformArchitecture},
-				Engine:   &swarmkitapi.EngineDescription{Labels: node.EngineLabels},
-			},
-			Status: swarmkitapi.NodeStatus{Addr: node.Addr},
-		}
+		mapped[node.ID] = node.ConstraintNode()
 	}
 	return mapped
 }

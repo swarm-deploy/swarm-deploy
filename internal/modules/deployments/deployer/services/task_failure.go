@@ -7,6 +7,7 @@ import (
 	"time"
 
 	dockerswarm "github.com/docker/docker/api/types/swarm"
+	"github.com/moby/swarmkit/v2/manager/constraint"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 
@@ -76,6 +77,7 @@ func serviceTaskHistories(
 	spec dockerswarm.ServiceSpec, tasks []swarm.ServiceTask, since time.Time,
 ) map[string][]swarm.ServiceTask {
 	byInstance := make(map[string][]swarm.ServiceTask)
+	desiredNodes := globalServiceTaskNodes(spec, tasks)
 	replicas := uint64(1)
 	if spec.Mode.Replicated != nil && spec.Mode.Replicated.Replicas != nil {
 		replicas = *spec.Mode.Replicated.Replicas
@@ -90,12 +92,49 @@ func serviceTaskHistories(
 				continue
 			}
 			key = strconv.Itoa(task.Slot)
-		} else if key == "" {
+		} else if key == "" || !desiredNodes[key] {
 			continue
 		}
+		// Keep shutdown attempts on relevant nodes so restart limits include history.
 		byInstance[key] = append(byInstance[key], task)
 	}
 	return byInstance
+}
+
+func globalServiceTaskNodes(spec dockerswarm.ServiceSpec, tasks []swarm.ServiceTask) map[string]bool {
+	if spec.Mode.Global == nil {
+		return nil
+	}
+	var constraints []constraint.Constraint
+	if spec.TaskTemplate.Placement != nil {
+		parsed, err := constraint.Parse(spec.TaskTemplate.Placement.Constraints)
+		if err != nil {
+			return nil
+		}
+		constraints = parsed
+	}
+	desired := make(map[string]bool)
+	for _, task := range tasks {
+		node := task.NodeInfo
+		if node == nil {
+			if task.DesiredState == swarm.TaskStateRunning && len(constraints) == 0 {
+				desired[task.Node] = true
+			}
+			continue
+		}
+		if node.Availability == string(dockerswarm.NodeAvailabilityDrain) {
+			continue
+		}
+		// Swarm also shuts down exhausted tasks on eligible nodes. Check current
+		// node attributes against the service constraints before keeping their history.
+		if (task.DesiredState == swarm.TaskStateRunning ||
+			node.Availability == string(dockerswarm.NodeAvailabilityActive) ||
+			node.Availability == string(dockerswarm.NodeAvailabilityPause)) &&
+			constraint.NodeMatches(constraints, node.ConstraintNode()) {
+			desired[task.Node] = true
+		}
+	}
+	return desired
 }
 
 func terminalExhaustedTask(

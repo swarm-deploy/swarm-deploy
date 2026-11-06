@@ -1,6 +1,12 @@
 package swarm
 
-import "errors"
+import (
+	"errors"
+	"strings"
+
+	dockerswarm "github.com/docker/docker/api/types/swarm"
+	swarmkitapi "github.com/moby/swarmkit/v2/api"
+)
 
 // ErrNodeNotFound means that node does not exist in docker.
 var ErrNodeNotFound = errors.New("node not found")
@@ -54,6 +60,24 @@ type Node struct {
 	MemoryBytes int64 `json:"memory_bytes"`
 	// Labels contains custom Docker node labels.
 	Labels map[string]string `json:"labels"`
+}
+
+// ConstraintNode returns the current node attributes used by SwarmKit placement constraints.
+func (n Node) ConstraintNode() *swarmkitapi.Node {
+	role := swarmkitapi.NodeRoleWorker
+	if strings.EqualFold(n.Role, string(dockerswarm.NodeRoleManager)) {
+		role = swarmkitapi.NodeRoleManager
+	}
+	return &swarmkitapi.Node{
+		ID: n.ID, Role: role,
+		Spec: swarmkitapi.NodeSpec{Annotations: swarmkitapi.Annotations{Labels: n.Labels}},
+		Description: &swarmkitapi.NodeDescription{
+			Hostname: n.Hostname,
+			Platform: &swarmkitapi.Platform{OS: n.PlatformOS, Architecture: n.PlatformArchitecture},
+			Engine:   &swarmkitapi.EngineDescription{Labels: n.EngineLabels},
+		},
+		Status: swarmkitapi.NodeStatus{Addr: n.Addr},
+	}
 }
 
 // NodeLabelUpdateRequest describes a Docker node label mutation.

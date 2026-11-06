@@ -135,7 +135,8 @@ func TestTerminalServiceTaskFailureWithFiniteRetries(t *testing.T) {
 	exit := 1
 	maxAttempts := uint64(2)
 	window := 30 * time.Second
-	initial := swarm.ServiceTask{ID: "first", Slot: 1, Node: "node-a", CurrentState: swarm.TaskStateFailed,
+	initial := swarm.ServiceTask{ID: "first", Slot: 1, Node: "node-a", NodeInfo: &swarm.Node{Availability: "active"},
+		DesiredState: swarm.TaskStateShutdown, CurrentState: swarm.TaskStateFailed,
 		CreatedAt: now, UpdatedAt: now.Add(time.Second), ExitCode: &exit}
 	retryOne := initial
 	retryOne.ID = "retry-1"
@@ -185,7 +186,7 @@ func TestTerminalServiceTaskFailureWithFiniteRetries(t *testing.T) {
 			max: &maxAttempts, window: &window, tasks: []swarm.ServiceTask{old, oldRetry, retryTwo}},
 		{name: "global healthy node does not override failure", global: true,
 			condition: dockerswarm.RestartPolicyConditionNone, tasks: []swarm.ServiceTask{initial,
-				{ID: "healthy", Node: "node-b", CurrentState: swarm.TaskStateRunning,
+				{ID: "healthy", Node: "node-b", DesiredState: swarm.TaskStateRunning, CurrentState: swarm.TaskStateRunning,
 					CreatedAt: now, UpdatedAt: now}}, want: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -238,6 +239,7 @@ func TestApplyManualRetryRestartsExhaustedServices(t *testing.T) {
 			manager.EXPECT().Inspect(gomock.Any(), desired.Name).Return(current, nil)
 			if tc.retry {
 				first := swarm.ServiceTask{ID: "initial", Slot: 1, Node: "node-a",
+					NodeInfo: &swarm.Node{Availability: "active"}, DesiredState: swarm.TaskStateShutdown,
 					CurrentState: swarm.TaskStateFailed, ExitCode: &exit,
 					CreatedAt: now.Add(-3 * time.Second), UpdatedAt: now.Add(-2 * time.Second),
 					Spec: swarm.NewTaskSpec(desired.TaskTemplate)}
@@ -268,6 +270,8 @@ func TestApplyRetryAfterCompletedRollout(t *testing.T) {
 	for _, tc := range []struct {
 		name        string
 		global      bool
+		drained     bool
+		ineligible  bool
 		finite      bool
 		healthy     bool
 		replacement swarm.TaskState
@@ -279,6 +283,10 @@ func TestApplyRetryAfterCompletedRollout(t *testing.T) {
 		{name: "global terminal failure", global: true, wantUpdate: true},
 		{name: "replicated finite attempts exhausted", finite: true, wantUpdate: true},
 		{name: "global finite attempts exhausted", global: true, finite: true, wantUpdate: true},
+		{name: "drained global failure", global: true, drained: true},
+		{name: "drained global exhausted attempts", global: true, drained: true, finite: true},
+		{name: "global node no longer matches placement", global: true, ineligible: true},
+		{name: "exhausted global node no longer matches placement", global: true, ineligible: true, finite: true},
 		{name: "healthy service", healthy: true},
 		{name: "healthy global service", global: true, healthy: true},
 		{name: "replicated replacement pending", replacement: swarm.TaskStatePending},
@@ -295,6 +303,9 @@ func TestApplyRetryAfterCompletedRollout(t *testing.T) {
 			desired.TaskTemplate.RestartPolicy = &dockerswarm.RestartPolicy{Condition: dockerswarm.RestartPolicyConditionNone}
 			if tc.global {
 				desired.Mode = dockerswarm.ServiceMode{Global: &dockerswarm.GlobalService{}}
+			}
+			if tc.ineligible {
+				desired.TaskTemplate.Placement = &dockerswarm.Placement{Constraints: []string{"node.labels.zone == east"}}
 			}
 			if tc.finite {
 				one := uint64(1)
@@ -313,10 +324,16 @@ func TestApplyRetryAfterCompletedRollout(t *testing.T) {
 			if !tc.disabled && !tc.external {
 				exit := 23
 				task := swarm.ServiceTask{ID: "failed", Slot: 1, Node: "node-a", ExitCode: &exit,
+					DesiredState: swarm.TaskStateShutdown,
+					NodeInfo:     &swarm.Node{ID: "node-a", Availability: "active", Labels: map[string]string{"zone": "east"}},
 					CurrentState: swarm.TaskStateFailed, CreatedAt: now, UpdatedAt: now,
 					Spec: swarm.NewTaskSpec(desired.TaskTemplate)}
 				if tc.healthy {
 					task.CurrentState = swarm.TaskStateRunning
+					task.DesiredState = swarm.TaskStateRunning
+				}
+				if tc.ineligible {
+					task.NodeInfo.Labels["zone"] = "west"
 				}
 				tasks := []swarm.ServiceTask{task}
 				if tc.finite || tc.replacement != "" {
@@ -324,8 +341,22 @@ func TestApplyRetryAfterCompletedRollout(t *testing.T) {
 					next.ID, next.CreatedAt, next.UpdatedAt = "replacement", now.Add(time.Second), now.Add(time.Second)
 					if tc.replacement != "" {
 						next.CurrentState = tc.replacement
+						next.DesiredState = swarm.TaskStateRunning
 					}
 					tasks = append(tasks, next)
+				}
+				if tc.drained || tc.ineligible {
+					if tc.drained {
+						for i := range tasks {
+							tasks[i].DesiredState = swarm.TaskStateShutdown
+							tasks[i].NodeInfo = &swarm.Node{ID: "node-a", Availability: "drain"}
+						}
+					}
+					healthy := task
+					healthy.ID, healthy.Node, healthy.CurrentState = "healthy", "node-b", swarm.TaskStateRunning
+					healthy.DesiredState = swarm.TaskStateRunning
+					healthy.NodeInfo = &swarm.Node{ID: "node-b", Availability: "active", Labels: map[string]string{"zone": "east"}}
+					tasks = append(tasks, healthy)
 				}
 				calls := 1
 				if tc.wantUpdate {
@@ -342,6 +373,89 @@ func TestApplyRetryAfterCompletedRollout(t *testing.T) {
 				[]dockerswarm.ServiceSpec{desired}, ApplyOptions{RetryFailedUpdates: !tc.disabled})
 			require.NoError(t, err)
 			assert.Equal(t, tc.wantUpdate, len(result.ChangedServices) == 1)
+		})
+	}
+}
+
+func TestTerminalServiceTaskFailureDesiredNodes(t *testing.T) {
+	now := time.Now()
+	maxAttempts := uint64(2)
+	window := time.Second
+	initial := swarm.ServiceTask{ID: "initial", Slot: 1, Node: "node-a",
+		DesiredState: swarm.TaskStateShutdown, CurrentState: swarm.TaskStateFailed,
+		CreatedAt: now, UpdatedAt: now.Add(time.Second)}
+	retry := initial
+	retry.ID, retry.CreatedAt, retry.UpdatedAt = "retry", now.Add(2*time.Second), now.Add(3*time.Second)
+	active := initial
+	active.ID, active.CreatedAt, active.UpdatedAt = "active", now.Add(4*time.Second), now.Add(5*time.Second)
+	active.DesiredState = swarm.TaskStateRunning
+	shutdownActive := active
+	shutdownActive.DesiredState = swarm.TaskStateShutdown
+	shutdownActive.NodeInfo = &swarm.Node{Availability: "active"}
+	paused := shutdownActive
+	paused.NodeInfo = &swarm.Node{Availability: "pause"}
+	drained := shutdownActive
+	drained.NodeInfo = &swarm.Node{Availability: "drain"}
+	rejected := active
+	rejected.CurrentState = swarm.TaskStateRejected
+	removed := initial
+	removed.DesiredState = swarm.TaskStateRemove
+	healthy := active
+	healthy.ID, healthy.Node, healthy.Slot, healthy.CurrentState = "healthy", "node-b", 2, swarm.TaskStateRunning
+	pending := active
+	pending.ID, pending.CreatedAt, pending.CurrentState = "pending", now.Add(6*time.Second), swarm.TaskStatePending
+
+	for _, tc := range []struct {
+		name       string
+		replicated bool
+		max        *uint64
+		window     *time.Duration
+		tasks      []swarm.ServiceTask
+		wantID     string
+	}{
+		{name: "drained node", tasks: []swarm.ServiceTask{drained, healthy}},
+		{name: "removed node", tasks: []swarm.ServiceTask{removed, healthy}},
+		{name: "no desired nodes", tasks: []swarm.ServiceTask{initial}},
+		{name: "active failure with healthy peer", tasks: []swarm.ServiceTask{active, healthy}, wantID: "active"},
+		{name: "shutdown failure on active node", tasks: []swarm.ServiceTask{shutdownActive, healthy}, wantID: "active"},
+		{name: "shutdown failure on paused node", tasks: []swarm.ServiceTask{paused, healthy}, wantID: "active"},
+		{name: "active rejection with healthy peer", tasks: []swarm.ServiceTask{rejected, healthy}, wantID: "active"},
+		{name: "active exhausted history", max: &maxAttempts, tasks: []swarm.ServiceTask{retry, active, initial, healthy}, wantID: "active"},
+		{name: "shutdown exhausted history on active node", max: &maxAttempts, tasks: []swarm.ServiceTask{retry, shutdownActive, initial, healthy}, wantID: "active"},
+		{name: "initial attempt is not a restart", max: &maxAttempts, tasks: []swarm.ServiceTask{initial, active, healthy}},
+		{name: "attempts outside window", max: &maxAttempts, window: &window, tasks: []swarm.ServiceTask{initial, retry, active, healthy}},
+		{name: "drained exhausted history", max: &maxAttempts, tasks: []swarm.ServiceTask{initial, retry, drained, healthy}},
+		{name: "pending replacement", max: &maxAttempts, tasks: []swarm.ServiceTask{initial, retry, active, pending, healthy}},
+		{name: "replicated shutdown failure", replicated: true, tasks: []swarm.ServiceTask{initial, healthy}, wantID: "initial"},
+		{name: "replicated removed failure", replicated: true, tasks: []swarm.ServiceTask{removed, healthy}, wantID: "initial"},
+		{name: "replicated exhausted history", replicated: true, max: &maxAttempts, tasks: []swarm.ServiceTask{initial, retry, drained, healthy}, wantID: "active"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			spec := serviceSpec("api", "busybox:1.36")
+			if !tc.replicated {
+				spec.Mode = dockerswarm.ServiceMode{Global: &dockerswarm.GlobalService{}}
+			}
+			spec.TaskTemplate.RestartPolicy = &dockerswarm.RestartPolicy{
+				Condition: dockerswarm.RestartPolicyConditionNone, MaxAttempts: tc.max, Window: tc.window,
+			}
+			if tc.max != nil {
+				spec.TaskTemplate.RestartPolicy.Condition = dockerswarm.RestartPolicyConditionOnFailure
+			}
+			tasks := append([]swarm.ServiceTask(nil), tc.tasks...)
+			for i := range tasks {
+				tasks[i].Spec = swarm.NewTaskSpec(spec.TaskTemplate)
+			}
+			failed, found := TerminalServiceTaskFailure(spec, tasks, now.Add(-time.Minute))
+			assert.Equal(t, tc.wantID != "", found)
+			assert.Equal(t, tc.wantID, failed.ID)
+
+			manager := swarm.NewMockServiceManager(gomock.NewController(t))
+			current := service("api-id", 7, spec)
+			current.CreatedAt = now.Add(-time.Minute)
+			manager.EXPECT().ListTasks(gomock.Any(), current.ID).Return(tasks, nil)
+			required, err := New(manager, &registry.NopAuthManager{}).retryRequired(t.Context(), current, true)
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantID != "", required)
 		})
 	}
 }

@@ -338,11 +338,16 @@ func (m *serviceManager) ListTasks(ctx context.Context, serviceIDOrName string) 
 		return nil, fmt.Errorf("list tasks for service %s: %w", serviceIDOrName, classifyDockerError(err))
 	}
 
+	nodes, err := m.taskNodes(ctx, tasks)
+	if err != nil {
+		return nil, fmt.Errorf("list nodes for service %s tasks: %w", serviceIDOrName, err)
+	}
 	out := make([]ServiceTask, 0, len(tasks))
 	for _, task := range tasks {
 		mapped := ServiceTask{
 			ID:           task.ID,
 			Node:         task.NodeID,
+			NodeInfo:     nodes[task.NodeID],
 			Slot:         task.Slot,
 			JobIteration: task.JobIteration,
 			DesiredState: TaskState(task.DesiredState),
@@ -362,6 +367,36 @@ func (m *serviceManager) ListTasks(ctx context.Context, serviceIDOrName string) 
 	}
 
 	return out, nil
+}
+
+func (m *serviceManager) taskNodes(
+	ctx context.Context, tasks []dockerswarm.Task,
+) (map[string]*Node, error) {
+	needsNodes := false
+	for _, task := range tasks {
+		policy := task.Spec.RestartPolicy
+		if policy == nil || (policy.Condition != dockerswarm.RestartPolicyConditionNone &&
+			(policy.MaxAttempts == nil || *policy.MaxAttempts == 0)) {
+			continue
+		}
+		if task.Slot == 0 && task.JobIteration == nil && task.NodeID != "" &&
+			(task.Status.State == dockerswarm.TaskStateFailed || task.Status.State == dockerswarm.TaskStateRejected) {
+			needsNodes = true
+			break
+		}
+	}
+	byID := make(map[string]*Node)
+	if !needsNodes {
+		return byID, nil
+	}
+	nodes, err := newNodeManager(m.dockerClient).List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, node := range nodes {
+		byID[node.ID] = &node
+	}
+	return byID, nil
 }
 
 // GetTask returns compact runtime details for a Docker task identifier.
