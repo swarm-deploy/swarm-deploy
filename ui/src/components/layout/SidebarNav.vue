@@ -34,7 +34,6 @@ const links = [
   { to: "/cluster", label: "Cluster", icon: "cluster" },
   { to: "/networks", label: "Networks", icon: "networks" },
   { to: "/secrets", label: "Secrets", icon: "secrets" },
-  { to: "/recommendations", label: "Recommendations", icon: "recommendations" },
 ];
 
 const secondaryLinks = [{ to: "/events", label: "Events & Alerts", icon: "events" }];
