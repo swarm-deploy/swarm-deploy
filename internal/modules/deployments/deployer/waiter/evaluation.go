@@ -49,6 +49,10 @@ func evaluateService(
 	if updateProgress, terminal := terminalServiceUpdateProgress(baseline, service, tasks, restored, progress); terminal {
 		return updateProgress
 	}
+	if expected.Name != "" && !services.SpecsEqual(service.ServiceSpec, expected) {
+		progress.Message = "waiting for expected service specification"
+		return progress
+	}
 	if service.Mode == replicatedJobServiceMode || service.Mode == globalJobServiceMode {
 		return jobProgress(progress, baseline, service, tasks)
 	}
@@ -59,11 +63,6 @@ func evaluateService(
 	}
 	unresolved = unresolved && !restored
 	mode := serviceVerificationMode(baseline, service, unresolved, generation)
-	if mode != services.VerifyNewGeneration && expected.Name != "" &&
-		!services.SpecsEqual(service.ServiceSpec, expected) {
-		progress.Message = "waiting for expected service specification"
-		return progress
-	}
 	desired = observedDesiredTasks(service, tasks)
 	progress.Desired = desired
 	if globalSchedulerPending(baseline, service, desired) {
@@ -92,13 +91,11 @@ func runningServiceProgress(
 	progress.Running = countVerifiedRunningTasks(
 		tasks, service.ServiceSpec.TaskTemplate, mode, cutoff, placementNodes,
 	)
-	if service.UpdateStatus == nil {
-		if failed, terminal := services.NonRestartingTaskFailure(service.ServiceSpec, tasks, cutoff); terminal {
-			progress.State = ServiceFailed
-			progress.FailedTaskID = failed.ID
-			progress.Message = "task exited with restart disabled" + formatTaskDiagnostic(failed)
-			return progress
-		}
+	if failed, terminal := services.TerminalServiceTaskFailure(service.ServiceSpec, tasks, cutoff); terminal {
+		progress.State = ServiceFailed
+		progress.FailedTaskID = failed.ID
+		progress.Message = "task failed with no restarts remaining" + formatTaskDiagnostic(failed)
+		return progress
 	}
 	if updatePending(service.UpdateStatus) {
 		progress.Message = updateProgressMessage(service.UpdateStatus)
