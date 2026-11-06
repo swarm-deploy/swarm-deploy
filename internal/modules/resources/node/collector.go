@@ -69,6 +69,9 @@ func (c *Collector) watch(ctx context.Context, retryPending bool) error {
 	// A failed snapshot must be retried even if Docker sends no more events.
 	// A successful reconciliation clears the retry state to avoid needless polling.
 	reconcile := func(reason string) {
+		if ctx.Err() != nil {
+			return
+		}
 		retryPending = !c.reconcileWithWarning(ctx, reason)
 	}
 
