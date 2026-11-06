@@ -59,7 +59,7 @@ func evaluateService(
 	}
 	unresolved = unresolved && !restored
 	mode := serviceVerificationMode(baseline, service, unresolved, generation)
-	if mode == services.VerifyPlacementCompatibleTasks && expected.Name != "" &&
+	if mode != services.VerifyNewGeneration && expected.Name != "" &&
 		!services.SpecsEqual(service.ServiceSpec, expected) {
 		progress.Message = "waiting for expected service specification"
 		return progress

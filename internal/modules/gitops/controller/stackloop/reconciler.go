@@ -149,6 +149,12 @@ func (r *Reconciler) Reconcile(
 		IsManualSync:     req.IsManual,
 		HasPreviousDrift: stackHasDrift(prev),
 		Desired:          prepared,
+		PendingSelfHeal:  map[string]bool{},
+	}
+	for name, service := range prev.Services {
+		if service.SelfHealPending {
+			pl.PendingSelfHeal[name] = true
+		}
 	}
 
 	err = r.pipeline.Run(ctx, pl)
@@ -197,24 +203,24 @@ func (r *Reconciler) processResult(
 	serviceStates := make(map[string]model.Service, len(desired.Compose.Services))
 	for _, service := range desired.Compose.Services {
 		state := model.Service{
-			Image:      service.Image,
-			SyncStatus: model.SyncStatusSynced,
-			SyncAt:     now,
+			Image:           service.Image,
+			SyncStatus:      model.SyncStatusSynced,
+			SyncAt:          now,
+			SelfHealPending: payload.Attempt == nil && payload.PendingSelfHeal[service.Name],
+		}
+		if state.SelfHealPending {
+			state.SyncStatus = model.SyncStatusOutOfSync
+			state.SyncError = prevState.Services[service.Name].SyncError
+			if _, drifted := payload.RemainingDrift[service.Name]; !drifted {
+				payload.RemainingDrift[service.Name] = drift.ServiceDrift{ServiceName: service.Name, Reason: state.SyncError}
+			}
 		}
 
 		if serviceDrift, serviceDrifted := payload.RemainingDrift[service.Name]; serviceDrifted {
 			state.SyncStatus = model.SyncStatusOutOfSync
 			state.SyncError = serviceDrift.Reason
 		}
-		if remediation, remediated := payload.Remediations[service.Name]; remediated && remediation.attempted {
-			if remediation.converged {
-				state.SyncStatus = model.SyncStatusSynced
-				state.SyncError = ""
-			} else {
-				state.SyncStatus = model.SyncStatusOutOfSync
-				state.SyncError = remediation.failure
-			}
-		}
+		state = applySelfHealState(state, service.Name, payload)
 
 		if payload.RetryDeferred && slices.Contains(payload.ProtectedServices, service.Name) {
 			state = prevState.Services[service.Name]
@@ -275,8 +281,10 @@ func (r *Reconciler) recordFailure(
 				state.Services = map[string]model.Service{}
 			}
 			for _, service := range services {
+				previous := state.Services[service.Name]
 				state.Services[service.Name] = model.Service{
 					Image: service.Image, SyncStatus: model.SyncStatusOutOfSync, SyncAt: time.Now(),
+					SelfHealPending: previous.SelfHealPending, SyncError: previous.SyncError,
 				}
 			}
 			state.Status = model.NewStackStatus(state.Services)

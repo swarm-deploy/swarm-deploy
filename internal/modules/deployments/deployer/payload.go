@@ -36,6 +36,7 @@ type deployStackPayload struct {
 
 type deployServicePayload struct {
 	applyPayload
+	verifyOnly        bool
 	stackName         string
 	sourceComposePath string
 	serviceName       string
