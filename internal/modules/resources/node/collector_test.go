@@ -522,6 +522,7 @@ func TestCollectorRunRetriesFailedNodeEventWithoutFurtherEvents(t *testing.T) {
 	}).Return(nil).Times(1)
 
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	done := make(chan error, 1)
 	go func() { done <- collector.Run(ctx) }()
 	requireSignal(t, initial)
@@ -531,7 +532,12 @@ func TestCollectorRunRetriesFailedNodeEventWithoutFurtherEvents(t *testing.T) {
 		return err == nil && len(nodes) == 1 && nodes[0].ID == "new"
 	}, time.Second, time.Millisecond)
 	cancel()
-	require.NoError(t, <-done)
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+	case <-time.After(time.Second):
+		require.FailNow(t, "timed out waiting for collector shutdown")
+	}
 }
 
 func lastNonNil(lists [][]swarm.Node) []swarm.Node {
