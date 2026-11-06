@@ -107,6 +107,8 @@ type StackRequest struct {
 
 // ServiceRequest contains one service remediation without stack-wide Init Jobs or pruning.
 type ServiceRequest struct {
+	// VerifyOnly observes convergence without reconciling resources or applying services.
+	VerifyOnly bool
 	// StackName identifies the Docker stack namespace.
 	StackName string
 	// SourceComposePath is the original Compose path used to resolve resource files.

@@ -89,19 +89,22 @@ func (d *Deployer) newDeployStackPipeline() *pipe.Pipeline[*deployStackPayload] 
 func (d *Deployer) newDeployServicePipeline() *pipe.Pipeline[*deployServicePayload] {
 	pipeline := pipe.NewPipelineWithConfig[*deployServicePayload](pipelineConfig(deployServicePipelineName))
 	attrs := pipe.Attributes[*deployServicePayload]{Trace: serviceTraceAttributes}
+	apply := pipe.When(func(payload *deployServicePayload) bool { return !payload.verifyOnly })
 	pipeline.Add(pipe.Step[*deployServicePayload]{Name: stepPrepareService, Attributes: attrs, Run: d.prepareService})
 	pipeline.Add(pipe.Step[*deployServicePayload]{Name: stepValidateDesired, Attributes: attrs, Run: d.validateService})
 	pipeline.Add(pipe.Step[*deployServicePayload]{
-		Name: stepReconcileNetworks, Attributes: attrs, Run: d.reconcileServiceNetworks,
+		Name: stepReconcileNetworks, Attributes: attrs, When: apply, Run: d.reconcileServiceNetworks,
 	})
 	pipeline.Add(pipe.Step[*deployServicePayload]{
-		Name: stepReconcileResources, Attributes: attrs, Run: d.reconcileServiceResources,
+		Name: stepReconcileResources, Attributes: attrs, When: apply, Run: d.reconcileServiceResources,
 	})
 	pipeline.Add(pipe.Step[*deployServicePayload]{Name: stepConvertStack, Attributes: attrs, Run: d.convertService})
 	pipeline.Add(pipe.Step[*deployServicePayload]{
 		Name: stepCaptureBaseline, Attributes: attrs, Run: d.captureServiceBaseline,
 	})
-	pipeline.Add(pipe.Step[*deployServicePayload]{Name: stepApplyService, Attributes: attrs, Run: d.applyService})
+	pipeline.Add(pipe.Step[*deployServicePayload]{
+		Name: stepApplyService, Attributes: attrs, When: apply, Run: d.applyService,
+	})
 	pipeline.Add(pipe.Step[*deployServicePayload]{Name: stepWaitConvergence, Attributes: attrs, Run: d.waitForService})
 	return pipeline
 }
@@ -270,7 +273,7 @@ func (d *Deployer) waitForService(ctx context.Context, payload *deployServicePay
 	}
 	verification, err := d.wait(waitCtx, waiterpkg.ServiceWaitRequest{
 		StackName:    payload.stackName,
-		ServiceNames: verificationServiceNames(payload.stackName, payload.converted.Services, payload.applyPayload),
+		ServiceNames: convertedServiceNames(payload.stackName, payload.converted.Services),
 		Baseline:     payload.baseline, AppliedServices: payload.changed,
 		UpdateGenerations: payload.updateGenerations,
 		ExpectedSpecs:     expectedServiceSpecs(payload.stackName, payload.converted.Services),

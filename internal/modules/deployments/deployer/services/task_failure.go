@@ -152,7 +152,8 @@ func (a *Applier) retryRequired(ctx context.Context, service dockerswarm.Service
 		return true, nil
 	}
 	policy := service.Spec.TaskTemplate.RestartPolicy
-	if (!job && service.UpdateStatus != nil) || (job && service.JobStatus == nil) || policy == nil {
+	if (!job && service.UpdateStatus != nil && service.UpdateStatus.State != dockerswarm.UpdateStateCompleted) ||
+		(job && service.JobStatus == nil) || policy == nil {
 		return false, nil
 	}
 	if !job && policy.Condition != dockerswarm.RestartPolicyConditionNone &&

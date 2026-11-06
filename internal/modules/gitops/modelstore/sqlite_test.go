@@ -17,7 +17,12 @@ func TestSQLRuntimeRollbackAndRestart(t *testing.T) {
 	db, err := storage.OpenSQLite(ctx, dir)
 	require.NoError(t, err)
 	repo := NewSQLStore(db)
-	require.NoError(t, repo.Update(ctx, func(s *model.Runtime) { s.GitRevision = "baseline" }))
+	require.NoError(t, repo.Update(ctx, func(s *model.Runtime) {
+		s.GitRevision = "baseline"
+		s.Stacks["app"] = model.Stack{Services: map[string]model.Service{
+			"api": {SelfHealPending: true, SyncStatus: model.SyncStatusOutOfSync, SyncError: "Self Heal Convergence Failed"},
+		}}
+	}))
 	require.ErrorIs(t, db.WithinTransaction(ctx, func(ctx context.Context) error {
 		require.NoError(t, repo.Update(ctx, func(s *model.Runtime) { s.GitRevision = "rolled-back" }))
 		return assert.AnError
@@ -29,6 +34,8 @@ func TestSQLRuntimeRollbackAndRestart(t *testing.T) {
 	state, err := NewSQLStore(db).Read(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, "baseline", state.GitRevision)
+	assert.True(t, state.Stacks["app"].Services["api"].SelfHealPending)
+	assert.Equal(t, "Self Heal Convergence Failed", state.Stacks["app"].Services["api"].SyncError)
 }
 
 func TestSQLRuntimeConcurrentUpdatesAndWriteErrors(t *testing.T) {

@@ -26,6 +26,9 @@ const initJobPersistenceTimeout = 2 * time.Second
 // ErrRegistryAuthRefresh marks credential maintenance failure without a deployment Attempt.
 var ErrRegistryAuthRefresh = errors.New("registry authentication maintenance failed")
 
+// ErrConvergenceFailed identifies a confirmed terminal failure rather than an unknown execution outcome.
+var ErrConvergenceFailed = waiter.ErrConvergenceFailed
+
 // Executor is the synchronous public deployment execution boundary.
 type Executor interface {
 	// Execute runs and completes one stack deployment when the desired state needs an Attempt.
@@ -58,6 +61,8 @@ type ExecuteRequest struct {
 
 // ExecuteServiceRequest contains one drift-remediation execution.
 type ExecuteServiceRequest struct {
+	// VerifyOnly observes a previous remediation without applying another update.
+	VerifyOnly bool
 	// StackName identifies the owning stack.
 	StackName string
 	// SourceComposePath is the source Compose path used for resource resolution.
@@ -222,6 +227,7 @@ func (c *Controller) unchangedResult(ctx context.Context, req ExecuteRequest) (E
 // ExecuteService runs one synchronous service remediation through the owned Deployer.
 func (c *Controller) ExecuteService(ctx context.Context, req ExecuteServiceRequest) (deployer.Result, error) {
 	return c.deployer.DeployService(ctx, deployer.ServiceRequest{
+		VerifyOnly:        req.VerifyOnly,
 		StackName:         req.StackName,
 		SourceComposePath: req.SourceComposePath,
 		ServiceName:       req.ServiceName,

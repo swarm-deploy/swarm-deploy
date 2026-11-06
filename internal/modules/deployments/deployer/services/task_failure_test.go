@@ -263,3 +263,111 @@ func TestApplyManualRetryRestartsExhaustedServices(t *testing.T) {
 		})
 	}
 }
+
+func TestApplyRetryAfterCompletedRollout(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		global      bool
+		finite      bool
+		healthy     bool
+		replacement swarm.TaskState
+		disabled    bool
+		external    bool
+		wantUpdate  bool
+	}{
+		{name: "replicated terminal failure", wantUpdate: true},
+		{name: "global terminal failure", global: true, wantUpdate: true},
+		{name: "replicated finite attempts exhausted", finite: true, wantUpdate: true},
+		{name: "global finite attempts exhausted", global: true, finite: true, wantUpdate: true},
+		{name: "healthy service", healthy: true},
+		{name: "healthy global service", global: true, healthy: true},
+		{name: "replicated replacement pending", replacement: swarm.TaskStatePending},
+		{name: "global replacement pending", global: true, replacement: swarm.TaskStatePending},
+		{name: "replicated replacement running", replacement: swarm.TaskStateRunning},
+		{name: "global replacement running", global: true, replacement: swarm.TaskStateRunning},
+		{name: "normal reconciliation", disabled: true},
+		{name: "external replica management", external: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			manager := swarm.NewMockServiceManager(gomock.NewController(t))
+			desired := serviceSpec("api", "busybox:1.36")
+			desired.TaskTemplate.ForceUpdate = 4
+			desired.TaskTemplate.RestartPolicy = &dockerswarm.RestartPolicy{Condition: dockerswarm.RestartPolicyConditionNone}
+			if tc.global {
+				desired.Mode = dockerswarm.ServiceMode{Global: &dockerswarm.GlobalService{}}
+			}
+			if tc.finite {
+				one := uint64(1)
+				desired.TaskTemplate.RestartPolicy = &dockerswarm.RestartPolicy{
+					Condition: dockerswarm.RestartPolicyConditionOnFailure, MaxAttempts: &one,
+				}
+			}
+			if tc.external {
+				desired.Labels["org.swarm-deploy.service.sync.policy.replicasManaged"] = "false"
+			}
+			now := time.Now()
+			current := service("api-id", 7, desired)
+			current.CreatedAt = now.Add(-time.Minute)
+			current.UpdateStatus = &dockerswarm.UpdateStatus{State: dockerswarm.UpdateStateCompleted}
+			manager.EXPECT().Inspect(gomock.Any(), desired.Name).Return(current, nil)
+			if !tc.disabled && !tc.external {
+				exit := 23
+				task := swarm.ServiceTask{ID: "failed", Slot: 1, Node: "node-a", ExitCode: &exit,
+					CurrentState: swarm.TaskStateFailed, CreatedAt: now, UpdatedAt: now,
+					Spec: swarm.NewTaskSpec(desired.TaskTemplate)}
+				if tc.healthy {
+					task.CurrentState = swarm.TaskStateRunning
+				}
+				tasks := []swarm.ServiceTask{task}
+				if tc.finite || tc.replacement != "" {
+					next := task
+					next.ID, next.CreatedAt, next.UpdatedAt = "replacement", now.Add(time.Second), now.Add(time.Second)
+					if tc.replacement != "" {
+						next.CurrentState = tc.replacement
+					}
+					tasks = append(tasks, next)
+				}
+				calls := 1
+				if tc.wantUpdate {
+					calls++
+				}
+				manager.EXPECT().ListTasks(gomock.Any(), current.ID).Return(tasks, nil).Times(calls)
+			}
+			if tc.wantUpdate {
+				forced := cloneSpec(desired)
+				forced.TaskTemplate.ForceUpdate++
+				manager.EXPECT().Update(gomock.Any(), current.ID, current.Version, forced, gomock.Any()).Return(nil)
+			}
+			result, err := New(manager, &registry.NopAuthManager{}).Apply(t.Context(), "demo",
+				[]dockerswarm.ServiceSpec{desired}, ApplyOptions{RetryFailedUpdates: !tc.disabled})
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantUpdate, len(result.ChangedServices) == 1)
+		})
+	}
+}
+
+func TestRetryRequiredPreservesUpdateStateHandling(t *testing.T) {
+	for _, tc := range []struct {
+		state dockerswarm.UpdateState
+		want  bool
+	}{
+		{state: dockerswarm.UpdateStateUpdating},
+		{state: dockerswarm.UpdateStatePaused, want: true},
+		{state: dockerswarm.UpdateStateRollbackStarted, want: true},
+		{state: dockerswarm.UpdateStateRollbackPaused, want: true},
+		{state: dockerswarm.UpdateStateRollbackCompleted, want: true},
+		{state: dockerswarm.UpdateState("failed"), want: true},
+	} {
+		t.Run(string(tc.state), func(t *testing.T) {
+			manager := swarm.NewMockServiceManager(gomock.NewController(t))
+			spec := serviceSpec("api", "busybox:1.36")
+			spec.TaskTemplate.RestartPolicy = &dockerswarm.RestartPolicy{Condition: dockerswarm.RestartPolicyConditionNone}
+			current := service("api-id", 7, spec)
+			current.UpdateStatus = &dockerswarm.UpdateStatus{State: tc.state}
+			got, err := New(manager, &registry.NopAuthManager{}).retryRequired(t.Context(), current, true)
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, got)
+			// Existing rollout handling must not inspect terminal task history.
+		})
+	}
+}

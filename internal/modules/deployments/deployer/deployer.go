@@ -149,7 +149,8 @@ func (d *Deployer) DeployStack(ctx context.Context, request StackRequest) (Resul
 func (d *Deployer) DeployService(ctx context.Context, request ServiceRequest) (Result, error) {
 	d.attachPipelines()
 	payload := &deployServicePayload{
-		stackName: request.StackName, sourceComposePath: request.SourceComposePath,
+		verifyOnly: request.VerifyOnly,
+		stackName:  request.StackName, sourceComposePath: request.SourceComposePath,
 		serviceName: request.ServiceName, desired: request.Desired,
 	}
 

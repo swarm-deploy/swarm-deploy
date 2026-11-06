@@ -1106,12 +1106,16 @@ func TestReconcileSelfHealsMissingService(t *testing.T) {
 			wantMetric: "success",
 		},
 		{
-			name: "CLI failure with verified convergence", deployErr: errors.New("docker CLI timeout"),
-			verifiedLive: []swarm.StackService{{Name: "api"}}, wantStatus: model.SyncStatusSynced,
-			wantEventTypes: []events.TypeName{
-				events.TypeNameServiceMissed, events.TypeNameServiceDriftFixed,
-			},
-			wantMetric: "success",
+			name: "execution outcome unknown despite accepted specification", deployErr: context.DeadlineExceeded,
+			verifiedLive: []swarm.StackService{{Name: "api"}}, wantErr: true,
+			wantStatus: model.SyncStatusOutOfSync, wantSyncError: "Self Heal Execution Outcome Unknown",
+			wantEventTypes: []events.TypeName{events.TypeNameServiceMissed}, wantMetric: "failed",
+		},
+		{
+			name: "confirmed convergence failure despite accepted specification", deployErr: deployments.ErrConvergenceFailed,
+			verifiedLive: []swarm.StackService{{Name: "api"}}, wantErr: true,
+			wantStatus: model.SyncStatusOutOfSync, wantSyncError: "Self Heal Convergence Failed",
+			wantEventTypes: []events.TypeName{events.TypeNameServiceMissed}, wantMetric: "failed",
 		},
 		{
 			name: "records failed restore", deployErr: errors.New("deploy failed"), wantErr: true,
@@ -1124,6 +1128,12 @@ func TestReconcileSelfHealsMissingService(t *testing.T) {
 			wantStatus: model.SyncStatusOutOfSync, wantSyncError: "Self Heal Verification Failed",
 			wantEventTypes: []events.TypeName{events.TypeNameServiceMissed},
 			wantMetric:     "failed",
+		},
+		{
+			name:      "verification read cannot hide confirmed convergence failure",
+			deployErr: deployments.ErrConvergenceFailed, verificationErr: errors.New("swarm unavailable"), wantErr: true,
+			wantStatus: model.SyncStatusOutOfSync, wantSyncError: "Self Heal Convergence Failed",
+			wantEventTypes: []events.TypeName{events.TypeNameServiceMissed}, wantMetric: "failed",
 		},
 		{
 			name: "records persistent drift", wantErr: true,
@@ -1192,6 +1202,9 @@ func TestReconcileSelfHealsMissingService(t *testing.T) {
 			})
 			if tt.wantErr {
 				require.Error(t, err)
+				if tt.deployErr != nil {
+					assert.ErrorIs(t, err, tt.deployErr)
+				}
 			} else {
 				require.NoError(t, err)
 			}

@@ -263,13 +263,18 @@ func assertSpanAttributes(t *testing.T, span sdktrace.ReadOnlySpan, expected map
 	}
 }
 
-func TestUnchangedHistoricalPausedServiceIsNotAnAppliedTarget(t *testing.T) {
+func TestUnchangedPausedServiceIsVerifiedForRemediation(t *testing.T) {
 	for _, single := range []bool{false, true} {
 		t.Run(fmt.Sprint(single), func(t *testing.T) {
 			manager := swarm.NewMockServiceManager(gomock.NewController(t))
 			current := nativeMinimalServiceSpec("api")
 			observed := swarm.StackService{ID: "service-id", Name: "api", Mode: "replicated", Replicas: current.Mode.Replicated.Replicas, ServiceSpec: current, DesiredTasks: 1, UpdateStatus: &swarm.ServiceUpdateStatus{State: "paused"}}
-			manager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "demo"}).Return([]swarm.StackService{observed}, nil)
+			reads := 1
+			if single {
+				reads++
+				manager.EXPECT().ListTasks(gomock.Any(), observed.ID).Return(nil, nil)
+			}
+			manager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "demo"}).Return([]swarm.StackService{observed}, nil).Times(reads)
 			manager.EXPECT().Inspect(gomock.Any(), "demo_api").Return(dockerswarm.Service{ID: "service-id", Spec: current, UpdateStatus: &dockerswarm.UpdateStatus{State: dockerswarm.UpdateStatePaused}}, nil)
 			d := &Deployer{secretResolver: newTestSecretResolver(), serviceWaiter: waiterpkg.NewServiceWaiter(manager, nil, time.Millisecond, time.Second)}
 			wireNativeTestDeployerWithServiceManager(t, d, manager, false)
@@ -288,7 +293,11 @@ func TestUnchangedHistoricalPausedServiceIsNotAnAppliedTarget(t *testing.T) {
 					Desired:           minimalCompose("api"),
 				})
 			}
-			require.NoError(t, err)
+			if single {
+				require.ErrorIs(t, err, waiterpkg.ErrConvergenceFailed)
+			} else {
+				require.NoError(t, err)
+			}
 			// gomock permits no update: desired ServiceSpec was already accepted.
 		})
 	}
