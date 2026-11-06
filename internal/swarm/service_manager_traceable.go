@@ -26,6 +26,20 @@ func (t traceableServiceManager) Inspect(ctx context.Context, serviceIDOrName st
 	return service, nil
 }
 
+func (t traceableServiceManager) LogTail(ctx context.Context, serviceID string, byteLimit int) ([]byte, bool, error) {
+	ctx, span := t.tracer.Start(ctx, "swarm.ServiceLogTail", trace.WithAttributes(
+		tracing.ResourceServiceID.String(serviceID),
+	))
+	defer span.End()
+	logs, truncated, err := t.serviceManager.LogTail(ctx, serviceID, byteLimit)
+	if err != nil {
+		tracing.FailSpan(span, err)
+	} else {
+		span.SetStatus(codes.Ok, "")
+	}
+	return logs, truncated, err
+}
+
 func (t traceableServiceManager) Create(
 	ctx context.Context,
 	spec dockerswarm.ServiceSpec,

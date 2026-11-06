@@ -21,7 +21,11 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 
-const initJobPersistenceTimeout = 2 * time.Second
+const (
+	deploymentExecutionTimeout   = 15 * time.Minute
+	completionPersistenceTimeout = 5 * time.Second
+	initJobPersistenceTimeout    = 2 * time.Second
+)
 
 // ErrRegistryAuthRefresh marks credential maintenance failure without a deployment Attempt.
 var ErrRegistryAuthRefresh = errors.New("registry authentication maintenance failed")
@@ -126,6 +130,13 @@ func NewController(
 
 // Execute runs the complete synchronous lifecycle for one prepared desired state.
 func (c *Controller) Execute(ctx context.Context, req ExecuteRequest) (ExecuteResult, error) {
+	// One budget covers preparation through final observation and pruning, including all Init Jobs.
+	ctx, cancel := context.WithTimeout(ctx, deploymentExecutionTimeout)
+	defer cancel()
+	return c.execute(ctx, req)
+}
+
+func (c *Controller) execute(ctx context.Context, req ExecuteRequest) (ExecuteResult, error) {
 	if err := c.recoverPending(ctx, req.Stack.Name); err != nil {
 		return ExecuteResult{}, fmt.Errorf("recover deployment completion: %w", err)
 	}
@@ -160,6 +171,7 @@ func (c *Controller) Execute(ctx context.Context, req ExecuteRequest) (ExecuteRe
 		},
 	})
 	c.persistInitJobs(ctx, attempt.ID, deployResult.InitJobs)
+	deployErr = executionError(ctx, deployErr)
 	if deployErr != nil {
 		completion := classifyExecutionFailure(deployErr)
 		completion.Verification = deployResult.Verification
@@ -170,6 +182,7 @@ func (c *Controller) Execute(ctx context.Context, req ExecuteRequest) (ExecuteRe
 	}
 
 	live, observeErr := c.services.ListServices(ctx, swarm.ListServicesFilter{Stack: req.Stack.Name})
+	observeErr = executionError(ctx, observeErr)
 	if observeErr != nil {
 		completion := Completion{
 			Outcome: CompletionVerificationInterrupted, Diagnostic: observeErr,
@@ -187,6 +200,7 @@ func (c *Controller) Execute(ctx context.Context, req ExecuteRequest) (ExecuteRe
 		Stack: req.Stack, Commit: req.Commit, Desired: req.Desired.Compose.Services, Live: live,
 	})
 	result.PrunedServices = pruned
+	cleanupErr = executionError(ctx, cleanupErr)
 	if cleanupErr != nil {
 		completion := Completion{
 			Outcome: CompletionCleanupFailed, Diagnostic: cleanupErr, ObservedAt: &result.ObservedAt,
@@ -205,6 +219,14 @@ func (c *Controller) Execute(ctx context.Context, req ExecuteRequest) (ExecuteRe
 	}
 	c.record(req, "success")
 	return result, nil
+}
+
+// executionError rejects late success without replacing an earlier, classified stage failure.
+func executionError(ctx context.Context, err error) error {
+	if err != nil {
+		return err
+	}
+	return ctx.Err()
 }
 
 func (c *Controller) unchangedResult(ctx context.Context, req ExecuteRequest) (ExecuteResult, error) {
@@ -230,6 +252,9 @@ func (c *Controller) unchangedResult(ctx context.Context, req ExecuteRequest) (E
 
 // ExecuteService runs one synchronous service remediation through the owned Deployer.
 func (c *Controller) ExecuteService(ctx context.Context, req ExecuteServiceRequest) (deployer.Result, error) {
+	ctx, cancel := context.WithTimeout(ctx, deploymentExecutionTimeout)
+	defer cancel()
+
 	return c.deployer.DeployService(ctx, deployer.ServiceRequest{
 		VerifyOnly:        req.VerifyOnly,
 		StackName:         req.StackName,
@@ -248,7 +273,10 @@ func (c *Controller) complete(
 	attemptID string,
 	completion Completion,
 ) error {
-	err := c.lifecycle.Complete(ctx, attemptID, completion)
+	// Completion must survive execution cancellation, including cancellation during the transaction.
+	persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), completionPersistenceTimeout)
+	defer cancel()
+	err := c.lifecycle.Complete(persistCtx, attemptID, completion)
 	c.pendingMu.Lock()
 	defer c.pendingMu.Unlock()
 	if err != nil {
@@ -296,15 +324,19 @@ func (c *Controller) recoverPending(ctx context.Context, stack string) error {
 }
 
 func (c *Controller) persistInitJobs(ctx context.Context, attemptID string, results []deployer.InitJobResult) {
+	// Diagnostic persistence shares one short budget regardless of the number of jobs.
+	persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), initJobPersistenceTimeout)
+	defer cancel()
 	for index, result := range results {
-		persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), initJobPersistenceTimeout)
+		if persistCtx.Err() != nil {
+			return
+		}
 		err := c.lifecycle.SaveInitJobExecution(persistCtx, deploymentmodel.InitJobExecution{
 			AttemptID: attemptID, Ordinal: index + 1, ServiceName: result.ServiceName, JobName: result.JobName,
 			Status: deploymentmodel.InitJobStatus(result.Status), StartedAt: result.StartedAt,
 			FinishedAt: result.FinishedAt, Logs: result.Logs, LogsAvailable: result.LogsAvailable,
 			LogsTruncated: result.LogsTruncated,
 		})
-		cancel()
 		if err != nil {
 			slog.WarnContext(ctx, "persist init job execution", slog.String("attempt_id", attemptID),
 				slog.String("service_name", result.ServiceName), slog.String("job_name", result.JobName),

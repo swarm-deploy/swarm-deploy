@@ -57,6 +57,9 @@ type ServiceManager interface {
 	// Logs returns recent logs for a stack service.
 	Logs(ctx context.Context, serviceRef ServiceReference, options ServiceLogsOptions) ([]string, error)
 
+	// LogTail returns the last byteLimit bytes of original service output and whether output was truncated.
+	LogTail(ctx context.Context, serviceID string, byteLimit int) ([]byte, bool, error)
+
 	// TaskLogs streams normalized logs for a Docker Swarm task.
 	TaskLogs(ctx context.Context, taskID string, options TaskLogsOptions) (<-chan LogEntry, <-chan error, error)
 }

@@ -9,17 +9,17 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 
-func (r *InitJobRunner) enqueueDeleteTask(task initJobDeleteTask) {
+func (r *InitJobRunner) enqueueDeleteTask(ctx context.Context, task initJobDeleteTask) {
 	select {
 	case r.deleteTasks <- task:
 	default:
 		slog.WarnContext(
-			context.Background(),
+			ctx,
 			"[initjob] delete queue is full, running cleanup in fallback mode",
 			slog.String("service_id", task.serviceID),
 			slog.String("service", task.serviceName),
 		)
-		r.removeServiceWithRetry(context.Background(), task)
+		r.removeServiceWithRetry(ctx, task)
 	}
 }
 
@@ -31,6 +31,7 @@ func (r *InitJobRunner) runDeleteWorker() {
 
 func (r *InitJobRunner) removeServiceWithRetry(ctx context.Context, task initJobDeleteTask) {
 	err := retry.New(
+		retry.Context(ctx),
 		retry.Attempts(initJobDeleteRetryAttempts),
 		retry.Delay(initJobDeleteRetryDelay),
 		retry.LastErrorOnly(true),

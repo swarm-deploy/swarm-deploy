@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/artarts36/specw"
 	"github.com/docker/docker/api/types/swarm"
 	"github.com/docker/docker/client"
 	"github.com/stretchr/testify/assert"
@@ -21,6 +22,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/resources"
 	"github.com/swarm-deploy/swarm-deploy/internal/registry"
 	swarmclient "github.com/swarm-deploy/swarm-deploy/internal/swarm"
+	"go.uber.org/mock/gomock"
 )
 
 func TestBuildInitServiceSpecMapsEntrypointAndCommand(t *testing.T) {
@@ -169,47 +171,96 @@ func TestInitJobRunnerCollectsLogsWithoutChangingOutcomeAndCleansUp(t *testing.T
 	}
 }
 
-func TestInitJobRunnerCollectsLogsAfterTimeoutWithDetachedBoundedContext(t *testing.T) {
-	deleted := make(chan struct{}, 1)
-	server := newInitJobDockerServer(t, swarm.TaskStateRunning, "", []byte("still running\n"), false, deleted)
+func TestInitJobRunnerCollectsLogsAfterStageTimeoutWithinParentDeadline(t *testing.T) {
+	for _, override := range []bool{false, true} {
+		t.Run(fmt.Sprint(override), func(t *testing.T) {
+			deleted := make(chan struct{}, 1)
+			server := newInitJobDockerServer(t, swarm.TaskStateRunning, "", []byte("still running\n"), false, deleted)
+			defer server.Close()
+			dockerClient, err := client.NewClientWithOpts(
+				client.WithHost(server.URL), client.WithHTTPClient(server.Client()), client.WithVersion("1.48"),
+			)
+			require.NoError(t, err)
+			// Leave enough time for service creation even on a loaded test runner; the
+			// always-running task still guarantees that the job reaches its timeout.
+			runner := newTestInitJobRunner(10*time.Millisecond, 100*time.Millisecond, dockerClient)
+			job := compose.InitJob{Name: "migrate", Image: "example/migrate:1"}
+			if override {
+				runner.timeout = time.Hour
+				job.Timeout = specw.Duration{Value: 100 * time.Millisecond}
+			}
+
+			execution, runErr := runner.Run(t.Context(), InitJobSpec{
+				StackName: "app", ServiceName: "api",
+				Job: job,
+			})
+			require.ErrorIs(t, runErr, context.DeadlineExceeded)
+			assert.Equal(t, InitJobInterrupted, execution.Status)
+			assert.True(t, execution.LogsAvailable)
+			assert.Equal(t, []byte("still running\n"), execution.Logs)
+			select {
+			case <-deleted:
+			case <-time.After(2 * time.Second):
+				t.Fatal("Init Job service cleanup was not called")
+			}
+		})
+	}
+}
+
+func TestInitJobLogStreamCancellationPreventsSuccess(t *testing.T) {
+	started := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		w.Header().Set("Content-Type", "application/vnd.docker.raw-stream")
+		w.WriteHeader(http.StatusOK)
+		w.(http.Flusher).Flush()
+		close(started)
+		<-req.Context().Done()
+	}))
 	defer server.Close()
+	defer server.CloseClientConnections()
 	dockerClient, err := client.NewClientWithOpts(
 		client.WithHost(server.URL), client.WithHTTPClient(server.Client()), client.WithVersion("1.48"),
 	)
 	require.NoError(t, err)
-	// Leave enough time for service creation even on a loaded test runner; the
-	// always-running task still guarantees that the job reaches its timeout.
-	runner := newTestInitJobRunner(10*time.Millisecond, 100*time.Millisecond, dockerClient)
-
-	execution, runErr := runner.Run(t.Context(), InitJobSpec{
-		StackName: "app", ServiceName: "api",
-		Job: compose.InitJob{Name: "migrate", Image: "example/migrate:1"},
-	})
-	require.ErrorIs(t, runErr, context.DeadlineExceeded)
-	assert.Equal(t, InitJobInterrupted, execution.Status)
-	assert.True(t, execution.LogsAvailable)
-	assert.Equal(t, []byte("still running\n"), execution.Logs)
-	select {
-	case <-deleted:
-	case <-time.After(2 * time.Second):
-		t.Fatal("Init Job service cleanup was not called")
+	defer dockerClient.Close()
+	manager := swarmclient.NewMockServiceManager(gomock.NewController(t))
+	manager.EXPECT().Create(gomock.Any(), gomock.Any(), gomock.Any()).Return("job-id", nil)
+	manager.EXPECT().ListTasks(gomock.Any(), "job-id").Return([]swarmclient.ServiceTask{{
+		CurrentState: swarmclient.TaskStateComplete,
+	}}, nil)
+	manager.EXPECT().LogTail(gomock.Any(), "job-id", initJobLogLimit).
+		DoAndReturn(swarmclient.NewSwarm(dockerClient).Services.LogTail)
+	runner := &InitJobRunner{
+		swarmService: &swarmclient.Swarm{Services: manager}, authManager: &registry.NopAuthManager{},
+		metrics: &metrics.NopDeploys{}, pollInterval: time.Millisecond, timeout: time.Minute,
+		deleteTasks: make(chan initJobDeleteTask, 1),
 	}
-}
-
-func TestTailBufferKeepsExactLastBytes(t *testing.T) {
-	buffer := newTailBuffer(4)
-	_, err := buffer.Write([]byte{0, 1, 2})
-	require.NoError(t, err)
-	_, err = buffer.Write([]byte{3, 4, 5})
-	require.NoError(t, err)
-	assert.Equal(t, []byte{2, 3, 4, 5}, buffer.Bytes())
-	assert.True(t, buffer.Truncated())
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	done := make(chan error, 1)
+	var result Result
+	go func() {
+		var runErr error
+		result, runErr = runner.Run(ctx, Spec{
+			StackName: "app", ServiceName: "api", Job: compose.InitJob{Name: "completed", Image: "alpine:3"},
+		})
+		done <- runErr
+	}()
+	<-started
+	cancel()
+	select {
+	case err = <-done:
+		require.ErrorIs(t, err, context.Canceled)
+		assert.Equal(t, Interrupted, result.Status)
+	case <-time.After(time.Second):
+		t.Fatal("Init Job logs ignored parent cancellation")
+	}
 }
 
 func newTestInitJobRunner(pollInterval, timeout time.Duration, dockerClient *client.Client) *InitJobRunner {
 	runner := &InitJobRunner{
-		dockerClient: dockerClient, swarmService: swarmclient.NewSwarm(dockerClient),
-		authManager: &registry.NopAuthManager{}, metrics: &metrics.NopDeploys{},
+		swarmService: swarmclient.NewSwarm(dockerClient),
+		authManager:  &registry.NopAuthManager{}, metrics: &metrics.NopDeploys{},
 		pollInterval: pollInterval, timeout: timeout,
 		deleteTasks: make(chan initJobDeleteTask, initJobDeleteTasksBuffer),
 	}
