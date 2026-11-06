@@ -1,6 +1,7 @@
 package stackloop
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -18,14 +19,89 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/services"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/waiter"
 	deploymentmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/model"
 	deploymentstore "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
+	"github.com/swarm-deploy/swarm-deploy/internal/registry"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/labelsdict"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	"go.uber.org/mock/gomock"
 )
+
+func TestReconcileRetriesExhaustedVersionConflictsAfterBackoff(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	repository := gitx.NewMockRepository(ctrl)
+	manager := swarm.NewMockServiceManager(ctrl)
+	stackDeployer := deployer.NewMockStackDeployer(ctrl)
+	db, stateStore := newSQLState(t)
+	dir := t.TempDir()
+	require.NoError(t, writeComposeFile(dir))
+	mockRepositoryFiles(repository, dir)
+	cfg := &config.Config{Spec: config.Spec{DataDir: filepath.Join(dir, ".data")}}
+	bus := &dispatcher.NopDispatcher{}
+	now := time.Now().UTC()
+	clock := func() time.Time { return now }
+	newReconciler := func() *Reconciler {
+		return newTestReconciler(cfg, repository, deployments.NewService(db, bus, deployments.WithClock(clock)),
+			stackDeployer, &swarm.Swarm{Services: manager}, bus, &metrics.NopDeploys{}, stateStore, db)
+	}
+	desired := dockerswarm.ServiceSpec{
+		Annotations:  dockerswarm.Annotations{Name: "app_api", Labels: map[string]string{labelsdict.StackNamespace: "app"}},
+		TaskTemplate: dockerswarm.TaskSpec{ContainerSpec: &dockerswarm.ContainerSpec{Image: "nginx:latest"}},
+		Mode:         dockerswarm.ServiceMode{Replicated: &dockerswarm.ReplicatedService{}},
+	}
+	current := desired
+	current.TaskTemplate.ContainerSpec = &dockerswarm.ContainerSpec{Image: "nginx:old"}
+	applier := services.New(manager, &registry.NopAuthManager{})
+	stackDeployer.EXPECT().DeployStack(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(ctx context.Context, req deployer.StackRequest) (deployer.Result, error) {
+			_, err := applier.Apply(ctx, req.StackName, []dockerswarm.ServiceSpec{desired}, services.ApplyOptions{})
+			if err != nil {
+				return deployer.Result{}, &pipe.StepError{StepName: "apply stack", Err: err}
+			}
+			return deployer.Result{}, nil
+		}).Times(2)
+	manager.EXPECT().Inspect(gomock.Any(), desired.Name).Return(dockerswarm.Service{
+		ID: "api-id", Spec: current, Meta: dockerswarm.Meta{Version: dockerswarm.Version{Index: 1}},
+	}, nil)
+	for version := uint64(1); version <= 3; version++ {
+		manager.EXPECT().Update(gomock.Any(), "api-id", dockerswarm.Version{Index: version}, desired, gomock.Any()).
+			Return(swarm.ErrServiceConflict)
+		manager.EXPECT().Inspect(gomock.Any(), desired.Name).Return(dockerswarm.Service{
+			ID: "api-id", Spec: current, Meta: dockerswarm.Meta{Version: dockerswarm.Version{Index: version + 1}},
+		}, nil)
+	}
+	req := ReconciliationRequest{Stack: config.StackSpec{Name: "app", ComposeFile: "app.yaml"}, Commit: "one"}
+	require.ErrorIs(t, newReconciler().Reconcile(t.Context(), req), swarm.ErrServiceConflict)
+	store := deploymentstore.NewStore(db)
+	failed, snapshot, err := store.Latest(t.Context(), "app")
+	require.NoError(t, err)
+	assert.Equal(t, deploymentmodel.Failed, failed.Status)
+	assert.Equal(t, "apply_failed", failed.ErrorCode)
+	assert.True(t, failed.Retryable)
+	attempt, err := store.GetAttempt(t.Context(), failed.LatestAttemptID)
+	require.NoError(t, err)
+	assert.True(t, attempt.Retryable)
+
+	// Restart with persisted state and the same automatic sync after the existing backoff.
+	now = now.Add(time.Minute)
+	manager.EXPECT().Inspect(gomock.Any(), desired.Name).Return(dockerswarm.Service{
+		ID: "api-id", Spec: current, Meta: dockerswarm.Meta{Version: dockerswarm.Version{Index: 4}},
+	}, nil)
+	manager.EXPECT().Update(gomock.Any(), "api-id", dockerswarm.Version{Index: 4}, desired, gomock.Any()).Return(nil)
+	manager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "app"}).Return(nil, nil)
+	require.NoError(t, newReconciler().Reconcile(t.Context(), req))
+	after, unchanged, err := store.Latest(t.Context(), "app")
+	require.NoError(t, err)
+	assert.Equal(t, failed.ID, after.ID)
+	assert.Equal(t, snapshot.Digest, unchanged.Digest)
+	assert.Equal(t, req.Commit, after.Commit)
+	assert.Equal(t, 2, after.AttemptCount)
+	assert.Equal(t, deploymentmodel.Succeeded, after.Status)
+}
 
 func TestReconcileDeferredFailureProtectsUnresolvedServiceAndFailureProjection(t *testing.T) {
 	ctrl := gomock.NewController(t)

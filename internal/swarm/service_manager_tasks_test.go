@@ -15,6 +15,7 @@ func TestServiceManagerTerminalGlobalTaskNodes(t *testing.T) {
 	for _, tc := range []struct {
 		name         string
 		availability dockerswarm.NodeAvailability
+		nodeState    dockerswarm.NodeState
 		slot         int
 		state        dockerswarm.TaskState
 		job          bool
@@ -26,6 +27,7 @@ func TestServiceManagerTerminalGlobalTaskNodes(t *testing.T) {
 	}{
 		{name: "active failed node", availability: dockerswarm.NodeAvailabilityActive, state: dockerswarm.TaskStateFailed, lookups: 1},
 		{name: "drained failed node", availability: dockerswarm.NodeAvailabilityDrain, state: dockerswarm.TaskStateFailed, lookups: 1},
+		{name: "down failed node", availability: dockerswarm.NodeAvailabilityActive, nodeState: dockerswarm.NodeStateDown, state: dockerswarm.TaskStateFailed, lookups: 1},
 		{name: "paused failed node", availability: dockerswarm.NodeAvailabilityPause, state: dockerswarm.TaskStateFailed, lookups: 1},
 		{name: "active rejected node", availability: dockerswarm.NodeAvailabilityActive, state: dockerswarm.TaskStateRejected, lookups: 1},
 		{name: "removed node", state: dockerswarm.TaskStateFailed, nodeMissing: true, lookups: 1},
@@ -71,7 +73,7 @@ func TestServiceManagerTerminalGlobalTaskNodes(t *testing.T) {
 							Description: dockerswarm.NodeDescription{Hostname: "worker-a",
 								Platform: dockerswarm.Platform{OS: "linux", Architecture: "amd64"},
 								Engine:   dockerswarm.EngineDescription{Labels: map[string]string{"storage": "ssd"}}},
-							Status: dockerswarm.NodeStatus{Addr: "10.0.0.10"},
+							Status: dockerswarm.NodeStatus{Addr: "10.0.0.10", State: tc.nodeState},
 						}}
 					}
 					require.NoError(t, json.NewEncoder(w).Encode(nodes))
@@ -97,6 +99,7 @@ func TestServiceManagerTerminalGlobalTaskNodes(t *testing.T) {
 				require.NotNil(t, task.NodeInfo)
 				assert.Equal(t, "node-a", task.NodeInfo.ID)
 				assert.Equal(t, string(tc.availability), task.NodeInfo.Availability)
+				assert.Equal(t, string(tc.nodeState), task.NodeInfo.Status)
 				assert.Equal(t, map[string]string{"zone": "east"}, task.NodeInfo.Labels)
 				assert.Equal(t, "worker", task.NodeInfo.Role)
 				assert.Equal(t, "worker-a", task.NodeInfo.Hostname)

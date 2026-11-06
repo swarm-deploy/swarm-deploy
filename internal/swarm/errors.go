@@ -15,9 +15,14 @@ import (
 // ErrSecretAlreadyExists means that a secret with this name already exists.
 var ErrSecretAlreadyExists = errors.New("secret already exists")
 
-// DockerUnavailableError marks a temporary Docker API availability failure.
+// DockerUnavailableError marks a temporary Docker API availability or contention failure.
 type DockerUnavailableError struct {
 	cause error
+}
+
+// NewDockerUnavailableError marks a temporary Docker failure while preserving its cause.
+func NewDockerUnavailableError(cause error) *DockerUnavailableError {
+	return &DockerUnavailableError{cause: cause}
 }
 
 func (e *DockerUnavailableError) Error() string { return e.cause.Error() }
@@ -25,7 +30,7 @@ func (e *DockerUnavailableError) Error() string { return e.cause.Error() }
 // Unwrap preserves the original Docker API error.
 func (e *DockerUnavailableError) Unwrap() error { return e.cause }
 
-// Temporary reports that the operation can be retried when Docker is available.
+// Temporary reports that the operation may succeed on a later retry.
 func (*DockerUnavailableError) Temporary() bool { return true }
 
 func classifyDockerError(err error) error {

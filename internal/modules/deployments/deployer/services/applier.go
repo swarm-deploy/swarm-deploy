@@ -262,7 +262,7 @@ func (a *Applier) update(
 		"update service %s: version conflict after %d attempts: %w",
 		displayName,
 		serviceUpdateAttempts,
-		swarm.ErrServiceConflict,
+		swarm.NewDockerUnavailableError(swarm.ErrServiceConflict),
 	)
 }
 

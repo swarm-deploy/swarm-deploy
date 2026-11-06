@@ -120,13 +120,21 @@ func TestServiceWaiterTerminalTaskFailures(t *testing.T) {
 	}
 }
 
-func TestServiceWaiterGlobalFailureAfterDrain(t *testing.T) {
+func TestServiceWaiterGlobalFailureAfterNodeExclusion(t *testing.T) {
 	for _, tc := range []struct {
-		name    string
-		drained bool
+		name          string
+		availability  string
+		status        string
+		excluded      bool
+		activeFailure bool
+		missingTask   bool
 	}{
-		{name: "active failure"},
-		{name: "drained failure", drained: true},
+		{name: "active ready failure", availability: "active", status: "ready"},
+		{name: "drained failure", availability: "drain", status: "ready", excluded: true},
+		{name: "down failure", availability: "active", status: "down", excluded: true},
+		{name: "down and drained failure", availability: "drain", status: "down", excluded: true},
+		{name: "down history with active failure", availability: "active", status: "down", excluded: true, activeFailure: true},
+		{name: "down history with missing required task", availability: "active", status: "down", excluded: true, missingTask: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			service := testGlobalService("api", "api-id", 2, serviceWaitTestTime)
@@ -136,16 +144,32 @@ func TestServiceWaiterGlobalFailureAfterDrain(t *testing.T) {
 			}
 			failed := testTask("failed", 0, swarm.TaskStateShutdown, swarm.TaskStateFailed, serviceWaitTestTime)
 			failed.Node, failed.Spec = "node-a", swarm.NewTaskSpec(service.ServiceSpec.TaskTemplate)
-			failed.NodeInfo = &swarm.Node{Availability: "active"}
+			failed.NodeInfo = &swarm.Node{Availability: tc.availability, Status: tc.status}
 			healthy := testTask("healthy", 0, swarm.TaskStateRunning, swarm.TaskStateRunning, serviceWaitTestTime)
 			healthy.Node, healthy.Spec = "node-b", failed.Spec
-			if tc.drained {
-				failed.NodeInfo = &swarm.Node{Availability: "drain"}
+			tasks := []swarm.ServiceTask{failed, healthy}
+			if tc.excluded {
 				service.DesiredTasks = 1
+			}
+			if tc.activeFailure {
+				active := failed
+				active.ID, active.Node = "active-failure", "node-c"
+				active.NodeInfo = &swarm.Node{Availability: "active", Status: "ready"}
+				tasks = append(tasks, active)
+				service.DesiredTasks = 2
+				failed = active
+			}
+			if tc.missingTask {
+				service.DesiredTasks = 2
+				progress := evaluateTestService("api", service, service, tasks, false, service.ServiceSpec, nil)
+				assert.Equal(t, ServicePending, progress.State)
+				assert.EqualValues(t, 1, progress.Running)
+				assert.EqualValues(t, 2, progress.Desired)
+				return
 			}
 			manager := swarm.NewMockServiceManager(gomock.NewController(t))
 			manager.EXPECT().ListServices(gomock.Any(), gomock.Any()).Return([]swarm.StackService{service}, nil).AnyTimes()
-			manager.EXPECT().ListTasks(gomock.Any(), service.ID).Return([]swarm.ServiceTask{failed, healthy}, nil).AnyTimes()
+			manager.EXPECT().ListTasks(gomock.Any(), service.ID).Return(tasks, nil).AnyTimes()
 			var progress []ServiceProgress
 			result, err := newTestServiceWaiter(manager).Wait(t.Context(), ServiceWaitRequest{
 				StackName: "app", ServiceNames: []string{"api"},
@@ -153,7 +177,7 @@ func TestServiceWaiterGlobalFailureAfterDrain(t *testing.T) {
 				Progress:      func(p ServiceProgress) { progress = append(progress, p) },
 			})
 			require.Len(t, progress, 1)
-			if tc.drained {
+			if tc.excluded && !tc.activeFailure {
 				require.NoError(t, err)
 				assert.Equal(t, ServiceReady, progress[0].State)
 				assert.EqualValues(t, 1, progress[0].Running)
