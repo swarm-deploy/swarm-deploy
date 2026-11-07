@@ -86,7 +86,8 @@ onBeforeUnmount(() => document.removeEventListener("click", closeDropdownsOnOuts
   appearance: none;
   padding: 7px 30px 7px 36px;
 }
-.events-filter-bar :deep(.events-filter-field--select)::after {
+.events-filter-bar :deep(.events-filter-field--select)::after,
+.events-filter-bar :deep(.events-search-filter-trigger)::after {
   content: "";
   position: absolute;
   top: 50%;
@@ -134,6 +135,10 @@ onBeforeUnmount(() => document.removeEventListener("click", closeDropdownsOnOuts
   padding: 7px 13px 7px 10px;
   cursor: pointer;
   list-style: none;
+}
+.events-filter-bar :deep(.events-filter-dropdown > .events-search-filter-trigger) {
+  position: relative;
+  padding-right: 30px;
 }
 .events-filter-bar :deep(.events-filter-dropdown > summary::-webkit-details-marker) {
   display: none;

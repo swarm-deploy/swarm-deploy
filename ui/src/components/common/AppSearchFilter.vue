@@ -35,10 +35,9 @@ defineExpose({ close });
 <template>
   <div class="events-filter-field">
     <details ref="dropdown" class="events-search-filter events-filter-dropdown">
-      <summary :aria-label="label">
+      <summary class="events-search-filter-trigger" :aria-label="label">
         <slot name="icon" />
         <span class="events-filter-selection">{{ selection }}</span>
-        <span class="events-filter-chevron" aria-hidden="true">⌄</span>
       </summary>
       <div class="events-search-filter-menu">
         <input v-model="search" type="search" :placeholder="searchLabel" :aria-label="searchLabel" />
