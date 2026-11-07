@@ -147,7 +147,7 @@ func (p *Preparer) attachPipeline(provider trace.TracerProvider) {
 		},
 	})
 
-	if p.cfg.Spec.GitOps.Downward.Enabled {
+	if p.cfg.Spec.GitOps.Injection.Downward.Enabled {
 		p.pipeline.Add(pipe.Step[*preparationPayload]{
 			Name: "add downward",
 			Run: func(_ context.Context, payload *preparationPayload) error {

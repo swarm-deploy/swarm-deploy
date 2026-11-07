@@ -722,8 +722,8 @@ func TestReconcilePreparesDownwardEnvironment(t *testing.T) {
 		wantInjected bool
 	}{
 		{name: "omitted"},
-		{name: "disabled", downward: "  downward: {enabled: false}\n"},
-		{name: "enabled", downward: "  downward: {enabled: true}\n", wantInjected: true},
+		{name: "disabled", downward: "  injection:\n    downward: {enabled: false}\n"},
+		{name: "enabled", downward: "  injection:\n    downward: {enabled: true}\n", wantInjected: true},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			ctrl := gomock.NewController(t)
@@ -844,7 +844,11 @@ services:
 		cfg: &config.Config{
 			Spec: config.Spec{
 				DataDir: filepath.Join(repoDir, ".data"),
-				GitOps:  config.GitOpsSpec{Downward: config.DownwardSpec{Enabled: true}},
+				GitOps: config.GitOpsSpec{
+					Injection: config.GitOpsInjectionSpec{
+						Downward: config.DownwardSpec{Enabled: true},
+					},
+				},
 			},
 		}, event: &dispatcher.NopDispatcher{},
 		deployMetrics:  &metrics.NopDeploys{},

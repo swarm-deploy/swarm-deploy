@@ -8,8 +8,9 @@ Enable Downward injection in `swarm-deploy.yaml`:
 
 ```yaml
 gitops:
-  downward:
-    enabled: true
+  injection:
+    downward:
+      enabled: true
 ```
 
 The setting defaults to disabled. When enabled, swarm-deploy adds the following environment variables to services before deployment.
