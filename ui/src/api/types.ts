@@ -188,6 +188,12 @@ export interface AlertResolution {
   eventId: string;
 }
 
+export interface AlertFinding {
+  code: string;
+  summary: string;
+  detectedAt: string;
+}
+
 export interface Alert {
   id: string;
   fingerprint: string;
@@ -199,6 +205,7 @@ export interface Alert {
   message: string;
   failureStage?: string;
   errorCode?: string;
+  findings?: AlertFinding[];
   deploymentId?: string;
   commit?: string;
   occurrences: number;
