@@ -3,27 +3,64 @@ import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
 import { fetchAlerts } from "../api/overview";
-import type { Alert } from "../api/types";
+import type { Alert, AlertStatus } from "../api/types";
 import AppButton from "../components/common/AppButton.vue";
+import AppFilterPanel from "../components/common/AppFilterPanel.vue";
+import AppSearchFilter from "../components/common/AppSearchFilter.vue";
+import AppStatusBadge from "../components/common/AppStatusBadge.vue";
 import AppTable from "../components/common/AppTable.vue";
 import AppTableEmpty from "../components/common/AppTableEmpty.vue";
 import { useOverviewStore } from "../stores/overview";
 import { formatDate } from "../utils/format";
 
 const overviewStore = useOverviewStore();
-const showResolved = ref(false);
 const route = useRoute();
 const router = useRouter();
 const stackFilter = computed(() => typeof route.query.stack_name === "string" ? route.query.stack_name : "");
+
+const alerts = ref<Alert[]>([]);
+const loading = ref(false);
+const loadingError = ref("");
+const selectedStatus = ref<AlertStatus | "">("");
+const selectedType = ref("");
+const selectedResource = ref("");
+const newestFirst = ref(true);
+let requestID = 0;
+
+const activeFilterCount = computed(() => [selectedStatus.value, selectedType.value, selectedResource.value].filter(Boolean).length);
+const alertTypes = computed(() => [...new Set(alerts.value.map((alert) => alert.kind))].sort());
+const resourceOptions = computed(() => {
+  const resources = new Map<string, string>();
+  for (const alert of alerts.value) {
+    if (alert.resourceId) {
+      resources.set(resourceKey(alert), `${alert.resourceId} (${alert.resourceType})`);
+    }
+  }
+  return [...resources].map(([value, label]) => ({ value, label }))
+    .sort((left, right) => left.label.localeCompare(right.label));
+});
+const visibleAlerts = computed(() => alerts.value
+  .filter((alert) => (!selectedStatus.value || alert.status === selectedStatus.value)
+    && (!selectedType.value || alert.kind === selectedType.value)
+    && (!selectedResource.value || resourceKey(alert) === selectedResource.value))
+  .sort((left, right) => {
+    const difference = Date.parse(updatedAt(right)) - Date.parse(updatedAt(left));
+    return newestFirst.value ? difference : -difference;
+  }));
+
+function resourceKey(alert: Alert): string {
+  return `${alert.resourceType}:${alert.resourceId}`;
+}
+
+function updatedAt(alert: Alert): string {
+  return alert.status === "resolved" ? alert.resolvedAt || alert.updatedAt : alert.updatedAt;
+}
+
 function clearStackFilter() {
   const query = { ...route.query };
   delete query.stack_name;
   void router.replace({ query });
 }
-const alerts = ref<Alert[]>([]);
-const loading = ref(false);
-const loadingError = ref("");
-let requestID = 0;
 
 async function loadAlerts() {
   loading.value = true;
@@ -31,15 +68,12 @@ async function loadAlerts() {
   loadingError.value = "";
   const currentRequestID = ++requestID;
   try {
-    const options: Parameters<typeof fetchAlerts>[0] = showResolved.value ? {} : { status: "open" };
-    if (stackFilter.value) options.stack = stackFilter.value;
-    const response = await fetchAlerts(options);
+    const response = await fetchAlerts(stackFilter.value ? { stack: stackFilter.value } : {});
     if (currentRequestID === requestID) {
       alerts.value = Array.isArray(response.alerts) ? response.alerts : [];
     }
   } catch (error) {
     if (currentRequestID === requestID) {
-      alerts.value = [];
       loadingError.value = error instanceof Error ? error.message : "Failed to load alerts";
     }
   } finally {
@@ -47,34 +81,96 @@ async function loadAlerts() {
   }
 }
 
-watch([showResolved, stackFilter], () => void loadAlerts());
+watch(stackFilter, () => void loadAlerts());
 onMounted(() => void loadAlerts());
 </script>
 
 <template>
   <section class="services-page alerts-page">
-    <header class="services-header events-header">
-      <label class="alerts-resolved-filter">
-        <input v-model="showResolved" type="checkbox" />
-        <span>Show resolved alerts</span>
+    <AppFilterPanel panel-id="alerts-filter-panel" :active-count="activeFilterCount" :columns="3">
+      <label class="events-filter-field events-filter-field--select">
+        <svg class="events-filter-icon" viewBox="0 0 20 20" aria-hidden="true">
+          <circle cx="10" cy="10" r="6.5" />
+          <path d="m7.5 10 1.7 1.7 3.3-3.4" />
+        </svg>
+        <select v-model="selectedStatus" aria-label="Filter alerts by status">
+          <option value="">All statuses</option>
+          <option value="open">Active</option>
+          <option value="resolved">Resolved</option>
+        </select>
       </label>
-      <p v-if="stackFilter" class="meta">Stack: <strong>{{ stackFilter }}</strong> <AppButton variant="secondary" compact @click="clearStackFilter">Clear stack filter</AppButton></p>
-    </header>
 
-    <AppTableEmpty v-if="loading && alerts.length === 0" message="Loading alerts..." />
+      <label class="events-filter-field events-filter-field--select">
+        <svg class="events-filter-icon" viewBox="0 0 20 20" aria-hidden="true">
+          <path d="M3.5 4.5v5.3l6.7 6.7 6.3-6.3-6.7-6.7H4.5a1 1 0 0 0-1 1Z" />
+          <circle cx="7" cy="7" r="1" />
+        </svg>
+        <select v-model="selectedType" aria-label="Filter alerts by type">
+          <option value="">All types</option>
+          <option v-for="type in alertTypes" :key="type" :value="type">{{ type.replaceAll("_", " ") }}</option>
+        </select>
+      </label>
+
+      <AppSearchFilter
+        v-model="selectedResource"
+        class="alerts-resource-filter"
+        :options="resourceOptions"
+        label="Filter alerts by resource"
+        placeholder="All resources"
+        search-label="Search resources"
+        empty-message="No matching resources"
+      >
+        <template #icon>
+          <svg class="events-filter-icon" viewBox="0 0 20 20" aria-hidden="true">
+            <path d="m10 2.8 6.5 3.6v7.2L10 17.2l-6.5-3.6V6.4L10 2.8Z" />
+            <path d="m3.8 6.5 6.2 3.4 6.2-3.4M10 9.9v7" />
+          </svg>
+        </template>
+      </AppSearchFilter>
+
+      <template #after>
+        <p v-if="stackFilter" class="meta">Stack: <strong>{{ stackFilter }}</strong> <AppButton variant="secondary" compact @click="clearStackFilter">Clear stack filter</AppButton></p>
+      </template>
+    </AppFilterPanel>
+
+    <AppTableEmpty v-if="loading" message="Loading alerts..." />
     <AppTableEmpty v-else-if="loadingError">Failed to load alerts: {{ loadingError }}</AppTableEmpty>
-    <div v-else-if="alerts.length === 0 && !showResolved" class="app-table-empty alerts-empty">
-      <strong>No active alerts</strong>
-      <p class="meta">{{ stackFilter ? "No active alerts for this stack." : "All alerts are resolved." }}</p>
-    </div>
-    <AppTableEmpty v-else-if="alerts.length === 0" message="No alerts." />
-    <AppTable v-else fixed min-width="800px" table-class="alerts-table" wrap-class="alerts-table-wrap">
-      <template #head><tr><th>Alert</th><th>Resource</th><th>Opened</th><th>{{ showResolved ? "Updated / Resolved" : "Updated" }}</th><th>Occurrences</th></tr></template>
-      <tr v-for="alert in alerts" :key="alert.id" class="alerts-row" tabindex="0" @click="overviewStore.openAlertDetailsModal(alert)" @keydown.enter="overviewStore.openAlertDetailsModal(alert)">
-        <td><strong>{{ alert.title }}</strong><span v-if="alert.resolution" class="alerts-message">{{ alert.resolution.reason }} · {{ alert.resolution.message }}</span></td>
-        <td>{{ alert.resourceId || "unknown resource" }}</td>
-        <td>{{ formatDate(alert.openedAt) }}</td>
-        <td>{{ formatDate(alert.status === "resolved" ? alert.resolvedAt : alert.updatedAt) }}</td>
+    <AppTableEmpty v-else-if="visibleAlerts.length === 0" :message="activeFilterCount ? 'No alerts match the selected filters.' : 'No alerts.'" />
+    <AppTable v-else fixed min-width="720px" table-class="alerts-table">
+      <template #colgroup>
+        <colgroup>
+          <col class="alerts-updated-column" />
+          <col class="alerts-status-column" />
+          <col />
+          <col class="alerts-resource-column" />
+          <col class="alerts-occurrences-column" />
+        </colgroup>
+      </template>
+      <template #head>
+        <tr>
+          <th :aria-sort="newestFirst ? 'descending' : 'ascending'">
+            <button class="app-table-sort" type="button" @click="newestFirst = !newestFirst">
+              Updated <span class="app-table-sort-indicator" aria-hidden="true">{{ newestFirst ? "↓" : "↑" }}</span>
+            </button>
+          </th>
+          <th>Status</th>
+          <th>Alert</th>
+          <th>Resource</th>
+          <th>Occurrences</th>
+        </tr>
+      </template>
+      <tr v-for="alert in visibleAlerts" :key="alert.id" class="app-table-row--clickable" @click="overviewStore.openAlertDetailsModal(alert)">
+        <td>{{ formatDate(updatedAt(alert)) }}</td>
+        <td>
+          <AppStatusBadge :variant="alert.status === 'resolved' ? 'neutral' : 'warning'" dot>
+            {{ alert.status === "resolved" ? "Resolved" : "Active" }}
+          </AppStatusBadge>
+        </td>
+        <td>
+          <button class="alerts-title" type="button" @click.stop="overviewStore.openAlertDetailsModal(alert)">{{ alert.title }}</button>
+          <span v-if="alert.message && alert.message !== alert.title" class="alerts-message">{{ alert.message }}</span>
+        </td>
+        <td class="alerts-resource">{{ alert.resourceId || "unknown resource" }}</td>
         <td>{{ alert.occurrences }}</td>
       </tr>
     </AppTable>
@@ -82,28 +178,57 @@ onMounted(() => void loadAlerts());
 </template>
 
 <style scoped>
-.alerts-resolved-filter {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  width: fit-content;
-  color: var(--text);
+.alerts-resource-filter :deep(.events-search-filter-menu) {
+  right: 0;
+  left: auto;
+}
+.alerts-updated-column {
+  width: 160px;
+}
+.alerts-status-column {
+  width: 105px;
+}
+.alerts-resource-column {
+  width: 23%;
+}
+.alerts-occurrences-column {
+  width: 106px;
+}
+.alerts-title {
+  display: block;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
   cursor: pointer;
+  overflow-wrap: anywhere;
 }
-
-.alerts-resolved-filter input {
-  width: 16px;
-  height: 16px;
-  margin: 0;
-  accent-color: var(--accent);
+.alerts-title:focus-visible {
+  outline: 1px solid var(--accent-border);
+  outline-offset: 2px;
 }
-
-.alerts-empty {
-  display: grid;
-  gap: 4px;
+.alerts-message {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 0.82rem;
+  overflow-wrap: anywhere;
 }
-
-.alerts-empty .meta {
-  margin: 0;
+.alerts-resource {
+  overflow-wrap: anywhere;
+}
+@media (max-width: 720px) {
+  .alerts-updated-column {
+    width: 117px;
+  }
+  .alerts-status-column {
+    width: 94px;
+  }
 }
 </style>
