@@ -3,11 +3,13 @@ package networks
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/converter"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/labelsdict"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	"go.uber.org/mock/gomock"
@@ -39,12 +41,28 @@ func TestReconcileCreatesAndReusesComposeNetworks(t *testing.T) {
 
 func TestReconcileExternalNetworkMustExistWithoutCreation(t *testing.T) {
 	manager := swarm.NewMockNetworkManager(gomock.NewController(t))
-	manager.EXPECT().Get(gomock.Any(), "edge").Return(swarm.Network{}, swarm.ErrNetworkNotFound)
+	manager.EXPECT().Get(gomock.Any(), "edge").Return(swarm.Network{}, fmt.Errorf("inspect: %w", swarm.ErrNetworkNotFound))
 	err := New(manager).Reconcile(t.Context(), "demo", []converter.NetworkSpec{{
 		Alias: "public", External: true, Spec: swarm.CreateNetworkRequest{Name: "edge"},
 	}})
-	require.Error(t, err)
-	assert.ErrorContains(t, err, "external network edge does not exist")
+	require.ErrorContains(t, err, "external network edge does not exist")
+	var missing *faults.ExternalNetworkNotFoundError
+	require.ErrorAs(t, err, &missing)
+	assert.Equal(t, "edge", missing.Name)
+}
+
+func TestReconcileMissingManagedNetworkIsNotExternal(t *testing.T) {
+	manager := swarm.NewMockNetworkManager(gomock.NewController(t))
+	planned := managedPlan("default", "demo_default")
+	gomock.InOrder(
+		manager.EXPECT().Get(gomock.Any(), "demo_default").Return(swarm.Network{}, swarm.ErrNetworkNotFound),
+		manager.EXPECT().Create(gomock.Any(), planned.Spec).Return("", swarm.ErrNetworkNotFound),
+		manager.EXPECT().Get(gomock.Any(), "demo_default").Return(swarm.Network{}, swarm.ErrNetworkNotFound),
+	)
+	err := New(manager).Reconcile(t.Context(), "demo", []converter.NetworkSpec{planned})
+	require.ErrorIs(t, err, swarm.ErrNetworkNotFound)
+	var missing *faults.ExternalNetworkNotFoundError
+	assert.NotErrorAs(t, err, &missing)
 }
 
 func TestReconcilePreservesOwnershipAndReusesImmutableConfiguration(t *testing.T) {

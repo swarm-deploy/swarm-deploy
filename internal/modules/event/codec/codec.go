@@ -43,19 +43,19 @@ func Encode(event events.Event) ([]byte, error) {
 		if code == "" {
 			code = safeFailureCode(e.Error)
 		}
-		return encodeDeploymentFailure(e.StackName, e.Commit, e.DeploymentID, e.AttemptID, code, e.Stage,
+		return encodeDeploymentFailure(e.StackName, e.Commit, e.DeploymentID, e.AttemptID, code, e.Stage, e.FaultCode,
 			faults.SafeDiagnostic(e.Error), temporaryClassification(e.Error), e.Services)
 	case *events.DeployPreparationFailed:
 		if e.ErrorCode != "preparation_failed" {
 			return nil, errors.New("unsupported deployment preparation failure code")
 		}
-		return encodeDeploymentFailure(e.StackName, e.Commit, "", "", e.ErrorCode, e.Stage,
+		return encodeDeploymentFailure(e.StackName, e.Commit, "", "", e.ErrorCode, e.Stage, e.FaultCode,
 			faults.SafeDiagnostic(e.Error), temporaryClassification(e.Error), e.Services)
 	case *events.DeployInterrupted:
 		if e.Reason != "process_interrupted" && e.Reason != "verification_unknown" {
 			return nil, errors.New("unsupported deployment interruption reason")
 		}
-		return encodeDeploymentFailure(e.StackName, e.Commit, e.DeploymentID, e.AttemptID, e.Reason, e.Stage,
+		return encodeDeploymentFailure(e.StackName, e.Commit, e.DeploymentID, e.AttemptID, e.Reason, e.Stage, "",
 			faults.SafeDiagnostic(e.Error), temporaryClassification(e.Error), e.Services)
 	case *events.NodeJoined:
 		return json.Marshal(nodePayload{ID: e.NodeID, Name: e.NodeName, Role: e.Role})
@@ -255,12 +255,13 @@ func decodeDeploymentFailure(typ events.TypeName, payload []byte) (events.Event,
 					DeploymentID: p.DeploymentID, AttemptID: p.AttemptID,
 					StackName: p.Stack, Commit: p.Commit, Services: p.services(),
 				},
-				Error: diagnostic, ErrorCode: safeFailureCode(errors.New(p.Code)), Stage: p.Stage,
+				Error: diagnostic, ErrorCode: safeFailureCode(errors.New(p.Code)),
+				FaultCode: safeFaultCode(p.FaultCode), Stage: p.Stage,
 			}
 		case events.TypeNameDeployPreparationFailed:
 			return &events.DeployPreparationFailed{
 				StackName: p.Stack, Commit: p.Commit, Services: p.services(), ErrorCode: p.Code,
-				Error: diagnostic, Stage: p.Stage,
+				Error: diagnostic, FaultCode: safeFaultCode(p.FaultCode), Stage: p.Stage,
 			}
 		default:
 			return &events.DeployInterrupted{
@@ -340,6 +341,8 @@ type deploymentFailurePayload struct {
 	Commit string `json:"commit"`
 	// Code is an allowlisted safe failure category.
 	Code string `json:"code"`
+	// FaultCode is the optional typed diagnostic cause.
+	FaultCode faults.Code `json:"fault_code,omitempty"`
 	// Stage identifies the failing pipeline stage.
 	Stage string `json:"stage,omitempty"`
 	// Diagnostic contains bounded secret-masked technical context.
@@ -368,13 +371,22 @@ func safeFailureCode(err error) string {
 	return "apply_failed"
 }
 
+func safeFaultCode(code faults.Code) faults.Code {
+	switch code {
+	case faults.CodeImageNotFound, faults.CodeExternalNetworkNotFound:
+		return code
+	default:
+		return ""
+	}
+}
+
 func encodeDeploymentFailure(
-	stack, commit, deploymentID, attemptID, code, stage, diagnostic string, temporary bool,
+	stack, commit, deploymentID, attemptID, code, stage string, faultCode faults.Code, diagnostic string, temporary bool,
 	services []compose.Service,
 ) ([]byte, error) {
 	payload := deploymentFailurePayload{
 		DeploymentID: deploymentID, AttemptID: attemptID, Stack: stack, Commit: commit, Code: code, Stage: stage,
-		Diagnostic: diagnostic, Temporary: temporary,
+		FaultCode: safeFaultCode(faultCode), Diagnostic: diagnostic, Temporary: temporary,
 		Services: make([]servicePayload, 0, len(services)),
 	}
 	for _, service := range services {

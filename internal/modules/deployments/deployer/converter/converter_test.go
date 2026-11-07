@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	"go.uber.org/mock/gomock"
 )
@@ -374,6 +375,17 @@ func TestConvertMissingResourcesAndReadErrors(t *testing.T) {
 			})
 		}
 	}
+}
+
+func TestConvertMissingExternalNetworkRetainsType(t *testing.T) {
+	converter, networks, _, _ := newTestConverter(t)
+	networks.EXPECT().Get(gomock.Any(), "edge").Return(swarm.Network{}, swarm.ErrNetworkNotFound)
+	desired := parseStack(t, `services: {app: {image: nginx, networks: [public]}}
+networks: {public: {name: edge, external: true}}`)
+	_, err := converter.Convert(t.Context(), "demo", desired)
+	var missing *faults.ExternalNetworkNotFoundError
+	require.ErrorAs(t, err, &missing)
+	assert.Equal(t, "edge", missing.Name)
 }
 
 func TestConvertExactResourceNames(t *testing.T) {

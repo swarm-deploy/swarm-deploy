@@ -67,6 +67,16 @@ func (s *Alert) encodeFields(e *jx.Encoder) {
 		}
 	}
 	{
+		if s.Findings != nil {
+			e.FieldStart("findings")
+			e.ArrStart()
+			for _, elem := range s.Findings {
+				elem.Encode(e)
+			}
+			e.ArrEnd()
+		}
+	}
+	{
 		if s.DeploymentId.Set {
 			e.FieldStart("deploymentId")
 			s.DeploymentId.Encode(e)
@@ -112,7 +122,7 @@ func (s *Alert) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfAlert = [19]string{
+var jsonFieldsNameOfAlert = [20]string{
 	0:  "id",
 	1:  "fingerprint",
 	2:  "kind",
@@ -123,15 +133,16 @@ var jsonFieldsNameOfAlert = [19]string{
 	7:  "message",
 	8:  "failureStage",
 	9:  "errorCode",
-	10: "deploymentId",
-	11: "commit",
-	12: "occurrences",
-	13: "openedAt",
-	14: "updatedAt",
-	15: "openEventId",
-	16: "latestEventId",
-	17: "resolvedAt",
-	18: "resolution",
+	10: "findings",
+	11: "deploymentId",
+	12: "commit",
+	13: "occurrences",
+	14: "openedAt",
+	15: "updatedAt",
+	16: "openEventId",
+	17: "latestEventId",
+	18: "resolvedAt",
+	19: "resolution",
 }
 
 // Decode decodes Alert from json.
@@ -253,6 +264,23 @@ func (s *Alert) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"errorCode\"")
 			}
+		case "findings":
+			if err := func() error {
+				s.Findings = make([]AlertFinding, 0)
+				if err := d.Arr(func(d *jx.Decoder) error {
+					var elem AlertFinding
+					if err := elem.Decode(d); err != nil {
+						return err
+					}
+					s.Findings = append(s.Findings, elem)
+					return nil
+				}); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"findings\"")
+			}
 		case "deploymentId":
 			if err := func() error {
 				s.DeploymentId.Reset()
@@ -274,7 +302,7 @@ func (s *Alert) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"commit\"")
 			}
 		case "occurrences":
-			requiredBitSet[1] |= 1 << 4
+			requiredBitSet[1] |= 1 << 5
 			if err := func() error {
 				v, err := d.Int64()
 				s.Occurrences = int64(v)
@@ -286,7 +314,7 @@ func (s *Alert) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"occurrences\"")
 			}
 		case "openedAt":
-			requiredBitSet[1] |= 1 << 5
+			requiredBitSet[1] |= 1 << 6
 			if err := func() error {
 				v, err := json.DecodeDateTime(d)
 				s.OpenedAt = v
@@ -298,7 +326,7 @@ func (s *Alert) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"openedAt\"")
 			}
 		case "updatedAt":
-			requiredBitSet[1] |= 1 << 6
+			requiredBitSet[1] |= 1 << 7
 			if err := func() error {
 				v, err := json.DecodeDateTime(d)
 				s.UpdatedAt = v
@@ -310,7 +338,7 @@ func (s *Alert) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"updatedAt\"")
 			}
 		case "openEventId":
-			requiredBitSet[1] |= 1 << 7
+			requiredBitSet[2] |= 1 << 0
 			if err := func() error {
 				v, err := d.Str()
 				s.OpenEventId = string(v)
@@ -322,7 +350,7 @@ func (s *Alert) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"openEventId\"")
 			}
 		case "latestEventId":
-			requiredBitSet[2] |= 1 << 0
+			requiredBitSet[2] |= 1 << 1
 			if err := func() error {
 				v, err := d.Str()
 				s.LatestEventId = string(v)
@@ -364,8 +392,8 @@ func (s *Alert) Decode(d *jx.Decoder) error {
 	var failures []validate.FieldError
 	for i, mask := range [3]uint8{
 		0b11111111,
-		0b11110000,
-		0b00000001,
+		0b11100000,
+		0b00000011,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -407,6 +435,174 @@ func (s *Alert) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON implements stdjson.Unmarshaler.
 func (s *Alert) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode implements json.Marshaler.
+func (s *AlertFinding) Encode(e *jx.Encoder) {
+	e.ObjStart()
+	s.encodeFields(e)
+	e.ObjEnd()
+}
+
+// encodeFields encodes fields.
+func (s *AlertFinding) encodeFields(e *jx.Encoder) {
+	{
+		e.FieldStart("code")
+		s.Code.Encode(e)
+	}
+	{
+		e.FieldStart("summary")
+		e.Str(s.Summary)
+	}
+	{
+		e.FieldStart("detectedAt")
+		json.EncodeDateTime(e, s.DetectedAt)
+	}
+}
+
+var jsonFieldsNameOfAlertFinding = [3]string{
+	0: "code",
+	1: "summary",
+	2: "detectedAt",
+}
+
+// Decode decodes AlertFinding from json.
+func (s *AlertFinding) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode AlertFinding to nil")
+	}
+	var requiredBitSet [1]uint8
+
+	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
+		switch string(k) {
+		case "code":
+			requiredBitSet[0] |= 1 << 0
+			if err := func() error {
+				if err := s.Code.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"code\"")
+			}
+		case "summary":
+			requiredBitSet[0] |= 1 << 1
+			if err := func() error {
+				v, err := d.Str()
+				s.Summary = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"summary\"")
+			}
+		case "detectedAt":
+			requiredBitSet[0] |= 1 << 2
+			if err := func() error {
+				v, err := json.DecodeDateTime(d)
+				s.DetectedAt = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"detectedAt\"")
+			}
+		default:
+			return d.Skip()
+		}
+		return nil
+	}); err != nil {
+		return errors.Wrap(err, "decode AlertFinding")
+	}
+	// Validate required fields.
+	var failures []validate.FieldError
+	for i, mask := range [1]uint8{
+		0b00000111,
+	} {
+		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
+			// Mask only required fields and check equality to mask using XOR.
+			//
+			// If XOR result is not zero, result is not equal to expected, so some fields are missed.
+			// Bits of fields which would be set are actually bits of missed fields.
+			missed := bits.OnesCount8(result)
+			for bitN := 0; bitN < missed; bitN++ {
+				bitIdx := bits.TrailingZeros8(result)
+				fieldIdx := i*8 + bitIdx
+				var name string
+				if fieldIdx < len(jsonFieldsNameOfAlertFinding) {
+					name = jsonFieldsNameOfAlertFinding[fieldIdx]
+				} else {
+					name = strconv.Itoa(fieldIdx)
+				}
+				failures = append(failures, validate.FieldError{
+					Name:  name,
+					Error: validate.ErrFieldRequired,
+				})
+				// Reset bit.
+				result &^= 1 << bitIdx
+			}
+		}
+	}
+	if len(failures) > 0 {
+		return &validate.Error{Fields: failures}
+	}
+
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *AlertFinding) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *AlertFinding) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes AlertFindingCode as json.
+func (s AlertFindingCode) Encode(e *jx.Encoder) {
+	e.Str(string(s))
+}
+
+// Decode decodes AlertFindingCode from json.
+func (s *AlertFindingCode) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode AlertFindingCode to nil")
+	}
+	v, err := d.StrBytes()
+	if err != nil {
+		return err
+	}
+	// Try to use constant string.
+	switch AlertFindingCode(v) {
+	case AlertFindingCodeImageNotFound:
+		*s = AlertFindingCodeImageNotFound
+	case AlertFindingCodeExternalNetworkNotFound:
+		*s = AlertFindingCodeExternalNetworkNotFound
+	default:
+		*s = AlertFindingCode(v)
+	}
+
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s AlertFindingCode) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *AlertFindingCode) UnmarshalJSON(data []byte) error {
 	d := jx.DecodeBytes(data)
 	return s.Decode(d)
 }

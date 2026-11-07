@@ -212,6 +212,18 @@ components:
           type: string
         eventId:
           type: string
+    AlertFinding:
+      type: object
+      required: [code, summary, detectedAt]
+      properties:
+        code:
+          type: string
+          enum: [image_not_found, external_network_not_found]
+        summary:
+          type: string
+        detectedAt:
+          type: string
+          format: date-time
     Alert:
       type: object
       required: [id, fingerprint, kind, resourceType, resourceId, status, title, message, occurrences, openedAt, updatedAt, openEventId, latestEventId]
@@ -238,6 +250,11 @@ components:
           type: string
         errorCode:
           type: string
+        findings:
+          type: array
+          description: Distinct typed diagnostics in order of first detection.
+          items:
+            $ref: '#/components/schemas/AlertFinding'
         deploymentId:
           type: string
         commit:

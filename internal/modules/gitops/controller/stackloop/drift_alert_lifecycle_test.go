@@ -28,6 +28,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackloop/drift"
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/model"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	"go.uber.org/mock/gomock"
 )
@@ -266,6 +267,23 @@ func TestDriftLifecycleSurvivesPreparationFailure(t *testing.T) {
 	reconciler := &Reconciler{db: db, stateStore: store, event: publisher}
 	require.NoError(t, reconciler.recordFailure(t.Context(), "app", "commit", []compose.Service{{Name: "api"}}, assert.AnError))
 	assert.Equal(t, previous.DriftedServices, readSQLState(t, store).Stacks["app"].DriftedServices)
+}
+
+func TestRecordPreparationFailurePublishesTypedDiagnostic(t *testing.T) {
+	db, store := newSQLState(t)
+	publisher := dispatcher.NewMockDispatcher(gomock.NewController(t))
+	publisher.EXPECT().Publish(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, event events.Event) error {
+		failure, ok := event.(*events.DeployPreparationFailed)
+		require.True(t, ok)
+		assert.Equal(t, "preparation_failed", failure.ErrorCode)
+		assert.Equal(t, faults.CodeExternalNetworkNotFound, failure.FaultCode)
+		require.ErrorContains(t, failure.Error, "external network edge does not exist")
+		assert.NotContains(t, failure.Error.Error(), "private-value")
+		return nil
+	})
+	reconciler := &Reconciler{db: db, stateStore: store, event: publisher}
+	cause := fmt.Errorf("prepare token=private-value: %w", &faults.ExternalNetworkNotFoundError{Name: "edge"})
+	require.NoError(t, reconciler.recordFailure(t.Context(), "app", "commit", nil, cause))
 }
 
 func TestDriftLifecycleRequiresVerifiedAnalysis(t *testing.T) {

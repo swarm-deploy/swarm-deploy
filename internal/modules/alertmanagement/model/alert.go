@@ -1,6 +1,10 @@
 package model
 
-import "time"
+import (
+	"time"
+
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
+)
 
 type AlertStatus string
 
@@ -8,6 +12,16 @@ const (
 	AlertStatusOpen     AlertStatus = "open"
 	AlertStatusResolved AlertStatus = "resolved"
 )
+
+// Finding is a typed diagnostic recorded during an alert's lifetime.
+type Finding struct {
+	// Code identifies the diagnostic cause.
+	Code faults.Code `json:"code"`
+	// Summary contains the sanitized diagnostic.
+	Summary string `json:"summary"`
+	// DetectedAt is when the finding was first recorded.
+	DetectedAt time.Time `json:"detectedAt"`
+}
 
 // Alert is one persisted incident for a correlated problem.
 type Alert struct {
@@ -31,6 +45,8 @@ type Alert struct {
 	FailureStage string `json:"failureStage,omitempty"`
 	// ErrorCode is stable technical metadata for the failure.
 	ErrorCode string `json:"errorCode,omitempty"`
+	// Findings contains the distinct typed diagnostics recorded for this alert.
+	Findings []Finding `json:"findings,omitempty"`
 	// DeploymentID links to the related attempt when one was created.
 	DeploymentID string `json:"deploymentId,omitempty"`
 	// Commit identifies the source revision involved in the failure.

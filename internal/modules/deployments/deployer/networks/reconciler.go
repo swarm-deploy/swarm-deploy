@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/converter"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/labelsdict"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
@@ -46,7 +47,7 @@ func (r *Reconciler) reconcile(ctx context.Context, stackName string, desired co
 		return fmt.Errorf("inspect network %s: %w", desired.Spec.Name, err)
 	}
 	if desired.External {
-		return fmt.Errorf("external network %s does not exist", desired.Spec.Name)
+		return &faults.ExternalNetworkNotFoundError{Name: desired.Spec.Name}
 	}
 
 	_, createErr := r.manager.Create(ctx, desired.Spec)

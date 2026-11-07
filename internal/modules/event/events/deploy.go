@@ -29,6 +29,8 @@ type DeployFailed struct {
 	Error error
 	// ErrorCode is the stable technical failure category.
 	ErrorCode string
+	// FaultCode identifies a specific diagnostic cause when known.
+	FaultCode faults.Code
 	// Stage identifies the pipeline stage that failed.
 	Stage string
 	Logs  []string

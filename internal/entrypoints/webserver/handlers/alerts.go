@@ -65,6 +65,11 @@ func toGeneratedAlert(alert alertmodel.Alert) generated.Alert {
 	if alert.ErrorCode != "" {
 		result.ErrorCode = generated.NewOptString(alert.ErrorCode)
 	}
+	for _, finding := range alert.Findings {
+		result.Findings = append(result.Findings, generated.AlertFinding{
+			Code: generated.AlertFindingCode(finding.Code), Summary: finding.Summary, DetectedAt: finding.DetectedAt,
+		})
+	}
 	if alert.DeploymentID != "" {
 		result.DeploymentId = generated.NewOptString(alert.DeploymentID)
 	}

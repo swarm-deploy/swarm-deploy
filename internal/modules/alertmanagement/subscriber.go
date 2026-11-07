@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -70,6 +71,7 @@ func (s *Subscriber) Handle(ctx context.Context, event events.Envelope) error {
 			message:       safeFailureMessage(deployment.Error, deployment.ErrorCode, deployment.Stage),
 			hasDiagnostic: hasUsefulDiagnostic(deployment.Error, deployment.ErrorCode),
 			stage:         deployment.Stage, code: deployment.ErrorCode, commit: deployment.Commit,
+			faultCode: deployment.FaultCode,
 		}, isTemporary(deployment.Error))
 	case *events.DeployInterrupted:
 		return s.handleFailed(ctx, event.ID, deployment.StackName, "Synchronization outcome unknown", failureDetails{
@@ -357,8 +359,34 @@ type failureDetails struct {
 	hasDiagnostic bool
 	stage         string
 	code          string
+	faultCode     faults.Code
 	deploymentID  string
 	commit        string
+}
+
+func (details failureDetails) finding(now time.Time) model.Finding {
+	var summary string
+	switch details.faultCode {
+	case faults.CodeImageNotFound:
+		summary = "Image not found in Docker"
+	case faults.CodeExternalNetworkNotFound:
+		summary = "External network not found in Docker Swarm"
+	default:
+		return model.Finding{}
+	}
+	if details.hasDiagnostic {
+		summary = details.message
+	}
+	return model.Finding{Code: details.faultCode, Summary: summary, DetectedAt: now.UTC()}
+}
+
+func appendFinding(alert *model.Alert, finding model.Finding) {
+	if finding.Code == "" || slices.ContainsFunc(alert.Findings, func(existing model.Finding) bool {
+		return existing.Code == finding.Code && existing.Summary == finding.Summary
+	}) {
+		return
+	}
+	alert.Findings = append(alert.Findings, finding)
 }
 
 func (s *Subscriber) handleFailed(
@@ -393,6 +421,7 @@ func (s *Subscriber) handleFailed(
 		alert.Title = title
 		alert.FailureStage, alert.ErrorCode = details.stage, details.code
 		alert.DeploymentID, alert.Commit = details.deploymentID, details.commit
+		appendFinding(&alert, details.finding(now))
 		if err = s.store.Update(ctx, alert); err != nil {
 			return fmt.Errorf("update deployment alert: %w", err)
 		}
@@ -410,6 +439,7 @@ func (s *Subscriber) handleFailed(
 		DeploymentID: details.deploymentID, Commit: details.commit,
 		Occurrences: failures, OpenedAt: now, UpdatedAt: now, OpenEventID: eventID, LatestEventID: eventID,
 	}
+	appendFinding(&alert, details.finding(now))
 	err = s.store.Create(ctx, alert)
 	if err == nil {
 		return s.publishOpened(ctx, alert)
@@ -458,6 +488,9 @@ func (s *Subscriber) updateConcurrentFailure(
 	existing.Title = incoming.Title
 	existing.FailureStage, existing.ErrorCode = incoming.FailureStage, incoming.ErrorCode
 	existing.DeploymentID, existing.Commit = incoming.DeploymentID, incoming.Commit
+	for _, finding := range incoming.Findings {
+		appendFinding(&existing, finding)
+	}
 	return s.store.Update(ctx, existing)
 }
 
@@ -538,6 +571,7 @@ func deployFailureDetails(event *events.DeployFailed) failureDetails {
 		message:       safeFailureMessage(diagnostic, event.ErrorCode, event.Stage),
 		hasDiagnostic: hasUsefulDiagnostic(diagnostic, event.ErrorCode),
 		stage:         event.Stage, code: event.ErrorCode, deploymentID: event.DeploymentID, commit: event.Commit,
+		faultCode: event.FaultCode,
 	}
 }
 

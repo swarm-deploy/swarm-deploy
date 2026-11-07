@@ -15,16 +15,18 @@ type AddNodeLabelNoContent struct{}
 
 // Ref: #/components/schemas/Alert
 type Alert struct {
-	ID            string             `json:"id"`
-	Fingerprint   string             `json:"fingerprint"`
-	Kind          AlertKind          `json:"kind"`
-	ResourceType  AlertResourceType  `json:"resourceType"`
-	ResourceId    string             `json:"resourceId"`
-	Status        AlertStatus        `json:"status"`
-	Title         string             `json:"title"`
-	Message       string             `json:"message"`
-	FailureStage  OptString          `json:"failureStage"`
-	ErrorCode     OptString          `json:"errorCode"`
+	ID           string            `json:"id"`
+	Fingerprint  string            `json:"fingerprint"`
+	Kind         AlertKind         `json:"kind"`
+	ResourceType AlertResourceType `json:"resourceType"`
+	ResourceId   string            `json:"resourceId"`
+	Status       AlertStatus       `json:"status"`
+	Title        string            `json:"title"`
+	Message      string            `json:"message"`
+	FailureStage OptString         `json:"failureStage"`
+	ErrorCode    OptString         `json:"errorCode"`
+	// Distinct typed diagnostics in order of first detection.
+	Findings      []AlertFinding     `json:"findings"`
 	DeploymentId  OptString          `json:"deploymentId"`
 	Commit        OptString          `json:"commit"`
 	Occurrences   int64              `json:"occurrences"`
@@ -84,6 +86,11 @@ func (s *Alert) GetFailureStage() OptString {
 // GetErrorCode returns the value of ErrorCode.
 func (s *Alert) GetErrorCode() OptString {
 	return s.ErrorCode
+}
+
+// GetFindings returns the value of Findings.
+func (s *Alert) GetFindings() []AlertFinding {
+	return s.Findings
 }
 
 // GetDeploymentId returns the value of DeploymentId.
@@ -181,6 +188,11 @@ func (s *Alert) SetErrorCode(val OptString) {
 	s.ErrorCode = val
 }
 
+// SetFindings sets the value of Findings.
+func (s *Alert) SetFindings(val []AlertFinding) {
+	s.Findings = val
+}
+
 // SetDeploymentId sets the value of DeploymentId.
 func (s *Alert) SetDeploymentId(val OptString) {
 	s.DeploymentId = val
@@ -224,6 +236,84 @@ func (s *Alert) SetResolvedAt(val OptDateTime) {
 // SetResolution sets the value of Resolution.
 func (s *Alert) SetResolution(val OptAlertResolution) {
 	s.Resolution = val
+}
+
+// Ref: #/components/schemas/AlertFinding
+type AlertFinding struct {
+	Code       AlertFindingCode `json:"code"`
+	Summary    string           `json:"summary"`
+	DetectedAt time.Time        `json:"detectedAt"`
+}
+
+// GetCode returns the value of Code.
+func (s *AlertFinding) GetCode() AlertFindingCode {
+	return s.Code
+}
+
+// GetSummary returns the value of Summary.
+func (s *AlertFinding) GetSummary() string {
+	return s.Summary
+}
+
+// GetDetectedAt returns the value of DetectedAt.
+func (s *AlertFinding) GetDetectedAt() time.Time {
+	return s.DetectedAt
+}
+
+// SetCode sets the value of Code.
+func (s *AlertFinding) SetCode(val AlertFindingCode) {
+	s.Code = val
+}
+
+// SetSummary sets the value of Summary.
+func (s *AlertFinding) SetSummary(val string) {
+	s.Summary = val
+}
+
+// SetDetectedAt sets the value of DetectedAt.
+func (s *AlertFinding) SetDetectedAt(val time.Time) {
+	s.DetectedAt = val
+}
+
+type AlertFindingCode string
+
+const (
+	AlertFindingCodeImageNotFound           AlertFindingCode = "image_not_found"
+	AlertFindingCodeExternalNetworkNotFound AlertFindingCode = "external_network_not_found"
+)
+
+// AllValues returns all AlertFindingCode values.
+func (AlertFindingCode) AllValues() []AlertFindingCode {
+	return []AlertFindingCode{
+		AlertFindingCodeImageNotFound,
+		AlertFindingCodeExternalNetworkNotFound,
+	}
+}
+
+// MarshalText implements encoding.TextMarshaler.
+func (s AlertFindingCode) MarshalText() ([]byte, error) {
+	switch s {
+	case AlertFindingCodeImageNotFound:
+		return []byte(s), nil
+	case AlertFindingCodeExternalNetworkNotFound:
+		return []byte(s), nil
+	default:
+		return nil, errors.Errorf("invalid value: %q", s)
+	}
+}
+
+// UnmarshalText implements encoding.TextUnmarshaler.
+func (s *AlertFindingCode) UnmarshalText(data []byte) error {
+	switch AlertFindingCode(data) {
+	case AlertFindingCodeImageNotFound:
+		*s = AlertFindingCodeImageNotFound
+		return nil
+	case AlertFindingCodeExternalNetworkNotFound:
+		*s = AlertFindingCodeExternalNetworkNotFound
+		return nil
+	default:
+		return errors.Errorf("invalid value: %q", data)
+	}
 }
 
 type AlertKind string

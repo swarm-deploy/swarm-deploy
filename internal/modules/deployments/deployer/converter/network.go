@@ -61,10 +61,13 @@ func (c *Converter) convertNetworks(
 				options = []dockernetwork.InspectOptions{{Scope: "swarm"}}
 			}
 			existing, err = c.networks.Get(ctx, name, options...)
-			if errors.Is(err, swarm.ErrNetworkNotFound) {
+			missing := errors.Is(err, swarm.ErrNetworkNotFound)
+			switch {
+			case missing && definition.External:
+				return nil, fmt.Errorf("networks.%s: %w", alias, &faults.ExternalNetworkNotFoundError{Name: name})
+			case missing:
 				return nil, fmt.Errorf("networks.%s: required network missing; reconcile it before conversion", alias)
-			}
-			if err != nil {
+			case err != nil:
 				return nil, faults.SanitizeError(err, fmt.Sprintf("networks.%s: Docker metadata lookup failed", alias))
 			}
 			byName[name] = existing
