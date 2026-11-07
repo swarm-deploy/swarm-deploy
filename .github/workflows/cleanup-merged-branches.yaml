@@ -1,0 +1,70 @@
+name: Clean up merged branches
+
+on:
+  schedule:
+    - cron: '17 3 * * 1'
+
+permissions:
+  contents: write
+  pull-requests: read
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Delete branches merged at least seven days ago
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import subprocess
+          from datetime import datetime, timedelta, timezone
+
+          def github_items(endpoint):
+              path = f"repos/{os.environ['GITHUB_REPOSITORY']}/{endpoint}"
+              pages = json.loads(subprocess.check_output(["gh", "api", "--paginate", "--slurp", path]))
+              return [item for page in pages for item in page]
+
+          cutoff = datetime.now(timezone.utc) - timedelta(days=7)
+          repository_id = int(os.environ["GITHUB_REPOSITORY_ID"])
+          retained = {os.environ["GITHUB_REF_NAME"], "master", "dev"}
+          branches = github_items("branches?per_page=100")
+          latest_merge = {}
+
+          for pr in github_items("pulls?state=all&sort=created&direction=asc&per_page=100"):
+              head = pr["head"]
+              local_head = (head["repo"] or {}).get("id") == repository_id
+              if pr["state"] == "open":
+                  retained.add(pr["base"]["ref"])
+                  if local_head:
+                      retained.add(head["ref"])
+
+              if local_head and pr["merged_at"]:
+                  merged_at = datetime.fromisoformat(pr["merged_at"].replace("Z", "+00:00"))
+                  previous = latest_merge.get(head["ref"])
+                  if previous is None or merged_at > previous[0]:
+                      latest_merge[head["ref"]] = (merged_at, head["sha"], pr["number"])
+
+          failures = 0
+          for branch in branches:
+              name = branch["name"]
+              if branch["protected"] or name in retained or name not in latest_merge:
+                  continue
+
+              merged_at, merged_sha, pr_number = latest_merge[name]
+              if merged_at > cutoff or branch["commit"]["sha"] != merged_sha:
+                  continue
+
+              # Reject deletion if the remote branch has moved since the API read.
+              ref = f"refs/heads/{name}"
+              print(f"Deleting {name} (PR #{pr_number}, merged {merged_at.isoformat()})", flush=True)
+              result = subprocess.run(["git", "push", f"--force-with-lease={ref}:{merged_sha}", "origin", f":{ref}"])
+              failures += int(result.returncode != 0)
+
+          if failures:
+              raise SystemExit(f"Failed to delete {failures} branch(es)")
+          PY
