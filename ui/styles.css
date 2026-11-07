@@ -369,6 +369,7 @@ button:hover,
 .overview-sync-item {
   min-width: 0;
   gap: 6px;
+  flex-wrap: wrap;
   white-space: nowrap;
 }
 
@@ -424,6 +425,7 @@ button:hover,
 
 .overview-sync-error {
   margin: 10px 0 0;
+  overflow-wrap: anywhere;
 }
 
 .services-link-panel {
@@ -435,7 +437,7 @@ button:hover,
 
 .stack-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr);
   gap: 14px;
   align-items: stretch;
 }
@@ -634,7 +636,7 @@ button:hover,
 .overview-stack-card-metadata > div {
   min-width: 0;
   display: grid;
-  grid-template-columns: 88px minmax(0, 1fr);
+  grid-template-columns: minmax(0, 88px) minmax(0, 1fr);
   gap: 10px;
   align-items: center;
 }
@@ -654,7 +656,6 @@ button:hover,
 
 .overview-stack-card-metadata dd {
   color: var(--text);
-  overflow-wrap: anywhere;
 }
 
 .overview-commit-badge {
@@ -670,6 +671,7 @@ button:hover,
   font-size: 0.76rem;
   font-weight: 600;
   line-height: 1;
+  white-space: nowrap;
 }
 
 .overview-stack-commit-badge {
@@ -741,15 +743,18 @@ button:hover,
 
 .overview-summary-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.5fr) minmax(280px, 1fr) minmax(300px, 1.2fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: 14px;
   align-items: stretch;
   margin-bottom: 14px;
 }
 
 .overview-summary-panel {
-  min-height: 284px;
   animation: reveal 260ms ease both;
+}
+
+.overview-summary-panel-content > .meta {
+  overflow-wrap: anywhere;
 }
 
 .overview-summary-panel-header {
@@ -893,7 +898,7 @@ a.overview-summary-row:focus-visible {
 
 .overview-deployment-list .overview-summary-row {
   position: relative;
-  grid-template-columns: 9px minmax(116px, 1fr) max-content max-content;
+  grid-template-columns: 9px minmax(0, 1fr) max-content max-content;
   gap: 9px;
   color: var(--muted);
   font-size: 0.79rem;
@@ -987,6 +992,7 @@ a.overview-summary-row:focus-visible {
 .overview-deployment-time {
   color: var(--muted);
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .overview-summary-sha-badge {
@@ -3886,11 +3892,109 @@ a.overview-summary-row:focus-visible {
   }
 }
 
-@media (max-width: 1200px) {
-  .stack-grid {
+/* Leave 300px per stack card and 14px between cards. */
+@container overview (min-width: 614px) {
+  .stack-grid,
+  .overview-summary-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .overview-summary-panel {
+    min-height: 284px;
+  }
+
+  .overview-summary-panel:first-child {
+    grid-column: 1 / -1;
+  }
+}
+
+@container overview (min-width: 928px) {
+  .stack-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@container overview (min-width: 1000px) {
+  .overview-summary-grid {
+    grid-template-columns: minmax(0, 1.5fr) minmax(280px, 1fr) minmax(300px, 1.2fr);
+  }
+
+  .overview-summary-panel:first-child {
+    grid-column: auto;
+  }
+}
+
+@container overview (width < 740px) {
+  .overview-sync-separator {
+    display: none;
+  }
+}
+
+@container overview (width < 614px) {
+  .overview-sync-row {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .overview-sync-button {
+    align-self: flex-end;
+  }
+
+  .overview-stack-card {
+    min-height: auto;
+  }
+
+  .overview-summary-panel {
+    padding: 0;
+  }
+
+  .overview-summary-panel-header-link {
+    padding: 15px 13px 13px;
+  }
+
+  .overview-summary-panel-content {
+    --summary-panel-inline-padding: 13px;
+    padding-bottom: 12px;
+  }
+}
+
+@container overview (width < 380px) {
+  .overview-deployment-list .overview-summary-row {
+    grid-template-columns: 9px minmax(0, 1fr) max-content;
+    row-gap: 4px;
+  }
+
+  .overview-deployment-result {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .overview-deployment-stack {
+    grid-column: 2 / -1;
+    grid-row: 1;
+  }
+
+  .overview-deployment-time {
+    grid-column: 2;
+    grid-row: 2;
+  }
+
+  .overview-summary-sha-badge,
+  .overview-deployment-list .overview-summary-value-empty {
+    grid-column: 3;
+    grid-row: 2;
+  }
+}
+
+@container overview (width < 280px) {
+  .overview-stack-card-metadata > div {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2px;
+  }
+}
+
+@media (max-width: 1200px) {
   .task-log-line {
     grid-template-columns: 205px 76px minmax(0, 1fr) 24px;
   }
@@ -3905,14 +4009,6 @@ a.overview-summary-row:focus-visible {
 }
 
 @media (max-width: 900px) {
-  .overview-summary-grid {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .overview-summary-panel {
-    min-height: 0;
-  }
-
   .task-logs-search {
     flex-basis: 100%;
     width: 100%;
@@ -3925,10 +4021,6 @@ a.overview-summary-row:focus-visible {
 }
 
 @media (max-width: 700px) {
-  .stack-grid {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
   .node-list {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -3937,20 +4029,6 @@ a.overview-summary-row:focus-visible {
 @media (max-width: 650px) {
   .layout {
     padding-top: 20px;
-  }
-
-  .overview-sync-row {
-    align-items: stretch;
-    flex-direction: column;
-    gap: 10px;
-  }
-
-  .overview-sync-separator {
-    display: none;
-  }
-
-  .overview-sync-button {
-    align-self: flex-end;
   }
 
   .modal-card {
@@ -4093,55 +4171,12 @@ a.overview-summary-row:focus-visible {
     align-items: flex-start;
   }
 
-  .overview-stack-card {
-    min-height: auto;
-  }
-
-  .overview-summary-panel {
-    padding: 0;
-  }
-
-  .overview-summary-panel-header-link {
-    padding: 15px 13px 13px;
-  }
-
-  .overview-summary-panel-content {
-    --summary-panel-inline-padding: 13px;
-    padding-bottom: 12px;
-  }
-
   .service-panel-heading {
     padding: 15px 13px 13px;
   }
 
   .service-panel-content {
     padding: 0 13px 12px;
-  }
-
-  .overview-deployment-list .overview-summary-row {
-    grid-template-columns: 9px minmax(0, 1fr) max-content;
-    row-gap: 4px;
-  }
-
-  .overview-deployment-result {
-    grid-column: 1;
-    grid-row: 1;
-  }
-
-  .overview-deployment-stack {
-    grid-column: 2 / -1;
-    grid-row: 1;
-  }
-
-  .overview-deployment-time {
-    grid-column: 2;
-    grid-row: 2;
-  }
-
-  .overview-summary-sha-badge,
-  .overview-deployment-list .overview-summary-value-empty {
-    grid-column: 3;
-    grid-row: 2;
   }
 
   .services-header {
