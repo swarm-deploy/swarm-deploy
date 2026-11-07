@@ -3,6 +3,7 @@ import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { fetchDeploymentFilters, fetchDeployments } from "../api/overview";
 import type { DeploymentFilterOptions, DeploymentSummary } from "../api/types";
+import AppButton from "../components/common/AppButton.vue";
 import AppMultiSelect from "../components/common/AppMultiSelect.vue";
 import AppPagination from "../components/common/AppPagination.vue";
 import AppStatusBadge from "../components/common/AppStatusBadge.vue";
@@ -232,7 +233,7 @@ onMounted(() => {
       </div>
     </div>
     <p v-if="loading" role="status">Loading deployments...</p>
-    <p v-else-if="error" role="alert">{{ error }} <button type="button" @click="load(page, cursors[page] ?? '')">Retry</button></p>
+    <p v-else-if="error" role="alert">{{ error }} <AppButton compact @click="load(page, cursors[page] ?? '')">Retry</AppButton></p>
     <p v-else-if="!deployments.length">No deployments on this page.</p>
     <AppTable v-else fixed min-width="620px" table-class="deployments-table" wrap-class="deployments-table-wrap">
       <template #head><tr><th>Stack</th><th>Status</th><th>Started</th><th>Commit</th></tr></template>

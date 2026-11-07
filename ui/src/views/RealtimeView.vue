@@ -4,6 +4,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import AppModal from "../components/common/AppModal.vue";
 import { fetchSwarmServices, fetchSwarmServiceTasks, fetchSwarmTask, scaleSwarmService } from "../api/services";
 import type { ServiceRealtimeTask, SwarmService, SwarmTaskDetails } from "../api/types";
+import AppButton from "../components/common/AppButton.vue";
 import AppMultiSelect from "../components/common/AppMultiSelect.vue";
 import AppStatusBadge from "../components/common/AppStatusBadge.vue";
 import AppTable from "../components/common/AppTable.vue";
@@ -406,16 +407,16 @@ onUnmounted(() => {
         <p>Live Docker Swarm services and tasks</p>
       </div>
       <div class="realtime-refresh-control">
-        <button
-          type="button"
-          class="button-ghost realtime-refresh-button"
+        <AppButton
+          variant="secondary"
+          class="realtime-refresh-button"
           :disabled="refreshing"
           :aria-busy="refreshing"
           @click="loadServices()"
         >
           <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M16.5 6.5V2.8m0 0h-3.7m3.7 0-2.2 2.1a6.5 6.5 0 1 0 1.4 6.9" /></svg>
           Refresh
-        </button>
+        </AppButton>
         <details ref="refreshMenu" class="realtime-refresh-dropdown" @keydown="handleRefreshMenuKeydown">
           <summary :aria-label="`Refresh interval: ${refreshIntervalLabel}`">
             <span>{{ refreshIntervalLabel }}</span>
@@ -483,7 +484,7 @@ onUnmounted(() => {
         <AppTableEmpty v-if="initialLoading && services.length === 0" message="Loading Swarm services..." />
         <AppTableEmpty v-else-if="refreshError && services.length === 0" role="alert">
           Failed to load Swarm services: {{ refreshError }}
-          <button type="button" class="button-ghost" @click="loadServices()">Retry</button>
+          <AppButton variant="secondary" compact @click="loadServices()">Retry</AppButton>
         </AppTableEmpty>
         <AppTableEmpty v-else-if="services.length === 0" message="No Swarm services found." />
         <AppTableEmpty v-else-if="filteredServices.length === 0" message="No services match the current filters." />
@@ -619,9 +620,9 @@ onUnmounted(() => {
         <p class="realtime-scale-section-label">Scale</p>
         <label for="realtime-scale-replicas">Desired replicas</label>
         <div class="realtime-scale-input">
-          <button type="button" class="button-ghost" aria-label="Decrease replicas" :disabled="scalePending || scaleInput === 0" @click="stepScale(-1)">−</button>
+          <AppButton variant="secondary" compact aria-label="Decrease replicas" :disabled="scalePending || scaleInput === 0" @click="stepScale(-1)">−</AppButton>
           <input id="realtime-scale-replicas" ref="scaleInputElement" v-model.number="scaleInput" type="number" min="0" step="1" :max="Number.MAX_SAFE_INTEGER" required :disabled="scalePending" :aria-invalid="!validScaleInput" />
-          <button type="button" class="button-ghost" aria-label="Increase replicas" :disabled="scalePending || scaleInput === Number.MAX_SAFE_INTEGER" @click="stepScale(1)">+</button>
+          <AppButton variant="secondary" compact aria-label="Increase replicas" :disabled="scalePending || scaleInput === Number.MAX_SAFE_INTEGER" @click="stepScale(1)">+</AppButton>
         </div>
         <p class="form-helper" role="note">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 11v6m0-10h.01" /></svg>
@@ -629,8 +630,8 @@ onUnmounted(() => {
         </p>
         <p v-if="scaleError" class="realtime-scale-error" role="alert">{{ scaleError }}</p>
         <div class="realtime-scale-actions">
-          <button type="button" class="button-ghost" :disabled="scalePending" @click="closeScale">Cancel</button>
-          <button type="submit" class="button-primary" :disabled="!canScale">{{ scalePending ? "Scaling..." : "Scale" }}</button>
+          <AppButton variant="secondary" :disabled="scalePending" @click="closeScale">Cancel</AppButton>
+          <AppButton type="submit" :disabled="!canScale">{{ scalePending ? "Scaling..." : "Scale" }}</AppButton>
         </div>
       </div>
     </AppModal>

@@ -11,6 +11,7 @@ import type {
   DeploymentActivityInterval,
   DeploymentActivityResponse,
 } from "../../api/types";
+import AppButton from "../common/AppButton.vue";
 import DeploymentIcon from "../overview/DeploymentIcon.vue";
 
 use([BarChart, GridComponent, TooltipComponent, SVGRenderer]);
@@ -200,7 +201,7 @@ onBeforeUnmount(() => {
       <p v-if="isLoading && !response" class="deployment-activity-state" role="status">Loading deployment activity…</p>
       <p v-else-if="error && !response" class="deployment-activity-state deployment-activity-error" role="alert">
         Failed to load deployment activity: {{ error }}
-        <button type="button" class="button-ghost" @click="retry">Retry</button>
+        <AppButton variant="secondary" compact @click="retry">Retry</AppButton>
       </p>
       <p v-else-if="response && total === 0" class="deployment-activity-state">No deployments in the selected period.</p>
       <div v-show="response && total > 0" ref="chartElement" class="deployment-activity-chart" role="img" :aria-label="compactSummary" />
@@ -226,9 +227,9 @@ onBeforeUnmount(() => {
 .deployment-activity-interval button:hover { transform: none; filter: none; color: var(--text); background: var(--surface-hover); }
 .deployment-activity-interval button.active { color: var(--text); font-weight: 650; }
 .deployment-activity-interval button.active::after { background: var(--text); }
-.deployment-activity-interval button:active, .deployment-activity-error .button-ghost:active { transform: translateY(1px); }
-.deployment-activity-interval button:disabled, .deployment-activity-error .button-ghost:disabled { color: var(--muted); background: var(--surface-muted); opacity: .65; cursor: not-allowed; }
-.deployment-activity-interval button:focus-visible, .deployment-activity-error .button-ghost:focus-visible { outline: 2px solid var(--accent-focus); outline-offset: 2px; }
+.deployment-activity-interval button:active { transform: translateY(1px); }
+.deployment-activity-interval button:disabled { color: var(--muted); background: var(--surface-muted); opacity: .65; cursor: not-allowed; }
+.deployment-activity-interval button:focus-visible { outline: 2px solid var(--accent-focus); outline-offset: 2px; }
 .deployment-activity-heading .overview-panel-title { white-space: nowrap; }
 .deployment-activity-legend { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px 16px; margin: 0; padding: 0; list-style: none; color: var(--muted); font-size: .76rem; }
 .deployment-activity-legend li { display: inline-flex; align-items: center; gap: 4px; }

@@ -3,6 +3,7 @@ import yaml from "@speed-highlight/core/languages/yaml.js";
 import { tokenizeWith } from "@speed-highlight/core/tokenize";
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
+import AppButton from "../common/AppButton.vue";
 import AppModal from "../common/AppModal.vue";
 import { fetchDeploymentInitJobLogs } from "../../api/overview";
 import type { DeploymentAttempt, DeploymentChange, DeploymentInitJobExecution } from "../../api/types";
@@ -436,7 +437,7 @@ onUnmounted(() => {
         <p v-if="store.deploymentDetailsLoading" role="status" class="meta">Loading deployment details...</p>
         <div v-else-if="store.deploymentDetailsError" role="alert" class="deployment-state-message">
           <p>Could not load deployment details: {{ store.deploymentDetailsError }}</p>
-          <button type="button" @click="store.openDeploymentDetailsModal(store.deploymentDetailsID)">Retry</button>
+          <AppButton @click="store.openDeploymentDetailsModal(store.deploymentDetailsID)">Retry</AppButton>
         </div>
         <p v-else-if="!detail" class="meta">Deployment details are unavailable.</p>
         <template v-else>
@@ -544,8 +545,8 @@ onUnmounted(() => {
                   <div v-if="attempt.status !== 'succeeded'" class="deployment-attempt-details-heading">
                     <strong>Diagnostics</strong>
                     <div class="deployment-attempt-details-actions">
-                      <button type="button" class="button-ghost" :disabled="!assistantStore.enabled || assistantStore.pending" @click="explainAttempt(attempt)">Explain</button>
-                      <button type="button" class="button-ghost" @click="copyAttemptDiagnostic(attempt)">{{ copiedAttemptID === attempt.id ? "Copied" : "Copy" }}</button>
+                      <AppButton variant="secondary" compact :disabled="!assistantStore.enabled || assistantStore.pending" @click="explainAttempt(attempt)">Explain</AppButton>
+                      <AppButton variant="secondary" compact @click="copyAttemptDiagnostic(attempt)">{{ copiedAttemptID === attempt.id ? "Copied" : "Copy" }}</AppButton>
                     </div>
                   </div>
                   <pre v-if="attempt.status !== 'succeeded'"><code>{{ attemptDiagnostic(attempt) }}</code></pre>
@@ -661,7 +662,7 @@ onUnmounted(() => {
                 <div v-if="infoOpen === 'configuration'" id="deployment-configuration-tooltip" class="deployment-info-tooltip" role="tooltip">Sensitive values are masked before storage.</div>
               </div>
             </div>
-            <button v-if="configuration" type="button" class="button-ghost" @click="copyConfiguration">{{ copyLabel }}</button>
+            <AppButton v-if="configuration" variant="secondary" compact @click="copyConfiguration">{{ copyLabel }}</AppButton>
           </div>
           <p v-if="!configuration" class="meta">Recorded configuration is unavailable.</p>
           <div v-else class="deployment-yaml manifest-code shj-lang-yaml shj-block" aria-label="Recorded desired configuration YAML" v-html="configurationHtml" />
@@ -817,7 +818,7 @@ onUnmounted(() => {
 .deployment-attempt-details-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .deployment-attempt-details-heading strong { font-size: .78rem; }
 .deployment-attempt-details-actions { display: flex; align-items: center; gap: 4px; }
-.deployment-attempt-details-heading .button-ghost { flex: 0 0 auto; padding: 4px 7px; font-size: .74rem; }
+.deployment-attempt-details-heading .app-button { flex: 0 0 auto; padding: 4px 7px; font-size: .74rem; }
 .deployment-attempt-details pre {
   box-sizing: border-box;
   width: 100%;

@@ -29,7 +29,7 @@ describe("Alert details modal", () => {
     expect(wrapper.text()).toContain("Occurrences3");
     expect(wrapper.text()).toContain("Technical codeapply_failed");
     expect(wrapper.text()).toContain("View stack");
-    await wrapper.get("button.button-ghost").trigger("click");
+    await wrapper.get("button.app-button--secondary").trigger("click");
     expect(openCommit).toHaveBeenCalledWith("abcdef012345");
 
     store.alertDetailsModalOpen = true;

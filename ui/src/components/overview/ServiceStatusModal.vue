@@ -2,6 +2,7 @@
 import { computed } from "vue";
 import { useRouter } from "vue-router";
 
+import AppButton from "../common/AppButton.vue";
 import AppModal from "../common/AppModal.vue";
 import AppTable from "../common/AppTable.vue";
 import { useOverviewStore } from "../../stores/overview";
@@ -79,7 +80,7 @@ async function openServiceDetails() {
         </AppTable>
       </div>
       <div v-if="canOpenDetails" class="services-link-panel service-status-link-panel">
-        <button type="button" class="service-status-open-details-btn" @click="openServiceDetails">Open details</button>
+        <AppButton class="service-status-open-details-btn" @click="openServiceDetails">Open details</AppButton>
       </div>
     </div>
   </AppModal>

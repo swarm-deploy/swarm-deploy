@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 
+import AppButton from "../common/AppButton.vue";
 import AppModal from "../common/AppModal.vue";
 import AppTable from "../common/AppTable.vue";
 import { useOverviewStore } from "../../stores/overview";
@@ -81,10 +82,10 @@ function stackTarget(stack: string) {
           <tr v-if="alert?.errorCode"><th scope="row">Technical code</th><td><code>{{ alert.errorCode }}</code></td></tr>
       </AppTable>
       <nav v-if="alert" class="alert-details-actions" aria-label="Related resources">
-        <button v-if="alert.deploymentId" type="button" @click="openDeployment">View deployment</button>
-        <RouterLink v-if="alert.resourceType === 'stack' && alert.resourceId" :to="stackTarget(alert.resourceId)" @click="closeAlertDetailsModal">View stack</RouterLink>
-        <RouterLink v-if="serviceTarget" :to="serviceTarget" @click="closeAlertDetailsModal">View service</RouterLink>
-        <button v-if="alert.commit" type="button" class="button-ghost" @click="openCommit">Commit {{ shortCommitHash(alert.commit) }}</button>
+        <AppButton v-if="alert.deploymentId" @click="openDeployment">View deployment</AppButton>
+        <AppButton v-if="alert.resourceType === 'stack' && alert.resourceId" :to="stackTarget(alert.resourceId)" variant="secondary" @click="closeAlertDetailsModal">View stack</AppButton>
+        <AppButton v-if="serviceTarget" :to="serviceTarget" variant="secondary" @click="closeAlertDetailsModal">View service</AppButton>
+        <AppButton v-if="alert.commit" variant="secondary" @click="openCommit">Commit {{ shortCommitHash(alert.commit) }}</AppButton>
       </nav>
     </div>
   </AppModal>
@@ -101,5 +102,4 @@ function stackTarget(stack: string) {
 .alert-details-diagnostic { margin-top: 10px; border-left: 3px solid var(--error); border-radius: 5px; background: var(--error-muted); padding: 8px 10px; }
 .alert-details-diagnostic p { margin: 5px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .alert-details-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
-.alert-details-actions a { display: inline-flex; align-items: center; border-radius: 6px; background: var(--accent); color: var(--text-on-accent); padding: 7px 10px; text-decoration: none; }
 </style>

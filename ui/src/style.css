@@ -143,17 +143,11 @@ body {
   justify-content: flex-end;
 }
 
-.topbar-actions button:disabled {
-  cursor: not-allowed;
-  opacity: 0.65;
-}
-
 .topbar-assistant-icon {
   display: none;
 }
 
-.topbar-sync-button,
-.button-primary {
+.topbar-sync-button {
   border-color: var(--accent-border);
   border-radius: 6px;
   background: var(--control-primary);
@@ -161,14 +155,12 @@ body {
   box-shadow: none;
 }
 
-.topbar-sync-button:hover:not(:disabled),
-.button-primary:hover:not(:disabled) {
+.topbar-sync-button:hover:not(:disabled) {
   background: var(--control-primary-hover);
   filter: none;
 }
 
-.topbar-sync-button:focus-visible,
-.button-primary:focus-visible {
+.topbar-sync-button:focus-visible {
   outline: 2px solid var(--accent-focus);
   outline-offset: 2px;
   box-shadow: none;
@@ -177,12 +169,6 @@ body {
 .topbar-sync-button:disabled:hover {
   transform: none;
   filter: none;
-}
-
-.button-ghost {
-  border-color: var(--border-default);
-  color: var(--text);
-  background: var(--surface-control);
 }
 
 :root:not([data-theme="light"]) .topbar-assistant-button {
@@ -838,7 +824,7 @@ body {
     align-items: stretch;
   }
 
-  .topbar-assistant-button {
+  .topbar-actions .app-button.topbar-assistant-button {
     display: grid;
     width: 38px;
     padding: 0;

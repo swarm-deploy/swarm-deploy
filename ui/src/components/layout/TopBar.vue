@@ -6,6 +6,7 @@ import { fetchSearch } from "../../api/search";
 import type { SearchResult } from "../../api/types";
 import { useOverviewStore } from "../../stores/overview";
 import { useSecretDetailsStore } from "../../stores/secretDetails";
+import AppButton from "../common/AppButton.vue";
 
 defineProps<{ assistantEnabled: boolean }>();
 
@@ -218,9 +219,9 @@ onUnmounted(() => {
     </div>
 
     <div class="topbar-actions">
-      <button
-        type="button"
-        class="button-ghost topbar-assistant-button"
+      <AppButton
+        variant="secondary"
+        class="topbar-assistant-button"
         aria-label="Assistant"
         :disabled="!assistantEnabled"
         @click="emit('toggleAssistant')"
@@ -248,7 +249,7 @@ onUnmounted(() => {
             <circle cx="15" cy="12" r="1" fill="url(#topbar-assistant-gradient)" stroke="none" />
           </svg>
         </span>
-      </button>
+      </AppButton>
     </div>
   </header>
 </template>

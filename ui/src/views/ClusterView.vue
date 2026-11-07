@@ -4,6 +4,7 @@ import { computed, onMounted, ref } from "vue";
 import AppModal from "../components/common/AppModal.vue";
 import { addNodeLabel, deleteNodeLabel, fetchNodes, updateNodeLabel } from "../api/cluster";
 import type { NodeInfo } from "../api/types";
+import AppButton from "../components/common/AppButton.vue";
 import AppCard from "../components/common/AppCard.vue";
 import { formatBytes, formatNanoCPU } from "../utils/format";
 
@@ -350,20 +351,19 @@ onMounted(() => {
         <p v-if="labelDialog.error" class="meta node-label-error">{{ labelDialog.error }}</p>
 
         <div class="node-label-dialog-actions">
-          <button
+          <AppButton
             v-if="labelDialog.mode === 'edit'"
-            type="button"
-            class="button-danger"
+            variant="danger"
             :disabled="labelDialog.saving"
             @click="removeCurrentLabel"
           >
             Remove
-          </button>
+          </AppButton>
           <span class="node-label-dialog-spacer"></span>
-          <button type="button" class="button-ghost" :disabled="labelDialog.saving" @click="closeLabelDialog">Cancel</button>
-          <button type="submit" :disabled="labelDialog.saving">
+          <AppButton variant="secondary" :disabled="labelDialog.saving" @click="closeLabelDialog">Cancel</AppButton>
+          <AppButton type="submit" :disabled="labelDialog.saving">
             {{ labelDialog.saving ? "Saving..." : labelDialog.mode === "add" ? "Add" : "Save" }}
-          </button>
+          </AppButton>
         </div>
       </form>
     </AppModal>

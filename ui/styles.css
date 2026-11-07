@@ -1385,12 +1385,6 @@ a.overview-summary-row:focus-visible {
   flex: 1 1 auto;
 }
 
-.button-danger {
-  border-color: rgba(248, 113, 113, 0.36);
-  color: var(--error);
-  background: var(--error-muted);
-}
-
 .service-details-layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(300px, 360px);

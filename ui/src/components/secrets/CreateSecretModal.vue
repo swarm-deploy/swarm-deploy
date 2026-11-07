@@ -3,6 +3,7 @@ import json from "@speed-highlight/core/languages/json.js";
 import { tokenizeWith } from "@speed-highlight/core/tokenize";
 import { computed, onUnmounted, ref, watch } from "vue";
 
+import AppButton from "../common/AppButton.vue";
 import AppModal from "../common/AppModal.vue";
 import { createExternalSecret, createSecret, fetchDSNSuggestions, syncSecretManager } from "../../api/secrets";
 import type { DSNSuggestion, SecretManagerInfo, SynchronizedSecretIdentity } from "../../api/types";
@@ -565,8 +566,8 @@ onUnmounted(() => {
       <p v-if="errorMessage" class="create-secret-inline-error" role="alert">{{ errorMessage }}</p>
 
       <div class="create-secret-actions">
-        <button type="button" class="button-ghost" :disabled="pending" @click="close">Cancel</button>
-        <button type="submit" class="create-secret-submit button-primary" :disabled="!formValid || pending">{{ submitLabel }}</button>
+        <AppButton variant="secondary" :disabled="pending" @click="close">Cancel</AppButton>
+        <AppButton type="submit" class="create-secret-submit" :disabled="!formValid || pending">{{ submitLabel }}</AppButton>
       </div>
     </form>
 
@@ -660,10 +661,10 @@ onUnmounted(() => {
       </a>
 
       <div class="create-secret-result-actions">
-        <button type="button" :class="resultState === 'success' ? 'create-secret-submit button-primary' : 'button-ghost'" :disabled="pending" @click="close">Done</button>
-        <button v-if="resultState === 'partial'" type="button" class="create-secret-submit button-primary" :disabled="pending" @click="retrySync">
+        <AppButton :variant="resultState === 'success' ? 'primary' : 'secondary'" :class="{ 'create-secret-submit': resultState === 'success' }" :disabled="pending" @click="close">Done</AppButton>
+        <AppButton v-if="resultState === 'partial'" class="create-secret-submit" :disabled="pending" @click="retrySync">
           {{ submissionStage === "retrying" ? "Retrying Sync…" : "Retry Sync" }}
-        </button>
+        </AppButton>
       </div>
     </section>
   </AppModal>
