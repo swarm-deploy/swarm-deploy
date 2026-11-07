@@ -25,7 +25,6 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/outbox"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
 	"github.com/swarm-deploy/swarm-deploy/internal/storage"
-	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	"github.com/swarm-deploy/swarm-deploy/internal/testutil"
 )
 
@@ -78,13 +77,16 @@ func TestSQLSubscriberAccumulatesTypedFindingsUntilResolution(t *testing.T) {
 	subscriber := newTestSQLSubscriber(repo)
 	start := time.Date(2026, time.November, 7, 10, 0, 0, 0, time.UTC)
 	stack := events.DeployEvent{StackName: "app"}
-	imageMissing := func(diagnostic error) *events.DeployFailed {
-		return &events.DeployFailed{DeployEvent: stack, ErrorCode: "convergence_failed", Error: diagnostic}
+	imageMissing := func(taskID, image string) *events.DeployFailed {
+		summary := "No such image: " + image
+		diagnostic := "service failed to converge: task " + taskID + " rejected: " + summary + "\nTask logs unavailable"
+		return &events.DeployFailed{DeployEvent: stack, ErrorCode: "convergence_failed",
+			Error: faults.NewSafeError(diagnostic, false, faults.CodeImageNotFound, summary)}
 	}
 
 	wantFindings := []model.Finding{
-		{Code: faults.CodeImageNotFound, Summary: "api:1: image not found token=****", DetectedAt: start},
-		{Code: faults.CodeImageNotFound, Summary: "api:2: image not found", DetectedAt: start.Add(3 * time.Minute)},
+		{Code: faults.CodeImageNotFound, Summary: "No such image: api:1", DetectedAt: start},
+		{Code: faults.CodeImageNotFound, Summary: "No such image: api:2", DetectedAt: start.Add(3 * time.Minute)},
 		{Code: faults.CodeImageNotFound, Summary: "", DetectedAt: start.Add(4 * time.Minute)},
 	}
 	var alertID string
@@ -92,13 +94,13 @@ func TestSQLSubscriberAccumulatesTypedFindingsUntilResolution(t *testing.T) {
 		event events.Event
 		count int
 	}{
-		{event: imageMissing(fmt.Errorf("api:1: %w token=private-value", swarm.ErrImageNotFound)), count: 1},
-		{event: imageMissing(fmt.Errorf("api:1: %w token=another-private-value", swarm.ErrImageNotFound)), count: 1},
+		{event: imageMissing("task-1", "api:1"), count: 1},
+		{event: imageMissing("task-2", "api:1"), count: 1},
 		{event: &events.DeployFailed{DeployEvent: stack, ErrorCode: "apply_failed",
 			Error: errors.New("external network edge does not exist")}, count: 1},
-		{event: imageMissing(fmt.Errorf("api:2: %w", swarm.ErrImageNotFound)), count: 2},
+		{event: imageMissing("task-3", "api:2"), count: 2},
 		{event: &events.DeployPreparationFailed{StackName: "app", ErrorCode: "preparation_failed",
-			Error: faults.NewSafeError("", false, faults.CodeImageNotFound)}, count: 3},
+			Error: faults.NewSafeError("preparation diagnostic", false, faults.CodeImageNotFound, "")}, count: 3},
 		{event: &events.DeploySuccess{DeployEvent: stack}, count: 3},
 	} {
 		now := start.Add(time.Duration(i) * time.Minute)
@@ -111,6 +113,9 @@ func TestSQLSubscriberAccumulatesTypedFindingsUntilResolution(t *testing.T) {
 		require.Len(t, alerts, 1)
 		if i == 0 {
 			alertID = alerts[0].ID
+		}
+		if failure, ok := step.event.(*events.DeployFailed); ok {
+			assert.Equal(t, failure.Error.Error(), alerts[0].Message)
 		}
 		assert.Equal(t, alertID, alerts[0].ID)
 		assert.Equal(t, wantFindings[:step.count], alerts[0].Findings)

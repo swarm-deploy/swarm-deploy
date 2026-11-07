@@ -369,7 +369,7 @@ func findingFromError(err error, now time.Time) model.Finding {
 	if !errors.As(err, &coded) {
 		return model.Finding{}
 	}
-	return model.Finding{Code: coded.FaultCode(), Summary: faults.SafeDiagnostic(err), DetectedAt: now.UTC()}
+	return model.Finding{Code: coded.FaultCode(), Summary: coded.FaultSummary(), DetectedAt: now.UTC()}
 }
 
 func appendFinding(alert *model.Alert, finding model.Finding) {

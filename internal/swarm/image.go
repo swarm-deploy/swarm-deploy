@@ -16,6 +16,8 @@ func (imageNotFoundError) Error() string { return "image not found" }
 
 func (imageNotFoundError) FaultCode() faults.Code { return faults.CodeImageNotFound }
 
+func (e imageNotFoundError) FaultSummary() string { return e.Error() }
+
 // ImageNotFound reports whether Docker rejected this task with a missing-image diagnostic.
 func (t ServiceTask) ImageNotFound() bool {
 	if t.CurrentState != TaskStateRejected || t.Spec.value.ContainerSpec == nil {

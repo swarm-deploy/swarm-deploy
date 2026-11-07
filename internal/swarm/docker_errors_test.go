@@ -188,6 +188,7 @@ func TestManagersClassifyDockerErrors(t *testing.T) {
 func TestImageNotFoundIsCoded(t *testing.T) {
 	var coded faults.Coded = ErrImageNotFound
 	assert.Equal(t, faults.CodeImageNotFound, coded.FaultCode())
+	assert.Equal(t, "image not found", coded.FaultSummary())
 	assert.Equal(t, "image not found", coded.Error())
 
 	wrapped := fmt.Errorf("inspect image: %w", ErrImageNotFound)

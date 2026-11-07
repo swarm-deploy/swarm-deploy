@@ -81,16 +81,24 @@ func TestSafeLoggerMasksErrorAttributes(t *testing.T) {
 
 type codedTestError struct {
 	*net.DNSError
+	summary string
 }
 
 func (*codedTestError) FaultCode() Code { return CodeImageNotFound }
 
-func TestSafeErrorPreservesFaultCodeWithoutRetainingCause(t *testing.T) {
-	original := &codedTestError{&net.DNSError{Err: "token=private-value", IsTemporary: true}}
+func (e *codedTestError) FaultSummary() string { return e.summary }
+
+func TestSafeErrorPreservesFaultDetailsWithoutRetainingCause(t *testing.T) {
+	original := &codedTestError{
+		DNSError: &net.DNSError{Err: "token=private-value", IsTemporary: true},
+		summary:  "No such image: app:1 token=summary-secret " + strings.Repeat("x", maxDiagnosticLength),
+	}
 	safe := SafeError(fmt.Errorf("lookup: %w", original))
 	var coded Coded
 	require.ErrorAs(t, safe, &coded)
 	assert.Equal(t, CodeImageNotFound, coded.FaultCode())
+	assert.Equal(t, ("No such image: app:1 token=**** " + strings.Repeat("x", maxDiagnosticLength))[:maxDiagnosticLength]+"…",
+		coded.FaultSummary())
 	assert.True(t, safe.(Error).Temporary())
 	assert.Contains(t, safe.Error(), "token=****")
 	assert.NotContains(t, safe.Error(), "private-value")

@@ -62,6 +62,7 @@ func TestInitialNonRestartingTaskFailureIsTerminal(t *testing.T) {
 				require.ErrorIs(t, err, swarm.ErrImageNotFound)
 				require.ErrorAs(t, err, &coded)
 				assert.Equal(t, faults.CodeImageNotFound, coded.FaultCode())
+				assert.Equal(t, task.Error, coded.FaultSummary())
 			} else {
 				assert.False(t, errors.As(err, &coded))
 			}

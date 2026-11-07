@@ -35,7 +35,16 @@ var serviceWaiterTracer = otel.Tracer(
 // ErrConvergenceFailed identifies an observed terminal Swarm failure, rather than an observation error.
 var ErrConvergenceFailed = errors.New("service convergence failed")
 
-type missingImageConvergenceError struct{ error }
+type missingImageConvergenceError struct {
+	error
+	summary string
+}
+
+func (missingImageConvergenceError) FaultCode() faults.Code {
+	return swarm.ErrImageNotFound.FaultCode()
+}
+
+func (e missingImageConvergenceError) FaultSummary() string { return e.summary }
 
 func (e missingImageConvergenceError) Unwrap() []error {
 	return []error{e.error, swarm.ErrImageNotFound}
@@ -72,13 +81,15 @@ type ServiceProgress struct {
 	// Message contains a bounded convergence diagnostic.
 	Message string
 
-	imageNotFound bool
+	missingImageDiagnostic string
 }
 
 func (p *ServiceProgress) failTask(task swarm.ServiceTask) {
 	p.State = ServiceFailed
 	p.FailedTaskID = task.ID
-	p.imageNotFound = task.ImageNotFound()
+	if task.ImageNotFound() {
+		p.missingImageDiagnostic = task.Error
+	}
 }
 
 // ServiceProgressCallback receives meaningful service convergence transitions.
@@ -265,8 +276,8 @@ func (w *ServiceWaiter) observeTargets(
 		}
 		if progress.State == ServiceFailed {
 			failure := fmt.Errorf("%w: service %s failed to converge: %s", ErrConvergenceFailed, name, progress.Message)
-			if progress.imageNotFound {
-				failure = missingImageConvergenceError{failure}
+			if progress.missingImageDiagnostic != "" {
+				failure = missingImageConvergenceError{error: failure, summary: progress.missingImageDiagnostic}
 			}
 			failures = append(failures, failure)
 			continue
