@@ -38,12 +38,11 @@ spec, err := converter.Convert(ctx, stackName, preparedCompose)
 Services support image, scalar/list command and entrypoint, environment, container
 and service labels, capabilities, healthchecks (including start interval), stop grace period, ports,
 VIP/DNSRR endpoints, network aliases and attachment driver options, mounts,
-config/secret files, logging, replicated/global modes, replicas, placement,
-CPU/memory limits and reservations, PID limits, restart policies, and update and
-rollback policies.
+config/secret files, logging, replicated/global service and job modes, replicas,
+placement, CPU/memory limits and reservations, discrete generic reservations,
+PID limits, restart policies, and update and rollback policies.
 
-Scalar commands are tokenized with the existing dependency graph's `go-shlex`
-package; they do not implicitly invoke a shell. Exec-form arguments retain their
+Scalar commands are tokenized with the `google/shlex` package; they do not implicitly invoke a shell. Exec-form arguments retain their
 boundaries. Scalar healthcheck tests become `CMD-SHELL` tests.
 
 Names use `stack_alias` unless overridden by `name` or an external definition.
@@ -54,9 +53,10 @@ zero and parallelism zero are preserved. Unspecified restart, update, rollback
 and replica settings are left to Docker's defaults; a present update/rollback
 configuration defaults its parallelism to one.
 
-Networks include all declared networks and the implicit default when referenced
-by an application service or Init Job. Network specifications preserve explicit
-names, external ownership, internal/attachable flags, driver/options and labels.
+Networks include only Compose networks referenced by an application service or
+Init Job, including the implicit default when referenced. Network specifications
+preserve explicit names, external ownership, internal/attachable flags,
+driver/options, IPAM settings and labels.
 Every network must already exist with a nonempty ID and Swarm scope. Service
 attachments use its resolved ID. This is separate from the GitOps reconciler for
 networks declared in swarm-deploy's own configuration.
@@ -75,8 +75,8 @@ for the existing shared ObjectRef parser's secret-style short-form target withou
 changing its behavior for existing consumers.
 
 Init Jobs are excluded from application service conversion. Their declared
-networks are included and undefined dependencies are rejected. InitJobRunner,
-its temporary services and its lifecycle remain unchanged.
+networks are included and undefined dependencies are rejected. InitJobRunner
+owns the temporary services and job lifecycle.
 
 Map-derived collections and service/network results have deterministic ordering.
 Conversion never mutates its input or shares mutable input maps, slices or
@@ -110,11 +110,13 @@ Init Job execution options remain owned by their existing preparation/runner.
 
 The converter currently rejects, rather than approximates:
 
-- IPAM, static service IPs, IPv6 network options and local-scope networks.
+- Static service IPs, IPv6 network options and arbitrary local-scope networks
+  (predefined external `host`/`none` are supported). Network IPAM driver,
+  options, subnet, IP range, gateway and auxiliary addresses are supported.
 - Host-IP/app-protocol port settings, invalid protocols/modes and ingress ports
   with DNSRR.
-- Job deployment modes, PID reservations and unmodeled resource options such as
-  device reservations or generic resources.
+- PID reservations and unmodeled resource options such as device reservations
+  or generic resource limits (discrete generic reservations are supported).
 - Bind host-path creation, relative bind paths, image/cluster/npipe mounts,
   SELinux short mount modes and other unconverted mount options.
 - Unmodeled service fields, including `build`. Only explicitly documented
