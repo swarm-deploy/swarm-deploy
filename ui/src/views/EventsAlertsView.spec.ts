@@ -137,11 +137,12 @@ describe("Events & Alerts", () => {
     expect(tab(invalidView.wrapper, "Alerts").attributes("aria-selected")).toBe("true");
   });
 
-  it("combines status, type and resource filters and opens the original alert details", async () => {
+  it("searches resources, combines filters and opens the original alert details", async () => {
     const { wrapper } = await mountView();
     const status = wrapper.get('[aria-label="Filter alerts by status"]');
     const type = wrapper.get('[aria-label="Filter alerts by type"]');
-    const resource = wrapper.get('[aria-label="Filter alerts by resource"]');
+    const resource = wrapper.get("#alerts-filter-panel .events-search-filter");
+    const search = resource.get<HTMLInputElement>('[aria-label="Search resources"]');
 
     await status.setValue("open");
     expect(wrapper.findAll(".alerts-title").map((title) => title.text())).toEqual(["Node disconnected"]);
@@ -151,9 +152,14 @@ describe("Events & Alerts", () => {
     await type.setValue("node_disconnected");
     expect(wrapper.text()).toContain("No alerts match the selected filters.");
     await type.setValue("service_drift");
-    await resource.setValue("node:worker");
+    (resource.element as HTMLDetailsElement).open = true;
+    await search.setValue("WORKER");
+    expect(resource.findAll("button").map((button) => button.text())).toEqual(["All resources", "worker (node)"]);
+    await resource.findAll("button")[1].trigger("click");
+    expect(resource.attributes("open")).toBeUndefined();
+    expect(search.element.value).toBe("");
     expect(wrapper.text()).toContain("No alerts match the selected filters.");
-    await resource.setValue("service:app/api");
+    await resource.findAll("button").find((button) => button.text() === "app/api (service)")!.trigger("click");
     expect(wrapper.findAll(".alerts-title").map((title) => title.text())).toEqual(["Service drift detected"]);
 
     await wrapper.get(".alerts-table tbody tr").trigger("click");
@@ -165,9 +171,9 @@ describe("Events & Alerts", () => {
   it("preserves filters in both tabs across tab switches", async () => {
     const { wrapper, router } = await mountView();
     const status = wrapper.get<HTMLSelectElement>('[aria-label="Filter alerts by status"]');
-    const resource = wrapper.get<HTMLSelectElement>('[aria-label="Filter alerts by resource"]');
+    const resource = wrapper.get("#alerts-filter-panel .events-search-filter");
     await status.setValue("resolved");
-    await resource.setValue("service:app/api");
+    await resource.findAll("button").find((button) => button.text() === "app/api (service)")!.trigger("click");
     await tab(wrapper, "Events").trigger("click");
     await flushPromises();
 
@@ -194,7 +200,7 @@ describe("Events & Alerts", () => {
 
     await tab(wrapper, "Alerts").trigger("click");
     expect(status.element.value).toBe("resolved");
-    expect(resource.element.value).toBe("service:app/api");
+    expect(resource.get(".events-filter-selection").text()).toBe("app/api (service)");
     wrapper.unmount();
   });
 });
