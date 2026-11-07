@@ -1,6 +1,6 @@
 # Unified Event Bus and SQLite Outbox: contracts and schema
 
-This expands [SQLite + Deployment architecture](sqlite-outbox-refactor.md). The SQL below is the Outbox subset of `migrations/sqlite/0001_initial.sql`.
+The SQL below is the Outbox subset of `migrations/sqlite/0001_initial.sql`.
 
 ## Decision: publication and processing are separate transactions
 
