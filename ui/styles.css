@@ -825,11 +825,12 @@ button:hover,
 }
 
 .overview-summary-panel-content {
+  --summary-panel-inline-padding: 16px;
   min-height: 0;
   flex: 1;
   display: flex;
   flex-direction: column;
-  padding: 0 16px 15px;
+  padding: 0 var(--summary-panel-inline-padding) 15px;
 }
 
 .overview-panel-title {
@@ -844,6 +845,7 @@ button:hover,
 .overview-recommendation-list {
   display: grid;
   min-width: 0;
+  margin-inline: calc(-1 * var(--summary-panel-inline-padding));
 }
 
 .overview-summary-row {
@@ -857,7 +859,7 @@ button:hover,
   border-radius: 0;
   background: transparent;
   color: inherit;
-  padding: 8px 7px;
+  padding: 8px calc(7px + var(--summary-panel-inline-padding));
   text-align: left;
   text-decoration: none;
   transition: background-color 120ms ease, border-color 120ms ease;
@@ -873,7 +875,6 @@ button.overview-summary-row:focus-visible,
 a.overview-summary-row:hover,
 a.overview-summary-row:focus-visible {
   border-top-color: var(--border-strong);
-  border-radius: 6px;
   background: var(--surface-hover);
   color: inherit;
   filter: none;
@@ -903,7 +904,7 @@ a.overview-summary-row:focus-visible {
   inset: 0;
   z-index: 0;
   border: 0;
-  border-radius: 6px;
+  border-radius: 0;
   background: transparent;
   padding: 0;
 }
@@ -4123,7 +4124,8 @@ a.overview-summary-row:focus-visible {
   }
 
   .overview-summary-panel-content {
-    padding: 0 13px 12px;
+    --summary-panel-inline-padding: 13px;
+    padding-bottom: 12px;
   }
 
   .service-panel-heading {
