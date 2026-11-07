@@ -108,8 +108,8 @@ than editing deployment or Goose rows by hand.
 The first real apply attempt has `comparison_basis=none` because no successful
 desired snapshot exists. The UI presents this as **Initial Deployment Snapshot** and
 shows the safe recorded target configuration without claiming that every field or
-resource was newly created in Swarm. A successful apply still does not prove service
-health or live convergence.
+resource was newly created in Swarm. Successful execution verifies the applicable rollout targets, but does not
+prove continuous service health or convergence of unrelated unchanged services.
 
 Later Deployments with a trustworthy comparison basis show the normal structured
 `added` / `changed` / `removed` semantic diff.
@@ -118,5 +118,9 @@ Later Deployments with a trustworthy comparison basis show the normal structured
 
 Deployment completion and its Outbox publication commit atomically. Event History,
 Alerts, Recommendations and other subscribers process that publication later in
-separate transactions. A successful Deployment means that the apply pipeline
-completed; it does not mean that live Swarm convergence was verified.
+separate transactions. A successful Deployment means the apply pipeline completed, including waiting
+for convergence of the affected services when required. A no-op without service
+mutations or active updates is not a health check; externally managed replicated
+services can be verified for specification acceptance rather than task health.
+Deployment success does not guarantee continued health after completion or
+convergence of unrelated unchanged services.

@@ -1,9 +1,9 @@
 # Native deployment compatibility
 
-Reference: `swarm-deploy-docker-cli-comparison.txt`, audit of dev
-`d744a869ca03d47ddc81233bad87667672d353d9` against Docker CLI/SDK v28.3.3.
-The dev head was still this commit when this work started. The confirmed defects
-were all present; the CLI infrastructure remains removed.
+This document records a compatibility audit of dev commit
+`d744a869ca03d47ddc81233bad87667672d353d9` against Docker CLI/SDK v28.3.3
+and the follow-up changes. For current GitOps execution and retry behavior, see
+[Reconciliation](reconciler.md). The runtime does not invoke Docker CLI.
 
 ## Addressed findings
 
@@ -17,7 +17,7 @@ were all present; the CLI infrastructure remains removed.
 | 6: registry resolution | Consistent `changed` policy, preserving the resolved image/platforms on unrelated changes. Registry auth still comes from AuthManager; SDK handles resolution. |
 | 7: networks | Plan only referenced networks, including Init Job references and implicit default. Reuse existing stack-owned immutable networks. Accept predefined external host/none networks; arbitrary external local bridge networks remain invalid. |
 | 8: warnings | Log create/update response warnings, including SDK registry-resolution warnings, with the existing bounded secret-masking diagnostic function. Warnings are not failures. |
-| 9: environment/ports | Resolve bare/null keys during source loading; persist effective values. Preserve explicit empty strings and literal `"null"`. Expand short port ranges with the same nat parser used by CLI. |
+| 9: environment/ports | Reject bare environment keys during source loading and turn YAML-null mappings into explicit empty strings, without process-environment lookup. Preserve explicit empty strings and literal `"null"`. Expand short port ranges with the same nat parser used by CLI. |
 
 ## Supported options added
 
@@ -125,13 +125,11 @@ registry polling or custom manifest resolver is introduced.
 
 ## Intentional differences and audit corrections
 
-- Environment lookup happens once in FileLoader during source preparation, before
-  GitOps persists its effective snapshot. Bare or YAML-null names capture the
-  process value if available. Unset names remain explicit unset entries (`NAME`,
-  not `NAME=null` or `NAME=`) through JSON/YAML, overriding env_file values. The
-  converter and Parse do not read the process environment. Explicit empty values
-  remain empty; CLI v28.3.3 resolves those from its environment. Init Jobs retain
-  their existing environment/interpolation semantics.
+- Repository-controlled Compose values are literal and never interpolate from the
+  controller process environment. Bare keys in service `environment` lists and
+  `env_file` files are rejected; YAML-null environment mapping values become
+  explicit empty strings. `$VAR` and `${VAR}` remain literal. Unlike Docker CLI
+  environment substitution, these effective values depend only on Git content.
 - Matching short port ranges and target-only ranges are expanded with Docker's
   nat parser. Invalid or mismatched ranges fail. Host-IP publishing is still
   unsupported by Swarm and produces the existing converter error.
@@ -141,9 +139,9 @@ registry polling or custom manifest resolver is introduced.
   though its converter and SDK have the field. Native supports the API field.
 - Warnings are available in existing structured deployment-context logs, without
   a new persistence model. They are not separately stored in deployment records.
-- Config/secret reconciliation and rotation, Init Jobs, controller lifecycle,
-  events, pruning and volumes retain swarm-deploy behavior. No database migration,
-  asynchronous execution or new orchestration layer is involved.
+- Native service conversion reuses resource reconciliation, Init Jobs, events,
+  pruning and volume handling. GitOps runs stack operations asynchronously through
+  the bounded stack queue described in [Reconciliation](reconciler.md#sync-runs-and-the-stack-queue).
 
 ## Verification
 
