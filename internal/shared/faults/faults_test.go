@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestSafeDiagnostic(t *testing.T) {
@@ -76,6 +77,34 @@ func TestSafeLoggerMasksErrorAttributes(t *testing.T) {
 	assert.NotContains(t, output.String(), "password")
 	assert.NotContains(t, output.String(), "private-value")
 	assert.Contains(t, output.String(), "****")
+}
+
+type codedTestError struct {
+	*net.DNSError
+	summary string
+}
+
+func (*codedTestError) FaultCode() Code { return CodeImageNotFound }
+
+func (e *codedTestError) FaultSummary() string { return e.summary }
+
+func TestSafeErrorPreservesFaultDetailsWithoutRetainingCause(t *testing.T) {
+	original := &codedTestError{
+		DNSError: &net.DNSError{Err: "token=private-value", IsTemporary: true},
+		summary:  "No such image: app:1 token=summary-secret " + strings.Repeat("x", maxDiagnosticLength),
+	}
+	safe := SafeError(fmt.Errorf("lookup: %w", original))
+	var coded Coded
+	require.ErrorAs(t, safe, &coded)
+	assert.Equal(t, CodeImageNotFound, coded.FaultCode())
+	assert.Equal(t, ("No such image: app:1 token=**** " + strings.Repeat("x", maxDiagnosticLength))[:maxDiagnosticLength]+"…",
+		coded.FaultSummary())
+	assert.True(t, safe.(Error).Temporary())
+	assert.Contains(t, safe.Error(), "token=****")
+	assert.NotContains(t, safe.Error(), "private-value")
+	assert.NotErrorIs(t, safe, original)
+	assert.Nil(t, errors.Unwrap(safe))
+	assert.NotErrorAs(t, SafeError(errors.New("permanent")), &coded)
 }
 
 func TestSafeErrorPreservesClassificationWithoutRetainingCause(t *testing.T) {

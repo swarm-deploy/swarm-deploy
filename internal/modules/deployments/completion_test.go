@@ -3,6 +3,7 @@ package deployments
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -11,7 +12,9 @@ import (
 	deploymentmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/model"
 	deploymentstore "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
 	"github.com/swarm-deploy/swarm-deploy/internal/storage"
+	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 
 func TestCompletePersistsLifecycleBaselineAndEvents(t *testing.T) {
@@ -27,6 +30,7 @@ func TestCompletePersistsLifecycleBaselineAndEvents(t *testing.T) {
 		wantActual       deploymentmodel.ActualStateStatus
 		wantEvent        events.TypeName
 		wantEventStage   string
+		wantFault        faults.Code
 	}{
 		{
 			name: "success without observation", completion: Completion{Outcome: CompletionSucceeded},
@@ -46,11 +50,20 @@ func TestCompletePersistsLifecycleBaselineAndEvents(t *testing.T) {
 		{
 			name: "apply failure",
 			completion: Completion{Outcome: CompletionApplyFailed,
-				Diagnostic: errors.New("docker failed: token=private-value")},
+				Diagnostic: errors.New("docker failed: image not found token=private-value")},
 			wantStatus: deploymentmodel.Failed, wantPhase: deploymentmodel.PhaseApply,
 			wantApply: deploymentmodel.StageFailed, wantVerification: deploymentmodel.StageSkipped,
 			wantCleanup: deploymentmodel.StageSkipped, wantActual: deploymentmodel.ActualStateUnknown,
 			wantEvent: events.TypeNameDeployFailed, wantEventStage: "apply",
+		},
+		{
+			name: "wrapped missing image",
+			completion: Completion{Outcome: CompletionConvergenceFailed,
+				Diagnostic: fmt.Errorf("image api:1 token=private-value: %w", swarm.ErrImageNotFound)},
+			wantStatus: deploymentmodel.Failed, wantPhase: deploymentmodel.PhaseVerification,
+			wantApply: deploymentmodel.StageSucceeded, wantVerification: deploymentmodel.StageFailed,
+			wantCleanup: deploymentmodel.StageSkipped, wantActual: deploymentmodel.ActualStateUnknown,
+			wantEvent: events.TypeNameDeployFailed, wantEventStage: "verification", wantFault: faults.CodeImageNotFound,
 		},
 		{
 			name:       "policy rejection",
@@ -135,7 +148,7 @@ func TestCompletePersistsLifecycleBaselineAndEvents(t *testing.T) {
 			assert.Equal(t, stored.Phase, stored.Attempts[0].Phase)
 			assert.NotContains(t, stored.ErrorDiagnostic, "private-value")
 
-			assertCompletionPublication(t, db, testCase.wantEvent, attempt, testCase.completion, testCase.wantEventStage)
+			assertCompletionPublication(t, db, testCase.wantEvent, attempt, testCase.completion, testCase.wantEventStage, testCase.wantFault)
 			baseline, baselineErr := deploymentstore.NewStore(db).BaselineDeploymentID(t.Context(), "app")
 			if testCase.wantStatus == deploymentmodel.Succeeded {
 				require.NoError(t, baselineErr)
@@ -154,6 +167,7 @@ func assertCompletionPublication(
 	attempt *deploymentmodel.Attempt,
 	completion Completion,
 	wantStage string,
+	wantFault faults.Code,
 ) {
 	t.Helper()
 	items := publications(t, db, wantType)
@@ -177,6 +191,13 @@ func assertCompletionPublication(
 		assert.Equal(t, "commit", actual.Commit)
 		require.Len(t, actual.Services, 1)
 		assert.Equal(t, completion.ErrorCode(), actual.ErrorCode)
+		var coded faults.Coded
+		if wantFault == "" {
+			assert.NotErrorAs(t, actual.Error, &coded)
+		} else {
+			require.ErrorAs(t, actual.Error, &coded)
+			assert.Equal(t, wantFault, coded.FaultCode())
+		}
 		assert.Equal(t, wantStage, actual.Stage)
 		if actual.Error != nil {
 			assert.NotContains(t, actual.Error.Error(), "private-value")

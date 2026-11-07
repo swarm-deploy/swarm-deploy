@@ -91,8 +91,7 @@ func runningServiceProgress(
 		tasks, service.ServiceSpec.TaskTemplate, mode, cutoff, placementNodes,
 	)
 	if failed, terminal := services.TerminalServiceTaskFailure(service.ServiceSpec, tasks, cutoff); terminal {
-		progress.State = ServiceFailed
-		progress.FailedTaskID = failed.ID
+		progress.failTask(failed)
 		progress.Message = "task failed with no restarts remaining" + formatTaskDiagnostic(failed)
 		return progress
 	}
@@ -131,9 +130,8 @@ func terminalServiceUpdateProgress(
 		progress.Message = "waiting for current update status; previous update was " + string(service.UpdateStatus.State)
 		return progress, true
 	}
-	progress.State = ServiceFailed
 	task := terminalFailureTask(tasks, service.UpdateStatus.Message, terminalTaskCutoff(baseline, service))
-	progress.FailedTaskID = task.ID
+	progress.failTask(task)
 	progress.Message = message + formatTaskDiagnostic(task)
 	return progress, true
 }

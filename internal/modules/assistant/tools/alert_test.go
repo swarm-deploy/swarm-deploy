@@ -10,6 +10,7 @@ import (
 	alertmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/model"
 	alertstore "github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/tools/routing"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
 	"github.com/swarm-deploy/swarm-deploy/internal/testutil"
 )
 
@@ -21,7 +22,8 @@ func TestAlertListFiltersDefaultsAndRepresentations(t *testing.T) {
 		{ID: "open-stack", Fingerprint: "sync_failed:stack:api", Kind: alertmodel.AlertKindSyncFailed,
 			ResourceType: alertmodel.ResourceTypeStack, ResourceID: "api", Status: alertmodel.AlertStatusOpen,
 			Title: "Synchronization failed", Message: "apply failed", FailureStage: "apply", ErrorCode: "apply_failed",
-			Commit: "abc", Occurrences: 2, OpenedAt: now, UpdatedAt: now,
+			Findings: []alertmodel.Finding{{Code: faults.CodeImageNotFound, Summary: "api:1 is missing", DetectedAt: now}},
+			Commit:   "abc", Occurrences: 2, OpenedAt: now, UpdatedAt: now,
 			OpenEventID: "event-open", LatestEventID: "event-latest"},
 		{ID: "open-node", Fingerprint: "node_disconnected:node:node-1", Kind: alertmodel.AlertKindNodeDisconnected,
 			ResourceType: alertmodel.ResourceTypeNode, ResourceID: "node-1", Status: alertmodel.AlertStatusOpen,
@@ -97,6 +99,7 @@ func TestAlertListFiltersDefaultsAndRepresentations(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotContains(t, string(encoded), "deployment_id", "an alert without a deployment must not invent a correlation")
 	assert.Contains(t, string(encoded), `"error_code":"apply_failed"`)
+	assert.NotContains(t, string(encoded), "findings")
 
 	response, err = NewAlertGet(store).Execute(t.Context(), routing.Request{Payload: alertGetRequest{ID: "open-stack"}})
 	require.NoError(t, err)
@@ -112,6 +115,7 @@ func TestAlertListFiltersDefaultsAndRepresentations(t *testing.T) {
 			"status": "open",
 			"title": "Synchronization failed",
 			"message": "apply failed",
+			"findings": [{"code":"image_not_found","summary":"api:1 is missing","detectedAt":"2026-10-11T12:00:00Z"}],
 			"failure_stage": "apply",
 			"error_code": "apply_failed",
 			"commit": "abc",

@@ -44,19 +44,19 @@ func Encode(event events.Event) ([]byte, error) {
 			code = safeFailureCode(e.Error)
 		}
 		return encodeDeploymentFailure(e.StackName, e.Commit, e.DeploymentID, e.AttemptID, code, e.Stage,
-			faults.SafeDiagnostic(e.Error), temporaryClassification(e.Error), e.Services)
+			e.Error, e.Services)
 	case *events.DeployPreparationFailed:
 		if e.ErrorCode != "preparation_failed" {
 			return nil, errors.New("unsupported deployment preparation failure code")
 		}
 		return encodeDeploymentFailure(e.StackName, e.Commit, "", "", e.ErrorCode, e.Stage,
-			faults.SafeDiagnostic(e.Error), temporaryClassification(e.Error), e.Services)
+			e.Error, e.Services)
 	case *events.DeployInterrupted:
 		if e.Reason != "process_interrupted" && e.Reason != "verification_unknown" {
 			return nil, errors.New("unsupported deployment interruption reason")
 		}
 		return encodeDeploymentFailure(e.StackName, e.Commit, e.DeploymentID, e.AttemptID, e.Reason, e.Stage,
-			faults.SafeDiagnostic(e.Error), temporaryClassification(e.Error), e.Services)
+			e.Error, e.Services)
 	case *events.NodeJoined:
 		return json.Marshal(nodePayload{ID: e.NodeID, Name: e.NodeName, Role: e.Role})
 	case *events.NodeConnected:
@@ -247,7 +247,7 @@ func isDeploymentFailureType(typ events.TypeName) bool {
 
 func decodeDeploymentFailure(typ events.TypeName, payload []byte) (events.Event, error) {
 	return decodeAs(payload, func(p deploymentFailurePayload) events.Event {
-		diagnostic := diagnosticError(p.Diagnostic, p.Temporary)
+		diagnostic := faults.NewSafeError(p.Diagnostic, p.Temporary, safeFaultCode(p.FaultCode), p.FaultSummary)
 		switch typ { //nolint:exhaustive // isDeploymentFailureType restricts this helper to these event types.
 		case events.TypeNameDeployFailed:
 			return &events.DeployFailed{
@@ -269,27 +269,6 @@ func decodeDeploymentFailure(typ events.TypeName, payload []byte) (events.Event,
 			}
 		}
 	})
-}
-
-type classifiedDiagnosticError struct {
-	diagnostic string
-	temporary  bool
-}
-
-func (e classifiedDiagnosticError) Error() string { return e.diagnostic }
-
-func (e classifiedDiagnosticError) Temporary() bool { return e.temporary }
-
-func diagnosticError(diagnostic string, temporary bool) error {
-	return classifiedDiagnosticError{diagnostic: diagnostic, temporary: temporary}
-}
-
-func temporaryClassification(err error) bool {
-	var classified faults.Error
-	if !errors.As(err, &classified) {
-		return false
-	}
-	return classified.Temporary()
 }
 
 func decodeAs[T any](payload []byte, event func(T) events.Event) (events.Event, error) {
@@ -344,6 +323,10 @@ type deploymentFailurePayload struct {
 	Stage string `json:"stage,omitempty"`
 	// Diagnostic contains bounded secret-masked technical context.
 	Diagnostic string `json:"diagnostic,omitempty"`
+	// FaultCode preserves the optional diagnostic error code.
+	FaultCode faults.Code `json:"fault_code,omitempty"`
+	// FaultSummary preserves the optional sanitized description of the cause.
+	FaultSummary string `json:"fault_summary,omitempty"`
 	// Temporary preserves an explicit technical classification without persisting the error structure.
 	Temporary bool `json:"temporary"`
 	// Services contains only service names and images.
@@ -368,14 +351,31 @@ func safeFailureCode(err error) string {
 	return "apply_failed"
 }
 
+func safeFaultCode(code faults.Code) faults.Code {
+	if code == faults.CodeImageNotFound {
+		return code
+	}
+	return ""
+}
+
 func encodeDeploymentFailure(
-	stack, commit, deploymentID, attemptID, code, stage, diagnostic string, temporary bool,
+	stack, commit, deploymentID, attemptID, code, stage string, diagnostic error,
 	services []compose.Service,
 ) ([]byte, error) {
 	payload := deploymentFailurePayload{
 		DeploymentID: deploymentID, AttemptID: attemptID, Stack: stack, Commit: commit, Code: code, Stage: stage,
-		Diagnostic: diagnostic, Temporary: temporary,
 		Services: make([]servicePayload, 0, len(services)),
+	}
+	safe, ok := faults.SafeError(diagnostic).(faults.Error)
+	if ok {
+		payload.Diagnostic = safe.Error()
+		payload.Temporary = safe.Temporary()
+	}
+	if coded, isCoded := safe.(faults.Coded); isCoded {
+		payload.FaultCode = safeFaultCode(coded.FaultCode())
+		if payload.FaultCode != "" {
+			payload.FaultSummary = coded.FaultSummary()
+		}
 	}
 	for _, service := range services {
 		payload.Services = append(payload.Services, servicePayload{Name: service.Name, Image: service.Image})

@@ -23,7 +23,9 @@ import (
 	eventbus "github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/outbox"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
 	"github.com/swarm-deploy/swarm-deploy/internal/storage"
+	"github.com/swarm-deploy/swarm-deploy/internal/testutil"
 )
 
 func newTestSQLSubscriber(store *modelstore.SQLStore) *SQLSubscriber {
@@ -52,6 +54,7 @@ func TestSQLSubscriberIdempotenceAndRollback(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, alerts, 1)
 	assert.EqualValues(t, 1, alerts[0].Occurrences)
+	assert.Nil(t, alerts[0].Findings)
 	event.ID = "failed-2"
 	event.OccurredAt = at.Add(time.Second)
 	require.NoError(t, subscriber.Handle(ctx, event))
@@ -68,6 +71,61 @@ func TestSQLSubscriberIdempotenceAndRollback(t *testing.T) {
 	require.Len(t, alerts, 1)
 	assert.Equal(t, model.AlertStatusResolved, alerts[0].Status)
 }
+func TestSQLSubscriberAccumulatesTypedFindingsUntilResolution(t *testing.T) {
+	ctx := t.Context()
+	repo := modelstore.NewSQLStore(testutil.OpenSQLite(t))
+	subscriber := newTestSQLSubscriber(repo)
+	start := time.Date(2026, time.November, 7, 10, 0, 0, 0, time.UTC)
+	stack := events.DeployEvent{StackName: "app"}
+	imageMissing := func(taskID, image string) *events.DeployFailed {
+		summary := "No such image: " + image
+		diagnostic := "service failed to converge: task " + taskID + " rejected: " + summary + "\nTask logs unavailable"
+		return &events.DeployFailed{DeployEvent: stack, ErrorCode: "convergence_failed",
+			Error: faults.NewSafeError(diagnostic, false, faults.CodeImageNotFound, summary)}
+	}
+
+	wantFindings := []model.Finding{
+		{Code: faults.CodeImageNotFound, Summary: "No such image: api:1", DetectedAt: start},
+		{Code: faults.CodeImageNotFound, Summary: "No such image: api:2", DetectedAt: start.Add(3 * time.Minute)},
+		{Code: faults.CodeImageNotFound, Summary: "", DetectedAt: start.Add(4 * time.Minute)},
+	}
+	var alertID string
+	for i, step := range []struct {
+		event events.Event
+		count int
+	}{
+		{event: imageMissing("task-1", "api:1"), count: 1},
+		{event: imageMissing("task-2", "api:1"), count: 1},
+		{event: &events.DeployFailed{DeployEvent: stack, ErrorCode: "apply_failed",
+			Error: errors.New("external network edge does not exist")}, count: 1},
+		{event: imageMissing("task-3", "api:2"), count: 2},
+		{event: &events.DeployPreparationFailed{StackName: "app", ErrorCode: "preparation_failed",
+			Error: faults.NewSafeError("preparation diagnostic", false, faults.CodeImageNotFound, "")}, count: 3},
+		{event: &events.DeploySuccess{DeployEvent: stack}, count: 3},
+	} {
+		now := start.Add(time.Duration(i) * time.Minute)
+		subscriber.now = func() time.Time { return now }
+		require.NoError(t, subscriber.Handle(ctx, events.Envelope{
+			ID: fmt.Sprintf("event-%d", i), OccurredAt: now, Event: step.event,
+		}))
+		alerts, err := repo.List(ctx, modelstore.ListFilter{})
+		require.NoError(t, err)
+		require.Len(t, alerts, 1)
+		if i == 0 {
+			alertID = alerts[0].ID
+		}
+		if failure, ok := step.event.(*events.DeployFailed); ok {
+			assert.Equal(t, failure.Error.Error(), alerts[0].Message)
+		}
+		assert.Equal(t, alertID, alerts[0].ID)
+		assert.Equal(t, wantFindings[:step.count], alerts[0].Findings)
+	}
+	alert, err := repo.Get(ctx, alertID)
+	require.NoError(t, err)
+	assert.Equal(t, model.AlertStatusResolved, alert.Status)
+	assert.Equal(t, wantFindings, alert.Findings)
+}
+
 func TestNodeAlertRecoveryIgnoresDelayedFailure(t *testing.T) {
 	ctx := context.Background()
 	db, err := storage.OpenSQLite(ctx, t.TempDir())

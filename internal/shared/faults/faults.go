@@ -60,7 +60,11 @@ func SafeDiagnostic(err error) string {
 	if err == nil {
 		return ""
 	}
-	diagnostic := strings.TrimSpace(err.Error())
+	return sanitizeDiagnostic(err.Error())
+}
+
+func sanitizeDiagnostic(text string) string {
+	diagnostic := strings.TrimSpace(text)
 	if diagnostic == "" {
 		return ""
 	}
@@ -85,15 +89,29 @@ func SafeDiagnostic(err error) string {
 	return diagnostic
 }
 
-// SafeError copies only the safe diagnostic and retry classification, without
-// retaining or unwrapping the original error, which may contain secrets.
+// SafeError copies the sanitized diagnostic, retry classification, fault code, and sanitized fault summary.
+// It discards the original error, which may contain secrets.
 func SafeError(err error) error {
 	if err == nil {
 		return nil
 	}
 	var classified Error
 	temporary := errors.As(err, &classified) && classified.Temporary()
-	return safeError{diagnostic: SafeDiagnostic(err), temporary: temporary}
+	diagnostic := SafeDiagnostic(err)
+	if coded, ok := errors.AsType[Coded](err); ok {
+		return NewSafeError(diagnostic, temporary, coded.FaultCode(), coded.FaultSummary())
+	}
+	return NewSafeError(diagnostic, temporary, "", "")
+}
+
+// NewSafeError reconstructs an error from a sanitized diagnostic and its classifications.
+// It sanitizes the optional fault summary.
+func NewSafeError(diagnostic string, temporary bool, code Code, summary string) error {
+	safe := safeError{diagnostic: diagnostic, temporary: temporary}
+	if code == "" {
+		return safe
+	}
+	return safeCodedError{safeError: safe, code: code, summary: sanitizeDiagnostic(summary)}
 }
 
 type safeError struct {
@@ -103,6 +121,15 @@ type safeError struct {
 
 func (e safeError) Error() string   { return e.diagnostic }
 func (e safeError) Temporary() bool { return e.temporary }
+
+type safeCodedError struct {
+	safeError
+	code    Code
+	summary string
+}
+
+func (e safeCodedError) FaultCode() Code      { return e.code }
+func (e safeCodedError) FaultSummary() string { return e.summary }
 
 // NewSafeLogger wraps a logger so error-valued attributes are masked before
 // they reach any output handler.

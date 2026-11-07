@@ -19,6 +19,8 @@ type alertPayload struct {
 	OpenEventID   string                 `json:"openEventId"`
 	LatestEventID string                 `json:"latestEventId"`
 	Resolution    *model.AlertResolution `json:"resolution,omitempty"`
+	// Findings contains typed diagnostics accumulated for the alert.
+	Findings []model.Finding `json:"findings,omitempty"`
 }
 
 func payloadFromAlert(alert model.Alert) alertPayload {
@@ -32,6 +34,7 @@ func payloadFromAlert(alert model.Alert) alertPayload {
 		OpenEventID:   alert.OpenEventID,
 		LatestEventID: alert.LatestEventID,
 		Resolution:    alert.Resolution,
+		Findings:      alert.Findings,
 	}
 }
 
@@ -74,6 +77,7 @@ func (r alertRow) toAlert() (model.Alert, error) {
 		OpenEventID:   payload.OpenEventID,
 		LatestEventID: payload.LatestEventID,
 		Resolution:    payload.Resolution,
+		Findings:      payload.Findings,
 	}
 	if r.ResolvedAt.Valid {
 		at := r.ResolvedAt.Time.UTC()

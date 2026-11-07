@@ -14,6 +14,7 @@ import (
 	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
 	alertmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/modelstore"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
 	"github.com/swarm-deploy/swarm-deploy/internal/testutil"
 )
 
@@ -22,6 +23,9 @@ func TestAlertsAPIReadsPersistedAlerts(t *testing.T) {
 	store := modelstore.NewSQLStore(testutil.OpenSQLite(t))
 	now := time.Date(2026, 9, 22, 10, 0, 0, 0, time.UTC)
 	open := alertmodel.Alert{ID: "open-id", Fingerprint: "open", Status: alertmodel.AlertStatusOpen, Kind: alertmodel.AlertKindSyncFailed, ResourceType: alertmodel.ResourceTypeStack, ResourceID: "api", Title: "Synchronization failed", Message: "image missing", FailureStage: "apply", ErrorCode: "apply_failed", DeploymentID: "deployment", Commit: "sha", Occurrences: 1, OpenedAt: now, UpdatedAt: now, OpenEventID: "event", LatestEventID: "event"}
+	open.Findings = []alertmodel.Finding{{
+		Code: faults.CodeImageNotFound, Summary: "image api:1 missing", DetectedAt: now,
+	}}
 	resolvedAt := now.Add(time.Minute)
 	resolved := open
 	resolved.ID = "resolved-id"
@@ -40,10 +44,20 @@ func TestAlertsAPIReadsPersistedAlerts(t *testing.T) {
 	assert.Equal(t, "apply", response.Alerts[0].FailureStage.Value)
 	assert.Equal(t, "apply_failed", response.Alerts[0].ErrorCode.Value)
 	assert.Equal(t, "deployment", response.Alerts[0].DeploymentId.Value)
+	wantFindings := []generated.AlertFinding{{
+		Code: generated.AlertFindingCodeImageNotFound, Summary: "image api:1 missing", DetectedAt: now,
+	}}
+	assert.Equal(t, wantFindings, response.Alerts[0].Findings)
 
 	details, err := h.GetAlert(ctx, generated.GetAlertParams{ID: "resolved-id"})
 	require.NoError(t, err, "get alert details")
 	assert.Equal(t, "resolved-id", details.ID, "requested alert")
+	assert.Equal(t, wantFindings, details.Findings)
+
+	encoded, err := details.MarshalJSON()
+	require.NoError(t, err)
+	assert.Contains(t, string(encoded),
+		`"findings":[{"code":"image_not_found","summary":"image api:1 missing","detectedAt":"2026-09-22T10:00:00Z"}]`)
 	assert.True(t, details.Resolution.IsSet(), "resolution should be mapped")
 	assert.Equal(t, generated.AlertResolutionReasonResourceRemoved, details.Resolution.Value.Reason)
 }
