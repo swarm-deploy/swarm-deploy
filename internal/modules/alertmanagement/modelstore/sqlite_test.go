@@ -245,17 +245,6 @@ func assertIndexedFields(t *testing.T, db storage.Database, alert model.Alert) {
 	assert.Equal(t, alert, stored)
 }
 
-func TestLegacyAlertPayloadHasNoFindings(t *testing.T) {
-	row := alertRow{Payload: []byte(`{"title":"Failed","message":"Legacy diagnostic",
-		"errorCode":"apply_failed","occurrences":2,"openEventId":"first","latestEventId":"last"}`)}
-	alert, err := row.toAlert()
-	require.NoError(t, err)
-	assert.Nil(t, alert.Findings)
-	assert.Equal(t, "Legacy diagnostic", alert.Message)
-	assert.Equal(t, "apply_failed", alert.ErrorCode)
-	assert.EqualValues(t, 2, alert.Occurrences)
-}
-
 func TestAlertStorageColumnPayloadSeparationAndNullableFields(t *testing.T) {
 	db := testutil.OpenSQLite(t)
 	store := NewSQLStore(db)

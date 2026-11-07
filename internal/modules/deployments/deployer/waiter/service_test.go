@@ -10,6 +10,7 @@ import (
 	dockerswarm "github.com/docker/docker/api/types/swarm"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	"go.uber.org/mock/gomock"
 )
@@ -19,20 +20,34 @@ var serviceWaitTestTime = time.Date(2026, time.October, 31, 0, 0, 0, 0, time.UTC
 func TestInitialNonRestartingTaskFailureIsTerminal(t *testing.T) {
 	exit := 23
 	for _, tc := range []struct {
-		name     string
-		exitCode *int
+		name          string
+		state         swarm.TaskState
+		diagnostic    string
+		exitCode      *int
+		imageNotFound bool
 	}{
-		{name: "nonzero exit code", exitCode: &exit},
-		{name: "exit code unavailable"},
+		{name: "nonzero exit code", state: swarm.TaskStateFailed, diagnostic: "task startup failed", exitCode: &exit},
+		{name: "exit code unavailable", state: swarm.TaskStateFailed, diagnostic: "task startup failed"},
+		{name: "image missing on worker", state: swarm.TaskStateRejected,
+			diagnostic: "No such image: busybox:1.36", imageNotFound: true},
+		{name: "image reference missing from registry", state: swarm.TaskStateRejected,
+			diagnostic:    `failed to resolve reference "docker.io/library/busybox:1.36": docker.io/library/busybox:1.36: not found`,
+			imageNotFound: true},
+		{name: "image manifest missing from registry", state: swarm.TaskStateRejected,
+			diagnostic: "manifest for busybox:1.36 not found: manifest unknown: manifest unknown", imageNotFound: true},
+		{name: "pull denied", state: swarm.TaskStateRejected,
+			diagnostic: "pull access denied for busybox, repository does not exist or may require 'docker login'"},
+		{name: "pull timeout", state: swarm.TaskStateRejected,
+			diagnostic: `failed to resolve reference "docker.io/library/busybox:1.36": context deadline exceeded`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			manager := swarm.NewMockServiceManager(gomock.NewController(t))
 			service := testReplicatedService("api", "api-id", 1, serviceWaitTestTime, "busybox:1.36")
 			service.ServiceSpec.TaskTemplate.RestartPolicy = &dockerswarm.RestartPolicy{Condition: dockerswarm.RestartPolicyConditionNone}
-			task := testTask("failed-initial", 1, swarm.TaskStateShutdown, swarm.TaskStateFailed, serviceWaitTestTime.Add(time.Second))
+			task := testTask("failed-initial", 1, swarm.TaskStateShutdown, tc.state, serviceWaitTestTime.Add(time.Second))
 			task.Spec = swarm.NewTaskSpec(service.ServiceSpec.TaskTemplate)
 			task.ExitCode = tc.exitCode
-			task.Error = "task startup failed"
+			task.Error = tc.diagnostic
 			manager.EXPECT().ListServices(gomock.Any(), gomock.Any()).Return([]swarm.StackService{service}, nil).AnyTimes()
 			manager.EXPECT().ListTasks(gomock.Any(), service.ID).Return([]swarm.ServiceTask{task}, nil).AnyTimes()
 			_, err := NewServiceWaiter(manager, nil, time.Millisecond, 20*time.Millisecond).Wait(t.Context(), ServiceWaitRequest{
@@ -40,8 +55,16 @@ func TestInitialNonRestartingTaskFailureIsTerminal(t *testing.T) {
 			})
 			require.ErrorIs(t, err, ErrConvergenceFailed)
 			assert.NotErrorIs(t, err, context.DeadlineExceeded)
-			assert.ErrorContains(t, err, "id=failed-initial state=failed")
+			assert.ErrorContains(t, err, "id=failed-initial state="+string(tc.state))
 			assert.ErrorContains(t, err, task.Error)
+			var coded faults.Coded
+			if tc.imageNotFound {
+				require.ErrorIs(t, err, swarm.ErrImageNotFound)
+				require.ErrorAs(t, err, &coded)
+				assert.Equal(t, faults.CodeImageNotFound, coded.FaultCode())
+			} else {
+				assert.False(t, errors.As(err, &coded))
+			}
 			if tc.exitCode != nil {
 				assert.ErrorContains(t, err, "exit_code=23")
 			} else {
