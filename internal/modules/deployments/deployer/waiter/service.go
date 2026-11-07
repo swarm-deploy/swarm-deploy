@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"slices"
 	"sort"
+	"strings"
 	"time"
 
 	dockerswarm "github.com/docker/docker/api/types/swarm"
@@ -35,19 +36,21 @@ var serviceWaiterTracer = otel.Tracer(
 // ErrConvergenceFailed identifies an observed terminal Swarm failure, rather than an observation error.
 var ErrConvergenceFailed = errors.New("service convergence failed")
 
-type missingImageConvergenceError struct {
+type taskConvergenceError struct {
 	error
+	code    faults.Code
 	summary string
 }
 
-func (missingImageConvergenceError) FaultCode() faults.Code {
-	return swarm.ErrImageNotFound.FaultCode()
-}
+func (e taskConvergenceError) FaultCode() faults.Code { return e.code }
 
-func (e missingImageConvergenceError) FaultSummary() string { return e.summary }
+func (e taskConvergenceError) FaultSummary() string { return e.summary }
 
-func (e missingImageConvergenceError) Unwrap() []error {
-	return []error{e.error, swarm.ErrImageNotFound}
+func (e taskConvergenceError) Unwrap() []error {
+	if e.code == faults.CodeImageNotFound {
+		return []error{e.error, swarm.ErrImageNotFound}
+	}
+	return []error{e.error}
 }
 
 // ServiceState describes the current convergence state of a service.
@@ -81,14 +84,32 @@ type ServiceProgress struct {
 	// Message contains a bounded convergence diagnostic.
 	Message string
 
-	missingImageDiagnostic string
+	taskFaultCode  faults.Code
+	taskDiagnostic string
+	taskSummary    string
 }
 
 func (p *ServiceProgress) failTask(task swarm.ServiceTask) {
 	p.State = ServiceFailed
 	p.FailedTaskID = task.ID
-	if task.ImageNotFound() {
-		p.missingImageDiagnostic = task.Error
+	if fault := task.Fault(); fault != nil {
+		p.taskFaultCode = fault.FaultCode()
+		p.taskDiagnostic = fault.Error()
+		p.taskSummary = fault.FaultSummary()
+	}
+}
+
+func (p ServiceProgress) withTaskFault(cause error) error {
+	if p.taskFaultCode == "" {
+		return cause
+	}
+	// Keep the unabridged Docker diagnostic even when progress messages are bounded.
+	if !strings.Contains(cause.Error(), p.taskDiagnostic) {
+		cause = fmt.Errorf("%w; task diagnostic: %s", cause, p.taskDiagnostic)
+	}
+	return taskConvergenceError{
+		error: cause,
+		code:  p.taskFaultCode, summary: p.taskSummary,
 	}
 }
 
@@ -276,10 +297,7 @@ func (w *ServiceWaiter) observeTargets(
 		}
 		if progress.State == ServiceFailed {
 			failure := fmt.Errorf("%w: service %s failed to converge: %s", ErrConvergenceFailed, name, progress.Message)
-			if progress.missingImageDiagnostic != "" {
-				failure = missingImageConvergenceError{error: failure, summary: progress.missingImageDiagnostic}
-			}
-			failures = append(failures, failure)
+			failures = append(failures, progress.withTaskFault(failure))
 			continue
 		}
 		if progress.State == ServiceReady {

@@ -352,7 +352,8 @@ func safeFailureCode(err error) string {
 }
 
 func safeFaultCode(code faults.Code) faults.Code {
-	if code == faults.CodeImageNotFound {
+	if code == faults.CodeImageNotFound || code == faults.CodeNoSuitableNode ||
+		code == faults.CodeImagePullDenied || code == faults.CodeMountFailed {
 		return code
 	}
 	return ""

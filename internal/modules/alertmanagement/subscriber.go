@@ -78,7 +78,7 @@ func (s *Subscriber) Handle(ctx context.Context, event events.Envelope) error {
 			message:       safeUnknownOutcomeMessage(deployment.Error, deployment.Reason, deployment.Stage),
 			hasDiagnostic: hasUsefulDiagnostic(deployment.Error, deployment.Reason),
 			stage:         deployment.Stage, code: deployment.Reason, deploymentID: deployment.DeploymentID,
-			commit: deployment.Commit,
+			commit: deployment.Commit, cause: deployment.Error,
 		}, isTemporary(deployment.Error))
 	case *events.DeploySuccess:
 		return s.handleSucceeded(ctx, event.ID, deployment)

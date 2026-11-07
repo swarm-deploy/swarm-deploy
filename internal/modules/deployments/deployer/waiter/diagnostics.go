@@ -9,8 +9,29 @@ import (
 	"time"
 	"unicode"
 
+	dockerswarm "github.com/docker/docker/api/types/swarm"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
+
+func (p *ServiceProgress) pendingSchedulingFault(
+	tasks []swarm.ServiceTask, template dockerswarm.TaskSpec, cutoff time.Time,
+) {
+	var latest swarm.ServiceTask
+	for _, task := range tasks {
+		if task.CurrentState != swarm.TaskStatePending || task.DesiredState != swarm.TaskStateRunning ||
+			task.CreatedAt.Before(cutoff) || !task.Spec.CompareServiceTemplate(template).Equal() {
+			continue
+		}
+		if fault := task.Fault(); fault != nil && fault.FaultCode() == faults.CodeNoSuitableNode &&
+			(latest.ID == "" || task.UpdatedAt.After(latest.UpdatedAt)) {
+			latest = task
+			p.taskFaultCode = fault.FaultCode()
+			p.taskDiagnostic = fault.Error()
+			p.taskSummary = fault.FaultSummary()
+		}
+	}
+}
 
 func terminalTaskCutoff(baseline, service swarm.StackService) time.Time {
 	cutoff := service.UpdateStatus.StartedAt
@@ -112,7 +133,13 @@ func waitInterruptedError(
 		}
 		diagnostic += fmt.Sprintf("last Docker API error: %v", lastObservationError)
 	}
-	return fmt.Errorf("wait for services in stack %s: %w: %s", stackName, cause, diagnostic)
+	err := fmt.Errorf("wait for services in stack %s: %w: %s", stackName, cause, diagnostic)
+	for _, name := range sortedProgressNames(progress) {
+		if service := progress[name]; service.State != ServiceReady && service.taskFaultCode == faults.CodeNoSuitableNode {
+			return service.withTaskFault(err)
+		}
+	}
+	return err
 }
 
 func boundedDiagnostic(message string) string {

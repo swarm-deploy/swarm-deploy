@@ -95,6 +95,7 @@ func runningServiceProgress(
 		progress.Message = "task failed with no restarts remaining" + formatTaskDiagnostic(failed)
 		return progress
 	}
+	progress.pendingSchedulingFault(tasks, service.ServiceSpec.TaskTemplate, cutoff)
 	if updatePending(service.UpdateStatus) {
 		progress.Message = updateProgressMessage(service.UpdateStatus)
 		return progress

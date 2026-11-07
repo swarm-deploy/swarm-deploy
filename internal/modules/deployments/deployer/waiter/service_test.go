@@ -25,6 +25,7 @@ func TestInitialNonRestartingTaskFailureIsTerminal(t *testing.T) {
 		diagnostic    string
 		exitCode      *int
 		imageNotFound bool
+		faultCode     faults.Code
 	}{
 		{name: "nonzero exit code", state: swarm.TaskStateFailed, diagnostic: "task startup failed", exitCode: &exit},
 		{name: "exit code unavailable", state: swarm.TaskStateFailed, diagnostic: "task startup failed"},
@@ -36,7 +37,8 @@ func TestInitialNonRestartingTaskFailureIsTerminal(t *testing.T) {
 		{name: "image manifest missing from registry", state: swarm.TaskStateRejected,
 			diagnostic: "manifest for busybox:1.36 not found: manifest unknown: manifest unknown", imageNotFound: true},
 		{name: "pull denied", state: swarm.TaskStateRejected,
-			diagnostic: "pull access denied for busybox, repository does not exist or may require 'docker login'"},
+			diagnostic: "pull access denied for busybox, repository does not exist or may require 'docker login'",
+			faultCode:  faults.CodeImagePullDenied},
 		{name: "pull timeout", state: swarm.TaskStateRejected,
 			diagnostic: `failed to resolve reference "docker.io/library/busybox:1.36": context deadline exceeded`},
 	} {
@@ -62,6 +64,10 @@ func TestInitialNonRestartingTaskFailureIsTerminal(t *testing.T) {
 				require.ErrorIs(t, err, swarm.ErrImageNotFound)
 				require.ErrorAs(t, err, &coded)
 				assert.Equal(t, faults.CodeImageNotFound, coded.FaultCode())
+				assert.Equal(t, task.Error, coded.FaultSummary())
+			} else if tc.faultCode != "" {
+				require.ErrorAs(t, err, &coded)
+				assert.Equal(t, tc.faultCode, coded.FaultCode())
 				assert.Equal(t, task.Error, coded.FaultSummary())
 			} else {
 				assert.False(t, errors.As(err, &coded))
