@@ -25,6 +25,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/outbox"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
 	"github.com/swarm-deploy/swarm-deploy/internal/storage"
+	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	"github.com/swarm-deploy/swarm-deploy/internal/testutil"
 )
 
@@ -77,27 +78,27 @@ func TestSQLSubscriberAccumulatesTypedFindingsUntilResolution(t *testing.T) {
 	subscriber := newTestSQLSubscriber(repo)
 	start := time.Date(2026, time.November, 7, 10, 0, 0, 0, time.UTC)
 	stack := events.DeployEvent{StackName: "app"}
-	imageMissing := func(diagnostic string) *events.DeployFailed {
-		return &events.DeployFailed{DeployEvent: stack, ErrorCode: "convergence_failed",
-			FaultCode: faults.CodeImageNotFound, Error: errors.New(diagnostic)}
+	imageMissing := func(diagnostic error) *events.DeployFailed {
+		return &events.DeployFailed{DeployEvent: stack, ErrorCode: "convergence_failed", Error: diagnostic}
 	}
 
 	wantFindings := []model.Finding{
-		{Code: faults.CodeImageNotFound, Summary: "api:1 missing token=****", DetectedAt: start},
-		{Code: faults.CodeExternalNetworkNotFound, Summary: "external network edge does not exist", DetectedAt: start.Add(2 * time.Minute)},
-		{Code: faults.CodeImageNotFound, Summary: "api:2 missing", DetectedAt: start.Add(3 * time.Minute)},
+		{Code: faults.CodeImageNotFound, Summary: "api:1: image not found token=****", DetectedAt: start},
+		{Code: faults.CodeImageNotFound, Summary: "api:2: image not found", DetectedAt: start.Add(3 * time.Minute)},
+		{Code: faults.CodeImageNotFound, Summary: "", DetectedAt: start.Add(4 * time.Minute)},
 	}
 	var alertID string
 	for i, step := range []struct {
 		event events.Event
 		count int
 	}{
-		{event: imageMissing("api:1 missing token=private-value"), count: 1},
-		{event: imageMissing("api:1 missing token=another-private-value"), count: 1},
+		{event: imageMissing(fmt.Errorf("api:1: %w token=private-value", swarm.ErrImageNotFound)), count: 1},
+		{event: imageMissing(fmt.Errorf("api:1: %w token=another-private-value", swarm.ErrImageNotFound)), count: 1},
+		{event: &events.DeployFailed{DeployEvent: stack, ErrorCode: "apply_failed",
+			Error: errors.New("external network edge does not exist")}, count: 1},
+		{event: imageMissing(fmt.Errorf("api:2: %w", swarm.ErrImageNotFound)), count: 2},
 		{event: &events.DeployPreparationFailed{StackName: "app", ErrorCode: "preparation_failed",
-			FaultCode: faults.CodeExternalNetworkNotFound, Error: errors.New("external network edge does not exist")}, count: 2},
-		{event: imageMissing("api:2 missing"), count: 3},
-		{event: &events.DeployFailed{DeployEvent: stack, ErrorCode: "apply_failed", Error: errors.New("untyped failure")}, count: 3},
+			Error: faults.NewSafeError("", false, faults.CodeImageNotFound)}, count: 3},
 		{event: &events.DeploySuccess{DeployEvent: stack}, count: 3},
 	} {
 		now := start.Add(time.Duration(i) * time.Minute)

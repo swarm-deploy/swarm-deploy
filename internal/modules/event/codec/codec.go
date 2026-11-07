@@ -43,20 +43,20 @@ func Encode(event events.Event) ([]byte, error) {
 		if code == "" {
 			code = safeFailureCode(e.Error)
 		}
-		return encodeDeploymentFailure(e.StackName, e.Commit, e.DeploymentID, e.AttemptID, code, e.Stage, e.FaultCode,
-			faults.SafeDiagnostic(e.Error), temporaryClassification(e.Error), e.Services)
+		return encodeDeploymentFailure(e.StackName, e.Commit, e.DeploymentID, e.AttemptID, code, e.Stage,
+			e.Error, e.Services)
 	case *events.DeployPreparationFailed:
 		if e.ErrorCode != "preparation_failed" {
 			return nil, errors.New("unsupported deployment preparation failure code")
 		}
-		return encodeDeploymentFailure(e.StackName, e.Commit, "", "", e.ErrorCode, e.Stage, e.FaultCode,
-			faults.SafeDiagnostic(e.Error), temporaryClassification(e.Error), e.Services)
+		return encodeDeploymentFailure(e.StackName, e.Commit, "", "", e.ErrorCode, e.Stage,
+			e.Error, e.Services)
 	case *events.DeployInterrupted:
 		if e.Reason != "process_interrupted" && e.Reason != "verification_unknown" {
 			return nil, errors.New("unsupported deployment interruption reason")
 		}
-		return encodeDeploymentFailure(e.StackName, e.Commit, e.DeploymentID, e.AttemptID, e.Reason, e.Stage, "",
-			faults.SafeDiagnostic(e.Error), temporaryClassification(e.Error), e.Services)
+		return encodeDeploymentFailure(e.StackName, e.Commit, e.DeploymentID, e.AttemptID, e.Reason, e.Stage,
+			e.Error, e.Services)
 	case *events.NodeJoined:
 		return json.Marshal(nodePayload{ID: e.NodeID, Name: e.NodeName, Role: e.Role})
 	case *events.NodeConnected:
@@ -247,7 +247,7 @@ func isDeploymentFailureType(typ events.TypeName) bool {
 
 func decodeDeploymentFailure(typ events.TypeName, payload []byte) (events.Event, error) {
 	return decodeAs(payload, func(p deploymentFailurePayload) events.Event {
-		diagnostic := diagnosticError(p.Diagnostic, p.Temporary)
+		diagnostic := faults.NewSafeError(p.Diagnostic, p.Temporary, safeFaultCode(p.FaultCode))
 		switch typ { //nolint:exhaustive // isDeploymentFailureType restricts this helper to these event types.
 		case events.TypeNameDeployFailed:
 			return &events.DeployFailed{
@@ -255,13 +255,12 @@ func decodeDeploymentFailure(typ events.TypeName, payload []byte) (events.Event,
 					DeploymentID: p.DeploymentID, AttemptID: p.AttemptID,
 					StackName: p.Stack, Commit: p.Commit, Services: p.services(),
 				},
-				Error: diagnostic, ErrorCode: safeFailureCode(errors.New(p.Code)),
-				FaultCode: safeFaultCode(p.FaultCode), Stage: p.Stage,
+				Error: diagnostic, ErrorCode: safeFailureCode(errors.New(p.Code)), Stage: p.Stage,
 			}
 		case events.TypeNameDeployPreparationFailed:
 			return &events.DeployPreparationFailed{
 				StackName: p.Stack, Commit: p.Commit, Services: p.services(), ErrorCode: p.Code,
-				Error: diagnostic, FaultCode: safeFaultCode(p.FaultCode), Stage: p.Stage,
+				Error: diagnostic, Stage: p.Stage,
 			}
 		default:
 			return &events.DeployInterrupted{
@@ -270,19 +269,6 @@ func decodeDeploymentFailure(typ events.TypeName, payload []byte) (events.Event,
 			}
 		}
 	})
-}
-
-type classifiedDiagnosticError struct {
-	diagnostic string
-	temporary  bool
-}
-
-func (e classifiedDiagnosticError) Error() string { return e.diagnostic }
-
-func (e classifiedDiagnosticError) Temporary() bool { return e.temporary }
-
-func diagnosticError(diagnostic string, temporary bool) error {
-	return classifiedDiagnosticError{diagnostic: diagnostic, temporary: temporary}
 }
 
 func temporaryClassification(err error) bool {
@@ -341,12 +327,12 @@ type deploymentFailurePayload struct {
 	Commit string `json:"commit"`
 	// Code is an allowlisted safe failure category.
 	Code string `json:"code"`
-	// FaultCode is the optional typed diagnostic cause.
-	FaultCode faults.Code `json:"fault_code,omitempty"`
 	// Stage identifies the failing pipeline stage.
 	Stage string `json:"stage,omitempty"`
 	// Diagnostic contains bounded secret-masked technical context.
 	Diagnostic string `json:"diagnostic,omitempty"`
+	// FaultCode preserves the optional diagnostic error code.
+	FaultCode faults.Code `json:"fault_code,omitempty"`
 	// Temporary preserves an explicit technical classification without persisting the error structure.
 	Temporary bool `json:"temporary"`
 	// Services contains only service names and images.
@@ -372,22 +358,23 @@ func safeFailureCode(err error) string {
 }
 
 func safeFaultCode(code faults.Code) faults.Code {
-	switch code {
-	case faults.CodeImageNotFound, faults.CodeExternalNetworkNotFound:
+	if code == faults.CodeImageNotFound {
 		return code
-	default:
-		return ""
 	}
+	return ""
 }
 
 func encodeDeploymentFailure(
-	stack, commit, deploymentID, attemptID, code, stage string, faultCode faults.Code, diagnostic string, temporary bool,
+	stack, commit, deploymentID, attemptID, code, stage string, diagnostic error,
 	services []compose.Service,
 ) ([]byte, error) {
 	payload := deploymentFailurePayload{
 		DeploymentID: deploymentID, AttemptID: attemptID, Stack: stack, Commit: commit, Code: code, Stage: stage,
-		FaultCode: safeFaultCode(faultCode), Diagnostic: diagnostic, Temporary: temporary,
+		Diagnostic: faults.SafeDiagnostic(diagnostic), Temporary: temporaryClassification(diagnostic),
 		Services: make([]servicePayload, 0, len(services)),
+	}
+	if coded, ok := errors.AsType[faults.Coded](diagnostic); ok {
+		payload.FaultCode = safeFaultCode(coded.FaultCode())
 	}
 	for _, service := range services {
 		payload.Services = append(payload.Services, servicePayload{Name: service.Name, Image: service.Image})

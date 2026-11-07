@@ -66,15 +66,6 @@ func TestCompletePersistsLifecycleBaselineAndEvents(t *testing.T) {
 			wantEvent: events.TypeNameDeployFailed, wantEventStage: "verification", wantFault: faults.CodeImageNotFound,
 		},
 		{
-			name: "wrapped missing external network",
-			completion: Completion{Outcome: CompletionApplyFailed,
-				Diagnostic: fmt.Errorf("reconcile networks: %w", &faults.ExternalNetworkNotFoundError{Name: "edge"})},
-			wantStatus: deploymentmodel.Failed, wantPhase: deploymentmodel.PhaseApply,
-			wantApply: deploymentmodel.StageFailed, wantVerification: deploymentmodel.StageSkipped,
-			wantCleanup: deploymentmodel.StageSkipped, wantActual: deploymentmodel.ActualStateUnknown,
-			wantEvent: events.TypeNameDeployFailed, wantEventStage: "apply", wantFault: faults.CodeExternalNetworkNotFound,
-		},
-		{
 			name:       "policy rejection",
 			completion: Completion{Outcome: CompletionPolicyRejected},
 			wantStatus: deploymentmodel.Failed, wantPhase: deploymentmodel.PhaseApply,
@@ -200,7 +191,13 @@ func assertCompletionPublication(
 		assert.Equal(t, "commit", actual.Commit)
 		require.Len(t, actual.Services, 1)
 		assert.Equal(t, completion.ErrorCode(), actual.ErrorCode)
-		assert.Equal(t, wantFault, actual.FaultCode)
+		var coded faults.Coded
+		if wantFault == "" {
+			assert.NotErrorAs(t, actual.Error, &coded)
+		} else {
+			require.ErrorAs(t, actual.Error, &coded)
+			assert.Equal(t, wantFault, coded.FaultCode())
+		}
 		assert.Equal(t, wantStage, actual.Stage)
 		if actual.Error != nil {
 			assert.NotContains(t, actual.Error.Error(), "private-value")

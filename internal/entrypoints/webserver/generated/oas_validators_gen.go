@@ -145,8 +145,6 @@ func (s AlertFindingCode) Validate() error {
 	switch s {
 	case "image_not_found":
 		return nil
-	case "external_network_not_found":
-		return nil
 	default:
 		return errors.Errorf("invalid value: %v", s)
 	}

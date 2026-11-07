@@ -85,15 +85,28 @@ func SafeDiagnostic(err error) string {
 	return diagnostic
 }
 
-// SafeError copies only the safe diagnostic and retry classification, without
-// retaining or unwrapping the original error, which may contain secrets.
+// SafeError copies only the safe diagnostic, retry classification, and fault code.
+// It discards the original error, which may contain secrets.
 func SafeError(err error) error {
 	if err == nil {
 		return nil
 	}
 	var classified Error
 	temporary := errors.As(err, &classified) && classified.Temporary()
-	return safeError{diagnostic: SafeDiagnostic(err), temporary: temporary}
+	var code Code
+	if coded, ok := errors.AsType[Coded](err); ok {
+		code = coded.FaultCode()
+	}
+	return NewSafeError(SafeDiagnostic(err), temporary, code)
+}
+
+// NewSafeError reconstructs an error from an already sanitized diagnostic and its classifications.
+func NewSafeError(diagnostic string, temporary bool, code Code) error {
+	safe := safeError{diagnostic: diagnostic, temporary: temporary}
+	if code == "" {
+		return safe
+	}
+	return safeCodedError{safeError: safe, code: code}
 }
 
 type safeError struct {
@@ -103,6 +116,13 @@ type safeError struct {
 
 func (e safeError) Error() string   { return e.diagnostic }
 func (e safeError) Temporary() bool { return e.temporary }
+
+type safeCodedError struct {
+	safeError
+	code Code
+}
+
+func (e safeCodedError) FaultCode() Code { return e.code }
 
 // NewSafeLogger wraps a logger so error-valued attributes are masked before
 // they reach any output handler.

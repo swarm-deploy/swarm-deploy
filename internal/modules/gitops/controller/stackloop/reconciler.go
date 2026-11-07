@@ -271,7 +271,6 @@ func hasRemediationAttempt(remediations map[string]serviceRemediation) bool {
 func (r *Reconciler) recordFailure(
 	ctx context.Context, stackName, commit string, services []compose.Service, cause error,
 ) error {
-	faultCode := deployments.FailureFaultCode(cause)
 	safeCause := faults.SafeError(cause)
 	return r.db.WithinTransaction(ctx, func(ctx context.Context) error {
 		if err := r.stateStore.Update(ctx, func(runtime *model.Runtime) {
@@ -295,7 +294,7 @@ func (r *Reconciler) recordFailure(
 		}
 		return r.event.Publish(ctx, &events.DeployPreparationFailed{
 			StackName: stackName, Commit: commit, Services: services, ErrorCode: "preparation_failed",
-			Stage: preparationFailureStage(cause), Error: safeCause, FaultCode: faultCode,
+			Stage: preparationFailureStage(cause), Error: safeCause,
 		})
 	})
 }

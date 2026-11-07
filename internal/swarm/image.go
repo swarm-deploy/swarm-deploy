@@ -1,9 +1,15 @@
 package swarm
 
-import "errors"
+import "github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
 
 // ErrImageNotFound means that image does not exist in Docker.
-var ErrImageNotFound = errors.New("image not found")
+var ErrImageNotFound = imageNotFoundError{}
+
+type imageNotFoundError struct{}
+
+func (imageNotFoundError) Error() string { return "image not found" }
+
+func (imageNotFoundError) FaultCode() faults.Code { return faults.CodeImageNotFound }
 
 // Image contains compact Docker image metadata.
 type Image struct {

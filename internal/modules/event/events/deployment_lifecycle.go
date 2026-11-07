@@ -19,8 +19,6 @@ type DeployPreparationFailed struct {
 	Error error
 	// ErrorCode is a stable safe category and never contains raw error text.
 	ErrorCode string
-	// FaultCode identifies a specific diagnostic cause when known.
-	FaultCode faults.Code
 	// Stage identifies the preparation stage that failed.
 	Stage string
 }

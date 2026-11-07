@@ -13,7 +13,6 @@ import (
 	deploymentstore "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
-	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 
 // CompletionOutcome identifies the terminal transition selected by the orchestrator.
@@ -56,7 +55,6 @@ type completionState struct {
 	rolloutVerification deploymentmodel.Verification
 	status              deploymentmodel.Status
 	errorCode           string
-	faultCode           faults.Code
 	diagnostic          error
 	retryable           bool
 	phase               deploymentmodel.Phase
@@ -150,7 +148,6 @@ func (completion Completion) state() (completionState, error) {
 	state := completionState{
 		rolloutVerification: completion.rolloutObligations(),
 		errorCode:           completion.ErrorCode(),
-		faultCode:           FailureFaultCode(completion.Diagnostic),
 		diagnostic:          faults.SafeError(completion.Diagnostic),
 		observedAt:          completion.ObservedAt,
 	}
@@ -220,17 +217,6 @@ func (completion Completion) state() (completionState, error) {
 	return state, nil
 }
 
-// FailureFaultCode classifies the original diagnostic before sanitization removes its type.
-func FailureFaultCode(err error) faults.Code {
-	if errors.Is(err, swarm.ErrImageNotFound) {
-		return faults.CodeImageNotFound
-	}
-	if _, ok := errors.AsType[*faults.ExternalNetworkNotFoundError](err); ok {
-		return faults.CodeExternalNetworkNotFound
-	}
-	return ""
-}
-
 // ErrorCode returns the stable terminal error category for the selected outcome.
 func (completion Completion) ErrorCode() string {
 	switch completion.Outcome {
@@ -271,8 +257,7 @@ func (s *Service) publishCompletion(
 		return s.events.Publish(ctx, &events.DeploySuccess{DeployEvent: meta})
 	case deploymentmodel.Failed:
 		return s.events.Publish(ctx, &events.DeployFailed{
-			DeployEvent: meta, Error: state.diagnostic, ErrorCode: state.errorCode,
-			FaultCode: state.faultCode, Stage: state.eventStage,
+			DeployEvent: meta, Error: state.diagnostic, ErrorCode: state.errorCode, Stage: state.eventStage,
 		})
 	case deploymentmodel.Interrupted:
 		return s.events.Publish(ctx, &events.DeployInterrupted{

@@ -278,15 +278,13 @@ func (s *AlertFinding) SetDetectedAt(val time.Time) {
 type AlertFindingCode string
 
 const (
-	AlertFindingCodeImageNotFound           AlertFindingCode = "image_not_found"
-	AlertFindingCodeExternalNetworkNotFound AlertFindingCode = "external_network_not_found"
+	AlertFindingCodeImageNotFound AlertFindingCode = "image_not_found"
 )
 
 // AllValues returns all AlertFindingCode values.
 func (AlertFindingCode) AllValues() []AlertFindingCode {
 	return []AlertFindingCode{
 		AlertFindingCodeImageNotFound,
-		AlertFindingCodeExternalNetworkNotFound,
 	}
 }
 
@@ -294,8 +292,6 @@ func (AlertFindingCode) AllValues() []AlertFindingCode {
 func (s AlertFindingCode) MarshalText() ([]byte, error) {
 	switch s {
 	case AlertFindingCodeImageNotFound:
-		return []byte(s), nil
-	case AlertFindingCodeExternalNetworkNotFound:
 		return []byte(s), nil
 	default:
 		return nil, errors.Errorf("invalid value: %q", s)
@@ -307,9 +303,6 @@ func (s *AlertFindingCode) UnmarshalText(data []byte) error {
 	switch AlertFindingCode(data) {
 	case AlertFindingCodeImageNotFound:
 		*s = AlertFindingCodeImageNotFound
-		return nil
-	case AlertFindingCodeExternalNetworkNotFound:
-		*s = AlertFindingCodeExternalNetworkNotFound
 		return nil
 	default:
 		return errors.Errorf("invalid value: %q", data)

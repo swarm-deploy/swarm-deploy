@@ -585,8 +585,6 @@ func (s *AlertFindingCode) Decode(d *jx.Decoder) error {
 	switch AlertFindingCode(v) {
 	case AlertFindingCodeImageNotFound:
 		*s = AlertFindingCodeImageNotFound
-	case AlertFindingCodeExternalNetworkNotFound:
-		*s = AlertFindingCodeExternalNetworkNotFound
 	default:
 		*s = AlertFindingCode(v)
 	}

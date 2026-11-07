@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestSafeDiagnostic(t *testing.T) {
@@ -76,6 +77,26 @@ func TestSafeLoggerMasksErrorAttributes(t *testing.T) {
 	assert.NotContains(t, output.String(), "password")
 	assert.NotContains(t, output.String(), "private-value")
 	assert.Contains(t, output.String(), "****")
+}
+
+type codedTestError struct {
+	*net.DNSError
+}
+
+func (*codedTestError) FaultCode() Code { return CodeImageNotFound }
+
+func TestSafeErrorPreservesFaultCodeWithoutRetainingCause(t *testing.T) {
+	original := &codedTestError{&net.DNSError{Err: "token=private-value", IsTemporary: true}}
+	safe := SafeError(fmt.Errorf("lookup: %w", original))
+	var coded Coded
+	require.ErrorAs(t, safe, &coded)
+	assert.Equal(t, CodeImageNotFound, coded.FaultCode())
+	assert.True(t, safe.(Error).Temporary())
+	assert.Contains(t, safe.Error(), "token=****")
+	assert.NotContains(t, safe.Error(), "private-value")
+	assert.NotErrorIs(t, safe, original)
+	assert.Nil(t, errors.Unwrap(safe))
+	assert.NotErrorAs(t, SafeError(errors.New("permanent")), &coded)
 }
 
 func TestSafeErrorPreservesClassificationWithoutRetainingCause(t *testing.T) {

@@ -276,13 +276,15 @@ func TestRecordPreparationFailurePublishesTypedDiagnostic(t *testing.T) {
 		failure, ok := event.(*events.DeployPreparationFailed)
 		require.True(t, ok)
 		assert.Equal(t, "preparation_failed", failure.ErrorCode)
-		assert.Equal(t, faults.CodeExternalNetworkNotFound, failure.FaultCode)
-		require.ErrorContains(t, failure.Error, "external network edge does not exist")
+		var coded faults.Coded
+		require.ErrorAs(t, failure.Error, &coded)
+		assert.Equal(t, faults.CodeImageNotFound, coded.FaultCode())
+		assert.ErrorContains(t, failure.Error, "image not found")
 		assert.NotContains(t, failure.Error.Error(), "private-value")
 		return nil
 	})
 	reconciler := &Reconciler{db: db, stateStore: store, event: publisher}
-	cause := fmt.Errorf("prepare token=private-value: %w", &faults.ExternalNetworkNotFoundError{Name: "edge"})
+	cause := fmt.Errorf("prepare token=private-value: %w", swarm.ErrImageNotFound)
 	require.NoError(t, reconciler.recordFailure(t.Context(), "app", "commit", nil, cause))
 }
 
