@@ -94,12 +94,17 @@ type GitOpsSpec struct {
 	Stacks StacksSourceSpec `yaml:"stacks"`
 	// Networks contains the optional path to network definitions inside the Git repository.
 	Networks NetworksSourceSpec `yaml:"networks"`
-	// Downward configures injection of Swarm metadata into containers.
-	Downward DownwardSpec `yaml:"downward"`
+	// Injection configures settings injected into GitOps-managed services.
+	Injection GitOpsInjectionSpec `yaml:"injection"`
 	// Secrets contains settings for secrets read from Git.
 	Secrets SecretsSpec `yaml:"secrets"`
 	// ResourceRotation controls secret and config name rotation.
 	ResourceRotation ResourceRotationSpec `yaml:"resourceRotation"`
+}
+
+type GitOpsInjectionSpec struct {
+	// Downward configures injection of Swarm metadata into containers.
+	Downward DownwardSpec `yaml:"downward"`
 }
 
 type DownwardSpec struct {

@@ -30,6 +30,7 @@ func TestLoadRejectsUnknownRuntimeFields(t *testing.T) {
 		{"removed init jobs timeout", "initJobsTimeout: 10m\n", "initJobsTimeout"},
 		{"legacy nested timeout", "gitops: {git: {pullTimeout: 2m}}\n", "pullTimeout"},
 		{"legacy poll interval", "gitops: {sync: {pollInterval: 30s}}\n", "pollInterval"},
+		{"legacy downward", "gitops: {downward: {enabled: true}}\n", "downward"},
 		{"legacy rotation identity", "gitops: {resourceRotation: {age: {}}}\n", "age"},
 		{"nested struct", "gitops: {sync: {policy: {image: {tag: {typo: true}}}}}\n", "typo"},
 		{"sequence element", "gitops: {sync: {webhook: {auth: [{typo: true}]}}}\n", "typo"},
@@ -76,7 +77,7 @@ func TestLoadRuntimeModuleDefaults(t *testing.T) {
 	assert.Equal(t, 2*time.Second, cfg.Spec.Deployments.PollInterval.Value)
 	assert.Equal(t, 10*time.Minute, cfg.Spec.Deployments.InitJobs.MaxDuration.Value)
 	assert.Equal(t, 500, cfg.Spec.Event.History.Capacity)
-	assert.False(t, cfg.Spec.GitOps.Downward.Enabled)
+	assert.False(t, cfg.Spec.GitOps.Injection.Downward.Enabled)
 	assert.Empty(t, cfg.Spec.GitOps.Secrets.Age.IdentityFile.Path)
 	assert.Empty(t, cfg.Spec.GitOps.Networks.File)
 	assert.Nil(t, cfg.Spec.System.Tracing)

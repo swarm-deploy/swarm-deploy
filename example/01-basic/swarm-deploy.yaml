@@ -46,9 +46,10 @@ gitops:
     # Path to network definitions file in git repository (relative to repo root).
     file: ./networks.yaml
 
-  # Inject Swarm downward environment variables into services.
-  downward:
-    enabled: true
+  injection:
+    # Inject Swarm downward environment variables into services.
+    downward:
+      enabled: true
 
   # Optional age identity file; works even when rotation is disabled.
   # secrets:
