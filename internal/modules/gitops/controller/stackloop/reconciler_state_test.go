@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 
 	"github.com/artarts36/specw"
 	"github.com/stretchr/testify/assert"
@@ -56,7 +55,10 @@ func TestReconcileUpdatesStateOnSuccess(t *testing.T) {
 		"write another stack rendered compose")
 
 	stackDeployer.EXPECT().
-		DeployStack(gomock.Any(), "app", filepath.Join(repoDir, ".data", "rendered", "app.yaml"), gomock.Any()).
+		DeployStack(gomock.Any(), gomock.Cond(func(req deployer.StackRequest) bool {
+			return req.StackName == "app" &&
+				req.SourceComposePath == filepath.Join(repoDir, "app.yaml")
+		})).
 		Return(deployer.Result{}, nil)
 	serviceManager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "app"}).Return(nil, nil)
 
@@ -76,7 +78,7 @@ func TestReconcileUpdatesStateOnSuccess(t *testing.T) {
 	reconciler.executor = deployments.NewController(
 		deployments.NewService(db, reconciler.event), stackDeployer, serviceManager, reconciler.pruner, reconciler.deployMetrics,
 	)
-	reconciler.preparer = preparation.New(reconciler.cfg, repository, fs.NewLocalFileSystem(), reconciler.composeRotator)
+	reconciler.preparer = preparation.New(reconciler.cfg, repository, reconciler.composeRotator)
 	reconciler.attachPipeline()
 
 	err := reconciler.Reconcile(context.Background(), ReconciliationRequest{
@@ -88,8 +90,6 @@ func TestReconcileUpdatesStateOnSuccess(t *testing.T) {
 	})
 
 	require.NoError(t, err, "reconcile")
-	assert.NoFileExists(t, filepath.Join(repoDir, ".data", "rendered", "app.yaml"),
-		"rendered compose must be removed after successful reconciliation")
 	assert.FileExists(t, otherRenderedPath, "reconciliation must not remove another stack rendered compose")
 	state := readSQLState(t, stateStore)
 	stackState, exists := state.Stacks["app"]
@@ -118,7 +118,10 @@ func TestReconcileUpdatesStateOnFailure(t *testing.T) {
 	require.NoError(t, writeComposeFile(repoDir), "write compose")
 
 	stackDeployer.EXPECT().
-		DeployStack(gomock.Any(), "app", filepath.Join(repoDir, ".data", "rendered", "app.yaml"), gomock.Any()).
+		DeployStack(gomock.Any(), gomock.Cond(func(req deployer.StackRequest) bool {
+			return req.StackName == "app" &&
+				req.SourceComposePath == filepath.Join(repoDir, "app.yaml")
+		})).
 		Return(deployer.Result{}, errDeployFailed)
 
 	reconciler := &Reconciler{
@@ -136,7 +139,7 @@ func TestReconcileUpdatesStateOnFailure(t *testing.T) {
 	reconciler.executor = deployments.NewController(
 		deployments.NewService(db, reconciler.event), stackDeployer, serviceManager, reconciler.pruner, reconciler.deployMetrics,
 	)
-	reconciler.preparer = preparation.New(reconciler.cfg, repository, fs.NewLocalFileSystem(), reconciler.composeRotator)
+	reconciler.preparer = preparation.New(reconciler.cfg, repository, reconciler.composeRotator)
 	reconciler.attachPipeline()
 
 	err := reconciler.Reconcile(context.Background(), ReconciliationRequest{
@@ -149,8 +152,6 @@ func TestReconcileUpdatesStateOnFailure(t *testing.T) {
 
 	require.Error(t, err, "expected reconcile error")
 	assert.ErrorIs(t, err, errDeployFailed, "unexpected error")
-	assert.NoFileExists(t, filepath.Join(repoDir, ".data", "rendered", "app.yaml"),
-		"rendered compose must be removed after failed deployment")
 	state := readSQLState(t, stateStore)
 	stackState, exists := state.Stacks["app"]
 	require.True(t, exists, "expected stack state")
@@ -217,21 +218,21 @@ func TestReconcileSeparatesPostApplyOutcomes(t *testing.T) {
 			repoDir := t.TempDir()
 			require.NoError(t, writeComposeFile(repoDir))
 			mockRepositoryFiles(repository, repoDir)
-			stackDeployer.EXPECT().DeployStack(gomock.Any(), "app", gomock.Any(), gomock.Any()).Return(deployer.Result{}, nil)
+			stackDeployer.EXPECT().DeployStack(gomock.Any(), gomock.Cond(func(req deployer.StackRequest) bool { return req.StackName == "app" })).Return(deployer.Result{}, nil)
 			tt.setupServices(serviceManager)
 			cfg := &config.Config{Spec: config.Spec{DataDir: filepath.Join(repoDir, ".data"),
-				Sync: config.SyncSpec{Policy: config.SyncPolicySpec{Prune: true}}}}
+				GitOps: config.GitOpsSpec{Sync: config.SyncSpec{Policy: config.SyncPolicySpec{Prune: true}}}}}
 			eventDispatcher := &dispatcher.NopDispatcher{}
 			reconciler := &Reconciler{
 				cfg: cfg, event: eventDispatcher,
-				deployMetrics: &metrics.NopDeploys{}, stateStore: stateStore, pruner: pruner.NewServicePruner(serviceManager, eventDispatcher, cfg.Spec.Sync.Policy),
+				deployMetrics: &metrics.NopDeploys{}, stateStore: stateStore, pruner: pruner.NewServicePruner(serviceManager, eventDispatcher, cfg.Spec.GitOps.Sync.Policy),
 			}
 			reconciler.db = db
 			reconciler.executor = deployments.NewController(
 				deployments.NewService(db, reconciler.event), stackDeployer,
 				serviceManager, reconciler.pruner, reconciler.deployMetrics,
 			)
-			reconciler.preparer = preparation.New(reconciler.cfg, repository, fs.NewLocalFileSystem(), reconciler.composeRotator)
+			reconciler.preparer = preparation.New(reconciler.cfg, repository, reconciler.composeRotator)
 			reconciler.attachPipeline()
 			err := reconciler.Reconcile(context.Background(), ReconciliationRequest{
 				Stack: config.StackSpec{Name: "app", ComposeFile: "app.yaml"}, Commit: "commit",
@@ -288,7 +289,10 @@ secrets:
 	}
 
 	mockRepositoryFiles(repository, repoDir)
-	stackDeployer.EXPECT().DeployStack(gomock.Any(), "app", filepath.Join(repoDir, ".data", "rendered", "app.yaml"), gomock.Any()).Return(deployer.Result{}, nil)
+	stackDeployer.EXPECT().DeployStack(gomock.Any(), gomock.Cond(func(req deployer.StackRequest) bool {
+		return req.StackName == "app" &&
+			req.SourceComposePath == composePath
+	})).Return(deployer.Result{}, nil)
 	serviceManager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "app"}).Return(nil, nil)
 	configManager.EXPECT().List(gomock.Any(), swarm.ListConfigsFilter{
 		StackName: "app",
@@ -306,17 +310,17 @@ secrets:
 
 	cfg := &config.Config{Spec: config.Spec{
 		DataDir: filepath.Join(repoDir, ".data"),
-		SecretRotation: config.SecretRotationSpec{
+		GitOps: config.GitOpsSpec{ResourceRotation: config.ResourceRotationSpec{
 			Enabled:    true,
 			HashLength: 8,
-			Cleanup: config.SecretRotationCleanupSpec{
+			Cleanup: config.ResourceRotationCleanupSpec{
 				Enabled:  true,
 				KeepLast: 1,
 				MinAge:   specw.Duration{Value: time.Hour},
 			},
-		},
+		}},
 	}}
-	cleaner := newRotatedResourceCleaner(secretManager, configManager, cfg.Spec.SecretRotation.Cleanup)
+	cleaner := newRotatedResourceCleaner(secretManager, configManager, cfg.Spec.GitOps.ResourceRotation.Cleanup)
 	cleaner.now = func() time.Time { return now }
 	reconciler := &Reconciler{
 		cfg: cfg, event: &dispatcher.NopDispatcher{},
@@ -334,7 +338,7 @@ secrets:
 	reconciler.executor = deployments.NewController(
 		deployments.NewService(db, reconciler.event), stackDeployer, serviceManager, reconciler.pruner, reconciler.deployMetrics,
 	)
-	reconciler.preparer = preparation.New(reconciler.cfg, repository, fs.NewLocalFileSystem(), reconciler.composeRotator)
+	reconciler.preparer = preparation.New(reconciler.cfg, repository, reconciler.composeRotator)
 	reconciler.attachPipeline()
 
 	err := reconciler.Reconcile(context.Background(), ReconciliationRequest{
@@ -381,12 +385,12 @@ func TestReconcileReadsPreviousDigestFromStateStore(t *testing.T) {
 		cfg: &config.Config{
 			Spec: config.Spec{
 				DataDir: filepath.Join(repoDir, ".data"),
-				SecretRotation: config.SecretRotationSpec{
+				GitOps: config.GitOpsSpec{ResourceRotation: config.ResourceRotationSpec{
 					Enabled: true,
-					Cleanup: config.SecretRotationCleanupSpec{
+					Cleanup: config.ResourceRotationCleanupSpec{
 						Enabled: true,
 					},
-				},
+				}},
 			},
 		}, event: eventDispatcher,
 		deployMetrics:  deployMetrics,
@@ -401,7 +405,7 @@ func TestReconcileReadsPreviousDigestFromStateStore(t *testing.T) {
 	reconciler.executor = deployments.NewController(
 		deployments.NewService(db, reconciler.event), stackDeployer, serviceManager, reconciler.pruner, reconciler.deployMetrics,
 	)
-	reconciler.preparer = preparation.New(reconciler.cfg, repository, fs.NewLocalFileSystem(), reconciler.composeRotator)
+	reconciler.preparer = preparation.New(reconciler.cfg, repository, reconciler.composeRotator)
 	reconciler.attachPipeline()
 
 	reconcileErr := reconciler.Reconcile(context.Background(), ReconciliationRequest{
@@ -439,7 +443,6 @@ func TestReconcileDeploysRotatedConfigWhenConfigFileContentChanges(t *testing.T)
 	repoDir := t.TempDir()
 	configPath := filepath.Join(repoDir, "config", "app.yaml")
 	composePath := filepath.Join(repoDir, "app.yaml")
-	renderedPath := filepath.Join(repoDir, ".data", "rendered", "app.yaml")
 	eventDispatcher := &dispatcher.NopDispatcher{}
 	deployMetrics := &metrics.NopDeploys{}
 
@@ -475,14 +478,14 @@ configs:
 	require.NotEqual(t, oldStackFile.Digest, newStackFile.Digest, "expected config content to change digest")
 
 	mockRepositoryFiles(repository, repoDir)
-	var renderedCompose *compose.Compose
+	var preparedCompose *compose.Compose
 	stackDeployer.EXPECT().
-		DeployStack(gomock.Any(), "app", renderedPath, gomock.Any()).
-		Do(func(_ context.Context, _, deployComposePath string, _ compose.Compose) {
-			renderedRaw, readErr := os.ReadFile(deployComposePath)
-			require.NoError(t, readErr, "read rendered compose during deploy")
-			renderedCompose, readErr = compose.Parse(renderedRaw)
-			require.NoError(t, readErr, "parse rendered compose during deploy")
+		DeployStack(gomock.Any(), gomock.Cond(func(req deployer.StackRequest) bool {
+			return req.StackName == "app" &&
+				req.SourceComposePath == composePath
+		})).
+		Do(func(_ context.Context, request deployer.StackRequest) {
+			preparedCompose = &request.Desired
 		}).
 		Return(deployer.Result{}, nil)
 	serviceManager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "app"}).Return(nil, nil)
@@ -491,10 +494,10 @@ configs:
 		cfg: &config.Config{
 			Spec: config.Spec{
 				DataDir: filepath.Join(repoDir, ".data"),
-				SecretRotation: config.SecretRotationSpec{
+				GitOps: config.GitOpsSpec{ResourceRotation: config.ResourceRotationSpec{
 					Enabled:    true,
 					HashLength: 8,
-				},
+				}},
 			},
 		}, event: eventDispatcher,
 		deployMetrics:  deployMetrics,
@@ -507,7 +510,7 @@ configs:
 	reconciler.executor = deployments.NewController(
 		deployments.NewService(db, reconciler.event), stackDeployer, serviceManager, reconciler.pruner, reconciler.deployMetrics,
 	)
-	reconciler.preparer = preparation.New(reconciler.cfg, repository, fs.NewLocalFileSystem(), reconciler.composeRotator)
+	reconciler.preparer = preparation.New(reconciler.cfg, repository, reconciler.composeRotator)
 	reconciler.attachPipeline()
 
 	reconcileErr := reconciler.Reconcile(context.Background(), ReconciliationRequest{
@@ -519,8 +522,7 @@ configs:
 	})
 
 	require.NoError(t, reconcileErr, "reconcile")
-	require.NotNil(t, renderedCompose, "expected rendered compose during deploy")
-	assert.NoFileExists(t, renderedPath, "rendered compose must be removed after reconciliation")
+	require.NotNil(t, preparedCompose, "expected prepared compose during deploy")
 
 	expectedConfigName := NewRotator().buildRotatedObjectName(
 		"app",
@@ -530,21 +532,122 @@ configs:
 		8,
 		false,
 	)
-	assert.Equal(t, expectedConfigName, renderedCompose.Configs["app-config"].Name, "rotated config name should use new file content")
+	assert.Equal(t, expectedConfigName, preparedCompose.Configs["app-config"].Name, "rotated config name should use new file content")
 
 	stackState, exists := readSQLState(t, stateStore).Stacks["app"]
 	require.True(t, exists, "expected stack state")
 	assert.Equal(t, newStackFile.Digest, stackState.SourceDigest, "expected persisted digest from new config content")
 }
 
-func TestReconcilePopulatesEnvFilesIntoRenderedEnvironment(t *testing.T) {
+func TestReconcilePassesSourceResourceDefinitionsToNativeDeployment(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	repository := gitx.NewMockRepository(ctrl)
 	serviceManager := swarm.NewMockServiceManager(ctrl)
 	stackDeployer := deployer.NewMockStackDeployer(ctrl)
 	db, stateStore := newSQLState(t)
 	repoDir := t.TempDir()
-	renderedPath := filepath.Join(repoDir, ".data", "rendered", "app.yaml")
+	eventDispatcher := &dispatcher.NopDispatcher{}
+	sharedConfigPath := filepath.Join(repoDir, "shared", "config.yaml")
+	sharedSecretPath := filepath.Join(repoDir, "shared", "source-secret")
+
+	require.NoError(t, os.MkdirAll(filepath.Join(repoDir, "deploy"), 0o755), "create compose dir")
+	require.NoError(t, os.WriteFile(filepath.Join(repoDir, "deploy", "docker-compose.yaml"), []byte(`
+services:
+  api:
+    image: nginx:latest
+    configs:
+      - source: app-config
+    secrets:
+      - source: app-secret
+configs:
+  app-config:
+    file: ./config/app.yaml
+  shared-config:
+    file: ../shared/config.yaml
+secrets:
+  app-secret:
+    file: secrets/password.txt
+  shared-secret:
+    file: ../shared/source-secret
+`), 0o600), "write compose")
+	require.NoError(t, os.MkdirAll(filepath.Join(repoDir, "deploy", "config"), 0o755), "create config dir")
+	require.NoError(t, os.MkdirAll(filepath.Join(repoDir, "deploy", "secrets"), 0o755), "create secrets dir")
+	require.NoError(t, os.MkdirAll(filepath.Dir(sharedConfigPath), 0o755), "create shared object dir")
+	require.NoError(t, os.WriteFile(filepath.Join(repoDir, "deploy", "config", "app.yaml"), []byte("version: current\n"), 0o600), "write config")
+	require.NoError(t, os.WriteFile(filepath.Join(repoDir, "deploy", "secrets", "password.txt"), []byte("password\n"), 0o600), "write secret")
+	require.NoError(t, os.WriteFile(sharedConfigPath, []byte("shared config\n"), 0o600), "write shared config")
+	require.NoError(t, os.WriteFile(sharedSecretPath, []byte("shared secret\n"), 0o600), "write shared secret")
+
+	mockRepositoryFiles(repository, repoDir)
+	var preparedCompose *compose.Compose
+	stackDeployer.EXPECT().
+		DeployStack(gomock.Any(), gomock.Cond(func(req deployer.StackRequest) bool {
+			return req.StackName == "app" &&
+				req.SourceComposePath == filepath.Join(repoDir, "deploy", "docker-compose.yaml")
+		})).
+		Do(func(_ context.Context, request deployer.StackRequest) {
+			preparedCompose = &request.Desired
+		}).
+		Return(deployer.Result{}, nil)
+	serviceManager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "app"}).Return(nil, nil)
+
+	reconciler := &Reconciler{
+		cfg: &config.Config{
+			Spec: config.Spec{
+				DataDir: filepath.Join(repoDir, ".data"),
+			},
+		}, event: eventDispatcher,
+		deployMetrics:  &metrics.NopDeploys{},
+		stateStore:     stateStore,
+		pruner:         pruner.NewServicePruner(serviceManager, eventDispatcher, config.SyncPolicySpec{}),
+		composeRotator: NewRotator(),
+		serviceManager: serviceManager,
+	}
+	reconciler.db = db
+	reconciler.executor = deployments.NewController(
+		deployments.NewService(db, reconciler.event), stackDeployer, serviceManager, reconciler.pruner, reconciler.deployMetrics,
+	)
+	reconciler.preparer = preparation.New(reconciler.cfg, repository, reconciler.composeRotator)
+	reconciler.attachPipeline()
+
+	reconcileErr := reconciler.Reconcile(context.Background(), ReconciliationRequest{
+		Stack: config.StackSpec{
+			Name:        "app",
+			ComposeFile: "deploy/docker-compose.yaml",
+		},
+		Commit: "commit-4",
+	})
+
+	require.NoError(t, reconcileErr, "reconcile")
+	require.NotNil(t, preparedCompose, "expected prepared compose during deploy")
+
+	assert.Equal(
+		t,
+		"./config/app.yaml",
+		preparedCompose.Configs["app-config"].File,
+		"native deployment receives the declared source path",
+	)
+	assert.Equal(
+		t,
+		"../shared/config.yaml",
+		preparedCompose.Configs["shared-config"].File,
+		"path to the shared config should be preserved",
+	)
+	assert.False(t, preparedCompose.Secrets["app-secret"].External)
+	assert.Equal(t, "secrets/password.txt", preparedCompose.Secrets["app-secret"].File)
+	assert.False(t, preparedCompose.Secrets["shared-secret"].External)
+	assert.Equal(t, "../shared/source-secret", preparedCompose.Secrets["shared-secret"].File)
+	assert.Equal(t, []byte("version: current\n"), preparedCompose.Configs["app-config"].Data)
+
+}
+
+func TestReconcilePopulatesEnvFilesIntoEffectiveEnvironment(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	repository := gitx.NewMockRepository(ctrl)
+	serviceManager := swarm.NewMockServiceManager(ctrl)
+	stackDeployer := deployer.NewMockStackDeployer(ctrl)
+	db, stateStore := newSQLState(t)
+	repoDir := t.TempDir()
 
 	require.NoError(t, os.MkdirAll(filepath.Join(repoDir, "deploy"), 0o755), "create compose dir")
 	require.NoError(t, os.WriteFile(filepath.Join(repoDir, "deploy", "default.env"), []byte("FOO=default\nBAR=default\n"), 0o600), "write default env")
@@ -561,14 +664,14 @@ services:
 `), 0o600), "write compose")
 
 	mockRepositoryFiles(repository, repoDir)
-	var renderedCompose *compose.Compose
+	var preparedCompose *compose.Compose
 	stackDeployer.EXPECT().
-		DeployStack(gomock.Any(), "app", renderedPath, gomock.Any()).
-		Do(func(_ context.Context, _, deployComposePath string, _ compose.Compose) {
-			renderedRaw, readErr := os.ReadFile(deployComposePath)
-			require.NoError(t, readErr, "read rendered compose during deploy")
-			renderedCompose, readErr = compose.Parse(renderedRaw)
-			require.NoError(t, readErr, "parse rendered compose during deploy")
+		DeployStack(gomock.Any(), gomock.Cond(func(req deployer.StackRequest) bool {
+			return req.StackName == "app" &&
+				req.SourceComposePath == filepath.Join(repoDir, "deploy", "compose.yaml")
+		})).
+		Do(func(_ context.Context, request deployer.StackRequest) {
+			preparedCompose = &request.Desired
 		}).
 		Return(deployer.Result{}, nil)
 	serviceManager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "app"}).Return(nil, nil)
@@ -589,7 +692,7 @@ services:
 	reconciler.executor = deployments.NewController(
 		deployments.NewService(db, reconciler.event), stackDeployer, serviceManager, reconciler.pruner, reconciler.deployMetrics,
 	)
-	reconciler.preparer = preparation.New(reconciler.cfg, repository, fs.NewLocalFileSystem(), reconciler.composeRotator)
+	reconciler.preparer = preparation.New(reconciler.cfg, repository, reconciler.composeRotator)
 	reconciler.attachPipeline()
 
 	reconcileErr := reconciler.Reconcile(context.Background(), ReconciliationRequest{
@@ -600,11 +703,10 @@ services:
 		Commit: "commit-env-1",
 	})
 	require.NoError(t, reconcileErr, "reconcile")
-	require.NotNil(t, renderedCompose, "expected rendered compose during deploy")
-	assert.NoFileExists(t, renderedPath, "rendered compose must be removed after reconciliation")
-	require.Len(t, renderedCompose.Services, 1, "expected one service")
+	require.NotNil(t, preparedCompose, "expected prepared compose during deploy")
+	require.Len(t, preparedCompose.Services, 1, "expected one service")
 
-	service := renderedCompose.Services[0]
+	service := preparedCompose.Services[0]
 	assert.Empty(t, service.EnvFiles, "env_file must be removed from rendered desired state")
 	assert.Equal(t, map[string]string{
 		"BAR": "default",
@@ -613,16 +715,25 @@ services:
 	}, service.Environment.Map)
 }
 
-func TestReconcileWritesRenderedComposeForDownwardEnabledStack(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	repository := gitx.NewMockRepository(ctrl)
-	serviceManager := swarm.NewMockServiceManager(ctrl)
-	stackDeployer := deployer.NewMockStackDeployer(ctrl)
-	db, stateStore := newSQLState(t)
-	repoDir := t.TempDir()
-	renderedPath := filepath.Join(repoDir, ".data", "rendered", "app.yaml")
+func TestReconcilePreparesDownwardEnvironment(t *testing.T) {
+	for _, tt := range []struct {
+		name         string
+		downward     string
+		wantInjected bool
+	}{
+		{name: "omitted"},
+		{name: "disabled", downward: "  injection:\n    downward: {enabled: false}\n"},
+		{name: "enabled", downward: "  injection:\n    downward: {enabled: true}\n", wantInjected: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			repository := gitx.NewMockRepository(ctrl)
+			serviceManager := swarm.NewMockServiceManager(ctrl)
+			stackDeployer := deployer.NewMockStackDeployer(ctrl)
+			db, stateStore := newSQLState(t)
+			repoDir := t.TempDir()
 
-	require.NoError(t, os.WriteFile(filepath.Join(repoDir, "app.yaml"), []byte(fmt.Sprintf(`
+			require.NoError(t, os.WriteFile(filepath.Join(repoDir, "app.yaml"), []byte(fmt.Sprintf(`
 services:
   api:
     image: nginx:latest
@@ -631,63 +742,72 @@ services:
         %s: %q
 `, labelsdict.ServiceManagedLabelKey, labelsdict.ServiceManagedLabelValue)), 0o600), "write compose")
 
-	mockRepositoryFiles(repository, repoDir)
-	var renderedCompose *compose.Compose
-	stackDeployer.EXPECT().
-		DeployStack(gomock.Any(), "app", renderedPath, gomock.Any()).
-		Do(func(_ context.Context, _, deployComposePath string, _ compose.Compose) {
-			renderedRaw, readErr := os.ReadFile(deployComposePath)
-			require.NoError(t, readErr, "read rendered compose during deploy")
-			renderedCompose, readErr = compose.Parse(renderedRaw)
-			require.NoError(t, readErr, "parse rendered compose during deploy")
-		}).
-		Return(deployer.Result{}, nil)
-	serviceManager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "app"}).Return(nil, nil)
+			configPath := filepath.Join(repoDir, "swarm-deploy.yaml")
+			require.NoError(t, os.WriteFile(configPath, []byte(`gitops:
+  git:
+    repository: https://example.com/repo.git
+  stacks:
+    file: stacks.yaml
+`+tt.downward), 0o600))
+			cfg, err := config.Load(configPath)
+			require.NoError(t, err)
 
-	reconciler := &Reconciler{
-		cfg: &config.Config{
-			Spec: config.Spec{
-				DataDir: filepath.Join(repoDir, ".data"),
-				Containers: config.ContainersSpec{
-					Downward: &struct{}{},
+			mockRepositoryFiles(repository, repoDir)
+			var preparedCompose *compose.Compose
+			stackDeployer.EXPECT().
+				DeployStack(gomock.Any(), gomock.Cond(func(req deployer.StackRequest) bool {
+					return req.StackName == "app" &&
+						req.SourceComposePath == filepath.Join(repoDir, "app.yaml")
+				})).
+				Do(func(_ context.Context, request deployer.StackRequest) {
+					preparedCompose = &request.Desired
+				}).
+				Return(deployer.Result{}, nil)
+			serviceManager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "app"}).Return(nil, nil)
+
+			reconciler := &Reconciler{
+				cfg:            cfg,
+				event:          &dispatcher.NopDispatcher{},
+				deployMetrics:  &metrics.NopDeploys{},
+				stateStore:     stateStore,
+				pruner:         pruner.NewServicePruner(serviceManager, &dispatcher.NopDispatcher{}, config.SyncPolicySpec{}),
+				composeRotator: NewRotator(),
+				serviceManager: serviceManager,
+			}
+			reconciler.db = db
+			reconciler.executor = deployments.NewController(
+				deployments.NewService(db, reconciler.event), stackDeployer, serviceManager, reconciler.pruner, reconciler.deployMetrics,
+			)
+			reconciler.preparer = preparation.New(reconciler.cfg, repository, reconciler.composeRotator)
+			reconciler.attachPipeline()
+
+			reconcileErr := reconciler.Reconcile(context.Background(), ReconciliationRequest{
+				Stack: config.StackSpec{
+					Name:        "app",
+					ComposeFile: "app.yaml",
 				},
-			},
-		}, event: &dispatcher.NopDispatcher{},
-		deployMetrics:  &metrics.NopDeploys{},
-		stateStore:     stateStore,
-		pruner:         pruner.NewServicePruner(serviceManager, &dispatcher.NopDispatcher{}, config.SyncPolicySpec{}),
-		composeRotator: NewRotator(),
-		serviceManager: serviceManager,
+				Commit: "commit-downward-1",
+			})
+
+			require.NoError(t, reconcileErr, "reconcile")
+			require.NotNil(t, preparedCompose, "expected prepared compose during deploy")
+			require.Len(t, preparedCompose.Services, 1, "expected one service")
+
+			service := preparedCompose.Services[0]
+			if !tt.wantInjected {
+				assert.Empty(t, service.Environment.Map)
+				return
+			}
+			assert.Equal(t, "app", service.Environment.Map[downward.EnvStackName], "unexpected stack env")
+			assert.Equal(t, "{{.Service.ID}}", service.Environment.Map[downward.EnvServiceID], "unexpected service id env")
+			assert.Equal(t, "{{.Service.Name}}", service.Environment.Map[downward.EnvServiceName], "unexpected service name env")
+			assert.Equal(t, "{{.Task.ID}}", service.Environment.Map[downward.EnvTaskID], "unexpected task id env")
+			assert.Equal(t, "{{.Task.Name}}", service.Environment.Map[downward.EnvTaskName], "unexpected task name env")
+			assert.Equal(t, "{{.Task.Slot}}", service.Environment.Map[downward.EnvTaskSlot], "unexpected task slot env")
+			assert.Equal(t, "{{.Node.ID}}", service.Environment.Map[downward.EnvNodeID], "unexpected node id env")
+			assert.Equal(t, "{{.Node.Hostname}}", service.Environment.Map[downward.EnvNodeName], "unexpected node name env")
+		})
 	}
-	reconciler.db = db
-	reconciler.executor = deployments.NewController(
-		deployments.NewService(db, reconciler.event), stackDeployer, serviceManager, reconciler.pruner, reconciler.deployMetrics,
-	)
-	reconciler.preparer = preparation.New(reconciler.cfg, repository, fs.NewLocalFileSystem(), reconciler.composeRotator)
-	reconciler.attachPipeline()
-
-	reconcileErr := reconciler.Reconcile(context.Background(), ReconciliationRequest{
-		Stack: config.StackSpec{
-			Name:        "app",
-			ComposeFile: "app.yaml",
-		},
-		Commit: "commit-downward-1",
-	})
-
-	require.NoError(t, reconcileErr, "reconcile")
-	require.NotNil(t, renderedCompose, "expected rendered compose during deploy")
-	assert.NoFileExists(t, renderedPath, "rendered compose must be removed after reconciliation")
-	require.Len(t, renderedCompose.Services, 1, "expected one service")
-
-	service := renderedCompose.Services[0]
-	assert.Equal(t, "app", service.Environment.Map[downward.EnvStackName], "unexpected stack env")
-	assert.Equal(t, "{{.Service.ID}}", service.Environment.Map[downward.EnvServiceID], "unexpected service id env")
-	assert.Equal(t, "{{.Service.Name}}", service.Environment.Map[downward.EnvServiceName], "unexpected service name env")
-	assert.Equal(t, "{{.Task.ID}}", service.Environment.Map[downward.EnvTaskID], "unexpected task id env")
-	assert.Equal(t, "{{.Task.Name}}", service.Environment.Map[downward.EnvTaskName], "unexpected task name env")
-	assert.Equal(t, "{{.Task.Slot}}", service.Environment.Map[downward.EnvTaskSlot], "unexpected task slot env")
-	assert.Equal(t, "{{.Node.ID}}", service.Environment.Map[downward.EnvNodeID], "unexpected node id env")
-	assert.Equal(t, "{{.Node.Hostname}}", service.Environment.Map[downward.EnvNodeName], "unexpected node name env")
 }
 
 func TestReconcileDoesNotRedeployForDownwardOnUnchangedDigest(t *testing.T) {
@@ -697,7 +817,6 @@ func TestReconcileDoesNotRedeployForDownwardOnUnchangedDigest(t *testing.T) {
 	stackDeployer := deployer.NewMockStackDeployer(ctrl)
 	db, stateStore := newSQLState(t)
 	repoDir := t.TempDir()
-	renderedPath := filepath.Join(repoDir, ".data", "rendered", "app.yaml")
 
 	require.NoError(t, os.WriteFile(filepath.Join(repoDir, "app.yaml"), []byte(fmt.Sprintf(`
 services:
@@ -710,7 +829,10 @@ services:
 
 	mockRepositoryFiles(repository, repoDir)
 	stackDeployer.EXPECT().
-		DeployStack(gomock.Any(), "app", renderedPath, gomock.Any()).
+		DeployStack(gomock.Any(), gomock.Cond(func(req deployer.StackRequest) bool {
+			return req.StackName == "app" &&
+				req.SourceComposePath == filepath.Join(repoDir, "app.yaml")
+		})).
 		Return(deployer.Result{}, nil).
 		Times(1)
 	serviceManager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "app"}).Return(nil, nil)
@@ -722,8 +844,10 @@ services:
 		cfg: &config.Config{
 			Spec: config.Spec{
 				DataDir: filepath.Join(repoDir, ".data"),
-				Containers: config.ContainersSpec{
-					Downward: &struct{}{},
+				GitOps: config.GitOpsSpec{
+					Injection: config.GitOpsInjectionSpec{
+						Downward: config.DownwardSpec{Enabled: true},
+					},
 				},
 			},
 		}, event: &dispatcher.NopDispatcher{},
@@ -738,7 +862,7 @@ services:
 	reconciler.executor = deployments.NewController(
 		deployments.NewService(db, reconciler.event), stackDeployer, serviceManager, reconciler.pruner, reconciler.deployMetrics,
 	)
-	reconciler.preparer = preparation.New(reconciler.cfg, repository, fs.NewLocalFileSystem(), reconciler.composeRotator)
+	reconciler.preparer = preparation.New(reconciler.cfg, repository, reconciler.composeRotator)
 	reconciler.attachPipeline()
 
 	reconcileErr := reconciler.Reconcile(context.Background(), ReconciliationRequest{
@@ -749,6 +873,9 @@ services:
 		Commit: "commit-downward-2",
 	})
 	require.NoError(t, reconcileErr, "first reconcile")
+	stackDeployer.EXPECT().RefreshRegistryAuth(gomock.Any(), gomock.Cond(func(req deployer.StackRequest) bool {
+		return req.StackName == "app" && req.SourceComposePath == filepath.Join(repoDir, "app.yaml")
+	})).Return(nil)
 
 	reconcileErr = reconciler.Reconcile(context.Background(), ReconciliationRequest{
 		Stack: config.StackSpec{
@@ -815,11 +942,11 @@ func TestReconcilePrunesServicesWithoutNewDeployment(t *testing.T) {
 				cfg: &config.Config{
 					Spec: config.Spec{
 						DataDir: filepath.Join(repoDir, ".data"),
-						Sync: config.SyncSpec{
+						GitOps: config.GitOpsSpec{Sync: config.SyncSpec{
 							Policy: config.SyncPolicySpec{
 								Prune: tc.globalPrune,
 							},
-						},
+						}},
 					},
 				}, event: eventDispatcher,
 				deployMetrics:  deployMetrics,
@@ -832,7 +959,7 @@ func TestReconcilePrunesServicesWithoutNewDeployment(t *testing.T) {
 			reconciler.executor = deployments.NewController(
 				deployments.NewService(db, reconciler.event), stackDeployer, serviceManager, reconciler.pruner, reconciler.deployMetrics,
 			)
-			reconciler.preparer = preparation.New(reconciler.cfg, repository, fs.NewLocalFileSystem(), reconciler.composeRotator)
+			reconciler.preparer = preparation.New(reconciler.cfg, repository, reconciler.composeRotator)
 			reconciler.attachPipeline()
 
 			reconcileErr := reconciler.Reconcile(context.Background(), ReconciliationRequest{
@@ -930,7 +1057,7 @@ func TestReconcileServiceMissedEventOnDrift(t *testing.T) {
 				deployments.NewService(db, reconciler.event), deployer.NewMockStackDeployer(ctrl),
 				serviceManager, reconciler.pruner, reconciler.deployMetrics,
 			)
-			reconciler.preparer = preparation.New(reconciler.cfg, repository, fs.NewLocalFileSystem(), reconciler.composeRotator)
+			reconciler.preparer = preparation.New(reconciler.cfg, repository, reconciler.composeRotator)
 			reconciler.attachPipeline()
 
 			reconcileErr := reconciler.Reconcile(context.Background(), ReconciliationRequest{
@@ -983,12 +1110,16 @@ func TestReconcileSelfHealsMissingService(t *testing.T) {
 			wantMetric: "success",
 		},
 		{
-			name: "CLI failure with verified convergence", deployErr: errors.New("docker CLI timeout"),
-			verifiedLive: []swarm.StackService{{Name: "api"}}, wantStatus: model.SyncStatusSynced,
-			wantEventTypes: []events.TypeName{
-				events.TypeNameServiceMissed, events.TypeNameServiceDriftFixed,
-			},
-			wantMetric: "success",
+			name: "execution outcome unknown despite accepted specification", deployErr: context.DeadlineExceeded,
+			verifiedLive: []swarm.StackService{{Name: "api"}}, wantErr: true,
+			wantStatus: model.SyncStatusOutOfSync, wantSyncError: "Self Heal Execution Outcome Unknown",
+			wantEventTypes: []events.TypeName{events.TypeNameServiceMissed}, wantMetric: "failed",
+		},
+		{
+			name: "confirmed convergence failure despite accepted specification", deployErr: deployments.ErrConvergenceFailed,
+			verifiedLive: []swarm.StackService{{Name: "api"}}, wantErr: true,
+			wantStatus: model.SyncStatusOutOfSync, wantSyncError: "Self Heal Convergence Failed",
+			wantEventTypes: []events.TypeName{events.TypeNameServiceMissed}, wantMetric: "failed",
 		},
 		{
 			name: "records failed restore", deployErr: errors.New("deploy failed"), wantErr: true,
@@ -1001,6 +1132,12 @@ func TestReconcileSelfHealsMissingService(t *testing.T) {
 			wantStatus: model.SyncStatusOutOfSync, wantSyncError: "Self Heal Verification Failed",
 			wantEventTypes: []events.TypeName{events.TypeNameServiceMissed},
 			wantMetric:     "failed",
+		},
+		{
+			name:      "verification read cannot hide confirmed convergence failure",
+			deployErr: deployments.ErrConvergenceFailed, verificationErr: errors.New("swarm unavailable"), wantErr: true,
+			wantStatus: model.SyncStatusOutOfSync, wantSyncError: "Self Heal Convergence Failed",
+			wantEventTypes: []events.TypeName{events.TypeNameServiceMissed}, wantMetric: "failed",
 		},
 		{
 			name: "records persistent drift", wantErr: true,
@@ -1039,9 +1176,11 @@ func TestReconcileSelfHealsMissingService(t *testing.T) {
 			mockRepositoryFiles(repository, repoDir)
 			serviceManager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "app"}).Return(nil, nil)
 			serviceManager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "app"}).Return(tt.verifiedLive, tt.verificationErr)
-			stackDeployer.EXPECT().DeployService(
-				gomock.Any(), "app", "api", gomock.Any(), gomock.Any(),
-			).Return(deployer.Result{}, tt.deployErr)
+			stackDeployer.EXPECT().DeployService(gomock.Any(), gomock.Cond(func(req deployer.ServiceRequest) bool {
+				return req.StackName == "app" &&
+					req.SourceComposePath == filepath.Join(repoDir, "app.yaml") &&
+					req.ServiceName == "api"
+			})).Return(deployer.Result{}, tt.deployErr)
 
 			metricGroup := metrics.NewGroup(metrics.CreateGroupParams{Namespace: "test"})
 			registry := prometheus.NewRegistry()
@@ -1049,7 +1188,7 @@ func TestReconcileSelfHealsMissingService(t *testing.T) {
 			reconciler := &Reconciler{
 				cfg: &config.Config{Spec: config.Spec{
 					DataDir: filepath.Join(repoDir, ".data"),
-					Sync:    config.SyncSpec{Policy: config.SyncPolicySpec{SelfHeal: true}},
+					GitOps:  config.GitOpsSpec{Sync: config.SyncSpec{Policy: config.SyncPolicySpec{SelfHeal: true}}},
 				}}, event: eventDispatcher,
 				deployMetrics: metricGroup.Deploys, stateStore: stateStore,
 				pruner:        pruner.NewServicePruner(serviceManager, eventDispatcher, config.SyncPolicySpec{}),
@@ -1059,7 +1198,7 @@ func TestReconcileSelfHealsMissingService(t *testing.T) {
 			reconciler.executor = deployments.NewController(
 				deployments.NewService(db, reconciler.event), stackDeployer, serviceManager, reconciler.pruner, reconciler.deployMetrics,
 			)
-			reconciler.preparer = preparation.New(reconciler.cfg, repository, fs.NewLocalFileSystem(), reconciler.composeRotator)
+			reconciler.preparer = preparation.New(reconciler.cfg, repository, reconciler.composeRotator)
 			reconciler.attachPipeline()
 
 			err = reconciler.Reconcile(context.Background(), ReconciliationRequest{
@@ -1067,6 +1206,9 @@ func TestReconcileSelfHealsMissingService(t *testing.T) {
 			})
 			if tt.wantErr {
 				require.Error(t, err)
+				if tt.deployErr != nil {
+					assert.ErrorIs(t, err, tt.deployErr)
+				}
 			} else {
 				require.NoError(t, err)
 			}
@@ -1138,14 +1280,16 @@ func TestReconcileSelfHealsReplicaDriftAfterVerification(t *testing.T) {
 	serviceManager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "app"}).Return([]swarm.StackService{{
 		Name: "api", Replicas: &three,
 	}}, nil)
-	stackDeployer.EXPECT().DeployService(
-		gomock.Any(), "app", "api", gomock.Any(), gomock.Any(),
-	).Return(deployer.Result{}, nil)
+	stackDeployer.EXPECT().DeployService(gomock.Any(), gomock.Cond(func(req deployer.ServiceRequest) bool {
+		return req.StackName == "app" &&
+			req.SourceComposePath == filepath.Join(repoDir, "app.yaml") &&
+			req.ServiceName == "api"
+	})).Return(deployer.Result{}, nil)
 
 	reconciler := &Reconciler{
 		cfg: &config.Config{Spec: config.Spec{
 			DataDir: filepath.Join(repoDir, ".data"),
-			Sync:    config.SyncSpec{Policy: config.SyncPolicySpec{SelfHeal: true}},
+			GitOps:  config.GitOpsSpec{Sync: config.SyncSpec{Policy: config.SyncPolicySpec{SelfHeal: true}}},
 		}}, event: eventDispatcher,
 		deployMetrics: &metrics.NopDeploys{}, stateStore: stateStore,
 		pruner:        pruner.NewServicePruner(serviceManager, eventDispatcher, config.SyncPolicySpec{}),
@@ -1155,7 +1299,7 @@ func TestReconcileSelfHealsReplicaDriftAfterVerification(t *testing.T) {
 	reconciler.executor = deployments.NewController(
 		deployments.NewService(db, reconciler.event), stackDeployer, serviceManager, reconciler.pruner, reconciler.deployMetrics,
 	)
-	reconciler.preparer = preparation.New(reconciler.cfg, repository, fs.NewLocalFileSystem(), reconciler.composeRotator)
+	reconciler.preparer = preparation.New(reconciler.cfg, repository, reconciler.composeRotator)
 	reconciler.attachPipeline()
 
 	require.NoError(t, reconciler.Reconcile(context.Background(), ReconciliationRequest{
@@ -1189,7 +1333,7 @@ func TestPublishDriftEventsUsesEpisodesAndConfirmedResolution(t *testing.T) {
 			}},
 		},
 		{
-			name: "external or deployment recovery is fixed", previous: model.SyncStatusOutOfSync,
+			name: "previously detected drift recovery is fixed", previous: model.SyncStatusOutOfSync,
 			want: []events.TypeName{events.TypeNameServiceDriftFixed},
 		},
 		{
@@ -1212,7 +1356,7 @@ func TestPublishDriftEventsUsesEpisodesAndConfirmedResolution(t *testing.T) {
 				},
 			).AnyTimes()
 			reconciler := &Reconciler{event: publisher}
-			previous := model.Stack{Services: map[string]model.Service{
+			previous := model.Stack{DriftedServices: map[string]bool{"api": tt.previous == model.SyncStatusOutOfSync}, Services: map[string]model.Service{
 				"api": {SyncStatus: tt.previous},
 			}}
 			payload := &pipelinePayload{
@@ -1220,6 +1364,9 @@ func TestPublishDriftEventsUsesEpisodesAndConfirmedResolution(t *testing.T) {
 				Drift:   tt.detected, RemainingDrift: tt.remaining,
 			}
 
+			if payload.RemainingDrift == nil {
+				payload.RemainingDrift = map[string]drift.ServiceDrift{}
+			}
 			require.NoError(t, reconciler.publishDriftEvents(context.Background(), ReconciliationRequest{
 				Stack: config.StackSpec{Name: "app"}, Commit: "current",
 			}, previous, payload))
@@ -1318,9 +1465,12 @@ func TestPublishDriftEventsUsesFinalVerifiedStatePerService(t *testing.T) {
 				}}},
 				Drift: tt.initial, RemainingDrift: tt.remaining,
 			}
+			if payload.RemainingDrift == nil {
+				payload.RemainingDrift = map[string]drift.ServiceDrift{}
+			}
 			require.NoError(t, reconciler.publishDriftEvents(t.Context(), ReconciliationRequest{
 				Stack: config.StackSpec{Name: "app"}, Commit: "current",
-			}, model.Stack{Services: tt.previous}, payload))
+			}, model.Stack{Services: tt.previous, DriftedServices: map[string]bool{"worker": tt.previous["worker"].SyncStatus == model.SyncStatusOutOfSync}}, payload))
 			assert.Equal(t, tt.want, published)
 		})
 	}

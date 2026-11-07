@@ -147,20 +147,6 @@ func (c TelegramAlertChannel) AlertResolvedAction() string {
 	return c.Resolved.Action
 }
 
-// UnmarshalYAML rejects the removed "on" key instead of silently disabling old rules.
-func (c *NotificationSpec) UnmarshalYAML(node *yaml.Node) error {
-	if node.Kind != yaml.MappingNode {
-		return fmt.Errorf("notifications must be a mapping")
-	}
-	for i := 0; i+1 < len(node.Content); i += 2 {
-		if node.Content[i].Value == "on" {
-			return fmt.Errorf("notifications.on is no longer supported; use notifications.events")
-		}
-	}
-	type raw NotificationSpec
-	return node.Decode((*raw)(c))
-}
-
 type NotificationEventRoutes struct {
 	Telegram []TelegramChannel `yaml:"telegram"`
 	Custom   []CustomChannel   `yaml:"custom"`

@@ -110,8 +110,39 @@ components:
           type: boolean
     SyncInfo:
       type: object
-      additionalProperties:
-        type: string
+      description: GitOps input status. These values do not report stack deployment success.
+      properties:
+        last_poll:
+          $ref: '#/components/schemas/LastPollStatus'
+        last_webhook:
+          $ref: '#/components/schemas/LastWebhookStatus'
+        last_revision:
+          type: string
+          description: Full Git revision most recently dispatched to the stack queue.
+    LastPollStatus:
+      type: object
+      description: Latest Git polling attempt. Empty when polling is active but no attempt is recorded.
+      properties:
+        at:
+          type: string
+          format: date-time
+        result:
+          type: string
+          enum: [updated, no_change, error]
+        error:
+          type: string
+          description: Sanitized diagnostic; empty when the attempt did not fail.
+    LastWebhookStatus:
+      type: object
+      description: Latest retained WebhookReceived event. Empty when webhooks are enabled but none is retained.
+      properties:
+        event_id:
+          type: string
+        at:
+          type: string
+          format: date-time
+        queued:
+          type: boolean
     GitCommitDetailsResponse:
       type: object
       required: [full_hash, author, message, date, changed_files]

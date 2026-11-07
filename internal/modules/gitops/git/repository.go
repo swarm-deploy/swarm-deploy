@@ -6,10 +6,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
+	"net/url"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
-	"sync"
+	"time"
 
 	gogit "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
@@ -21,18 +24,20 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/tracing"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/knownhosts"
+	"golang.org/x/net/proxy"
 )
 
 type GoGitRepository struct {
 	path string
 
-	branch   string
-	auth     transport.AuthMethod
-	remote   string
-	authType config.GitAuthType
+	branch      string
+	pullTimeout time.Duration
+	auth        transport.AuthMethod
+	remote      string
+	authType    config.GitAuthType
 
 	// go-git mutates its object indexes during both reads and pulls.
-	mu         sync.Mutex
+	mu         chan struct{}
 	repository *gogit.Repository
 }
 
@@ -59,26 +64,107 @@ func NewGoGitRepository(ctx context.Context, spec config.GitSpec, path string) (
 	}
 
 	return &GoGitRepository{
-		path:       path,
-		branch:     spec.Branch,
-		auth:       authMethod,
-		remote:     spec.Repository,
-		authType:   spec.Auth.Type,
-		repository: repo,
+		path:        path,
+		branch:      spec.Branch,
+		pullTimeout: gitPullTimeout(spec),
+		auth:        authMethod,
+		remote:      spec.Repository,
+		authType:    spec.Auth.Type,
+		repository:  repo,
+		mu:          make(chan struct{}, 1),
 	}, nil
 }
+
+func gitPullTimeout(spec config.GitSpec) time.Duration {
+	if timeout := spec.Pull.Timeout.Value; timeout > 0 {
+		return timeout
+	}
+	return config.DefaultGitPullTimeout
+}
+
+// go-git v5.17.0 uses a background context for SSH dialing and does not
+// enforce its dial timeout during the SSH handshake. A socket deadline also
+// bounds the handshake so a stalled server cannot hold lazy initialization.
+const sshDeadlineProxyScheme = "swarm-deploy-ssh-deadline"
+
+func init() {
+	proxy.RegisterDialerType(sshDeadlineProxyScheme, func(u *url.URL, forward proxy.Dialer) (proxy.Dialer, error) {
+		nanos, err := strconv.ParseInt(u.Query().Get("deadline"), 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("invalid SSH connection deadline: %w", err)
+		}
+		base, ok := forward.(proxy.ContextDialer)
+		if !ok {
+			return nil, errors.New("SSH proxy does not support context-aware dialing")
+		}
+		return sshDeadlineDialer{base: base, deadline: time.Unix(0, nanos)}, nil
+	})
+}
+
+type sshDeadlineDialer struct {
+	base     proxy.ContextDialer
+	deadline time.Time
+}
+
+func (d sshDeadlineDialer) Dial(network, addr string) (net.Conn, error) {
+	return d.DialContext(context.Background(), network, addr)
+}
+
+func (d sshDeadlineDialer) DialContext(ctx context.Context, network, addr string) (net.Conn, error) {
+	ctx, cancel := context.WithDeadline(ctx, d.deadline)
+	defer cancel()
+	conn, err := d.base.DialContext(ctx, network, addr)
+	if err != nil {
+		return nil, err
+	}
+	if deadlineErr := conn.SetDeadline(d.deadline); deadlineErr != nil {
+		_ = conn.Close()
+		return nil, deadlineErr
+	}
+	return conn, nil
+}
+
+func sshDeadlineProxyOptions(ctx context.Context, remote string) transport.ProxyOptions {
+	deadline, ok := ctx.Deadline()
+	if !ok || !isSSHRemote(remote) {
+		return transport.ProxyOptions{}
+	}
+	return transport.ProxyOptions{URL: fmt.Sprintf(
+		"%s://direct?deadline=%d", sshDeadlineProxyScheme, deadline.UnixNano(),
+	)}
+}
+
+// repositoryLockTimeoutDiagnostic reports a pull that timed out before it could access the local repository.
+const repositoryLockTimeoutDiagnostic = "Timed out waiting for access to the local Git repository"
+
+// acquire serializes go-git access but lets callers abandon a lock wait when canceled.
+func (r *GoGitRepository) acquire(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	select {
+	case r.mu <- struct{}{}:
+		if err := ctx.Err(); err != nil {
+			<-r.mu
+			return err
+		}
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (r *GoGitRepository) release() { <-r.mu }
 
 func (r *GoGitRepository) WorkingDir() string {
 	return r.path
 }
 
 func (r *GoGitRepository) ReadFile(ctx context.Context, revision, path string) ([]byte, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	if err := ctx.Err(); err != nil {
+	if err := r.acquire(ctx); err != nil {
 		return nil, err
 	}
+	defer r.release()
 	hash, err := hex.DecodeString(revision)
 	if err != nil || len(hash) != len(plumbing.ZeroHash) {
 		return nil, errors.New("revision must be a full Git commit hash")
@@ -104,8 +190,16 @@ func (r *GoGitRepository) ReadFile(ctx context.Context, revision, path string) (
 }
 
 func (r *GoGitRepository) Pull(ctx context.Context) (PullResult, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	ctx, cancel := context.WithTimeout(ctx, r.pullTimeout)
+	defer cancel()
+	if err := r.acquire(ctx); err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			// Local lock contention, not the remote: report it as such instead of a network timeout.
+			return PullResult{}, &PullError{category: FailureOther, diagnostic: repositoryLockTimeoutDiagnostic}
+		}
+		return PullResult{}, ClassifyPullError(fmt.Errorf("wait for repository access: %w", err), r.remote, r.authType)
+	}
+	defer r.release()
 
 	worktree, err := r.repository.Worktree()
 	if err != nil {
@@ -124,6 +218,7 @@ func (r *GoGitRepository) Pull(ctx context.Context) (PullResult, error) {
 		ReferenceName: plumbing.NewBranchReferenceName(r.branch),
 		Auth:          r.auth,
 		Force:         true,
+		ProxyOptions:  sshDeadlineProxyOptions(ctx, r.remote),
 	})
 	if err != nil && !errors.Is(err, gogit.NoErrAlreadyUpToDate) {
 		return PullResult{}, ClassifyPullError(fmt.Errorf("git pull: %w", err), r.remote, r.authType)
@@ -141,9 +236,11 @@ func (r *GoGitRepository) Pull(ctx context.Context) (PullResult, error) {
 	}, nil
 }
 
-func (r *GoGitRepository) Head(context.Context) (string, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+func (r *GoGitRepository) Head(ctx context.Context) (string, error) {
+	if err := r.acquire(ctx); err != nil {
+		return "", err
+	}
+	defer r.release()
 
 	return r.head()
 }
@@ -158,8 +255,10 @@ func (r *GoGitRepository) head() (string, error) {
 }
 
 func (r *GoGitRepository) List(ctx context.Context, limit int) ([]CommitMeta, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	if err := r.acquire(ctx); err != nil {
+		return nil, err
+	}
+	defer r.release()
 
 	if limit <= 0 {
 		return nil, errors.New("limit must be > 0")
@@ -205,8 +304,10 @@ func (r *GoGitRepository) List(ctx context.Context, limit int) ([]CommitMeta, er
 }
 
 func (r *GoGitRepository) Diff(ctx context.Context, oldRevision string, newRevision string) ([]CommitFileDiff, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	if err := r.acquire(ctx); err != nil {
+		return nil, err
+	}
+	defer r.release()
 
 	if oldRevision == "" {
 		return nil, errors.New("old revision is required")
@@ -249,8 +350,10 @@ func (r *GoGitRepository) Diff(ctx context.Context, oldRevision string, newRevis
 }
 
 func (r *GoGitRepository) Show(ctx context.Context, commitHash string) (Commit, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	if err := r.acquire(ctx); err != nil {
+		return Commit{}, err
+	}
+	defer r.release()
 
 	trimmedHash := strings.TrimSpace(commitHash)
 	if trimmedHash == "" {
@@ -409,6 +512,7 @@ func openRepository(
 		Auth:          auth,
 		SingleBranch:  true,
 		ReferenceName: plumbing.NewBranchReferenceName(branch),
+		ProxyOptions:  sshDeadlineProxyOptions(ctx, url),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("git clone: %w", err)

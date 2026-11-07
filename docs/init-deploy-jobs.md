@@ -1,6 +1,6 @@
 # Init Deploy Jobs
 
-Init jobs run before `docker stack deploy`:
+Init jobs run before application services are applied through the Docker API:
 - in service networks,
 - with an attempt to attach service and job secrets/configs.
 
@@ -20,7 +20,11 @@ authorization as Deployment Details, and raw output is available only from the
 execution-specific log endpoint. It is not included in Deployment list/detail
 payloads, events, traces, diagnostics, or application errors.
 
-Before init jobs are started, swarm-deploy reconciles the declared Docker configs and secrets and resolves their Docker IDs for the init-job service specs. Regular services are still deployed afterwards by `docker stack deploy`, which performs its own resource lookup.
+The deployment pipeline validates desired state, reconciles networks and configs/secrets,
+and converts Compose to final Docker API specs before running Init Jobs. Jobs receive
+the resolved network, config and secret IDs. After the jobs succeed, Deployments
+captures the service baseline, applies application services through the Docker API,
+and waits for convergence. No Docker CLI binary is required.
 
 `entrypoint` overrides the image entrypoint. When `entrypoint` is set, `command` is passed as arguments to it. Without `entrypoint`, `command` keeps the existing init-job behavior for backward compatibility.
 

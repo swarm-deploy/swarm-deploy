@@ -3193,6 +3193,8 @@ func (s *EventHistoryItem) SetDetails(val OptEventHistoryItemDetails) {
 	s.Details = val
 }
 
+func (*EventHistoryItem) getEventRes() {}
+
 type EventHistoryItemDetails map[string]string
 
 func (s *EventHistoryItemDetails) init() EventHistoryItemDetails {
@@ -3322,6 +3324,11 @@ func (s *GetDeploymentInitJobLogsOKRawApplicationOctetStream) SetResponse(val *h
 }
 
 func (*GetDeploymentInitJobLogsOKRawApplicationOctetStream) getDeploymentInitJobLogsRes() {}
+
+// GetEventNotFound is response for GetEvent operation.
+type GetEventNotFound struct{}
+
+func (*GetEventNotFound) getEventRes() {}
 
 type GetTaskLogsOK struct {
 	Data io.Reader
@@ -3565,6 +3572,131 @@ func (s *GraphResponse) GetNodes() []GraphNode {
 // SetNodes sets the value of Nodes.
 func (s *GraphResponse) SetNodes(val []GraphNode) {
 	s.Nodes = val
+}
+
+// Latest Git polling attempt. Empty when polling is active but no attempt is recorded.
+// Ref: #/components/schemas/LastPollStatus
+type LastPollStatus struct {
+	At     OptDateTime             `json:"at"`
+	Result OptLastPollStatusResult `json:"result"`
+	// Sanitized diagnostic; empty when the attempt did not fail.
+	Error OptString `json:"error"`
+}
+
+// GetAt returns the value of At.
+func (s *LastPollStatus) GetAt() OptDateTime {
+	return s.At
+}
+
+// GetResult returns the value of Result.
+func (s *LastPollStatus) GetResult() OptLastPollStatusResult {
+	return s.Result
+}
+
+// GetError returns the value of Error.
+func (s *LastPollStatus) GetError() OptString {
+	return s.Error
+}
+
+// SetAt sets the value of At.
+func (s *LastPollStatus) SetAt(val OptDateTime) {
+	s.At = val
+}
+
+// SetResult sets the value of Result.
+func (s *LastPollStatus) SetResult(val OptLastPollStatusResult) {
+	s.Result = val
+}
+
+// SetError sets the value of Error.
+func (s *LastPollStatus) SetError(val OptString) {
+	s.Error = val
+}
+
+type LastPollStatusResult string
+
+const (
+	LastPollStatusResultUpdated  LastPollStatusResult = "updated"
+	LastPollStatusResultNoChange LastPollStatusResult = "no_change"
+	LastPollStatusResultError    LastPollStatusResult = "error"
+)
+
+// AllValues returns all LastPollStatusResult values.
+func (LastPollStatusResult) AllValues() []LastPollStatusResult {
+	return []LastPollStatusResult{
+		LastPollStatusResultUpdated,
+		LastPollStatusResultNoChange,
+		LastPollStatusResultError,
+	}
+}
+
+// MarshalText implements encoding.TextMarshaler.
+func (s LastPollStatusResult) MarshalText() ([]byte, error) {
+	switch s {
+	case LastPollStatusResultUpdated:
+		return []byte(s), nil
+	case LastPollStatusResultNoChange:
+		return []byte(s), nil
+	case LastPollStatusResultError:
+		return []byte(s), nil
+	default:
+		return nil, errors.Errorf("invalid value: %q", s)
+	}
+}
+
+// UnmarshalText implements encoding.TextUnmarshaler.
+func (s *LastPollStatusResult) UnmarshalText(data []byte) error {
+	switch LastPollStatusResult(data) {
+	case LastPollStatusResultUpdated:
+		*s = LastPollStatusResultUpdated
+		return nil
+	case LastPollStatusResultNoChange:
+		*s = LastPollStatusResultNoChange
+		return nil
+	case LastPollStatusResultError:
+		*s = LastPollStatusResultError
+		return nil
+	default:
+		return errors.Errorf("invalid value: %q", data)
+	}
+}
+
+// Latest retained WebhookReceived event. Empty when webhooks are enabled but none is retained.
+// Ref: #/components/schemas/LastWebhookStatus
+type LastWebhookStatus struct {
+	EventID OptString   `json:"event_id"`
+	At      OptDateTime `json:"at"`
+	Queued  OptBool     `json:"queued"`
+}
+
+// GetEventID returns the value of EventID.
+func (s *LastWebhookStatus) GetEventID() OptString {
+	return s.EventID
+}
+
+// GetAt returns the value of At.
+func (s *LastWebhookStatus) GetAt() OptDateTime {
+	return s.At
+}
+
+// GetQueued returns the value of Queued.
+func (s *LastWebhookStatus) GetQueued() OptBool {
+	return s.Queued
+}
+
+// SetEventID sets the value of EventID.
+func (s *LastWebhookStatus) SetEventID(val OptString) {
+	s.EventID = val
+}
+
+// SetAt sets the value of At.
+func (s *LastWebhookStatus) SetAt(val OptDateTime) {
+	s.At = val
+}
+
+// SetQueued sets the value of Queued.
+func (s *LastWebhookStatus) SetQueued(val OptBool) {
+	s.Queued = val
 }
 
 // Ref: #/components/schemas/NetworkInfo
@@ -4408,6 +4540,144 @@ func (o OptInt64) Get() (v int64, ok bool) {
 
 // Or returns value if set, or given parameter if does not.
 func (o OptInt64) Or(d int64) int64 {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptLastPollStatus returns new OptLastPollStatus with value set to v.
+func NewOptLastPollStatus(v LastPollStatus) OptLastPollStatus {
+	return OptLastPollStatus{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptLastPollStatus is optional LastPollStatus.
+type OptLastPollStatus struct {
+	Value LastPollStatus
+	Set   bool
+}
+
+// IsSet returns true if OptLastPollStatus was set.
+func (o OptLastPollStatus) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptLastPollStatus) Reset() {
+	var v LastPollStatus
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptLastPollStatus) SetTo(v LastPollStatus) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptLastPollStatus) Get() (v LastPollStatus, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptLastPollStatus) Or(d LastPollStatus) LastPollStatus {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptLastPollStatusResult returns new OptLastPollStatusResult with value set to v.
+func NewOptLastPollStatusResult(v LastPollStatusResult) OptLastPollStatusResult {
+	return OptLastPollStatusResult{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptLastPollStatusResult is optional LastPollStatusResult.
+type OptLastPollStatusResult struct {
+	Value LastPollStatusResult
+	Set   bool
+}
+
+// IsSet returns true if OptLastPollStatusResult was set.
+func (o OptLastPollStatusResult) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptLastPollStatusResult) Reset() {
+	var v LastPollStatusResult
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptLastPollStatusResult) SetTo(v LastPollStatusResult) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptLastPollStatusResult) Get() (v LastPollStatusResult, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptLastPollStatusResult) Or(d LastPollStatusResult) LastPollStatusResult {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptLastWebhookStatus returns new OptLastWebhookStatus with value set to v.
+func NewOptLastWebhookStatus(v LastWebhookStatus) OptLastWebhookStatus {
+	return OptLastWebhookStatus{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptLastWebhookStatus is optional LastWebhookStatus.
+type OptLastWebhookStatus struct {
+	Value LastWebhookStatus
+	Set   bool
+}
+
+// IsSet returns true if OptLastWebhookStatus was set.
+func (o OptLastWebhookStatus) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptLastWebhookStatus) Reset() {
+	var v LastWebhookStatus
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptLastWebhookStatus) SetTo(v LastWebhookStatus) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptLastWebhookStatus) Get() (v LastWebhookStatus, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptLastWebhookStatus) Or(d LastWebhookStatus) LastWebhookStatus {
 	if v, ok := o.Get(); ok {
 		return v
 	}
@@ -7389,16 +7659,43 @@ func (s *SwarmTaskResources) SetMemoryBytes(val int64) {
 	s.MemoryBytes = val
 }
 
+// GitOps input status. These values do not report stack deployment success.
 // Ref: #/components/schemas/SyncInfo
-type SyncInfo map[string]string
+type SyncInfo struct {
+	LastPoll    OptLastPollStatus    `json:"last_poll"`
+	LastWebhook OptLastWebhookStatus `json:"last_webhook"`
+	// Full Git revision most recently dispatched to the stack queue.
+	LastRevision OptString `json:"last_revision"`
+}
 
-func (s *SyncInfo) init() SyncInfo {
-	m := *s
-	if m == nil {
-		m = map[string]string{}
-		*s = m
-	}
-	return m
+// GetLastPoll returns the value of LastPoll.
+func (s *SyncInfo) GetLastPoll() OptLastPollStatus {
+	return s.LastPoll
+}
+
+// GetLastWebhook returns the value of LastWebhook.
+func (s *SyncInfo) GetLastWebhook() OptLastWebhookStatus {
+	return s.LastWebhook
+}
+
+// GetLastRevision returns the value of LastRevision.
+func (s *SyncInfo) GetLastRevision() OptString {
+	return s.LastRevision
+}
+
+// SetLastPoll sets the value of LastPoll.
+func (s *SyncInfo) SetLastPoll(val OptLastPollStatus) {
+	s.LastPoll = val
+}
+
+// SetLastWebhook sets the value of LastWebhook.
+func (s *SyncInfo) SetLastWebhook(val OptLastWebhookStatus) {
+	s.LastWebhook = val
+}
+
+// SetLastRevision sets the value of LastRevision.
+func (s *SyncInfo) SetLastRevision(val OptString) {
+	s.LastRevision = val
 }
 
 // Ref: #/components/schemas/SynchronizedSecretIdentity

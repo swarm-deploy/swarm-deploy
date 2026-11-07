@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"sync"
+	"slices"
 	"time"
 
 	pipe "github.com/artarts36/gopipe"
@@ -42,7 +42,6 @@ type Reconciler struct {
 	secretManager   swarm.SecretManager
 	configManager   swarm.ConfigManager
 	resourceCleaner *rotatedResourceCleaner
-	reconcileMu     sync.Mutex
 }
 
 // New builds a stack reconciler loop.
@@ -64,7 +63,7 @@ func New(
 		stateStore:     stateStore,
 		preparer:       preparer,
 		composeRotator: composeRotator,
-		pruner:         pruner.NewServicePruner(swarmService.Services, eventDispatcher, cfg.Spec.Sync.Policy),
+		pruner:         pruner.NewServicePruner(swarmService.Services, eventDispatcher, cfg.Spec.GitOps.Sync.Policy),
 		driftAnalyzer:  drift.NewAnalyzer(),
 		serviceManager: swarmService.Services,
 		secretManager:  swarmService.Secrets,
@@ -73,7 +72,7 @@ func New(
 	reconciler.resourceCleaner = newRotatedResourceCleaner(
 		reconciler.secretManager,
 		reconciler.configManager,
-		cfg.Spec.SecretRotation.Cleanup,
+		cfg.Spec.GitOps.ResourceRotation.Cleanup,
 	)
 
 	reconciler.attachPipeline()
@@ -82,8 +81,8 @@ func New(
 }
 
 // Cleanup runs rotated config/secret cleanup for one stack without performing reconciliation.
-func (r *Reconciler) Cleanup(ctx context.Context, stack config.StackSpec) error {
-	desired, err := r.preparer.LoadCurrent(ctx, stack)
+func (r *Reconciler) Cleanup(ctx context.Context, stack config.StackSpec, commit string) error {
+	desired, err := r.preparer.Load(ctx, stack, commit)
 	if err != nil {
 		return fmt.Errorf("load compose for cleanup: %w", err)
 	}
@@ -119,9 +118,6 @@ func (r *Reconciler) Reconcile(
 	ctx context.Context,
 	req ReconciliationRequest,
 ) error {
-	r.reconcileMu.Lock()
-	defer r.reconcileMu.Unlock()
-
 	desiredState, err := r.preparer.Load(ctx, req.Stack, req.Commit)
 	if err != nil {
 		persistErr := r.recordFailure(ctx, req.Stack.Name, req.Commit, nil, err)
@@ -135,7 +131,7 @@ func (r *Reconciler) Reconcile(
 	}
 
 	prepared, err := r.preparer.Prepare(ctx, preparation.Request{
-		Stack: req.Stack, Desired: desiredState, SourceChanged: !hasPrev || prev.SourceDigest != desiredState.Digest,
+		Stack: req.Stack, Desired: desiredState,
 	})
 	if err != nil {
 		persistErr := r.recordFailure(ctx, req.Stack.Name, req.Commit, desiredState.Compose.Services, err)
@@ -145,44 +141,45 @@ func (r *Reconciler) Reconcile(
 		}
 		return wrapReconcileError(stage, desiredState.Compose.Services, errors.Join(err, persistErr))
 	}
-	defer r.preparer.Cleanup(ctx, prepared)
 
 	pl := &pipelinePayload{
-		Stack:             req.Stack,
-		Commit:            req.Commit,
-		IsNewDigest:       !hasPrev || prev.SourceDigest != desiredState.Digest,
-		IsManualSync:      req.IsManual,
-		HasPreviousDrift:  stackHasDrift(prev),
-		Desired:           prepared.Desired,
-		DeployComposePath: prepared.DeployComposePath,
-		DeployCompose:     prepared.DeployCompose,
+		Stack:            req.Stack,
+		Commit:           req.Commit,
+		IsNewDigest:      !hasPrev || prev.SourceDigest != desiredState.Digest,
+		IsManualSync:     req.IsManual,
+		HasPreviousDrift: stackHasDrift(prev),
+		Desired:          prepared,
+		PendingSelfHeal:  map[string]bool{},
+	}
+	for name, service := range prev.Services {
+		if service.SelfHealPending {
+			pl.PendingSelfHeal[name] = true
+		}
 	}
 
 	err = r.pipeline.Run(ctx, pl)
 	if err != nil {
 		pipeErr, _ := errors.AsType[*pipe.StepError](err)
+		if pl.RetryDeferred {
+			return errors.Join(wrapReconcileError(pipeErr.StepName, nil, err), pl.RegistryAuthError)
+		}
 
-		return r.recordPipelineFailure(ctx, req, prev, pl, pipeErr)
+		return errors.Join(r.recordPipelineFailure(ctx, req, prev, pl, pipeErr), pl.RegistryAuthError)
 	}
 
 	if err = r.processResult(ctx, req, prev, desiredState, pl); err != nil {
-		return err
+		return errors.Join(err, pl.RegistryAuthError)
 	}
-	if r.cfg.Spec.SecretRotation.Cleanup.Enabled && (pl.Attempt != nil || pl.IsManualSync) {
+	if r.cfg.Spec.GitOps.ResourceRotation.Cleanup.Enabled && (pl.Attempt != nil || pl.IsManualSync) {
 		if err = r.cleanRotatedResources(ctx, pl); err != nil {
 			slog.ErrorContext(ctx, "post-apply cleanup failed", "stack", req.Stack.Name, "err", err)
 		}
 	}
-	return nil
+	return wrapReconcileError("refresh registry authentication", nil, pl.RegistryAuthError)
 }
 
 func stackHasDrift(stack model.Stack) bool {
-	for _, service := range stack.Services {
-		if service.SyncStatus == model.SyncStatusOutOfSync {
-			return true
-		}
-	}
-	return false
+	return len(stack.DriftedServices) > 0
 }
 
 func (r *Reconciler) currentStackState(ctx context.Context, stackName string) (model.Stack, bool, error) {
@@ -206,31 +203,47 @@ func (r *Reconciler) processResult(
 	serviceStates := make(map[string]model.Service, len(desired.Compose.Services))
 	for _, service := range desired.Compose.Services {
 		state := model.Service{
-			Image:      service.Image,
-			SyncStatus: model.SyncStatusSynced,
-			SyncAt:     now,
+			Image:           service.Image,
+			SyncStatus:      model.SyncStatusSynced,
+			SyncAt:          now,
+			SelfHealPending: payload.Attempt == nil && payload.PendingSelfHeal[service.Name],
+		}
+		if state.SelfHealPending {
+			state.SyncStatus = model.SyncStatusOutOfSync
+			state.SyncError = prevState.Services[service.Name].SyncError
+			if _, drifted := payload.RemainingDrift[service.Name]; !drifted {
+				payload.RemainingDrift[service.Name] = drift.ServiceDrift{ServiceName: service.Name, Reason: state.SyncError}
+			}
 		}
 
 		if serviceDrift, serviceDrifted := payload.RemainingDrift[service.Name]; serviceDrifted {
 			state.SyncStatus = model.SyncStatusOutOfSync
 			state.SyncError = serviceDrift.Reason
 		}
-		if remediation, remediated := payload.Remediations[service.Name]; remediated && remediation.attempted {
-			if remediation.converged {
-				state.SyncStatus = model.SyncStatusSynced
-				state.SyncError = ""
-			} else {
-				state.SyncStatus = model.SyncStatusOutOfSync
-				state.SyncError = remediation.failure
-			}
-		}
+		state = applySelfHealState(state, service.Name, payload)
 
+		if payload.RetryDeferred && slices.Contains(payload.ProtectedServices, service.Name) {
+			state = prevState.Services[service.Name]
+		}
 		serviceStates[service.Name] = state
 	}
 
+	driftedServices := prevState.DriftedServices
+	if payload.RemainingDrift != nil {
+		driftedServices = make(map[string]bool, len(payload.RemainingDrift))
+		for name := range payload.RemainingDrift {
+			driftedServices[name] = true
+		}
+	}
+
 	result := model.Stack{
-		SourceDigest: desired.Digest, LastCommit: req.Commit, Status: model.NewStackStatus(serviceStates),
+		DriftedServices: driftedServices,
+		SourceDigest:    desired.Digest, LastCommit: req.Commit, Status: model.NewStackStatus(serviceStates),
 		LastDeployAt: prevState.LastDeployAt, StateUpdatedAt: now.UTC(), Services: serviceStates,
+	}
+	if payload.RetryDeferred {
+		result.LastError = prevState.LastError
+		result.LastCommit = prevState.LastCommit
 	}
 	if payload.Attempt != nil {
 		result.LastDeployAt = now
@@ -268,8 +281,10 @@ func (r *Reconciler) recordFailure(
 				state.Services = map[string]model.Service{}
 			}
 			for _, service := range services {
+				previous := state.Services[service.Name]
 				state.Services[service.Name] = model.Service{
 					Image: service.Image, SyncStatus: model.SyncStatusOutOfSync, SyncAt: time.Now(),
+					SelfHealPending: previous.SelfHealPending, SyncError: previous.SyncError,
 				}
 			}
 			state.Status = model.NewStackStatus(state.Services)
@@ -349,6 +364,11 @@ func (r *Reconciler) publishDriftEvents(
 	prevState model.Stack,
 	payload *pipelinePayload,
 ) error {
+	// A nil map means drift analysis did not run. Deployment completion alone
+	// cannot establish that an earlier drift episode was resolved.
+	if payload.RemainingDrift == nil {
+		return nil
+	}
 	for _, service := range payload.Desired.Compose.Services {
 		if err := r.publishServiceDriftEvents(ctx, req, prevState, payload, service.Name); err != nil {
 			return err
@@ -367,8 +387,7 @@ func (r *Reconciler) publishServiceDriftEvents(
 ) error {
 	initial, initiallyDrifted := payload.Drift[serviceName]
 	final, unresolved := payload.RemainingDrift[serviceName]
-	previousStatus := prevState.ServiceSyncStatus(serviceName)
-	wasDrifted := previousStatus == model.SyncStatusOutOfSync
+	wasDrifted := prevState.DriftedServices[serviceName]
 	detected := final
 	if !unresolved {
 		detected = initial

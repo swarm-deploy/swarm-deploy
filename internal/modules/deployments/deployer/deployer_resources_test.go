@@ -3,10 +3,12 @@ package deployer
 import (
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
+	dockerswarm "github.com/docker/docker/api/types/swarm"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
@@ -35,7 +37,7 @@ func TestDeployStackReconcilesResourcesWithAndWithoutInitJobs(t *testing.T) {
 				configs := swarm.NewMockConfigManager(ctrl)
 				secrets := swarm.NewMockSecretManager(ctrl)
 				jobs := NewMockInitJobExecutor(ctrl)
-				runner := NewMockRunner(ctrl)
+
 				dir := t.TempDir()
 				config := &compose.Config{Alias: "app", Name: tt.configName, External: tt.external}
 				secret := &compose.Secret{Alias: "password", Name: tt.secretName, External: tt.external}
@@ -55,6 +57,7 @@ func TestDeployStackReconcilesResourcesWithAndWithoutInitJobs(t *testing.T) {
 
 				if !tt.external {
 					secret.File = "password.txt"
+					require.NoError(t, os.WriteFile(filepath.Join(dir, secret.File), []byte("secret-data"), 0o600))
 					secret.Data = []byte("secret-data")
 				}
 				var existingConfigs []swarm.Config
@@ -67,6 +70,7 @@ func TestDeployStackReconcilesResourcesWithAndWithoutInitJobs(t *testing.T) {
 					config.Labels = *compose.NewLabels(map[string]string{"purpose": "app"})
 					secret.File = "password.txt"
 					secret.Labels = *compose.NewLabels(map[string]string{"purpose": "password"})
+					require.NoError(t, os.WriteFile(filepath.Join(dir, secret.File), []byte("secret-data"), 0o600))
 					secret.Data = []byte("secret-data")
 				}
 
@@ -87,12 +91,14 @@ func TestDeployStackReconcilesResourcesWithAndWithoutInitJobs(t *testing.T) {
 					}).Return("secret-id", nil))
 				}
 
-				service := compose.Service{Name: "api"}
+				service := compose.Service{Name: "api", Image: "alpine:3"}
 				if withInitJobs {
 					service.InitJobs = []compose.InitJob{{Name: "migrate"}, {Name: "seed"}}
 					for _, job := range service.InitJobs {
 						calls = append(calls, jobs.EXPECT().Run(gomock.Any(), InitJobSpec{
 							StackName: "demo", ServiceName: "api", Job: job,
+							DefaultNetwork:  []string{"default"},
+							NetworkTargets:  map[string]string{"default": "network-demo_default"},
 							ResolvedConfigs: map[string]ResolvedResource{"app": {ID: "config-id", Name: configName}},
 							ResolvedSecrets: map[string]ResolvedResource{"password": {ID: "secret-id", Name: secretName}},
 						}).Return(InitJobResult{
@@ -100,19 +106,22 @@ func TestDeployStackReconcilesResourcesWithAndWithoutInitJobs(t *testing.T) {
 						}, nil))
 					}
 				}
-				deployPath := filepath.Join(dir, "rendered", "compose.yaml")
-				calls = append(calls, runner.EXPECT().Run(gomock.Any(), "stack", "deploy", "-c", deployPath, "demo").Return("", nil))
 				for i := 1; i < len(calls); i++ {
 					calls[i].After(calls[i-1])
 				}
 
 				deployer := &Deployer{secretResolver: newTestSecretResolver(),
-					stackDeployArgs: []string{"stack", "deploy"}, runner: runner, initJobRunner: jobs,
+					initJobRunner: jobs,
 					resources:     &resourceReconciler{configs: configs, secrets: secrets},
 					serviceWaiter: newSuccessfulServiceWaiter(t),
 				}
-				_, err := deployer.DeployStack(t.Context(), "demo", deployPath, compose.Compose{
-					Services: []compose.Service{service}, Configs: compose.Configs{"app": config}, Secrets: compose.Secrets{"password": secret},
+				wireNativeTestDeployer(t, deployer)
+				_, err := deployer.DeployStack(t.Context(), StackRequest{
+					StackName:         "demo",
+					SourceComposePath: filepath.Join(dir, "compose.yaml"),
+					Desired: compose.Compose{
+						Services: []compose.Service{service}, Configs: compose.Configs{"app": config}, Secrets: compose.Secrets{"password": secret},
+					},
 				})
 				require.NoError(t, err)
 			})
@@ -134,17 +143,18 @@ func TestDeployStackResourceFailuresStopDeployment(t *testing.T) {
 			{name: "create config", stage: "create", config: true, errorMatch: "create config demo_app"},
 			{name: "missing external config", config: true, external: true, errorMatch: "external config app does not exist"},
 			{name: "list secrets", stage: "list", errorMatch: "list secrets"},
-			{name: "create secret", stage: "create", errorMatch: "create secret demo_password"},
+			{name: "create secret", stage: "create", errorMatch: "create secret ****: Docker API request failed"},
 			{name: "missing external secret", external: true, errorMatch: "external secret password does not exist"},
-			{name: "read secret", stage: "read", errorMatch: "decode secret demo_password"},
+			{name: "read secret", stage: "read", errorMatch: "read secret ****: file content was not loaded"},
 		} {
 			t.Run(initJobTestName(withInitJobs)+"/"+tt.name, func(t *testing.T) {
 				ctrl := gomock.NewController(t)
 				configs := swarm.NewMockConfigManager(ctrl)
 				secrets := swarm.NewMockSecretManager(ctrl)
 				jobs := NewMockInitJobExecutor(ctrl)
-				runner := NewMockRunner(ctrl)
-				desired := compose.Compose{Services: []compose.Service{{Name: "api"}}}
+
+				dir := t.TempDir()
+				desired := compose.Compose{Services: []compose.Service{{Name: "api", Image: "alpine:3"}}}
 				if withInitJobs {
 					desired.Services[0].InitJobs = []compose.InitJob{{Name: "migrate"}}
 				}
@@ -164,6 +174,7 @@ func TestDeployStackResourceFailuresStopDeployment(t *testing.T) {
 						secrets.EXPECT().List(gomock.Any(), gomock.Any()).Return(nil, listErr)
 					}
 					if tt.stage == "list" {
+						require.NoError(t, os.WriteFile(filepath.Join(dir, "password.txt"), []byte("data"), 0o600))
 						desired.Secrets["password"].Data = []byte("data")
 					}
 					if tt.stage == "create" {
@@ -173,16 +184,22 @@ func TestDeployStackResourceFailuresStopDeployment(t *testing.T) {
 							configs.EXPECT().List(gomock.Any(), gomock.Any()).Return(nil, nil),
 							configs.EXPECT().Create(gomock.Any(), gomock.Any()).Return("config-id", nil),
 						)
+						require.NoError(t, os.WriteFile(filepath.Join(dir, "password.txt"), []byte("data"), 0o600))
 						desired.Secrets["password"].Data = []byte("data")
 						secrets.EXPECT().Create(gomock.Any(), gomock.Any()).Return("", apiErr)
 					}
 				}
 				deployer := &Deployer{secretResolver: newTestSecretResolver(),
-					stackDeployArgs: []string{"stack", "deploy"}, runner: runner, initJobRunner: jobs,
+					initJobRunner: jobs,
 					resources:     &resourceReconciler{configs: configs, secrets: secrets},
 					serviceWaiter: newSuccessfulServiceWaiter(t),
 				}
-				_, err := deployer.DeployStack(context.Background(), "demo", "rendered.yaml", desired)
+				wireNativeTestDeployer(t, deployer)
+				_, err := deployer.DeployStack(context.Background(), StackRequest{
+					StackName:         "demo",
+					SourceComposePath: filepath.Join(dir, "compose.yaml"),
+					Desired:           desired,
+				})
 				require.ErrorContains(t, err, "")
 				assert.ErrorContains(t, err, tt.errorMatch)
 				if tt.stage == "list" || (tt.stage == "create" && tt.config) {
@@ -201,11 +218,11 @@ func TestDeployStackDeployFailureKeepsReconciledResources(t *testing.T) {
 			configs := swarm.NewMockConfigManager(ctrl)
 			secrets := swarm.NewMockSecretManager(ctrl)
 			jobs := NewMockInitJobExecutor(ctrl)
-			runner := NewMockRunner(ctrl)
+
 			deployErr := errors.New("deploy failed")
 			desired := compose.Compose{
 				Configs:  compose.Configs{"app": {Data: []byte("data")}},
-				Services: []compose.Service{{Name: "api"}},
+				Services: []compose.Service{{Name: "api", Image: "alpine:3"}},
 			}
 			gomock.InOrder(
 				configs.EXPECT().List(gomock.Any(), gomock.Any()).Return(nil, nil),
@@ -217,15 +234,22 @@ func TestDeployStackDeployFailureKeepsReconciledResources(t *testing.T) {
 					StartedAt: time.Now(), FinishedAt: time.Now(), Status: InitJobSucceeded,
 				}, nil)
 			}
-			runner.EXPECT().Run(gomock.Any(), "stack", "deploy", "-c", "rendered.yaml", "demo").Return("", deployErr)
 			deployer := &Deployer{secretResolver: newTestSecretResolver(),
-				stackDeployArgs: []string{"stack", "deploy"}, runner: runner, initJobRunner: jobs,
+				initJobRunner: jobs,
 				resources:     &resourceReconciler{configs: configs, secrets: secrets},
 				serviceWaiter: newSuccessfulServiceWaiter(t),
 			}
-			result, err := deployer.DeployStack(t.Context(), "demo", "rendered.yaml", desired)
+			serviceManager := swarm.NewMockServiceManager(ctrl)
+			serviceManager.EXPECT().Inspect(gomock.Any(), "demo_api").Return(dockerswarm.Service{}, swarm.ErrServiceNotFound)
+			serviceManager.EXPECT().Create(gomock.Any(), gomock.Any(), gomock.Any()).Return("", deployErr)
+			wireNativeTestDeployerWithServiceManager(t, deployer, serviceManager, false)
+			result, err := deployer.DeployStack(t.Context(), StackRequest{
+				StackName:         "demo",
+				SourceComposePath: "compose.yaml",
+				Desired:           desired,
+			})
 			require.ErrorIs(t, err, deployErr)
-			assert.ErrorContains(t, err, "deploy stack demo")
+			assert.ErrorContains(t, err, "create service api")
 			if withInitJobs {
 				require.Len(t, result.InitJobs, 1)
 			} else {

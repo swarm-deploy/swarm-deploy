@@ -2,7 +2,7 @@ package git
 
 import (
 	"context"
-	"sync"
+	"errors"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 )
@@ -11,14 +11,15 @@ type LazyProxy struct {
 	spec config.GitSpec
 	path string
 
-	mu         sync.Mutex
-	repository *GoGitRepository
+	initializing chan struct{}
+	repository   *GoGitRepository
 }
 
 func NewLazyProxy(spec config.GitSpec, path string) *LazyProxy {
 	return &LazyProxy{
-		spec: spec,
-		path: path,
+		spec:         spec,
+		path:         path,
+		initializing: make(chan struct{}, 1),
 	}
 }
 
@@ -36,9 +37,15 @@ func (p *LazyProxy) ReadFile(ctx context.Context, revision, path string) ([]byte
 }
 
 func (p *LazyProxy) Pull(ctx context.Context) (PullResult, error) {
+	ctx, cancel := context.WithTimeout(ctx, gitPullTimeout(p.spec))
+	defer cancel()
+
 	repo, err := p.init(ctx)
 	if err != nil {
-		return PullResult{}, err
+		if errors.Is(err, context.DeadlineExceeded) {
+			return PullResult{}, &PullError{category: FailureOther, diagnostic: repositoryLockTimeoutDiagnostic}
+		}
+		return PullResult{}, ClassifyPullError(err, p.spec.Repository, p.spec.Auth.Type)
 	}
 
 	return repo.Pull(ctx)
@@ -81,19 +88,43 @@ func (p *LazyProxy) Show(ctx context.Context, commitHash string) (Commit, error)
 }
 
 func (p *LazyProxy) init(ctx context.Context) (*GoGitRepository, error) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
+	ctx, cancel := context.WithTimeout(ctx, gitPullTimeout(p.spec))
+	defer cancel()
 
-	if p.repository != nil {
-		return p.repository, nil
+	select {
+	case p.initializing <- struct{}{}:
+	case <-ctx.Done():
+		return nil, ctx.Err()
 	}
-
-	repo, err := NewGoGitRepository(ctx, p.spec, p.path)
-	if err != nil {
+	if err := ctx.Err(); err != nil {
+		<-p.initializing
 		return nil, err
 	}
+	if p.repository != nil {
+		repo := p.repository
+		<-p.initializing
+		return repo, nil
+	}
 
-	p.repository = repo
+	// go-git's SSH setup can block past the context deadline. Let callers
+	// return on cancellation, but keep the gate until cloning has stopped.
+	result := make(chan error, 1)
+	go func() {
+		defer func() { <-p.initializing }()
+		repo, err := NewGoGitRepository(ctx, p.spec, p.path)
+		if err == nil {
+			p.repository = repo
+		}
+		result <- err
+	}()
 
-	return p.repository, nil
+	select {
+	case err := <-result:
+		if err != nil {
+			return nil, err
+		}
+		return p.repository, nil
+	case <-ctx.Done():
+		return nil, ClassifyPullError(ctx.Err(), p.spec.Repository, p.spec.Auth.Type)
+	}
 }

@@ -117,7 +117,7 @@ func TestRotatedResourceCleanerPolicy(t *testing.T) {
 				secrets.EXPECT().Remove(gomock.Any(), id).Return(nil)
 			}
 
-			cleaner := newRotatedResourceCleaner(secrets, configs, config.SecretRotationCleanupSpec{
+			cleaner := newRotatedResourceCleaner(secrets, configs, config.ResourceRotationCleanupSpec{
 				KeepLast: tt.keepLast,
 				MinAge:   specw.Duration{Value: tt.minAge},
 			})
@@ -146,7 +146,7 @@ func TestRotatedResourceCleanerRemovesAllExpiredGenerationsWhenLogicalResourceIs
 	first := secrets.EXPECT().Remove(gomock.Any(), "new").Return(nil)
 	secrets.EXPECT().Remove(gomock.Any(), "old").Return(nil).After(first)
 
-	cleaner := newRotatedResourceCleaner(secrets, configs, config.SecretRotationCleanupSpec{
+	cleaner := newRotatedResourceCleaner(secrets, configs, config.ResourceRotationCleanupSpec{
 		KeepLast: 2,
 		MinAge:   specw.Duration{Value: time.Hour},
 	})
@@ -174,7 +174,7 @@ func TestRotatedResourceCleanerContinuesAfterRemoveFailureAndRetriesOnNextRun(t 
 	firstB := secrets.EXPECT().Remove(gomock.Any(), "old-b").Return(nil).After(firstA)
 	secrets.EXPECT().Remove(gomock.Any(), "old-a").Return(nil).After(firstB)
 
-	cleaner := newRotatedResourceCleaner(secrets, configs, config.SecretRotationCleanupSpec{
+	cleaner := newRotatedResourceCleaner(secrets, configs, config.ResourceRotationCleanupSpec{
 		KeepLast: 1,
 		MinAge:   specw.Duration{Value: time.Hour},
 	})
@@ -220,7 +220,7 @@ func TestRotatedResourceCleanerProtectsPreviousSpecReferences(t *testing.T) {
 
 	secrets.EXPECT().Remove(gomock.Any(), "middle").Return(nil)
 
-	cleaner := newRotatedResourceCleaner(secrets, configs, config.SecretRotationCleanupSpec{
+	cleaner := newRotatedResourceCleaner(secrets, configs, config.ResourceRotationCleanupSpec{
 		KeepLast: 1,
 		MinAge:   specw.Duration{Value: time.Hour},
 	})
@@ -248,7 +248,7 @@ func TestRotatedResourceCleanerFailsClosedForIncompletePreviousSpecReference(t *
 		}},
 	}}
 
-	cleaner := newRotatedResourceCleaner(secrets, configs, config.SecretRotationCleanupSpec{
+	cleaner := newRotatedResourceCleaner(secrets, configs, config.ResourceRotationCleanupSpec{
 		KeepLast: 1,
 		MinAge:   specw.Duration{Value: time.Hour},
 	})
@@ -284,7 +284,7 @@ func TestRotatedResourceCleanerUsesLiveConfigIDs(t *testing.T) {
 	}}
 	configs.EXPECT().Remove(gomock.Any(), "old-unused").Return(nil)
 
-	cleaner := newRotatedResourceCleaner(secrets, configs, config.SecretRotationCleanupSpec{
+	cleaner := newRotatedResourceCleaner(secrets, configs, config.ResourceRotationCleanupSpec{
 		KeepLast: 1,
 		MinAge:   specw.Duration{Value: time.Hour},
 	})
@@ -308,7 +308,7 @@ func TestRotatedResourceCleanerFailsClosedForIncompleteManagedLabels(t *testing.
 	cleaner := newRotatedResourceCleaner(
 		swarm.NewMockSecretManager(ctrl),
 		swarm.NewMockConfigManager(ctrl),
-		config.SecretRotationCleanupSpec{KeepLast: 1},
+		config.ResourceRotationCleanupSpec{KeepLast: 1},
 	)
 	cleaner.now = time.Now
 

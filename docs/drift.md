@@ -20,9 +20,10 @@ disabled. The existing `selfHeal` boolean controls automatic repair only.
 Enable automatic remediation globally:
 
 ```yaml
-sync:
-  policy:
-    selfHeal: true
+gitops:
+  sync:
+    policy:
+      selfHeal: true
 ```
 
 Override the global policy for one stack in `stacks.yaml`:
@@ -49,7 +50,7 @@ services:
 ```
 
 The service label takes precedence over `stacks[].sync.policy.selfHeal`, which takes
-precedence over the global `sync.policy.selfHeal`. Accepted service-label values are
+precedence over the global `gitops.sync.policy.selfHeal`. Accepted service-label values are
 `true`, `1`, `yes`, `y`, `on`, `false`, `0`, `no`, `n`, and `off` (case-insensitive).
 Whitespace is trimmed. Invalid boolean values are Compose validation errors.
 
@@ -63,9 +64,9 @@ name and options.
 After applying all eligible repairs, swarm-deploy reloads the stack services with one
 Docker API request and analyzes them again. The verified Swarm state is authoritative:
 the service becomes `Synced` whenever verification confirms convergence, even if the
-Docker CLI returned an error after applying the change. Persistent drift or an unavailable
+native Docker API application returned an error after applying the change. Persistent drift or an unavailable
 verification read leaves the service `OutOfSync`, with details in `SyncError`;
-the CLI error remains in logs and tracing.
+the application error remains in logs and tracing.
 
 Verification covers the complete desired stack. Drift first observed during that read is
 recorded and emits the normal transition event, but is not repaired until the next
@@ -84,10 +85,87 @@ When `false`, desired and actual replica differences do not make the service
 Missing services are still detected. The same setting applies to the initial drift
 analysis and the verification after self-heal.
 
-External controllers such as `crazy-max/swarm-cronjob` change replica counts during
-scheduled executions. Disabling self-heal prevents automatic repair from interfering
-with their work; disabling replica drift detection also suppresses expected replica
-differences:
+## Replica ownership during deployments
+
+`org.swarm-deploy.service.sync.policy.replicasManaged` is a service-level Compose
+**deploy label**. It uses the same boolean parsing and validation as `selfHeal`.
+
+| Policy | Default | Effect |
+| --- | --- | --- |
+| `selfHeal` | Inherits stack/global policy | Controls automatic repair. It does not disable normal deployments. |
+| `selfHeal.replicas` | `true` | Controls replica drift detection only. It does not preserve replicas during normal deployments. |
+| `replicasManaged` | `true` | swarm-deploy owns replica counts during deployment. `false` assigns ownership to an external controller and also excludes replica differences from drift detection, regardless of `selfHeal.replicas`. |
+
+`replicasManaged=false` is supported **only for replicated services** (including
+Compose's default mode). Explicit use with global or native job modes is rejected
+by Compose validation, deployment conversion/application, and verification; it is
+never silently ignored. Global scheduled services may still use `selfHeal=false`,
+but retain normal global-service deployment and convergence behavior.
+
+For `replicasManaged=false`, an existing replicated service keeps Docker's current
+replica count when another field changes. Replica differences and external
+`ForceUpdate` changes alone do not cause a service update. Optimistic version
+conflict retries re-read and preserve both values. Initial service creation still
+uses Compose's replica count; use `replicas: 0` to avoid starting an initial job.
+Missing services are still detected; `selfHeal=false` prevents their automatic repair.
+
+External replica ownership **does not guarantee safe immediate delivery of task-template
+changes**. A template update can interrupt a running task or start an unscheduled
+execution even after the previous task completed. swarm-deploy applies
+task-recreating changes only when the service has no active tasks:
+
+- with zero configured replicas, the change is applied as is;
+- with nonzero replicas and `restart_policy.condition: none` (a job-like service,
+  for example one driven by swarm-cronjob), the service is **parked**: the same
+  update also sets replicas to `0`, so Swarm cannot start an unscheduled execution
+  from a completed slot. The external scheduler scales it up again on its next run;
+- with nonzero replicas and any other restart policy, the change is blocked.
+
+No active tasks alone does not prove that a requested execution has finished: the
+scheduler may already have raised replicas or `ForceUpdate` while Swarm has not created
+the task yet. A service is parked only when, for the inspected version, every desired
+slot's newest task was created from the current task template (including
+`ForceUpdate`), has finished and is not being removed. Otherwise the update waits like
+one blocked by a running task. A scheduler write after the inspection changes the
+service version, so the optimistic update conflicts and the decision is re-evaluated.
+Service labels and rollout policy changes can be applied while busy; other
+specification changes are conservatively treated as potentially task-recreating.
+
+An unsafe update returns an explicit per-service blocked error. Independent services
+are still applied, but the deployment fails at apply (`apply_failed`); it is never
+reported as successful. When every blocked service is only waiting for active tasks
+to finish, the failure is retried automatically with the regular capped backoff
+(1 minute, doubling up to 1 hour). Other blocked updates need an idle window arranged
+with the external controller and an explicit retry. Manual Sync does not force
+an external job to restart. An unchanged external service does not block retrying
+an independent service because of historical scheduler failures. Services recorded
+in the existing unresolved-service list are still verified, including unchanged
+ones; a terminal failure in their current deployment generation remains a
+`convergence_failed` result and needs recovery. Docker's current `ForceUpdate`
+remains preserved.
+
+Convergence for externally managed **replicated** services verifies the requested
+specification was accepted, allowing Docker defaults, resolved images, and
+runtime-owned replicas/`ForceUpdate`. Stale pre-apply snapshots or an unrelated
+scheduler mutation cannot prove application of a different requested spec. The
+applier records the preserved `ForceUpdate` and pre-write observation time from the
+successful optimistic attempt. The waiter uses that generation to attribute fresh
+terminal update failures to the deployment. Once an external controller advances
+`ForceUpdate`, its execution status does not gate acceptance of a matching, fresh
+managed specification. Historical terminal states on unchanged services do not
+belong to a new deployment; stale metadata and stale rolling-update states cannot
+prove a new write. Unresolved services retain verification obligations. Completed jobs
+and zero running tasks do not prevent specification acceptance. This is **not a task
+health check**: progress explicitly says so, and in-memory waiter/deployer results
+identify `SpecificationOnlyServices`. Deployment success means accepted configuration,
+not successful execution of a scheduled job. Ordinary replicated and global services
+retain their strict task convergence checks.
+
+### Recommended swarm-cronjob configuration
+
+External controllers such as `crazy-max/swarm-cronjob` change replicas and
+`ForceUpdate` to execute scheduled jobs. For **replicated** scheduled services,
+disable both self-healing and deployment replica ownership:
 
 ```yaml
 services:
@@ -95,21 +173,26 @@ services:
     image: example/job:1.0.0
     deploy:
       replicas: 0
+      restart_policy:
+        condition: none
       labels:
         swarm.cronjob.enable: "true"
+        swarm.cronjob.schedule: "0 * * * *"
         org.swarm-deploy.service.sync.policy.selfHeal: "false"
-        org.swarm-deploy.service.sync.policy.selfHeal.replicas: "false"
+        org.swarm-deploy.service.sync.policy.replicasManaged: "false"
 ```
 
-The scheduler may temporarily run one or more replicas without replica drift. A missing
-service is still reported but is not automatically repaired because `selfHeal=false`.
-Using only `selfHeal=false` keeps replica drift reporting enabled.
+Setting `selfHeal.replicas=false` remains supported but is redundant when
+`replicasManaged=false`. Using only `selfHeal=false` leaves replica drift reporting
+and replica management during normal deployments enabled.
 
-The Recommendations module suggests disabling self-heal when `swarm.cronjob.enable=true` is set
-in Compose deploy labels and the effective service/stack/global self-heal policy is
-enabled. Native Docker job modes alone do not trigger this recommendation. GitOps
-does not interpret scheduler labels; deployment execution and convergence verification
-are unchanged.
+The existing “Disable self-healing for scheduled service” recommendation appears
+when `swarm.cronjob.enable=true` is set in Compose deploy labels and effective
+self-healing is enabled, or a **replicated** service still has replica management
+enabled. It suggests only settings that need changing. For global scheduled
+services it only recommends disabling self-heal and disappears once that policy
+is disabled; it never recommends `replicasManaged=false` for global services.
+Native Docker job modes alone do not trigger it. The deployment engine does not interpret scheduler labels.
 
 ## Events
 

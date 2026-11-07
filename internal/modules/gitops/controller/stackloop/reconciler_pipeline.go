@@ -2,6 +2,7 @@ package stackloop
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"time"
 
@@ -26,19 +27,23 @@ type pipelinePayload struct {
 	IsManualSync     bool
 	HasPreviousDrift bool
 
-	Desired           *compose.File
-	DeployComposePath string
-	DeployCompose     compose.Compose
+	Desired *compose.File
 
 	LiveServices   []swarm.StackService
 	ObservedAt     time.Time
 	PrunedServices []string
 	ExecutionError string
-	CleanupResult  rotatedCleanupResult
-	Drift          map[string]drift.ServiceDrift
-	RemainingDrift map[string]drift.ServiceDrift
-	Remediations   map[string]serviceRemediation
-	RemediationErr []error
+	RetryDeferred  bool
+	// RegistryAuthError is reported after ordinary reconciliation without changing deployment lifecycle.
+	RegistryAuthError error
+	// ProtectedServices cannot be remediated automatically while retry is deferred.
+	ProtectedServices []string
+	CleanupResult     rotatedCleanupResult
+	Drift             map[string]drift.ServiceDrift
+	RemainingDrift    map[string]drift.ServiceDrift
+	Remediations      map[string]serviceRemediation
+	PendingSelfHeal   map[string]bool
+	RemediationErr    []error
 }
 
 func (r *Reconciler) attachPipeline() {
@@ -59,8 +64,10 @@ func (r *Reconciler) attachPipeline() {
 	})
 
 	r.pipeline.Add(pipe.Step[*pipelinePayload]{
+		// Keep pruning deferred: the failed apply has not established a complete
+		// desired stack, so removing prior services could interfere with recovery.
 		Name: "prune orphaned services",
-		When: pipe.When(func(payload *pipelinePayload) bool { return payload.Attempt == nil }),
+		When: pipe.When(func(payload *pipelinePayload) bool { return payload.Attempt == nil && !payload.RetryDeferred }),
 		Run:  r.pruneOrphanedServices,
 	})
 
@@ -75,7 +82,7 @@ func (r *Reconciler) attachPipeline() {
 	r.pipeline.Add(pipe.Step[*pipelinePayload]{
 		Name: "self-heal drift",
 		When: pipe.When(func(payload *pipelinePayload) bool {
-			return payload.Attempt == nil && len(payload.Drift) > 0
+			return payload.Attempt == nil && (len(payload.Drift) > 0 || len(payload.PendingSelfHeal) > 0)
 		}),
 		Run: r.selfHealDrift,
 	})
@@ -92,13 +99,19 @@ func (r *Reconciler) attachPipeline() {
 func (r *Reconciler) executeDeployment(ctx context.Context, payload *pipelinePayload) error {
 	result, err := r.executor.Execute(ctx, deployments.ExecuteRequest{
 		Stack: payload.Stack, Commit: payload.Commit, Desired: *payload.Desired,
-		DeployComposePath: payload.DeployComposePath, SourceChanged: payload.IsNewDigest,
+		SourceChanged: payload.IsNewDigest, ManualRetry: payload.IsManualSync,
 	})
 	payload.Attempt = result.Attempt
 	payload.LiveServices = result.LiveServices
 	payload.ObservedAt = result.ObservedAt
 	payload.PrunedServices = result.PrunedServices
 	payload.ExecutionError = result.ErrorCode
+	payload.RetryDeferred = result.RetryDeferred
+	payload.ProtectedServices = result.UnresolvedServices
+	if errors.Is(err, deployments.ErrRegistryAuthRefresh) {
+		payload.RegistryAuthError = err
+		return nil // Maintenance must not block normal drift observation or remediation.
+	}
 	return err
 }
 
@@ -131,10 +144,10 @@ func (r *Reconciler) pruneOrphanedServices(ctx context.Context, payload *pipelin
 
 func (r *Reconciler) cleanRotatedResources(ctx context.Context, payload *pipelinePayload) error {
 	desiredConfigs, desiredSecrets, err := r.composeRotator.DesiredResourceNames(
-		ctx, payload.Desired,
+		payload.Desired,
 		payload.Stack.Name,
-		r.cfg.Spec.SecretRotation.HashLength,
-		r.cfg.Spec.SecretRotation.IncludePath,
+		r.cfg.Spec.GitOps.ResourceRotation.HashLength,
+		r.cfg.Spec.GitOps.ResourceRotation.IncludePath,
 	)
 	if err != nil {
 		slog.WarnContext(ctx, "[rotated-resource-cleaner] cleanup skipped: desired state is incomplete",

@@ -67,7 +67,7 @@ func TestReconcileAgeSecrets(t *testing.T) {
 				File: path, Data: ciphertext, Name: "rotated-password", TemplateDriver: "golang",
 				Labels: *compose.NewLabels(map[string]string{"purpose": "managed"}),
 			}}
-			data, err := newTestSecretResolverWithIdentity([]byte(identity.String())).Resolve("app", objects)
+			data, err := newTestSecretResolverWithIdentity([]byte(identity.String())).Resolve("app", filepath.Join(dir, "compose.yaml"), objects)
 			require.NoError(t, err)
 			defer secretpkg.Clear(data)
 			resolved, err := r.Reconcile(t.Context(), "app", nil, objects, data)
@@ -80,7 +80,7 @@ func TestReconcileAgeSecrets(t *testing.T) {
 	}
 }
 
-func TestReconcileAgeSecretFailuresDoNotReachCLI(t *testing.T) {
+func TestReconcileAgeSecretFailuresDoNotApplyServices(t *testing.T) {
 	identity, err := age.GenerateX25519Identity()
 	require.NoError(t, err)
 	for _, tt := range []struct {
@@ -91,7 +91,7 @@ func TestReconcileAgeSecretFailuresDoNotReachCLI(t *testing.T) {
 		createError bool
 		want        string
 	}{
-		{name: "missing identity", contents: []byte("private-marker"), want: "requires secretRotation.age.identityFile"},
+		{name: "missing identity", contents: []byte("private-marker"), want: "requires gitops.secrets.age.identityFile"},
 		{name: "bad ciphertext", key: []byte(identity.String()), contents: []byte("private-marker"), want: "invalid ciphertext"},
 		{name: "driver", driver: "vault", want: "cannot combine a secret file with an external driver"},
 		{name: "remote echo", key: []byte(identity.String()), contents: encryptTestSecret(t, identity.Recipient(), []byte("private-marker"), false), createError: true, want: "Docker API request failed"},
@@ -105,11 +105,18 @@ func TestReconcileAgeSecretFailuresDoNotReachCLI(t *testing.T) {
 				secrets.EXPECT().List(gomock.Any(), gomock.Any()).Return(nil, nil)
 				secrets.EXPECT().Create(gomock.Any(), gomock.Any()).Return("", errors.New("private-marker "+identity.String()))
 			}
-			runner := NewMockRunner(ctrl)
-			d := &Deployer{secretResolver: newTestSecretResolverWithIdentity(tt.key), resources: newResourceReconciler(&swarm.Swarm{Secrets: secrets}), runner: runner,
+
+			d := &Deployer{secretResolver: newTestSecretResolverWithIdentity(tt.key), resources: newResourceReconciler(&swarm.Swarm{Secrets: secrets}),
 				serviceWaiter: newSuccessfulServiceWaiter(t)}
-			_, err := d.DeployStack(t.Context(), "app", "unused", compose.Compose{
-				Secrets: compose.Secrets{"password": {File: "password.age", Data: tt.contents, Driver: tt.driver}},
+			serviceManager := swarm.NewMockServiceManager(ctrl)
+			wireNativeTestDeployerWithServiceManager(t, d, serviceManager, false)
+			_, err := d.DeployStack(t.Context(), StackRequest{
+				StackName:         "app",
+				SourceComposePath: filepath.Join(dir, "compose.yaml"),
+				Desired: compose.Compose{
+					Services: minimalCompose("api").Services,
+					Secrets:  compose.Secrets{"password": {File: "password.age", Data: tt.contents, Driver: tt.driver}},
+				},
 			})
 			require.ErrorContains(t, err, tt.want)
 			assert.NotContains(t, err.Error(), "private-marker")
@@ -123,14 +130,15 @@ func TestReadPlaintextSecretIgnoresAgeIdentity(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "password.txt"), []byte("plain"), 0o600))
 	resolver := newTestSecretResolverWithIdentity([]byte("invalid identity"))
 	objects := compose.Secrets{"password": {File: "password.txt", Data: []byte("plain")}}
-	data, err := resolver.Resolve("app", objects)
+	data, err := resolver.Resolve("app", filepath.Join(dir, "compose.yaml"), objects)
 	require.NoError(t, err)
 	assert.Equal(t, "plain", string(data["password"]))
 	objects["password"].File = ""
-	_, err = resolver.Resolve("app", objects)
+	_, err = resolver.Resolve("app", filepath.Join(dir, "compose.yaml"), objects)
 	require.ErrorContains(t, err, "file is required")
 	objects["password"].File = "missing.age"
-	_, err = resolver.Resolve("app", objects)
-	require.Error(t, err)
+	objects["password"].Data = nil
+	_, err = resolver.Resolve("app", filepath.Join(dir, "compose.yaml"), objects)
+	require.ErrorContains(t, err, "file content was not loaded")
 	assert.NotContains(t, err.Error(), "invalid identity")
 }

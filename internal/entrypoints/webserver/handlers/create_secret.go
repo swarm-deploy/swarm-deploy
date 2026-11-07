@@ -7,7 +7,6 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/containerd/errdefs"
 	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
@@ -39,7 +38,7 @@ func (h *handler) CreateSecret(
 		Labels: labels,
 	})
 	if err != nil {
-		if errdefs.IsConflict(err) || errdefs.IsAlreadyExists(err) {
+		if errors.Is(err, swarm.ErrSecretAlreadyExists) {
 			return nil, withStatusError(http.StatusConflict, errors.New("a Docker secret with this name already exists"))
 		}
 

@@ -99,7 +99,7 @@ func TestGetServiceSpecExecute(t *testing.T) {
 	require.NotNil(t, payload.Service.PreviousSpec, "expected previous spec")
 	assert.Equal(t, "ghcr.io/org/api:1.8.3", payload.Service.PreviousSpec.Image, "unexpected previous image")
 	require.NotNil(t, payload.Service.UpdateStatus, "expected update status")
-	assert.Equal(t, "completed", payload.Service.UpdateStatus.State, "unexpected update status state")
+	assert.Equal(t, swarm.ServiceUpdateStateCompleted, payload.Service.UpdateStatus.State, "unexpected update status state")
 }
 
 func TestGetServiceSpecExecuteRequiresStackName(t *testing.T) {

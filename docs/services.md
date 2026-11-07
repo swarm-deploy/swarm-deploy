@@ -1,8 +1,10 @@
 # Services catalog
 
-After each `DeploySuccess` event, swarm-deploy collects metadata for deployed services and stores it in:
-
-- `.swarm-deploy/services.json`
+After a successful deployment, swarm-deploy updates the service catalog from
+`DeploySuccess` through the event subscriber. The catalog is persisted in the
+`services` table of `<dataDir>/swarm-deploy.sqlite`, not in a JSON file. Since
+event subscribers run asynchronously, the catalog may briefly lag deployment
+completion.
 
 You can retrieve collected metadata via API:
 

@@ -17,6 +17,33 @@ var embeddedSecretToken = regexp.MustCompile(
 	`(?i)\b(?:[[:alnum:]]+[-_.])+(?:secret|token|password|credential|api[_-]?key)(?:[-_.][[:alnum:]]+)*\b`,
 )
 
+var diagnosticCredential = regexp.MustCompile(
+	`(?i)((?:^|[^[:alnum:]_.-])(?:--?)?(?:password[\t ]*:|` +
+		`(?:password|passwd|secret|token|credential|api[_-]?key)[\t ]*=)[\t ]*)` +
+		`("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|[^\s'"<>&#]+)`,
+)
+
+var diagnosticField = regexp.MustCompile(
+	`((?:^|[\t ])([[:alnum:]_.-]+)[\t ]*=[\t ]*)("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|[^\s'"<>]+)`,
+)
+
+var diagnosticAuthorization = regexp.MustCompile(
+	`(?i)(\bauthorization[\t ]*[:=][\t ]*)` +
+		`("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|(?:bearer|basic)[\t ]+[^\s'"<>]+|\*{4})`,
+)
+
+// Give envmasker individual tokens, leading credential fields, and explicit CLI
+// flags. In the middle of prose, adjacent words such as "secret file" are ambiguous.
+var diagnosticToken = regexp.MustCompile(
+	`(?i)(?:^|\S*--?)(?:password|pass|pwd|secret|token|api-key|apikey|dsn|` +
+		`database-url|db-url|redis-url|mongo-uri|mongodb-uri)[\t ]+[^\s'"<>&#,;)\]}]+|\S+`,
+)
+
+// Require a host boundary so image references such as image:tag@sha256:digest are kept.
+var bareDSNUserInfo = regexp.MustCompile(
+	`\b[[:alnum:]_.%+-]+:[^\s/@?'#"<>()]+(@[[:alnum:]_.-]+(?::[0-9]{1,5})?(?::?(?:$|\s)|[/?"'<>),;\]]))`,
+)
+
 // Error is an error with a technical classification.
 type Error interface {
 	error
@@ -28,6 +55,7 @@ type Error interface {
 // SafeDiagnostic returns bounded, secret-masked technical context suitable for
 // persistence and user-facing diagnostics. An empty error remains empty so
 // callers can distinguish unavailable detail from a fabricated explanation.
+// Masking recognizes specific formats and may miss unstructured credentials.
 func SafeDiagnostic(err error) string {
 	if err == nil {
 		return ""
@@ -36,7 +64,20 @@ func SafeDiagnostic(err error) string {
 	if diagnostic == "" {
 		return ""
 	}
-	diagnostic, _ = envmasker.Mask("", diagnostic)
+	diagnostic = bareDSNUserInfo.ReplaceAllString(diagnostic, envmasker.MaskValue+":"+envmasker.MaskValue+"${1}")
+	diagnostic = diagnosticAuthorization.ReplaceAllString(diagnostic, "${1}"+envmasker.MaskValue)
+	diagnostic = diagnosticField.ReplaceAllStringFunc(diagnostic, func(field string) string {
+		parts := diagnosticField.FindStringSubmatch(field)
+		if _, sensitive := envmasker.Mask(parts[2], envmasker.MaskValue); sensitive {
+			return parts[1] + envmasker.MaskValue
+		}
+		return field
+	})
+	diagnostic = diagnosticCredential.ReplaceAllString(diagnostic, "${1}"+envmasker.MaskValue)
+	diagnostic = diagnosticToken.ReplaceAllStringFunc(diagnostic, func(token string) string {
+		masked, _ := envmasker.Mask("", token)
+		return masked
+	})
 	diagnostic = embeddedSecretToken.ReplaceAllString(diagnostic, envmasker.MaskValue)
 	if len(diagnostic) > maxDiagnosticLength {
 		diagnostic = diagnostic[:maxDiagnosticLength] + "…"

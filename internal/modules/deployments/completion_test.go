@@ -69,6 +69,15 @@ func TestCompletePersistsLifecycleBaselineAndEvents(t *testing.T) {
 			wantEvent: events.TypeNameDeployFailed, wantEventStage: "apply",
 		},
 		{
+			name: "known convergence failure",
+			completion: Completion{Outcome: CompletionConvergenceFailed,
+				Diagnostic: errors.New("service api paused: failed-task exit_code=1 token=private-value")},
+			wantStatus: deploymentmodel.Failed, wantPhase: deploymentmodel.PhaseVerification,
+			wantApply: deploymentmodel.StageSucceeded, wantVerification: deploymentmodel.StageFailed,
+			wantCleanup: deploymentmodel.StageSkipped, wantActual: deploymentmodel.ActualStateUnknown,
+			wantEvent: events.TypeNameDeployFailed, wantEventStage: "verification",
+		},
+		{
 			name: "verification interruption",
 			completion: Completion{Outcome: CompletionVerificationInterrupted,
 				Diagnostic: errors.New("inspect failed: password=private-value")},
@@ -233,7 +242,7 @@ func TestCompleteRejectsInvalidOrTerminalTransitions(t *testing.T) {
 	first, err := service.StartIfChanged(t.Context(), "app", "first", desiredServices("api"), true)
 	require.NoError(t, err)
 	require.NoError(t, service.Complete(t.Context(), first.ID, Completion{Outcome: CompletionApplyFailed}))
-	retry, err := service.StartIfChanged(t.Context(), "app", "retry", desiredServices("api"), true)
+	retry, err := service.StartIfChanged(t.Context(), "app", "retry", desiredServices("api"), true, StartOptions{ManualRetry: true})
 	require.NoError(t, err)
 	require.ErrorIs(t, service.Complete(t.Context(), first.ID, Completion{
 		Outcome: CompletionApplyFailed,

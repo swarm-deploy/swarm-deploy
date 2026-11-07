@@ -43,7 +43,7 @@ func TestReloadPublishesOnceWhenPreloadedConfigurationIsUnchanged(t *testing.T) 
 func TestReloadWaitsForSuccessfulInitialConfigurationBeforePublishing(t *testing.T) {
 	dir := t.TempDir()
 	cfg := &config.Config{Spec: config.Spec{
-		StacksSource: config.StacksSourceSpec{File: "stacks.yaml"},
+		GitOps: config.GitOpsSpec{Stacks: config.StacksSourceSpec{File: "stacks.yaml"}},
 	}}
 	eventsDispatcher := dispatcher.NewMockDispatcher(gomock.NewController(t))
 	eventsDispatcher.EXPECT().Publish(gomock.Any(), gomock.Any()).Return(nil).Times(1)
@@ -105,6 +105,6 @@ stacks:
     composeFile: app.yaml
 `), 0o600))
 	return dir, &config.Config{Spec: config.Spec{
-		StacksSource: config.StacksSourceSpec{File: "stacks.yaml"},
+		GitOps: config.GitOpsSpec{Stacks: config.StacksSourceSpec{File: "stacks.yaml"}},
 	}}
 }

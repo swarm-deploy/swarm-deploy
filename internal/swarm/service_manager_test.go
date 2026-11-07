@@ -109,7 +109,7 @@ func TestServiceManagerListServices(t *testing.T) {
 	assert.Equal(t, uint64(1), all[2].DesiredTasks)
 	assert.Equal(t, time.Date(2026, time.October, 28, 11, 0, 0, 0, time.UTC), all[2].UpdatedAt)
 	require.NotNil(t, all[2].UpdateStatus)
-	assert.Equal(t, "completed", all[2].UpdateStatus.State)
+	assert.Equal(t, ServiceUpdateStateCompleted, all[2].UpdateStatus.State)
 	assert.Equal(t, "node-exporter", all[3].Name)
 	assert.Empty(t, all[3].Stack)
 	assert.Equal(t, "global", all[3].Mode)
@@ -118,6 +118,64 @@ func TestServiceManagerListServices(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, stacked, 2)
 	assert.Equal(t, []string{"infra_paused", "infra_postgres"}, []string{stacked[0].FullName, stacked[1].FullName})
+}
+
+func TestServiceManagerNativeApplyOperations(t *testing.T) {
+	t.Parallel()
+	requests := make([]string, 0, 3)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		requests = append(requests, req.Method+" "+req.URL.Path)
+		w.Header().Set("Content-Type", "application/json")
+		switch req.Method + " " + req.URL.Path {
+		case http.MethodGet + " /v1.48/services/demo_api":
+			require.NoError(t, json.NewEncoder(w).Encode(dockerswarm.Service{
+				ID: "service-id", Meta: dockerswarm.Meta{Version: dockerswarm.Version{Index: 7}},
+				Spec: dockerswarm.ServiceSpec{Annotations: dockerswarm.Annotations{Name: "demo_api"}},
+			}))
+		case http.MethodPost + " /v1.48/services/create":
+			require.NoError(t, json.NewEncoder(w).Encode(map[string]string{"ID": "created-id"}))
+		case http.MethodPost + " /v1.48/services/service-id/update":
+			assert.Equal(t, "7", req.URL.Query().Get("version"))
+			require.NoError(t, json.NewEncoder(w).Encode(map[string]any{}))
+		default:
+			http.Error(w, `{"message":"unexpected request"}`, http.StatusInternalServerError)
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	manager := newServiceManager(newTestDockerClient(t, server))
+	service, err := manager.Inspect(t.Context(), "demo_api")
+	require.NoError(t, err)
+	assert.Equal(t, uint64(7), service.Version.Index)
+	createdID, err := manager.Create(t.Context(), dockerswarm.ServiceSpec{
+		Annotations: dockerswarm.Annotations{Name: "demo_api"},
+	}, dockerswarm.ServiceCreateOptions{QueryRegistry: true})
+	require.NoError(t, err)
+	assert.Equal(t, "created-id", createdID)
+	require.NoError(t, manager.Update(t.Context(), "service-id", dockerswarm.Version{Index: 7},
+		dockerswarm.ServiceSpec{Annotations: dockerswarm.Annotations{Name: "demo_api"}},
+		dockerswarm.ServiceUpdateOptions{RegistryAuthFrom: dockerswarm.RegistryAuthFromSpec, QueryRegistry: true}))
+	assert.Equal(t, []string{
+		"GET /v1.48/services/demo_api", "POST /v1.48/services/create", "POST /v1.48/services/service-id/update",
+	}, requests)
+}
+
+func TestServiceManagerMapsApplyConflicts(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, `{"message":"update out of sequence"}`, http.StatusConflict)
+	}))
+	t.Cleanup(server.Close)
+	manager := newServiceManager(newTestDockerClient(t, server))
+
+	_, err := manager.Create(t.Context(), dockerswarm.ServiceSpec{
+		Annotations: dockerswarm.Annotations{Name: "demo_api"},
+	}, dockerswarm.ServiceCreateOptions{})
+	assert.ErrorIs(t, err, ErrServiceConflict)
+	err = manager.Update(t.Context(), "service-id", dockerswarm.Version{Index: 7}, dockerswarm.ServiceSpec{
+		Annotations: dockerswarm.Annotations{Name: "demo_api"},
+	}, dockerswarm.ServiceUpdateOptions{})
+	assert.ErrorIs(t, err, ErrServiceConflict)
 }
 
 func TestServiceManagerListTasksByIDOrFullName(t *testing.T) {
@@ -134,11 +192,16 @@ func TestServiceManagerListTasksByIDOrFullName(t *testing.T) {
 				require.NoError(t, json.NewEncoder(w).Encode([]dockerswarm.Task{
 					{
 						ID:           "task-running",
+						JobIteration: &dockerswarm.Version{Index: 7},
 						Slot:         3,
 						NodeID:       "node-1",
+						Spec: dockerswarm.TaskSpec{
+							ContainerSpec: &dockerswarm.ContainerSpec{Image: "alpine:3"},
+						},
 						DesiredState: dockerswarm.TaskStateRunning,
 						Status: dockerswarm.TaskStatus{
-							State: dockerswarm.TaskStateRunning,
+							State:   dockerswarm.TaskStateRunning,
+							Message: "task running",
 							ContainerStatus: &dockerswarm.ContainerStatus{
 								ContainerID: "container-1",
 								ExitCode:    17,
@@ -159,12 +222,19 @@ func TestServiceManagerListTasksByIDOrFullName(t *testing.T) {
 			require.NoError(t, err)
 			require.Len(t, tasks, 2)
 			assert.Equal(t, 3, tasks[0].Slot)
+			assert.Equal(t, "task running", tasks[0].Message)
+			assert.Equal(t, &dockerswarm.Version{Index: 7}, tasks[0].JobIteration)
+			assert.Nil(t, tasks[1].JobIteration)
 			assert.Equal(t, TaskStateRunning, tasks[0].DesiredState)
 			assert.Equal(t, "container-1", tasks[0].ContainerID)
 			require.NotNil(t, tasks[0].ExitCode)
 			assert.Equal(t, 17, *tasks[0].ExitCode)
 			assert.Empty(t, tasks[1].ContainerID)
 			assert.Nil(t, tasks[1].ExitCode)
+			comparison := tasks[0].Spec.CompareServiceTemplate(dockerswarm.TaskSpec{
+				Runtime: dockerswarm.RuntimeContainer, ContainerSpec: &dockerswarm.ContainerSpec{Image: "alpine:3"},
+			})
+			assert.True(t, comparison.Equal())
 		})
 	}
 }

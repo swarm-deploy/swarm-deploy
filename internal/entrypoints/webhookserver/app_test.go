@@ -59,11 +59,11 @@ func TestHandleGitWebhookRateLimit(t *testing.T) {
 	app := &Application{
 		cfg: &config.Config{
 			Spec: config.Spec{
-				Sync: config.SyncSpec{
+				GitOps: config.GitOpsSpec{Sync: config.SyncSpec{
 					Webhook: config.WebhookSpec{
 						MaxBodyBytes: 1024,
 					},
-				},
+				}},
 			},
 		},
 		limiter: limiter,
@@ -81,11 +81,11 @@ func TestHandleGitWebhookRejectsLargeBody(t *testing.T) {
 	app := &Application{
 		cfg: &config.Config{
 			Spec: config.Spec{
-				Sync: config.SyncSpec{
+				GitOps: config.GitOpsSpec{Sync: config.SyncSpec{
 					Webhook: config.WebhookSpec{
 						MaxBodyBytes: 4,
 					},
-				},
+				}},
 			},
 		},
 		limiter: rate.NewLimiter(rate.Inf, 1),

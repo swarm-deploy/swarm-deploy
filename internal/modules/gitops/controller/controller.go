@@ -18,11 +18,11 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/scheduler"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackloop"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackloop/preparation"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackqueue"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/syncrun"
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/security"
-	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 	"github.com/swarm-deploy/swarm-deploy/internal/storage"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
@@ -47,6 +47,7 @@ type renderedCleaner interface {
 type Controller struct {
 	deployments  deployments.Executor
 	scheduler    *scheduler.Scheduler
+	stacks       *stackqueue.Queue
 	event        dispatcher.Dispatcher
 	cleaner      renderedCleaner
 	ownership    *controllerOwnership
@@ -63,28 +64,29 @@ func New(
 	metricGroup *metrics.Group,
 	eventDispatcher dispatcher.Dispatcher,
 	stateStore modelstore.Store,
-	filesystem fs.FileSystem,
 	db storage.Database,
 ) *Controller {
 	rotator := stackloop.NewRotator()
-	preparer := preparation.New(cfg, git, filesystem, rotator)
+	preparer := preparation.New(cfg, git, rotator)
 	stackReconciler := stackloop.NewStackReconciler(
 		cfg, deploymentExecutor, swarmService, eventDispatcher, metricGroup.Deploys,
 		stateStore, preparer, rotator, db,
 	)
 	puller := gitpull.NewPuller(
-		git, gitpull.NewMonitor(db, stateStore, eventDispatcher), metricGroup.Git, cfg.Spec.Git,
+		git, gitpull.NewMonitor(db, stateStore, eventDispatcher), metricGroup.Git, cfg.Spec.GitOps.Git,
 	)
 	networkCoordinator := networkloop.NewCoordinator(
 		db, configStore, stateStore, networkloop.New(swarmService.Networks), eventDispatcher,
 	)
+	stacks := stackqueue.New(stackReconciler, metricGroup.Sync, cfg.Spec.GitOps.Sync.Parallelism)
 	runner := syncrun.New(
 		configStore, git, metricGroup, eventDispatcher, stateStore,
-		networkCoordinator, stackReconciler, puller,
+		networkCoordinator, puller, stacks,
 	)
 	return &Controller{
 		deployments:  deploymentExecutor,
 		scheduler:    scheduler.New(cfg, runner),
+		stacks:       stacks,
 		event:        eventDispatcher,
 		cleaner:      preparer,
 		ownership:    newControllerOwnership(cfg.Spec.DataDir),
@@ -128,6 +130,10 @@ func (c *Controller) Run(ctx context.Context) error {
 			return fmt.Errorf("recover orphaned deployments: %w", err)
 		}
 	}
+	// Stack operations run until they finish or the graceful shutdown deadline cancels them.
+	// Stop is deferred after ownership acquisition, so ownership is released only once they ended.
+	c.stacks.Start(reconciliationCtx)
+	defer c.stacks.Stop()
 	return c.scheduler.Run(ctx, reconciliationCtx)
 }
 

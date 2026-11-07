@@ -40,7 +40,7 @@ FROM alpine:3.21.7
 ARG APP_VERSION="dev"
 ARG BUILD_TIME
 
-RUN apk add --no-cache ca-certificates docker-cli tzdata
+RUN apk add --no-cache ca-certificates tzdata
 
 WORKDIR /etc/swarm-deploy
 

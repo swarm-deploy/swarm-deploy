@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from "vue";
 
-import { fetchAlerts, fetchDeployments, fetchRecommendations } from "../api/overview";
-import type { Alert, DeploymentSummary, Recommendation, RecommendationSeverity } from "../api/types";
+import { fetchAlerts, fetchDeployments, fetchEvent, fetchRecommendations } from "../api/overview";
+import { ApiError } from "../api/client";
+import type { Alert, DeploymentSummary, EventHistoryItem, Recommendation, RecommendationSeverity } from "../api/types";
+import EventDetailsModal from "../components/overview/EventDetailsModal.vue";
 import StackCard from "../components/overview/StackCard.vue";
 import SummaryPanel from "../components/overview/SummaryPanel.vue";
 import SummaryRow from "../components/overview/SummaryRow.vue";
@@ -16,6 +18,10 @@ const recommendations = ref<Recommendation[]>([]);
 const overviewEventsError = ref("");
 const overviewAlertsError = ref("");
 const overviewRecommendationsError = ref("");
+const eventDetailsOpen = ref(false);
+const eventDetailsLoading = ref(false);
+const eventDetailsError = ref("");
+const eventDetails = ref<EventHistoryItem | null>(null);
 const deploymentsLimit = 4;
 const alertEventsLimit = 4;
 const recommendationsLimit = 4;
@@ -28,7 +34,10 @@ const recommendationSeverityRank: Record<RecommendationSeverity, number> = {
 let refreshTimer: ReturnType<typeof setInterval> | undefined;
 
 const syncInfo = computed(() => overviewStore.syncInfo);
-const syncRevision = computed(() => String(syncInfo.value?.git_revision ?? "").trim());
+const hasLastPoll = computed(() => Boolean(syncInfo.value && Object.hasOwn(syncInfo.value, "last_poll")));
+const hasLastWebhook = computed(() => Boolean(syncInfo.value && Object.hasOwn(syncInfo.value, "last_webhook")));
+const hasLastRevision = computed(() => Boolean(syncInfo.value && Object.hasOwn(syncInfo.value, "last_revision")));
+const syncRevision = computed(() => String(syncInfo.value?.last_revision ?? "").trim());
 const sortedRecommendations = computed(() =>
   recommendations.value
     .slice()
@@ -117,6 +126,50 @@ function recommendationSeverityClass(severity: RecommendationSeverity): string {
   return `overview-recommendation-severity-${severity}`;
 }
 
+function pollIndicator(): string {
+  if (!syncInfo.value?.last_poll?.result) return "";
+  return syncInfo.value.last_poll.result === "error" ? "!" : "✓";
+}
+
+function pollIndicatorClass(): string {
+  return syncInfo.value?.last_poll?.result === "error" ? "overview-sync-indicator--error" : "overview-sync-indicator--success";
+}
+
+function webhookIndicator(): string {
+  if (typeof syncInfo.value?.last_webhook?.queued !== "boolean") return "";
+  return syncInfo.value.last_webhook.queued ? "✓" : "!";
+}
+
+function webhookIndicatorClass(): string {
+  return syncInfo.value?.last_webhook?.queued ? "overview-sync-indicator--success" : "overview-sync-indicator--warning";
+}
+
+function closeEventDetails() {
+  eventDetailsOpen.value = false;
+  eventDetailsLoading.value = false;
+  eventDetailsError.value = "";
+  eventDetails.value = null;
+}
+
+async function openWebhookDetails() {
+  const eventID = syncInfo.value?.last_webhook?.event_id?.trim() ?? "";
+  if (!eventID) return;
+
+  eventDetailsOpen.value = true;
+  eventDetailsLoading.value = true;
+  eventDetailsError.value = "";
+  eventDetails.value = null;
+  try {
+    eventDetails.value = await fetchEvent(eventID);
+  } catch (error) {
+    eventDetailsError.value = error instanceof ApiError && error.status === 404
+      ? "This event is no longer available because it was removed by event history retention."
+      : `Failed to load event details: ${error instanceof Error ? error.message : "Unknown error"}`;
+  } finally {
+    eventDetailsLoading.value = false;
+  }
+}
+
 async function openCommitDetails(commitHash: string | undefined) {
   const hash = String(commitHash || "").trim();
   if (!hash) {
@@ -196,24 +249,74 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <section class="status-panel overview-sync-panel">
-    <p v-if="overviewStore.loadingError" class="meta">Failed to load state: {{ overviewStore.loadingError }}</p>
-    <p v-else-if="!syncInfo" class="meta">Sync status is unavailable.</p>
-    <p v-else class="meta">
-      Last sync: {{ formatDate(syncInfo.last_sync_at) }} | reason: {{ syncInfo.last_sync_reason || "n/a" }} | result:
-      {{ syncInfo.last_sync_result || "n/a" }} | revision:
-      <button
-        v-if="syncRevision"
-        type="button"
-        class="stack-commit-badge status unknown"
-        @click="openCommitDetails(syncRevision)"
-      >
-        {{ shortCommitHash(syncRevision) }}
-      </button>
-      <span v-else> n/a</span>
-      <template v-if="syncInfo.last_sync_error"> | error: {{ syncInfo.last_sync_error.slice(0, 500) }}</template>
-    </p>
-  </section>
+  <div class="overview-sync-row">
+    <section class="status-panel overview-sync-panel">
+      <div class="overview-sync-items">
+        <div v-if="hasLastPoll" class="overview-sync-item">
+          <span class="overview-sync-label">Last poll:</span>
+          <template v-if="syncInfo?.last_poll?.at">
+            <span
+              v-if="pollIndicator()"
+              class="overview-sync-indicator"
+              :class="pollIndicatorClass()"
+              :title="syncInfo.last_poll.error || `Poll result: ${syncInfo.last_poll.result}`"
+              :aria-label="syncInfo.last_poll.error || `Poll result: ${syncInfo.last_poll.result}`"
+            >{{ pollIndicator() }}</span>
+            <time :datetime="syncInfo.last_poll.at">{{ formatDate(syncInfo.last_poll.at) }}</time>
+          </template>
+          <span v-else>—</span>
+        </div>
+        <span v-if="hasLastPoll && hasLastWebhook" class="overview-sync-separator" aria-hidden="true"></span>
+        <div v-if="hasLastWebhook" class="overview-sync-item">
+          <span class="overview-sync-label">Last webhook:</span>
+          <template v-if="syncInfo?.last_webhook?.at">
+            <span
+              v-if="webhookIndicator()"
+              class="overview-sync-indicator"
+              :class="webhookIndicatorClass()"
+              :title="syncInfo.last_webhook.queued ? 'Accepted for scheduling' : 'Received but not queued'"
+              :aria-label="syncInfo.last_webhook.queued ? 'Accepted for scheduling' : 'Received but not queued'"
+            >{{ webhookIndicator() }}</span>
+            <button
+              v-if="syncInfo.last_webhook.event_id"
+              type="button"
+              class="overview-webhook-details"
+              @click="openWebhookDetails"
+            >
+              {{ formatDate(syncInfo.last_webhook.at) }}
+            </button>
+            <time v-else :datetime="syncInfo.last_webhook.at">{{ formatDate(syncInfo.last_webhook.at) }}</time>
+          </template>
+          <span v-else>—</span>
+        </div>
+        <span v-if="hasLastRevision && (hasLastPoll || hasLastWebhook)" class="overview-sync-separator" aria-hidden="true"></span>
+        <div v-if="hasLastRevision" class="overview-sync-item">
+          <span class="overview-sync-label">Last revision:</span>
+          <button
+            v-if="syncRevision"
+            type="button"
+            class="overview-commit-badge overview-sync-commit-badge"
+            :aria-label="`Open Git commit ${syncRevision}`"
+            @click="openCommitDetails(syncRevision)"
+          >
+            {{ shortCommitHash(syncRevision) }}
+          </button>
+          <span v-else>—</span>
+        </div>
+      </div>
+      <p v-if="overviewStore.loadingError" class="meta overview-sync-error" role="alert">
+        Failed to load state: {{ overviewStore.loadingError }}
+      </p>
+    </section>
+    <button
+      type="button"
+      class="topbar-sync-button overview-sync-button"
+      :disabled="overviewStore.syncPending"
+      @click="overviewStore.triggerManualSync()"
+    >
+      {{ overviewStore.syncPending ? "Syncing..." : "Sync now" }}
+    </button>
+  </div>
 
   <section class="overview-summary-grid" aria-label="Overview highlights">
     <SummaryPanel
@@ -338,4 +441,12 @@ onUnmounted(() => {
       />
     </div>
   </section>
+
+  <EventDetailsModal
+    :open="eventDetailsOpen"
+    :event="eventDetails"
+    :loading="eventDetailsLoading"
+    :error="eventDetailsError"
+    @close="closeEventDetails"
+  />
 </template>

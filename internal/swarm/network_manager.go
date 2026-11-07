@@ -28,7 +28,7 @@ func (m *networkManager) List(ctx context.Context, filter ListNetworksFilter) ([
 		Filters: buildNetworkListFilters(filter),
 	})
 	if err != nil {
-		return nil, fmt.Errorf("list docker networks: %w", err)
+		return nil, fmt.Errorf("list docker networks: %w", classifyDockerError(err))
 	}
 
 	mapped := make([]Network, 0, len(networks))
@@ -77,7 +77,7 @@ func (m *networkManager) Map(ctx context.Context, ids []string) (map[string]Netw
 		Filters: filters.NewArgs(filterArgs...),
 	})
 	if err != nil {
-		return nil, fmt.Errorf("list docker networks: %w", err)
+		return nil, fmt.Errorf("list docker networks: %w", classifyDockerError(err))
 	}
 
 	mapped := make(map[string]Network, len(networks))
@@ -88,14 +88,20 @@ func (m *networkManager) Map(ctx context.Context, ids []string) (map[string]Netw
 	return mapped, nil
 }
 
-func (m *networkManager) Get(ctx context.Context, name string) (Network, error) {
-	network, err := m.dockerClient.NetworkInspect(ctx, name, dockernetwork.InspectOptions{})
+func (m *networkManager) Get(
+	ctx context.Context, name string, options ...dockernetwork.InspectOptions,
+) (Network, error) {
+	var inspectOptions dockernetwork.InspectOptions
+	if len(options) > 0 {
+		inspectOptions = options[0]
+	}
+	network, err := m.dockerClient.NetworkInspect(ctx, name, inspectOptions)
 	if err != nil {
 		if isNotFoundErr(err) {
-			return Network{}, ErrNetworkNotFound
+			return Network{}, fmt.Errorf("%w: %w", ErrNetworkNotFound, err)
 		}
 
-		return Network{}, fmt.Errorf("inspect network: %w", err)
+		return Network{}, fmt.Errorf("inspect network: %w", classifyDockerError(err))
 	}
 
 	return m.mapNetwork(network), nil
@@ -104,13 +110,14 @@ func (m *networkManager) Get(ctx context.Context, name string) (Network, error) 
 func (m *networkManager) Create(ctx context.Context, req CreateNetworkRequest) (string, error) {
 	resp, err := m.dockerClient.NetworkCreate(ctx, req.Name, dockernetwork.CreateOptions{
 		Driver:     req.Driver,
+		IPAM:       req.IPAM,
 		Attachable: req.Attachable,
 		Internal:   req.Internal,
 		Options:    req.Options,
 		Labels:     req.Labels,
 	})
 	if err != nil {
-		return "", err
+		return "", classifyDockerError(err)
 	}
 
 	return resp.ID, nil

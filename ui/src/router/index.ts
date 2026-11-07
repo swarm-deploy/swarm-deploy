@@ -2,7 +2,6 @@ import { createRouter, createWebHistory } from "vue-router";
 
 import { getWebBasePath } from "../runtimeConfig";
 
-import ServicesView from "../views/ApplicationsView.vue";
 import DeploymentsView from "../views/DeploymentsView.vue";
 import ClusterView from "../views/ClusterView.vue";
 import EventsView from "../views/EventsAlertsView.vue";
@@ -28,11 +27,6 @@ export const router = createRouter({
       path: "/overview",
       name: "overview",
       component: OverviewView,
-    },
-    {
-      path: "/services",
-      name: "services",
-      component: ServicesView,
     },
     {
       path: "/realtime",

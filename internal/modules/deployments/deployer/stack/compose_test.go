@@ -14,8 +14,14 @@ func TestSingleServiceComposeKeepsOnlyReferencedObjects(t *testing.T) {
 			Name: "api", Secrets: []compose.ObjectRef{{Source: "api-secret"}},
 			Configs:  []compose.ObjectRef{{Source: "api-config"}},
 			Networks: compose.NewServiceNetworks(&compose.ServiceNetwork{Alias: "backend"}),
+			Volumes: compose.ServiceVolumes{Volumes: []*compose.ServiceVolume{
+				{Type: compose.ServiceVolumeTypeVolume, Source: "data", Target: "/data"},
+				{Type: compose.ServiceVolumeTypeVolume, Source: "shared", Target: "/shared"},
+				{Type: compose.ServiceVolumeTypeBind, Source: "/host", Target: "/host"},
+			}},
 		}},
 		Networks: map[string]compose.Network{"backend": {}, "frontend": {}},
+		Volumes:  compose.Volumes{"data": {}, "shared": {Name: "external-data", External: true}, "unused": {}},
 		Secrets: compose.Secrets{
 			"api-secret": {Alias: "api-secret"}, "worker-secret": {Alias: "worker-secret"},
 		},
@@ -29,6 +35,8 @@ func TestSingleServiceComposeKeepsOnlyReferencedObjects(t *testing.T) {
 	assert.Equal(t, map[string]compose.Network{"backend": {}}, selected.Networks)
 	assert.Equal(t, compose.Secrets{"api-secret": desired.Secrets["api-secret"]}, selected.Secrets)
 	assert.Equal(t, compose.Configs{"api-config": desired.Configs["api-config"]}, selected.Configs)
+	assert.Equal(t, compose.Volumes{"data": desired.Volumes["data"], "shared": desired.Volumes["shared"]}, selected.Volumes)
+	assert.Equal(t, desired.Services[0], selected.Services[0])
 }
 
 func TestSingleServiceComposeSelectsServiceNetworks(t *testing.T) {
@@ -47,10 +55,10 @@ func TestSingleServiceComposeSelectsServiceNetworks(t *testing.T) {
 		{
 			name: "implicit custom default network", service: compose.Service{Name: "api"},
 			networks: map[string]compose.Network{
-				"default": {Internal: &internal, Extra: map[string]interface{}{"driver": "overlay"}},
+				"default": {Internal: &internal},
 			},
 			want: map[string]compose.Network{
-				"default": {Internal: &internal, Extra: map[string]interface{}{"driver": "overlay"}},
+				"default": {Internal: &internal},
 			},
 		},
 		{
@@ -83,6 +91,67 @@ func TestSingleServiceComposeSelectsServiceNetworks(t *testing.T) {
 			selected, err := SingleServiceCompose(compose.Compose{
 				Services: compose.Services{tt.service}, Networks: tt.networks,
 			}, "api")
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, selected.Networks)
+		})
+	}
+}
+
+func TestSingleServicePreservesCredentialConfig(t *testing.T) {
+	desired := compose.Compose{Services: compose.Services{{Name: "api", CredentialSpec: &compose.CredentialSpec{Config: "credential"}}}, Configs: compose.Configs{"credential": {Name: "rotated"}, "unused": {}}}
+	selected, err := SingleServiceCompose(desired, "api")
+	require.NoError(t, err)
+	assert.Equal(t, compose.Configs{"credential": desired.Configs["credential"]}, selected.Configs)
+}
+
+func TestSingleServiceComposeIncludesInitJobNetworks(t *testing.T) {
+	tests := []struct {
+		name    string
+		service compose.Service
+		want    map[string]compose.Network
+	}{
+		{
+			name: "job-only network alongside implicit default",
+			service: compose.Service{
+				Name: "api",
+				InitJobs: []compose.InitJob{{
+					Name: "prepare", Networks: compose.NewServiceNetworks(&compose.ServiceNetwork{Alias: "jobs"}),
+				}},
+			},
+			want: map[string]compose.Network{"default": {}, "jobs": {}},
+		},
+		{
+			name: "job network alongside explicit service network",
+			service: compose.Service{
+				Name: "api",
+				Networks: compose.NewServiceNetworks(&compose.ServiceNetwork{Alias: "backend"}),
+				InitJobs: []compose.InitJob{{
+					Name: "prepare", Networks: compose.NewServiceNetworks(&compose.ServiceNetwork{Alias: "jobs"}),
+				}},
+			},
+			want: map[string]compose.Network{"backend": {}, "jobs": {}},
+		},
+		{
+			name: "job reuses service network",
+			service: compose.Service{
+				Name: "api",
+				Networks: compose.NewServiceNetworks(&compose.ServiceNetwork{Alias: "backend"}),
+				InitJobs: []compose.InitJob{{
+					Name: "prepare", Networks: compose.NewServiceNetworks(&compose.ServiceNetwork{Alias: "backend"}),
+				}},
+			},
+			want: map[string]compose.Network{"backend": {}},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			desired := compose.Compose{
+				Services: compose.Services{tt.service},
+				Networks: map[string]compose.Network{
+					"default": {}, "backend": {}, "jobs": {}, "unused": {},
+				},
+			}
+			selected, err := SingleServiceCompose(desired, "api")
 			require.NoError(t, err)
 			assert.Equal(t, tt.want, selected.Networks)
 		})

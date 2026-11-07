@@ -87,11 +87,25 @@ func (l *fileLoader) Load(ctx context.Context, path string) (*File, error) {
 		return nil, &ParseComposeError{FilePath: path, Err: err}
 	}
 
+	interpolated, err := interpolateSyntax(&syntax)
+	if err != nil {
+		return nil, &ValidateComposeError{FilePath: path, Issues: decodeIssues(err)}
+	}
+	ignored, validateErr := validateComposeSyntax(&syntax)
+	if validateErr != nil {
+		if interpolated {
+			validateErr = fmt.Errorf("unsupported Compose option after interpolation")
+		}
+		return nil, &ValidateComposeError{FilePath: path, Issues: decodeIssues(validateErr), Err: validateErr}
+	}
 	schema := Compose{}
 	if err = syntax.Decode(&schema); err != nil {
+		if interpolated {
+			err = fmt.Errorf("invalid Compose value after interpolation")
+		}
 		return nil, &ValidateComposeError{FilePath: path, Issues: decodeIssues(err), Err: err}
 	}
-
+	setIgnoredOptions(&schema, ignored)
 	baseDir, _ := filepath.Split(path)
 	if baseDir == "" {
 		baseDir = "."
@@ -100,10 +114,16 @@ func (l *fileLoader) Load(ctx context.Context, path string) (*File, error) {
 		baseDir = strings.TrimSuffix(baseDir, string(filepath.Separator))
 	}
 	if issues := l.linkServices(&schema, baseDir); len(issues) > 0 {
+		if interpolated {
+			for i := range issues {
+				issues[i].Message = "invalid Compose value after interpolation"
+			}
+		}
 		return nil, &ValidateComposeError{FilePath: path, Issues: issues}
 	}
 
 	if err = l.loadEnvFiles(ctx, baseDir, schema.Services); err != nil {
+		err = interpolationSafeError(err, interpolated, "invalid or unreadable env_file")
 		return nil, fmt.Errorf("load env files: %w", err)
 	}
 
@@ -113,15 +133,17 @@ func (l *fileLoader) Load(ctx context.Context, path string) (*File, error) {
 		setConfigData,
 	)
 	if err != nil {
+		err = interpolationSafeError(err, interpolated, "invalid or unreadable config file")
 		return nil, fmt.Errorf("load config files: %w", err)
 	}
 
 	secretFiles, err := loadObjectFiles(
 		ctx, l.fileReader, baseDir, "secrets", schema.Secrets,
 		func(secret *Secret) (string, bool) { return secret.File, secret.External },
-		func(secret *Secret, content []byte) { secret.Data = append([]byte{}, content...) },
+		setSecretData,
 	)
 	if err != nil {
+		err = interpolationSafeError(err, interpolated, "invalid or unreadable secret file")
 		return nil, fmt.Errorf("load secret files: %w", err)
 	}
 
@@ -152,6 +174,11 @@ func resourceDigests(configs, secrets objectFileContents) map[string]string {
 func setConfigData(config *Config, content []byte) {
 	config.Data = make([]byte, len(content))
 	copy(config.Data, content)
+}
+
+func setSecretData(secret *Secret, content []byte) {
+	secret.Data = make([]byte, len(content))
+	copy(secret.Data, content)
 }
 
 func (l *fileLoader) loadEnvFiles(ctx context.Context, baseDir string, services Services) error {
@@ -207,8 +234,13 @@ func (*fileLoader) linkServices(compose *Compose, baseDir string) []ValidationIs
 		for _, label := range []string{
 			labelsdict.ServiceSyncPolicySelfHealLabelKey,
 			labelsdict.ServiceSyncPolicySelfHealReplicasLabelKey,
+			labelsdict.ServiceSyncPolicyReplicasManagedLabelKey,
 		} {
-			if _, _, err := service.booleanPolicy(label); err != nil {
+			_, _, err := service.booleanPolicy(label)
+			if label == labelsdict.ServiceSyncPolicyReplicasManagedLabelKey {
+				_, _, err = service.ReplicasManagedPolicy()
+			}
+			if err != nil {
 				issues = append(issues, ValidationIssue{
 					ResourceType: "service",
 					ResourceName: service.Name,

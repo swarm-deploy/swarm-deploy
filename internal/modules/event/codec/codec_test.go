@@ -24,7 +24,6 @@ func TestSensitiveFieldsAreNeverPersisted(t *testing.T) {
 	const secret = "super-private-token"
 	service := compose.Service{Name: "api", Image: "nginx:stable",
 		Environment: compose.Environment{Map: map[string]string{"TOKEN": secret}},
-		Extra:       map[string]any{"password": secret},
 	}
 	for _, event := range []events.Event{
 		&events.DeploySuccess{DeployEvent: events.DeployEvent{Services: []compose.Service{service}}},
@@ -181,7 +180,7 @@ func TestGitPullCodecRejectsUnsafePayloads(t *testing.T) {
 }
 
 func TestDeploymentFailureCategorySurvivesCodec(t *testing.T) {
-	for _, code := range []string{"policy_rejected", "init_failed", "apply_failed", "prune_failed"} {
+	for _, code := range []string{"policy_rejected", "init_failed", "apply_failed", "convergence_failed", "prune_failed"} {
 		event := &events.DeployFailed{DeployEvent: events.DeployEvent{StackName: "app"}, Error: errors.New(code)}
 		payload, err := Encode(event)
 		require.NoError(t, err)

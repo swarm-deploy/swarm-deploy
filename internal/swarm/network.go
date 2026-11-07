@@ -1,6 +1,10 @@
 package swarm
 
-import "errors"
+import (
+	"errors"
+
+	dockernetwork "github.com/docker/docker/api/types/network"
+)
 
 // ErrNetworkNotFound means that network does not exist in docker.
 var ErrNetworkNotFound = errors.New("network not found")
@@ -35,6 +39,8 @@ type Network struct {
 }
 
 type CreateNetworkRequest struct {
+	// IPAM configures network address allocation.
+	IPAM *dockernetwork.IPAM `json:"ipam,omitempty" yaml:"ipam,omitempty"`
 	// Name is a Docker network name.
 	Name string `json:"name" yaml:"name"`
 	// Driver is the driver-name used to create the network (e.g. `bridge`, `overlay`)
@@ -47,4 +53,10 @@ type CreateNetworkRequest struct {
 	Options map[string]string `json:"options" yaml:"options"`
 	// Labels contains custom Docker network labels.
 	Labels map[string]string `json:"labels" yaml:"labels"`
+}
+
+// ServiceNetworkScope accepts Swarm networks and the Engine's predefined host/none
+// external networks. Arbitrary local bridge networks cannot be attached to services.
+func ServiceNetworkScope(name, scope string, external bool) bool {
+	return scope == "swarm" || (external && scope == "local" && (name == "host" || name == "none"))
 }

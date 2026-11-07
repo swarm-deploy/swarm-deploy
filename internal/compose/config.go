@@ -24,8 +24,6 @@ type Config struct {
 	Labels Labels `yaml:"labels,omitempty" json:"labels,omitempty"`
 	// External marks a resource managed outside the Compose application.
 	External bool `yaml:"external,omitempty" json:"external"`
-	// Extra preserves unsupported Compose extension fields.
-	Extra map[string]interface{} `yaml:",inline" json:"Extra"`
 }
 
 // Configs contains top-level Compose configs keyed by alias.
@@ -53,7 +51,8 @@ type Secret struct {
 	Name string `yaml:"name,omitempty" json:"name,omitempty"`
 	// File is the source file for the secret.
 	File string `yaml:"file,omitempty" json:"file,omitempty"`
-	// Data contains transient source bytes, possibly encrypted. Nil means no file was loaded.
+	// Data contains the raw, undecoded secret file content captured when the Compose file was loaded.
+	// It is never serialized. Nil means the secret has no local file.
 	Data []byte `yaml:"-" json:"-"`
 	// Driver is the secret driver name.
 	Driver string `yaml:"driver,omitempty" json:"driver,omitempty"`
@@ -65,8 +64,6 @@ type Secret struct {
 	Labels Labels `yaml:"labels,omitempty" json:"labels,omitempty"`
 	// External marks a resource managed outside the Compose application.
 	External bool `yaml:"external,omitempty" json:"external"`
-	// Extra preserves unsupported Compose extension fields.
-	Extra map[string]interface{} `yaml:",inline" json:"Extra"`
 }
 
 // Secrets contains top-level Compose secrets keyed by alias.

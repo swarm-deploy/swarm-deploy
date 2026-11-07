@@ -8,13 +8,15 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
+
 	"github.com/avast/retry-go/v5"
-	cerrdefs "github.com/containerd/errdefs"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
 	dockerswarm "github.com/docker/docker/api/types/swarm"
@@ -39,6 +41,66 @@ type serviceManager struct {
 func newServiceManager(dockerClient *client.Client) *serviceManager {
 	return &serviceManager{
 		dockerClient: dockerClient,
+	}
+}
+
+// Inspect returns the complete Docker service, including its specification and version.
+func (m *serviceManager) Inspect(ctx context.Context, serviceIDOrName string) (dockerswarm.Service, error) {
+	service, _, err := m.dockerClient.ServiceInspectWithRaw(
+		ctx, serviceIDOrName, dockerswarm.ServiceInspectOptions{},
+	)
+	if err != nil {
+		if isNotFoundErr(err) {
+			return dockerswarm.Service{}, fmt.Errorf("%w: %w", ErrServiceNotFound, err)
+		}
+		return dockerswarm.Service{}, fmt.Errorf("inspect service %s: %w", serviceIDOrName, classifyDockerError(err))
+	}
+	return service, nil
+}
+
+// Create creates a Docker Swarm service and returns its identifier.
+func (m *serviceManager) Create(
+	ctx context.Context,
+	spec dockerswarm.ServiceSpec,
+	options dockerswarm.ServiceCreateOptions,
+) (string, error) {
+	response, err := m.dockerClient.ServiceCreate(ctx, spec, options)
+	if err != nil {
+		if isConflictErr(err) {
+			return "", fmt.Errorf("create service %s: %w: %w", spec.Name, ErrServiceConflict, err)
+		}
+		return "", fmt.Errorf("create service %s: %w", spec.Name, classifyDockerError(err))
+	}
+	logServiceWarnings(ctx, spec.Name, response.Warnings)
+	return response.ID, nil
+}
+
+// Update replaces a Docker Swarm service specification using optimistic versioning.
+func (m *serviceManager) Update(
+	ctx context.Context,
+	serviceID string,
+	version dockerswarm.Version,
+	spec dockerswarm.ServiceSpec,
+	options dockerswarm.ServiceUpdateOptions,
+) error {
+	response, err := m.dockerClient.ServiceUpdate(ctx, serviceID, version, spec, options)
+	if err != nil {
+		if isUpdateConflict(err) {
+			return fmt.Errorf("update service %s: %w: %w", spec.Name, ErrServiceConflict, err)
+		}
+		if isNotFoundErr(err) {
+			return fmt.Errorf("update service %s: %w: %w", spec.Name, ErrServiceNotFound, err)
+		}
+		return fmt.Errorf("update service %s: %w", spec.Name, classifyDockerError(err))
+	}
+	logServiceWarnings(ctx, spec.Name, response.Warnings)
+	return nil
+}
+
+func logServiceWarnings(ctx context.Context, service string, warnings []string) {
+	for _, warning := range warnings {
+		slog.WarnContext(ctx, "Docker service warning", "service", service,
+			"warning", faults.SafeDiagnostic(errors.New(warning)))
 	}
 }
 
@@ -74,10 +136,10 @@ func (m *serviceManager) ListServices(ctx context.Context, filter ListServicesFi
 	})
 	if err != nil {
 		if filter.Stack != "" {
-			return nil, fmt.Errorf("list services for stack %s: %w", filter.Stack, err)
+			return nil, fmt.Errorf("list services for stack %s: %w", filter.Stack, classifyDockerError(err))
 		}
 
-		return nil, fmt.Errorf("list services: %w", err)
+		return nil, fmt.Errorf("list services: %w", classifyDockerError(err))
 	}
 
 	mapped := make([]StackService, 0, len(services))
@@ -99,12 +161,15 @@ func (m *serviceManager) ListServices(ctx context.Context, filter ListServicesFi
 
 		runningTasks := uint64(0)
 		desiredTasks := uint64(0)
+		completedTasks := uint64(0)
 		if service.ServiceStatus != nil {
 			runningTasks = service.ServiceStatus.RunningTasks
 			desiredTasks = service.ServiceStatus.DesiredTasks
+			completedTasks = service.ServiceStatus.CompletedTasks
 		}
 
 		mapped = append(mapped, StackService{
+			CompletedTasks: completedTasks, JobStatus: service.JobStatus,
 			ID:           service.ID,
 			Name:         stackServiceNameFromFullName(stackName, fullName),
 			Stack:        stackName,
@@ -135,10 +200,10 @@ func (m *serviceManager) Remove(ctx context.Context, serviceIDOrName string) err
 	err := m.dockerClient.ServiceRemove(ctx, serviceIDOrName)
 	if err != nil {
 		if isNotFoundErr(err) {
-			return ErrServiceNotFound
+			return fmt.Errorf("%w: %w", ErrServiceNotFound, err)
 		}
 
-		return fmt.Errorf("remove service %s: %w", serviceIDOrName, err)
+		return fmt.Errorf("remove service %s: %w", serviceIDOrName, classifyDockerError(err))
 	}
 
 	return nil
@@ -195,12 +260,12 @@ func (m *serviceManager) scale(
 	if err != nil {
 		switch {
 		case isNotFoundErr(err):
-			return ServiceScaleResult{}, ErrServiceNotFound
-		// Some Docker versions expose SwarmKit sequence conflicts as HTTP 500.
-		case cerrdefs.IsConflict(err), strings.Contains(err.Error(), "update out of sequence"):
-			return ServiceScaleResult{}, ErrServiceUpdateConflict
+			return ServiceScaleResult{}, fmt.Errorf("%w: %w", ErrServiceNotFound, err)
+		case isUpdateConflict(err):
+			return ServiceScaleResult{}, fmt.Errorf("%w: %w", ErrServiceUpdateConflict, err)
 		default:
-			return ServiceScaleResult{}, fmt.Errorf("update service %s replicas to %d: %w", service.ID, replicas, err)
+			return ServiceScaleResult{}, fmt.Errorf("update service %s replicas to %d: %w",
+				service.ID, replicas, classifyDockerError(err))
 		}
 	}
 
@@ -267,23 +332,31 @@ func (m *serviceManager) ListTasks(ctx context.Context, serviceIDOrName string) 
 	})
 	if err != nil {
 		if isNotFoundErr(err) {
-			return nil, ErrServiceNotFound
+			return nil, fmt.Errorf("%w: %w", ErrServiceNotFound, err)
 		}
 
-		return nil, fmt.Errorf("list tasks for service %s: %w", serviceIDOrName, err)
+		return nil, fmt.Errorf("list tasks for service %s: %w", serviceIDOrName, classifyDockerError(err))
 	}
 
+	nodes, err := m.taskNodes(ctx, tasks)
+	if err != nil {
+		return nil, fmt.Errorf("list nodes for service %s tasks: %w", serviceIDOrName, err)
+	}
 	out := make([]ServiceTask, 0, len(tasks))
 	for _, task := range tasks {
 		mapped := ServiceTask{
 			ID:           task.ID,
 			Node:         task.NodeID,
+			NodeInfo:     nodes[task.NodeID],
 			Slot:         task.Slot,
+			JobIteration: task.JobIteration,
 			DesiredState: TaskState(task.DesiredState),
 			CreatedAt:    task.CreatedAt,
 			UpdatedAt:    task.UpdatedAt,
 			CurrentState: TaskState(task.Status.State),
 			Error:        task.Status.Err,
+			Message:      task.Status.Message,
+			Spec:         NewTaskSpec(task.Spec),
 		}
 		if task.Status.ContainerStatus != nil {
 			exitCode := task.Status.ContainerStatus.ExitCode
@@ -296,15 +369,45 @@ func (m *serviceManager) ListTasks(ctx context.Context, serviceIDOrName string) 
 	return out, nil
 }
 
+func (m *serviceManager) taskNodes(
+	ctx context.Context, tasks []dockerswarm.Task,
+) (map[string]*Node, error) {
+	needsNodes := false
+	for _, task := range tasks {
+		policy := task.Spec.RestartPolicy
+		if policy == nil || (policy.Condition != dockerswarm.RestartPolicyConditionNone &&
+			(policy.MaxAttempts == nil || *policy.MaxAttempts == 0)) {
+			continue
+		}
+		if task.Slot == 0 && task.JobIteration == nil && task.NodeID != "" &&
+			(task.Status.State == dockerswarm.TaskStateFailed || task.Status.State == dockerswarm.TaskStateRejected) {
+			needsNodes = true
+			break
+		}
+	}
+	byID := make(map[string]*Node)
+	if !needsNodes {
+		return byID, nil
+	}
+	nodes, err := newNodeManager(m.dockerClient).List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, node := range nodes {
+		byID[node.ID] = &node
+	}
+	return byID, nil
+}
+
 // GetTask returns compact runtime details for a Docker task identifier.
 func (m *serviceManager) GetTask(ctx context.Context, taskID string) (ServiceTaskDetails, error) {
 	task, _, err := m.dockerClient.TaskInspectWithRaw(ctx, taskID)
 	if err != nil {
 		if isNotFoundErr(err) {
-			return ServiceTaskDetails{}, ErrTaskNotFound
+			return ServiceTaskDetails{}, fmt.Errorf("%w: %w", ErrTaskNotFound, err)
 		}
 
-		return ServiceTaskDetails{}, fmt.Errorf("inspect task %s: %w", taskID, err)
+		return ServiceTaskDetails{}, fmt.Errorf("inspect task %s: %w", taskID, classifyDockerError(err))
 	}
 
 	details := ServiceTaskDetails{
@@ -386,16 +489,16 @@ func (m *serviceManager) Logs(
 	reader, err := m.dockerClient.ServiceLogs(ctx, fullServiceName, buildDockerServiceLogsOptions(options))
 	if err != nil {
 		if isNotFoundErr(err) {
-			return nil, ErrServiceNotFound
+			return nil, fmt.Errorf("%w: %w", ErrServiceNotFound, err)
 		}
 
-		return nil, fmt.Errorf("read logs for service %s: %w", fullServiceName, err)
+		return nil, fmt.Errorf("read logs for service %s: %w", fullServiceName, classifyDockerError(err))
 	}
 	defer reader.Close()
 
 	rawLogs, err := io.ReadAll(reader)
 	if err != nil {
-		return nil, fmt.Errorf("read logs stream for service %s: %w", fullServiceName, err)
+		return nil, fmt.Errorf("read logs stream for service %s: %w", fullServiceName, classifyDockerError(err))
 	}
 
 	decodedLogs := demultiplexDockerLogStream(rawLogs)
@@ -416,7 +519,7 @@ func (m *serviceManager) Logs(
 		logs = append(logs, line)
 	}
 	if scanErr := scanner.Err(); scanErr != nil {
-		return nil, fmt.Errorf("scan logs for service %s: %w", fullServiceName, scanErr)
+		return nil, fmt.Errorf("scan logs for service %s: %w", fullServiceName, classifyDockerError(scanErr))
 	}
 
 	return logs, nil
@@ -431,10 +534,10 @@ func (m *serviceManager) TaskLogs(
 	reader, err := m.dockerClient.TaskLogs(ctx, taskID, buildDockerTaskLogsOptions(options))
 	if err != nil {
 		if isNotFoundErr(err) {
-			return nil, nil, ErrServiceNotFound
+			return nil, nil, fmt.Errorf("%w: %w", ErrServiceNotFound, err)
 		}
 
-		return nil, nil, fmt.Errorf("read logs for task %s: %w", taskID, err)
+		return nil, nil, fmt.Errorf("read logs for task %s: %w", taskID, classifyDockerError(err))
 	}
 
 	entries := make(chan LogEntry)
@@ -446,7 +549,7 @@ func (m *serviceManager) TaskLogs(
 		defer reader.Close()
 
 		if readErr := readDockerLogEntries(ctx, reader, entries); readErr != nil {
-			errs <- fmt.Errorf("read task %s logs stream: %w", taskID, readErr)
+			errs <- fmt.Errorf("read task %s logs stream: %w", taskID, classifyDockerError(readErr))
 		}
 	}()
 
@@ -852,7 +955,7 @@ func toServiceUpdateStatus(status *dockerswarm.UpdateStatus) *ServiceUpdateStatu
 	}
 
 	return &ServiceUpdateStatus{
-		State:       string(status.State),
+		State:       status.State,
 		StartedAt:   startedAt,
 		CompletedAt: completedAt,
 		Message:     status.Message,
@@ -966,17 +1069,14 @@ func (m *serviceManager) inspectService(
 	service, _, err := m.dockerClient.ServiceInspectWithRaw(ctx, fullServiceName, dockerswarm.ServiceInspectOptions{})
 	if err != nil {
 		if isNotFoundErr(err) {
-			return dockerswarm.Service{}, fullServiceName, ErrServiceNotFound
+			return dockerswarm.Service{}, fullServiceName, fmt.Errorf("%w: %w", ErrServiceNotFound, err)
 		}
 
-		return dockerswarm.Service{}, fullServiceName, fmt.Errorf("inspect service %s: %w", fullServiceName, err)
+		return dockerswarm.Service{}, fullServiceName, fmt.Errorf("inspect service %s: %w",
+			fullServiceName, classifyDockerError(err))
 	}
 
 	return service, fullServiceName, nil
-}
-
-func isNotFoundErr(err error) bool {
-	return cerrdefs.IsNotFound(err)
 }
 
 func stackServiceNameFromFullName(stackName string, fullName string) string {

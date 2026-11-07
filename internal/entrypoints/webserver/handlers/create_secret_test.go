@@ -2,9 +2,9 @@ package handlers
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
-	"github.com/containerd/errdefs"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
@@ -59,7 +59,7 @@ func TestHandlerCreateSecretDuplicate(t *testing.T) {
 
 	ctrl := gomock.NewController(t)
 	manager := swarm.NewMockSecretManager(ctrl)
-	manager.EXPECT().Create(gomock.Any(), gomock.Any()).Return("", errdefs.ErrConflict)
+	manager.EXPECT().Create(gomock.Any(), gomock.Any()).Return("", fmt.Errorf("create secret: %w", swarm.ErrSecretAlreadyExists))
 	h := &handler{dockerSecrets: manager}
 
 	_, err := h.CreateSecret(context.Background(), &generated.CreateSecretRequest{Name: "duplicate", Value: "value"})

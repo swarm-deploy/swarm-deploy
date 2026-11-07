@@ -23,10 +23,8 @@ const assistantStore = useAssistantStore();
 const currentUserStore = useCurrentUserStore();
 const uiStore = useUIStore();
 
-const isOverviewRoute = computed(() => route.path === "/overview");
 const currentUserLabel = computed(() => currentUserStore.displayName.trim() || "User");
 
-const syncDisabled = computed(() => !isOverviewRoute.value);
 const assistantPinnedActive = computed(
   () => assistantStore.enabled && uiStore.assistantDrawerOpen && uiStore.assistantPinned,
 );
@@ -56,14 +54,6 @@ watch(() => overviewStore.deploymentDetailsModalOpen, (open, wasOpen) => {
   delete query.deployment_id;
   void router.replace({ query });
 });
-
-async function handleSyncNow() {
-  if (!isOverviewRoute.value) {
-    return;
-  }
-
-  await overviewStore.triggerManualSync();
-}
 
 async function handleAssistantToggle() {
   if (!assistantStore.enabled) {
@@ -102,10 +92,7 @@ onMounted(() => {
       />
       <main class="shell-main">
         <TopBar
-          :sync-disabled="syncDisabled"
-          :sync-pending="overviewStore.syncPending"
           :assistant-enabled="assistantStore.enabled"
-          @sync-now="handleSyncNow"
           @toggle-assistant="handleAssistantToggle"
         />
         <div class="shell-view">

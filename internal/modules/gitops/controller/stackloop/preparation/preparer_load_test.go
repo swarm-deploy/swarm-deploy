@@ -11,7 +11,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
-	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 )
 
 func TestLoadPinsAllComposeSourcesToTheRequestedCommit(t *testing.T) {
@@ -74,7 +73,7 @@ secrets:
 
 	repository, err := gitx.NewGoGitRepository(t.Context(), config.GitSpec{Repository: dir}, dir)
 	require.NoError(t, err)
-	preparer := New(&config.Config{}, repository, fs.NewLocalFileSystem(), nil)
+	preparer := New(&config.Config{}, repository, nil)
 
 	loaded, err := preparer.Load(t.Context(), config.StackSpec{ComposeFile: "stacks/app.yaml"}, old)
 	require.NoError(t, err)

@@ -22,13 +22,14 @@ func NewTraceableReconciler(tp trace.TracerProvider, reconciler StackReconciler)
 	}
 }
 
-func (t *TraceableReconciler) Cleanup(ctx context.Context, stack config.StackSpec) error {
+func (t *TraceableReconciler) Cleanup(ctx context.Context, stack config.StackSpec, commit string) error {
 	ctx, span := t.tracer.Start(ctx, "stackReconciler.Cleanup", trace.WithAttributes(
 		tracing.ResourceStackName.String(stack.Name),
+		tracing.SyncCommitSha.String(commit),
 	))
 	defer span.End()
 
-	err := t.reconciler.Cleanup(ctx, stack)
+	err := t.reconciler.Cleanup(ctx, stack, commit)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())

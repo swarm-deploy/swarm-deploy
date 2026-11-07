@@ -12,16 +12,21 @@ type Compose struct {
 	Configs  Configs            `yaml:"configs,omitempty" json:"configs"`
 	Secrets  Secrets            `yaml:"secrets,omitempty" json:"secrets"`
 	Volumes  Volumes            `yaml:"volumes,omitempty" json:"volumes"`
-
-	Extra map[string]interface{} `yaml:",inline" json:"Extra"`
 }
 
 func Parse(raw []byte) (*Compose, error) {
-	schema := Compose{}
-	err := yaml.Unmarshal(raw, &schema)
-	if err != nil {
+	var syntax yaml.Node
+	if err := yaml.Unmarshal(raw, &syntax); err != nil {
 		return nil, fmt.Errorf("decode compose schema: %w", err)
 	}
-
+	ignored, err := validateComposeSyntax(&syntax)
+	if err != nil {
+		return nil, fmt.Errorf("validate compose: %w", err)
+	}
+	var schema Compose
+	if decodeErr := syntax.Decode(&schema); decodeErr != nil {
+		return nil, fmt.Errorf("decode compose schema: %w", decodeErr)
+	}
+	setIgnoredOptions(&schema, ignored)
 	return &schema, nil
 }

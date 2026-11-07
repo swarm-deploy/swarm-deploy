@@ -33,11 +33,12 @@ const (
 	defaultWebBasePath             = "/"
 	defaultWebhookAddress          = ":8082"
 	defaultEventHistoryCap         = 500
-	defaultSyncPollInterval        = 30 * time.Second
+	defaultGitPullInterval         = 30 * time.Second
 	defaultSyncInterval            = 1 * time.Minute
-	defaultInitJobPollEvery        = 2 * time.Second
+	defaultSyncParallelism         = 1
+	DefaultGitPullTimeout          = 2 * time.Minute
+	defaultDeploymentPollInterval  = 2 * time.Second
 	defaultInitJobMaxDuration      = 10 * time.Minute
-	defaultInitJobsTimeout         = 10 * time.Minute
 	defaultRotationKeepLast        = 2
 	defaultRotationMinAge          = time.Hour
 	defaultRotationCleanupInterval = 4 * time.Hour
@@ -64,41 +65,73 @@ type Config struct {
 type Spec struct {
 	// DataDir is an internal working directory derived from config location.
 	DataDir string `yaml:"-"`
-	// Git contains repository and authentication settings.
-	Git GitSpec `yaml:"git"`
-	// Sync contains pull/webhook synchronization settings.
-	Sync SyncSpec `yaml:"sync"`
-	// StacksSource contains path to stack definitions file inside git repository.
-	StacksSource StacksSourceSpec `yaml:"stacks"`
-	// NetworksSource contains path to network definitions file inside git repository.
-	NetworksSource NetworksSourceSpec `yaml:"networks"`
+	// GitOps contains desired-state sources and reconciliation settings.
+	GitOps GitOpsSpec `yaml:"gitops"`
+	// Deployments contains deployment execution settings.
+	Deployments DeploymentsSpec `yaml:"deployments"`
+	// Event contains event module settings.
+	Event EventSpec `yaml:"event"`
+	// System contains process-wide logging and tracing settings.
+	System SystemSpec `yaml:"system"`
 	// Notifications contains notification channel configuration.
 	Notifications NotificationSpec `yaml:"notifications"`
 	// Web contains public HTTP server settings.
 	Web WebSpec `yaml:"web"`
 	// HealthServer contains health and metrics server settings.
 	HealthServer HealthServerSpec `yaml:"healthServer"`
-	// Swarm contains docker stack deploy execution settings.
-	Swarm SwarmSpec `yaml:"swarm"`
-	// SecretRotation controls secret/config name rotation strategy.
-	SecretRotation SecretRotationSpec `yaml:"secretRotation"`
-	// Containers contains container-specific runtime settings.
-	Containers ContainersSpec `yaml:"containers"`
-	// Tracing contains OpenTelemetry tracing settings. Nil disables tracing.
-	Tracing *TracingSpec `yaml:"tracing"`
-	// EventHistory controls persisted event history settings.
-	EventHistory EventHistorySpec `yaml:"eventHistory"`
 	// Assistant contains AI assistant settings.
 	Assistant AssistantSpec `yaml:"assistant"`
-	// InitJobsTimeout is a global timeout for init jobs.
-	InitJobsTimeout specw.Duration `yaml:"initJobsTimeout"`
-	// Log contains level settings.
-	Log struct {
-		// Level for write logs. Default: INFO
-		Level specw.SlogLevel `yaml:"level,omitempty"`
-	} `yaml:"log"`
-
+	// Hostings contains shared Git hosting provider settings.
 	Hostings githosting.Config `yaml:"hostings"`
+}
+
+type GitOpsSpec struct {
+	// Git contains repository and authentication settings.
+	Git GitSpec `yaml:"git"`
+	// Sync contains reconciliation and webhook settings.
+	Sync SyncSpec `yaml:"sync"`
+	// Stacks contains the path to stack definitions inside the Git repository.
+	Stacks StacksSourceSpec `yaml:"stacks"`
+	// Networks contains the optional path to network definitions inside the Git repository.
+	Networks NetworksSourceSpec `yaml:"networks"`
+	// Injection configures settings injected into GitOps-managed services.
+	Injection GitOpsInjectionSpec `yaml:"injection"`
+	// Secrets contains settings for secrets read from Git.
+	Secrets SecretsSpec `yaml:"secrets"`
+	// ResourceRotation controls secret and config name rotation.
+	ResourceRotation ResourceRotationSpec `yaml:"resourceRotation"`
+}
+
+type GitOpsInjectionSpec struct {
+	// Downward configures injection of Swarm metadata into containers.
+	Downward DownwardSpec `yaml:"downward"`
+}
+
+type DownwardSpec struct {
+	// Enabled toggles Downward environment injection into services.
+	Enabled bool `yaml:"enabled"`
+}
+
+type SecretsSpec struct {
+	// Age configures decryption independently of name rotation.
+	Age AgeSpec `yaml:"age"`
+}
+
+type SystemSpec struct {
+	// Log contains log level settings.
+	Log LogSpec `yaml:"log"`
+	// Tracing contains OpenTelemetry tracing settings. Nil disables tracing.
+	Tracing *TracingSpec `yaml:"tracing"`
+}
+
+type LogSpec struct {
+	// Level sets the minimum log severity. Defaults to INFO.
+	Level specw.SlogLevel `yaml:"level,omitempty"`
+}
+
+type EventSpec struct {
+	// History controls persisted event history.
+	History EventHistorySpec `yaml:"history"`
 }
 
 type EventHistorySpec struct {
@@ -109,10 +142,10 @@ type EventHistorySpec struct {
 type SyncSpec struct {
 	// Mode is sync mode: pull, webhook, or hybrid.
 	Mode string `yaml:"mode"`
-	// PollInterval is an interval between git pull attempts.
-	PollInterval specw.Duration `yaml:"pollInterval"`
 	// Interval is an interval between reconciliations against the current local desired state.
 	Interval specw.Duration `yaml:"interval"`
+	// Parallelism is the maximum number of stacks reconciled at the same time.
+	Parallelism int `yaml:"parallelism"`
 	// Policy contains synchronization behavior flags.
 	Policy SyncPolicySpec `yaml:"policy"`
 	// Webhook contains webhook sync trigger settings.
@@ -224,18 +257,19 @@ type EndpointSpec struct {
 	Path string `yaml:"path"`
 }
 
-type SwarmSpec struct {
-	// Command is executable used to invoke Docker CLI.
-	Command string `yaml:"command"`
-	// InitJobPollEvery is polling interval for init jobs.
-	InitJobPollEvery specw.Duration `yaml:"initJobPollEvery"`
-	// InitJobMaxDuration is maximum execution time for init jobs.
-	InitJobMaxDuration specw.Duration `yaml:"initJobMaxDuration"`
+type DeploymentsSpec struct {
+	// PollInterval controls polling for Init Jobs and service convergence.
+	PollInterval specw.Duration `yaml:"pollInterval"`
+	// InitJobs contains Init Job execution settings.
+	InitJobs InitJobsSpec `yaml:"initJobs"`
 }
 
-type SecretRotationSpec struct {
-	// Age configures decryption independently of name rotation.
-	Age AgeSpec `yaml:"age"`
+type InitJobsSpec struct {
+	// MaxDuration is the maximum execution time for an Init Job.
+	MaxDuration specw.Duration `yaml:"maxDuration"`
+}
+
+type ResourceRotationSpec struct {
 	// Enabled toggles secret/config name rotation.
 	Enabled bool `yaml:"enabled"`
 	// HashLength is a length of generated hash suffix.
@@ -243,7 +277,7 @@ type SecretRotationSpec struct {
 	// IncludePath adds source path into hash input.
 	IncludePath bool `yaml:"includePath"`
 	// Cleanup controls removal of old managed rotated resources.
-	Cleanup SecretRotationCleanupSpec `yaml:"cleanup"`
+	Cleanup ResourceRotationCleanupSpec `yaml:"cleanup"`
 }
 
 // AgeSpec configures file-based age identities for encrypted Docker secrets.
@@ -252,8 +286,8 @@ type AgeSpec struct {
 	IdentityFile specw.File `yaml:"identityFile" json:"-"`
 }
 
-// SecretRotationCleanupSpec controls cleanup of old rotated configs and secrets.
-type SecretRotationCleanupSpec struct {
+// ResourceRotationCleanupSpec controls cleanup of old rotated configs and secrets.
+type ResourceRotationCleanupSpec struct {
 	// Enabled toggles best-effort cleanup after stack deployment and pruning.
 	Enabled bool `yaml:"enabled"`
 	// Interval throttles periodic cleanup attempts between reconciliations.
@@ -264,20 +298,6 @@ type SecretRotationCleanupSpec struct {
 	MinAge specw.Duration `yaml:"minAge"`
 }
 
-type ContainersSpec struct {
-	// Downward enables downward environment variable injection into services.
-	Downward *struct{} `yaml:"downward"`
-}
-
-func (c *Config) UnmarshalYAML(node *yaml.Node) error {
-	var spec Spec
-	if err := node.Decode(&spec); err != nil {
-		return err
-	}
-	c.Spec = spec
-	return nil
-}
-
 func (c *Config) applyDefaults(configDir string) error {
 	c.Spec.DataDir = filepath.Join(configDir, ".swarm-deploy")
 	c.applyGitAndSyncDefaults()
@@ -285,8 +305,8 @@ func (c *Config) applyDefaults(configDir string) error {
 	c.applyWebAndHealthDefaults()
 	c.Spec.Notifications.applyDefaults()
 	c.applyAssistantDefaults()
-	c.applySwarmDefaults()
-	c.applySecretRotationDefaults()
+	c.applyDeploymentsDefaults()
+	c.applyResourceRotationDefaults()
 	c.applyEventHistoryDefaults()
 
 	if err := os.MkdirAll(c.Spec.DataDir, 0o755); err != nil {
@@ -297,26 +317,32 @@ func (c *Config) applyDefaults(configDir string) error {
 }
 
 func (c *Config) applyGitAndSyncDefaults() {
-	if c.Spec.Git.Branch == "" {
-		c.Spec.Git.Branch = "main"
+	if c.Spec.GitOps.Git.Pull.Timeout.Value <= 0 {
+		c.Spec.GitOps.Git.Pull.Timeout.Value = DefaultGitPullTimeout
 	}
-	if c.Spec.Sync.Mode == "" {
-		c.Spec.Sync.Mode = SyncModeHybrid
+	if c.Spec.GitOps.Git.Branch == "" {
+		c.Spec.GitOps.Git.Branch = "main"
 	}
-	if c.Spec.Sync.PollInterval.Value <= 0 {
-		c.Spec.Sync.PollInterval.Value = defaultSyncPollInterval
+	if c.Spec.GitOps.Sync.Mode == "" {
+		c.Spec.GitOps.Sync.Mode = SyncModeHybrid
 	}
-	if c.Spec.Sync.Interval.Value <= 0 {
-		c.Spec.Sync.Interval.Value = defaultSyncInterval
+	if c.Spec.GitOps.Git.Pull.Interval.Value <= 0 {
+		c.Spec.GitOps.Git.Pull.Interval.Value = defaultGitPullInterval
 	}
-	if c.Spec.Sync.Webhook.Path == "" {
-		c.Spec.Sync.Webhook.Path = "/api/v1/webhooks/git"
+	if c.Spec.GitOps.Sync.Interval.Value <= 0 {
+		c.Spec.GitOps.Sync.Interval.Value = defaultSyncInterval
 	}
-	if strings.TrimSpace(c.Spec.Sync.Webhook.Address) == "" {
-		c.Spec.Sync.Webhook.Address = defaultWebhookAddress
+	if c.Spec.GitOps.Sync.Parallelism <= 0 {
+		c.Spec.GitOps.Sync.Parallelism = defaultSyncParallelism
 	}
-	if c.Spec.Sync.Mode == SyncModeWebhook && !c.Spec.Sync.Webhook.Enabled {
-		c.Spec.Sync.Webhook.Enabled = true
+	if c.Spec.GitOps.Sync.Webhook.Path == "" {
+		c.Spec.GitOps.Sync.Webhook.Path = "/api/v1/webhooks/git"
+	}
+	if strings.TrimSpace(c.Spec.GitOps.Sync.Webhook.Address) == "" {
+		c.Spec.GitOps.Sync.Webhook.Address = defaultWebhookAddress
+	}
+	if c.Spec.GitOps.Sync.Mode == SyncModeWebhook && !c.Spec.GitOps.Sync.Webhook.Enabled {
+		c.Spec.GitOps.Sync.Webhook.Enabled = true
 	}
 }
 
@@ -386,39 +412,33 @@ func (c *Config) applyAssistantDefaults() {
 	}
 }
 
-func (c *Config) applySwarmDefaults() {
-	if c.Spec.Swarm.Command == "" {
-		c.Spec.Swarm.Command = "docker"
+func (c *Config) applyDeploymentsDefaults() {
+	if c.Spec.Deployments.PollInterval.Value <= 0 {
+		c.Spec.Deployments.PollInterval.Value = defaultDeploymentPollInterval
 	}
-	if c.Spec.Swarm.InitJobPollEvery.Value <= 0 {
-		c.Spec.Swarm.InitJobPollEvery.Value = defaultInitJobPollEvery
-	}
-	if c.Spec.Swarm.InitJobMaxDuration.Value <= 0 {
-		c.Spec.Swarm.InitJobMaxDuration.Value = defaultInitJobMaxDuration
-	}
-	if c.Spec.InitJobsTimeout.Value <= 0 {
-		c.Spec.InitJobsTimeout.Value = defaultInitJobsTimeout
+	if c.Spec.Deployments.InitJobs.MaxDuration.Value <= 0 {
+		c.Spec.Deployments.InitJobs.MaxDuration.Value = defaultInitJobMaxDuration
 	}
 }
 
-func (c *Config) applySecretRotationDefaults() {
-	if c.Spec.SecretRotation.HashLength <= 0 {
-		c.Spec.SecretRotation.HashLength = 8
+func (c *Config) applyResourceRotationDefaults() {
+	if c.Spec.GitOps.ResourceRotation.HashLength <= 0 {
+		c.Spec.GitOps.ResourceRotation.HashLength = 8
 	}
-	if c.Spec.SecretRotation.Cleanup.Interval.Value == 0 {
-		c.Spec.SecretRotation.Cleanup.Interval.Value = defaultRotationCleanupInterval
+	if c.Spec.GitOps.ResourceRotation.Cleanup.Interval.Value == 0 {
+		c.Spec.GitOps.ResourceRotation.Cleanup.Interval.Value = defaultRotationCleanupInterval
 	}
-	if c.Spec.SecretRotation.Cleanup.KeepLast == 0 {
-		c.Spec.SecretRotation.Cleanup.KeepLast = defaultRotationKeepLast
+	if c.Spec.GitOps.ResourceRotation.Cleanup.KeepLast == 0 {
+		c.Spec.GitOps.ResourceRotation.Cleanup.KeepLast = defaultRotationKeepLast
 	}
-	if c.Spec.SecretRotation.Cleanup.MinAge.Value == 0 {
-		c.Spec.SecretRotation.Cleanup.MinAge.Value = defaultRotationMinAge
+	if c.Spec.GitOps.ResourceRotation.Cleanup.MinAge.Value == 0 {
+		c.Spec.GitOps.ResourceRotation.Cleanup.MinAge.Value = defaultRotationMinAge
 	}
 }
 
 func (c *Config) applyEventHistoryDefaults() {
-	if c.Spec.EventHistory.Capacity <= 0 {
-		c.Spec.EventHistory.Capacity = defaultEventHistoryCap
+	if c.Spec.Event.History.Capacity <= 0 {
+		c.Spec.Event.History.Capacity = defaultEventHistoryCap
 	}
 }
 
@@ -485,7 +505,7 @@ func (c *Config) loadStacks(baseDirs ...string) ([]StackSpec, error) {
 }
 
 func (c *Config) loadNetworks(baseDirs ...string) ([]NetworkSpec, error) {
-	if strings.TrimSpace(c.Spec.NetworksSource.File) == "" {
+	if strings.TrimSpace(c.Spec.GitOps.Networks.File) == "" {
 		return nil, nil
 	}
 	networksPath, err := c.resolveNetworksPath(baseDirs...)
@@ -503,12 +523,12 @@ func (c *Config) loadNetworks(baseDirs ...string) ([]NetworkSpec, error) {
 }
 
 func (c *Config) resolveStacksPath(baseDirs ...string) (string, error) {
-	if c.Spec.StacksSource.File == "" {
-		return "", errors.New("stacks.file is required")
+	if c.Spec.GitOps.Stacks.File == "" {
+		return "", errors.New("gitops.stacks.file is required")
 	}
 
-	if filepath.IsAbs(c.Spec.StacksSource.File) {
-		return c.Spec.StacksSource.File, nil
+	if filepath.IsAbs(c.Spec.GitOps.Stacks.File) {
+		return c.Spec.GitOps.Stacks.File, nil
 	}
 
 	var candidates []string
@@ -517,7 +537,7 @@ func (c *Config) resolveStacksPath(baseDirs ...string) (string, error) {
 			continue
 		}
 
-		candidate := filepath.Join(baseDir, c.Spec.StacksSource.File)
+		candidate := filepath.Join(baseDir, c.Spec.GitOps.Stacks.File)
 		candidates = append(candidates, candidate)
 
 		_, err := os.Stat(candidate)
@@ -530,24 +550,24 @@ func (c *Config) resolveStacksPath(baseDirs ...string) (string, error) {
 	}
 
 	if len(candidates) == 0 {
-		return "", errors.New("stacks.file is relative and no baseDirs provided")
+		return "", errors.New("gitops.stacks.file is relative and no baseDirs provided")
 	}
 
 	return "", fmt.Errorf(
 		"stacks file %s not found in any base dir: %s: %w",
-		c.Spec.StacksSource.File,
+		c.Spec.GitOps.Stacks.File,
 		strings.Join(candidates, ", "),
 		os.ErrNotExist,
 	)
 }
 
 func (c *Config) resolveNetworksPath(baseDirs ...string) (string, error) {
-	if c.Spec.NetworksSource.File == "" {
-		return "", errors.New("networks.file is required")
+	if c.Spec.GitOps.Networks.File == "" {
+		return "", errors.New("gitops.networks.file is required")
 	}
 
-	if filepath.IsAbs(c.Spec.NetworksSource.File) {
-		return c.Spec.NetworksSource.File, nil
+	if filepath.IsAbs(c.Spec.GitOps.Networks.File) {
+		return c.Spec.GitOps.Networks.File, nil
 	}
 
 	var candidates []string
@@ -556,7 +576,7 @@ func (c *Config) resolveNetworksPath(baseDirs ...string) (string, error) {
 			continue
 		}
 
-		candidate := filepath.Join(baseDir, c.Spec.NetworksSource.File)
+		candidate := filepath.Join(baseDir, c.Spec.GitOps.Networks.File)
 		candidates = append(candidates, candidate)
 
 		_, err := os.Stat(candidate)
@@ -569,12 +589,12 @@ func (c *Config) resolveNetworksPath(baseDirs ...string) (string, error) {
 	}
 
 	if len(candidates) == 0 {
-		return "", errors.New("networks.file is relative and no baseDirs provided")
+		return "", errors.New("gitops.networks.file is relative and no baseDirs provided")
 	}
 
 	return "", fmt.Errorf(
 		"networks file %s not found in any base dir: %s: %w",
-		c.Spec.NetworksSource.File,
+		c.Spec.GitOps.Networks.File,
 		strings.Join(candidates, ", "),
 		os.ErrNotExist,
 	)
@@ -690,7 +710,7 @@ func (c *Config) validate() error {
 	errs = append(errs, c.validateStacks()...)
 	errs = append(errs, c.validateNetworks()...)
 	errs = append(errs, c.validateSync()...)
-	errs = append(errs, c.validateSecretRotation()...)
+	errs = append(errs, c.validateResourceRotation()...)
 	errs = append(errs, c.validateGitAuth()...)
 	errs = append(errs, c.validateWeb()...)
 	errs = append(errs, c.validateSecurity()...)
@@ -742,24 +762,26 @@ func (c *Config) validateWeb() []error {
 	return nil
 }
 
-func (c *Config) validateSecretRotation() []error {
-	cleanup := c.Spec.SecretRotation.Cleanup
+func (c *Config) validateResourceRotation() []error {
+	cleanup := c.Spec.GitOps.ResourceRotation.Cleanup
 	if !cleanup.Enabled {
 		return nil
 	}
 
 	var errs []error
-	if !c.Spec.SecretRotation.Enabled {
-		errs = append(errs, errors.New("secretRotation.cleanup.enabled requires secretRotation.enabled=true"))
+	if !c.Spec.GitOps.ResourceRotation.Enabled {
+		errs = append(errs, errors.New(
+			"gitops.resourceRotation.cleanup.enabled requires gitops.resourceRotation.enabled=true",
+		))
 	}
 	if cleanup.Interval.Value < 0 {
-		errs = append(errs, errors.New("secretRotation.cleanup.interval must be > 0"))
+		errs = append(errs, errors.New("gitops.resourceRotation.cleanup.interval must be > 0"))
 	}
 	if cleanup.KeepLast < 1 {
-		errs = append(errs, errors.New("secretRotation.cleanup.keepLast must be >= 1"))
+		errs = append(errs, errors.New("gitops.resourceRotation.cleanup.keepLast must be >= 1"))
 	}
 	if cleanup.MinAge.Value < 0 {
-		errs = append(errs, errors.New("secretRotation.cleanup.minAge must be > 0"))
+		errs = append(errs, errors.New("gitops.resourceRotation.cleanup.minAge must be > 0"))
 	}
 
 	return errs
@@ -768,11 +790,11 @@ func (c *Config) validateSecretRotation() []error {
 func (c *Config) validateRequired() []error {
 	var errs []error
 
-	if c.Spec.Git.Repository == "" {
-		errs = append(errs, errors.New("git.repository is required"))
+	if c.Spec.GitOps.Git.Repository == "" {
+		errs = append(errs, errors.New("gitops.git.repository is required"))
 	}
-	if c.Spec.StacksSource.File == "" {
-		errs = append(errs, errors.New("stacks.file is required"))
+	if c.Spec.GitOps.Stacks.File == "" {
+		errs = append(errs, errors.New("gitops.stacks.file is required"))
 	}
 
 	return errs
@@ -802,13 +824,13 @@ func validateStacksList(stacks []StackSpec) []error {
 	seen := map[string]struct{}{}
 	for i, stack := range stacks {
 		if stack.Name == "" {
-			errs = append(errs, fmt.Errorf("stacks.file[%d].name is required", i))
+			errs = append(errs, fmt.Errorf("gitops.stacks.file[%d].name is required", i))
 		}
 		if stack.ComposeFile == "" {
-			errs = append(errs, fmt.Errorf("stacks.file[%d].composeFile is required", i))
+			errs = append(errs, fmt.Errorf("gitops.stacks.file[%d].composeFile is required", i))
 		}
 		if _, exists := seen[stack.Name]; exists {
-			errs = append(errs, fmt.Errorf("stacks.file has duplicated name %q", stack.Name))
+			errs = append(errs, fmt.Errorf("gitops.stacks.file has duplicated name %q", stack.Name))
 		}
 		seen[stack.Name] = struct{}{}
 	}
@@ -822,20 +844,20 @@ func validateNetworksList(networks []NetworkSpec) []error {
 	seen := map[string]struct{}{}
 	for i, network := range networks {
 		if network.Name == "" {
-			errs = append(errs, fmt.Errorf("networks.file[%d].name is required", i))
+			errs = append(errs, fmt.Errorf("gitops.networks.file[%d].name is required", i))
 		}
 		if network.Driver == "" {
-			errs = append(errs, fmt.Errorf("networks.file[%d].driver is required", i))
+			errs = append(errs, fmt.Errorf("gitops.networks.file[%d].driver is required", i))
 		}
 		if _, exists := seen[network.Name]; exists {
-			errs = append(errs, fmt.Errorf("networks.file has duplicated name %q", network.Name))
+			errs = append(errs, fmt.Errorf("gitops.networks.file has duplicated name %q", network.Name))
 		}
 		if labelValue, exists := network.Labels[managedNetworkLabelKey]; exists {
 			if strings.TrimSpace(labelValue) != managedNetworkLabelValue {
 				errs = append(
 					errs,
 					fmt.Errorf(
-						"networks.file[%d].labels[%q] must be %q when specified",
+						"gitops.networks.file[%d].labels[%q] must be %q when specified",
 						i,
 						managedNetworkLabelKey,
 						managedNetworkLabelValue,
@@ -852,14 +874,16 @@ func validateNetworksList(networks []NetworkSpec) []error {
 func (c *Config) validateSync() []error {
 	var errs []error
 
-	switch c.Spec.Sync.Mode {
+	switch c.Spec.GitOps.Sync.Mode {
 	case SyncModePull, SyncModeWebhook, SyncModeHybrid:
 	default:
-		errs = append(errs, fmt.Errorf("sync.mode must be one of %q|%q|%q", SyncModePull, SyncModeWebhook, SyncModeHybrid))
+		errs = append(errs, fmt.Errorf(
+			"gitops.sync.mode must be one of %q|%q|%q", SyncModePull, SyncModeWebhook, SyncModeHybrid,
+		))
 	}
 
-	if c.Spec.Sync.Webhook.Enabled && c.Spec.Sync.Mode == SyncModePull {
-		errs = append(errs, errors.New("sync.webhook.enabled=true conflicts with sync.mode=pull"))
+	if c.Spec.GitOps.Sync.Webhook.Enabled && c.Spec.GitOps.Sync.Mode == SyncModePull {
+		errs = append(errs, errors.New("gitops.sync.webhook.enabled=true conflicts with gitops.sync.mode=pull"))
 	}
 	errs = append(errs, c.validateWebhook()...)
 
@@ -869,23 +893,27 @@ func (c *Config) validateSync() []error {
 func (c *Config) validateGitAuth() []error {
 	var errs []error
 
-	authType := c.Spec.Git.Auth.Type
+	authType := c.Spec.GitOps.Git.Auth.Type
 	if !authType.IsSupported() {
-		errs = append(errs, fmt.Errorf("git.auth.type must be one of none|http|ssh, got %q", c.Spec.Git.Auth.Type))
+		errs = append(errs, fmt.Errorf(
+			"gitops.git.auth.type must be one of none|http|ssh, got %q", authType,
+		))
 	}
 
 	if authType == GitAuthTypeHTTP {
-		username := strings.TrimSpace(c.Spec.Git.Auth.HTTP.Username)
-		password := strings.TrimSpace(string(c.Spec.Git.Auth.HTTP.Password.Content))
-		token := strings.TrimSpace(string(c.Spec.Git.Auth.HTTP.Token.Content))
+		username := strings.TrimSpace(c.Spec.GitOps.Git.Auth.HTTP.Username)
+		password := strings.TrimSpace(string(c.Spec.GitOps.Git.Auth.HTTP.Password.Content))
+		token := strings.TrimSpace(string(c.Spec.GitOps.Git.Auth.HTTP.Token.Content))
 
 		if token != "" && password != "" {
-			errs = append(errs, errors.New("git.auth.http.tokenPath and git.auth.http.passwordPath are mutually exclusive"))
+			errs = append(errs, errors.New(
+				"gitops.git.auth.http.tokenPath and gitops.git.auth.http.passwordPath are mutually exclusive",
+			))
 		}
 		if token == "" && (username == "" || password == "") {
 			errs = append(
 				errs,
-				errors.New("git.auth.http requires username+passwordPath or tokenPath"),
+				errors.New("gitops.git.auth.http requires username+passwordPath or tokenPath"),
 			)
 		}
 	}

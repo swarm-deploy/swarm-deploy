@@ -49,7 +49,7 @@ func TestDecryptAgeSecret(t *testing.T) {
 		{"binary", ciphertext, identity.String(), ""},
 		{"armor", encryptTestSecret(t, identity.Recipient(), plaintext, true), identity.String(), ""},
 		{"multiple identities and comments", ciphertext, "# identities\n\n" + other.String() + "\n" + identity.String() + "\n", ""},
-		{"missing key", ciphertext, "", "requires secretRotation.age.identityFile"},
+		{"missing key", ciphertext, "", "requires gitops.secrets.age.identityFile"},
 		{"empty key file", ciphertext, "# no identities\n", "invalid age identity file"},
 		{"invalid key", ciphertext, identity.String() + "private-marker", "invalid age identity file"},
 		{"wrong key", ciphertext, other.String(), "no matching identity"},

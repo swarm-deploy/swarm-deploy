@@ -22,7 +22,7 @@ type EnvFiles []EnvFile
 func (f *EnvFiles) UnmarshalYAML(node *yaml.Node) error {
 	switch node.Kind {
 	case yaml.ScalarNode:
-		if node.Tag == "!!null" {
+		if node.Tag == yamlNullTag {
 			*f = nil
 			return nil
 		}
@@ -91,18 +91,15 @@ func (p *EnvFilePopulator) populateService(service *Service) bool {
 	}
 
 	effective := make(map[string]string)
-	literalKeys := make(map[string]struct{})
 
 	for _, envFile := range service.EnvFiles {
 		for key, value := range envFile.Variables {
 			effective[key] = value
-			literalKeys[key] = struct{}{}
 		}
 	}
 
 	for key, value := range service.Environment.Map {
 		effective[key] = value
-		delete(literalKeys, key)
 	}
 
 	keys := make([]string, 0, len(effective))
@@ -112,10 +109,10 @@ func (p *EnvFilePopulator) populateService(service *Service) bool {
 	sort.Strings(keys)
 
 	service.Environment = Environment{
-		Map:         effective,
-		Keys:        keys,
-		isMap:       true,
-		literalKeys: literalKeys,
+		Map:   effective,
+		Unset: service.Environment.Unset,
+		Keys:  keys,
+		isMap: true,
 	}
 	service.EnvFiles = nil
 

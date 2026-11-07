@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
@@ -125,37 +124,10 @@ func deploymentServiceReplicas(deploy compose.ServiceDeploy) string {
 	case "global-job":
 		return "Global job"
 	case "replicated-job":
-		parts := []string{}
-		for _, field := range []struct{ key, label string }{
-			{"max_concurrent", "concurrent"}, {"total_completions", "total"},
-		} {
-			if count := jobCount(deploy.Extra[field.key]); count != "" {
-				parts = append(parts, count+" "+field.label)
-			}
-		}
-		if len(parts) == 0 {
-			return "Replicated job"
-		}
-		return "Job: " + strings.Join(parts, ", ")
+		return "Replicated job"
 	default:
 		return "—"
 	}
-}
-
-func jobCount(value any) string {
-	switch count := value.(type) {
-	case int:
-		if count >= 0 {
-			return strconv.Itoa(count)
-		}
-	case uint64:
-		return strconv.FormatUint(count, 10)
-	case float64:
-		if count >= 0 && count == float64(uint64(count)) {
-			return strconv.FormatUint(uint64(count), 10)
-		}
-	}
-	return ""
 }
 
 func toGeneratedDeploymentSummary(item deploymentmodel.DeploymentSummary) generated.DeploymentSummary {

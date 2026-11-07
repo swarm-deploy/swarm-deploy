@@ -14,7 +14,7 @@ The Deployments module owns:
 - Successful deployment baselines.
 - Deployment history queries.
 - Stack and service deployment execution.
-- Docker CLI invocation, Init Jobs, and resource reconciliation.
+- Native Docker API deployment execution, Init Jobs, and resource reconciliation.
 - Synchronous execution orchestration and error classification.
 - Post-apply live-state observation and deployment-specific pruning.
 - Startup recovery of interrupted Attempts.
@@ -27,6 +27,9 @@ The module MUST NOT:
 - Depend on GitOps.
 - Perform Git synchronization.
 - Implement GitOps reconciliation or drift detection.
+- Invoke Docker CLI or call Docker SDK client methods directly. All Docker API interaction goes through `internal/swarm`.
+- Construct final application service specs outside `deployer/converter`; `deployer/networks` reconciles networks and
+  `deployer/services` applies converter-produced specs.
 - Introduce its own transaction infrastructure.
 
 Deployments decides and persists terminal Attempt outcomes, owns interrupted-execution recovery, and publishes

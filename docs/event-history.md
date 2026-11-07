@@ -51,6 +51,11 @@ The table above describes public event types, not a promise that every
 signal appears in user history. `DeployFailed`, preparation failures, and interrupted attempts are internal
 deployment lifecycle facts consumed by Deployment Model and Alert Management; they are
 not public event names and are not available under `notifications.events`.
+Known terminal service convergence failures publish internal `DeployFailed` with
+`error_code=convergence_failed` and `stage=verification`; observation failures and
+verification interruptions publish `DeployInterrupted` with `verification_unknown`.
+Retry-deferred scheduler cycles publish neither event and do not increase alert
+occurrences. These remain internal facts, excluded from Event History.
 Deployment failures, node disconnections, and unresolved service drift feed Alert Management.
 Success, reconnection, and confirmed drift recovery resolve the respective open incident. New SQLite history records use the safe event codec,
 which omits raw prompts, logs and error strings.
@@ -79,6 +84,9 @@ History can be viewed via API:
     - `sort` - `time` or `severity`; enables paginated sorting
     - `order` - `asc` or `desc` (default `desc` when paging)
     - `cursor` - opaque `nextCursor` returned by the previous page
+- `GET /api/v1/events/{id}` - returns one retained event with the same fields and
+  detail semantics as the list API. It returns `404 Not Found` when the ID is
+  unknown or the event has been removed by retention.
 
 When `sort`, `order`, or `cursor` is supplied, API pagination returns at
 most 50 events by default, ordered by the requested field. If more events
@@ -86,17 +94,20 @@ exist, the response includes `nextCursor`; repeat the request with that cursor
 and the same sort and filters to fetch the next page.
 
 Existing requests without paging parameters keep the oldest-first response
-order. Overview now reads `/api/v1/deployments` instead of history.
+order. Overview reads `/api/v1/deployments` for recent deployments and uses the
+direct event endpoint to open the latest retained webhook receipt reported by
+`GET /api/v1/stacks`.
 
-Runtime history size is bounded by `eventHistory.capacity`. New projections remove
+Runtime history size is bounded by `event.history.capacity`. New projections remove
 oldest entries by publication sequence. SQLite filters and cursor queries run directly
 against the projection; source event IDs prevent duplicate projection.
 
 Config example:
 ```yaml
 # Event history configuration.
-eventHistory:
-  capacity: 500
+event:
+  history:
+    capacity: 500
 ```
 Event notifications use PascalCase event type identifiers. Synchronization failures are delivered
 through the `sync_failed` alert lifecycle instead of Event Notifications. Durable payloads intentionally

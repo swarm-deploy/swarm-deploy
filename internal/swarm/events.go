@@ -175,7 +175,7 @@ func (e *Events) watchOnce(parent context.Context, resyncReason ResyncReason) er
 				return errors.New("docker events errors channel closed")
 			}
 			if streamErr != nil {
-				return fmt.Errorf("watch docker events: %w", streamErr)
+				return fmt.Errorf("watch docker events: %w", classifyDockerError(streamErr))
 			}
 		}
 	}
@@ -185,7 +185,6 @@ func (e *Events) dispatch(ctx context.Context, event dockerevents.Message) {
 	overflow := ResyncEvent{Time: time.Now(), Reason: ResyncReasonOverflow}
 	var droppedSubscribers int
 
-	//nolint:exhaustive // the Docker stream is filtered to the resource types handled below.
 	switch event.Type {
 	case dockerevents.NodeEventType:
 		droppedSubscribers = e.nodes.publish(NodeEvent{
@@ -201,6 +200,16 @@ func (e *Events) dispatch(ctx context.Context, event dockerevents.Message) {
 			Attributes: cloneEventAttributes(event.Actor.Attributes),
 			Time:       dockerEventTime(event),
 		}, overflow)
+	case dockerevents.BuilderEventType,
+		dockerevents.ConfigEventType,
+		dockerevents.ContainerEventType,
+		dockerevents.DaemonEventType,
+		dockerevents.ImageEventType,
+		dockerevents.NetworkEventType,
+		dockerevents.PluginEventType,
+		dockerevents.ServiceEventType,
+		dockerevents.VolumeEventType:
+		return
 	default:
 		return
 	}

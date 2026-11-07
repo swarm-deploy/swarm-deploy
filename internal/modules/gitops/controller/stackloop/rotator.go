@@ -1,7 +1,6 @@
 package stackloop
 
 import (
-	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -11,6 +10,7 @@ import (
 )
 
 // Rotator rewrites config and secret names based on file contents.
+// File contents are taken from the loaded Compose definition, never from the repository working tree.
 type Rotator struct{}
 
 // NewRotator builds a compose object rotator.
@@ -20,7 +20,6 @@ func NewRotator() *Rotator {
 
 // Rotate mutates shared object names in-place when rotation is enabled.
 func (f *Rotator) Rotate(
-	_ context.Context,
 	file *compose.File,
 	stackName string,
 	hashLength int,
@@ -44,7 +43,7 @@ func (f *Rotator) Rotate(
 		stackName,
 		hashLength,
 		includePath,
-		func(config *compose.Config) (string, bool, []byte) { return config.File, config.External, config.Data },
+		func(config *compose.Config) (string, []byte, bool) { return config.File, config.Data, config.External },
 		func(config *compose.Config, name, objectName string) {
 			config.Name = name
 			config.Labels.Add(labelsdict.RotatedResourceManagedLabelKey, labelsdict.RotatedResourceManagedLabelValue)
@@ -60,7 +59,7 @@ func (f *Rotator) Rotate(
 		stackName,
 		hashLength,
 		includePath,
-		func(secret *compose.Secret) (string, bool, []byte) { return secret.File, secret.External, secret.Data },
+		func(secret *compose.Secret) (string, []byte, bool) { return secret.File, secret.Data, secret.External },
 		func(secret *compose.Secret, name, objectName string) {
 			secret.Name = name
 			secret.Labels.Add(labelsdict.RotatedResourceManagedLabelKey, labelsdict.RotatedResourceManagedLabelValue)
@@ -79,12 +78,12 @@ func applyObjectTypeRotation[T any, Objects ~map[string]*T](
 	stackName string,
 	hashLength int,
 	includePath bool,
-	properties func(*T) (file string, external bool, content []byte),
+	properties func(*T) (file string, data []byte, external bool),
 	apply func(*T, string, string),
 ) (bool, error) {
 	changed := false
 	for objectName, object := range objects {
-		objectFile, external, fileBytes := properties(object)
+		objectFile, fileBytes, external := properties(object)
 		if external {
 			continue
 		}
@@ -94,7 +93,7 @@ func applyObjectTypeRotation[T any, Objects ~map[string]*T](
 		}
 
 		if fileBytes == nil {
-			return false, fmt.Errorf("file %s was not loaded for rotation", objectFile)
+			return false, fmt.Errorf("content of %s for rotation was not loaded", objectFile)
 		}
 
 		rotatedName := f.buildRotatedObjectName(stackName, objectName, objectFile, fileBytes, hashLength, includePath)
@@ -111,17 +110,15 @@ func applyObjectTypeRotation[T any, Objects ~map[string]*T](
 
 // DesiredResourceNames resolves current rotated Docker names keyed by logical compose object name.
 func (f *Rotator) DesiredResourceNames(
-	_ context.Context,
 	file *compose.File,
 	stackName string,
 	hashLength int,
 	includePath bool,
 ) (map[string]string, map[string]string, error) {
-
 	configs, err := resolveDesiredResourceNames(
 		f, file.Compose.Configs, stackName, hashLength, includePath,
-		func(config *compose.Config) (string, string, bool, compose.Labels, []byte) {
-			return config.Name, config.File, config.External, config.Labels, config.Data
+		func(config *compose.Config) (string, string, []byte, bool, compose.Labels) {
+			return config.Name, config.File, config.Data, config.External, config.Labels
 		},
 	)
 	if err != nil {
@@ -129,8 +126,8 @@ func (f *Rotator) DesiredResourceNames(
 	}
 	secrets, err := resolveDesiredResourceNames(
 		f, file.Compose.Secrets, stackName, hashLength, includePath,
-		func(secret *compose.Secret) (string, string, bool, compose.Labels, []byte) {
-			return secret.Name, secret.File, secret.External, secret.Labels, secret.Data
+		func(secret *compose.Secret) (string, string, []byte, bool, compose.Labels) {
+			return secret.Name, secret.File, secret.Data, secret.External, secret.Labels
 		},
 	)
 	if err != nil {
@@ -146,11 +143,11 @@ func resolveDesiredResourceNames[T any, Objects ~map[string]*T](
 	stackName string,
 	hashLength int,
 	includePath bool,
-	properties func(*T) (name string, file string, external bool, labels compose.Labels, content []byte),
+	properties func(*T) (name string, file string, data []byte, external bool, labels compose.Labels),
 ) (map[string]string, error) {
 	resolved := make(map[string]string)
 	for objectName, object := range objects {
-		name, objectFile, external, labels, fileBytes := properties(object)
+		name, objectFile, fileBytes, external, labels := properties(object)
 		if external || objectFile == "" {
 			continue
 		}
@@ -160,7 +157,7 @@ func resolveDesiredResourceNames[T any, Objects ~map[string]*T](
 		}
 
 		if fileBytes == nil {
-			return nil, fmt.Errorf("file %s was not loaded for rotation", objectFile)
+			return nil, fmt.Errorf("content of %s for rotation was not loaded", objectFile)
 		}
 
 		resolved[objectName] = rotator.buildRotatedObjectName(

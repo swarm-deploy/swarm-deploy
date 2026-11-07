@@ -67,7 +67,9 @@ func TestAnalyzerReplicaDriftPolicy(t *testing.T) {
 	one, three := uint64(1), uint64(3)
 	tests := []struct {
 		name      string
+		mode      string
 		policy    string
+		managed   string
 		selfHeal  string
 		missing   bool
 		wantDrift bool
@@ -79,6 +81,15 @@ func TestAnalyzerReplicaDriftPolicy(t *testing.T) {
 		{name: "disabled boolean alias", policy: "off"},
 		{name: "missing still detected", policy: "false", missing: true, wantDrift: true},
 		{name: "self heal disabled still detects", selfHeal: "false", wantDrift: true},
+		{name: "external replicas", managed: "false"},
+		{name: "explicit replicated external", mode: "replicated", managed: "false"},
+		{name: "global external rejected", mode: "global", managed: "false", wantErr: true},
+		{name: "global external missing rejected", mode: "global", managed: "false", missing: true, wantErr: true},
+		{name: "external overrides enabled drift", managed: "off", policy: "true"},
+		{name: "managed replicas default drift", managed: "true", wantDrift: true},
+		{name: "managed replicas disabled drift", managed: "true", policy: "false"},
+		{name: "external missing detected", managed: "false", missing: true, wantDrift: true},
+		{name: "invalid ownership policy", managed: "maybe", wantErr: true},
 		{name: "invalid replica policy", policy: "sometimes", wantErr: true},
 		{name: "invalid replica policy on missing service", policy: "sometimes", missing: true, wantErr: true},
 	}
@@ -87,6 +98,9 @@ func TestAnalyzerReplicaDriftPolicy(t *testing.T) {
 			labels := map[string]string{}
 			if tt.policy != "" {
 				labels[labelsdict.ServiceSyncPolicySelfHealReplicasLabelKey] = tt.policy
+			}
+			if tt.managed != "" {
+				labels[labelsdict.ServiceSyncPolicyReplicasManagedLabelKey] = tt.managed
 			}
 			if tt.selfHeal != "" {
 				labels[labelsdict.ServiceSyncPolicySelfHealLabelKey] = tt.selfHeal
@@ -97,7 +111,7 @@ func TestAnalyzerReplicaDriftPolicy(t *testing.T) {
 			}
 			resp, err := NewAnalyzer().Analyze(AnalyzeRequest{
 				Desired: compose.File{Compose: compose.Compose{Services: compose.Services{{Name: "worker", Deploy: compose.ServiceDeploy{
-					Replicas: &three, Labels: *compose.NewLabels(labels),
+					Mode: tt.mode, Replicas: &three, Labels: *compose.NewLabels(labels),
 				}}}}}, Live: live,
 			})
 			if tt.wantErr {

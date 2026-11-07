@@ -2,10 +2,13 @@ package deployments
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/services"
 	deploymentmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/model"
 	deploymentstore "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
@@ -24,6 +27,8 @@ const (
 	CompletionPolicyRejected CompletionOutcome = "policy_rejected"
 	// CompletionInitJobFailed records an Init Job failure before stack apply.
 	CompletionInitJobFailed CompletionOutcome = "init_failed"
+	// CompletionConvergenceFailed records a known terminal service update failure.
+	CompletionConvergenceFailed CompletionOutcome = "convergence_failed"
 	// CompletionVerificationInterrupted records an unknown verification outcome.
 	CompletionVerificationInterrupted CompletionOutcome = "verification_interrupted"
 	// CompletionCleanupFailed records cleanup failure after observing live state.
@@ -34,25 +39,31 @@ const (
 
 // Completion describes the terminal outcome selected by a deployment orchestrator.
 type Completion struct {
+	// Verification contains the rollout obligations known at completion.
+	Verification deploymentmodel.Verification
 	// Outcome identifies the terminal transition.
 	Outcome CompletionOutcome
 	// Diagnostic contains optional technical context and is sanitized before persistence or publication.
 	Diagnostic error
+	// Retryable explicitly permits automatic retry of an apply failure before DeployStack is invoked.
+	Retryable bool
 	// ObservedAt records when post-apply Swarm state was read successfully.
 	ObservedAt *time.Time
 }
 
 type completionState struct {
-	status       deploymentmodel.Status
-	errorCode    string
-	diagnostic   error
-	phase        deploymentmodel.Phase
-	apply        deploymentmodel.StageStatus
-	verification deploymentmodel.StageStatus
-	cleanup      deploymentmodel.StageStatus
-	actual       deploymentmodel.ActualStateStatus
-	observedAt   *time.Time
-	eventStage   string
+	rolloutVerification deploymentmodel.Verification
+	status              deploymentmodel.Status
+	errorCode           string
+	diagnostic          error
+	retryable           bool
+	phase               deploymentmodel.Phase
+	apply               deploymentmodel.StageStatus
+	verification        deploymentmodel.StageStatus
+	cleanup             deploymentmodel.StageStatus
+	actual              deploymentmodel.ActualStateStatus
+	observedAt          *time.Time
+	eventStage          string
 }
 
 // Complete persists one terminal attempt transition, updates the successful baseline when applicable,
@@ -97,9 +108,31 @@ func (s *Service) complete(
 	finishedAt := s.now().UTC()
 	attempt.Status, attempt.FinishedAt, attempt.ErrorCode = state.status, &finishedAt, state.errorCode
 	attempt.ErrorDiagnostic = faults.SafeDiagnostic(state.diagnostic)
+	attempt.Retryable = state.retryable
 	attempt.Phase, attempt.ApplyStatus = state.phase, state.apply
 	attempt.VerificationStatus, attempt.CleanupStatus = state.verification, state.cleanup
 	attempt.ActualStateStatus, attempt.ObservedAt = state.actual, state.observedAt
+	if state.status == deploymentmodel.Succeeded {
+		deployment.Verification = deploymentmodel.Verification{Known: true}
+	} else {
+		stateInheritedServices := deployment.Verification.UnresolvedServices
+		unresolved := state.rolloutVerification.UnresolvedServices
+		if !state.rolloutVerification.Known {
+			unresolved = desiredServiceNames(desired)
+		}
+		deployment.Verification.Known = true
+		deployment.Verification.UnresolvedServices = slices.Clone(unresolved)
+		if state.phase == deploymentmodel.PhaseApply {
+			deployment.Verification.UnresolvedServices = append(
+				deployment.Verification.UnresolvedServices, stateInheritedServices...,
+			)
+		}
+		slices.Sort(deployment.Verification.UnresolvedServices)
+		deployment.Verification.UnresolvedServices = slices.Compact(deployment.Verification.UnresolvedServices)
+		deployment.Verification.Generations = unresolvedGenerations(
+			deployment.Verification, deployment.Verification.UnresolvedServices,
+		)
+	}
 	if err = s.store.FinishAttempt(ctx, deployment, attempt); err != nil {
 		return err
 	}
@@ -113,9 +146,24 @@ func (s *Service) complete(
 
 func (completion Completion) state() (completionState, error) {
 	state := completionState{
-		errorCode:  completion.ErrorCode(),
-		diagnostic: faults.SafeError(completion.Diagnostic),
-		observedAt: completion.ObservedAt,
+		rolloutVerification: completion.rolloutObligations(),
+		errorCode:           completion.ErrorCode(),
+		diagnostic:          faults.SafeError(completion.Diagnostic),
+		observedAt:          completion.ObservedAt,
+	}
+	// Persist retry eligibility without changing the stable public failure codes.
+	switch completion.Outcome {
+	case CompletionVerificationInterrupted, CompletionProcessInterrupted:
+		state.retryable = true
+	case CompletionApplyFailed, CompletionInitJobFailed, CompletionCleanupFailed:
+		var temporary faults.Error
+		// An update deferred only by active external tasks succeeds once they finish.
+		state.retryable = (completion.Outcome == CompletionApplyFailed && completion.Retryable) ||
+			errors.Is(completion.Diagnostic, context.DeadlineExceeded) ||
+			errors.Is(completion.Diagnostic, services.ErrUpdateDeferred) ||
+			(errors.As(completion.Diagnostic, &temporary) && temporary.Temporary())
+	case CompletionSucceeded, CompletionPolicyRejected, CompletionConvergenceFailed:
+		// These outcomes never trigger an automatic retry.
 	}
 	switch completion.Outcome {
 	case CompletionSucceeded:
@@ -137,13 +185,16 @@ func (completion Completion) state() (completionState, error) {
 		state.apply, state.verification = deploymentmodel.StageFailed, deploymentmodel.StageSkipped
 		state.cleanup, state.actual = deploymentmodel.StageSkipped, deploymentmodel.ActualStateUnknown
 		state.eventStage = string(state.phase)
-	case CompletionVerificationInterrupted:
+	case CompletionConvergenceFailed, CompletionVerificationInterrupted:
 		if completion.ObservedAt != nil {
-			return completionState{}, fmt.Errorf("verification interruption cannot contain an observation timestamp")
+			return completionState{}, fmt.Errorf("verification failure cannot contain an observation timestamp")
 		}
 		state.status, state.phase = deploymentmodel.Interrupted, deploymentmodel.PhaseVerification
 		state.apply, state.verification = deploymentmodel.StageSucceeded, deploymentmodel.StageUnknown
 		state.cleanup, state.actual = deploymentmodel.StageSkipped, deploymentmodel.ActualStateUnknown
+		if completion.Outcome == CompletionConvergenceFailed {
+			state.status, state.verification = deploymentmodel.Failed, deploymentmodel.StageFailed
+		}
 		state.eventStage = string(state.phase)
 	case CompletionCleanupFailed:
 		if completion.ObservedAt == nil {
@@ -177,6 +228,8 @@ func (completion Completion) ErrorCode() string {
 		return "policy_rejected"
 	case CompletionInitJobFailed:
 		return "init_failed"
+	case CompletionConvergenceFailed:
+		return "convergence_failed"
 	case CompletionVerificationInterrupted:
 		return "verification_unknown"
 	case CompletionCleanupFailed:
@@ -217,4 +270,14 @@ func (s *Service) publishCompletion(
 	default:
 		return fmt.Errorf("unsupported completion status %q", state.status)
 	}
+}
+
+func (completion Completion) rolloutObligations() deploymentmodel.Verification {
+	// A failed pre-apply check has not created a new failed service generation.
+	// Keep inherited obligations, but do not require replacement of healthy tasks.
+	if !completion.Verification.Known &&
+		(completion.Outcome == CompletionInitJobFailed || completion.Outcome == CompletionPolicyRejected) {
+		return deploymentmodel.Verification{Known: true}
+	}
+	return completion.Verification
 }

@@ -1,10 +1,15 @@
 package swarm
 
 import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	dockernetwork "github.com/docker/docker/api/types/network"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel/trace"
 )
 
 func TestNetworkManagerMapNetworkMapsFields(t *testing.T) {
@@ -86,6 +91,49 @@ func TestMatchesNetworkListFilter(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			assert.Equal(t, tt.expected, matchesNetworkListFilter(Network{Stack: tt.stack}, tt.filter))
+		})
+	}
+}
+
+func TestNetworkGetPreservesRequestedScope(t *testing.T) {
+	for _, tc := range []struct {
+		name, network, scope, wantID string
+		traced                       bool
+	}{
+		{name: "unscoped host retains local identity", network: "host", wantID: "local-host-id"},
+		{name: "scoped host resolves Swarm identity", network: "host", scope: "swarm", wantID: "swarm-host-id"},
+		{name: "traced lookup forwards scope", network: "host", scope: "swarm", wantID: "swarm-host-id", traced: true},
+		{name: "ordinary Swarm network keeps exact identity", network: "demo_backend", wantID: "overlay-id"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				assert.Equal(t, "/v1.48/networks/"+tc.network, r.URL.Path)
+				assert.Equal(t, tc.scope, r.URL.Query().Get("scope"))
+				network := dockernetwork.Inspect{ID: "overlay-id", Name: tc.network, Scope: "swarm", Driver: "overlay"}
+				if tc.network == "host" {
+					network.ID, network.Scope, network.Driver = "local-host-id", "local", "host"
+					if r.URL.Query().Get("scope") == "swarm" {
+						network.ID, network.Scope = "swarm-host-id", "swarm"
+					}
+				}
+				w.Header().Set("Content-Type", "application/json")
+				assert.NoError(t, json.NewEncoder(w).Encode(network))
+			}))
+			defer server.Close()
+			docker := newTestDockerClient(t, server)
+			t.Cleanup(func() { assert.NoError(t, docker.Close()) })
+			manager := newNetworkManager(docker)
+			if tc.traced {
+				manager = traceNetworkManager(trace.NewNoopTracerProvider().Tracer("test"), manager)
+			}
+			var options []dockernetwork.InspectOptions
+			if tc.scope != "" {
+				options = []dockernetwork.InspectOptions{{Scope: tc.scope}}
+			}
+			actual, err := manager.Get(t.Context(), tc.network, options...)
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantID, actual.ID)
+			assert.Equal(t, tc.network, actual.Name)
 		})
 	}
 }

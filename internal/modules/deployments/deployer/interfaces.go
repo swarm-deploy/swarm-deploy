@@ -11,13 +11,17 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/initjob"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/resources"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/secrets"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/stack"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/waiter"
+	deploymentmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 
 // Result contains observable results produced while deploying one stack.
 type Result struct {
+	// SpecificationOnlyServices were verified for spec acceptance without checking task health.
+	SpecificationOnlyServices []string
+	// Verification contains the known rollout obligations produced by execution.
+	Verification deploymentmodel.Verification
 	// InitJobs contains completed Init Job executions in execution order.
 	InitJobs []InitJobResult
 }
@@ -35,10 +39,10 @@ type (
 	SecretResolver          = secrets.SecretResolver
 	PlaintextDecoder        = secrets.PlaintextDecoder
 	AgeDecoder              = secrets.AgeDecoder
-	Runner                  = stack.Runner
 	ServiceState            = waiter.ServiceState
 	ServiceProgress         = waiter.ServiceProgress
 	ServiceProgressCallback = waiter.ServiceProgressCallback
+	ServiceWaitResult       = waiter.ServiceWaitResult
 	ServiceWaitRequest      = waiter.ServiceWaitRequest
 	ServiceWaiter           = waiter.ServiceWaiter
 )
@@ -70,27 +74,57 @@ func NewInitJobRunner(
 
 func NewServiceWaiter(
 	services swarm.ServiceManager,
+	nodes swarm.NodeManager,
 	pollInterval time.Duration,
 	timeout time.Duration,
 ) *ServiceWaiter {
-	return waiter.NewServiceWaiter(services, pollInterval, timeout)
+	return waiter.NewServiceWaiter(services, nodes, pollInterval, timeout)
 }
 
-// StackDeployer reconciles one stack via deploy command execution.
+// StackOptions controls recovery during a deployment retry.
+type StackOptions struct {
+	// UnresolvedServices carries prior desired-state failures requiring verification.
+	UnresolvedServices []string
+	// UpdateGenerations carries durable boundaries from interrupted verification.
+	UpdateGenerations map[string]deploymentmodel.UpdateGeneration
+	// RetryFailedUpdates restarts terminal failed updates only when replicas are managed.
+	RetryFailedUpdates bool
+}
+
+// StackRequest contains the effective stack and resource-resolution inputs.
+type StackRequest struct {
+	// StackName identifies the Docker stack namespace.
+	StackName string
+	// SourceComposePath is the original Compose path used to resolve resource files.
+	SourceComposePath string
+	// Desired is the prepared in-memory definition to apply.
+	Desired compose.Compose
+	// Options controls recovery of previous failed updates.
+	Options StackOptions
+	// BeforeUpdate optionally records a service generation durably before Docker apply.
+	BeforeUpdate func(context.Context, string, deploymentmodel.UpdateGeneration) (func(context.Context) error, error)
+}
+
+// ServiceRequest contains one service remediation without stack-wide Init Jobs or pruning.
+type ServiceRequest struct {
+	// VerifyOnly observes convergence without reconciling resources or applying services.
+	VerifyOnly bool
+	// StackName identifies the Docker stack namespace.
+	StackName string
+	// SourceComposePath is the original Compose path used to resolve resource files.
+	SourceComposePath string
+	// ServiceName is the Compose service name without the stack prefix.
+	ServiceName string
+	// Desired is the prepared in-memory stack containing the service.
+	Desired compose.Compose
+}
+
+// StackDeployer reconciles prepared desired state through native Docker API execution.
 type StackDeployer interface {
-	// DeployStack reconciles loaded resources and runs init jobs before it and applies deployComposePath.
-	DeployStack(
-		ctx context.Context,
-		stackName,
-		deployComposePath string,
-		desired compose.Compose,
-	) (Result, error)
-	// DeployService reconciles resources and applies one service without pruning the rest of the stack.
-	DeployService(
-		ctx context.Context,
-		stackName,
-		serviceName string,
-		desired,
-		deploy compose.Compose,
-	) (Result, error)
+	// DeployStack reconciles resources, runs Init Jobs, applies services and verifies convergence.
+	DeployStack(ctx context.Context, request StackRequest) (Result, error)
+	// DeployService reconciles resources and applies one service without Init Jobs or pruning.
+	DeployService(ctx context.Context, request ServiceRequest) (Result, error)
+	// RefreshRegistryAuth maintains existing matching services without deploying desired state or running Init Jobs.
+	RefreshRegistryAuth(ctx context.Context, request StackRequest) error
 }

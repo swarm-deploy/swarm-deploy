@@ -5,13 +5,16 @@ import (
 	"time"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
-	stackpkg "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/stack"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/converter"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/services"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 
 type applyPayload struct {
-	deadline time.Time
-	baseline []swarm.StackService
+	deadline          time.Time
+	baseline          []swarm.StackService
+	changed           []string
+	updateGenerations map[string]services.UpdateGeneration
 }
 
 func (p *applyPayload) stageContext(ctx context.Context) (context.Context, context.CancelFunc) {
@@ -20,26 +23,26 @@ func (p *applyPayload) stageContext(ctx context.Context) (context.Context, conte
 
 type deployStackPayload struct {
 	applyPayload
-	stackName         string
-	deployComposePath string
-	desired           compose.Compose
-	resolved          resolvedResources
-	result            Result
+	stackName          string
+	sourceComposePath  string
+	desired            compose.Compose
+	converted          *converter.StackSpec
+	resolved           resolvedResources
+	result             Result
+	retryFailedUpdates bool
+	unresolvedServices []string
+	beforeUpdate       func(context.Context, string, services.UpdateGeneration) (func(context.Context) error, error)
 }
 
 type deployServicePayload struct {
 	applyPayload
-	stackName   string
-	serviceName string
-	desired     compose.Compose
-	deploy      compose.Compose
-	prepared    *stackpkg.PreparedService
-	resolved    resolvedResources
-	result      Result
-}
-
-func (p *deployServicePayload) cleanup() {
-	if p.prepared != nil {
-		p.prepared.Cleanup()
-	}
+	verifyOnly        bool
+	stackName         string
+	sourceComposePath string
+	serviceName       string
+	desired           compose.Compose
+	prepared          compose.Compose
+	converted         *converter.StackSpec
+	resolved          resolvedResources
+	result            Result
 }

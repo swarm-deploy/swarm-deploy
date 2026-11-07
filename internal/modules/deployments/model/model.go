@@ -201,6 +201,8 @@ type Attempt struct {
 	ErrorCode string `json:"error_code,omitempty"`
 	// ErrorDiagnostic is bounded and secret-masked before persistence.
 	ErrorDiagnostic string `json:"error_diagnostic,omitempty"`
+	// Retryable is an internal persisted classification; it is not a public API field.
+	Retryable bool `json:"-"`
 	// Phase identifies the stage responsible for the current outcome.
 	Phase Phase `json:"phase"`
 	// ApplyStatus reports Docker apply independently from later stages.
@@ -219,6 +221,8 @@ type Attempt struct {
 
 // Deployment is one immutable effective desired state with zero or more persisted execution attempts.
 type Deployment struct {
+	// Verification retains rollout obligations across desired-state deployments.
+	Verification Verification `json:"-"`
 	// ID uniquely identifies this desired state; retries reuse it.
 	ID string `json:"id"`
 	// Stack identifies the deployment target.
@@ -235,6 +239,8 @@ type Deployment struct {
 	ErrorCode string `json:"error_code,omitempty"`
 	// ErrorDiagnostic is bounded and secret-masked before persistence.
 	ErrorDiagnostic string `json:"error_diagnostic,omitempty"`
+	// Retryable is an internal persisted classification; it is not a public API field.
+	Retryable bool `json:"-"`
 	// Phase identifies the stage responsible for the current outcome.
 	Phase Phase `json:"phase"`
 	// ApplyStatus reports Docker apply independently from later stages.

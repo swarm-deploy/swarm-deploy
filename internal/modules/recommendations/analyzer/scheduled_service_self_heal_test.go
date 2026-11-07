@@ -22,18 +22,28 @@ func TestScheduledServiceSelfHealAnalyzer(t *testing.T) {
 		global        bool
 		stack         string
 		service       string
+		managed       string
 		cron          string
 		mode          string
 		want          int
+		wantSelfHeal  bool
 	}{
-		{name: "global enabled", global: true, cron: "true", want: 1},
-		{name: "global disabled", cron: "true"},
-		{name: "stack disables global", global: true, stack: "false", cron: "true"},
-		{name: "stack enables global", stack: "true", cron: "true", want: 1},
-		{name: "service enables over disabled stack", stack: "false", service: "true", cron: "true", want: 1},
-		{name: "service disables over enabled stack", global: true, stack: "true", service: "false", cron: "true"},
-		{name: "service disables global", global: true, service: "off", cron: "true"},
-		{name: "service enables global", service: "yes", cron: "true", want: 1},
+		{name: "replicated scheduled service", global: true, mode: "replicated", cron: "true", want: 1, wantSelfHeal: true},
+		{name: "global scheduled service self heal enabled", global: true, mode: "global", cron: "true", want: 1, wantSelfHeal: true},
+		{name: "global scheduled service self heal disabled", mode: "global", cron: "true"},
+		{name: "global scheduled service explicit managed", global: true, mode: "global", managed: "true", cron: "true", want: 1, wantSelfHeal: true},
+		{name: "replicas disabled only", global: true, managed: "false", cron: "true", want: 1, wantSelfHeal: true},
+		{name: "both disabled", global: true, service: "false", managed: "false", cron: "true"},
+		{name: "effective self heal disabled and replicas disabled", managed: "off", cron: "true"},
+		{name: "explicit managed", service: "false", managed: "true", cron: "true", want: 1},
+		{name: "global enabled", global: true, cron: "true", want: 1, wantSelfHeal: true},
+		{name: "global disabled", cron: "true", want: 1},
+		{name: "stack disables global", global: true, stack: "false", cron: "true", want: 1},
+		{name: "stack enables global", stack: "true", cron: "true", want: 1, wantSelfHeal: true},
+		{name: "service enables over disabled stack", stack: "false", service: "true", cron: "true", want: 1, wantSelfHeal: true},
+		{name: "service disables over enabled stack", global: true, stack: "true", service: "false", cron: "true", want: 1},
+		{name: "service disables global", global: true, service: "off", cron: "true", want: 1},
+		{name: "service enables global", service: "yes", cron: "true", want: 1, wantSelfHeal: true},
 		{name: "cron disabled", global: true, cron: "false"},
 		{name: "ordinary service", global: true},
 		{name: "native replicated job", global: true, mode: "replicated-job"},
@@ -44,8 +54,10 @@ func TestScheduledServiceSelfHealAnalyzer(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := &config.Config{Spec: config.Spec{
-				Sync:         config.SyncSpec{Policy: config.SyncPolicySpec{SelfHeal: tt.global}},
-				StacksSource: config.StacksSourceSpec{File: "stacks.yaml"},
+				GitOps: config.GitOpsSpec{
+					Sync:   config.SyncSpec{Policy: config.SyncPolicySpec{SelfHeal: tt.global}},
+					Stacks: config.StacksSourceSpec{File: "stacks.yaml"},
+				},
 			}}
 			reloadRecommendationPolicy(t, cfg, t.TempDir(), tt.stack)
 			labels := map[string]string{}
@@ -54,6 +66,9 @@ func TestScheduledServiceSelfHealAnalyzer(t *testing.T) {
 			}
 			if tt.service != "" {
 				labels[labelsdict.ServiceSyncPolicySelfHealLabelKey] = tt.service
+			}
+			if tt.managed != "" {
+				labels[labelsdict.ServiceSyncPolicyReplicasManagedLabelKey] = tt.managed
 			}
 			containerLabels := map[string]string{}
 			if tt.containerCron {
@@ -78,20 +93,31 @@ func TestScheduledServiceSelfHealAnalyzer(t *testing.T) {
 			assert.Equal(t, now, recs[0].CreatedAt)
 			assert.Equal(t, "Disable self-healing for scheduled service", recs[0].Title)
 			assert.Contains(t, recs[0].Recommendation, "Automatic self-healing may interfere")
-			assert.Contains(t, recs[0].Recommendation, labelsdict.ServiceSyncPolicySelfHealLabelKey)
+			if tt.wantSelfHeal {
+				assert.Contains(t, recs[0].Recommendation, labelsdict.ServiceSyncPolicySelfHealLabelKey+`: "false"`)
+			} else {
+				assert.NotContains(t, recs[0].Recommendation, labelsdict.ServiceSyncPolicySelfHealLabelKey+`: "false"`)
+			}
+			if tt.managed == "false" || tt.mode == "global" {
+				assert.NotContains(t, recs[0].Recommendation, labelsdict.ServiceSyncPolicyReplicasManagedLabelKey)
+			} else {
+				assert.Contains(t, recs[0].Recommendation, labelsdict.ServiceSyncPolicyReplicasManagedLabelKey)
+			}
 		})
 	}
 }
 
 func TestScheduledServiceSelfHealAnalyzerUsesCurrentConfiguration(t *testing.T) {
 	cfg := &config.Config{Spec: config.Spec{
-		Sync:         config.SyncSpec{Policy: config.SyncPolicySpec{SelfHeal: true}},
-		StacksSource: config.StacksSourceSpec{File: "stacks.yaml"},
+		GitOps: config.GitOpsSpec{
+			Sync:   config.SyncSpec{Policy: config.SyncPolicySpec{SelfHeal: true}},
+			Stacks: config.StacksSourceSpec{File: "stacks.yaml"},
+		},
 	}}
 	dir := t.TempDir()
 	analyzer := NewScheduledServiceSelfHealAnalyzer(cfg)
 	stack := recommendationTestStack(compose.Service{Name: "worker", Deploy: compose.ServiceDeploy{
-		Labels: *compose.NewLabels(map[string]string{swarmCronjobEnableLabel: "true"}),
+		Labels: *compose.NewLabels(map[string]string{swarmCronjobEnableLabel: "true", labelsdict.ServiceSyncPolicyReplicasManagedLabelKey: "false"}),
 	}})
 	for _, policy := range []string{"false", "true", "false"} {
 		reloadRecommendationPolicy(t, cfg, dir, policy)
@@ -99,7 +125,7 @@ func TestScheduledServiceSelfHealAnalyzerUsesCurrentConfiguration(t *testing.T) 
 	}
 	reloadRecommendationPolicy(t, cfg, dir, "")
 	require.Len(t, analyzer.Analyze(t.Context(), stack), 1)
-	cfg.Spec.Sync.Policy.SelfHeal = false
+	cfg.Spec.GitOps.Sync.Policy.SelfHeal = false
 	assert.Empty(t, analyzer.Analyze(t.Context(), stack))
 }
 

@@ -20,6 +20,7 @@ func TestLoadWithStacksFile(t *testing.T) {
 stacks:
   - name: app
     composeFile: app/docker-compose.yml
+    extra: ignored
     sync:
       policy:
         selfHeal: false
@@ -32,12 +33,13 @@ stacks:
 
 	configPath := filepath.Join(dir, "swarm-deploy.yaml")
 	configPayload := []byte(`
-git:
-  repository: https://example.com/repo.git
-sync:
-  mode: pull
-stacks:
-  file: ./stacks.yaml
+gitops:
+  git:
+    repository: https://example.com/repo.git
+  sync:
+    mode: pull
+  stacks:
+    file: ./stacks.yaml
 `)
 	if err := os.WriteFile(configPath, configPayload, 0o600); err != nil {
 		require.NoError(t, err, "write config file")
@@ -60,22 +62,24 @@ func TestLoadAgeIdentityIndependentlyOfRotation(t *testing.T) {
 			identityPath := filepath.Join(dir, "identity")
 			require.NoError(t, os.WriteFile(identityPath, []byte("private-identity-marker"), 0o600))
 			path := filepath.Join(dir, "swarm-deploy.yaml")
-			require.NoError(t, os.WriteFile(path, fmt.Appendf(nil, `git:
-  repository: https://example.com/repo.git
-sync:
-  mode: pull
-stacks:
-  file: ./stacks.yaml
-secretRotation:
-  enabled: %t
-  age:
-    identityFile: %s
+			require.NoError(t, os.WriteFile(path, fmt.Appendf(nil, `gitops:
+  git:
+    repository: https://example.com/repo.git
+  sync:
+    mode: pull
+  stacks:
+    file: ./stacks.yaml
+  resourceRotation:
+    enabled: %t
+  secrets:
+    age:
+      identityFile: %s
 `, enabled, identityPath), 0o600))
 			cfg, err := Load(path)
 			require.NoError(t, err)
-			assert.Equal(t, enabled, cfg.Spec.SecretRotation.Enabled)
-			assert.Equal(t, identityPath, cfg.Spec.SecretRotation.Age.IdentityFile.Path)
-			assert.Equal(t, []byte("private-identity-marker"), cfg.Spec.SecretRotation.Age.IdentityFile.Content)
+			assert.Equal(t, enabled, cfg.Spec.GitOps.ResourceRotation.Enabled)
+			assert.Equal(t, identityPath, cfg.Spec.GitOps.Secrets.Age.IdentityFile.Path)
+			assert.Equal(t, []byte("private-identity-marker"), cfg.Spec.GitOps.Secrets.Age.IdentityFile.Content)
 		})
 	}
 }
@@ -93,18 +97,19 @@ stacks:
 
 	configPath := filepath.Join(dir, "swarm-deploy.yaml")
 	configPayload := []byte(`
-git:
-  repository: https://example.com/repo.git
-sync:
-  mode: pull
-stacks:
-  file: ./stacks.yaml
+gitops:
+  git:
+    repository: https://example.com/repo.git
+  sync:
+    mode: pull
+  stacks:
+    file: ./stacks.yaml
 `)
 	require.NoError(t, os.WriteFile(configPath, configPayload, 0o600), "write config file")
 
 	cfg, err := Load(configPath)
 	require.NoError(t, err, "load config")
-	assert.Equal(t, time.Minute, cfg.Spec.Sync.Interval.Value, "expected default sync interval")
+	assert.Equal(t, time.Minute, cfg.Spec.GitOps.Sync.Interval.Value, "expected default sync interval")
 }
 
 func TestLoadUsesSyncIntervalFromConfig(t *testing.T) {
@@ -120,46 +125,101 @@ stacks:
 
 	configPath := filepath.Join(dir, "swarm-deploy.yaml")
 	configPayload := []byte(`
-git:
-  repository: https://example.com/repo.git
-sync:
-  mode: pull
-  interval: 15s
-stacks:
-  file: ./stacks.yaml
+gitops:
+  git:
+    repository: https://example.com/repo.git
+  sync:
+    mode: pull
+    interval: 15s
+  stacks:
+    file: ./stacks.yaml
 `)
 	require.NoError(t, os.WriteFile(configPath, configPayload, 0o600), "write config file")
 
 	cfg, err := Load(configPath)
 	require.NoError(t, err, "load config")
-	assert.Equal(t, 15*time.Second, cfg.Spec.Sync.Interval.Value, "expected configured sync interval")
+	assert.Equal(t, 15*time.Second, cfg.Spec.GitOps.Sync.Interval.Value, "expected configured sync interval")
+}
+
+func TestLoadGitPullTimeout(t *testing.T) {
+	tests := []struct {
+		name     string
+		value    string
+		expected time.Duration
+	}{
+		{name: "default", expected: 2 * time.Minute},
+		{name: "configured", value: "      timeout: 45s\n", expected: 45 * time.Second},
+		{name: "zero uses default", value: "      timeout: 0s\n", expected: 2 * time.Minute},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			require.NoError(t, os.WriteFile(filepath.Join(dir, "stacks.yaml"), []byte("stacks: []\n"), 0o600))
+			path := filepath.Join(dir, "swarm-deploy.yaml")
+			data := "gitops:\n  git:\n    repository: https://example.com/repo.git\n" +
+				"    pull:\n" + tt.value + "  stacks:\n    file: ./stacks.yaml\n"
+			require.NoError(t, os.WriteFile(path, []byte(data), 0o600))
+			cfg, err := Load(path)
+			require.NoError(t, err)
+			assert.Equal(t, tt.expected, cfg.Spec.GitOps.Git.Pull.Timeout.Value)
+		})
+	}
+}
+
+func TestLoadSyncParallelism(t *testing.T) {
+	tests := []struct {
+		name     string
+		sync     string
+		expected int
+	}{
+		{name: "default", sync: "    mode: pull\n", expected: 1},
+		{name: "configured", sync: "    mode: pull\n    parallelism: 2\n", expected: 2},
+		{name: "zero uses default", sync: "    mode: pull\n    parallelism: 0\n", expected: 1},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			require.NoError(t, os.WriteFile(filepath.Join(dir, "stacks.yaml"), []byte("stacks: []\n"), 0o600))
+			configPath := filepath.Join(dir, "swarm-deploy.yaml")
+			configPayload := "gitops:\n  git:\n    repository: https://example.com/repo.git\n  sync:\n" + tt.sync +
+				"  stacks:\n    file: ./stacks.yaml\n"
+			require.NoError(t, os.WriteFile(configPath, []byte(configPayload), 0o600))
+
+			cfg, err := Load(configPath)
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.expected, cfg.Spec.GitOps.Sync.Parallelism)
+		})
+	}
 }
 
 func TestLoadImagePolicy(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "stacks.yaml"), []byte("stacks: []\n"), 0o600))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "swarm-deploy.yaml"), []byte(`
-git:
-  repository: https://example.com/repo.git
-sync:
-  mode: pull
-  policy:
-    selfHeal: true
-    image:
-      tag:
-        required: true
-        no_latest: true
-        only_sha: true
-stacks:
-  file: ./stacks.yaml
+gitops:
+  git:
+    repository: https://example.com/repo.git
+  sync:
+    mode: pull
+    policy:
+      selfHeal: true
+      image:
+        tag:
+          required: true
+          no_latest: true
+          only_sha: true
+  stacks:
+    file: ./stacks.yaml
 `), 0o600))
 
 	cfg, err := Load(filepath.Join(dir, "swarm-deploy.yaml"))
 	require.NoError(t, err)
-	assert.True(t, cfg.Spec.Sync.Policy.SelfHeal)
-	assert.True(t, cfg.Spec.Sync.Policy.Image.Enabled())
+	assert.True(t, cfg.Spec.GitOps.Sync.Policy.SelfHeal)
+	assert.True(t, cfg.Spec.GitOps.Sync.Policy.Image.Enabled())
 	assert.Equal(t, ImageTagPolicySpec{Required: true, NoLatest: true, OnlySHA: true},
-		cfg.Spec.Sync.Policy.Image.Tag)
+		cfg.Spec.GitOps.Sync.Policy.Image.Tag)
 }
 
 func TestLoadAppliesSecretRotationCleanupDefaults(t *testing.T) {
@@ -170,23 +230,24 @@ stacks:
     composeFile: app.yaml
 `), 0o600), "write stacks file")
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "swarm-deploy.yaml"), []byte(`
-git:
-  repository: https://example.com/repo.git
-sync:
-  mode: pull
-stacks:
-  file: ./stacks.yaml
-secretRotation:
-  enabled: true
-  cleanup:
+gitops:
+  git:
+    repository: https://example.com/repo.git
+  sync:
+    mode: pull
+  stacks:
+    file: ./stacks.yaml
+  resourceRotation:
     enabled: true
+    cleanup:
+      enabled: true
 `), 0o600), "write config file")
 
 	cfg, err := Load(filepath.Join(dir, "swarm-deploy.yaml"))
 	require.NoError(t, err, "load config")
-	assert.Equal(t, 4*time.Hour, cfg.Spec.SecretRotation.Cleanup.Interval.Value, "unexpected cleanup interval default")
-	assert.Equal(t, 2, cfg.Spec.SecretRotation.Cleanup.KeepLast, "unexpected cleanup keepLast default")
-	assert.Equal(t, time.Hour, cfg.Spec.SecretRotation.Cleanup.MinAge.Value, "unexpected cleanup minAge default")
+	assert.Equal(t, 4*time.Hour, cfg.Spec.GitOps.ResourceRotation.Cleanup.Interval.Value, "unexpected cleanup interval default")
+	assert.Equal(t, 2, cfg.Spec.GitOps.ResourceRotation.Cleanup.KeepLast, "unexpected cleanup keepLast default")
+	assert.Equal(t, time.Hour, cfg.Spec.GitOps.ResourceRotation.Cleanup.MinAge.Value, "unexpected cleanup minAge default")
 }
 
 func TestLoadValidatesSecretRotationCleanup(t *testing.T) {
@@ -198,32 +259,32 @@ func TestLoadValidatesSecretRotationCleanup(t *testing.T) {
 		{
 			name: "requires rotation",
 			rotation: `cleanup:
-    enabled: true`,
-			errText: "secretRotation.cleanup.enabled requires secretRotation.enabled=true",
+      enabled: true`,
+			errText: "gitops.resourceRotation.cleanup.enabled requires gitops.resourceRotation.enabled=true",
 		},
 		{
 			name: "rejects negative interval",
 			rotation: `enabled: true
-  cleanup:
-    enabled: true
-    interval: -1s`,
-			errText: "secretRotation.cleanup.interval must be > 0",
+    cleanup:
+      enabled: true
+      interval: -1s`,
+			errText: "gitops.resourceRotation.cleanup.interval must be > 0",
 		},
 		{
 			name: "rejects negative keepLast",
 			rotation: `enabled: true
-  cleanup:
-    enabled: true
-    keepLast: -1`,
-			errText: "secretRotation.cleanup.keepLast must be >= 1",
+    cleanup:
+      enabled: true
+      keepLast: -1`,
+			errText: "gitops.resourceRotation.cleanup.keepLast must be >= 1",
 		},
 		{
 			name: "rejects negative minAge",
 			rotation: `enabled: true
-  cleanup:
-    enabled: true
-    minAge: -1s`,
-			errText: "secretRotation.cleanup.minAge must be > 0",
+    cleanup:
+      enabled: true
+      minAge: -1s`,
+			errText: "gitops.resourceRotation.cleanup.minAge must be > 0",
 		},
 	}
 
@@ -236,14 +297,15 @@ stacks:
     composeFile: app.yaml
 `), 0o600), "write stacks file")
 			payload := fmt.Sprintf(`
-git:
-  repository: https://example.com/repo.git
-sync:
-  mode: pull
-stacks:
-  file: ./stacks.yaml
-secretRotation:
-  %s
+gitops:
+  git:
+    repository: https://example.com/repo.git
+  sync:
+    mode: pull
+  stacks:
+    file: ./stacks.yaml
+  resourceRotation:
+    %s
 `, tt.rotation)
 			require.NoError(t, os.WriteFile(filepath.Join(dir, "swarm-deploy.yaml"), []byte(payload), 0o600), "write config file")
 
@@ -259,10 +321,11 @@ func TestLoadFailsWithoutStacksFile(t *testing.T) {
 
 	configPath := filepath.Join(dir, "swarm-deploy.yaml")
 	configPayload := []byte(`
-git:
-  repository: https://example.com/repo.git
-sync:
-  mode: pull
+gitops:
+  git:
+    repository: https://example.com/repo.git
+  sync:
+    mode: pull
 `)
 	if err := os.WriteFile(configPath, configPayload, 0o600); err != nil {
 		require.NoError(t, err, "write config file")
@@ -270,7 +333,7 @@ sync:
 
 	_, err := Load(configPath)
 	require.Error(t, err, "expected error")
-	assert.Contains(t, err.Error(), "stacks.file is required", "unexpected error")
+	assert.Contains(t, err.Error(), "gitops.stacks.file is required", "unexpected error")
 }
 
 func TestLoadAllowsMissingStacksFileBeforeFirstSync(t *testing.T) {
@@ -278,12 +341,13 @@ func TestLoadAllowsMissingStacksFileBeforeFirstSync(t *testing.T) {
 
 	configPath := filepath.Join(dir, "swarm-deploy.yaml")
 	configPayload := []byte(`
-git:
-  repository: https://example.com/repo.git
-sync:
-  mode: pull
-stacks:
-  file: ./stacks.yaml
+gitops:
+  git:
+    repository: https://example.com/repo.git
+  sync:
+    mode: pull
+  stacks:
+    file: ./stacks.yaml
 `)
 	if err := os.WriteFile(configPath, configPayload, 0o600); err != nil {
 		require.NoError(t, err, "write config file")
@@ -316,14 +380,15 @@ networks:
 
 	configPath := filepath.Join(dir, "swarm-deploy.yaml")
 	configPayload := []byte(`
-git:
-  repository: https://example.com/repo.git
-sync:
-  mode: pull
-stacks:
-  file: ./stacks.yaml
-networks:
-  file: ./networks.yaml
+gitops:
+  git:
+    repository: https://example.com/repo.git
+  sync:
+    mode: pull
+  stacks:
+    file: ./stacks.yaml
+  networks:
+    file: ./networks.yaml
 `)
 	require.NoError(t, os.WriteFile(configPath, configPayload, 0o600), "write config file")
 
@@ -348,49 +413,21 @@ stacks:
 
 	configPath := filepath.Join(dir, "swarm-deploy.yaml")
 	configPayload := []byte(`
-git:
-  repository: https://example.com/repo.git
-sync:
-  mode: pull
-stacks:
-  file: ./stacks.yaml
-networks:
-  file: ./networks.yaml
+gitops:
+  git:
+    repository: https://example.com/repo.git
+  sync:
+    mode: pull
+  stacks:
+    file: ./stacks.yaml
+  networks:
+    file: ./networks.yaml
 `)
 	require.NoError(t, os.WriteFile(configPath, configPayload, 0o600), "write config file")
 
 	cfg, err := Load(configPath)
 	require.NoError(t, err, "load config")
 	assert.Empty(t, cfg.Networks(), "networks must be loaded later from git repository during sync")
-}
-
-func TestLoadWithContainersDownward(t *testing.T) {
-	dir := t.TempDir()
-
-	stacksPath := filepath.Join(dir, "stacks.yaml")
-	stacksPayload := []byte(`
-stacks:
-  - name: app
-    composeFile: app/docker-compose.yml
-`)
-	require.NoError(t, os.WriteFile(stacksPath, stacksPayload, 0o600), "write stacks file")
-
-	configPath := filepath.Join(dir, "swarm-deploy.yaml")
-	configPayload := []byte(`
-git:
-  repository: https://example.com/repo.git
-sync:
-  mode: pull
-stacks:
-  file: ./stacks.yaml
-containers:
-  downward: {}
-`)
-	require.NoError(t, os.WriteFile(configPath, configPayload, 0o600), "write config file")
-
-	cfg, err := Load(configPath)
-	require.NoError(t, err, "load config")
-	require.NotNil(t, cfg.Spec.Containers.Downward, "expected downward config to be enabled")
 }
 
 func TestLoadWebAddressUsedForSingleServer(t *testing.T) {
@@ -408,10 +445,12 @@ stacks:
 
 	configPath := filepath.Join(dir, "swarm-deploy.yaml")
 	configPayload := []byte(`
-git:
-  repository: https://example.com/repo.git
-stacks:
-  file: ./stacks.yaml
+gitops:
+  git:
+    repository: https://example.com/repo.git
+  stacks:
+    file: ./stacks.yaml
+
 web:
   address: ":18080"
   basePath: /infrastructure/swarm/
@@ -424,7 +463,7 @@ web:
 	require.NoError(t, err, "load config")
 	assert.Equal(t, ":18080", cfg.Spec.Web.Address, "expected web.address")
 	assert.Equal(t, "/infrastructure/swarm", cfg.Spec.Web.BasePath, "expected normalized web.basePath")
-	assert.Equal(t, defaultWebhookAddress, cfg.Spec.Sync.Webhook.Address, "expected sync.webhook.address")
+	assert.Equal(t, defaultWebhookAddress, cfg.Spec.GitOps.Sync.Webhook.Address, "expected gitops.sync.webhook.address")
 }
 
 func TestLoadWebAddressDefaults(t *testing.T) {
@@ -442,10 +481,11 @@ stacks:
 
 	configPath := filepath.Join(dir, "swarm-deploy.yaml")
 	configPayload := []byte(`
-git:
-  repository: https://example.com/repo.git
-stacks:
-  file: ./stacks.yaml
+gitops:
+  git:
+    repository: https://example.com/repo.git
+  stacks:
+    file: ./stacks.yaml
 `)
 	if err := os.WriteFile(configPath, configPayload, 0o600); err != nil {
 		require.NoError(t, err, "write config file")
@@ -455,7 +495,7 @@ stacks:
 	require.NoError(t, err, "load config")
 	assert.Equal(t, defaultWebAddress, cfg.Spec.Web.Address, "expected web.address")
 	assert.Equal(t, defaultWebBasePath, cfg.Spec.Web.BasePath, "expected web.basePath")
-	assert.Equal(t, defaultWebhookAddress, cfg.Spec.Sync.Webhook.Address, "expected sync.webhook.address")
+	assert.Equal(t, defaultWebhookAddress, cfg.Spec.GitOps.Sync.Webhook.Address, "expected gitops.sync.webhook.address")
 }
 
 func TestValidateWebBasePath(t *testing.T) {
@@ -548,9 +588,9 @@ stacks:
 
 	cfg := &Config{
 		Spec: Spec{
-			StacksSource: StacksSourceSpec{
+			GitOps: GitOpsSpec{Stacks: StacksSourceSpec{
 				File: "./stacks.yaml",
-			},
+			}},
 		},
 	}
 
@@ -578,9 +618,9 @@ stacks:
 
 	cfg := &Config{
 		Spec: Spec{
-			StacksSource: StacksSourceSpec{
+			GitOps: GitOpsSpec{Stacks: StacksSourceSpec{
 				File: "./stacks.yaml",
-			},
+			}},
 		},
 	}
 
@@ -624,9 +664,11 @@ stacks:
 
 	cfg := &Config{
 		Spec: Spec{
-			StacksSource: StacksSourceSpec{File: "./stacks.yaml"},
-			NetworksSource: NetworksSourceSpec{
-				File: "./networks.yaml",
+			GitOps: GitOpsSpec{
+				Stacks: StacksSourceSpec{File: "./stacks.yaml"},
+				Networks: NetworksSourceSpec{
+					File: "./networks.yaml",
+				},
 			},
 		},
 	}
@@ -661,14 +703,15 @@ networks:
 
 	configPath := filepath.Join(dir, "swarm-deploy.yaml")
 	configPayload := []byte(`
-git:
-  repository: https://example.com/repo.git
-sync:
-  mode: pull
-stacks:
-  file: ./stacks.yaml
-networks:
-  file: ./networks.yaml
+gitops:
+  git:
+    repository: https://example.com/repo.git
+  sync:
+    mode: pull
+  stacks:
+    file: ./stacks.yaml
+  networks:
+    file: ./networks.yaml
 `)
 	require.NoError(t, os.WriteFile(configPath, configPayload, 0o600), "write config file")
 
@@ -695,10 +738,12 @@ stacks:
 
 	configPath := filepath.Join(dir, "swarm-deploy.yaml")
 	configPayload := []byte(`
-git:
-  repository: https://example.com/repo.git
-stacks:
-  file: ./stacks.yaml
+gitops:
+  git:
+    repository: https://example.com/repo.git
+  stacks:
+    file: ./stacks.yaml
+
 notifications:
   events:
     DeploySuccess:
@@ -730,10 +775,12 @@ stacks:
 
 	configPath := filepath.Join(dir, "swarm-deploy.yaml")
 	configPayload := []byte(`
-git:
-  repository: https://example.com/repo.git
-stacks:
-  file: ./stacks.yaml
+gitops:
+  git:
+    repository: https://example.com/repo.git
+  stacks:
+    file: ./stacks.yaml
+
 notifications:
   events:
     unknownEvent:
@@ -772,10 +819,12 @@ stacks:
 `), 0o600))
 			require.NoError(t, os.WriteFile(filepath.Join(dir, "telegram-token"), []byte("12345:ABCDEF"), 0o600))
 			configPayload := fmt.Sprintf(`
-git:
-  repository: https://example.com/repo.git
-stacks:
-  file: ./stacks.yaml
+gitops:
+  git:
+    repository: https://example.com/repo.git
+  stacks:
+    file: ./stacks.yaml
+
 notifications:
   messengers:
     telegram:
@@ -816,10 +865,12 @@ stacks:
 
 	configPath := filepath.Join(dir, "swarm-deploy.yaml")
 	configPayload := []byte(`
-git:
-  repository: https://example.com/repo.git
-stacks:
-  file: ./stacks.yaml
+gitops:
+  git:
+    repository: https://example.com/repo.git
+  stacks:
+    file: ./stacks.yaml
+
 assistant:
   enabled: true
   model:
@@ -853,10 +904,12 @@ stacks:
 
 	configPath := filepath.Join(dir, "swarm-deploy.yaml")
 	configPayload := []byte(fmt.Sprintf(`
-git:
-  repository: https://example.com/repo.git
-stacks:
-  file: ./stacks.yaml
+gitops:
+  git:
+    repository: https://example.com/repo.git
+  stacks:
+    file: ./stacks.yaml
+
 assistant:
   enabled: true
   model:
@@ -888,10 +941,12 @@ stacks:
 
 	configPath := filepath.Join(dir, "swarm-deploy.yaml")
 	configPayload := []byte(fmt.Sprintf(`
-git:
-  repository: https://example.com/repo.git
-stacks:
-  file: ./stacks.yaml
+gitops:
+  git:
+    repository: https://example.com/repo.git
+  stacks:
+    file: ./stacks.yaml
+
 assistant:
   enabled: true
   model:
@@ -923,10 +978,12 @@ stacks:
 
 	configPath := filepath.Join(dir, "swarm-deploy.yaml")
 	configPayload := []byte(fmt.Sprintf(`
-git:
-  repository: https://example.com/repo.git
-stacks:
-  file: ./stacks.yaml
+gitops:
+  git:
+    repository: https://example.com/repo.git
+  stacks:
+    file: ./stacks.yaml
+
 assistant:
   enabled: false
   tools: ["deploy_sync_trigger", " "]
@@ -959,10 +1016,12 @@ stacks:
 
 	configPath := filepath.Join(dir, "swarm-deploy.yaml")
 	configPayload := []byte(fmt.Sprintf(`
-git:
-  repository: https://example.com/repo.git
-stacks:
-  file: ./stacks.yaml
+gitops:
+  git:
+    repository: https://example.com/repo.git
+  stacks:
+    file: ./stacks.yaml
+
 assistant:
   enabled: true
   model:
@@ -1004,10 +1063,12 @@ stacks:
 
 	configPath := filepath.Join(dir, "swarm-deploy.yaml")
 	configPayload := []byte(fmt.Sprintf(`
-git:
-  repository: https://example.com/repo.git
-stacks:
-  file: ./stacks.yaml
+gitops:
+  git:
+    repository: https://example.com/repo.git
+  stacks:
+    file: ./stacks.yaml
+
 assistant:
   enabled: true
   conversation:
@@ -1047,10 +1108,12 @@ stacks:
 
 	configPath := filepath.Join(dir, "swarm-deploy.yaml")
 	configPayload := []byte(fmt.Sprintf(`
-git:
-  repository: https://example.com/repo.git
-stacks:
-  file: ./stacks.yaml
+gitops:
+  git:
+    repository: https://example.com/repo.git
+  stacks:
+    file: ./stacks.yaml
+
 assistant:
   enabled: true
   model:
@@ -1084,18 +1147,19 @@ stacks:
 
 	configPath := filepath.Join(dir, "swarm-deploy.yaml")
 	configPayload := []byte(`
-git:
-  repository: https://example.com/repo.git
-  auth:
-    type: http
-stacks:
-  file: ./stacks.yaml
+gitops:
+  git:
+    repository: https://example.com/repo.git
+    auth:
+      type: http
+  stacks:
+    file: ./stacks.yaml
 `)
 	require.NoError(t, os.WriteFile(configPath, configPayload, 0o600), "write config file")
 
 	_, err := Load(configPath)
 	require.Error(t, err, "expected error")
-	assert.Contains(t, err.Error(), "git.auth.http requires username+passwordPath or tokenPath", "unexpected error")
+	assert.Contains(t, err.Error(), "gitops.git.auth.http requires username+passwordPath or tokenPath", "unexpected error")
 }
 
 func TestLoadFailsWhenGitHTTPAuthHasBothPasswordAndToken(t *testing.T) {
@@ -1116,16 +1180,17 @@ stacks:
 
 	configPath := filepath.Join(dir, "swarm-deploy.yaml")
 	configPayload := []byte(fmt.Sprintf(`
-git:
-  repository: https://example.com/repo.git
-  auth:
-    type: http
-    http:
-      username: robot
-      passwordPath: %s
-      tokenPath: %s
-stacks:
-  file: ./stacks.yaml
+gitops:
+  git:
+    repository: https://example.com/repo.git
+    auth:
+      type: http
+      http:
+        username: robot
+        passwordPath: %s
+        tokenPath: %s
+  stacks:
+    file: ./stacks.yaml
 `, passwordPath, tokenPath))
 	require.NoError(t, os.WriteFile(configPath, configPayload, 0o600), "write config file")
 
@@ -1134,7 +1199,7 @@ stacks:
 	assert.Contains(
 		t,
 		err.Error(),
-		"git.auth.http.tokenPath and git.auth.http.passwordPath are mutually exclusive",
+		"gitops.git.auth.http.tokenPath and gitops.git.auth.http.passwordPath are mutually exclusive",
 		"unexpected error",
 	)
 }
@@ -1155,19 +1220,20 @@ stacks:
 
 	configPath := filepath.Join(dir, "swarm-deploy.yaml")
 	configPayload := []byte(fmt.Sprintf(`
-git:
-  repository: https://example.com/repo.git
-  auth:
-    type: http
-    http:
-      tokenPath: %s
-stacks:
-  file: ./stacks.yaml
+gitops:
+  git:
+    repository: https://example.com/repo.git
+    auth:
+      type: http
+      http:
+        tokenPath: %s
+  stacks:
+    file: ./stacks.yaml
 `, tokenPath))
 	require.NoError(t, os.WriteFile(configPath, configPayload, 0o600), "write config file")
 
 	cfg, err := Load(configPath)
 	require.NoError(t, err, "load config")
-	assert.Equal(t, "oauth2", cfg.Spec.Git.Auth.HTTP.ResolveUsername(), "expected oauth2 fallback for token auth")
-	assert.Equal(t, "token-value", cfg.Spec.Git.Auth.HTTP.ResolvePassword(), "expected token as password")
+	assert.Equal(t, "oauth2", cfg.Spec.GitOps.Git.Auth.HTTP.ResolveUsername(), "expected oauth2 fallback for token auth")
+	assert.Equal(t, "token-value", cfg.Spec.GitOps.Git.Auth.HTTP.ResolvePassword(), "expected token as password")
 }

@@ -46,7 +46,7 @@ func TestServiceSelfHealPolicy(t *testing.T) {
 
 func stringPointer(value string) *string { return &value }
 
-func TestServiceReplicaDriftPolicy(t *testing.T) {
+func TestServiceReplicaPolicies(t *testing.T) {
 	tests := []struct {
 		value   string
 		want    bool
@@ -57,28 +57,36 @@ func TestServiceReplicaDriftPolicy(t *testing.T) {
 		{value: "false"}, {value: "0"}, {value: "no"}, {value: "n"}, {value: "off"}, {value: " OFF "},
 		{value: "maybe", wantErr: true}, {value: "", wantErr: true},
 	}
-	for _, tt := range tests {
-		t.Run(tt.value, func(t *testing.T) {
-			service := Service{Deploy: ServiceDeploy{Labels: *NewLabels(map[string]string{
-				labelsdict.ServiceSyncPolicySelfHealReplicasLabelKey: tt.value,
-			})}}
-			got, specified, err := service.ReplicaDriftPolicy()
-			assert.True(t, specified)
-			if tt.wantErr {
-				require.Error(t, err)
-				return
+	for _, policy := range []struct {
+		label string
+		parse func(Service) (bool, bool, error)
+	}{
+		{labelsdict.ServiceSyncPolicySelfHealReplicasLabelKey, Service.ReplicaDriftPolicy},
+		{labelsdict.ServiceSyncPolicyReplicasManagedLabelKey, Service.ReplicasManagedPolicy},
+	} {
+		t.Run(policy.label, func(t *testing.T) {
+			for _, tt := range tests {
+				t.Run(tt.value, func(t *testing.T) {
+					service := Service{Deploy: ServiceDeploy{Labels: *NewLabels(map[string]string{policy.label: tt.value})}}
+					got, specified, err := policy.parse(service)
+					assert.True(t, specified)
+					if tt.wantErr {
+						require.Error(t, err)
+						return
+					}
+					require.NoError(t, err)
+					assert.Equal(t, tt.want, got)
+				})
 			}
+			_, specified, err := policy.parse(Service{})
 			require.NoError(t, err)
-			assert.Equal(t, tt.want, got)
+			assert.False(t, specified)
 		})
 	}
-	_, specified, err := (Service{}).ReplicaDriftPolicy()
-	require.NoError(t, err)
-	assert.False(t, specified)
 }
 
 func TestLoaderValidatesServiceSyncPolicies(t *testing.T) {
-	for _, label := range []string{labelsdict.ServiceSyncPolicySelfHealLabelKey, labelsdict.ServiceSyncPolicySelfHealReplicasLabelKey} {
+	for _, label := range []string{labelsdict.ServiceSyncPolicySelfHealLabelKey, labelsdict.ServiceSyncPolicySelfHealReplicasLabelKey, labelsdict.ServiceSyncPolicyReplicasManagedLabelKey} {
 		t.Run(label, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "compose.yaml")
 			require.NoError(t, os.WriteFile(path, []byte(fmt.Sprintf(`services:
@@ -96,5 +104,39 @@ func TestLoaderValidatesServiceSyncPolicies(t *testing.T) {
 			assert.Equal(t, "deploy.labels."+label, validation.Issues[0].Field)
 			assert.Equal(t, IssueCodeInvalidValue, validation.Issues[0].Code)
 		})
+	}
+}
+
+func TestReplicaOwnershipRejectsUnsupportedModes(t *testing.T) {
+	for _, mode := range []string{"", "replicated", "global", "replicated-job", "global-job"} {
+		for _, policy := range []string{"false", "off", "true"} {
+			t.Run(mode+"/"+policy, func(t *testing.T) {
+				service := Service{Deploy: ServiceDeploy{Mode: mode, Labels: *NewLabels(map[string]string{
+					labelsdict.ServiceSyncPolicyReplicasManagedLabelKey: policy,
+				})}}
+				_, _, err := service.ReplicasManagedPolicy()
+				unsupported := mode != "" && mode != "replicated" && policy != "true"
+				if unsupported {
+					require.ErrorContains(t, err, "only for replicated services")
+				} else {
+					require.NoError(t, err)
+				}
+				path := filepath.Join(t.TempDir(), "compose.yaml")
+				require.NoError(t, os.WriteFile(path, []byte(fmt.Sprintf(`services:
+  job:
+    image: example/job:1
+    deploy:
+      mode: %s
+      labels:
+        %s: %q
+`, mode, labelsdict.ServiceSyncPolicyReplicasManagedLabelKey, policy)), 0o600))
+				_, err = NewFileLoader().Load(t.Context(), path)
+				if unsupported {
+					require.ErrorContains(t, err, "only for replicated services")
+				} else {
+					require.NoError(t, err)
+				}
+			})
+		}
 	}
 }

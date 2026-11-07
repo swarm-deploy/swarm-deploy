@@ -14,15 +14,19 @@ require (
 	github.com/cappuccinotm/slogx v1.4.2
 	github.com/containerd/errdefs v1.0.0
 	github.com/distribution/reference v0.6.0
+	github.com/docker/cli v28.3.3+incompatible
 	github.com/docker/docker v28.3.3+incompatible
 	github.com/doug-martin/goqu/v9 v9.19.0
 	github.com/go-faster/errors v0.7.1
 	github.com/go-faster/jx v1.2.0
 	github.com/go-git/go-git/v5 v5.17.0
 	github.com/google/go-github/v88 v88.0.0
+	github.com/google/shlex v0.0.0-20191202100458-e7afc7fbc510
 	github.com/google/uuid v1.6.0
 	github.com/jmoiron/sqlx v1.4.0
 	github.com/langwatch/langwatch/sdks/go/instrumentation/openai v1.0.0
+	github.com/moby/moby/api v1.55.0
+	github.com/moby/swarmkit/v2 v2.0.0
 	github.com/ogen-go/ogen v1.20.1
 	github.com/openai/openai-go/v3 v3.50.0
 	github.com/opencontainers/go-digest v1.0.0
@@ -32,6 +36,7 @@ require (
 	github.com/prometheus/client_model v0.6.2
 	github.com/stretchr/testify v1.12.1
 	github.com/swarm-deploy/cloud-secrets/pkg/grpc-api v0.1.1
+	github.com/swarm-deploy/dockertester v0.2.0
 	github.com/swarm-deploy/downward-otel/go v0.1.0
 	github.com/swarm-deploy/downward/go v0.1.1
 	github.com/swarm-deploy/webroute v0.2.0
@@ -71,7 +76,8 @@ require (
 	github.com/containerd/errdefs/pkg v0.3.0 // indirect
 	github.com/cyphar/filepath-securejoin v0.4.1 // indirect
 	github.com/dlclark/regexp2 v1.11.5 // indirect
-	github.com/docker/go-connections v0.6.0 // indirect
+	github.com/docker/go-connections v0.7.0 // indirect
+	github.com/docker/go-events v0.0.0-20190806004212-e31b211e4f1c // indirect
 	github.com/docker/go-units v0.5.0 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/emirpasic/gods v1.18.1 // indirect
@@ -85,6 +91,7 @@ require (
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang/groupcache v0.0.0-20241129210726-2c02b8208cf8 // indirect
+	github.com/golang/protobuf v1.5.4 // indirect
 	github.com/google/go-querystring v1.2.0 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.30.0 // indirect
 	github.com/jbenet/go-context v0.0.0-20150711004518-d14ea06fba99 // indirect
@@ -94,6 +101,7 @@ require (
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/mfridman/interpolate v0.0.2 // indirect
 	github.com/moby/docker-image-spec v1.3.1 // indirect
+	github.com/moby/moby/client v0.5.1 // indirect
 	github.com/moby/sys/atomicwriter v0.1.0 // indirect
 	github.com/moby/term v0.5.2 // indirect
 	github.com/morikuni/aec v1.1.0 // indirect
@@ -109,6 +117,7 @@ require (
 	github.com/sergi/go-diff v1.3.2-0.20230802210424-5b0b94c5c0d3 // indirect
 	github.com/sethvargo/go-retry v0.3.0 // indirect
 	github.com/shopspring/decimal v1.4.0 // indirect
+	github.com/sirupsen/logrus v1.9.3 // indirect
 	github.com/skeema/knownhosts v1.3.1 // indirect
 	github.com/tidwall/gjson v1.19.0 // indirect
 	github.com/tidwall/match v1.1.1 // indirect
@@ -116,6 +125,7 @@ require (
 	github.com/tidwall/sjson v1.2.5 // indirect
 	github.com/uptrace/opentelemetry-go-extra/otelsql v0.4.0 // indirect
 	github.com/xanzy/ssh-agent v0.3.3 // indirect
+	go.etcd.io/etcd/raft/v3 v3.5.6 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.46.0 // indirect
 	go.opentelemetry.io/otel/log v1.47.0 // indirect
@@ -140,3 +150,7 @@ require (
 
 // Fork with conditional edges: github.com/NirAlon/langgraphgo/tree/feature/add-conditional-edges (b8adbfaa3d82d87e1d1474d985788c91562d8694).
 replace github.com/tmc/langgraphgo => github.com/NirAlon/langgraphgo v0.0.0-20260311231625-b8adbfaa3d82
+
+// Docker v28 still uses sockets.DialPipe, removed in go-connections v0.7.0.
+// Keep its existing transport dependency while the E2E-only Moby client coexists.
+replace github.com/docker/go-connections => github.com/docker/go-connections v0.6.0

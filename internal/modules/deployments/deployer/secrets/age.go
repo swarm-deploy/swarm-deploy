@@ -35,7 +35,7 @@ const MaxSecretSize = maxSecretSize
 func (d *AgeDecoder) Decode(ciphertext []byte) ([]byte, error) {
 	identityContent := d.identity
 	if len(identityContent) == 0 {
-		return nil, errors.New("age secret requires secretRotation.age.identityFile")
+		return nil, errors.New("age secret requires gitops.secrets.age.identityFile")
 	}
 	identities, err := age.ParseIdentities(bytes.NewReader(identityContent))
 	if err != nil || len(identities) == 0 {

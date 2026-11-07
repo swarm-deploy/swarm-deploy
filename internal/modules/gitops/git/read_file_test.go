@@ -1,13 +1,18 @@
 package git
 
 import (
+	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	gogit "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing/object"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/swarm-deploy/swarm-deploy/internal/config"
 )
 
 func TestGoGitRepositoryReadFile(t *testing.T) {
@@ -16,7 +21,7 @@ func TestGoGitRepositoryReadFile(t *testing.T) {
 	require.NoError(t, err)
 	worktree, err := repository.Worktree()
 	require.NoError(t, err)
-	repo := &GoGitRepository{path: dir, repository: repository}
+	repo := &GoGitRepository{path: dir, repository: repository, mu: make(chan struct{}, 1)}
 
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, "deep", "nested"), 0o700))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "deep", "value"), []byte("deep"), 0o600))
@@ -70,5 +75,73 @@ func TestGoGitRepositoryReadFile(t *testing.T) {
 	for _, revision := range []string{"", "HEAD", "invalid", "0000000000000000000000000000000000000000"} {
 		_, err = repo.ReadFile(t.Context(), revision, "README.md")
 		require.Error(t, err)
+	}
+}
+
+// A canceled reconciliation must not wait for a slow Git pull to release the repository lock.
+func TestGoGitRepositoryReadFileCancelsWhileLocked(t *testing.T) {
+	repo := &GoGitRepository{mu: make(chan struct{}, 1)}
+	repo.mu <- struct{}{}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	_, err := repo.ReadFile(ctx, "revision", "README.md")
+	require.ErrorIs(t, err, context.Canceled)
+}
+
+func TestGoGitRepositoryPullWhileLocked(t *testing.T) {
+	tests := []struct {
+		name               string
+		cancel             bool
+		expectedCategory   FailureCategory
+		expectedDiagnostic string
+	}{
+		{
+			name:               "pull timeout reports lock contention",
+			expectedCategory:   FailureOther,
+			expectedDiagnostic: repositoryLockTimeoutDiagnostic,
+		},
+		{
+			name:               "canceled caller keeps the pull failure classification",
+			cancel:             true,
+			expectedCategory:   FailureNetwork,
+			expectedDiagnostic: "Git repository is temporarily unreachable",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir, ref := initSourceRepository(t)
+			path := filepath.Join(dir, "swarm-deploy.yaml")
+			require.NoError(t, os.WriteFile(path, fmt.Appendf(nil, `gitops:
+  git:
+    repository: %q
+    branch: %q
+    pull:
+      timeout: 10ms
+  stacks:
+    file: stacks.yaml
+`, dir, ref.Name().Short()), 0o600))
+			cfg, err := config.Load(path)
+			require.NoError(t, err)
+			repo, err := NewGoGitRepository(t.Context(), cfg.Spec.GitOps.Git, filepath.Join(t.TempDir(), "clone"))
+			require.NoError(t, err)
+			assert.Equal(t, 10*time.Millisecond, repo.pullTimeout)
+			repo.mu <- struct{}{}
+			ctx := t.Context()
+			if tt.cancel {
+				canceled, cancel := context.WithCancel(ctx)
+				cancel()
+				ctx = canceled
+			}
+
+			_, err = repo.Pull(ctx)
+
+			var pullErr *PullError
+			require.ErrorAs(t, err, &pullErr)
+			category, diagnostic := PullFailure(err)
+			assert.Equal(t, tt.expectedCategory, category)
+			assert.Equal(t, tt.expectedDiagnostic, diagnostic)
+		})
 	}
 }

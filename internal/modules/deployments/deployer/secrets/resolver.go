@@ -1,9 +1,10 @@
-// Package secrets decodes transient deployment secret payloads.
+// Package secrets loads and decodes transient deployment secret payloads.
 package secrets
 
 import (
 	"bytes"
 	"fmt"
+	"path/filepath"
 	"sort"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
@@ -26,7 +27,9 @@ func (PlaintextDecoder) Matches(string) bool { return true }
 // Decode copies the file contents without changing their value.
 func (PlaintextDecoder) Decode(content []byte) ([]byte, error) { return bytes.Clone(content), nil }
 
-// SecretResolver decodes and validates loaded secret files before Docker resource reconciliation.
+// SecretResolver decodes and validates secret file contents before Docker resource reconciliation.
+// It never reads the repository working tree: file contents are captured in compose.Secret.Data
+// when the Compose definition is loaded, so a deployment uses exactly the revision it was prepared from.
 type SecretResolver struct {
 	decoders []SecretDecoder
 }
@@ -39,7 +42,7 @@ func NewSecretResolver(decoders ...SecretDecoder) *SecretResolver {
 // Resolve returns transient plaintext indexed by Compose alias, including for reused Secrets.
 // External and driver-backed Secrets have no local payload. The caller clears successful results.
 func (r *SecretResolver) Resolve(
-	stackName string,
+	stackName, sourceComposePath string,
 	objects compose.Secrets,
 ) (map[string][]byte, error) {
 	resolved := make(map[string][]byte, len(objects))
@@ -51,17 +54,17 @@ func (r *SecretResolver) Resolve(
 		if object.Driver != "" && object.File == "" {
 			continue
 		}
-		data, err := r.decodeFile(object)
+		data, err := r.resolveFile(sourceComposePath, object)
 		if err != nil {
 			Clear(resolved)
-			return nil, fmt.Errorf("decode secret %s: %w", dockerSecretName(stackName, alias, object), err)
+			return nil, fmt.Errorf("read secret %s: %w", dockerSecretName(stackName, alias, object), err)
 		}
 		resolved[alias] = data
 	}
 	return resolved, nil
 }
 
-func (r *SecretResolver) decodeFile(object *compose.Secret) ([]byte, error) {
+func (r *SecretResolver) resolveFile(sourceComposePath string, object *compose.Secret) ([]byte, error) {
 	if object.Driver != "" {
 		return nil, fmt.Errorf("cannot combine a secret file with an external driver")
 	}
@@ -69,10 +72,14 @@ func (r *SecretResolver) decodeFile(object *compose.Secret) ([]byte, error) {
 		return nil, fmt.Errorf("file is required")
 	}
 	if object.Data == nil {
-		return nil, fmt.Errorf("secret file was not loaded")
+		return nil, fmt.Errorf("file content was not loaded")
+	}
+	path := object.File
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(filepath.Dir(sourceComposePath), path)
 	}
 	for _, decoder := range r.decoders {
-		if decoder.Matches(object.File) {
+		if decoder.Matches(path) {
 			return decoder.Decode(object.Data)
 		}
 	}

@@ -8,14 +8,9 @@ import { useOverviewStore } from "../../stores/overview";
 import { useSecretDetailsStore } from "../../stores/secretDetails";
 import AppButton from "../common/AppButton.vue";
 
-defineProps<{
-  syncDisabled: boolean;
-  syncPending: boolean;
-  assistantEnabled: boolean;
-}>();
+defineProps<{ assistantEnabled: boolean }>();
 
 const emit = defineEmits<{
-  syncNow: [];
   toggleAssistant: [];
 }>();
 
@@ -225,13 +220,35 @@ onUnmounted(() => {
 
     <div class="topbar-actions">
       <AppButton
-        :disabled="syncDisabled || syncPending"
-        @click="emit('syncNow')"
+        variant="secondary"
+        class="topbar-assistant-button"
+        aria-label="Assistant"
+        :disabled="!assistantEnabled"
+        @click="emit('toggleAssistant')"
       >
-        {{ syncPending ? "Syncing..." : "Sync now" }}
-      </AppButton>
-      <AppButton variant="secondary" :disabled="!assistantEnabled" @click="emit('toggleAssistant')">
-        Assistant
+        <span class="topbar-assistant-label">Assistant</span>
+        <span class="topbar-assistant-icon" title="Assistant" aria-hidden="true">
+          <svg
+            width="26"
+            height="26"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="url(#topbar-assistant-gradient)"
+            stroke-width="1.75"
+            stroke-linecap="round"
+          >
+            <defs>
+              <linearGradient id="topbar-assistant-gradient" x1="0%" y1="100%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#667FA6" />
+                <stop offset="100%" stop-color="#9079A5" />
+              </linearGradient>
+            </defs>
+            <rect x="4" y="7" width="16" height="13" rx="3" />
+            <path d="M12 7V3M9.5 15Q12 18 14.5 15" />
+            <circle cx="9" cy="12" r="1" fill="url(#topbar-assistant-gradient)" stroke="none" />
+            <circle cx="15" cy="12" r="1" fill="url(#topbar-assistant-gradient)" stroke="none" />
+          </svg>
+        </span>
       </AppButton>
     </div>
   </header>

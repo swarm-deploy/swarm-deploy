@@ -25,7 +25,6 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackloop/preparation"
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/model"
-	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	"go.uber.org/mock/gomock"
 )
@@ -95,11 +94,15 @@ func TestReconcileReplicaDriftPolicy(t *testing.T) {
 			services.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "app"}).Return(initial, nil)
 			if tt.repair {
 				services.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "app"}).Return(live, nil)
-				stackDeployer.EXPECT().DeployService(gomock.Any(), "app", "api", gomock.Any(), gomock.Any()).Return(deployer.Result{}, nil)
+				stackDeployer.EXPECT().DeployService(gomock.Any(), gomock.Cond(func(req deployer.ServiceRequest) bool {
+					return req.StackName == "app" &&
+						req.SourceComposePath == filepath.Join(dir, "app.yaml") &&
+						req.ServiceName == "api"
+				})).Return(deployer.Result{}, nil)
 			}
 			cfg := &config.Config{Spec: config.Spec{
 				DataDir: filepath.Join(dir, ".data"),
-				Sync:    config.SyncSpec{Policy: config.SyncPolicySpec{SelfHeal: tt.selfHeal}},
+				GitOps:  config.GitOpsSpec{Sync: config.SyncSpec{Policy: config.SyncPolicySpec{SelfHeal: tt.selfHeal}}},
 			}}
 			r := &Reconciler{
 				cfg: cfg, db: db, event: publisher, stateStore: stateStore, deployMetrics: &metrics.NopDeploys{},
@@ -108,7 +111,7 @@ func TestReconcileReplicaDriftPolicy(t *testing.T) {
 			}
 			r.executor = deployments.NewController(
 				deployments.NewService(db, publisher), stackDeployer, services, r.pruner, r.deployMetrics)
-			r.preparer = preparation.New(cfg, repository, fs.NewLocalFileSystem(), r.composeRotator)
+			r.preparer = preparation.New(cfg, repository, r.composeRotator)
 			r.attachPipeline()
 			require.NoError(t, r.Reconcile(t.Context(), ReconciliationRequest{
 				Stack: config.StackSpec{Name: "app", ComposeFile: "app.yaml"}, Commit: "current",

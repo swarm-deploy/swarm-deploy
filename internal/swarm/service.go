@@ -27,6 +27,9 @@ type ServiceScaleResult struct {
 	PreviousReplicas uint64
 }
 
+// ErrServiceConflict means that a service create or update conflicted with concurrent Docker state.
+var ErrServiceConflict = errors.New("service conflict")
+
 // ErrTaskNotFound means that task does not exist in swarm.
 var ErrTaskNotFound = errors.New("task not found")
 
@@ -58,8 +61,12 @@ type ServiceTask struct {
 	ID string
 	// Node is a task node identifier.
 	Node string
+	// NodeInfo is the current node snapshot, populated for terminal global-service tasks.
+	NodeInfo *Node
 	// Slot is the task slot within a replicated service.
 	Slot int
+	// JobIteration identifies the job execution that created this task; nil for ordinary services.
+	JobIteration *dockerswarm.Version
 	// DesiredState is the desired task state.
 	DesiredState TaskState
 	// CreatedAt is task creation timestamp from Docker Swarm.
@@ -74,6 +81,10 @@ type ServiceTask struct {
 	ExitCode *int
 	// Error is a task runtime error.
 	Error string
+	// Message is the task status diagnostic reported by Docker.
+	Message string
+	// Spec is the comparable task template the task was created from, including its ForceUpdate generation.
+	Spec TaskSpec
 }
 
 // TaskResources contains compact CPU and memory resource settings.
@@ -162,10 +173,25 @@ type ServiceNetwork struct {
 	Aliases []string `json:"aliases,omitempty"`
 }
 
+// ServiceUpdateState is the state of a rolling service update.
+type ServiceUpdateState = dockerswarm.UpdateState
+
+const (
+	ServiceUpdateStateUpdating          = dockerswarm.UpdateStateUpdating
+	ServiceUpdateStatePaused            = dockerswarm.UpdateStatePaused
+	ServiceUpdateStateCompleted         = dockerswarm.UpdateStateCompleted
+	ServiceUpdateStateRollbackStarted   = dockerswarm.UpdateStateRollbackStarted
+	ServiceUpdateStateRollbackPaused    = dockerswarm.UpdateStateRollbackPaused
+	ServiceUpdateStateRollbackCompleted = dockerswarm.UpdateStateRollbackCompleted
+)
+
+// ServiceUpdateStateFailed is a failure state handled by deployment consumers.
+const ServiceUpdateStateFailed ServiceUpdateState = "failed"
+
 // ServiceUpdateStatus is a compact projection of service rolling update state.
 type ServiceUpdateStatus struct {
 	// State is an update status state.
-	State string `json:"state"`
+	State ServiceUpdateState `json:"state"`
 	// StartedAt is update start time.
 	StartedAt time.Time `json:"started_at,omitempty"`
 	// CompletedAt is update completion time.
@@ -226,6 +252,11 @@ type LogEntry struct {
 
 // StackService is a compact snapshot of a service belonging to a stack.
 type StackService struct {
+	// CompletedTasks is the count completed in the current job iteration.
+	CompletedTasks uint64
+	// JobStatus identifies the current execution of a Swarm job.
+	JobStatus *dockerswarm.JobStatus
+
 	// ID is a Docker service identifier.
 	ID string
 	// Name is a service name without stack prefix.
