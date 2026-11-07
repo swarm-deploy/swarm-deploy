@@ -2,12 +2,13 @@ import { flushPromises, mount } from "@vue/test-utils";
 import { createMemoryHistory, createRouter } from "vue-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { fetchAlerts, fetchEvents } from "../api/overview";
+import { fetchAlerts, fetchEventFilters, fetchEvents } from "../api/overview";
 import type { Alert } from "../api/types";
 import EventsAlertsView from "./EventsAlertsView.vue";
 
-vi.mock("../stores/overview", () => ({ useOverviewStore: () => ({ openAlertDetailsModal: vi.fn() }) }));
-vi.mock("../api/overview", () => ({ fetchEvents: vi.fn(), fetchAlerts: vi.fn() }));
+const { openAlertDetailsModal } = vi.hoisted(() => ({ openAlertDetailsModal: vi.fn() }));
+vi.mock("../stores/overview", () => ({ useOverviewStore: () => ({ openAlertDetailsModal }) }));
+vi.mock("../api/overview", () => ({ fetchEvents: vi.fn(), fetchEventFilters: vi.fn(), fetchAlerts: vi.fn() }));
 
 const activeAlert: Alert = {
   id: "active-incident",
@@ -28,11 +29,15 @@ const activeAlert: Alert = {
 const resolvedAlert: Alert = {
   ...activeAlert,
   id: "resolved-incident",
-  fingerprint: "node:restored-worker",
-  resourceId: "restored-worker",
+  fingerprint: "service:app/api",
   status: "resolved",
-  title: "Node reconnected",
+  kind: "service_drift",
+  resourceType: "service",
+  resourceId: "app/api",
+  title: "Service drift detected",
+  message: "Service image differs from the manifest",
   resolvedAt: "2026-10-10T12:00:00Z",
+  resolution: { reason: "recovered", message: "Service recovered", eventId: "recovery" },
 };
 
 async function mountView(path = "/events") {
@@ -52,18 +57,15 @@ function tab(wrapper: ReturnType<typeof mount>, label: string) {
 }
 
 describe("Events & Alerts", () => {
-  it("loads alerts for the linked stack and retains the filter when including resolved alerts", async () => {
+  it("loads alerts for the linked stack and retains the stack navigation", async () => {
     vi.mocked(fetchAlerts).mockImplementation(async (options = {}) => ({ alerts: options.stack === "app" ? [{ ...activeAlert, resourceType: "stack", resourceId: "app" }] : [activeAlert] }));
     const { wrapper, router } = await mountView("/events?tab=alerts&stack_name=app&keep=value");
-    expect(fetchAlerts).toHaveBeenLastCalledWith({ status: "open", stack: "app" });
-    expect(wrapper.get(".alerts-page header").text()).toContain("Stack: app");
-    await wrapper.get(".alerts-resolved-filter input").setValue(true);
-    await flushPromises();
     expect(fetchAlerts).toHaveBeenLastCalledWith({ stack: "app" });
+    expect(wrapper.get(".alerts-page header").text()).toContain("Stack: app");
     await router.push("/events?tab=alerts&stack_name=other&keep=value");
     await flushPromises();
     expect(fetchAlerts).toHaveBeenLastCalledWith({ stack: "other" });
-    await wrapper.get(".alerts-page header button").trigger("click");
+    await wrapper.get(".alerts-page header .meta button").trigger("click");
     await flushPromises();
     expect(router.currentRoute.value.query).toEqual({ tab: "alerts", keep: "value" });
     expect(fetchAlerts).toHaveBeenLastCalledWith({});
@@ -71,6 +73,8 @@ describe("Events & Alerts", () => {
   });
 
   beforeEach(() => {
+    openAlertDetailsModal.mockClear();
+    vi.mocked(fetchEventFilters).mockResolvedValue({ stacks: [], services: [] });
     vi.mocked(fetchEvents).mockReset();
     vi.mocked(fetchEvents).mockResolvedValue({ events: [{
       id: "fact",
@@ -81,12 +85,10 @@ describe("Events & Alerts", () => {
       message: "Worker joined",
     }] });
     vi.mocked(fetchAlerts).mockReset();
-    vi.mocked(fetchAlerts).mockImplementation(async (options = {}) => ({
-      alerts: options.status === "open" ? [activeAlert] : [activeAlert, resolvedAlert],
-    }));
+    vi.mocked(fetchAlerts).mockResolvedValue({ alerts: [activeAlert, resolvedAlert] });
   });
 
-  it("selects Alerts by default and loads active alerts only", async () => {
+  it("shows all alerts by default and sorts by the displayed timestamp", async () => {
     const { wrapper, router } = await mountView();
 
     expect(wrapper.find("h1").text()).toBe("Events & Alerts");
@@ -95,10 +97,18 @@ describe("Events & Alerts", () => {
     expect(wrapper.find("#alerts-panel").isVisible()).toBe(true);
     expect(wrapper.find("#events-panel").isVisible()).toBe(false);
     expect(router.currentRoute.value.query.tab).toBeUndefined();
-    expect(fetchAlerts).toHaveBeenCalledWith({ status: "open" });
-    expect(wrapper.find(".alerts-table").text()).toContain("Node disconnected");
-    expect(wrapper.find(".alerts-table").text()).not.toContain("Node reconnected");
-    expect((wrapper.find(".alerts-table").element as HTMLTableElement).style.minWidth).toBe("800px");
+    expect(fetchAlerts).toHaveBeenCalledWith({});
+    expect(wrapper.findAll(".alerts-table th").slice(1).map((column) => column.text()))
+      .toEqual(["Status", "Alert", "Resource", "Occurrences"]);
+    expect(wrapper.get(".app-table-sort").text()).toContain("Updated");
+    expect(wrapper.get(".alerts-table th").attributes("aria-sort")).toBe("descending");
+    expect(wrapper.findAll(".alerts-title").map((title) => title.text()))
+      .toEqual(["Service drift detected", "Node disconnected"]);
+    expect(wrapper.get(".alerts-table").text()).not.toContain("Service recovered");
+    await wrapper.get(".alerts-table .app-table-sort").trigger("click");
+    expect(wrapper.get(".alerts-table th").attributes("aria-sort")).toBe("ascending");
+    expect(wrapper.findAll(".alerts-title").map((title) => title.text()))
+      .toEqual(["Node disconnected", "Service drift detected"]);
     expect(wrapper.findAll("h2")).toHaveLength(0);
   });
 
@@ -127,41 +137,41 @@ describe("Events & Alerts", () => {
     expect(tab(invalidView.wrapper, "Alerts").attributes("aria-selected")).toBe("true");
   });
 
-  it("shows resolved alerts when the checkbox is enabled", async () => {
+  it("combines status, type and resource filters and opens the original alert details", async () => {
     const { wrapper } = await mountView();
-    const checkbox = wrapper.find('.alerts-resolved-filter input[type="checkbox"]');
+    const status = wrapper.get('[aria-label="Filter alerts by status"]');
+    const type = wrapper.get('[aria-label="Filter alerts by type"]');
+    const resource = wrapper.get('[aria-label="Filter alerts by resource"]');
 
-    expect((checkbox.element as HTMLInputElement).checked).toBe(false);
-    await checkbox.setValue(true);
-    await flushPromises();
+    await status.setValue("open");
+    expect(wrapper.findAll(".alerts-title").map((title) => title.text())).toEqual(["Node disconnected"]);
+    await status.setValue("resolved");
+    expect(wrapper.findAll(".alerts-title").map((title) => title.text())).toEqual(["Service drift detected"]);
 
-    expect(fetchAlerts).toHaveBeenLastCalledWith({});
-    expect(wrapper.find(".alerts-table").text()).toContain("Node disconnected");
-    expect(wrapper.find(".alerts-table").text()).toContain("Node reconnected");
+    await type.setValue("node_disconnected");
+    expect(wrapper.text()).toContain("No alerts match the selected filters.");
+    await type.setValue("service_drift");
+    await resource.setValue("node:worker");
+    expect(wrapper.text()).toContain("No alerts match the selected filters.");
+    await resource.setValue("service:app/api");
+    expect(wrapper.findAll(".alerts-title").map((title) => title.text())).toEqual(["Service drift detected"]);
+
+    await wrapper.get(".alerts-table tbody tr").trigger("click");
+    await wrapper.get(".alerts-title").trigger("click");
+    expect(openAlertDetailsModal.mock.calls).toEqual([[resolvedAlert], [resolvedAlert]]);
+    wrapper.unmount();
   });
 
-  it("keeps the resolved-alert control visible in the active-alert empty state", async () => {
-    vi.mocked(fetchAlerts).mockImplementation(async (options = {}) => ({
-      alerts: options.status === "open" ? [] : [resolvedAlert],
-    }));
-    const { wrapper } = await mountView();
-
-    expect(wrapper.find(".alerts-resolved-filter").exists()).toBe(true);
-    expect(wrapper.find(".alerts-empty strong").text()).toBe("No active alerts");
-    expect(wrapper.find(".alerts-empty .meta").text()).toBe("All alerts are resolved.");
-
-    await wrapper.find('.alerts-resolved-filter input[type="checkbox"]').setValue(true);
-    await flushPromises();
-    expect(wrapper.find(".alerts-table").text()).toContain("Node reconnected");
-  });
-
-  it("preserves event filters and the resolved-alert checkbox across tab switches", async () => {
+  it("preserves filters in both tabs across tab switches", async () => {
     const { wrapper, router } = await mountView();
-    await wrapper.find('.alerts-resolved-filter input[type="checkbox"]').setValue(true);
+    const status = wrapper.get<HTMLSelectElement>('[aria-label="Filter alerts by status"]');
+    const resource = wrapper.get<HTMLSelectElement>('[aria-label="Filter alerts by resource"]');
+    await status.setValue("resolved");
+    await resource.setValue("service:app/api");
     await tab(wrapper, "Events").trigger("click");
     await flushPromises();
 
-    await wrapper.find(".events-filter-field select").setValue("error");
+    await wrapper.find("#events-filter-panel .events-filter-field select").setValue("error");
     await flushPromises();
     const typeOption = wrapper
       .findAll(".events-type-filter .app-multi-select-option")
@@ -179,10 +189,12 @@ describe("Events & Alerts", () => {
     await tab(wrapper, "Events").trigger("click");
     await flushPromises();
 
-    expect((wrapper.find(".events-filter-field select").element as HTMLSelectElement).value).toBe("error");
+    expect((wrapper.find("#events-filter-panel .events-filter-field select").element as HTMLSelectElement).value).toBe("error");
     expect((typeOption.find("input").element as HTMLInputElement).checked).toBe(true);
 
     await tab(wrapper, "Alerts").trigger("click");
-    expect((wrapper.find('.alerts-resolved-filter input[type="checkbox"]').element as HTMLInputElement).checked).toBe(true);
+    expect(status.element.value).toBe("resolved");
+    expect(resource.element.value).toBe("service:app/api");
+    wrapper.unmount();
   });
 });
