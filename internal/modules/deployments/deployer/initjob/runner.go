@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	dockerswarm "github.com/docker/docker/api/types/swarm"
@@ -33,7 +34,6 @@ type initJobDeleteTask struct {
 
 // InitJobRunner creates and tracks init jobs for stack services.
 type InitJobRunner struct {
-	dockerClient *client.Client
 	swarmService *swarm.Swarm
 	authManager  registry.AuthManager
 	metrics      Metrics
@@ -41,25 +41,29 @@ type InitJobRunner struct {
 	pollInterval time.Duration
 	timeout      time.Duration
 
-	deleteTasks chan initJobDeleteTask
+	deleteTasks    chan initJobDeleteTask
+	deleteWake     chan struct{}
+	deleteMu       sync.Mutex
+	deleteOverflow []initJobDeleteTask
 }
 
 // NewInitJobRunner creates init job runner with async cleanup queue.
+// The client argument is retained for compatibility; Docker operations use swarmService.
 func NewInitJobRunner(
-	dockerClient *client.Client,
+	_ *client.Client,
 	swarmService *swarm.Swarm,
 	pollInterval time.Duration,
 	timeout time.Duration,
 	metrics Metrics,
 ) *InitJobRunner {
 	runner := &InitJobRunner{
-		dockerClient: dockerClient,
 		swarmService: swarmService,
 		authManager:  registry.NewAuthManager(),
 		metrics:      metrics,
 		pollInterval: pollInterval,
 		timeout:      timeout,
 		deleteTasks:  make(chan initJobDeleteTask, initJobDeleteTasksBuffer),
+		deleteWake:   make(chan struct{}, 1),
 	}
 
 	go runner.runDeleteWorker()
@@ -114,7 +118,7 @@ func (r *InitJobRunner) Run(
 		return Result{}, fmt.Errorf("create init job service %s: %w", serviceRef.Name(), err)
 	}
 
-	defer r.enqueueDeleteTask(initJobDeleteTask{
+	defer r.enqueueDeleteTask(ctx, initJobDeleteTask{
 		serviceID:   serviceID,
 		serviceName: serviceRef.Name(),
 	})
@@ -122,6 +126,9 @@ func (r *InitJobRunner) Run(
 	waitErr := r.waitJob(jobCtx, serviceID, serviceRef.Name())
 	finishedAt := time.Now().UTC()
 	logs, truncated, logsErr := r.loadServiceLogs(ctx, serviceID, serviceRef.Name())
+	if waitErr == nil {
+		waitErr = ctx.Err()
+	}
 	logsAvailable := logsErr == nil
 	if logsErr != nil {
 		slog.WarnContext(

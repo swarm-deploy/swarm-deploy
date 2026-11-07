@@ -162,6 +162,22 @@ func (mr *MockServiceManagerMockRecorder) ListTasks(ctx, serviceIDOrName any) *g
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListTasks", reflect.TypeOf((*MockServiceManager)(nil).ListTasks), ctx, serviceIDOrName)
 }
 
+// LogTail mocks base method.
+func (m *MockServiceManager) LogTail(ctx context.Context, serviceID string, byteLimit int) ([]byte, bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "LogTail", ctx, serviceID, byteLimit)
+	ret0, _ := ret[0].([]byte)
+	ret1, _ := ret[1].(bool)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// LogTail indicates an expected call of LogTail.
+func (mr *MockServiceManagerMockRecorder) LogTail(ctx, serviceID, byteLimit any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LogTail", reflect.TypeOf((*MockServiceManager)(nil).LogTail), ctx, serviceID, byteLimit)
+}
+
 // Logs mocks base method.
 func (m *MockServiceManager) Logs(ctx context.Context, serviceRef ServiceReference, options ServiceLogsOptions) ([]string, error) {
 	m.ctrl.T.Helper()

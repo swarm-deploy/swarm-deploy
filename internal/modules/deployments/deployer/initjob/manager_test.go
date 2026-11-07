@@ -30,7 +30,7 @@ func TestInitJobRunnerUsesServiceManagerWithCompleteSpecAndOptions(t *testing.T)
 				t.Setenv("DOCKER_AUTH_CONFIG", `{"auths":{"registry.example":{"username":"robot","password":"test-value"}}}`)
 			}
 			manager := swarm.NewMockServiceManager(gomock.NewController(t))
-			// Only log collection uses the SDK, and must use the ID returned by the manager.
+			// Log collection also goes through the manager and must use the created service ID.
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				assert.Equal(t, http.MethodGet, r.Method)
 				assert.Equal(t, "/v1.48/services/created-id/logs", r.URL.Path)
@@ -41,9 +41,10 @@ func TestInitJobRunnerUsesServiceManagerWithCompleteSpecAndOptions(t *testing.T)
 			dockerClient, err := client.NewClientWithOpts(client.WithHost(server.URL), client.WithVersion("1.48"))
 			require.NoError(t, err)
 			t.Cleanup(func() { require.NoError(t, dockerClient.Close()) })
+			manager.EXPECT().LogTail(gomock.Any(), "created-id", initJobLogLimit).DoAndReturn(swarm.NewSwarm(dockerClient).Services.LogTail)
 			runner := &InitJobRunner{
-				dockerClient: dockerClient, swarmService: &swarm.Swarm{Services: manager},
-				authManager: registry.NewAuthManager(), metrics: &metrics.NopDeploys{},
+				swarmService: &swarm.Swarm{Services: manager},
+				authManager:  registry.NewAuthManager(), metrics: &metrics.NopDeploys{},
 				pollInterval: time.Millisecond, timeout: 2 * time.Minute,
 				deleteTasks: make(chan initJobDeleteTask, 1),
 			}
