@@ -239,8 +239,8 @@ onUnmounted(() => {
           >
             <defs>
               <linearGradient id="topbar-assistant-gradient" x1="0%" y1="100%" x2="100%" y2="0%">
-                <stop offset="0%" stop-color="currentColor" />
-                <stop offset="100%" stop-color="#796092" />
+                <stop offset="0%" stop-color="#667FA6" />
+                <stop offset="100%" stop-color="#9079A5" />
               </linearGradient>
             </defs>
             <rect x="4" y="7" width="16" height="13" rx="3" />
