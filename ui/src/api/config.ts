@@ -10,7 +10,7 @@ interface UIConfigResponse {
   };
 }
 
-export async function fetchLogLinkFields(signal: AbortSignal): Promise<Record<string, string>> {
-  const config = await apiRequest<UIConfigResponse>("/api/v1/config", { signal });
+export async function fetchLogLinkFields(): Promise<Record<string, string>> {
+  const config = await apiRequest<UIConfigResponse>("/api/v1/config");
   return config.web.ui.logViewer.linkFields ?? {};
 }
