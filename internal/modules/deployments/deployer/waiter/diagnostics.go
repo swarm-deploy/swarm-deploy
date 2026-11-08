@@ -133,7 +133,9 @@ func waitInterruptedError(
 	}
 	err := fmt.Errorf("wait for services in stack %s: %w: %s", stackName, cause, diagnostic)
 	for _, name := range sortedProgressNames(progress) {
-		if service := progress[name]; service.State != ServiceReady && service.taskFault != nil && service.taskFault.FaultCode() == faults.CodeNoSuitableNode {
+		service := progress[name]
+		if service.State != ServiceReady && service.taskFault != nil &&
+			service.taskFault.FaultCode() == faults.CodeNoSuitableNode {
 			return service.withTaskFault(err)
 		}
 	}

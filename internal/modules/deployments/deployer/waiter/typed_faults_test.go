@@ -120,6 +120,7 @@ func TestServiceWaiterPendingSchedulingFaultAtTimeout(t *testing.T) {
 			require.ErrorAs(t, err, &coded)
 			assert.Equal(t, faults.CodeNoSuitableNode, coded.FaultCode())
 			assert.Equal(t, boundedDiagnostic(tc.diagnostic), coded.FaultSummary())
+			assert.EqualError(t, coded, tc.diagnostic)
 			assert.ErrorContains(t, err, tc.diagnostic)
 			if !tc.initial {
 				assert.ErrorContains(t, err, "waiting for rolling update to complete")

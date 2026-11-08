@@ -61,6 +61,10 @@ func (e *dockerFaultError) Unwrap() error          { return e.cause }
 func (e *dockerFaultError) FaultCode() faults.Code { return e.code }
 func (e *dockerFaultError) FaultSummary() string   { return e.summary }
 
+func (e *dockerFaultError) Is(target error) bool {
+	return target == ErrImageNotFound && e.code == faults.CodeImageNotFound
+}
+
 func dockerFault(diagnostic string) (faults.Code, string) {
 	const maxSummaryLength = 256
 	message := strings.ToLower(diagnostic)

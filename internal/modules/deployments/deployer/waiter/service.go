@@ -38,17 +38,19 @@ var ErrConvergenceFailed = errors.New("service convergence failed")
 
 type taskConvergenceError struct {
 	cause error
-	faults.Coded
+	fault faults.Coded
 }
 
-func (e taskConvergenceError) Error() string { return e.cause.Error() }
-
-func (e taskConvergenceError) Unwrap() []error {
-	if e.FaultCode() == faults.CodeImageNotFound {
-		return []error{e.cause, swarm.ErrImageNotFound}
+func (e taskConvergenceError) Error() string {
+	message, diagnostic := e.cause.Error(), e.fault.Error()
+	// Progress may contain only a bounded version of the Docker diagnostic.
+	if !strings.Contains(message, diagnostic) {
+		return message + "; task diagnostic: " + diagnostic
 	}
-	return []error{e.cause}
+	return message
 }
+
+func (e taskConvergenceError) Unwrap() []error { return []error{e.cause, e.fault} }
 
 // ServiceState describes the current convergence state of a service.
 type ServiceState string
@@ -94,11 +96,7 @@ func (p ServiceProgress) withTaskFault(cause error) error {
 	if p.taskFault == nil {
 		return cause
 	}
-	// Keep the unabridged Docker diagnostic even when progress messages are bounded.
-	if !strings.Contains(cause.Error(), p.taskFault.Error()) {
-		cause = fmt.Errorf("%w; task diagnostic: %s", cause, p.taskFault.Error())
-	}
-	return taskConvergenceError{cause: cause, Coded: p.taskFault}
+	return taskConvergenceError{cause: cause, fault: p.taskFault}
 }
 
 // ServiceProgressCallback receives meaningful service convergence transitions.
