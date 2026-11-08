@@ -5,6 +5,7 @@ import type { EnvironmentVariable, SwarmTaskDetails, SwarmTaskResources } from "
 import { copyText } from "../../utils/clipboard";
 import { formatBytes, formatDate, formatNanoCPU } from "../../utils/format";
 import { decodeBase64Utf8 } from "../../utils/realtime";
+import AppCopyButton from "../common/AppCopyButton.vue";
 import AppPanel from "../common/AppPanel.vue";
 import AppStatusBadge from "../common/AppStatusBadge.vue";
 import AppTabs from "../common/AppTabs.vue";
@@ -212,16 +213,13 @@ function hasResources(resources: SwarmTaskResources | undefined): boolean {
           <div v-if="task.image" class="realtime-task-image">
             <div class="realtime-task-image-primary">
               <code :title="imageReference.name">{{ imageReference.name }}</code>
-              <button
-                type="button"
-                class="realtime-detail-copy-button"
+              <AppCopyButton
+                color="var(--muted)"
+                :copied="copiedKey === 'image'"
                 :aria-label="copiedKey === 'image' ? 'Image reference copied' : 'Copy full image reference'"
                 :title="copiedKey === 'image' ? 'Copied' : 'Copy full image reference'"
                 @click="copyDetailValue(task.image, 'image')"
-              >
-                <svg v-if="copiedKey === 'image'" class="realtime-detail-copy-check" viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12.5 4.2 4.2L19 7" /></svg>
-                <svg v-else viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="11" height="11" rx="2" /><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" /></svg>
-              </button>
+              />
             </div>
             <div v-if="imageReference.tag || imageReference.digest" class="realtime-task-image-meta">
               <span v-if="imageReference.tag" class="realtime-task-image-tag" :title="imageReference.tag">{{ imageReference.tag }}</span>
@@ -240,17 +238,14 @@ function hasResources(resources: SwarmTaskResources | undefined): boolean {
                 <code v-if="identifier.value" :title="identifier.value">{{ identifier.value }}</code>
                 <span v-else class="realtime-task-missing">—</span>
               </dd>
-              <button
+              <AppCopyButton
                 v-if="identifier.value"
-                type="button"
-                class="realtime-detail-copy-button"
+                color="var(--muted)"
+                :copied="copiedKey === identifier.key"
                 :aria-label="copiedKey === identifier.key ? `${identifier.label} copied` : `Copy ${identifier.label.toLowerCase()}`"
                 :title="copiedKey === identifier.key ? 'Copied' : `Copy ${identifier.label}`"
                 @click="copyDetailValue(identifier.value, identifier.key)"
-              >
-                <svg v-if="copiedKey === identifier.key" class="realtime-detail-copy-check" viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12.5 4.2 4.2L19 7" /></svg>
-                <svg v-else viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="11" height="11" rx="2" /><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" /></svg>
-              </button>
+              />
             </div>
           </dl>
         </section>
@@ -313,17 +308,14 @@ function hasResources(resources: SwarmTaskResources | undefined): boolean {
                   <svg v-if="revealed.has(variable.name)" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3 21 21M10.6 10.7a2 2 0 0 0 2.7 2.7M9.9 4.2A10.4 10.4 0 0 1 12 4c5.2 0 8.5 4.2 9.5 5.8a4 4 0 0 1 .5 1.2M6.6 6.6A14 14 0 0 0 2.5 11.8C3.5 13.4 6.8 17.6 12 17.6a10 10 0 0 0 4.1-.9" /></svg>
                   <svg v-else viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12S6 6.5 12 6.5 21.5 12 21.5 12 18 17.5 12 17.5 2.5 12 2.5 12Z" /><circle cx="12" cy="12" r="2.5" /></svg>
                 </button>
-                <button
-                  type="button"
-                  class="realtime-environment-action"
+                <AppCopyButton
+                  color="var(--muted)"
+                  :copied="copiedKey === `value:${variable.name}`"
                   :disabled="variable.encoded && decodedValue(variable) === null"
                   :aria-label="copiedKey === `value:${variable.name}` ? `Value copied for ${variable.name}` : `Copy value for ${variable.name}`"
                   :title="copiedKey === `value:${variable.name}` ? 'Value copied' : 'Copy value'"
                   @click="copyVariableValue(variable)"
-                >
-                  <svg v-if="copiedKey === `value:${variable.name}`" class="realtime-environment-copy-check" viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12.5 4.2 4.2L19 7" /></svg>
-                  <svg v-else viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="11" height="11" rx="2" /><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" /></svg>
-                </button>
+                />
               </div>
             </li>
           </ul>
@@ -368,10 +360,6 @@ function hasResources(resources: SwarmTaskResources | undefined): boolean {
 .realtime-task-image-meta { min-width: 0; display: flex; align-items: center; gap: 10px; }
 .realtime-task-image-tag { flex: 0 1 auto; max-width: 42%; overflow: hidden; border: 0; border-radius: 999px; background: var(--surface-muted-strong); color: var(--text); padding: 3px 9px; font: 400 .68rem/1.2 ui-monospace, SFMono-Regular, Menlo, monospace; text-overflow: ellipsis; white-space: nowrap; }
 .realtime-task-image-digest { min-width: 0; overflow: hidden; color: var(--muted); font-size: .68rem; text-overflow: ellipsis; white-space: nowrap; }
-.realtime-detail-copy-button { display: inline-grid; place-items: center; width: 28px; height: 28px; border: 0; border-radius: 5px; background: transparent; color: var(--muted); padding: 0; transform: none; filter: none; }
-.realtime-detail-copy-button:hover { background: var(--surface-hover); color: var(--text); transform: none; filter: none; }
-.realtime-detail-copy-button svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
-.realtime-detail-copy-button .realtime-detail-copy-check { color: var(--success); stroke-width: 2; }
 .realtime-task-identifiers { margin: 0; }
 .realtime-task-identifiers > div { min-width: 0; display: grid; grid-template-columns: 80px minmax(0, 1fr) 28px; align-items: center; gap: 8px; min-height: 36px; border-bottom: 1px solid var(--border-subtle); }
 .realtime-task-identifiers > div:last-child { border-bottom: 0; }
@@ -400,10 +388,8 @@ function hasResources(resources: SwarmTaskResources | undefined): boolean {
 .realtime-environment-value--error { color: var(--error); }
 .realtime-environment-actions { display: flex; align-items: center; justify-content: flex-end; gap: 2px; }
 .realtime-environment-action { display: inline-grid; place-items: center; width: 28px; height: 28px; border: 0; border-radius: 5px; background: transparent; color: var(--muted); padding: 0; transform: none; filter: none; }
-.realtime-environment-action:hover:not(:disabled) { background: var(--surface-hover); color: var(--text); transform: none; filter: none; }
-.realtime-environment-action:disabled { cursor: not-allowed; opacity: .45; }
+.realtime-environment-action:hover { background: var(--surface-hover); color: var(--text); transform: none; filter: none; }
 .realtime-environment-action svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
-.realtime-environment-action .realtime-environment-copy-check { color: var(--success); stroke-width: 2; }
 .realtime-inline-error { margin: 10px 14px 0; border: 1px solid var(--warning-border); border-radius: 7px; background: var(--warning-muted); color: var(--warning); padding: 8px 10px; font-size: .76rem; }
 
 @media (max-width: 900px) {
