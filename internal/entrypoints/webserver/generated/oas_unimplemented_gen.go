@@ -71,6 +71,13 @@ func (UnimplementedHandler) GetAssistantSuggestions(ctx context.Context) (r *Ass
 	return r, ht.ErrNotImplemented
 }
 
+// GetConfig implements getConfig operation.
+//
+// GET /api/v1/config
+func (UnimplementedHandler) GetConfig(ctx context.Context) (r *UIConfigResponse, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // GetCurrentUser implements getCurrentUser operation.
 //
 // GET /api/v1/users/me

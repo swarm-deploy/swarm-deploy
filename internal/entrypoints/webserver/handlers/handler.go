@@ -24,6 +24,7 @@ import (
 type handler struct {
 	deployments *deploymentstore.Store
 	generated.UnimplementedHandler
+	uiConfig         config.WebUISpec
 	stackProvider    config.StackProvider
 	stateStore       modelstore.ReadStore
 	control          *controller.Controller
@@ -50,6 +51,7 @@ var _ generated.Handler = (*handler)(nil)
 var _ generated.RawHandler = (*handler)(nil)
 
 func New(
+	uiConfig config.WebUISpec,
 	stackProvider config.StackProvider,
 	stateStore modelstore.ReadStore,
 	control *controller.Controller,
@@ -68,6 +70,7 @@ func New(
 	eventDispatcher dispatcher.Dispatcher,
 ) *handler {
 	return &handler{deployments: deployments,
+		uiConfig:         uiConfig,
 		stackProvider:    stackProvider,
 		stateStore:       stateStore,
 		control:          control,

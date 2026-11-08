@@ -157,6 +157,12 @@ web:
   address: ":8080"
   # URL prefix for UI and API routes. Use / for root deployment.
   basePath: /
+  # Optional links in the Fields tab of parsed task logs. Use the exact field
+  # name and an absolute HTTP(S) URL. The UI replaces {value} with the encoded field value.
+  # ui:
+  #   logViewer:
+  #     linkFields:
+  #       trace_id: "http://tracer.example/{value}"
 
 # Dedicated health/metrics server.
 healthServer:

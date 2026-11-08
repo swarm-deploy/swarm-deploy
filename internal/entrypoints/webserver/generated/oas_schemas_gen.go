@@ -7807,6 +7807,78 @@ func (s *SynchronizedSecretIdentity) SetName(val string) {
 	s.Name = val
 }
 
+// Ref: #/components/schemas/UIConfigResponse
+type UIConfigResponse struct {
+	Web UIConfigResponseWeb `json:"web"`
+}
+
+// GetWeb returns the value of Web.
+func (s *UIConfigResponse) GetWeb() UIConfigResponseWeb {
+	return s.Web
+}
+
+// SetWeb sets the value of Web.
+func (s *UIConfigResponse) SetWeb(val UIConfigResponseWeb) {
+	s.Web = val
+}
+
+type UIConfigResponseWeb struct {
+	UI UIConfigResponseWebUI `json:"ui"`
+}
+
+// GetUI returns the value of UI.
+func (s *UIConfigResponseWeb) GetUI() UIConfigResponseWebUI {
+	return s.UI
+}
+
+// SetUI sets the value of UI.
+func (s *UIConfigResponseWeb) SetUI(val UIConfigResponseWebUI) {
+	s.UI = val
+}
+
+type UIConfigResponseWebUI struct {
+	LogViewer UIConfigResponseWebUILogViewer `json:"logViewer"`
+}
+
+// GetLogViewer returns the value of LogViewer.
+func (s *UIConfigResponseWebUI) GetLogViewer() UIConfigResponseWebUILogViewer {
+	return s.LogViewer
+}
+
+// SetLogViewer sets the value of LogViewer.
+func (s *UIConfigResponseWebUI) SetLogViewer(val UIConfigResponseWebUILogViewer) {
+	s.LogViewer = val
+}
+
+type UIConfigResponseWebUILogViewer struct {
+	// Map of log field names to HTTP(S) URL templates. The UI replaces {value} with the URL-encoded
+	// field value.
+	LinkFields UIConfigResponseWebUILogViewerLinkFields `json:"linkFields"`
+}
+
+// GetLinkFields returns the value of LinkFields.
+func (s *UIConfigResponseWebUILogViewer) GetLinkFields() UIConfigResponseWebUILogViewerLinkFields {
+	return s.LinkFields
+}
+
+// SetLinkFields sets the value of LinkFields.
+func (s *UIConfigResponseWebUILogViewer) SetLinkFields(val UIConfigResponseWebUILogViewerLinkFields) {
+	s.LinkFields = val
+}
+
+// Map of log field names to HTTP(S) URL templates. The UI replaces {value} with the URL-encoded
+// field value.
+type UIConfigResponseWebUILogViewerLinkFields map[string]string
+
+func (s *UIConfigResponseWebUILogViewerLinkFields) init() UIConfigResponseWebUILogViewerLinkFields {
+	m := *s
+	if m == nil {
+		m = map[string]string{}
+		*s = m
+	}
+	return m
+}
+
 // UpdateNodeLabelNoContent is response for UpdateNodeLabel operation.
 type UpdateNodeLabelNoContent struct{}
 

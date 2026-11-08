@@ -9,6 +9,7 @@ import AppModal from "../common/AppModal.vue";
 import AppSelect from "../common/AppSelect.vue";
 import AppTabs from "../common/AppTabs.vue";
 import SeverityIcon from "../common/SeverityIcon.vue";
+import { fetchLogLinkFields } from "../../api/config";
 import { openTaskLogsStream } from "../../api/overview";
 import type { TaskLogCountsEvent, TaskLogEvent, TaskLogLevel } from "../../api/types";
 import { copyText } from "../../utils/clipboard";
@@ -25,6 +26,7 @@ const emit = defineEmits<{
 type LogEntry = TaskLogEvent & { id: number };
 
 const logs = ref<LogEntry[]>([]);
+const linkFields = ref<Record<string, string>>({});
 const loading = ref(false);
 const error = ref("");
 const ended = ref(false);
@@ -112,6 +114,13 @@ const timeline = computed(() => {
 });
 
 const selectedLog = computed(() => openLog.value === null ? undefined : logs.value[openLog.value]);
+const detailFields = computed(() => selectedLog.value
+  ? Object.entries(logFields(selectedLog.value)).map(([key, value]) => ({
+      key,
+      text: formatLogAttributeValue(value),
+      href: logFieldHref(key, value),
+    }))
+  : []);
 const detailTabs = computed(() => {
   const tabs = [
     { value: "fields", label: "Fields", id: "task-log-fields-tab", panelId: "task-log-detail-content" },
@@ -306,6 +315,18 @@ function formatLogAttributeValue(value: unknown): string {
   return JSON.stringify(value) ?? "—";
 }
 
+function logFieldHref(key: string, value: unknown): string | undefined {
+  const templates = linkFields.value;
+  if (!Object.hasOwn(templates, key) || value == null || value === "") return;
+
+  try {
+    const url = new URL(templates[key].replaceAll("{value}", encodeURIComponent(formatLogAttributeValue(value))));
+    if (url.protocol === "http:" || url.protocol === "https:") return url.href;
+  } catch {
+    // Keep the value as text if the template cannot produce a URL.
+  }
+}
+
 function logMethod(entry: TaskLogEvent): string {
   const method = entry.attributes?.["grpc.method"];
   return typeof method === "string" ? method.replace(/^\/?[^/]*\./, "") : "";
@@ -330,6 +351,20 @@ async function copyLogValue(value: string, key: string): Promise<void> {
   await copyText(value);
   copiedLogKey.value = key;
 }
+
+watch(() => props.open, async (open, _, onCleanup) => {
+  if (!open) return;
+
+  const request = new AbortController();
+  onCleanup(() => request.abort());
+  linkFields.value = {};
+  try {
+    const fields = await fetchLogLinkFields(request.signal);
+    if (!request.signal.aborted) linkFields.value = fields;
+  } catch {
+    // Configuration is optional; logs remain readable without links.
+  }
+}, { immediate: true });
 
 watch(
   () => [props.open, props.taskId] as const,
@@ -514,12 +549,15 @@ onUnmounted(() => {
                 :aria-labelledby="`task-log-${detailView}-tab`"
               >
                 <dl v-if="detailView === 'fields'" class="task-log-attributes">
-                  <div v-for="(value, key) in logFields(entry)" :key="key" class="task-log-attribute">
+                  <div v-for="{ key, text, href } in detailFields" :key="key" class="task-log-attribute">
                     <dt>{{ key }}</dt>
-                    <dd>{{ formatLogAttributeValue(value) }}</dd>
+                    <dd>
+                      <a v-if="href" class="task-log-attribute-link" :href="href" target="_blank" rel="noopener noreferrer">{{ text }}</a>
+                      <template v-else>{{ text }}</template>
+                    </dd>
                     <dd class="task-log-attribute-actions">
                       <AppCopyButton
-                        :value="formatLogAttributeValue(value)"
+                        :value="text"
                         color="var(--muted)"
                         :label="`Copy ${key}`"
                         :copied-label="`${key} copied`"
