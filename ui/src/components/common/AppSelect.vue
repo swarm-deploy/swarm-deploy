@@ -259,7 +259,7 @@ onBeforeUnmount(() => document.removeEventListener("click", handleDocumentClick)
   font-size: .82rem;
 }
 .app-select-option { display: flex; align-items: flex-start; gap: 9px; border-radius: 6px; padding: 7px 6px; color: var(--text); font-size: .82rem; }
-button.app-select-option { width: 100%; border: 0; background: transparent; font-family: inherit; text-align: left; cursor: pointer; }
+button.app-select-option { width: 100%; border: 0; background: transparent; font-family: inherit; font-weight: 400; text-align: left; cursor: pointer; }
 .app-select-option:hover { background: var(--surface-hover-soft); }
 .app-select-check { flex: 0 0 16px; width: 16px; height: 16px; color: var(--control-primary); visibility: hidden; }
 .app-select-option[aria-pressed="true"] .app-select-check { visibility: visible; }
@@ -279,10 +279,10 @@ button.app-select-option { width: 100%; border: 0; background: transparent; font
 .app-select--descriptive .app-select-menu { width: max(100%, 380px); }
 .app-select--descriptive .app-select-option-label {
   overflow: hidden;
-  font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.app-select--descriptive label.app-select-option .app-select-option-label { font-weight: 600; }
 
 @media (max-width: 720px) {
   .app-select--descriptive .app-select-menu { width: 100%; max-width: 100%; }
