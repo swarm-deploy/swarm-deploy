@@ -108,7 +108,9 @@ onBeforeUnmount(() => document.removeEventListener("click", handleDocumentClick)
     <summary :aria-label="label">
       <slot name="icon" />
       <span class="app-multi-select-selection" :title="summary">{{ summary }}</span>
-      <span class="app-multi-select-chevron" aria-hidden="true">⌄</span>
+      <svg class="app-multi-select-chevron" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="m4 6 4 4 4-4" />
+      </svg>
     </summary>
     <div class="app-multi-select-menu">
       <div class="app-multi-select-header">
@@ -169,7 +171,7 @@ onBeforeUnmount(() => document.removeEventListener("click", handleDocumentClick)
   outline-offset: 2px;
 }
 .app-multi-select-selection { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.app-multi-select-chevron { flex: 0 0 auto; color: var(--muted); }
+.app-multi-select-chevron { flex: none; width: 14px; height: 14px; color: var(--muted); }
 .app-multi-select-menu {
   position: absolute;
   z-index: 30;
