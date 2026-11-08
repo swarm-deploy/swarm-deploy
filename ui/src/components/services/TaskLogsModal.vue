@@ -6,7 +6,6 @@ import { computed, nextTick, onUnmounted, ref, watch } from "vue";
 import AppButton from "../common/AppButton.vue";
 import AppCopyButton from "../common/AppCopyButton.vue";
 import AppModal from "../common/AppModal.vue";
-import AppMultiSelect from "../common/AppMultiSelect.vue";
 import AppSelect from "../common/AppSelect.vue";
 import AppTabs from "../common/AppTabs.vue";
 import SeverityIcon from "../common/SeverityIcon.vue";
@@ -31,11 +30,17 @@ const error = ref("");
 const ended = ref(false);
 const viewer = ref<HTMLElement | null>(null);
 const searchInput = ref<HTMLInputElement | null>(null);
-const levelSelect = ref<InstanceType<typeof AppMultiSelect> | null>(null);
+const levelSelect = ref<{ dismiss(): boolean } | null>(null);
+const timeRangeSelect = ref<{ dismiss(): boolean } | null>(null);
 const autoScroll = ref(true);
 const parseLogs = ref(true);
 const wrapLines = ref(false);
 const range = ref(0);
+const timeRangeOptions = [
+  { value: 0, label: "All time" },
+  { value: 15, label: "Last 15 min" },
+  { value: 60, label: "Last hour" },
+];
 const since = ref("");
 const firstVisibleLog = ref(0);
 const showEarlier = ref(false);
@@ -261,8 +266,8 @@ function focusSearch(event: KeyboardEvent): void {
   searchInput.value?.focus();
 }
 
-function dismissLogLevelSelect(event: KeyboardEvent): void {
-  if (levelSelect.value?.dismiss()) event.preventDefault();
+function dismissLogSelect(event: KeyboardEvent): void {
+  if (levelSelect.value?.dismiss() || timeRangeSelect.value?.dismiss()) event.preventDefault();
 }
 
 function logLevelCount(levels: TaskLogLevel[]): number {
@@ -352,7 +357,7 @@ onUnmounted(() => {
     header-class="task-logs-modal-header"
     @close="close"
     @keydown="focusSearch"
-    @escape="dismissLogLevelSelect"
+    @escape="dismissLogSelect"
   >
     <template #title>
       <div class="task-logs-title">
@@ -382,10 +387,11 @@ onUnmounted(() => {
             placeholder="Search logs"
           />
         </label>
-        <AppMultiSelect
+        <AppSelect
           v-if="open && parseLogs"
           ref="levelSelect"
-          class="task-logs-level-select"
+          multiple
+          class="task-logs-select task-logs-level-select"
           :model-value="selectedLogFilters"
           :options="logLevelOptions"
           label="Filter by log level"
@@ -394,14 +400,18 @@ onUnmounted(() => {
           @update:model-value="setLogLevelFilters"
         >
           <template #icon><SeverityIcon /></template>
-        </AppMultiSelect>
-        <AppSelect v-model="range" class="task-logs-range" label="Time range" @update:model-value="changeTimeRange">
+        </AppSelect>
+        <AppSelect
+          ref="timeRangeSelect"
+          v-model="range"
+          class="task-logs-select task-logs-range"
+          :options="timeRangeOptions"
+          label="Time range"
+          @update:model-value="changeTimeRange"
+        >
           <template #icon>
             <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>
           </template>
-          <option :value="0">All time</option>
-          <option :value="15">Last 15 min</option>
-          <option :value="60">Last hour</option>
         </AppSelect>
         <AppButton
           variant="secondary"

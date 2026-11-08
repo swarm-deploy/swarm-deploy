@@ -3477,7 +3477,7 @@ button.app-copy-button.service-image-copy-button {
   width: 160px;
 }
 
-.task-logs-modal-card .task-logs-controls :is(.task-logs-level-select > summary, .task-logs-range select) {
+.task-logs-modal-card .task-logs-controls .task-logs-select > summary {
   font-size: var(--log-filter-font-size);
 }
 
@@ -3517,6 +3517,11 @@ button.app-copy-button.service-image-copy-button {
 
 .task-logs-range {
   --app-select-height: 40px;
+}
+
+.task-logs-controls .task-logs-range .app-select-menu {
+  left: auto;
+  right: 0;
 }
 
 .task-logs-live {
@@ -3888,44 +3893,29 @@ button.app-copy-button.service-image-copy-button {
     padding-inline: 8px;
   }
 
-  .task-logs-controls > :is(.task-logs-level-select, .task-logs-range, .task-logs-mode-button) {
+  .task-logs-controls > :is(.task-logs-select, .task-logs-mode-button) {
     flex: none;
     width: 40px;
   }
 
-  .task-logs-modal-card .task-logs-controls > .task-logs-level-select {
+  .task-logs-modal-card .task-logs-controls > .task-logs-select {
     position: static;
   }
 
-  .task-logs-modal-card .task-logs-controls .task-logs-level-select > summary {
+  .task-logs-modal-card .task-logs-controls .task-logs-select > summary {
     height: 40px;
     justify-content: center;
     padding: 0;
   }
 
-  .task-logs-level-select > summary > :is(.app-multi-select-selection, .app-multi-select-chevron),
-  .task-logs-range .app-select-chevron {
+  .task-logs-select > summary > :is(.app-select-selection, .app-select-chevron) {
     display: none;
   }
 
-  .task-logs-controls .task-logs-level-select .app-multi-select-menu {
+  .task-logs-controls .task-logs-select .app-select-menu {
     left: auto;
     right: 0;
     width: min(100%, 260px);
-  }
-
-  .task-logs-modal-card .task-logs-controls .task-logs-range select {
-    padding: 0;
-    color: transparent;
-  }
-
-  .task-logs-range option {
-    color: var(--text);
-  }
-
-  .task-logs-controls .task-logs-range .app-select-icon {
-    left: 50%;
-    transform: translate(-50%, -50%);
   }
 
   .task-log-line {
