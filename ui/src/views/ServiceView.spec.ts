@@ -250,8 +250,8 @@ describe("ServiceView", () => {
     expect(actions.every((button) => button.text() === "")).toBe(true);
     expect(actions[0].attributes("aria-label")).toBe("Open details for task task-id");
     expect(actions[1].attributes("aria-label")).toBe("Open logs for task task-id");
-    expect(mobileTask.find(".service-copy-task-id-button").exists()).toBe(false);
-    const copyButton = wrapper.get(".service-realtime-desktop .service-realtime-copy-button");
+    expect(mobileTask.find('button[aria-label^="Copy task ID"]').exists()).toBe(false);
+    const copyButton = wrapper.get('.service-realtime-desktop button[aria-label="Copy task ID task-id"]');
     expect(copyButton.text()).toBe("");
     expect(copyButton.attributes("title")).toBe("Copy task ID");
   });

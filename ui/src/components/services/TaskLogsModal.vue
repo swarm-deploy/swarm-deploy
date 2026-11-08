@@ -4,6 +4,7 @@ import { tokenizeWith } from "@speed-highlight/core/tokenize";
 import { computed, nextTick, onUnmounted, ref, watch } from "vue";
 
 import AppButton from "../common/AppButton.vue";
+import AppCopyButton from "../common/AppCopyButton.vue";
 import AppModal from "../common/AppModal.vue";
 import { openTaskLogsStream } from "../../api/overview";
 import type { TaskLogCountsEvent, TaskLogEvent, TaskLogLevel } from "../../api/types";
@@ -368,25 +369,12 @@ onUnmounted(() => {
         <div class="task-logs-task">
           <span>Task</span>
           <code>{{ taskId || "n/a" }}</code>
-          <button
+          <AppCopyButton
             v-if="taskId"
-            type="button"
-            class="service-copy-task-id-button service-realtime-copy-button"
             :aria-label="copiedLogKey === 'task' ? 'Task ID copied' : 'Copy task ID'"
             :title="copiedLogKey === 'task' ? 'Copied' : 'Copy task ID'"
             @click="copyLogValue(taskId, 'task')"
-          >
-            <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
-              <path
-                d="M5 1.5A1.5 1.5 0 0 0 3.5 3v7A1.5 1.5 0 0 0 5 11.5h7A1.5 1.5 0 0 0 13.5 10V3A1.5 1.5 0 0 0 12 1.5H5Zm0 1h7a.5.5 0 0 1 .5.5v7a.5.5 0 0 1-.5.5H5a.5.5 0 0 1-.5-.5V3a.5.5 0 0 1 .5-.5Z"
-                fill="currentColor"
-              />
-              <path
-                d="M2 4.5a.5.5 0 0 1 .5.5V12A1.5 1.5 0 0 0 4 13.5h7a.5.5 0 0 1 0 1H4A2.5 2.5 0 0 1 1.5 12V5a.5.5 0 0 1 .5-.5Z"
-                fill="currentColor"
-              />
-            </svg>
-          </button>
+          />
         </div>
       </div>
     </template>
