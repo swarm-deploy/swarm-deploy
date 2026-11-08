@@ -381,17 +381,38 @@ app.get("/api/v1/swarm/tasks/:task", (context) => {
   return context.json(taskDetails(task));
 });
 
+const taskLogMessages = [
+  ["INFO", "service request completed", { status: 200 }],
+  ["WARN", "synthetic retry scheduled", { attempt: 2 }],
+  ["INFO", "worker heartbeat", { node: "worker-1" }],
+  ["DEBUG", "cache key checked", { cache_hit: false }],
+  ["INFO", "request accepted", { status: 202 }],
+  ["INFO", "upstream connection established", { upstream: "worker" }],
+  ["ERROR", "upstream request timed out", { status: 504 }],
+  ["WARN", "request latency exceeded threshold", { duration_ms: 850 }],
+  ["INFO", "retry completed", { attempt: 2 }],
+  ["INFO", "background job completed", { queue: "default" }],
+];
+
+const taskLogEntries = Array.from({ length: 20 }, (_, index) => {
+  const [level, message, fields] = taskLogMessages[index % taskLogMessages.length];
+  const timestamp = new Date(Date.parse("2026-10-28T20:50:00Z") + index * 12_000).toISOString();
+  const attributes = { request_id: `mock-${String(index + 1).padStart(3, "0")}`, ...fields };
+  const stream = level === "WARN" || level === "ERROR" ? "stderr" : "stdout";
+  const raw_message = JSON.stringify({ time: timestamp, level, msg: message, ...attributes });
+  return { timestamp, stream, level, message, attributes, raw_message };
+});
+
 app.get("/api/tasks/:task/logs", (context) => streamSSE(context, async (stream) => {
   const parse = context.req.query("parse") === "true";
+  const levels = new URL(context.req.url).searchParams.getAll("levels");
   if (parse) {
-    await stream.writeSSE({ event: "counts", data: JSON.stringify({ counts: { INFO: 3, WARN: 1, ERROR: 1 } }) });
+    const counts = {};
+    for (const { level } of taskLogEntries) counts[level] = (counts[level] ?? 0) + 1;
+    await stream.writeSSE({ event: "counts", data: JSON.stringify({ counts }) });
   }
-  const entries = [
-    { timestamp: "2026-10-28T20:54:10.123456Z", stream: "stdout", level: "INFO", message: "service request completed", attributes: { request_id: "mock-request-1", status: 200 }, raw_message: "level=info status=200 request_id=mock-request-1 msg=\"service request completed\"" },
-    { timestamp: "2026-10-28T20:54:11.004Z", stream: "stderr", level: "WARN", message: "synthetic retry scheduled", attributes: { attempt: 2 }, raw_message: "level=warn attempt=2 msg=\"synthetic retry scheduled\"" },
-    { timestamp: "2026-10-28T20:54:12.010Z", stream: "stdout", level: "INFO", message: "worker heartbeat", attributes: { node: "worker-1" }, raw_message: "worker heartbeat node=worker-1" },
-  ];
-  for (const entry of entries) {
+  for (const entry of taskLogEntries) {
+    if (parse && levels.length > 0 && !levels.includes(entry.level)) continue;
     const payload = parse ? entry : { timestamp: entry.timestamp, stream: entry.stream, message: entry.raw_message };
     await stream.writeSSE({ event: "log", data: JSON.stringify(payload) });
   }
