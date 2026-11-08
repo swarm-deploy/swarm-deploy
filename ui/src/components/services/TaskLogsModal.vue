@@ -421,10 +421,10 @@ onUnmounted(() => {
           Message
           <button
             type="button"
-            class="task-log-wrap-button"
+            class="task-log-wrap-button app-tooltip"
             :aria-pressed="wrapLines"
             aria-label="Wrap lines"
-            title="Wrap lines"
+            data-tooltip="Wrap lines"
             @click="wrapLines = !wrapLines"
           >
             <svg viewBox="0 0 24 24" aria-hidden="true">

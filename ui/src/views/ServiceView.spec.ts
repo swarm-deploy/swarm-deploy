@@ -324,10 +324,10 @@ describe("ServiceView", () => {
 
     const wrap = wrapper.get('.task-log-message-column button[aria-label="Wrap lines"]');
     expect(wrap.attributes("aria-pressed")).toBe("false");
-    expect(wrap.attributes("title")).toBe("Wrap lines");
+    expect(wrap.attributes("data-tooltip")).toBe("Wrap lines");
     await wrap.trigger("click");
     expect(wrap.attributes("aria-pressed")).toBe("true");
-    expect(wrap.attributes("title")).toBe("Wrap lines");
+    expect(wrap.attributes("data-tooltip")).toBe("Wrap lines");
     expect(wrapper.get(".task-logs-table").classes()).toContain("task-logs-table--wrap");
 
     expect(apiMocks.openTaskLogsStream).toHaveBeenLastCalledWith("task-id", {
