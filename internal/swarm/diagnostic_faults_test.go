@@ -19,7 +19,6 @@ func TestDockerDiagnosticFaults(t *testing.T) {
 		{"no suitable node (scheduling constraints not satisfied on 3 nodes)", faults.CodeNoSuitableNode},
 		{"no suitable node (insufficient resources on 1 node)", faults.CodeNoSuitableNode},
 		{"no suitable node (1 node not available for new tasks)", faults.CodeNoSuitableNode},
-		{"pull access denied for private/app, repository does not exist or may require 'docker login'", faults.CodeImagePullDenied},
 		{"unauthorized: authentication required", faults.CodeImagePullDenied},
 		{"denied: requested access to the resource is denied", faults.CodeImagePullDenied},
 		{"no basic auth credentials", faults.CodeImagePullDenied},
@@ -55,6 +54,8 @@ func TestDockerDiagnosticFaultsAvoidFalsePositives(t *testing.T) {
 	for _, diagnostic := range []string{
 		"task pending", "waiting for resources", "no eligible nodes", "image pull failed",
 		"repository does not exist or may require 'docker login'", "failed to resolve reference: not found",
+		"pull access denied for private/app, repository does not exist or may require 'docker login'",
+		"pull access denied for app",
 		"unauthorized", "access denied", "permission denied", "registry request failed: context deadline exceeded",
 		"container startup failed", "container exited with code 1", "exec /entrypoint: no such file or directory",
 		"failed to create shim task: OCI runtime create failed: executable file not found in $PATH",
@@ -77,7 +78,8 @@ func TestServiceTaskFaults(t *testing.T) {
 		code       faults.Code
 	}{
 		{TaskStatePending, "no suitable node (insufficient resources on 2 nodes)", faults.CodeNoSuitableNode},
-		{TaskStateRejected, "pull access denied for app", faults.CodeImagePullDenied},
+		{TaskStateRejected, "denied: requested access to the resource is denied", faults.CodeImagePullDenied},
+		{TaskStateRejected, "pull access denied for app", ""},
 		{TaskStateFailed, "VolumeDriver.Mount: backend unavailable", faults.CodeMountFailed},
 		{TaskStateOrphaned, "failed to mount local volume: permission denied", faults.CodeMountFailed},
 		{TaskStateRejected, "No such image: api:2", faults.CodeImageNotFound},
