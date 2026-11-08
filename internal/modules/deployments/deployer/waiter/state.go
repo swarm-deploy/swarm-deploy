@@ -4,6 +4,7 @@ package waiter
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"time"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/tracing"
@@ -41,7 +42,8 @@ type waitState struct {
 }
 
 func (s *waitState) emit(span trace.Span, callback ServiceProgressCallback, progress ServiceProgress) {
-	if previous, ok := s.last[progress.Name]; ok && previous == progress {
+	// Faults are reconstructed on each poll, so compare their values rather than pointer identity.
+	if previous, ok := s.last[progress.Name]; ok && reflect.DeepEqual(previous, progress) {
 		return
 	}
 	if progress.State == ServiceFailed && progress.FailedTaskID != "" {

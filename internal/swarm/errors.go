@@ -10,6 +10,7 @@ import (
 
 	cerrdefs "github.com/containerd/errdefs"
 	"github.com/docker/docker/client"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
 )
 
 // ErrSecretAlreadyExists means that a secret with this name already exists.
@@ -35,14 +36,74 @@ func (*DockerUnavailableError) Temporary() bool { return true }
 
 func classifyDockerError(err error) error {
 	var unavailable *DockerUnavailableError
-	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) ||
-		errors.As(err, &unavailable) {
+	var coded faults.Coded
+	if err == nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) ||
+		errors.As(err, &unavailable) || errors.As(err, &coded) {
 		return err
 	}
 	if cerrdefs.IsUnavailable(err) || isTemporaryDockerConnectionError(err) {
 		return &DockerUnavailableError{cause: err}
 	}
+	diagnostic := err
+	for errors.Unwrap(diagnostic) != nil {
+		diagnostic = errors.Unwrap(diagnostic)
+	}
+	// Joined errors do not identify a single original Docker diagnostic.
+	if _, joined := diagnostic.(interface{ Unwrap() []error }); joined {
+		return err
+	}
+	if code, summary := dockerFault(diagnostic.Error()); code != "" {
+		return &dockerFaultError{cause: err, code: code, summary: summary}
+	}
 	return err
+}
+
+type dockerFaultError struct {
+	cause   error
+	code    faults.Code
+	summary string
+}
+
+func (e *dockerFaultError) Error() string          { return e.cause.Error() }
+func (e *dockerFaultError) Unwrap() error          { return e.cause }
+func (e *dockerFaultError) FaultCode() faults.Code { return e.code }
+func (e *dockerFaultError) FaultSummary() string   { return e.summary }
+
+func (e *dockerFaultError) Is(target error) bool {
+	return target == ErrImageNotFound && e.code == faults.CodeImageNotFound
+}
+
+func dockerFault(diagnostic string) (faults.Code, string) {
+	const maxSummaryLength = 256
+	message := strings.ToLower(diagnostic)
+	// Match Docker/Swarm diagnostics rather than generic permission or startup errors.
+	for _, pattern := range []struct {
+		text string
+		code faults.Code
+	}{
+		{"no suitable node", faults.CodeNoSuitableNode},
+		{"unauthorized: authentication required", faults.CodeImagePullDenied},
+		{"denied: requested access to the resource is denied", faults.CodeImagePullDenied},
+		{"no basic auth credentials", faults.CodeImagePullDenied},
+		{"insufficient_scope: authorization failed", faults.CodeImagePullDenied},
+		{"invalid mount config for type ", faults.CodeMountFailed},
+		{"error while creating mount source path ", faults.CodeMountFailed},
+		{"error while mounting volume ", faults.CodeMountFailed},
+		{"error while creating volume ", faults.CodeMountFailed},
+		{"volumedriver.mount:", faults.CodeMountFailed},
+		{"failed to mount ", faults.CodeMountFailed},
+		{"error mounting ", faults.CodeMountFailed},
+		{"mount failed:", faults.CodeMountFailed},
+	} {
+		if index := strings.Index(message, pattern.text); index >= 0 {
+			summary := strings.TrimSpace(diagnostic[index:])
+			if len(summary) > maxSummaryLength {
+				summary = summary[:maxSummaryLength] + "..."
+			}
+			return pattern.code, summary
+		}
+	}
+	return "", ""
 }
 
 func isTemporaryDockerConnectionError(err error) bool {

@@ -1,5 +1,28 @@
 package swarm
 
+import (
+	"errors"
+
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
+)
+
+// Fault returns an explicitly diagnosed task failure, including pending scheduling failures.
+// It does not decide whether the failure is terminal or whether a retry can succeed.
+func (t ServiceTask) Fault() faults.Coded {
+	if t.ImageNotFound() {
+		return &dockerFaultError{cause: errors.New(t.Error), code: faults.CodeImageNotFound, summary: t.Error}
+	}
+	if t.CurrentState != TaskStateFailed && t.CurrentState != TaskStateRejected &&
+		t.CurrentState != TaskStateOrphaned && t.CurrentState != TaskStatePending {
+		return nil
+	}
+	code, summary := dockerFault(t.Error)
+	if code == "" || (t.CurrentState == TaskStatePending && code != faults.CodeNoSuitableNode) {
+		return nil
+	}
+	return &dockerFaultError{cause: errors.New(t.Error), code: code, summary: summary}
+}
+
 // TaskState represents the state of a task.
 type TaskState string
 

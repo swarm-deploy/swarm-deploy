@@ -6,6 +6,15 @@ type Code string
 // CodeImageNotFound indicates that Docker reported a missing image.
 const CodeImageNotFound Code = "image_not_found"
 
+// CodeNoSuitableNode indicates that Swarm could not schedule a task.
+const CodeNoSuitableNode Code = "no_suitable_node"
+
+// CodeImagePullDenied indicates that a registry explicitly denied image access.
+const CodeImagePullDenied Code = "image_pull_denied"
+
+// CodeMountFailed indicates that Docker could not create or mount a volume or bind mount.
+const CodeMountFailed Code = "mount_failed"
+
 // Coded is an error with a stable diagnostic code
 // and a concise description of the cause.
 type Coded interface {

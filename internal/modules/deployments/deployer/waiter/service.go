@@ -35,21 +35,6 @@ var serviceWaiterTracer = otel.Tracer(
 // ErrConvergenceFailed identifies an observed terminal Swarm failure, rather than an observation error.
 var ErrConvergenceFailed = errors.New("service convergence failed")
 
-type missingImageConvergenceError struct {
-	error
-	summary string
-}
-
-func (missingImageConvergenceError) FaultCode() faults.Code {
-	return swarm.ErrImageNotFound.FaultCode()
-}
-
-func (e missingImageConvergenceError) FaultSummary() string { return e.summary }
-
-func (e missingImageConvergenceError) Unwrap() []error {
-	return []error{e.error, swarm.ErrImageNotFound}
-}
-
 // ServiceState describes the current convergence state of a service.
 type ServiceState string
 
@@ -81,15 +66,21 @@ type ServiceProgress struct {
 	// Message contains a bounded convergence diagnostic.
 	Message string
 
-	missingImageDiagnostic string
+	taskFault   faults.Coded
+	taskContext string
 }
 
-func (p *ServiceProgress) failTask(task swarm.ServiceTask) {
+func (p *ServiceProgress) failTask(task swarm.ServiceTask, message string) {
 	p.State = ServiceFailed
 	p.FailedTaskID = task.ID
-	if task.ImageNotFound() {
-		p.missingImageDiagnostic = task.Error
+	p.Message = message + formatTaskDiagnostic(task)
+	p.taskFault = task.Fault()
+	if p.taskFault == nil {
+		return
 	}
+	// Keep task metadata separate so the technical error can wrap the full diagnostic once.
+	task.Error = ""
+	p.taskContext = message + formatTaskDiagnostic(task)
 }
 
 // ServiceProgressCallback receives meaningful service convergence transitions.
@@ -275,11 +266,12 @@ func (w *ServiceWaiter) observeTargets(
 			return false, errors.Join(append(failures, err)...)
 		}
 		if progress.State == ServiceFailed {
-			failure := fmt.Errorf("%w: service %s failed to converge: %s", ErrConvergenceFailed, name, progress.Message)
-			if progress.missingImageDiagnostic != "" {
-				failure = missingImageConvergenceError{error: failure, summary: progress.missingImageDiagnostic}
+			diagnostic := errors.New(progress.Message)
+			if progress.taskFault != nil {
+				diagnostic = fmt.Errorf("%s: %w", progress.taskContext, progress.taskFault)
 			}
-			failures = append(failures, failure)
+			failures = append(failures,
+				fmt.Errorf("%w: service %s failed to converge: %w", ErrConvergenceFailed, name, diagnostic))
 			continue
 		}
 		if progress.State == ServiceReady {

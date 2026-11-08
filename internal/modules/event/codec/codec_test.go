@@ -246,21 +246,63 @@ func TestPreparationFailureFaultDetailsSurviveCodec(t *testing.T) {
 	require.EqualError(t, failure.Error, event.Error.Error())
 }
 
-func TestAbsentAndUnsupportedFaultCodesAreOmitted(t *testing.T) {
+func TestAbsentFaultCodesAreOmitted(t *testing.T) {
 	for _, diagnostic := range []error{
 		swarm.ErrNetworkNotFound,
-		faults.NewSafeError("unsupported failure", false, "private-value", "unsupported summary"),
+		faults.NewSafeError("unclassified failure", false, "", "unused summary"),
 	} {
 		payload, err := Encode(&events.DeployFailed{ErrorCode: "apply_failed", Error: diagnostic})
 		require.NoError(t, err)
 		assert.NotContains(t, string(payload), "fault_code")
 		assert.NotContains(t, string(payload), "fault_summary")
-		assert.NotContains(t, string(payload), "private-value")
 		event, err := Decode(events.TypeNameDeployFailed, Version, payload)
 		require.NoError(t, err)
 		var coded faults.Coded
 		assert.NotErrorAs(t, event.(*events.DeployFailed).Error, &coded)
 	}
+}
+
+func TestFaultCodesAndSanitizedSummariesSurviveCodec(t *testing.T) {
+	for _, code := range []faults.Code{
+		faults.CodeImageNotFound, faults.CodeNoSuitableNode, faults.CodeImagePullDenied, faults.CodeMountFailed,
+		"future_docker_fault",
+	} {
+		t.Run(string(code), func(t *testing.T) {
+			const diagnostic = "deploy app: Docker failure token=private-value"
+			const summary = "Docker failure password=private-value"
+			cause := faults.NewSafeError(diagnostic, true, code, summary)
+			for _, event := range []events.Event{
+				&events.DeployFailed{ErrorCode: "convergence_failed", Error: cause},
+				&events.DeployPreparationFailed{ErrorCode: "preparation_failed", Error: cause},
+				&events.DeployInterrupted{Reason: "verification_unknown", Error: cause},
+			} {
+				payload, err := Encode(event)
+				require.NoError(t, err)
+				assert.NotContains(t, string(payload), "private-value")
+				decoded, err := Decode(event.Type().Name(), Version, payload)
+				require.NoError(t, err)
+				failure := deploymentFailureError(decoded)
+				var coded faults.Coded
+				require.ErrorAs(t, failure, &coded)
+				assert.Equal(t, code, coded.FaultCode())
+				assert.Equal(t, "Docker failure password=****", coded.FaultSummary())
+				assert.EqualError(t, failure, "deploy app: Docker failure token=****")
+				var temporary faults.Error
+				require.ErrorAs(t, failure, &temporary)
+				assert.True(t, temporary.Temporary())
+			}
+		})
+	}
+}
+
+func TestFutureFaultSummaryIsSanitizedOnDecode(t *testing.T) {
+	payload := []byte(`{"stack":"app","code":"apply_failed","diagnostic":"deployment context","fault_code":"future_docker_fault","fault_summary":"registry token=private-value"}`)
+	event, err := Decode(events.TypeNameDeployFailed, Version, payload)
+	require.NoError(t, err)
+	var coded faults.Coded
+	require.ErrorAs(t, event.(*events.DeployFailed).Error, &coded)
+	assert.Equal(t, faults.Code("future_docker_fault"), coded.FaultCode())
+	assert.Equal(t, "registry token=****", coded.FaultSummary())
 }
 
 func TestLegacyDeploymentFailurePayloadHasNoFaultCode(t *testing.T) {

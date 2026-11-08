@@ -20,23 +20,26 @@ var serviceWaitTestTime = time.Date(2026, time.October, 31, 0, 0, 0, 0, time.UTC
 func TestInitialNonRestartingTaskFailureIsTerminal(t *testing.T) {
 	exit := 23
 	for _, tc := range []struct {
-		name          string
-		state         swarm.TaskState
-		diagnostic    string
-		exitCode      *int
-		imageNotFound bool
+		name       string
+		state      swarm.TaskState
+		diagnostic string
+		exitCode   *int
+		faultCode  faults.Code
 	}{
 		{name: "nonzero exit code", state: swarm.TaskStateFailed, diagnostic: "task startup failed", exitCode: &exit},
 		{name: "exit code unavailable", state: swarm.TaskStateFailed, diagnostic: "task startup failed"},
 		{name: "image missing on worker", state: swarm.TaskStateRejected,
-			diagnostic: "No such image: busybox:1.36", imageNotFound: true},
+			diagnostic: "No such image: busybox:1.36", faultCode: faults.CodeImageNotFound},
 		{name: "image reference missing from registry", state: swarm.TaskStateRejected,
-			diagnostic:    `failed to resolve reference "docker.io/library/busybox:1.36": docker.io/library/busybox:1.36: not found`,
-			imageNotFound: true},
+			diagnostic: `failed to resolve reference "docker.io/library/busybox:1.36": docker.io/library/busybox:1.36: not found`,
+			faultCode:  faults.CodeImageNotFound},
 		{name: "image manifest missing from registry", state: swarm.TaskStateRejected,
-			diagnostic: "manifest for busybox:1.36 not found: manifest unknown: manifest unknown", imageNotFound: true},
+			diagnostic: "manifest for busybox:1.36 not found: manifest unknown: manifest unknown",
+			faultCode:  faults.CodeImageNotFound},
 		{name: "pull denied", state: swarm.TaskStateRejected,
 			diagnostic: "pull access denied for busybox, repository does not exist or may require 'docker login'"},
+		{name: "pull authentication required", state: swarm.TaskStateRejected,
+			diagnostic: "unauthorized: authentication required", faultCode: faults.CodeImagePullDenied},
 		{name: "pull timeout", state: swarm.TaskStateRejected,
 			diagnostic: `failed to resolve reference "docker.io/library/busybox:1.36": context deadline exceeded`},
 	} {
@@ -57,14 +60,14 @@ func TestInitialNonRestartingTaskFailureIsTerminal(t *testing.T) {
 			assert.NotErrorIs(t, err, context.DeadlineExceeded)
 			assert.ErrorContains(t, err, "id=failed-initial state="+string(tc.state))
 			assert.ErrorContains(t, err, task.Error)
+			assert.Equal(t, tc.faultCode == faults.CodeImageNotFound, errors.Is(err, swarm.ErrImageNotFound))
 			var coded faults.Coded
-			if tc.imageNotFound {
-				require.ErrorIs(t, err, swarm.ErrImageNotFound)
+			if tc.faultCode != "" {
 				require.ErrorAs(t, err, &coded)
-				assert.Equal(t, faults.CodeImageNotFound, coded.FaultCode())
+				assert.Equal(t, tc.faultCode, coded.FaultCode())
 				assert.Equal(t, task.Error, coded.FaultSummary())
 			} else {
-				assert.False(t, errors.As(err, &coded))
+				assert.NotErrorAs(t, err, &coded)
 			}
 			if tc.exitCode != nil {
 				assert.ErrorContains(t, err, "exit_code=23")
