@@ -9,6 +9,7 @@ import AppModal from "../common/AppModal.vue";
 import AppMultiSelect from "../common/AppMultiSelect.vue";
 import AppSelect from "../common/AppSelect.vue";
 import AppTabs from "../common/AppTabs.vue";
+import SeverityIcon from "../common/SeverityIcon.vue";
 import { openTaskLogsStream } from "../../api/overview";
 import type { TaskLogCountsEvent, TaskLogEvent, TaskLogLevel } from "../../api/types";
 import { copyText } from "../../utils/clipboard";
@@ -396,7 +397,9 @@ onUnmounted(() => {
           heading="Log levels"
           placeholder="All levels"
           @update:model-value="setLogLevelFilters"
-        />
+        >
+          <template #icon><SeverityIcon /></template>
+        </AppMultiSelect>
         <AppSelect v-model="range" class="task-logs-range" label="Time range" @update:model-value="changeTimeRange">
           <template #icon>
             <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>

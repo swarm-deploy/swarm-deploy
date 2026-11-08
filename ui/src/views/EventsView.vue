@@ -10,6 +10,7 @@ import AppSearchFilter from "../components/common/AppSearchFilter.vue";
 import AppTable from "../components/common/AppTable.vue";
 import AppTableEmpty from "../components/common/AppTableEmpty.vue";
 import AppPagination from "../components/common/AppPagination.vue";
+import SeverityIcon from "../components/common/SeverityIcon.vue";
 import SidebarIcon from "../components/layout/SidebarIcon.vue";
 import { eventTypeDescriptions, eventTypeMetadata } from "../utils/eventMetadata";
 import { formatDate } from "../utils/format";
@@ -430,9 +431,7 @@ onMounted(() => {
       </div>
 
       <label class="events-filter-field events-filter-field--select">
-        <svg class="events-filter-icon events-severity-filter-icon" viewBox="0 0 20 20" aria-hidden="true">
-          <path d="M5 12.5v2.5M10 9v6M15 5v10" />
-        </svg>
+        <SeverityIcon class="events-filter-icon" />
         <select v-model="selectedSeverity" aria-label="Filter events by severity">
           <option value="">All severities</option>
           <option v-for="severity in severityOptions" :key="severity" :value="severity">{{ severityLabels[severity] }}</option>
@@ -567,9 +566,3 @@ onMounted(() => {
     <AppPagination v-if="events.length > 0 || page > 0" class="events-pagination" label="Event pages" :page="page" :loading="loading" :has-next="Boolean(nextCursor)" @previous="previousPage" @next="nextPage" />
   </section>
 </template>
-
-<style scoped>
-.events-filter-field .events-severity-filter-icon {
-  stroke-width: 1.35;
-}
-</style>
