@@ -231,9 +231,8 @@ function resetAndStart(): void {
   startStream();
 }
 
-function selectLogView(parsed: boolean): void {
-  if (parseLogs.value === parsed) return;
-  parseLogs.value = parsed;
+function toggleLogView(): void {
+  parseLogs.value = !parseLogs.value;
   startStream();
 }
 
@@ -385,10 +384,19 @@ onUnmounted(() => {
           </select>
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
         </label>
-        <div class="task-logs-segment" role="group" aria-label="Log view">
-          <button type="button" :aria-pressed="parseLogs" @click="selectLogView(true)">Parsed</button>
-          <button type="button" :aria-pressed="!parseLogs" @click="selectLogView(false)">Raw</button>
-        </div>
+        <AppButton
+          variant="secondary"
+          class="task-logs-mode-button app-tooltip"
+          :aria-pressed="parseLogs"
+          aria-label="Parsed logs"
+          :data-tooltip="parseLogs ? 'Parsed' : 'Raw'"
+          @click="toggleLogView"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <rect v-if="parseLogs" x="3" y="3" width="18" height="18" rx="2" />
+            <path :d="parseLogs ? 'M9 3v18M3 9h18' : 'm4 17 6-6-6-6M12 19h8'" />
+          </svg>
+        </AppButton>
       </div>
 
       <AppMultiSelect

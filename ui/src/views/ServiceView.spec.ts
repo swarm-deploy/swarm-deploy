@@ -336,7 +336,12 @@ describe("ServiceView", () => {
       parse: true,
       levels: ["TRACE", "DEBUG", "INFO", "WARN", "ERROR", "FATAL"],
     });
-    await wrapper.get('.task-logs-segment button[aria-pressed="false"]').trigger("click");
+    const logMode = wrapper.get('button[aria-label="Parsed logs"]');
+    expect(logMode.attributes("aria-pressed")).toBe("true");
+    expect(logMode.attributes("data-tooltip")).toBe("Parsed");
+    await logMode.trigger("click");
+    expect(logMode.attributes("aria-pressed")).toBe("false");
+    expect(logMode.attributes("data-tooltip")).toBe("Raw");
     expect(initialStream.closed).toBe(true);
     expect(apiMocks.openTaskLogsStream).toHaveBeenLastCalledWith("task-id", {
       follow: true,
@@ -371,7 +376,9 @@ describe("ServiceView", () => {
     expect(apiMocks.openTaskLogsStream).toHaveBeenCalledTimes(streamCallsBeforeSearch);
     await search.setValue("");
 
-    await wrapper.get('.task-logs-segment button[aria-pressed="false"]').trigger("click");
+    await logMode.trigger("click");
+    expect(logMode.attributes("aria-pressed")).toBe("true");
+    expect(logMode.attributes("data-tooltip")).toBe("Parsed");
     expect(rawStream.closed).toBe(true);
     expect(apiMocks.openTaskLogsStream).toHaveBeenLastCalledWith("task-id", {
       follow: true,

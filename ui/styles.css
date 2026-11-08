@@ -3468,6 +3468,12 @@ button.app-copy-button.service-image-copy-button {
   min-width: 0;
 }
 
+.task-logs-modal-card .task-logs-controls > .task-logs-mode-button {
+  width: 40px;
+  height: 40px;
+  padding: 0;
+}
+
 .task-logs-level-select {
   width: min(240px, 100%);
 }
@@ -3934,7 +3940,7 @@ button.app-copy-button.service-image-copy-button {
     grid-template-columns: minmax(0, 1fr) auto;
   }
 
-  .task-logs-controls > .task-logs-segment {
+  .task-logs-controls > .task-logs-mode-button {
     grid-column: 1 / -1;
     justify-self: start;
   }
