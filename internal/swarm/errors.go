@@ -70,7 +70,6 @@ func dockerFault(diagnostic string) (faults.Code, string) {
 		code faults.Code
 	}{
 		{"no suitable node", faults.CodeNoSuitableNode},
-		{"pull access denied for ", faults.CodeImagePullDenied},
 		{"unauthorized: authentication required", faults.CodeImagePullDenied},
 		{"denied: requested access to the resource is denied", faults.CodeImagePullDenied},
 		{"no basic auth credentials", faults.CodeImagePullDenied},
