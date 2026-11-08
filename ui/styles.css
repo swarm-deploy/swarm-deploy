@@ -3429,32 +3429,20 @@ button.app-copy-button.service-image-copy-button {
 }
 
 .task-logs-title {
-  min-width: 0;
-}
-
-.task-logs-title-row {
   display: flex;
   align-items: center;
   gap: 10px;
+  min-width: 0;
 }
 
-.task-logs-title-row h2 {
+.task-logs-title h2 {
+  min-width: 0;
   font-size: 20px;
   line-height: 28px;
   font-weight: 600;
+  overflow-wrap: anywhere;
 }
 
-.task-logs-task {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  margin-top: 6px;
-  color: var(--muted);
-  font-size: 13px;
-}
-
-.task-logs-task code,
 .task-log-method {
   min-width: 0;
   padding: 2px 8px;
@@ -3557,6 +3545,7 @@ button.app-copy-button.service-image-copy-button {
 }
 
 .task-logs-live {
+  flex: none;
   border: 0;
   background: transparent;
   padding: 4px 0;
@@ -3921,13 +3910,6 @@ button.app-copy-button.service-image-copy-button {
 
   .task-logs-modal-card .task-logs-modal-header {
     padding-block: 10px;
-  }
-
-  .task-logs-task {
-    display: grid;
-    grid-template-columns: auto minmax(0, 1fr) auto;
-    gap: 4px;
-    font-size: 12px;
   }
 
   .task-logs-toolbar {

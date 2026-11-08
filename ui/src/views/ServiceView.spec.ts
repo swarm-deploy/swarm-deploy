@@ -318,6 +318,10 @@ describe("ServiceView", () => {
     const wrapper = await mountServiceView();
     await wrapper.get(".service-task-logs-button").trigger("click");
 
+    const logHeader = wrapper.get(".task-logs-modal-header");
+    expect(logHeader.get("#task-logs-title").text()).toBe("Logs of task-id");
+    expect(logHeader.find(".app-copy-button").exists()).toBe(false);
+
     expect(apiMocks.openTaskLogsStream).toHaveBeenLastCalledWith("task-id", {
       follow: true,
       tail: 200,

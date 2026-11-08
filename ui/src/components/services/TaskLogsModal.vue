@@ -349,30 +349,17 @@ onUnmounted(() => {
   >
     <template #title>
       <div class="task-logs-title">
-        <div class="task-logs-title-row">
-          <h2 id="task-logs-title">Task logs</h2>
-          <button
-            type="button"
-            class="live-indicator task-logs-live"
-            :class="{ 'live-indicator--paused': !isLive }"
-            :aria-pressed="isLive"
-            :disabled="ended || !!error"
-            @click="toggleLive"
-          >
-            <span aria-hidden="true" />Live
-          </button>
-        </div>
-        <div class="task-logs-task">
-          <span>Task</span>
-          <code>{{ taskId || "n/a" }}</code>
-          <AppCopyButton
-            v-if="open && taskId"
-            :value="taskId"
-            label="Copy task ID"
-            copied-label="Task ID copied"
-            color="var(--text)"
-          />
-        </div>
+        <h2 id="task-logs-title">Logs of {{ taskId || "n/a" }}</h2>
+        <button
+          type="button"
+          class="live-indicator task-logs-live"
+          :class="{ 'live-indicator--paused': !isLive }"
+          :aria-pressed="isLive"
+          :disabled="ended || !!error"
+          @click="toggleLive"
+        >
+          <span aria-hidden="true" />Live
+        </button>
       </div>
     </template>
 
