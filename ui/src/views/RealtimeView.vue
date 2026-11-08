@@ -6,6 +6,7 @@ import { fetchSwarmServices, fetchSwarmServiceTasks, fetchSwarmTask, scaleSwarmS
 import type { ServiceRealtimeTask, SwarmService, SwarmTaskDetails } from "../api/types";
 import AppButton from "../components/common/AppButton.vue";
 import AppMultiSelect from "../components/common/AppMultiSelect.vue";
+import AppSelect from "../components/common/AppSelect.vue";
 import AppStatusBadge from "../components/common/AppStatusBadge.vue";
 import AppTable from "../components/common/AppTable.vue";
 import AppTableEmpty from "../components/common/AppTableEmpty.vue";
@@ -400,7 +401,7 @@ onUnmounted(() => {
       <div class="realtime-heading">
         <div class="realtime-title-row">
           <h2>Realtime</h2>
-          <span class="realtime-live-indicator" :class="{ 'realtime-live-indicator--paused': !automaticRefresh }">
+          <span class="live-indicator realtime-live-indicator" :class="{ 'live-indicator--paused': !automaticRefresh }">
             <span aria-hidden="true" />{{ automaticRefresh ? "Live" : "Paused" }}
           </span>
         </div>
@@ -467,16 +468,16 @@ onUnmounted(() => {
           </template>
         </AppMultiSelect>
       </div>
-      <label class="realtime-filter-field">
-        <SidebarIcon class="realtime-filter-icon" name="realtime" />
-        <select v-model="stateFilter" aria-label="Filter services by state">
-          <option value="all">All states</option>
-          <option value="running">Running</option>
-          <option value="degraded">Degraded</option>
-          <option value="scaled-down">Scaled down</option>
-          <option value="unknown">Unknown</option>
-        </select>
-      </label>
+      <AppSelect v-model="stateFilter" class="realtime-filter-field" label="Filter services by state">
+        <template #icon>
+          <SidebarIcon class="realtime-filter-icon" name="realtime" />
+        </template>
+        <option value="all">All states</option>
+        <option value="running">Running</option>
+        <option value="degraded">Degraded</option>
+        <option value="scaled-down">Scaled down</option>
+        <option value="unknown">Unknown</option>
+      </AppSelect>
     </div>
 
     <div class="realtime-workspace" :class="{ 'realtime-workspace--details': selectedTaskID }">
@@ -668,9 +669,6 @@ onUnmounted(() => {
 .realtime-title-row { display: flex; align-items: center; gap: 10px; }
 .realtime-title-row h2 { margin: 0; font-size: 1.45rem; line-height: 1.2; }
 .realtime-heading p { margin: 0; color: var(--muted); font-size: .84rem; }
-.realtime-live-indicator { display: inline-flex; align-items: center; gap: 6px; color: var(--success); font-size: .76rem; font-weight: 600; }
-.realtime-live-indicator > span { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
-.realtime-live-indicator--paused { color: var(--muted); }
 .realtime-refresh-control { display: inline-flex; align-items: stretch; justify-self: end; }
 .realtime-refresh-control button, .realtime-refresh-dropdown > summary { font-size: .78rem; font-weight: 600; transform: none; filter: none; }
 .realtime-refresh-button { min-height: 36px; display: inline-flex; align-items: center; gap: 7px; border-radius: 7px 0 0 7px; padding: 7px 10px; white-space: nowrap; }
@@ -689,12 +687,11 @@ onUnmounted(() => {
 .realtime-filters { min-width: 0; display: grid; grid-template-columns: minmax(240px, 1fr) 180px 170px; gap: 10px; align-items: center; padding: 12px; border: 1px solid var(--border-subtle); border-radius: 10px; background: var(--surface-card-soft); }
 .realtime-search { position: relative; min-width: 0; }
 .realtime-filter-icon { width: 17px; height: 17px; flex: 0 0 17px; color: var(--muted); fill: none; stroke: currentColor; stroke-width: 1.6; pointer-events: none; }
-.realtime-search .realtime-filter-icon, .realtime-filter-field > .realtime-filter-icon { position: absolute; z-index: 1; left: 11px; top: 50%; transform: translateY(-50%); }
-.realtime-search input, .realtime-filter-field select { box-sizing: border-box; width: 100%; height: 38px; border: 1px solid var(--border-default); border-radius: 7px; background: var(--surface-input); color: var(--text); font: inherit; font-size: .83rem; }
+.realtime-search .realtime-filter-icon { position: absolute; z-index: 1; left: 11px; top: 50%; transform: translateY(-50%); }
+.realtime-search input { box-sizing: border-box; width: 100%; height: 38px; border: 1px solid var(--border-default); border-radius: 7px; background: var(--surface-input); color: var(--text); font: inherit; font-size: .83rem; }
 .realtime-search input { padding: 7px 10px 7px 36px; }
 .realtime-filter-field { position: relative; min-width: 0; color: var(--muted); }
-.realtime-filter-field select { padding: 7px 10px 7px 36px; }
-.realtime-search input:focus-visible, .realtime-filter-field select:focus-visible, .realtime-page button:focus-visible { outline: 2px solid var(--accent-focus); outline-offset: 2px; }
+.realtime-search input:focus-visible, .realtime-page button:focus-visible { outline: 2px solid var(--accent-focus); outline-offset: 2px; }
 .realtime-workspace { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; align-items: start; }
 .realtime-workspace--details { grid-template-columns: minmax(0, 1fr) minmax(360px, 410px); }
 .realtime-services-panel { min-width: 0; }
@@ -799,6 +796,6 @@ onUnmounted(() => {
 }
 
 @media (max-width: 460px) {
-  .realtime-filter-field select, .realtime-search input { font-size: 16px; }
+  .realtime-search input { font-size: 16px; }
 }
 </style>

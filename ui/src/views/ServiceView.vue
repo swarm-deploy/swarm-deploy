@@ -2,6 +2,7 @@
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRoute } from "vue-router";
 
+import AppCopyButton from "../components/common/AppCopyButton.vue";
 import AppModal from "../components/common/AppModal.vue";
 import { fetchServiceDeployments, fetchServiceRealtime, fetchServiceStatus } from "../api/overview";
 import { fetchServices, fetchSwarmTask } from "../api/services";
@@ -21,7 +22,6 @@ import RecentDeploymentsPanel from "../components/overview/RecentDeploymentsPane
 import TaskDetailsPanel from "../components/services/TaskDetailsPanel.vue";
 import TaskLogsModal from "../components/services/TaskLogsModal.vue";
 import { useSecretDetailsStore } from "../stores/secretDetails";
-import { copyText } from "../utils/clipboard";
 import { formatBytes, formatDate, formatNanoCPU } from "../utils/format";
 
 const route = useRoute();
@@ -186,15 +186,6 @@ function realtimeTableStateVariant(state: string): "success" | "error" | "neutra
     return "error";
   }
   return "neutral";
-}
-
-async function copyTaskID(taskID: string): Promise<void> {
-  const id = String(taskID || "").trim();
-  if (!id) {
-    return;
-  }
-
-  await copyText(id);
 }
 
 function openSecretDetails(secretName: string): void {
@@ -434,25 +425,14 @@ onUnmounted(() => {
                 <th scope="row">Image</th>
                 <td>
                   {{ serviceImage || "n/a" }}
-                  <button
+                  <AppCopyButton
                     v-if="serviceImage"
-                    type="button"
-                    class="service-copy-task-id-button service-image-copy-button"
-                    aria-label="Copy image reference"
-                    title="Copy image reference"
-                    @click="copyText(serviceImage)"
-                  >
-                    <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
-                      <path
-                        d="M5 1.5A1.5 1.5 0 0 0 3.5 3v7A1.5 1.5 0 0 0 5 11.5h7A1.5 1.5 0 0 0 13.5 10V3A1.5 1.5 0 0 0 12 1.5H5Zm0 1h7a.5.5 0 0 1 .5.5v7a.5.5 0 0 1-.5.5H5a.5.5 0 0 1-.5-.5V3a.5.5 0 0 1 .5-.5Z"
-                        fill="currentColor"
-                      />
-                      <path
-                        d="M2 4.5a.5.5 0 0 1 .5.5V12A1.5 1.5 0 0 0 4 13.5h7a.5.5 0 0 1 0 1H4A2.5 2.5 0 0 1 1.5 12V5a.5.5 0 0 1 .5-.5Z"
-                        fill="currentColor"
-                      />
-                    </svg>
-                  </button>
+                    class="service-image-copy-button"
+                    :value="serviceImage"
+                    color="var(--text)"
+                    label="Copy image reference"
+                    copied-label="Image reference copied"
+                  />
                 </td>
               </tr>
               <tr v-if="serviceInfo && serviceInfo.repository_url">
@@ -572,25 +552,12 @@ onUnmounted(() => {
             </template>
               <tr v-for="task in realtime" :key="task.id">
                 <td class="app-table-cell--center app-table-cell--narrow service-realtime-copy-cell">
-                  <button
-                    type="button"
-                    class="service-copy-task-id-button service-realtime-copy-button"
-                    :disabled="!task.id"
-                    :aria-label="`Copy task ID ${task.id}`"
+                  <AppCopyButton
+                    :value="task.id?.trim() || null"
+                    :label="`Copy task ID ${task.id}`"
                     title="Copy task ID"
-                    @click="copyTaskID(task.id)"
-                  >
-                    <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
-                      <path
-                        d="M5 1.5A1.5 1.5 0 0 0 3.5 3v7A1.5 1.5 0 0 0 5 11.5h7A1.5 1.5 0 0 0 13.5 10V3A1.5 1.5 0 0 0 12 1.5H5Zm0 1h7a.5.5 0 0 1 .5.5v7a.5.5 0 0 1-.5.5H5a.5.5 0 0 1-.5-.5V3a.5.5 0 0 1 .5-.5Z"
-                        fill="currentColor"
-                      />
-                      <path
-                        d="M2 4.5a.5.5 0 0 1 .5.5V12A1.5 1.5 0 0 0 4 13.5h7a.5.5 0 0 1 0 1H4A2.5 2.5 0 0 1 1.5 12V5a.5.5 0 0 1 .5-.5Z"
-                        fill="currentColor"
-                      />
-                    </svg>
-                  </button>
+                    copied-label="Task ID copied"
+                  />
                 </td>
                 <td><code>{{ task.node_name || task.node || 'n/a' }}</code></td>
                 <td>

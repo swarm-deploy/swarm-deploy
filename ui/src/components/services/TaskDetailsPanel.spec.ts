@@ -135,7 +135,7 @@ describe("TaskDetailsPanel", () => {
     expect(digestNode.exists()).toBe(Boolean(digest));
     if (tag) expect(tagNode.text()).toBe(tag);
     if (digest) expect(digestNode.text()).toBe(digest);
-    expect(wrapper.get(".realtime-task-image-primary").find(".realtime-detail-copy-button").exists()).toBe(true);
+    expect(wrapper.get(".realtime-task-image-primary").find(".app-copy-button").exists()).toBe(true);
     expect(wrapper.find(".realtime-task-image-meta").exists()).toBe(Boolean(tag || digest));
   });
 
@@ -149,12 +149,12 @@ describe("TaskDetailsPanel", () => {
     expect(wrapper.get(".realtime-task-image-primary code").attributes("title")).toBe("registry.example.test:5000/very/long/repository/api");
     await wrapper.get('[aria-label="Copy full image reference"]').trigger("click");
     expect(writeText).toHaveBeenLastCalledWith(image);
-    expect(wrapper.find('[aria-label="Image reference copied"] .realtime-detail-copy-check').exists()).toBe(true);
+    expect(wrapper.find('[aria-label="Image reference copied"] .app-copy-button-check').exists()).toBe(true);
 
     expect(wrapper.get('.realtime-task-identifiers code[title^="task-"]').attributes("title")).toBe(id);
     await wrapper.get('[aria-label="Copy task id"]').trigger("click");
     expect(writeText).toHaveBeenLastCalledWith(id);
-    expect(wrapper.find('[aria-label="Task ID copied"] .realtime-detail-copy-check').exists()).toBe(true);
+    expect(wrapper.find('[aria-label="Task ID copied"] .app-copy-button-check').exists()).toBe(true);
     expect(wrapper.text()).not.toContain("Click to copy");
   });
 
@@ -195,7 +195,7 @@ describe("TaskDetailsPanel", () => {
 
     await wrapper.get('[aria-label="Copy value for SECRET"]').trigger("click");
     expect(writeText).toHaveBeenCalledWith(secret);
-    expect(wrapper.find('[aria-label="Value copied for SECRET"] .realtime-environment-copy-check').exists()).toBe(true);
+    expect(wrapper.find('[aria-label="Value copied for SECRET"] .app-copy-button-check').exists()).toBe(true);
 
     await wrapper.get('[aria-label="Hide value for SECRET"]').trigger("click");
     expect(wrapper.html()).not.toContain(secret);
@@ -231,7 +231,7 @@ describe("TaskDetailsPanel", () => {
     await wrapper.get('[aria-label="Copy value for PLAIN"]').trigger("click");
 
     expect(writeText).toHaveBeenCalledWith("left=right");
-    expect(wrapper.find('[aria-label="Value copied for PLAIN"] .realtime-environment-copy-check').exists()).toBe(true);
+    expect(wrapper.find('[aria-label="Value copied for PLAIN"] .app-copy-button-check').exists()).toBe(true);
     expect(wrapper.find('[aria-label^="Copy variable name"]').exists()).toBe(false);
   });
 

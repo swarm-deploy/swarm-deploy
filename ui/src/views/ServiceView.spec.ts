@@ -250,8 +250,8 @@ describe("ServiceView", () => {
     expect(actions.every((button) => button.text() === "")).toBe(true);
     expect(actions[0].attributes("aria-label")).toBe("Open details for task task-id");
     expect(actions[1].attributes("aria-label")).toBe("Open logs for task task-id");
-    expect(mobileTask.find(".service-copy-task-id-button").exists()).toBe(false);
-    const copyButton = wrapper.get(".service-realtime-desktop .service-realtime-copy-button");
+    expect(mobileTask.find('button[aria-label^="Copy task ID"]').exists()).toBe(false);
+    const copyButton = wrapper.get('.service-realtime-desktop button[aria-label="Copy task ID task-id"]');
     expect(copyButton.text()).toBe("");
     expect(copyButton.attributes("title")).toBe("Copy task ID");
   });
@@ -306,9 +306,11 @@ describe("ServiceView", () => {
 
   it("parses and filters task logs through backend streams", async () => {
     const rawStream = new FakeEventSource();
+    const initialStream = new FakeEventSource();
     const parsedStream = new FakeEventSource();
     const filteredStream = new FakeEventSource();
     apiMocks.openTaskLogsStream
+      .mockReturnValueOnce(initialStream as unknown as EventSource)
       .mockReturnValueOnce(rawStream as unknown as EventSource)
       .mockReturnValueOnce(parsedStream as unknown as EventSource)
       .mockReturnValueOnce(filteredStream as unknown as EventSource);
@@ -316,13 +318,38 @@ describe("ServiceView", () => {
     const wrapper = await mountServiceView();
     await wrapper.get(".service-task-logs-button").trigger("click");
 
+    const logHeader = wrapper.get(".task-logs-modal-header");
+    expect(logHeader.get("#task-logs-title").text()).toBe("task-id");
+    expect(logHeader.find(".app-copy-button").exists()).toBe(false);
+
+    const wrap = wrapper.get('.task-log-message-column button[aria-label="Wrap lines"]');
+    expect(wrap.attributes("aria-pressed")).toBe("false");
+    expect(wrap.attributes("data-tooltip")).toBe("Wrap lines");
+    await wrap.trigger("click");
+    expect(wrap.attributes("aria-pressed")).toBe("true");
+    expect(wrap.attributes("data-tooltip")).toBe("Wrap lines");
+    expect(wrapper.get(".task-logs-table").classes()).toContain("task-logs-table--wrap");
+
+    expect(apiMocks.openTaskLogsStream).toHaveBeenLastCalledWith("task-id", {
+      follow: true,
+      tail: 200,
+      parse: true,
+      levels: ["TRACE", "DEBUG", "INFO", "WARN", "ERROR", "FATAL"],
+    });
+    const logMode = wrapper.get('button[aria-label="Parsed logs"]');
+    expect(logMode.attributes("aria-pressed")).toBe("true");
+    expect(logMode.attributes("data-tooltip")).toBe("Parsed");
+    await logMode.trigger("click");
+    expect(logMode.attributes("aria-pressed")).toBe("false");
+    expect(logMode.attributes("data-tooltip")).toBe("Raw");
+    expect(initialStream.closed).toBe(true);
     expect(apiMocks.openTaskLogsStream).toHaveBeenLastCalledWith("task-id", {
       follow: true,
       tail: 200,
       parse: false,
       levels: undefined,
     });
-    expect(wrapper.find(".task-log-level-filters").exists()).toBe(false);
+    expect(wrapper.find(".task-logs-level-select").exists()).toBe(false);
 
     rawStream.emit("log", {
       timestamp: "2026-10-19T18:00:00Z",
@@ -339,7 +366,7 @@ describe("ServiceView", () => {
       "raw line",
       "health check passed",
     ]);
-    expect(wrapper.findAll(".task-log-time")[1].text()).toBe("2026-10-19 18:00:00.123");
+    expect(wrapper.findAll(".task-log-time")[1].text()).toBe("18:00:00.123");
     expect(wrapper.find(".task-log-stream").exists()).toBe(false);
 
     const search = wrapper.get<HTMLInputElement>('.task-logs-search input[type="search"]');
@@ -349,7 +376,9 @@ describe("ServiceView", () => {
     expect(apiMocks.openTaskLogsStream).toHaveBeenCalledTimes(streamCallsBeforeSearch);
     await search.setValue("");
 
-    await wrapper.get(".task-logs-parse-toggle").trigger("click");
+    await logMode.trigger("click");
+    expect(logMode.attributes("aria-pressed")).toBe("true");
+    expect(logMode.attributes("data-tooltip")).toBe("Parsed");
     expect(rawStream.closed).toBe(true);
     expect(apiMocks.openTaskLogsStream).toHaveBeenLastCalledWith("task-id", {
       follow: true,
@@ -377,39 +406,45 @@ describe("ServiceView", () => {
     });
     await nextTick();
 
-    const filters = wrapper.findAll(".task-log-level-filter");
-    expect(filters).toHaveLength(6);
-    expect(filters.find((filter) => filter.text().startsWith("All"))?.text()).toBe("All3");
-    expect(filters.find((filter) => filter.text().startsWith("Info"))?.text()).toBe("Info2");
-    expect(filters.find((filter) => filter.text().startsWith("Error"))?.text()).toBe("Error1");
+    const levels = wrapper.get(".task-logs-level-select");
+    expect(levels.get(".app-multi-select-selection").text()).toBe("All levels");
+    expect(levels.findAll(".app-multi-select-option").map((option) => option.text())).toEqual([
+      "Error (1)", "Warn (0)", "Info (2)", "Debug (0)", "Other (0)",
+    ]);
     expect(wrapper.get(".task-log-level").text()).toBe("ERROR");
     expect(wrapper.get(".task-log-message").text()).toBe("request failed");
     expect(wrapper.find(".task-log-stream").exists()).toBe(false);
-    const firstDetails = wrapper.get(".task-log-details");
-    await firstDetails.get("summary").trigger("click");
-    expect(firstDetails.attributes("open")).toBeDefined();
-    expect(firstDetails.findAll(".task-log-attribute").map((attribute) => attribute.text())).toEqual([
-      "request_idreq-1",
-      'context{"tenant":"acme"}',
-    ]);
-    expect(firstDetails.get(".task-log-detail-section pre").text()).toContain("level=error");
-    expect(firstDetails.get(".task-log-copy").attributes("aria-label")).toBe("Copy raw log 1");
+    const firstLog = wrapper.get(".task-log-summary");
+    expect(firstLog.text()).not.toContain("req-1");
+    await firstLog.trigger("click");
+    expect(firstLog.attributes("aria-expanded")).toBe("true");
+    const details = wrapper.get(".task-log-detail-panel");
+    expect(details.get(".task-log-attributes").text()).toContain("request_idreq-1");
+    const detailModes = details.get('[role="tablist"]');
+    expect(detailModes.findAll('[role="tab"]').map((tab) => tab.text())).toEqual(["Fields", "JSON", "Raw"]);
+    expect(detailModes.get('[aria-selected="true"]').text()).toBe("Fields");
+    await detailModes.get("#task-log-fields-tab").trigger("keydown", { key: "ArrowRight" });
+    expect(details.get('[role="tabpanel"]').attributes("aria-labelledby")).toBe("task-log-json-tab");
+    expect(details.get("pre").text()).toContain('"tenant": "acme"');
+    await detailModes.get("#task-log-raw-tab").trigger("click");
+    expect(details.get("pre").text()).toContain("level=error");
 
+    expect(search.attributes("placeholder")).toBe("Search logs");
+    await search.setValue("level:error");
+    expect(wrapper.get(".task-logs-viewer").text()).toContain("No logs match your search.");
     await search.setValue("raw-only-token");
     expect(wrapper.findAll(".task-log-message").map((message) => message.text())).toEqual(["worker ready"]);
     await search.setValue("acme");
     expect(wrapper.findAll(".task-log-message").map((message) => message.text())).toEqual(["request failed"]);
     await search.setValue("");
 
-    const infoFilter = filters.find((filter) => filter.text().startsWith("Info"));
-    expect(infoFilter).toBeDefined();
-    await infoFilter!.trigger("click");
+    await levels.get<HTMLInputElement>('input[value="info"]').setValue(true);
     expect(parsedStream.closed).toBe(true);
     expect(apiMocks.openTaskLogsStream).toHaveBeenLastCalledWith("task-id", {
       follow: true,
       tail: 200,
       parse: true,
-      levels: ["TRACE", "DEBUG", "WARN", "ERROR", "FATAL"],
+      levels: ["INFO"],
     });
   });
 
