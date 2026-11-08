@@ -37,8 +37,7 @@ func (w *ServiceWaiter) observeExternalService(
 			baseline.UpdatedAt = generation.After
 		}
 		task := terminalFailureTask(tasks, service.UpdateStatus.Message, terminalTaskCutoff(baseline, service))
-		progress.failTask(task)
-		progress.Message += formatTaskDiagnostic(task)
+		progress.failTask(task, progress.Message)
 	}
 	return progress, nil
 }

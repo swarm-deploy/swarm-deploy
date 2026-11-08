@@ -247,7 +247,7 @@ func isDeploymentFailureType(typ events.TypeName) bool {
 
 func decodeDeploymentFailure(typ events.TypeName, payload []byte) (events.Event, error) {
 	return decodeAs(payload, func(p deploymentFailurePayload) events.Event {
-		diagnostic := faults.NewSafeError(p.Diagnostic, p.Temporary, safeFaultCode(p.FaultCode), p.FaultSummary)
+		diagnostic := faults.NewSafeError(p.Diagnostic, p.Temporary, p.FaultCode, p.FaultSummary)
 		switch typ { //nolint:exhaustive // isDeploymentFailureType restricts this helper to these event types.
 		case events.TypeNameDeployFailed:
 			return &events.DeployFailed{
@@ -351,14 +351,6 @@ func safeFailureCode(err error) string {
 	return "apply_failed"
 }
 
-func safeFaultCode(code faults.Code) faults.Code {
-	if code == faults.CodeImageNotFound || code == faults.CodeNoSuitableNode ||
-		code == faults.CodeImagePullDenied || code == faults.CodeMountFailed {
-		return code
-	}
-	return ""
-}
-
 func encodeDeploymentFailure(
 	stack, commit, deploymentID, attemptID, code, stage string, diagnostic error,
 	services []compose.Service,
@@ -373,10 +365,8 @@ func encodeDeploymentFailure(
 		payload.Temporary = safe.Temporary()
 	}
 	if coded, isCoded := safe.(faults.Coded); isCoded {
-		payload.FaultCode = safeFaultCode(coded.FaultCode())
-		if payload.FaultCode != "" {
-			payload.FaultSummary = coded.FaultSummary()
-		}
+		payload.FaultCode = coded.FaultCode()
+		payload.FaultSummary = coded.FaultSummary()
 	}
 	for _, service := range services {
 		payload.Services = append(payload.Services, servicePayload{Name: service.Name, Image: service.Image})

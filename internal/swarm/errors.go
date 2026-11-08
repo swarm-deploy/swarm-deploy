@@ -44,7 +44,15 @@ func classifyDockerError(err error) error {
 	if cerrdefs.IsUnavailable(err) || isTemporaryDockerConnectionError(err) {
 		return &DockerUnavailableError{cause: err}
 	}
-	if code, summary := dockerFault(err.Error()); code != "" {
+	diagnostic := err
+	for errors.Unwrap(diagnostic) != nil {
+		diagnostic = errors.Unwrap(diagnostic)
+	}
+	// Joined errors do not identify a single original Docker diagnostic.
+	if _, joined := diagnostic.(interface{ Unwrap() []error }); joined {
+		return err
+	}
+	if code, summary := dockerFault(diagnostic.Error()); code != "" {
 		return &dockerFaultError{cause: err, code: code, summary: summary}
 	}
 	return err

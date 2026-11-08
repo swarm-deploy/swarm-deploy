@@ -126,17 +126,14 @@ func waitInterruptedError(
 	}
 	diagnostic := strings.Join(pending, "; ")
 	if lastObservationError != nil {
-		if diagnostic != "" {
-			diagnostic += "; "
-		}
-		diagnostic += fmt.Sprintf("last Docker API error: %v", lastObservationError)
+		cause = fmt.Errorf("%w; last Docker API error: %w", cause, lastObservationError)
 	}
 	err := fmt.Errorf("wait for services in stack %s: %w: %s", stackName, cause, diagnostic)
 	for _, name := range sortedProgressNames(progress) {
 		service := progress[name]
 		if service.State != ServiceReady && service.taskFault != nil &&
 			service.taskFault.FaultCode() == faults.CodeNoSuitableNode {
-			return service.withTaskFault(err)
+			return fmt.Errorf("%w; task diagnostic: %w", err, service.taskFault)
 		}
 	}
 	return err

@@ -55,6 +55,7 @@ func TestDockerDiagnosticFaultsAvoidFalsePositives(t *testing.T) {
 		"task pending", "waiting for resources", "no eligible nodes", "image pull failed",
 		"repository does not exist or may require 'docker login'", "failed to resolve reference: not found",
 		"pull access denied for private/app, repository does not exist or may require 'docker login'",
+		"pull access denied for busybox, repository does not exist or may require 'docker login'",
 		"pull access denied for app",
 		"unauthorized", "access denied", "permission denied", "registry request failed: context deadline exceeded",
 		"container startup failed", "container exited with code 1", "exec /entrypoint: no such file or directory",
@@ -69,6 +70,35 @@ func TestDockerDiagnosticFaultsAvoidFalsePositives(t *testing.T) {
 		})
 	}
 	assert.Equal(t, ErrImageNotFound, classifyDockerError(ErrImageNotFound))
+}
+
+func TestDockerFaultClassificationUsesOriginalDiagnostic(t *testing.T) {
+	for _, context := range []string{
+		"no suitable node", "unauthorized: authentication required", "failed to mount volume",
+	} {
+		t.Run(context, func(t *testing.T) {
+			original := errors.New("container startup failed")
+			cause := fmt.Errorf("previous failure %q; current request: %w", context, original)
+			assert.Same(t, cause, classifyDockerError(cause))
+			joined := errors.Join(errors.New(context), original)
+			assert.Same(t, joined, classifyDockerError(joined))
+
+			original = errors.New("mount failed: exit status 32")
+			cause = fmt.Errorf("previous failure %q; current request: %w", context, original)
+			classified := classifyDockerError(cause)
+			var coded faults.Coded
+			require.ErrorAs(t, classified, &coded)
+			assert.Equal(t, faults.CodeMountFailed, coded.FaultCode())
+			assert.Equal(t, original.Error(), coded.FaultSummary())
+			assert.EqualError(t, classified, cause.Error())
+			assert.ErrorIs(t, classified, cause)
+			assert.ErrorIs(t, classified, original)
+
+			missingImage := fmt.Errorf("previous failure %q; current request: %w", context, ErrImageNotFound)
+			assert.Same(t, missingImage, classifyDockerError(missingImage))
+			assert.ErrorIs(t, classifyDockerError(missingImage), ErrImageNotFound)
+		})
+	}
 }
 
 func TestServiceTaskFaults(t *testing.T) {

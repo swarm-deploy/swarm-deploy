@@ -3,6 +3,8 @@ package waiter
 import (
 	"context"
 	"errors"
+	"fmt"
+	"net"
 	"strings"
 	"testing"
 	"time"
@@ -26,6 +28,8 @@ func TestServiceWaiterTerminalTaskFaults(t *testing.T) {
 		{swarm.TaskStateRejected, "unauthorized: authentication required", faults.CodeImagePullDenied, false},
 		{swarm.TaskStateRejected, `invalid mount config for type "bind": bind source path does not exist: /srv/data`, faults.CodeMountFailed, false},
 		{swarm.TaskStateRejected, "VolumeDriver.Mount: permission denied", faults.CodeMountFailed, true},
+		{swarm.TaskStateRejected, "mount failed: " + strings.Repeat("backend unavailable; ", 30), faults.CodeMountFailed, false},
+		{swarm.TaskStateRejected, "No such image: api:2", faults.CodeImageNotFound, false},
 		{swarm.TaskStateFailed, "container startup failed", "", false},
 	} {
 		t.Run(string(tc.code)+"/"+tc.diagnostic, func(t *testing.T) {
@@ -41,24 +45,56 @@ func TestServiceWaiterTerminalTaskFaults(t *testing.T) {
 			task.Error = tc.diagnostic
 			manager.EXPECT().ListServices(gomock.Any(), gomock.Any()).Return([]swarm.StackService{service}, nil)
 			manager.EXPECT().ListTasks(gomock.Any(), service.ID).Return([]swarm.ServiceTask{task}, nil)
+			var original faults.Coded
 			err := waitForTest(newTestServiceWaiter(manager), t.Context(), ServiceWaitRequest{
 				StackName: "app", ServiceNames: []string{service.Name},
 				ExpectedSpecs: map[string]dockerswarm.ServiceSpec{service.Name: service.ServiceSpec},
+				Progress:      func(p ServiceProgress) { original = p.taskFault },
 			})
 			require.ErrorIs(t, err, ErrConvergenceFailed)
 			assert.ErrorContains(t, err, "update paused due to failure of task current-task")
 			assert.ErrorContains(t, err, tc.diagnostic)
+			assert.Equal(t, 1, strings.Count(err.Error(), tc.diagnostic))
+			assert.Equal(t, 1, strings.Count(err.Error(), strings.SplitN(tc.diagnostic, ":", 2)[0]))
 			var coded faults.Coded
 			if tc.code == "" {
 				assert.NotErrorAs(t, err, &coded)
 				return
 			}
 			require.ErrorAs(t, err, &coded)
+			assert.Same(t, original, coded)
 			assert.Equal(t, tc.code, coded.FaultCode())
 			assert.Equal(t, boundedDiagnostic(tc.diagnostic), coded.FaultSummary())
-			assert.NotErrorIs(t, err, swarm.ErrImageNotFound)
+			assert.Equal(t, tc.code == faults.CodeImageNotFound, errors.Is(err, swarm.ErrImageNotFound))
 		})
 	}
+}
+
+func TestWaitInterruptedErrorPreservesTechnicalChain(t *testing.T) {
+	task := testTask("pending-task", 1, swarm.TaskStateRunning, swarm.TaskStatePending, serviceWaitTestTime)
+	task.Error = "no suitable node (insufficient resources on 1 node)"
+	original := task.Fault()
+	transport := &net.OpError{Op: "read", Net: "docker", Err: errors.New("connection lost")}
+	observation := fmt.Errorf("list tasks for service api: %w", transport)
+	progress := map[string]ServiceProgress{
+		"api": {State: ServicePending, Message: "waiting for rolling update to complete", taskFault: original},
+	}
+	err := waitInterruptedError("app", progress, context.DeadlineExceeded, observation)
+	assert.ErrorIs(t, err, context.DeadlineExceeded)
+	assert.ErrorIs(t, err, observation)
+	assert.ErrorIs(t, err, transport)
+	assert.ErrorIs(t, err, original)
+	var coded faults.Coded
+	require.ErrorAs(t, err, &coded)
+	assert.Same(t, original, coded)
+	assert.Equal(t, task.Error, coded.FaultSummary())
+	var networkError *net.OpError
+	require.ErrorAs(t, err, &networkError)
+	assert.Same(t, transport, networkError)
+	assert.ErrorContains(t, err, "wait for services in stack app")
+	assert.ErrorContains(t, err, "list tasks for service api: read docker: connection lost")
+	assert.ErrorContains(t, err, "waiting for rolling update to complete")
+	assert.Equal(t, 1, strings.Count(err.Error(), task.Error))
 }
 
 func TestServiceWaiterPendingSchedulingFaultAtTimeout(t *testing.T) {
