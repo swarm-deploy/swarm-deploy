@@ -3844,8 +3844,9 @@ button.app-copy-button.service-image-copy-button {
 }
 
 .task-log-attribute-link {
-  color: var(--accent-strong);
-  text-decoration: underline;
+  color: inherit;
+  text-decoration: none;
+  border-bottom: 1px dashed currentColor;
 }
 
 .task-log-json {
