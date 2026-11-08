@@ -419,10 +419,13 @@ describe("ServiceView", () => {
     expect(firstLog.attributes("aria-expanded")).toBe("true");
     const details = wrapper.get(".task-log-detail-panel");
     expect(details.get(".task-log-attributes").text()).toContain("request_idreq-1");
-    const detailModes = details.findAll(".task-logs-segment button");
-    await detailModes[1]!.trigger("click");
+    const detailModes = details.get('[role="tablist"]');
+    expect(detailModes.findAll('[role="tab"]').map((tab) => tab.text())).toEqual(["Fields", "JSON", "Raw"]);
+    expect(detailModes.get('[aria-selected="true"]').text()).toBe("Fields");
+    await detailModes.get("#task-log-fields-tab").trigger("keydown", { key: "ArrowRight" });
+    expect(details.get('[role="tabpanel"]').attributes("aria-labelledby")).toBe("task-log-json-tab");
     expect(details.get("pre").text()).toContain('"tenant": "acme"');
-    await detailModes[2]!.trigger("click");
+    await detailModes.get("#task-log-raw-tab").trigger("click");
     expect(details.get("pre").text()).toContain("level=error");
 
     expect(search.attributes("placeholder")).toBe("Search logs");

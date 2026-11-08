@@ -174,7 +174,7 @@ describe("RealtimeView", () => {
     expect(filters.get(".realtime-stack-filter summary").text()).toContain("All stacks");
     expect(filters.get("select").element.value).toBe("all");
     expect(filters.find(".realtime-result-count").exists()).toBe(false);
-    expect(filters.find(".realtime-filter-field > span").exists()).toBe(false);
+    expect(filters.get(".app-select-icon").attributes("aria-hidden")).toBe("true");
 
     await wrapper.get<HTMLInputElement>('.realtime-search input').setValue("worker");
     expect(wrapper.findAll(".realtime-service-row")).toHaveLength(1);

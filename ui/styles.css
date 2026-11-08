@@ -3455,8 +3455,6 @@ button.app-copy-button.service-image-copy-button {
 
 .task-logs-toolbar {
   flex: none;
-  display: grid;
-  gap: 12px;
   padding: 16px var(--log-gutter) 12px;
 }
 
@@ -3475,13 +3473,13 @@ button.app-copy-button.service-image-copy-button {
 }
 
 .task-logs-level-select {
-  width: min(240px, 100%);
+  width: 160px;
 }
 
-.task-logs-search,
-.task-logs-range {
+.task-logs-search {
   position: relative;
   display: flex;
+  flex: 1 1 0;
   align-items: center;
   gap: 10px;
   min-width: 0;
@@ -3493,22 +3491,14 @@ button.app-copy-button.service-image-copy-button {
   padding: 0 12px;
 }
 
-.task-logs-search {
-  flex: 1 1 320px;
-}
-
-.task-logs-search input,
-.task-logs-range select {
+.task-logs-search input {
+  flex: 1;
   min-width: 0;
   border: 0;
   background: transparent;
   color: var(--text);
   font: inherit;
   font-size: 14px;
-}
-
-.task-logs-search input {
-  flex: 1;
 }
 
 .task-logs-search input:focus-visible {
@@ -3521,28 +3511,7 @@ button.app-copy-button.service-image-copy-button {
 }
 
 .task-logs-range {
-  padding: 0;
-}
-
-.task-logs-range select {
-  appearance: none;
-  border-radius: inherit;
-  height: 100%;
-  padding: 0 32px 0 36px;
-  cursor: pointer;
-}
-
-.task-logs-range svg {
-  position: absolute;
-  left: 12px;
-  pointer-events: none;
-}
-
-.task-logs-range svg:last-child {
-  left: auto;
-  right: 10px;
-  width: 14px;
-  height: 14px;
+  --app-select-height: 40px;
 }
 
 .task-logs-live {
@@ -3569,35 +3538,6 @@ button.app-copy-button.service-image-copy-button {
 .task-log-level-warn { --log-level-color: var(--warning); }
 .task-log-level-info { --log-level-color: var(--info); }
 .task-log-level-debug { --log-level-color: light-dark(#7c3aed, #b693ff); }
-
-.task-logs-segment {
-  display: inline-flex;
-  gap: 2px;
-  padding: 3px;
-  border-radius: 8px;
-  background: var(--surface-muted);
-}
-
-.task-logs-segment button {
-  min-height: 30px;
-  padding: 0 12px;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--muted);
-  font-size: 13px;
-  font-weight: 500;
-}
-
-.task-logs-segment button:hover {
-  color: var(--text);
-}
-
-.task-logs-segment button[aria-pressed="true"] {
-  background: var(--surface-elevated);
-  color: var(--text);
-  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.12);
-}
 
 .task-logs-timeline {
   flex: none;
@@ -3828,7 +3768,7 @@ button.app-copy-button.service-image-copy-button {
 .task-log-detail-panel {
   display: grid;
   gap: 12px;
-  padding: 4px var(--log-gutter) 20px calc(var(--log-gutter) + var(--log-time-width) + var(--log-level-width) + 2 * var(--log-column-gap));
+  padding: 4px var(--log-gutter) 20px;
   border-top: 1px solid var(--accent-muted);
   background: var(--info-muted);
 }
@@ -3841,8 +3781,8 @@ button.app-copy-button.service-image-copy-button {
   gap: 8px;
 }
 
-.task-log-detail-controls .task-logs-segment {
-  background: var(--surface-muted-strong);
+.task-log-detail-content {
+  min-width: 0;
 }
 
 .task-logs-modal-card .task-log-copy {
@@ -3923,7 +3863,6 @@ button.app-copy-button.service-image-copy-button {
   }
 
   .task-logs-toolbar {
-    gap: 8px;
     padding-block: 12px 8px;
   }
 
@@ -3938,33 +3877,41 @@ button.app-copy-button.service-image-copy-button {
   .task-logs-controls {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: "search range" "mode .";
   }
 
-  .task-logs-controls > .task-logs-mode-button {
-    grid-column: 1 / -1;
-    justify-self: start;
+  .task-logs-controls:has(> .task-logs-level-select) {
+    grid-template-areas: "search levels" "mode range";
   }
 
   .task-logs-search {
+    grid-area: search;
     gap: 6px;
     padding-inline: 8px;
   }
 
-  .task-logs-search input,
-  .task-logs-range select {
+  .task-logs-search input {
     font-size: 16px;
   }
 
-  .task-logs-range select {
-    padding-inline: 29px 24px;
+  .task-logs-level-select {
+    grid-area: levels;
+    width: 138px;
   }
 
-  .task-logs-range svg {
-    left: 8px;
+  .task-logs-controls .task-logs-level-select .app-multi-select-menu {
+    left: auto;
+    right: 0;
   }
 
-  .task-logs-range svg:last-child {
-    right: 6px;
+  .task-logs-range {
+    grid-area: range;
+    justify-self: end;
+  }
+
+  .task-logs-mode-button {
+    grid-area: mode;
+    justify-self: start;
   }
 
   .task-log-line {
@@ -3978,10 +3925,6 @@ button.app-copy-button.service-image-copy-button {
   .task-log-method,
   .task-log-request {
     display: none;
-  }
-
-  .task-log-detail-panel {
-    padding-left: var(--log-gutter);
   }
 
   .task-log-attribute {

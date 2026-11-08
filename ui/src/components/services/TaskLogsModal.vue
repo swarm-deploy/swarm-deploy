@@ -7,6 +7,8 @@ import AppButton from "../common/AppButton.vue";
 import AppCopyButton from "../common/AppCopyButton.vue";
 import AppModal from "../common/AppModal.vue";
 import AppMultiSelect from "../common/AppMultiSelect.vue";
+import AppSelect from "../common/AppSelect.vue";
+import AppTabs from "../common/AppTabs.vue";
 import { openTaskLogsStream } from "../../api/overview";
 import type { TaskLogCountsEvent, TaskLogEvent, TaskLogLevel } from "../../api/types";
 import { copyText } from "../../utils/clipboard";
@@ -37,7 +39,7 @@ const since = ref("");
 const firstVisibleLog = ref(0);
 const showEarlier = ref(false);
 const openLog = ref<number | null>(null);
-const detailView = ref<"fields" | "json" | "raw">("fields");
+const detailView = ref("fields");
 const searchQuery = ref("");
 const copiedLogKey = ref("");
 const taskLogLevels: TaskLogLevel[] = ["TRACE", "DEBUG", "INFO", "WARN", "ERROR", "FATAL"];
@@ -104,6 +106,16 @@ const timeline = computed(() => {
 });
 
 const selectedLog = computed(() => openLog.value === null ? undefined : logs.value[openLog.value]);
+const detailTabs = computed(() => {
+  const tabs = [
+    { value: "fields", label: "Fields", id: "task-log-fields-tab", panelId: "task-log-detail-content" },
+    { value: "json", label: "JSON", id: "task-log-json-tab", panelId: "task-log-detail-content" },
+  ];
+  if (selectedLog.value?.raw_message && selectedLog.value.raw_message !== selectedLog.value.message) {
+    tabs.push({ value: "raw", label: "Raw", id: "task-log-raw-tab", panelId: "task-log-detail-content" });
+  }
+  return tabs;
+});
 const detailJson = computed(() => selectedLog.value ? JSON.stringify(logFields(selectedLog.value), null, 2) : "");
 const jsonTokens = computed(() => {
   const tokens: Array<{ text: string; kind: string | undefined }> = [];
@@ -374,16 +386,25 @@ onUnmounted(() => {
             placeholder="Search logs"
           />
         </label>
-        <label class="task-logs-range">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>
-          <span class="sr-only">Time range</span>
-          <select v-model.number="range" @change="changeTimeRange">
-            <option :value="0">All time</option>
-            <option :value="15">Last 15 min</option>
-            <option :value="60">Last hour</option>
-          </select>
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
-        </label>
+        <AppMultiSelect
+          v-if="open && parseLogs"
+          ref="levelSelect"
+          class="task-logs-level-select"
+          :model-value="selectedLogFilters"
+          :options="logLevelOptions"
+          label="Filter by log level"
+          heading="Log levels"
+          placeholder="All levels"
+          @update:model-value="setLogLevelFilters"
+        />
+        <AppSelect v-model="range" class="task-logs-range" label="Time range" @update:model-value="changeTimeRange">
+          <template #icon>
+            <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>
+          </template>
+          <option :value="0">All time</option>
+          <option :value="15">Last 15 min</option>
+          <option :value="60">Last hour</option>
+        </AppSelect>
         <AppButton
           variant="secondary"
           class="task-logs-mode-button app-tooltip"
@@ -398,18 +419,6 @@ onUnmounted(() => {
           </svg>
         </AppButton>
       </div>
-
-      <AppMultiSelect
-        v-if="open && parseLogs"
-        ref="levelSelect"
-        class="task-logs-level-select"
-        :model-value="selectedLogFilters"
-        :options="logLevelOptions"
-        label="Filter by log level"
-        heading="Log levels"
-        placeholder="All levels"
-        @update:model-value="setLogLevelFilters"
-      />
     </div>
 
     <div v-if="timeline" class="task-logs-timeline" role="img" aria-label="Volume of received log lines over time (UTC)">
@@ -480,14 +489,7 @@ onUnmounted(() => {
 
             <div v-if="parseLogs && openLog === entry.id" class="task-log-detail-panel">
               <div class="task-log-detail-controls">
-                <div class="task-logs-segment" role="group" aria-label="Log details view">
-                  <button type="button" :aria-pressed="detailView === 'fields'" @click="detailView = 'fields'">Fields</button>
-                  <button type="button" :aria-pressed="detailView === 'json'" @click="detailView = 'json'">JSON</button>
-                  <button
-                    v-if="entry.raw_message && entry.raw_message !== entry.message"
-                    type="button" :aria-pressed="detailView === 'raw'" @click="detailView = 'raw'"
-                  >Raw</button>
-                </div>
+                <AppTabs v-model="detailView" :tabs="detailTabs" label="Log details view" density="compact" />
                 <AppButton
                   variant="secondary" compact class="task-log-copy"
                   @click="copyLogValue(detailView === 'raw' ? entry.raw_message || entry.message : detailJson, `${detailView}-${entry.id}`)"
@@ -497,24 +499,32 @@ onUnmounted(() => {
                 </AppButton>
               </div>
 
-              <dl v-if="detailView === 'fields'" class="task-log-attributes">
-                <div v-for="(value, key) in logFields(entry)" :key="key" class="task-log-attribute">
-                  <dt>{{ key }}</dt>
-                  <dd>{{ formatLogAttributeValue(value) }}</dd>
-                  <dd class="task-log-attribute-actions">
-                    <AppCopyButton
-                      :value="formatLogAttributeValue(value)"
-                      color="var(--muted)"
-                      :label="`Copy ${key}`"
-                      :copied-label="`${key} copied`"
-                    />
-                  </dd>
-                </div>
-              </dl>
-              <pre v-else-if="detailView === 'json'" class="task-log-json"><code><span
-                v-for="(token, index) in jsonTokens" :key="index" :class="token.kind && `shj-syn-${token.kind}`"
-              >{{ token.text }}</span></code></pre>
-              <pre v-else class="task-log-json"><code>{{ entry.raw_message || entry.message }}</code></pre>
+              <div
+                id="task-log-detail-content"
+                class="task-log-detail-content"
+                role="tabpanel"
+                tabindex="0"
+                :aria-labelledby="`task-log-${detailView}-tab`"
+              >
+                <dl v-if="detailView === 'fields'" class="task-log-attributes">
+                  <div v-for="(value, key) in logFields(entry)" :key="key" class="task-log-attribute">
+                    <dt>{{ key }}</dt>
+                    <dd>{{ formatLogAttributeValue(value) }}</dd>
+                    <dd class="task-log-attribute-actions">
+                      <AppCopyButton
+                        :value="formatLogAttributeValue(value)"
+                        color="var(--muted)"
+                        :label="`Copy ${key}`"
+                        :copied-label="`${key} copied`"
+                      />
+                    </dd>
+                  </div>
+                </dl>
+                <pre v-else-if="detailView === 'json'" class="task-log-json"><code><span
+                  v-for="(token, index) in jsonTokens" :key="index" :class="token.kind && `shj-syn-${token.kind}`"
+                >{{ token.text }}</span></code></pre>
+                <pre v-else class="task-log-json"><code>{{ entry.raw_message || entry.message }}</code></pre>
+              </div>
             </div>
           </li>
         </ol>
