@@ -6,7 +6,6 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/distribution/reference"
 	dockerswarm "github.com/docker/docker/api/types/swarm"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/resources"
@@ -164,13 +163,3 @@ func convertPort(port compose.ServicePort, endpointMode string) (dockerswarm.Por
 }
 
 const maxPort = 65535
-
-func validateImage(image string) error {
-	if image == "" {
-		return fmt.Errorf("image: required")
-	}
-	if _, err := reference.ParseNormalizedNamed(image); err != nil {
-		return fmt.Errorf("image: invalid reference")
-	}
-	return nil
-}

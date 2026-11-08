@@ -63,7 +63,7 @@ secrets:
 	write("shared/config", "new config")
 	write("shared/secret", "new secret")
 	for name, source := range map[string]string{
-		"absolute-env":             "services:\n  api:\n    env_file: " + outside + "/data\n",
+		"absolute-env":             "services:\n  api:\n    image: alpine\n    env_file: " + outside + "/data\n",
 		"config-symlink-traversal": "configs:\n  app:\n    file: ../escape/../shared/config\n",
 		"secret-traversal":         "secrets:\n  token:\n    file: ../../data\n",
 	} {

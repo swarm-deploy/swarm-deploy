@@ -25,6 +25,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/outbox"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackloop/preparation"
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	"go.uber.org/mock/gomock"
 )
@@ -249,37 +250,85 @@ func TestImagePolicyViolationLifecycle(t *testing.T) {
 	assert.Equal(t, events.TypeDeploySuccess, historyEntries[0].Type)
 }
 
-func TestImagePolicyDisabledPreservesDeployment(t *testing.T) {
+func TestComposeLoadValidationLifecycle(t *testing.T) {
+	ctx := t.Context()
 	db, state := newSQLState(t)
 	bus := eventbus.NewOutboxDispatcher(outbox.New(db))
+	alerts := alertstore.NewSQLStore(db)
+	cfg := &config.Config{Spec: config.Spec{DataDir: filepath.Join(t.TempDir(), "data")}}
+	subscriber := alertmanagement.NewSQLSubscriber(alerts, bus,
+		func(alertmodel.AlertKind) []events.AlertRecipient { return nil }, cfg)
+	require.NoError(t, bus.Subscribe(events.TypeNameDeployPreparationFailed, "alert-management", subscriber))
+	require.NoError(t, bus.Subscribe(events.TypeNameDeploySuccess, "alert-management", subscriber))
+
 	ctrl := gomock.NewController(t)
 	repository := gitx.NewMockRepository(ctrl)
 	stackDeployer := deployer.NewMockStackDeployer(ctrl)
 	serviceManager := swarm.NewMockServiceManager(ctrl)
 	repoDir := t.TempDir()
 	mockRepositoryFiles(repository, repoDir)
-	require.NoError(t, os.WriteFile(filepath.Join(repoDir, "app.yaml"), []byte(`services:
-  api:
+	path := filepath.Join(repoDir, "app.yaml")
+	require.NoError(t, os.WriteFile(path, []byte("services: {swarm-deploy: {image: ghcr.io/company/MyApp:v1.2}}"), 0o600))
+	const invalidImage = `image: invalid reference "ghcr.io/company/MyApp:v1.2"`
+	reconciler := newTestReconciler(cfg, repository, deployments.NewService(db, bus), stackDeployer, &swarm.Swarm{
+		Services: serviceManager, Configs: swarm.NewMockConfigManager(ctrl), Secrets: swarm.NewMockSecretManager(ctrl),
+	}, bus, &metrics.NopDeploys{}, state, db)
+	req := ReconciliationRequest{Stack: config.StackSpec{Name: "app", ComposeFile: "app.yaml"}, Commit: "invalid"}
+
+	err := reconciler.Reconcile(ctx, req)
+	var validation *compose.ValidateComposeError
+	require.ErrorAs(t, err, &validation)
+	assert.ErrorContains(t, err, "load compose")
+	assert.Equal(t, req.Stack.ComposeFile, validation.FilePath)
+	assert.ErrorContains(t, err, invalidImage)
+	attempts, err := deploymentstore.NewStore(db).List(ctx, deploymentmodel.ListFilter{})
+	require.NoError(t, err)
+	assert.Empty(t, attempts.Deployments)
+
+	drainOutbox(t, ctx, bus)
+	alert, err := alerts.FindOpenByFingerprint(ctx, alertmodel.SyncFailedFingerprint("app"))
+	require.NoError(t, err)
+	require.NotNil(t, alert)
+	assert.Equal(t, alertmodel.AlertKindSyncFailed, alert.Kind)
+	assert.Equal(t, "validation", alert.FailureStage)
+	assert.Contains(t, alert.Message, `validate compose file "app.yaml"`)
+	assert.Contains(t, alert.Message, invalidImage)
+	require.Len(t, alert.Findings, 1)
+	assert.Equal(t, faults.CodeInvalidDesiredState, alert.Findings[0].Code)
+	assert.Equal(t, "services.swarm-deploy: "+invalidImage, alert.Findings[0].Summary)
+
+	require.NoError(t, os.WriteFile(path, []byte(`services:
+  swarm-deploy:
     image: nginx:latest
+    env_file: app.env
     x-init-deploy-jobs:
       - name: migrate
         image: example/migrate:latest
 `), 0o600))
-	stackDeployer.EXPECT().DeployStack(gomock.Any(), gomock.Cond(func(req deployer.StackRequest) bool { return req.StackName == "app" })).Return(deployer.Result{}, nil)
+	require.NoError(t, os.WriteFile(filepath.Join(repoDir, "app.env"), []byte("MODE=production\n"), 0o600))
+	stackDeployer.EXPECT().DeployStack(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, request deployer.StackRequest) (deployer.Result, error) {
+			require.Len(t, request.Desired.Services, 1)
+			service := request.Desired.Services[0]
+			assert.Equal(t, "app", request.StackName)
+			assert.Equal(t, "nginx:latest", service.Image)
+			assert.Empty(t, service.EnvFiles)
+			assert.Equal(t, "production", service.Environment.Map["MODE"])
+			return deployer.Result{}, nil
+		},
+	)
 	serviceManager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "app"}).Return([]swarm.StackService{}, nil)
-
-	reconciler := newTestReconciler(&config.Config{Spec: config.Spec{DataDir: filepath.Join(t.TempDir(), "data")}}, repository,
-		deployments.NewService(db, bus), stackDeployer, &swarm.Swarm{
-			Services: serviceManager, Configs: swarm.NewMockConfigManager(ctrl), Secrets: swarm.NewMockSecretManager(ctrl),
-		}, bus, &metrics.NopDeploys{}, state, db)
-
-	require.NoError(t, reconciler.Reconcile(t.Context(), ReconciliationRequest{
-		Stack: config.StackSpec{Name: "app", ComposeFile: "app.yaml"}, Commit: "sha",
-	}))
-	deployments, err := deploymentstore.NewStore(db).List(t.Context(), deploymentmodel.ListFilter{})
+	req.Commit = "fixed"
+	require.NoError(t, reconciler.Reconcile(ctx, req))
+	drainOutbox(t, ctx, bus)
+	resolved, err := alerts.Get(ctx, alert.ID)
 	require.NoError(t, err)
-	require.Len(t, deployments.Deployments, 1)
-	assert.Equal(t, deploymentmodel.Succeeded, deployments.Deployments[0].Status)
+	assert.Equal(t, alertmodel.AlertStatusResolved, resolved.Status)
+
+	attempts, err = deploymentstore.NewStore(db).List(ctx, deploymentmodel.ListFilter{})
+	require.NoError(t, err)
+	require.Len(t, attempts.Deployments, 1)
+	assert.Equal(t, deploymentmodel.Succeeded, attempts.Deployments[0].Status)
 }
 
 func TestImagePolicyErrorsArePermanent(t *testing.T) {

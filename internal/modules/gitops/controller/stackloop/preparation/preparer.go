@@ -175,6 +175,13 @@ func (p *Preparer) attachPipeline(provider trace.TracerProvider) {
 			},
 		})
 	}
+
+	p.pipeline.Add(pipe.Step[*preparationPayload]{
+		Name: "validate desired state",
+		Run: func(_ context.Context, payload *preparationPayload) error {
+			return compose.ValidateEffective(payload.desired.Compose, payload.desired.Path)
+		},
+	})
 }
 
 // CleanupStale removes legacy CLI artifacts after controller ownership handoff.

@@ -43,7 +43,7 @@ func validateStack(stackName string, desired compose.Compose) error {
 			return fmt.Errorf("services.%s: %w", service.Name, err)
 		}
 	}
-	return nil
+	return compose.ValidateEffective(desired, "")
 }
 
 func validateObjects(desired compose.Compose) error {
@@ -76,9 +76,6 @@ func validateObjects(desired compose.Compose) error {
 
 func validateService(service compose.Service) error {
 	if _, _, err := service.ReplicasManagedPolicy(); err != nil {
-		return err
-	}
-	if err := validateImage(service.Image); err != nil {
 		return err
 	}
 

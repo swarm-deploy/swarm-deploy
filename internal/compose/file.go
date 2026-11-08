@@ -106,13 +106,7 @@ func (l *fileLoader) Load(ctx context.Context, path string) (*File, error) {
 		return nil, &ValidateComposeError{FilePath: path, Issues: decodeIssues(err), Err: err}
 	}
 	setIgnoredOptions(&schema, ignored)
-	baseDir, _ := filepath.Split(path)
-	if baseDir == "" {
-		baseDir = "."
-	}
-	if baseDir != string(filepath.Separator) {
-		baseDir = strings.TrimSuffix(baseDir, string(filepath.Separator))
-	}
+	baseDir := composeBaseDir(path)
 	if issues := l.linkServices(&schema, baseDir); len(issues) > 0 {
 		if interpolated {
 			for i := range issues {
@@ -120,6 +114,10 @@ func (l *fileLoader) Load(ctx context.Context, path string) (*File, error) {
 			}
 		}
 		return nil, &ValidateComposeError{FilePath: path, Issues: issues}
+	}
+
+	if err = ValidateEffective(schema, path); err != nil {
+		return nil, err
 	}
 
 	if err = l.loadEnvFiles(ctx, baseDir, schema.Services); err != nil {
@@ -242,7 +240,7 @@ func (*fileLoader) linkServices(compose *Compose, baseDir string) []ValidationIs
 			}
 			if err != nil {
 				issues = append(issues, ValidationIssue{
-					ResourceType: "service",
+					ResourceType: validationResourceService,
 					ResourceName: service.Name,
 					Field:        "deploy.labels." + label,
 					Code:         IssueCodeInvalidValue,
@@ -266,7 +264,7 @@ func (*fileLoader) linkServices(compose *Compose, baseDir string) []ValidationIs
 
 		initJobs, jobIssues := normalizeInitJobs(service.InitJobs, compose.Networks)
 		for _, issue := range jobIssues {
-			issue.ResourceType = "service"
+			issue.ResourceType = validationResourceService
 			issue.ResourceName = service.Name
 			issues = append(issues, issue)
 		}
@@ -363,6 +361,18 @@ func computeObjectFilesDigest[T any, Objects ~map[string]*T](
 		hasher.Write([]byte(file))
 		hasher.Write(contents[alias])
 	}
+}
+
+// composeBaseDir preserves parent components for symlink-aware file resolution.
+func composeBaseDir(path string) string {
+	baseDir, _ := filepath.Split(path)
+	if baseDir == "" {
+		return "."
+	}
+	if baseDir == string(filepath.Separator) {
+		return baseDir
+	}
+	return strings.TrimSuffix(baseDir, string(filepath.Separator))
 }
 
 func resolveResourceFilePath(baseDir string, path string) string {

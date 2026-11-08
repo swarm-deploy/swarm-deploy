@@ -10,6 +10,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
 	"go.yaml.in/yaml/v3"
 )
 
@@ -122,4 +123,42 @@ func TestComposeErrorsWrap(t *testing.T) {
 	var readErr *ReadComposeError
 	require.ErrorAs(t, wrapped, &readErr)
 	assert.Contains(t, wrapped.Error(), "/stack/compose.yaml")
+}
+
+func TestValidateComposeErrorFault(t *testing.T) {
+	t.Parallel()
+
+	cause := errors.New("technical decoding error")
+	invalidImage := ValidationIssue{
+		ResourceType: "service", ResourceName: "swarm-deploy", Field: "image",
+		Code: IssueCodeInvalidValue, Message: "invalid reference",
+	}
+	missingImage := ValidationIssue{
+		ResourceType: "service", ResourceName: "worker", Field: "image",
+		Code: IssueCodeRequired, Message: "required",
+	}
+
+	for _, tc := range []struct {
+		name    string
+		issues  []ValidationIssue
+		summary string
+	}{
+		{"single", []ValidationIssue{invalidImage}, "services.swarm-deploy: image: invalid reference"},
+		{"multiple", []ValidationIssue{missingImage, invalidImage}, "services.swarm-deploy: image: invalid reference (+1 more)"},
+		{"reversed", []ValidationIssue{invalidImage, missingImage}, "services.swarm-deploy: image: invalid reference (+1 more)"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := &ValidateComposeError{FilePath: "/stack/compose.yaml", Issues: tc.issues, Err: cause}
+			wrapped := fmt.Errorf("prepare stack: %w", err)
+			var coded faults.Coded
+			require.ErrorAs(t, wrapped, &coded)
+			assert.Equal(t, faults.CodeInvalidDesiredState, coded.FaultCode())
+			assert.Equal(t, tc.summary, coded.FaultSummary())
+			require.ErrorIs(t, wrapped, cause)
+			assert.ErrorContains(t, wrapped, `prepare stack: validate compose file "/stack/compose.yaml"`)
+			for _, issue := range tc.issues {
+				assert.ErrorContains(t, wrapped, issue.String())
+			}
+		})
+	}
 }
