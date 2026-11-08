@@ -122,6 +122,10 @@ func (l *fileLoader) Load(ctx context.Context, path string) (*File, error) {
 		return nil, &ValidateComposeError{FilePath: path, Issues: issues}
 	}
 
+	if err = ValidateEffective(schema, path); err != nil {
+		return nil, err
+	}
+
 	if err = l.loadEnvFiles(ctx, baseDir, schema.Services); err != nil {
 		err = interpolationSafeError(err, interpolated, "invalid or unreadable env_file")
 		return nil, fmt.Errorf("load env files: %w", err)

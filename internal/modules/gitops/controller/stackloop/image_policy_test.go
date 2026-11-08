@@ -250,7 +250,7 @@ func TestImagePolicyViolationLifecycle(t *testing.T) {
 	assert.Equal(t, events.TypeDeploySuccess, historyEntries[0].Type)
 }
 
-func TestEffectiveComposeValidationLifecycle(t *testing.T) {
+func TestComposeLoadValidationLifecycle(t *testing.T) {
 	ctx := t.Context()
 	db, state := newSQLState(t)
 	bus := eventbus.NewOutboxDispatcher(outbox.New(db))
@@ -277,8 +277,8 @@ func TestEffectiveComposeValidationLifecycle(t *testing.T) {
 	err := reconciler.Reconcile(ctx, req)
 	var validation *compose.ValidateComposeError
 	require.ErrorAs(t, err, &validation)
-	assert.ErrorContains(t, err, "validate desired state")
-	assert.ErrorContains(t, err, path)
+	assert.ErrorContains(t, err, "load compose")
+	assert.Equal(t, req.Stack.ComposeFile, validation.FilePath)
 	assert.NotContains(t, err.Error(), "DO-NOT-LEAK")
 	attempts, err := deploymentstore.NewStore(db).List(ctx, deploymentmodel.ListFilter{})
 	require.NoError(t, err)
@@ -290,7 +290,7 @@ func TestEffectiveComposeValidationLifecycle(t *testing.T) {
 	require.NotNil(t, alert)
 	assert.Equal(t, alertmodel.AlertKindSyncFailed, alert.Kind)
 	assert.Equal(t, "validation", alert.FailureStage)
-	assert.Contains(t, alert.Message, "validate desired state")
+	assert.Contains(t, alert.Message, `validate compose file "app.yaml"`)
 	assert.NotContains(t, alert.Message, "DO-NOT-LEAK")
 	require.Len(t, alert.Findings, 1)
 	assert.Equal(t, faults.CodeInvalidDesiredState, alert.Findings[0].Code)

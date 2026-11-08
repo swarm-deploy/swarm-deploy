@@ -32,7 +32,7 @@ func TestInterpolationPreservesPayloadsEnvPrecedenceAndSourceDigest(t *testing.T
 	files := map[string]string{
 		"compose.yaml": `services:
   app:
-    image: nginx:${SD_TEST_TAG}
+    image: nginx:alpine
     env_file: [first.env, second.env]
     environment: {PRIORITY: '${SD_TEST_TAG}', EMPTY: '', ESCAPED: '$$HOME'}
 configs: {settings: {file: settings.txt}}
@@ -66,7 +66,7 @@ secrets: {password: {file: password.txt}}
 	t.Setenv("SD_TEST_TAG", "stable")
 	second, err := loader.Load(t.Context(), "compose.yaml")
 	require.NoError(t, err)
-	assert.Equal(t, "nginx:${SD_TEST_TAG}", second.Compose.Services[0].Image)
+	assert.Equal(t, "nginx:alpine", second.Compose.Services[0].Image)
 	assert.Equal(t, first.Digest, second.Digest, "source digest must not hash the process environment")
 	assert.Equal(t, first.ResourceDigests, second.ResourceDigests)
 }
@@ -75,7 +75,7 @@ func TestInterpolationPreservesServiceOrderAndAliases(t *testing.T) {
 	t.Setenv("SD_TEST_TAG", "alpine")
 	loader := NewFileLoaderWithReader(func(context.Context, string) ([]byte, error) {
 		return []byte(`x-common: &common
-  image: 'nginx:${SD_TEST_TAG}'
+  image: nginx:alpine
   environment: {DOLLAR: '$$$$'}
 services:
   z:
@@ -96,7 +96,7 @@ services:
 	assert.Equal(t, "z", schema.Services[0].Name)
 	assert.Equal(t, "a", schema.Services[1].Name)
 	for _, service := range schema.Services {
-		assert.Equal(t, "nginx:${SD_TEST_TAG}", service.Image)
+		assert.Equal(t, "nginx:alpine", service.Image)
 		assert.Equal(t, "$$$$", service.Environment.Map["DOLLAR"])
 	}
 	assert.Equal(t, []string{"echo", "$$(date)"}, schema.Services[0].Command.Args)
@@ -114,9 +114,9 @@ func TestParseKeepsRawSourceForChangeComparison(t *testing.T) {
 func TestEffectiveValidationDoesNotEchoInterpolatedValues(t *testing.T) {
 	t.Setenv("SD_TEST_PRIVATE", "private-interpolation-value")
 	for _, source := range []string{
-		`services: {app: {deploy: {replicas: '${SD_TEST_PRIVATE}'}}}`,
-		`services: {app: {deploy: {labels: {org.swarm-deploy.service.sync.policy.selfHeal: '${SD_TEST_PRIVATE}'}}}}`,
-		`services: {app: {env_file: '${SD_TEST_PRIVATE}'}}`,
+		`services: {app: {image: alpine, deploy: {replicas: '${SD_TEST_PRIVATE}'}}}`,
+		`services: {app: {image: alpine, deploy: {labels: {org.swarm-deploy.service.sync.policy.selfHeal: '${SD_TEST_PRIVATE}'}}}}`,
+		`services: {app: {image: alpine, env_file: '${SD_TEST_PRIVATE}'}}`,
 		`configs: {settings: {file: '${SD_TEST_PRIVATE}'}}`,
 		`secrets: {password: {file: '${SD_TEST_PRIVATE}'}}`,
 	} {
