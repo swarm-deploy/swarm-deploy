@@ -3424,7 +3424,7 @@ a.overview-summary-row:focus-visible {
   outline-offset: 1px;
 }
 
-.task-logs-modal-card svg {
+.task-logs-modal-card svg:not(:where(.service-copy-task-id-button svg)) {
   width: 16px;
   height: 16px;
   flex: none;

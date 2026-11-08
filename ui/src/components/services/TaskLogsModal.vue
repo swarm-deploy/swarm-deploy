@@ -371,12 +371,21 @@ onUnmounted(() => {
           <button
             v-if="taskId"
             type="button"
-            class="task-log-icon-button"
+            class="service-copy-task-id-button service-realtime-copy-button"
             :aria-label="copiedLogKey === 'task' ? 'Task ID copied' : 'Copy task ID'"
             :title="copiedLogKey === 'task' ? 'Copied' : 'Copy task ID'"
             @click="copyLogValue(taskId, 'task')"
           >
-            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2" /><path d="M5 15V5a2 2 0 0 1 2-2h10" /></svg>
+            <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+              <path
+                d="M5 1.5A1.5 1.5 0 0 0 3.5 3v7A1.5 1.5 0 0 0 5 11.5h7A1.5 1.5 0 0 0 13.5 10V3A1.5 1.5 0 0 0 12 1.5H5Zm0 1h7a.5.5 0 0 1 .5.5v7a.5.5 0 0 1-.5.5H5a.5.5 0 0 1-.5-.5V3a.5.5 0 0 1 .5-.5Z"
+                fill="currentColor"
+              />
+              <path
+                d="M2 4.5a.5.5 0 0 1 .5.5V12A1.5 1.5 0 0 0 4 13.5h7a.5.5 0 0 1 0 1H4A2.5 2.5 0 0 1 1.5 12V5a.5.5 0 0 1 .5-.5Z"
+                fill="currentColor"
+              />
+            </svg>
           </button>
         </div>
       </div>
