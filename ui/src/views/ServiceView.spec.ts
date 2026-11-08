@@ -388,7 +388,7 @@ describe("ServiceView", () => {
     await nextTick();
 
     const levels = wrapper.get(".task-logs-level-select");
-    expect(levels.get("summary").text()).toContain("All levels (3)");
+    expect(levels.get(".app-multi-select-selection").text()).toBe("All levels");
     expect(levels.findAll(".app-multi-select-option").map((option) => option.text())).toEqual([
       "Error (1)", "Warn (0)", "Info (2)", "Debug (0)", "Other (0)",
     ]);

@@ -418,7 +418,7 @@ onUnmounted(() => {
         :options="logLevelOptions"
         label="Filter by log level"
         heading="Log levels"
-        :placeholder="`All levels (${logLevelCount(taskLogLevels)})`"
+        placeholder="All levels"
         @update:model-value="setLogLevelFilters"
       />
     </div>
