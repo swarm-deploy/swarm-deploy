@@ -26,9 +26,7 @@ func (p *ServiceProgress) pendingSchedulingFault(
 		if fault := task.Fault(); fault != nil && fault.FaultCode() == faults.CodeNoSuitableNode &&
 			(latest.ID == "" || task.UpdatedAt.After(latest.UpdatedAt)) {
 			latest = task
-			p.taskFaultCode = fault.FaultCode()
-			p.taskDiagnostic = fault.Error()
-			p.taskSummary = fault.FaultSummary()
+			p.taskFault = fault
 		}
 	}
 }
@@ -135,7 +133,7 @@ func waitInterruptedError(
 	}
 	err := fmt.Errorf("wait for services in stack %s: %w: %s", stackName, cause, diagnostic)
 	for _, name := range sortedProgressNames(progress) {
-		if service := progress[name]; service.State != ServiceReady && service.taskFaultCode == faults.CodeNoSuitableNode {
+		if service := progress[name]; service.State != ServiceReady && service.taskFault != nil && service.taskFault.FaultCode() == faults.CodeNoSuitableNode {
 			return service.withTaskFault(err)
 		}
 	}
