@@ -1,6 +1,9 @@
 <script setup lang="ts">
+import json from "@speed-highlight/core/languages/json.js";
+import { tokenizeWith } from "@speed-highlight/core/tokenize";
 import { computed, nextTick, onUnmounted, ref, watch } from "vue";
 
+import AppButton from "../common/AppButton.vue";
 import AppModal from "../common/AppModal.vue";
 import { openTaskLogsStream } from "../../api/overview";
 import type { TaskLogCountsEvent, TaskLogEvent, TaskLogLevel } from "../../api/types";
@@ -15,13 +18,23 @@ const emit = defineEmits<{
   close: [];
 }>();
 
-const logs = ref<TaskLogEvent[]>([]);
+type LogEntry = TaskLogEvent & { id: number };
+
+const logs = ref<LogEntry[]>([]);
 const loading = ref(false);
 const error = ref("");
 const ended = ref(false);
 const viewer = ref<HTMLElement | null>(null);
+const searchInput = ref<HTMLInputElement | null>(null);
 const autoScroll = ref(true);
-const parseLogs = ref(false);
+const parseLogs = ref(true);
+const wrapLines = ref(false);
+const range = ref(0);
+const since = ref("");
+const firstVisibleLog = ref(0);
+const showEarlier = ref(false);
+const openLog = ref<number | null>(null);
+const detailView = ref<"fields" | "json" | "raw">("fields");
 const searchQuery = ref("");
 const copiedLogKey = ref("");
 const taskLogLevels: TaskLogLevel[] = ["TRACE", "DEBUG", "INFO", "WARN", "ERROR", "FATAL"];
@@ -36,6 +49,12 @@ const taskLogLevelFilters: Array<{ id: string; label: string; levels: TaskLogLev
 const selectedLogLevels = ref<TaskLogLevel[]>([...taskLogLevels]);
 const logLevelCounts = ref<Record<TaskLogLevel, number>>(emptyLogLevelCounts());
 
+const previewLineCount = 10;
+const chartBucketCount = 48;
+const logDateFormat = new Intl.DateTimeFormat("en-GB", {
+  weekday: "short", day: "numeric", month: "short", year: "numeric", timeZone: "UTC",
+});
+
 let stream: EventSource | null = null;
 
 function emptyLogLevelCounts(): Record<TaskLogLevel, number> {
@@ -43,9 +62,48 @@ function emptyLogLevelCounts(): Record<TaskLogLevel, number> {
 }
 
 const filteredLogs = computed(() => {
-  const query = searchQuery.value.trim().toLocaleLowerCase();
-  if (!query) return logs.value;
-  return logs.value.filter((entry) => logSearchText(entry).includes(query));
+  const query = searchQuery.value.trim().toLowerCase();
+  return query ? logs.value.filter((entry) => logSearchText(entry).includes(query)) : logs.value;
+});
+
+const earlierCount = computed(() => showEarlier.value || searchQuery.value.trim() ? 0 : firstVisibleLog.value);
+const visibleLogs = computed(() => filteredLogs.value.slice(earlierCount.value));
+const lastLogTime = computed(() => logs.value.at(-1)?.timestamp ?? "");
+const status = computed(() => {
+  if (error.value) return "stream interrupted";
+  if (loading.value) return "connecting";
+  if (ended.value) return "stream ended";
+  return autoScroll.value ? "following new output" : "following paused";
+});
+const isLive = computed(() => autoScroll.value && !ended.value && !error.value);
+
+const timeline = computed(() => {
+  const timestamps = logs.value.map(({ timestamp }) => Date.parse(timestamp)).filter(Number.isFinite);
+  if (!timestamps.length) return null;
+
+  const start = since.value ? Date.parse(since.value) : timestamps.reduce((oldest, time) => Math.min(oldest, time));
+  const latest = timestamps.reduce((newest, time) => Math.max(newest, time));
+  const end = Math.max(start + 1, latest, since.value ? Date.now() : latest);
+  const counts = Array<number>(chartBucketCount).fill(0);
+  for (const time of timestamps) {
+    if (time < start) continue;
+    const index = Math.min(chartBucketCount - 1, Math.floor((time - start) / (end - start) * chartBucketCount));
+    counts[index]++;
+  }
+  const peak = Math.max(1, ...counts);
+  return {
+    bars: counts.map((count) => count ? 7.5 + 92.5 * count / peak : 0),
+    labels: Array.from({ length: 5 }, (_, index) =>
+      new Date(start + (end - start) * index / 4).toISOString().slice(11, 16)),
+  };
+});
+
+const selectedLog = computed(() => openLog.value === null ? undefined : logs.value[openLog.value]);
+const detailJson = computed(() => selectedLog.value ? JSON.stringify(logFields(selectedLog.value), null, 2) : "");
+const jsonTokens = computed(() => {
+  const tokens: Array<{ text: string; kind: string | undefined }> = [];
+  tokenizeWith(detailJson.value, json, (text, kind) => tokens.push({ text, kind }));
+  return tokens;
 });
 
 function closeStream(): void {
@@ -69,13 +127,27 @@ function scrollToBottom(): void {
 }
 
 function handleScroll(): void {
-  autoScroll.value = isViewerAtBottom();
+  if (autoScroll.value && !isViewerAtBottom()) autoScroll.value = false;
+}
+
+function jumpToLatest(): void {
+  autoScroll.value = true;
+  void nextTick(scrollToBottom);
+}
+
+function toggleLive(): void {
+  if (autoScroll.value) autoScroll.value = false;
+  else jumpToLatest();
 }
 
 function appendLog(entry: TaskLogEvent): void {
-  const shouldScroll = autoScroll.value && isViewerAtBottom();
-  logs.value.push(entry);
-  if (shouldScroll) void nextTick(scrollToBottom);
+  logs.value.push({ ...entry, id: logs.value.length });
+  if (autoScroll.value && openLog.value === null) {
+    firstVisibleLog.value = Math.max(0, logs.value.length - previewLineCount);
+  }
+  if (autoScroll.value) void nextTick(() => {
+    if (autoScroll.value) scrollToBottom();
+  });
 }
 
 function startStream(): void {
@@ -83,6 +155,10 @@ function startStream(): void {
 
   closeStream();
   logs.value = [];
+  firstVisibleLog.value = 0;
+  showEarlier.value = false;
+  openLog.value = null;
+  copiedLogKey.value = "";
   error.value = "";
   ended.value = false;
   loading.value = true;
@@ -95,6 +171,7 @@ function startStream(): void {
     tail: 200,
     parse: parseLogs.value,
     levels: parseLogs.value ? selectedLogLevels.value : undefined,
+    ...(since.value ? { since: since.value } : {}),
   });
   stream = activeStream;
 
@@ -145,19 +222,31 @@ function startStream(): void {
 }
 
 function resetAndStart(): void {
-  parseLogs.value = false;
+  parseLogs.value = true;
   searchQuery.value = "";
-  copiedLogKey.value = "";
+  wrapLines.value = false;
+  range.value = 0;
+  since.value = "";
   selectedLogLevels.value = [...taskLogLevels];
   startStream();
 }
 
-function toggleLogParsing(): void {
-  parseLogs.value = !parseLogs.value;
-  if (parseLogs.value && selectedLogLevels.value.length === 0) {
-    selectedLogLevels.value = [...taskLogLevels];
-  }
+function selectLogView(parsed: boolean): void {
+  if (parseLogs.value === parsed) return;
+  parseLogs.value = parsed;
   startStream();
+}
+
+function changeTimeRange(): void {
+  since.value = range.value ? new Date(Date.now() - range.value * 60_000).toISOString() : "";
+  startStream();
+}
+
+function focusSearch(event: KeyboardEvent): void {
+  if (event.key !== "/" || event.ctrlKey || event.altKey || event.metaKey) return;
+  if (event.target instanceof HTMLElement && event.target.closest("input, select, textarea, [contenteditable]")) return;
+  event.preventDefault();
+  searchInput.value?.focus();
 }
 
 function areAllLogLevelsSelected(): boolean {
@@ -189,38 +278,60 @@ function toggleLogLevelFilter(filter: { id: string; levels: TaskLogLevel[] }): v
   startStream();
 }
 
+function logFields(entry: TaskLogEvent): Record<string, unknown> {
+  return {
+    time: entry.timestamp,
+    level: entry.level,
+    msg: entry.message,
+    ...entry.attributes,
+  };
+}
+
 function logSearchText(entry: TaskLogEvent): string {
-  let attributes = "";
-  try {
-    attributes = JSON.stringify(entry.attributes ?? {});
-  } catch {
-    attributes = String(entry.attributes ?? "");
-  }
-  return `${entry.message}\n${entry.raw_message ?? ""}\n${attributes}`.toLocaleLowerCase();
+  return `${entry.message}\n${entry.raw_message ?? ""}\n${JSON.stringify(logFields(entry))}`.toLowerCase();
 }
 
-function formatLogTimestamp(rawTimestamp: string): string {
-  const timestamp = String(rawTimestamp || "").trim();
-  if (!timestamp) return "no timestamp";
-  return timestamp.replace("T", " ").replace(/(\.\d{3})\d+/, "$1").replace(/Z$/, "");
+function formatLogTime(timestamp: string): string {
+  return timestamp.match(/T(\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?)/)?.[1] ?? (timestamp || "—");
 }
 
-function logAttributeEntries(attributes: Record<string, unknown> | undefined): Array<[string, unknown]> {
-  return Object.entries(attributes ?? {});
+function formatLogDay(timestamp: string): string {
+  const time = Date.parse(timestamp);
+  return Number.isFinite(time) ? logDateFormat.format(time) : "Unknown date";
 }
 
 function formatLogAttributeValue(value: unknown): string {
   if (typeof value === "string") return value;
-  if (value === undefined) return "undefined";
-  try {
-    return JSON.stringify(value);
-  } catch {
-    return String(value);
+  return JSON.stringify(value) ?? "—";
+}
+
+function logMethod(entry: TaskLogEvent): string {
+  const method = entry.attributes?.["grpc.method"];
+  return typeof method === "string" ? method.replace(/^\/?[^/]*\./, "") : "";
+}
+
+function logRequestId(entry: TaskLogEvent): string {
+  const id = entry.attributes?.["x-request-id"] ?? entry.attributes?.request_id;
+  return typeof id === "string" ? id : "";
+}
+
+function revealEarlier(): void {
+  showEarlier.value = true;
+  autoScroll.value = false;
+  if (viewer.value) {
+    viewer.value.scrollTop = 0;
+    viewer.value.focus({ preventScroll: true });
   }
 }
 
-async function copyRawLog(entry: TaskLogEvent, key: string): Promise<void> {
-  await copyText(entry.raw_message || entry.message);
+function toggleDetails(entry: LogEntry): void {
+  openLog.value = openLog.value === entry.id ? null : entry.id;
+  detailView.value = "fields";
+  if (openLog.value !== null) autoScroll.value = false;
+}
+
+async function copyLogValue(value: string, key: string): Promise<void> {
+  await copyText(value);
   copiedLogKey.value = key;
 }
 
@@ -249,96 +360,197 @@ onUnmounted(() => {
     card-class="task-logs-modal-card"
     header-class="task-logs-modal-header"
     @close="close"
+    @keydown="focusSearch"
   >
     <template #title>
       <div class="task-logs-title">
         <h2 id="task-logs-title">Task logs</h2>
-        <p>task: <code>{{ taskId || "n/a" }}</code></p>
+        <div class="task-logs-task">
+          <span>Task</span>
+          <code>{{ taskId || "n/a" }}</code>
+          <button
+            v-if="taskId"
+            type="button"
+            class="task-log-icon-button"
+            :aria-label="copiedLogKey === 'task' ? 'Task ID copied' : 'Copy task ID'"
+            :title="copiedLogKey === 'task' ? 'Copied' : 'Copy task ID'"
+            @click="copyLogValue(taskId, 'task')"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2" /><path d="M5 15V5a2 2 0 0 1 2-2h10" /></svg>
+          </button>
+        </div>
       </div>
     </template>
-    <div class="modal-body task-logs-modal-body">
-      <div class="task-logs-toolbar" aria-label="Log parsing and filters">
-        <button
-          class="task-logs-parse-toggle"
-          :class="{ 'task-logs-parse-toggle--active': parseLogs }"
-          type="button"
-          role="switch"
-          :aria-checked="parseLogs"
-          @click="toggleLogParsing"
+
+    <div class="task-logs-toolbar">
+      <div class="task-logs-controls">
+        <label class="task-logs-search">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
+          <span class="sr-only">Search logs</span>
+          <input
+            ref="searchInput"
+            v-model="searchQuery"
+            type="search"
+            placeholder="Search logs"
+          />
+        </label>
+        <label class="task-logs-range">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>
+          <span class="sr-only">Time range</span>
+          <select v-model.number="range" @change="changeTimeRange">
+            <option :value="0">All time</option>
+            <option :value="15">Last 15 min</option>
+            <option :value="60">Last hour</option>
+          </select>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
+        </label>
+        <AppButton
+          variant="secondary"
+          class="task-logs-live"
+          :aria-pressed="isLive"
+          :disabled="ended || !!error"
+          @click="toggleLive"
         >
-          <span class="task-logs-parse-switch" aria-hidden="true"><span /></span>
-          <span>Parse logs</span>
-        </button>
-        <div v-if="parseLogs" class="task-log-level-filters" aria-label="Log level filters">
+          <span class="task-log-dot" aria-hidden="true" />
+          Live
+        </AppButton>
+      </div>
+
+      <div class="task-logs-options">
+        <div v-if="parseLogs" class="task-log-level-filters" role="group" aria-label="Log level">
           <button
             v-for="filter in taskLogLevelFilters"
             :key="filter.id"
             class="task-log-level-filter"
-            :class="[`task-log-level-filter--${filter.id}`, { 'task-log-level-filter--selected': isLogLevelFilterSelected(filter) }]"
+            :class="`task-log-level-${filter.id}`"
             type="button"
             :aria-pressed="isLogLevelFilterSelected(filter)"
             @click="toggleLogLevelFilter(filter)"
           >
-            <svg v-if="filter.id === 'all'" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 3.5 5.5 6 8 3.5 10.5 6 13 3.5M3 12.5 5.5 10 8 12.5 10.5 10l2.5 2.5" /></svg>
-            <span v-else class="task-log-filter-dot" aria-hidden="true" />
-            <span class="task-log-filter-label">{{ filter.label }}</span>
+            <span v-if="filter.id !== 'all'" class="task-log-dot" aria-hidden="true" />
+            <span>{{ filter.label }}</span>
             <span class="task-log-filter-count">{{ logLevelFilterCount(filter) }}</span>
           </button>
         </div>
-        <label class="task-logs-search">
-          <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.5" /><path d="m12.5 12.5 4 4" /></svg>
-          <span class="sr-only">Search logs</span>
-          <input v-model="searchQuery" type="search" placeholder="Search in messages..." />
-        </label>
+        <div class="task-logs-view-options">
+          <div class="task-logs-segment" role="group" aria-label="Log view">
+            <button type="button" :aria-pressed="parseLogs" @click="selectLogView(true)">Parsed</button>
+            <button type="button" :aria-pressed="!parseLogs" @click="selectLogView(false)">Raw</button>
+          </div>
+          <label class="task-logs-wrap">
+            <input v-model="wrapLines" type="checkbox" />
+            Wrap lines
+          </label>
+        </div>
       </div>
-      <p v-if="loading && logs.length === 0" class="meta">Loading logs...</p>
-      <p v-if="error" class="meta task-logs-error">{{ error }}</p>
-      <div ref="viewer" class="task-logs-viewer" aria-live="polite" @scroll="handleScroll">
-        <p v-if="logs.length === 0 && !loading" class="meta">No log lines.</p>
-        <p v-else-if="filteredLogs.length === 0" class="meta">No logs match your search.</p>
-        <ol v-else class="task-logs-list">
-          <li
-            v-for="(entry, index) in filteredLogs"
-            :key="`${entry.timestamp}-${index}`"
-            class="task-log-entry"
-            :class="{ 'task-log-entry--raw': !parseLogs }"
-          >
-            <details v-if="parseLogs" class="task-log-details">
-              <summary class="task-log-line">
-                <time class="task-log-time" :datetime="entry.timestamp">{{ formatLogTimestamp(entry.timestamp) }}</time>
-                <span class="task-log-level" :class="`task-log-level-${String(entry.level || 'INFO').toLowerCase()}`">{{ entry.level || "INFO" }}</span>
-                <span class="task-log-message">{{ entry.message }}</span>
-                <svg class="task-log-chevron" viewBox="0 0 20 20" aria-hidden="true"><path d="m7 5 5 5-5 5" /></svg>
-              </summary>
-              <div class="task-log-detail-panel">
-                <section v-if="logAttributeEntries(entry.attributes).length > 0" class="task-log-detail-section">
-                  <h3>Attributes</h3>
-                  <dl class="task-log-attributes">
-                    <div v-for="[key, value] in logAttributeEntries(entry.attributes)" :key="key" class="task-log-attribute">
-                      <dt>{{ key }}</dt>
-                      <dd>{{ formatLogAttributeValue(value) }}</dd>
-                    </div>
-                  </dl>
-                </section>
-                <section class="task-log-detail-section">
-                  <div class="task-log-detail-heading">
-                    <h3>Raw</h3>
-                    <button type="button" class="task-log-copy" :aria-label="`Copy raw log ${index + 1}`" @click="copyRawLog(entry, `${entry.timestamp}-${index}`)">
-                      <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="5" y="5" width="8" height="8" rx="1" /><path d="M3 10H2.5A1.5 1.5 0 0 1 1 8.5v-6A1.5 1.5 0 0 1 2.5 1h6A1.5 1.5 0 0 1 10 2.5V3" /></svg>
-                      {{ copiedLogKey === `${entry.timestamp}-${index}` ? "Copied" : "Copy" }}
-                    </button>
-                  </div>
-                  <pre>{{ entry.raw_message || entry.message }}</pre>
-                </section>
+    </div>
+
+    <div v-if="timeline" class="task-logs-timeline" role="img" aria-label="Volume of received log lines over time (UTC)">
+      <div class="task-logs-bars" aria-hidden="true">
+        <span v-for="(height, index) in timeline.bars" :key="index" :style="{ height: `${height}%` }" />
+      </div>
+      <div class="task-logs-axis" aria-hidden="true">
+        <span v-for="(label, index) in timeline.labels" :key="index">{{ label }}</span>
+      </div>
+    </div>
+
+    <div class="task-logs-table" :class="{ 'task-logs-table--raw': !parseLogs, 'task-logs-table--wrap': wrapLines }">
+      <div class="task-log-columns task-log-line" aria-hidden="true">
+        <span title="Coordinated Universal Time">Time</span>
+        <span v-if="parseLogs">Level</span>
+        <span>Message</span>
+      </div>
+      <div ref="viewer" class="task-logs-viewer" role="region" aria-label="Log entries" tabindex="0" @scroll="handleScroll">
+        <p v-if="loading && logs.length === 0" class="task-logs-notice" role="status">Loading logs…</p>
+        <p v-if="error" class="task-logs-notice task-logs-error" role="alert">{{ error }}</p>
+        <p v-else-if="!loading && logs.length === 0" class="task-logs-notice">No log lines.</p>
+        <p v-else-if="logs.length && !visibleLogs.length" class="task-logs-notice">No logs match your search.</p>
+        <ol v-if="visibleLogs.length" class="task-logs-list">
+          <li v-for="(entry, index) in visibleLogs" :key="entry.id">
+            <div v-if="index === 0 || entry.timestamp.slice(0, 10) !== visibleLogs[index - 1]?.timestamp.slice(0, 10)" class="task-logs-day">
+              <span>{{ formatLogDay(entry.timestamp) }}</span>
+              <button v-if="index === 0 && earlierCount" type="button" @click="revealEarlier">
+                Show {{ earlierCount }} earlier lines
+              </button>
+            </div>
+            <button
+              v-if="parseLogs"
+              class="task-log-line task-log-summary"
+              type="button"
+              :aria-expanded="openLog === entry.id"
+              @click="toggleDetails(entry)"
+            >
+              <time class="task-log-time" :datetime="entry.timestamp" :title="entry.timestamp">{{ formatLogTime(entry.timestamp) }}</time>
+              <span class="task-log-level" :class="`task-log-level-${(entry.level || 'INFO').toLowerCase()}`">
+                <span class="task-log-dot" aria-hidden="true" />{{ entry.level || "INFO" }}
+              </span>
+              <span class="task-log-summary-content">
+                <span class="task-log-message" :title="entry.message">{{ entry.message }}</span>
+                <code v-if="logMethod(entry)" class="task-log-method" :title="String(entry.attributes?.['grpc.method'])">{{ logMethod(entry) }}</code>
+                <code v-if="logRequestId(entry)" class="task-log-request" :title="logRequestId(entry)">{{ logRequestId(entry).slice(0, 8) }}</code>
+              </span>
+              <svg class="task-log-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
+            </button>
+            <div v-else class="task-log-line task-log-raw">
+              <time class="task-log-time" :datetime="entry.timestamp" :title="entry.timestamp">{{ formatLogTime(entry.timestamp) }}</time>
+              <span class="task-log-message" :title="entry.message">{{ entry.message }}</span>
+            </div>
+
+            <div v-if="parseLogs && openLog === entry.id" class="task-log-detail-panel">
+              <div class="task-log-detail-controls">
+                <div class="task-logs-segment" role="group" aria-label="Log details view">
+                  <button type="button" :aria-pressed="detailView === 'fields'" @click="detailView = 'fields'">Fields</button>
+                  <button type="button" :aria-pressed="detailView === 'json'" @click="detailView = 'json'">JSON</button>
+                  <button
+                    v-if="entry.raw_message && entry.raw_message !== entry.message"
+                    type="button" :aria-pressed="detailView === 'raw'" @click="detailView = 'raw'"
+                  >Raw</button>
+                </div>
+                <AppButton
+                  variant="secondary" compact class="task-log-copy"
+                  @click="copyLogValue(detailView === 'raw' ? entry.raw_message || entry.message : detailJson, `${detailView}-${entry.id}`)"
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2" /><path d="M5 15V5a2 2 0 0 1 2-2h10" /></svg>
+                  {{ copiedLogKey === `${detailView}-${entry.id}` ? "Copied" : detailView === "raw" ? "Copy raw" : "Copy JSON" }}
+                </AppButton>
               </div>
-            </details>
-            <div v-else class="task-log-line task-log-line--raw">
-              <time class="task-log-time" :datetime="entry.timestamp">{{ formatLogTimestamp(entry.timestamp) }}</time>
-              <span class="task-log-message task-log-message--raw">{{ entry.message }}</span>
+
+              <dl v-if="detailView === 'fields'" class="task-log-attributes">
+                <div v-for="(value, key) in logFields(entry)" :key="key" class="task-log-attribute">
+                  <dt>{{ key }}</dt>
+                  <dd>{{ formatLogAttributeValue(value) }}</dd>
+                  <dd class="task-log-attribute-actions">
+                    <button
+                      type="button" class="task-log-icon-button"
+                      :aria-label="copiedLogKey === `field-${entry.id}-${key}` ? `${key} copied` : `Copy ${key}`"
+                      :title="copiedLogKey === `field-${entry.id}-${key}` ? 'Copied' : `Copy ${key}`"
+                      @click="copyLogValue(formatLogAttributeValue(value), `field-${entry.id}-${key}`)"
+                    >
+                      <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2" /><path d="M5 15V5a2 2 0 0 1 2-2h10" /></svg>
+                    </button>
+                  </dd>
+                </div>
+              </dl>
+              <pre v-else-if="detailView === 'json'" class="task-log-json"><code><span
+                v-for="(token, index) in jsonTokens" :key="index" :class="token.kind && `shj-syn-${token.kind}`"
+              >{{ token.text }}</span></code></pre>
+              <pre v-else class="task-log-json"><code>{{ entry.raw_message || entry.message }}</code></pre>
             </div>
           </li>
         </ol>
       </div>
     </div>
+
+    <footer class="task-logs-footer">
+      <span class="task-logs-status">
+        <span class="task-log-dot" :class="{ 'task-log-dot--live': isLive }" aria-hidden="true" />
+        {{ searchQuery.trim() ? `${filteredLogs.length} of ` : "" }}{{ logs.length }} lines · {{ status }}
+        <template v-if="lastLogTime"> · last line {{ formatLogTime(lastLogTime).slice(0, 8) }}</template>
+      </span>
+      <AppButton variant="secondary" compact class="task-logs-jump" :disabled="!logs.length" @click="jumpToLatest">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14m-6-6 6 6 6-6" /></svg>
+        Jump to latest
+      </AppButton>
+    </footer>
   </AppModal>
 </template>
