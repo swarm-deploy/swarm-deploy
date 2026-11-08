@@ -332,7 +332,7 @@ describe("ServiceView", () => {
       parse: false,
       levels: undefined,
     });
-    expect(wrapper.find(".task-log-level-filters").exists()).toBe(false);
+    expect(wrapper.find(".task-logs-level-select").exists()).toBe(false);
 
     rawStream.emit("log", {
       timestamp: "2026-10-19T18:00:00Z",
@@ -387,11 +387,11 @@ describe("ServiceView", () => {
     });
     await nextTick();
 
-    const filters = wrapper.findAll(".task-log-level-filter");
-    expect(filters).toHaveLength(6);
-    expect(filters.find((filter) => filter.text().startsWith("All"))?.text()).toBe("All3");
-    expect(filters.find((filter) => filter.text().startsWith("Info"))?.text()).toBe("Info2");
-    expect(filters.find((filter) => filter.text().startsWith("Error"))?.text()).toBe("Error1");
+    const levels = wrapper.get(".task-logs-level-select");
+    expect(levels.get("summary").text()).toContain("All levels (3)");
+    expect(levels.findAll(".app-multi-select-option").map((option) => option.text())).toEqual([
+      "Error (1)", "Warn (0)", "Info (2)", "Debug (0)", "Other (0)",
+    ]);
     expect(wrapper.get(".task-log-level").text()).toBe("ERROR");
     expect(wrapper.get(".task-log-message").text()).toBe("request failed");
     expect(wrapper.find(".task-log-stream").exists()).toBe(false);
@@ -415,15 +415,13 @@ describe("ServiceView", () => {
     expect(wrapper.findAll(".task-log-message").map((message) => message.text())).toEqual(["request failed"]);
     await search.setValue("");
 
-    const infoFilter = filters.find((filter) => filter.text().startsWith("Info"));
-    expect(infoFilter).toBeDefined();
-    await infoFilter!.trigger("click");
+    await levels.get<HTMLInputElement>('input[value="info"]').setValue(true);
     expect(parsedStream.closed).toBe(true);
     expect(apiMocks.openTaskLogsStream).toHaveBeenLastCalledWith("task-id", {
       follow: true,
       tail: 200,
       parse: true,
-      levels: ["TRACE", "DEBUG", "WARN", "ERROR", "FATAL"],
+      levels: ["INFO"],
     });
   });
 

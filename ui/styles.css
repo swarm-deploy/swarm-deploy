@@ -3473,8 +3473,7 @@ button.app-copy-button.service-image-copy-button {
 }
 
 .task-logs-controls,
-.task-logs-view-options,
-.task-log-level-filters {
+.task-logs-view-options {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -3482,8 +3481,8 @@ button.app-copy-button.service-image-copy-button {
   min-width: 0;
 }
 
-.task-log-level-filters {
-  gap: 6px;
+.task-logs-level-select {
+  width: min(240px, 100%);
 }
 
 .task-logs-view-options {
@@ -3565,38 +3564,6 @@ button.app-copy-button.service-image-copy-button {
 
 .task-logs-live:disabled {
   cursor: default;
-}
-
-.task-log-level-filter,
-.task-log-level {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.task-log-level-filter {
-  min-height: 36px;
-  padding: 0 12px;
-  border: 1px solid var(--border-default);
-  border-radius: 999px;
-  background: transparent;
-  color: var(--muted);
-  font-size: 13px;
-  font-weight: 500;
-}
-
-.task-log-level-filter:hover {
-  background: var(--surface-hover);
-}
-
-.task-log-level-filter[aria-pressed="true"] {
-  border-color: var(--accent);
-  background: var(--accent-muted);
-  color: var(--accent-strong);
-}
-
-.task-log-filter-count {
-  font: 12px var(--log-mono);
 }
 
 .task-log-dot {
@@ -3811,6 +3778,8 @@ button.app-copy-button.service-image-copy-button {
 }
 
 .task-log-level {
+  display: inline-flex;
+  align-items: center;
   gap: 6px;
   color: var(--log-level-color, var(--muted));
   font: 500 11px var(--log-mono);
@@ -3964,16 +3933,6 @@ button.app-copy-button.service-image-copy-button {
   .task-logs-toolbar {
     gap: 8px;
     padding-block: 12px 8px;
-  }
-
-  .task-log-level-filters {
-    gap: 4px;
-  }
-
-  .task-log-level-filter {
-    min-height: 32px;
-    gap: 6px;
-    padding-inline: 8px;
   }
 
   .task-logs-bars {

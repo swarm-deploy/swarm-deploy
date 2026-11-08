@@ -68,10 +68,7 @@ function handleDocumentClick(event: MouseEvent): void {
 }
 
 function handleKeydown(event: KeyboardEvent): void {
-  if (event.key !== "Escape" || !root.value?.open) return;
-  event.preventDefault();
-  close();
-  root.value.querySelector("summary")?.focus();
+  if (event.key === "Escape" && dismiss()) event.preventDefault();
 }
 
 function handleToggle(): void {
@@ -86,6 +83,15 @@ function close(): void {
   if (root.value) root.value.open = false;
   search.value = "";
 }
+
+function dismiss(): boolean {
+  if (!root.value?.open) return false;
+  close();
+  root.value.querySelector("summary")?.focus();
+  return true;
+}
+
+defineExpose({ dismiss });
 
 onMounted(() => document.addEventListener("click", handleDocumentClick));
 onBeforeUnmount(() => document.removeEventListener("click", handleDocumentClick));

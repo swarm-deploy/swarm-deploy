@@ -6,6 +6,7 @@ import { computed, nextTick, onUnmounted, ref, watch } from "vue";
 import AppButton from "../common/AppButton.vue";
 import AppCopyButton from "../common/AppCopyButton.vue";
 import AppModal from "../common/AppModal.vue";
+import AppMultiSelect from "../common/AppMultiSelect.vue";
 import { openTaskLogsStream } from "../../api/overview";
 import type { TaskLogCountsEvent, TaskLogEvent, TaskLogLevel } from "../../api/types";
 import { copyText } from "../../utils/clipboard";
@@ -27,6 +28,7 @@ const error = ref("");
 const ended = ref(false);
 const viewer = ref<HTMLElement | null>(null);
 const searchInput = ref<HTMLInputElement | null>(null);
+const levelSelect = ref<InstanceType<typeof AppMultiSelect> | null>(null);
 const autoScroll = ref(true);
 const parseLogs = ref(true);
 const wrapLines = ref(false);
@@ -40,15 +42,24 @@ const searchQuery = ref("");
 const copiedLogKey = ref("");
 const taskLogLevels: TaskLogLevel[] = ["TRACE", "DEBUG", "INFO", "WARN", "ERROR", "FATAL"];
 const taskLogLevelFilters: Array<{ id: string; label: string; levels: TaskLogLevel[] }> = [
-  { id: "all", label: "All", levels: [...taskLogLevels] },
   { id: "error", label: "Error", levels: ["ERROR", "FATAL"] },
   { id: "warn", label: "Warn", levels: ["WARN"] },
   { id: "info", label: "Info", levels: ["INFO"] },
   { id: "debug", label: "Debug", levels: ["DEBUG"] },
   { id: "other", label: "Other", levels: ["TRACE"] },
 ];
-const selectedLogLevels = ref<TaskLogLevel[]>([...taskLogLevels]);
+const selectedLogFilters = ref<string[]>([]);
 const logLevelCounts = ref<Record<TaskLogLevel, number>>(emptyLogLevelCounts());
+const selectedLogLevels = computed(() => {
+  if (!selectedLogFilters.value.length) return taskLogLevels;
+  return taskLogLevels.filter((level) => taskLogLevelFilters.some((filter) =>
+    selectedLogFilters.value.includes(filter.id) && filter.levels.includes(level),
+  ));
+});
+const logLevelOptions = computed(() => taskLogLevelFilters.map((filter) => ({
+  value: filter.id,
+  label: `${filter.label} (${logLevelCount(filter.levels)})`,
+})));
 
 const previewLineCount = 10;
 const chartBucketCount = 48;
@@ -216,7 +227,7 @@ function resetAndStart(): void {
   wrapLines.value = false;
   range.value = 0;
   since.value = "";
-  selectedLogLevels.value = [...taskLogLevels];
+  selectedLogFilters.value = [];
   startStream();
 }
 
@@ -238,32 +249,16 @@ function focusSearch(event: KeyboardEvent): void {
   searchInput.value?.focus();
 }
 
-function areAllLogLevelsSelected(): boolean {
-  return taskLogLevels.every((level) => selectedLogLevels.value.includes(level));
+function dismissLogLevelSelect(event: KeyboardEvent): void {
+  if (levelSelect.value?.dismiss()) event.preventDefault();
 }
 
-function isLogLevelFilterSelected(filter: { id: string; levels: TaskLogLevel[] }): boolean {
-  if (filter.id === "all") return areAllLogLevelsSelected();
-  return !areAllLogLevelsSelected() && filter.levels.every((level) => selectedLogLevels.value.includes(level));
+function logLevelCount(levels: TaskLogLevel[]): number {
+  return levels.reduce((count, level) => count + logLevelCounts.value[level], 0);
 }
 
-function logLevelFilterCount(filter: { levels: TaskLogLevel[] }): number {
-  return filter.levels.reduce((count, level) => count + logLevelCounts.value[level], 0);
-}
-
-function toggleLogLevelFilter(filter: { id: string; levels: TaskLogLevel[] }): void {
-  if (filter.id === "all") {
-    selectedLogLevels.value = [...taskLogLevels];
-    startStream();
-    return;
-  }
-
-  const selected = filter.levels.every((level) => selectedLogLevels.value.includes(level));
-  const nextLevels = selected
-    ? selectedLogLevels.value.filter((level) => !filter.levels.includes(level))
-    : taskLogLevels.filter((level) => filter.levels.includes(level) || selectedLogLevels.value.includes(level));
-  if (nextLevels.length === 0) return;
-  selectedLogLevels.value = nextLevels;
+function setLogLevelFilters(filters: string[]): void {
+  selectedLogFilters.value = filters;
   startStream();
 }
 
@@ -350,6 +345,7 @@ onUnmounted(() => {
     header-class="task-logs-modal-header"
     @close="close"
     @keydown="focusSearch"
+    @escape="dismissLogLevelSelect"
   >
     <template #title>
       <div class="task-logs-title">
@@ -414,21 +410,17 @@ onUnmounted(() => {
         </div>
       </div>
 
-      <div v-if="parseLogs" class="task-log-level-filters" role="group" aria-label="Log level">
-        <button
-          v-for="filter in taskLogLevelFilters"
-          :key="filter.id"
-          class="task-log-level-filter"
-          :class="`task-log-level-${filter.id}`"
-          type="button"
-          :aria-pressed="isLogLevelFilterSelected(filter)"
-          @click="toggleLogLevelFilter(filter)"
-        >
-          <span v-if="filter.id !== 'all'" class="task-log-dot" aria-hidden="true" />
-          <span>{{ filter.label }}</span>
-          <span class="task-log-filter-count">{{ logLevelFilterCount(filter) }}</span>
-        </button>
-      </div>
+      <AppMultiSelect
+        v-if="open && parseLogs"
+        ref="levelSelect"
+        class="task-logs-level-select"
+        :model-value="selectedLogFilters"
+        :options="logLevelOptions"
+        label="Filter by log level"
+        heading="Log levels"
+        :placeholder="`All levels (${logLevelCount(taskLogLevels)})`"
+        @update:model-value="setLogLevelFilters"
+      />
     </div>
 
     <div v-if="timeline" class="task-logs-timeline" role="img" aria-label="Volume of received log lines over time (UTC)">
