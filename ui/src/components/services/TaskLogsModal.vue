@@ -349,7 +349,7 @@ onUnmounted(() => {
   >
     <template #title>
       <div class="task-logs-title">
-        <h2 id="task-logs-title">Logs of {{ taskId || "n/a" }}</h2>
+        <h2 id="task-logs-title">{{ taskId || "n/a" }}</h2>
         <button
           type="button"
           class="live-indicator task-logs-live"
