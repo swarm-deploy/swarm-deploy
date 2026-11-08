@@ -3256,10 +3256,6 @@ button.app-copy-button.service-image-copy-button {
   border-radius: 8px;
 }
 
-button.app-copy-button.service-image-copy-button:hover:not(:disabled) {
-  background: transparent;
-}
-
 .service-realtime-actions {
   display: inline-flex;
   align-items: center;
