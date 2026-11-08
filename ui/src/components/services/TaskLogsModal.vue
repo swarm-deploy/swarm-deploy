@@ -365,7 +365,19 @@ onUnmounted(() => {
   >
     <template #title>
       <div class="task-logs-title">
-        <h2 id="task-logs-title">Task logs</h2>
+        <div class="task-logs-title-row">
+          <h2 id="task-logs-title">Task logs</h2>
+          <button
+            type="button"
+            class="live-indicator task-logs-live"
+            :class="{ 'live-indicator--paused': !isLive }"
+            :aria-pressed="isLive"
+            :disabled="ended || !!error"
+            @click="toggleLive"
+          >
+            <span aria-hidden="true" />Live
+          </button>
+        </div>
         <div class="task-logs-task">
           <span>Task</span>
           <code>{{ taskId || "n/a" }}</code>
@@ -401,34 +413,6 @@ onUnmounted(() => {
           </select>
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
         </label>
-        <AppButton
-          variant="secondary"
-          class="task-logs-live"
-          :aria-pressed="isLive"
-          :disabled="ended || !!error"
-          @click="toggleLive"
-        >
-          <span class="task-log-dot" aria-hidden="true" />
-          Live
-        </AppButton>
-      </div>
-
-      <div class="task-logs-options">
-        <div v-if="parseLogs" class="task-log-level-filters" role="group" aria-label="Log level">
-          <button
-            v-for="filter in taskLogLevelFilters"
-            :key="filter.id"
-            class="task-log-level-filter"
-            :class="`task-log-level-${filter.id}`"
-            type="button"
-            :aria-pressed="isLogLevelFilterSelected(filter)"
-            @click="toggleLogLevelFilter(filter)"
-          >
-            <span v-if="filter.id !== 'all'" class="task-log-dot" aria-hidden="true" />
-            <span>{{ filter.label }}</span>
-            <span class="task-log-filter-count">{{ logLevelFilterCount(filter) }}</span>
-          </button>
-        </div>
         <div class="task-logs-view-options">
           <div class="task-logs-segment" role="group" aria-label="Log view">
             <button type="button" :aria-pressed="parseLogs" @click="selectLogView(true)">Parsed</button>
@@ -439,6 +423,22 @@ onUnmounted(() => {
             Wrap lines
           </label>
         </div>
+      </div>
+
+      <div v-if="parseLogs" class="task-log-level-filters" role="group" aria-label="Log level">
+        <button
+          v-for="filter in taskLogLevelFilters"
+          :key="filter.id"
+          class="task-log-level-filter"
+          :class="`task-log-level-${filter.id}`"
+          type="button"
+          :aria-pressed="isLogLevelFilterSelected(filter)"
+          @click="toggleLogLevelFilter(filter)"
+        >
+          <span v-if="filter.id !== 'all'" class="task-log-dot" aria-hidden="true" />
+          <span>{{ filter.label }}</span>
+          <span class="task-log-filter-count">{{ logLevelFilterCount(filter) }}</span>
+        </button>
       </div>
     </div>
 

@@ -222,6 +222,26 @@ button:hover,
   justify-content: center;
 }
 
+.live-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--success);
+  font-size: .76rem;
+  font-weight: 600;
+}
+
+.live-indicator > span {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.live-indicator--paused {
+  color: var(--muted);
+}
+
 .app-card {
   min-width: 0;
   border: 1px solid transparent;
@@ -3412,7 +3432,13 @@ button.app-copy-button.service-image-copy-button {
   min-width: 0;
 }
 
-.task-logs-title h2 {
+.task-logs-title-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.task-logs-title-row h2 {
   font-size: 20px;
   line-height: 28px;
   font-weight: 600;
@@ -3447,7 +3473,6 @@ button.app-copy-button.service-image-copy-button {
 }
 
 .task-logs-controls,
-.task-logs-options,
 .task-logs-view-options,
 .task-log-level-filters {
   display: flex;
@@ -3457,13 +3482,7 @@ button.app-copy-button.service-image-copy-button {
   min-width: 0;
 }
 
-.task-logs-options {
-  justify-content: flex-end;
-  gap: 12px;
-}
-
 .task-log-level-filters {
-  margin-right: auto;
   gap: 6px;
 }
 
@@ -3538,22 +3557,14 @@ button.app-copy-button.service-image-copy-button {
   height: 14px;
 }
 
-.task-logs-modal-card .task-logs-live {
-  min-height: 40px;
-  padding: 0 14px;
-  font-size: 14px;
-  font-weight: 500;
+.task-logs-live {
+  border: 0;
+  background: transparent;
+  padding: 4px 0;
 }
 
-.task-logs-modal-card .task-logs-live[aria-pressed="true"] {
-  color: var(--success);
-  border-color: var(--success-border);
-  background: var(--success-muted);
-}
-
-.task-logs-live[aria-pressed="true"] .task-log-dot {
-  background: var(--success);
-  box-shadow: 0 0 0 3px var(--success-muted);
+.task-logs-live:disabled {
+  cursor: default;
 }
 
 .task-log-level-filter,
@@ -3972,10 +3983,6 @@ button.app-copy-button.service-image-copy-button {
   .task-logs-toolbar {
     gap: 8px;
     padding-block: 12px 8px;
-  }
-
-  .task-logs-options {
-    gap: 8px;
   }
 
   .task-log-level-filters {

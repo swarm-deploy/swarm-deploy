@@ -400,7 +400,7 @@ onUnmounted(() => {
       <div class="realtime-heading">
         <div class="realtime-title-row">
           <h2>Realtime</h2>
-          <span class="realtime-live-indicator" :class="{ 'realtime-live-indicator--paused': !automaticRefresh }">
+          <span class="live-indicator realtime-live-indicator" :class="{ 'live-indicator--paused': !automaticRefresh }">
             <span aria-hidden="true" />{{ automaticRefresh ? "Live" : "Paused" }}
           </span>
         </div>
@@ -668,9 +668,6 @@ onUnmounted(() => {
 .realtime-title-row { display: flex; align-items: center; gap: 10px; }
 .realtime-title-row h2 { margin: 0; font-size: 1.45rem; line-height: 1.2; }
 .realtime-heading p { margin: 0; color: var(--muted); font-size: .84rem; }
-.realtime-live-indicator { display: inline-flex; align-items: center; gap: 6px; color: var(--success); font-size: .76rem; font-weight: 600; }
-.realtime-live-indicator > span { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
-.realtime-live-indicator--paused { color: var(--muted); }
 .realtime-refresh-control { display: inline-flex; align-items: stretch; justify-self: end; }
 .realtime-refresh-control button, .realtime-refresh-dropdown > summary { font-size: .78rem; font-weight: 600; transform: none; filter: none; }
 .realtime-refresh-button { min-height: 36px; display: inline-flex; align-items: center; gap: 7px; border-radius: 7px 0 0 7px; padding: 7px 10px; white-space: nowrap; }
