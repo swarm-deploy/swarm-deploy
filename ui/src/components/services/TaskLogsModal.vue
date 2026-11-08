@@ -11,6 +11,7 @@ import AppTabs from "../common/AppTabs.vue";
 import SeverityIcon from "../common/SeverityIcon.vue";
 import { openTaskLogsStream } from "../../api/overview";
 import type { TaskLogCountsEvent, TaskLogEvent, TaskLogLevel } from "../../api/types";
+import { useConfigStore } from "../../stores/config";
 import { copyText } from "../../utils/clipboard";
 
 const props = defineProps<{
@@ -24,6 +25,7 @@ const emit = defineEmits<{
 
 type LogEntry = TaskLogEvent & { id: number };
 
+const configStore = useConfigStore();
 const logs = ref<LogEntry[]>([]);
 const loading = ref(false);
 const error = ref("");
@@ -112,6 +114,13 @@ const timeline = computed(() => {
 });
 
 const selectedLog = computed(() => openLog.value === null ? undefined : logs.value[openLog.value]);
+const detailFields = computed(() => selectedLog.value
+  ? Object.entries(logFields(selectedLog.value)).map(([key, value]) => ({
+      key,
+      text: formatLogAttributeValue(value),
+      href: logFieldHref(key, value),
+    }))
+  : []);
 const detailTabs = computed(() => {
   const tabs = [
     { value: "fields", label: "Fields", id: "task-log-fields-tab", panelId: "task-log-detail-content" },
@@ -304,6 +313,18 @@ function formatLogDay(timestamp: string): string {
 function formatLogAttributeValue(value: unknown): string {
   if (typeof value === "string") return value;
   return JSON.stringify(value) ?? "—";
+}
+
+function logFieldHref(key: string, value: unknown): string | undefined {
+  const templates = configStore.logLinkFields;
+  if (!Object.hasOwn(templates, key) || value == null || value === "") return;
+
+  try {
+    const url = new URL(templates[key].replaceAll("{value}", encodeURIComponent(formatLogAttributeValue(value))));
+    if (url.protocol === "http:" || url.protocol === "https:") return url.href;
+  } catch {
+    // Keep the value as text if the template cannot produce a URL.
+  }
 }
 
 function logMethod(entry: TaskLogEvent): string {
@@ -514,12 +535,15 @@ onUnmounted(() => {
                 :aria-labelledby="`task-log-${detailView}-tab`"
               >
                 <dl v-if="detailView === 'fields'" class="task-log-attributes">
-                  <div v-for="(value, key) in logFields(entry)" :key="key" class="task-log-attribute">
+                  <div v-for="{ key, text, href } in detailFields" :key="key" class="task-log-attribute">
                     <dt>{{ key }}</dt>
-                    <dd>{{ formatLogAttributeValue(value) }}</dd>
+                    <dd>
+                      <a v-if="href" class="task-log-attribute-link" :href="href" target="_blank" rel="noopener noreferrer">{{ text }}</a>
+                      <template v-else>{{ text }}</template>
+                    </dd>
                     <dd class="task-log-attribute-actions">
                       <AppCopyButton
-                        :value="formatLogAttributeValue(value)"
+                        :value="text"
                         color="var(--muted)"
                         :label="`Copy ${key}`"
                         :copied-label="`${key} copied`"

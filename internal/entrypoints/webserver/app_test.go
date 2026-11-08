@@ -23,15 +23,15 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
-func TestUIRoutes(t *testing.T) {
+func newTestApplication(t *testing.T, webConfig config.WebSpec) *Application {
+	t.Helper()
 	ctrl := gomock.NewController(t)
 	gitRepository := gitx.NewMockRepository(ctrl)
 	secretsStore := secretstore.NewSQLStore(testutil.OpenSQLite(t))
 	serviceManager := swarm.NewMockServiceManager(ctrl)
 
 	app, err := NewApplication(
-		":0",
-		"/",
+		webConfig,
 		nil,
 		&gitops.Module{GitRepository: gitRepository},
 		&swarm.Swarm{Services: serviceManager},
@@ -41,9 +41,45 @@ func TestUIRoutes(t *testing.T) {
 		nil,
 		nil,
 		logparser.NewService(serviceManager),
-		config.AuthenticationSpec{},
 	)
 	require.NoError(t, err, "new application")
+	return app
+}
+
+func TestGetUIConfig(t *testing.T) {
+	testCases := []struct {
+		name       string
+		linkFields map[string]string
+		wantJSON   string
+	}{
+		{
+			name:       "configured links",
+			linkFields: map[string]string{"trace-id": "http://tracer.example/{value}"},
+			wantJSON:   `{"web":{"ui":{"logViewer":{"linkFields":{"trace-id":"http://tracer.example/{value}"}}}}}`,
+		},
+		{
+			name:     "empty links",
+			wantJSON: `{"web":{"ui":{"logViewer":{"linkFields":{}}}}}`,
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			app := newTestApplication(t, config.WebSpec{
+				Address:  ":0",
+				BasePath: "/swarm-deploy",
+				UI:       config.WebUISpec{LogViewer: config.LogViewerSpec{LinkFields: tc.linkFields}},
+			})
+			rec := httptest.NewRecorder()
+			app.server.Handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/swarm-deploy/api/v1/config", nil))
+
+			require.Equal(t, http.StatusOK, rec.Code)
+			assert.JSONEq(t, tc.wantJSON, rec.Body.String())
+		})
+	}
+}
+
+func TestUIRoutes(t *testing.T) {
+	app := newTestApplication(t, config.WebSpec{Address: ":0", BasePath: "/"})
 
 	testCases := []struct {
 		name           string

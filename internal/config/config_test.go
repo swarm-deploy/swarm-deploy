@@ -454,6 +454,10 @@ gitops:
 web:
   address: ":18080"
   basePath: /infrastructure/swarm/
+  ui:
+    logViewer:
+      linkFields:
+        trace-id: "http://tracer.example/{value}"
 `)
 	if err := os.WriteFile(configPath, configPayload, 0o600); err != nil {
 		require.NoError(t, err, "write config file")
@@ -463,6 +467,7 @@ web:
 	require.NoError(t, err, "load config")
 	assert.Equal(t, ":18080", cfg.Spec.Web.Address, "expected web.address")
 	assert.Equal(t, "/infrastructure/swarm", cfg.Spec.Web.BasePath, "expected normalized web.basePath")
+	assert.Equal(t, map[string]string{"trace-id": "http://tracer.example/{value}"}, cfg.Spec.Web.UI.LogViewer.LinkFields)
 	assert.Equal(t, defaultWebhookAddress, cfg.Spec.GitOps.Sync.Webhook.Address, "expected gitops.sync.webhook.address")
 }
 

@@ -163,8 +163,7 @@ func routeFinderWithBasePath(basePath string, findRoute middlewares.RouteFinder)
 }
 
 func NewApplication(
-	address string,
-	basePath string,
+	webConfig config.WebSpec,
 	stackProvider config.StackProvider,
 	gitopsModule *gitops.Module,
 	swarmService *swarm.Swarm,
@@ -174,9 +173,9 @@ func NewApplication(
 	alerts alertstore.Store,
 	assistantService assistant.Assistant,
 	taskLogs *logparser.Service,
-	authCfg config.AuthenticationSpec,
 ) (*Application, error) {
 	h := handlers.New(
+		webConfig.UI,
 		stackProvider,
 		gitopsModule.Store,
 		gitopsModule.Controller,
@@ -200,15 +199,15 @@ func NewApplication(
 		return nil, fmt.Errorf("build ogen api server: %w", err)
 	}
 
-	handler := buildRouter(basePath, apiHandler, ui.FS)
-	auth, err := authenticator.Create(authCfg)
+	handler := buildRouter(webConfig.BasePath, apiHandler, ui.FS)
+	auth, err := authenticator.Create(webConfig.Security.Authentication)
 	if err != nil {
 		return nil, fmt.Errorf("build authenticator: %w", err)
 	}
 
 	handler = middlewares.NewLog(
-		middlewares.Authorize(handler, auth, eventModule.Dispatcher, basePath),
-		routeFinderWithBasePath(basePath, apiHandler.FindRoute),
+		middlewares.Authorize(handler, auth, eventModule.Dispatcher, webConfig.BasePath),
+		routeFinderWithBasePath(webConfig.BasePath, apiHandler.FindRoute),
 	)
 
 	if tracing.Enabled() {
@@ -219,7 +218,7 @@ func NewApplication(
 
 	return &Application{
 		server: &http.Server{
-			Addr:              address,
+			Addr:              webConfig.Address,
 			Handler:           handler,
 			ReadHeaderTimeout: readHeaderTimeout,
 		},

@@ -198,8 +198,7 @@ func main() {
 	}
 
 	webApplication, err := webserver.NewApplication(
-		cfg.Spec.Web.Address,
-		cfg.Spec.Web.BasePath,
+		cfg.Spec.Web,
 		cnt.ConfigStore,
 		cnt.GitOps,
 		cnt.Swarm,
@@ -209,7 +208,6 @@ func main() {
 		cnt.AlertManagement.Store,
 		cnt.Assistant.Service,
 		cnt.TaskLogs,
-		cfg.Spec.Web.Security.Authentication,
 	)
 	if err != nil {
 		slog.ErrorContext(ctx, "failed to init web server", slog.Any("err", err))

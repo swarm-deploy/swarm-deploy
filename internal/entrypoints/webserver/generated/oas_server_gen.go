@@ -41,6 +41,10 @@ type Handler interface {
 	//
 	// GET /api/assistant/suggestions
 	GetAssistantSuggestions(ctx context.Context) (*AssistantSuggestionsResponse, error)
+	// GetConfig implements getConfig operation.
+	//
+	// GET /api/v1/config
+	GetConfig(ctx context.Context) (*UIConfigResponse, error)
 	// GetCurrentUser implements getCurrentUser operation.
 	//
 	// GET /api/v1/users/me

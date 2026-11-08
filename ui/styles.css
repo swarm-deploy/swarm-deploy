@@ -3843,6 +3843,12 @@ button.app-copy-button.service-image-copy-button {
   display: flex;
 }
 
+.task-log-attribute-link {
+  color: inherit;
+  text-decoration: none;
+  border-bottom: 1px dashed currentColor;
+}
+
 .task-log-json {
   overflow: auto;
   padding: 12px 16px;

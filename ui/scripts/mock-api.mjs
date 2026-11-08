@@ -397,11 +397,19 @@ const taskLogMessages = [
 const taskLogEntries = Array.from({ length: 20 }, (_, index) => {
   const [level, message, fields] = taskLogMessages[index % taskLogMessages.length];
   const timestamp = new Date(Date.parse("2026-10-28T20:50:00Z") + index * 12_000).toISOString();
-  const attributes = { request_id: `mock-${String(index + 1).padStart(3, "0")}`, ...fields };
+  const attributes = {
+    request_id: `mock-${String(index + 1).padStart(3, "0")}`,
+    "trace-id": (index + 1).toString(16).padStart(32, "0"),
+    ...fields,
+  };
   const stream = level === "WARN" || level === "ERROR" ? "stderr" : "stdout";
   const raw_message = JSON.stringify({ time: timestamp, level, msg: message, ...attributes });
   return { timestamp, stream, level, message, attributes, raw_message };
 });
+
+app.get("/api/v1/config", (context) => context.json({
+  web: { ui: { logViewer: { linkFields: { "trace-id": "http://tracer.example/{value}" } } } },
+}));
 
 app.get("/api/tasks/:task/logs", (context) => streamSSE(context, async (stream) => {
   const parse = context.req.query("parse") === "true";

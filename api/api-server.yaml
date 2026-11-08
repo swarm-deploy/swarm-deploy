@@ -10,6 +10,8 @@ servers:
 paths:
   /api/assistant/suggestions:
     $ref: './assistant.yaml#/paths/~1api~1assistant~1suggestions'
+  /api/v1/config:
+    $ref: './config.yaml#/paths/~1api~1v1~1config'
   /api/v1/deployments:
     $ref: './deployments.yaml#/paths/~1api~1v1~1deployments'
   /api/v1/deployments/filters:

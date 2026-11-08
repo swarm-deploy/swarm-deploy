@@ -14,6 +14,7 @@ const (
 	GetAlertOperation                   OperationName = "GetAlert"
 	GetAssistantChatOperation           OperationName = "GetAssistantChat"
 	GetAssistantSuggestionsOperation    OperationName = "GetAssistantSuggestions"
+	GetConfigOperation                  OperationName = "GetConfig"
 	GetCurrentUserOperation             OperationName = "GetCurrentUser"
 	GetDeploymentOperation              OperationName = "GetDeployment"
 	GetDeploymentFiltersOperation       OperationName = "GetDeploymentFilters"
