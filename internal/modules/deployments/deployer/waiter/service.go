@@ -37,20 +37,17 @@ var serviceWaiterTracer = otel.Tracer(
 var ErrConvergenceFailed = errors.New("service convergence failed")
 
 type taskConvergenceError struct {
-	error
-	code    faults.Code
-	summary string
+	cause error
+	faults.Coded
 }
 
-func (e taskConvergenceError) FaultCode() faults.Code { return e.code }
-
-func (e taskConvergenceError) FaultSummary() string { return e.summary }
+func (e taskConvergenceError) Error() string { return e.cause.Error() }
 
 func (e taskConvergenceError) Unwrap() []error {
-	if e.code == faults.CodeImageNotFound {
-		return []error{e.error, swarm.ErrImageNotFound}
+	if e.FaultCode() == faults.CodeImageNotFound {
+		return []error{e.cause, swarm.ErrImageNotFound}
 	}
-	return []error{e.error}
+	return []error{e.cause}
 }
 
 // ServiceState describes the current convergence state of a service.
@@ -84,33 +81,24 @@ type ServiceProgress struct {
 	// Message contains a bounded convergence diagnostic.
 	Message string
 
-	taskFaultCode  faults.Code
-	taskDiagnostic string
-	taskSummary    string
+	taskFault faults.Coded
 }
 
 func (p *ServiceProgress) failTask(task swarm.ServiceTask) {
 	p.State = ServiceFailed
 	p.FailedTaskID = task.ID
-	if fault := task.Fault(); fault != nil {
-		p.taskFaultCode = fault.FaultCode()
-		p.taskDiagnostic = fault.Error()
-		p.taskSummary = fault.FaultSummary()
-	}
+	p.taskFault = task.Fault()
 }
 
 func (p ServiceProgress) withTaskFault(cause error) error {
-	if p.taskFaultCode == "" {
+	if p.taskFault == nil {
 		return cause
 	}
 	// Keep the unabridged Docker diagnostic even when progress messages are bounded.
-	if !strings.Contains(cause.Error(), p.taskDiagnostic) {
-		cause = fmt.Errorf("%w; task diagnostic: %s", cause, p.taskDiagnostic)
+	if !strings.Contains(cause.Error(), p.taskFault.Error()) {
+		cause = fmt.Errorf("%w; task diagnostic: %s", cause, p.taskFault.Error())
 	}
-	return taskConvergenceError{
-		error: cause,
-		code:  p.taskFaultCode, summary: p.taskSummary,
-	}
+	return taskConvergenceError{cause: cause, Coded: p.taskFault}
 }
 
 // ServiceProgressCallback receives meaningful service convergence transitions.
