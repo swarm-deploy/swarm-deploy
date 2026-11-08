@@ -5,7 +5,6 @@ import AppModal from "../components/common/AppModal.vue";
 import { fetchSwarmServices, fetchSwarmServiceTasks, fetchSwarmTask, scaleSwarmService } from "../api/services";
 import type { ServiceRealtimeTask, SwarmService, SwarmTaskDetails } from "../api/types";
 import AppButton from "../components/common/AppButton.vue";
-import AppMultiSelect from "../components/common/AppMultiSelect.vue";
 import AppSelect from "../components/common/AppSelect.vue";
 import AppStatusBadge from "../components/common/AppStatusBadge.vue";
 import AppTable from "../components/common/AppTable.vue";
@@ -55,6 +54,13 @@ const refreshing = ref(false);
 const refreshError = ref("");
 const selectedStacks = ref<string[]>([]);
 const stateFilter = ref<RuntimeState | "all">("all");
+const stateOptions: { value: RuntimeState | "all"; label: string }[] = [
+  { value: "all", label: "All states" },
+  { value: "running", label: "Running" },
+  { value: "degraded", label: "Degraded" },
+  { value: "scaled-down", label: "Scaled down" },
+  { value: "unknown", label: "Unknown" },
+];
 const searchQuery = ref("");
 const refreshInterval = ref<RefreshInterval>(readRefreshInterval());
 const refreshMenu = ref<HTMLDetailsElement | null>(null);
@@ -453,7 +459,8 @@ onUnmounted(() => {
         <input v-model="searchQuery" type="search" placeholder="Search services, stacks, or images" />
       </label>
       <div class="realtime-filter-field">
-        <AppMultiSelect
+        <AppSelect
+          multiple
           class="realtime-stack-filter"
           :model-value="selectedStacks"
           :options="stackOptions"
@@ -466,17 +473,17 @@ onUnmounted(() => {
           <template #icon>
             <SidebarIcon class="realtime-filter-icon" name="services" />
           </template>
-        </AppMultiSelect>
+        </AppSelect>
       </div>
-      <AppSelect v-model="stateFilter" class="realtime-filter-field" label="Filter services by state">
+      <AppSelect
+        v-model="stateFilter"
+        class="realtime-filter-field realtime-state-filter"
+        :options="stateOptions"
+        label="Filter services by state"
+      >
         <template #icon>
           <SidebarIcon class="realtime-filter-icon" name="realtime" />
         </template>
-        <option value="all">All states</option>
-        <option value="running">Running</option>
-        <option value="degraded">Degraded</option>
-        <option value="scaled-down">Scaled down</option>
-        <option value="unknown">Unknown</option>
       </AppSelect>
     </div>
 
@@ -691,6 +698,7 @@ onUnmounted(() => {
 .realtime-search input { box-sizing: border-box; width: 100%; height: 38px; border: 1px solid var(--border-default); border-radius: 7px; background: var(--surface-input); color: var(--text); font: inherit; font-size: .83rem; }
 .realtime-search input { padding: 7px 10px 7px 36px; }
 .realtime-filter-field { position: relative; min-width: 0; color: var(--muted); }
+.realtime-state-filter :deep(.app-select-menu) { left: auto; right: 0; }
 .realtime-search input:focus-visible, .realtime-page button:focus-visible { outline: 2px solid var(--accent-focus); outline-offset: 2px; }
 .realtime-workspace { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; align-items: start; }
 .realtime-workspace--details { grid-template-columns: minmax(0, 1fr) minmax(360px, 410px); }

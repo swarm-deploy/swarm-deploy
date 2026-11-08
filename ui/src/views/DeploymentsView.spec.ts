@@ -94,7 +94,7 @@ describe("Deployments page", () => {
     expect(wrapper.findAll(".deployments-filter-icon")).toHaveLength(2);
     expect(wrapper.getComponent(SidebarIcon).props("name")).toBe("services");
     expect(wrapper.getComponent(DeploymentIcon).props("name")).toBe("service");
-    const stackOptions = wrapper.findAll('.deployments-filter-field:nth-child(1) .app-multi-select-option');
+    const stackOptions = wrapper.findAll('.deployments-filter-field:nth-child(1) .app-select-option');
     await stackOptions.find((option) => option.text() === "infra")!.find("input").setValue(true);
     await flushPromises();
     expect(router.replace).toHaveBeenCalledWith({
@@ -111,7 +111,7 @@ describe("Deployments page", () => {
     vi.mocked(fetchDeployments).mockResolvedValue({ deployments: [] });
     const wrapper = mount(DeploymentsView);
     await flushPromises();
-    const serviceOptions = wrapper.findAll('.deployments-filter-field:nth-child(2) .app-multi-select-option');
+    const serviceOptions = wrapper.findAll('.deployments-filter-field:nth-child(2) .app-select-option');
     await serviceOptions.find((option) => option.text().includes("api"))!.find("input").setValue(true);
     await serviceOptions.find((option) => option.text().includes("proxy"))!.find("input").setValue(true);
     await flushPromises();

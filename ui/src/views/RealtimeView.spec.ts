@@ -170,18 +170,19 @@ describe("RealtimeView", () => {
     const wrapper = await mountView();
 
     const filters = wrapper.get(".realtime-filters");
+    const stateFilter = filters.get(".realtime-state-filter");
     expect(filters.findAll(".realtime-filter-icon")).toHaveLength(3);
     expect(filters.get(".realtime-stack-filter summary").text()).toContain("All stacks");
-    expect(filters.get("select").element.value).toBe("all");
+    expect(stateFilter.get("summary").text()).toContain("All states");
     expect(filters.find(".realtime-result-count").exists()).toBe(false);
-    expect(filters.get(".app-select-icon").attributes("aria-hidden")).toBe("true");
+    expect(stateFilter.get(".app-select-icon").attributes("aria-hidden")).toBe("true");
 
     await wrapper.get<HTMLInputElement>('.realtime-search input').setValue("worker");
     expect(wrapper.findAll(".realtime-service-row")).toHaveLength(1);
     expect(wrapper.text()).toContain("infra_worker");
 
     await wrapper.get<HTMLInputElement>('.realtime-search input').setValue("");
-    const stackOptions = wrapper.findAll<HTMLInputElement>('.realtime-stack-filter .app-multi-select-option input');
+    const stackOptions = wrapper.findAll<HTMLInputElement>('.realtime-stack-filter .app-select-option input');
     await stackOptions.find((option) => option.element.value === "")!.setValue(true);
     expect(wrapper.findAll(".realtime-service-row")).toHaveLength(1);
     expect(wrapper.text()).toContain("proxy");
@@ -191,8 +192,8 @@ describe("RealtimeView", () => {
     expect(wrapper.text()).toContain("proxy");
     expect(wrapper.text()).toContain("reports");
 
-    await wrapper.get(".realtime-stack-filter .app-multi-select-header button").trigger("click");
-    await wrapper.get("select").setValue("scaled-down");
+    await wrapper.get(".realtime-stack-filter .app-select-header button").trigger("click");
+    await stateFilter.findAll("button.app-select-option").find((option) => option.text() === "Scaled down")!.trigger("click");
     expect(wrapper.findAll(".realtime-service-row")).toHaveLength(1);
     expect(wrapper.text()).toContain("reports");
     expect(apiMocks.fetchSwarmServices).toHaveBeenCalledTimes(1);

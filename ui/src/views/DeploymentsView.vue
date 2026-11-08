@@ -4,7 +4,7 @@ import { useRoute, useRouter } from "vue-router";
 import { fetchDeploymentFilters, fetchDeployments } from "../api/overview";
 import type { DeploymentFilterOptions, DeploymentSummary } from "../api/types";
 import AppButton from "../components/common/AppButton.vue";
-import AppMultiSelect from "../components/common/AppMultiSelect.vue";
+import AppSelect from "../components/common/AppSelect.vue";
 import AppPagination from "../components/common/AppPagination.vue";
 import AppStatusBadge from "../components/common/AppStatusBadge.vue";
 import AppTable from "../components/common/AppTable.vue";
@@ -198,7 +198,8 @@ onMounted(() => {
     <p class="meta deployments-description">Desired-state deployments and their execution attempts. Service convergence is not verified.</p>
     <div class="deployments-filter-bar" aria-label="Deployment filters">
       <div class="deployments-filter-field">
-        <AppMultiSelect
+        <AppSelect
+          multiple
           :model-value="selectedStacks"
           :options="stackSelectOptions"
           label="Filter deployments by stack"
@@ -212,10 +213,11 @@ onMounted(() => {
           @update:model-value="selectStacks"
         >
           <template #icon><SidebarIcon class="deployments-filter-icon" name="services" /></template>
-        </AppMultiSelect>
+        </AppSelect>
       </div>
       <div class="deployments-filter-field">
-        <AppMultiSelect
+        <AppSelect
+          multiple
           :model-value="selectedServices"
           :options="serviceSelectOptions"
           label="Filter deployments by service"
@@ -229,7 +231,7 @@ onMounted(() => {
           @update:model-value="selectServices"
         >
           <template #icon><DeploymentIcon class="deployments-filter-icon" name="service" /></template>
-        </AppMultiSelect>
+        </AppSelect>
       </div>
     </div>
     <p v-if="loading" role="status">Loading deployments...</p>

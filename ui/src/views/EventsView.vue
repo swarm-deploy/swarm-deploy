@@ -5,7 +5,7 @@ import { useRoute, useRouter } from "vue-router";
 import { fetchEventFilters, fetchEvents } from "../api/overview";
 import type { EventCategory, EventFilterOptions, EventFilterService, EventHistoryItem, EventSeverity } from "../api/types";
 import AppFilterPanel from "../components/common/AppFilterPanel.vue";
-import AppMultiSelect from "../components/common/AppMultiSelect.vue";
+import AppSelect from "../components/common/AppSelect.vue";
 import AppSearchFilter from "../components/common/AppSearchFilter.vue";
 import AppTable from "../components/common/AppTable.vue";
 import AppTableEmpty from "../components/common/AppTableEmpty.vue";
@@ -411,7 +411,8 @@ onMounted(() => {
   <section class="services-page events-page">
     <AppFilterPanel panel-id="events-filter-panel" :active-count="activeFilterCount" :columns="5">
       <div class="events-filter-field">
-        <AppMultiSelect
+        <AppSelect
+          multiple
           class="events-type-filter"
           :model-value="selectedTypes"
           :options="typeFilterOptions"
@@ -427,7 +428,7 @@ onMounted(() => {
               <path d="M3.5 5h13l-5 5.7v4.1l-3 1.5v-5.6L3.5 5Z" />
             </svg>
           </template>
-        </AppMultiSelect>
+        </AppSelect>
       </div>
 
       <label class="events-filter-field events-filter-field--select">

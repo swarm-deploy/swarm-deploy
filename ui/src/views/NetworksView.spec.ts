@@ -34,9 +34,9 @@ describe("NetworksView", () => {
     expect(fetchNetworks).toHaveBeenCalledWith({ stacks: [] });
     expect(wrapper.findAll(".networks-filter-icon")).toHaveLength(2);
     expect(wrapper.get(".networks-stack-filter summary").text()).toContain("All stacks");
-    expect(wrapper.findAll(".app-multi-select-option").map((option) => option.text())).toEqual(["app", "infra"]);
+    expect(wrapper.findAll(".app-select-option").map((option) => option.text())).toEqual(["app", "infra"]);
 
-    const appOption = wrapper.findAll<HTMLInputElement>(".app-multi-select-option input")
+    const appOption = wrapper.findAll<HTMLInputElement>(".app-select-option input")
       .find((option) => option.element.value === "app");
     await appOption!.setValue(true);
     await flushPromises();

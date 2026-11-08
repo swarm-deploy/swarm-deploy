@@ -3,7 +3,7 @@ import { computed, onMounted, ref } from "vue";
 
 import { fetchNetworks } from "../api/cluster";
 import type { NetworkInfo } from "../api/types";
-import AppMultiSelect from "../components/common/AppMultiSelect.vue";
+import AppSelect from "../components/common/AppSelect.vue";
 import AppTable from "../components/common/AppTable.vue";
 import AppTableEmpty from "../components/common/AppTableEmpty.vue";
 import SidebarIcon from "../components/layout/SidebarIcon.vue";
@@ -143,7 +143,8 @@ onMounted(() => {
         />
       </label>
       <div class="networks-filter-field">
-        <AppMultiSelect
+        <AppSelect
+          multiple
           class="networks-stack-filter"
           :model-value="selectedStacks"
           :options="stackOptions"
@@ -160,7 +161,7 @@ onMounted(() => {
           <template #icon>
             <SidebarIcon class="networks-filter-icon" name="services" />
           </template>
-        </AppMultiSelect>
+        </AppSelect>
       </div>
     </div>
 
