@@ -63,6 +63,7 @@ func TestPrepareRecordsOriginalStepSpans(t *testing.T) {
 	}
 	assert.Contains(t, names, "prepare stack")
 	assert.Contains(t, names, "add managed label")
+	assert.Contains(t, names, "validate desired state")
 	assert.Equal(t, labelsdict.ServiceManagedLabelValue, prepared.Compose.Services[0].Deploy.Labels.Map[labelsdict.ServiceManagedLabelKey])
 }
 
@@ -74,7 +75,7 @@ func TestPrepareKeepsExistingManagedLabelWithoutRendering(t *testing.T) {
 		Desired: &compose.File{
 			Path: "/repo/app.yaml",
 			Compose: compose.Compose{Services: compose.Services{{
-				Name: "api",
+				Name: "api", Image: "nginx:1.27",
 				Deploy: compose.ServiceDeploy{Labels: *compose.NewLabels(map[string]string{
 					labelsdict.ServiceManagedLabelKey: labelsdict.ServiceManagedLabelValue,
 				})},

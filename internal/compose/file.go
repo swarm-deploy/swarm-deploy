@@ -242,7 +242,7 @@ func (*fileLoader) linkServices(compose *Compose, baseDir string) []ValidationIs
 			}
 			if err != nil {
 				issues = append(issues, ValidationIssue{
-					ResourceType: "service",
+					ResourceType: validationResourceService,
 					ResourceName: service.Name,
 					Field:        "deploy.labels." + label,
 					Code:         IssueCodeInvalidValue,
@@ -266,7 +266,7 @@ func (*fileLoader) linkServices(compose *Compose, baseDir string) []ValidationIs
 
 		initJobs, jobIssues := normalizeInitJobs(service.InitJobs, compose.Networks)
 		for _, issue := range jobIssues {
-			issue.ResourceType = "service"
+			issue.ResourceType = validationResourceService
 			issue.ResourceName = service.Name
 			issues = append(issues, issue)
 		}

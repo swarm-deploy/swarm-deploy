@@ -15,6 +15,9 @@ const CodeImagePullDenied Code = "image_pull_denied"
 // CodeMountFailed indicates that Docker could not create or mount a volume or bind mount.
 const CodeMountFailed Code = "mount_failed"
 
+// CodeInvalidDesiredState indicates that Compose validation failed.
+const CodeInvalidDesiredState Code = "invalid_desired_state"
+
 // Coded is an error with a stable diagnostic code
 // and a concise description of the cause.
 type Coded interface {

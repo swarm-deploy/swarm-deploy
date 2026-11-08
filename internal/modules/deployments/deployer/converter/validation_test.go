@@ -12,6 +12,27 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
+func TestValidateServiceImages(t *testing.T) {
+	for _, tc := range []struct {
+		name, image, code, message string
+	}{
+		{"missing", "", compose.IssueCodeRequired, "required"},
+		{"invalid", "private/UPPERCASE", compose.IssueCodeInvalidValue, "invalid reference"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			converter, _, _, _ := newTestConverter(t)
+			desired := compose.Compose{Services: compose.Services{{Name: "app", Image: tc.image}}}
+			err := converter.Validate("demo", desired)
+			var validation *compose.ValidateComposeError
+			require.ErrorAs(t, err, &validation)
+			assert.Equal(t, []compose.ValidationIssue{{
+				ResourceType: "service", ResourceName: "app", Field: "image", Code: tc.code, Message: tc.message,
+			}}, validation.Issues)
+			assert.EqualError(t, err, "services.app: image: "+tc.message)
+		})
+	}
+}
+
 func TestConvertInvalidAndUnsupportedOptions(t *testing.T) {
 	for _, tc := range []struct{ name, yaml, field string }{
 		{"top option", "include: other.yaml", "compose.include"},
