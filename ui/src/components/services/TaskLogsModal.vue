@@ -374,7 +374,7 @@ onUnmounted(() => {
             :value="taskId"
             label="Copy task ID"
             copied-label="Task ID copied"
-            color="light-dark(var(--control-primary), var(--text))"
+            color="var(--text)"
           />
         </div>
       </div>
