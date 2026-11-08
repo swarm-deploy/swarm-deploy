@@ -162,7 +162,7 @@ web:
   # ui:
   #   logViewer:
   #     linkFields:
-  #       trace_id: "http://tracer.example/{value}"
+  #       trace-id: "http://tracer.example/{value}"
 
 # Dedicated health/metrics server.
 healthServer:

@@ -33,4 +33,4 @@ components:
                       additionalProperties:
                         type: string
                       example:
-                        trace_id: 'http://tracer.example/{value}'
+                        trace-id: 'http://tracer.example/{value}'

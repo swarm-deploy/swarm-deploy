@@ -54,8 +54,8 @@ func TestGetUIConfig(t *testing.T) {
 	}{
 		{
 			name:       "configured links",
-			linkFields: map[string]string{"trace_id": "http://tracer.example/{value}"},
-			wantJSON:   `{"web":{"ui":{"logViewer":{"linkFields":{"trace_id":"http://tracer.example/{value}"}}}}}`,
+			linkFields: map[string]string{"trace-id": "http://tracer.example/{value}"},
+			wantJSON:   `{"web":{"ui":{"logViewer":{"linkFields":{"trace-id":"http://tracer.example/{value}"}}}}}`,
 		},
 		{
 			name:     "empty links",
