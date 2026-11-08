@@ -3568,8 +3568,7 @@ button.app-copy-button.service-image-copy-button {
 }
 
 .task-log-level-filter,
-.task-log-level,
-.task-logs-status {
+.task-log-level {
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -3613,7 +3612,6 @@ button.app-copy-button.service-image-copy-button {
 .task-log-level-warn { --log-level-color: var(--warning); }
 .task-log-level-info { --log-level-color: var(--info); }
 .task-log-level-debug { --log-level-color: light-dark(#7c3aed, #b693ff); }
-.task-log-dot--live { background: var(--success); }
 
 .task-logs-segment {
   display: inline-flex;
@@ -3867,8 +3865,7 @@ button.app-copy-button.service-image-copy-button {
   background: var(--info-muted);
 }
 
-.task-log-detail-controls,
-.task-logs-footer {
+.task-log-detail-controls {
   display: flex;
   flex-wrap: wrap;
   justify-content: space-between;
@@ -3880,16 +3877,14 @@ button.app-copy-button.service-image-copy-button {
   background: var(--surface-muted-strong);
 }
 
-.task-logs-modal-card .task-log-copy,
-.task-logs-modal-card .task-logs-jump {
+.task-logs-modal-card .task-log-copy {
   min-height: 32px;
   padding: 0 10px;
   font-size: 13px;
   font-weight: 500;
 }
 
-.task-log-copy svg,
-.task-logs-jump svg {
+.task-log-copy svg {
   width: 14px;
   height: 14px;
 }
@@ -3943,20 +3938,6 @@ button.app-copy-button.service-image-copy-button {
 .task-log-json .shj-syn-bool,
 .task-log-json .shj-syn-type { color: var(--syntax-number); }
 .task-log-json .shj-syn-var { color: var(--syntax-variable); }
-
-.task-logs-footer {
-  flex: none;
-  padding: 12px var(--log-gutter);
-  border-top: 1px solid var(--border-default);
-  background: var(--surface-card-muted);
-  color: var(--muted);
-  font-size: 13px;
-}
-
-.task-logs-modal-card .task-logs-jump {
-  min-height: 36px;
-  padding: 0 12px;
-}
 
 @media (max-width: 650px) {
   .modal-card.task-logs-modal-card {

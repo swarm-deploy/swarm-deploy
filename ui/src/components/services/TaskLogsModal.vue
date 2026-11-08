@@ -69,13 +69,6 @@ const filteredLogs = computed(() => {
 
 const earlierCount = computed(() => showEarlier.value || searchQuery.value.trim() ? 0 : firstVisibleLog.value);
 const visibleLogs = computed(() => filteredLogs.value.slice(earlierCount.value));
-const lastLogTime = computed(() => logs.value.at(-1)?.timestamp ?? "");
-const status = computed(() => {
-  if (error.value) return "stream interrupted";
-  if (loading.value) return "connecting";
-  if (ended.value) return "stream ended";
-  return autoScroll.value ? "following new output" : "following paused";
-});
 const isLive = computed(() => autoScroll.value && !ended.value && !error.value);
 
 const timeline = computed(() => {
@@ -131,14 +124,9 @@ function handleScroll(): void {
   if (autoScroll.value && !isViewerAtBottom()) autoScroll.value = false;
 }
 
-function jumpToLatest(): void {
-  autoScroll.value = true;
-  void nextTick(scrollToBottom);
-}
-
 function toggleLive(): void {
-  if (autoScroll.value) autoScroll.value = false;
-  else jumpToLatest();
+  autoScroll.value = !autoScroll.value;
+  if (autoScroll.value) void nextTick(scrollToBottom);
 }
 
 function appendLog(entry: TaskLogEvent): void {
@@ -535,17 +523,5 @@ onUnmounted(() => {
         </ol>
       </div>
     </div>
-
-    <footer class="task-logs-footer">
-      <span class="task-logs-status">
-        <span class="task-log-dot" :class="{ 'task-log-dot--live': isLive }" aria-hidden="true" />
-        {{ searchQuery.trim() ? `${filteredLogs.length} of ` : "" }}{{ logs.length }} lines · {{ status }}
-        <template v-if="lastLogTime"> · last line {{ formatLogTime(lastLogTime).slice(0, 8) }}</template>
-      </span>
-      <AppButton variant="secondary" compact class="task-logs-jump" :disabled="!logs.length" @click="jumpToLatest">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14m-6-6 6 6 6-6" /></svg>
-        Jump to latest
-      </AppButton>
-    </footer>
   </AppModal>
 </template>
