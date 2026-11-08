@@ -3750,12 +3750,10 @@ button.app-copy-button.service-image-copy-button {
 }
 
 .task-log-method,
-.task-log-request,
 .task-log-raw .task-log-message {
   font: 12px var(--log-mono);
 }
 
-.task-log-request,
 .task-log-chevron {
   color: var(--muted);
 }
@@ -3938,8 +3936,7 @@ button.app-copy-button.service-image-copy-button {
     font-size: 11px;
   }
 
-  .task-log-method,
-  .task-log-request {
+  .task-log-method {
     display: none;
   }
 

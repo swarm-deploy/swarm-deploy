@@ -306,11 +306,6 @@ function logMethod(entry: TaskLogEvent): string {
   return typeof method === "string" ? method.replace(/^\/?[^/]*\./, "") : "";
 }
 
-function logRequestId(entry: TaskLogEvent): string {
-  const id = entry.attributes?.["x-request-id"] ?? entry.attributes?.request_id;
-  return typeof id === "string" ? id : "";
-}
-
 function revealEarlier(): void {
   showEarlier.value = true;
   autoScroll.value = false;
@@ -481,7 +476,6 @@ onUnmounted(() => {
               <span class="task-log-summary-content">
                 <span class="task-log-message" :title="entry.message">{{ entry.message }}</span>
                 <code v-if="logMethod(entry)" class="task-log-method" :title="String(entry.attributes?.['grpc.method'])">{{ logMethod(entry) }}</code>
-                <code v-if="logRequestId(entry)" class="task-log-request" :title="logRequestId(entry)">{{ logRequestId(entry).slice(0, 8) }}</code>
               </span>
               <svg class="task-log-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
             </button>

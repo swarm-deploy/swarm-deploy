@@ -415,6 +415,7 @@ describe("ServiceView", () => {
     expect(wrapper.get(".task-log-message").text()).toBe("request failed");
     expect(wrapper.find(".task-log-stream").exists()).toBe(false);
     const firstLog = wrapper.get(".task-log-summary");
+    expect(firstLog.text()).not.toContain("req-1");
     await firstLog.trigger("click");
     expect(firstLog.attributes("aria-expanded")).toBe("true");
     const details = wrapper.get(".task-log-detail-panel");
