@@ -3984,13 +3984,35 @@ button.app-copy-button.service-image-copy-button {
     padding-bottom: 10px;
   }
 
+  .task-logs-controls {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .task-logs-view-options {
+    grid-column: 1 / -1;
+  }
+
   .task-logs-search {
-    flex-basis: 100%;
+    gap: 6px;
+    padding-inline: 8px;
   }
 
   .task-logs-search input,
   .task-logs-range select {
     font-size: 16px;
+  }
+
+  .task-logs-range select {
+    padding-inline: 29px 24px;
+  }
+
+  .task-logs-range svg {
+    left: 8px;
+  }
+
+  .task-logs-range svg:last-child {
+    right: 6px;
   }
 
   .task-log-line {
