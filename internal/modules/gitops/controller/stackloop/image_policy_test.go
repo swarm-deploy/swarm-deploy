@@ -268,7 +268,8 @@ func TestComposeLoadValidationLifecycle(t *testing.T) {
 	repoDir := t.TempDir()
 	mockRepositoryFiles(repository, repoDir)
 	path := filepath.Join(repoDir, "app.yaml")
-	require.NoError(t, os.WriteFile(path, []byte("services: {swarm-deploy: {image: 'private/DO-NOT-LEAK'}}"), 0o600))
+	require.NoError(t, os.WriteFile(path, []byte("services: {swarm-deploy: {image: ghcr.io/company/MyApp:v1.2}}"), 0o600))
+	const invalidImage = `image: invalid reference "ghcr.io/company/MyApp:v1.2"`
 	reconciler := newTestReconciler(cfg, repository, deployments.NewService(db, bus), stackDeployer, &swarm.Swarm{
 		Services: serviceManager, Configs: swarm.NewMockConfigManager(ctrl), Secrets: swarm.NewMockSecretManager(ctrl),
 	}, bus, &metrics.NopDeploys{}, state, db)
@@ -279,7 +280,7 @@ func TestComposeLoadValidationLifecycle(t *testing.T) {
 	require.ErrorAs(t, err, &validation)
 	assert.ErrorContains(t, err, "load compose")
 	assert.Equal(t, req.Stack.ComposeFile, validation.FilePath)
-	assert.NotContains(t, err.Error(), "DO-NOT-LEAK")
+	assert.ErrorContains(t, err, invalidImage)
 	attempts, err := deploymentstore.NewStore(db).List(ctx, deploymentmodel.ListFilter{})
 	require.NoError(t, err)
 	assert.Empty(t, attempts.Deployments)
@@ -291,10 +292,10 @@ func TestComposeLoadValidationLifecycle(t *testing.T) {
 	assert.Equal(t, alertmodel.AlertKindSyncFailed, alert.Kind)
 	assert.Equal(t, "validation", alert.FailureStage)
 	assert.Contains(t, alert.Message, `validate compose file "app.yaml"`)
-	assert.NotContains(t, alert.Message, "DO-NOT-LEAK")
+	assert.Contains(t, alert.Message, invalidImage)
 	require.Len(t, alert.Findings, 1)
 	assert.Equal(t, faults.CodeInvalidDesiredState, alert.Findings[0].Code)
-	assert.Equal(t, "services.swarm-deploy: image: invalid reference", alert.Findings[0].Summary)
+	assert.Equal(t, "services.swarm-deploy: "+invalidImage, alert.Findings[0].Summary)
 
 	require.NoError(t, os.WriteFile(path, []byte(`services:
   swarm-deploy:

@@ -17,7 +17,7 @@ func TestValidateServiceImages(t *testing.T) {
 		name, image, code, message string
 	}{
 		{"missing", "", compose.IssueCodeRequired, "required"},
-		{"invalid", "private/UPPERCASE", compose.IssueCodeInvalidValue, "invalid reference"},
+		{"invalid", "private/UPPERCASE", compose.IssueCodeInvalidValue, `invalid reference "private/UPPERCASE"`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			converter, _, _, _ := newTestConverter(t)
@@ -51,7 +51,7 @@ func TestConvertInvalidAndUnsupportedOptions(t *testing.T) {
 		{"config option", "configs: {cfg: {unknown: sensitive}}", "configs.cfg.unknown"},
 		{"secret option", "secrets: {key: {unknown: sensitive}}", "secrets.key.unknown"},
 		{"image missing", "services: {app: {}}", "image"},
-		{"image invalid", "services: {app: {image: 'http://sensitive'}}", "image"},
+		{"image invalid", "services: {app: {image: 'http://registry.example/app'}}", "image"},
 		{"unprepared env file", "services: {app: {image: alpine, env_file: env}}", "env_file"},
 		{"mode", "services: {app: {image: alpine, deploy: {mode: unknown}}}", "deploy.mode"},
 		{"global external replica ownership", `services: {app: {image: alpine, deploy: {mode: global, labels: {org.swarm-deploy.service.sync.policy.replicasManaged: "false"}}}}`, "only for replicated services"},

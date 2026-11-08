@@ -352,13 +352,15 @@ func TestFileLoaderValidatesServiceImages(t *testing.T) {
 	t.Setenv("SD_TEST_IMAGE_TAG", "private-tag")
 	const path = "/stack/compose.yaml"
 	for _, tc := range []struct {
-		name, source, image, code, message, private string
+		name, source, image, code, message string
 	}{
 		{name: "missing", source: "services: {app: {env_file: missing.env}}", code: IssueCodeRequired, message: "required"},
-		{name: "invalid", source: "services: {app: {image: private/UPPERCASE}}",
-			code: IssueCodeInvalidValue, message: "invalid reference", private: "private/UPPERCASE"},
+		{name: "invalid", source: "services: {app: {image: ghcr.io/company/MyApp:v1.2}}",
+			code: IssueCodeInvalidValue, message: `invalid reference "ghcr.io/company/MyApp:v1.2"`},
+		{name: "special characters", source: `services: {app: {image: "bad\nimage\"\\path"}}`,
+			code: IssueCodeInvalidValue, message: `invalid reference "bad\nimage\"\\path"`},
 		{name: "literal interpolation expression", source: "services: {app: {image: 'nginx:${SD_TEST_IMAGE_TAG}'}}",
-			code: IssueCodeInvalidValue, message: "invalid reference", private: "SD_TEST_IMAGE_TAG"},
+			code: IssueCodeInvalidValue, message: `invalid reference "nginx:${SD_TEST_IMAGE_TAG}"`},
 		{name: "valid image from YAML merge", source: "x-image: &image {image: nginx:alpine}\nservices: {app: {<<: *image}}",
 			image: "nginx:alpine"},
 	} {
@@ -378,10 +380,8 @@ func TestFileLoaderValidatesServiceImages(t *testing.T) {
 			assert.Equal(t, []ValidationIssue{{
 				ResourceType: "service", ResourceName: "app", Field: "image", Code: tc.code, Message: tc.message,
 			}}, validation.Issues)
-			if tc.private != "" {
-				assert.NotContains(t, err.Error(), tc.private)
-				assert.NotContains(t, validation.FaultSummary(), tc.private)
-			}
+			assert.ErrorContains(t, err, tc.message)
+			assert.Equal(t, "services.app: image: "+tc.message, validation.FaultSummary())
 		})
 	}
 }

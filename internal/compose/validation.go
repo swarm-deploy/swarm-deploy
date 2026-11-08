@@ -1,6 +1,10 @@
 package compose
 
-import "github.com/distribution/reference"
+import (
+	"fmt"
+
+	"github.com/distribution/reference"
+)
 
 // ValidateEffective checks image references in the effective Compose definition.
 // The path is optional when the definition is supplied without a source file.
@@ -12,9 +16,8 @@ func ValidateEffective(desired Compose, path string) error {
 			issue.Code = IssueCodeRequired
 			issue.Message = "required"
 		} else if _, err := reference.ParseNormalizedNamed(service.Image); err != nil {
-			// The parser can include the input in its error.
 			issue.Code = IssueCodeInvalidValue
-			issue.Message = "invalid reference"
+			issue.Message = fmt.Sprintf("invalid reference %q", service.Image)
 		} else {
 			continue
 		}

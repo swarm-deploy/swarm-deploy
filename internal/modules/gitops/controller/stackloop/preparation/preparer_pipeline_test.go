@@ -114,5 +114,5 @@ func TestPrepareValidatesEffectiveCompose(t *testing.T) {
 	assert.Equal(t, "validate desired state", stepErr.StepName)
 	var validation *compose.ValidateComposeError
 	require.ErrorAs(t, err, &validation)
-	assert.Equal(t, "services.api: image: invalid reference", validation.FaultSummary())
+	assert.Equal(t, `services.api: image: invalid reference "private/INVALID"`, validation.FaultSummary())
 }
