@@ -3759,8 +3759,7 @@ button.app-copy-button.service-image-copy-button {
   font-weight: 500;
 }
 
-.task-logs-day button:hover,
-.task-log-icon-button:hover {
+.task-logs-day button:hover {
   background: var(--surface-hover-strong);
   color: var(--text);
 }
@@ -3920,18 +3919,6 @@ button.app-copy-button.service-image-copy-button {
 
 .task-log-attribute-actions {
   display: flex;
-}
-
-.task-log-icon-button {
-  display: inline-grid;
-  place-items: center;
-  width: 28px;
-  height: 28px;
-  padding: 0;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--muted);
 }
 
 .task-log-json {

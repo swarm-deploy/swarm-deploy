@@ -1,12 +1,52 @@
 <script setup lang="ts">
-defineProps<{
+import { onBeforeUnmount, ref, watch } from "vue";
+
+import { copyText } from "../../utils/clipboard";
+
+const props = defineProps<{
+  value: string | null;
+  label: string;
+  title?: string;
+  copiedLabel?: string;
   color?: string;
-  copied?: boolean;
 }>();
+
+const copied = ref(false);
+let resetTimer: ReturnType<typeof setTimeout> | undefined;
+let attempt = 0;
+
+function resetCopied(): void {
+  attempt++;
+  clearTimeout(resetTimer);
+  copied.value = false;
+}
+
+async function copyValue(): Promise<void> {
+  const value = props.value;
+  if (value === null) return;
+  const currentAttempt = ++attempt;
+  await copyText(value);
+  if (currentAttempt !== attempt) return;
+
+  clearTimeout(resetTimer);
+  copied.value = true;
+  resetTimer = setTimeout(() => { copied.value = false; }, 1600);
+}
+
+watch(() => props.value, resetCopied);
+onBeforeUnmount(resetCopied);
 </script>
 
 <template>
-  <button type="button" class="app-copy-button" :style="{ color }">
+  <button
+    type="button"
+    class="app-copy-button"
+    :style="{ color }"
+    :disabled="value === null"
+    :aria-label="copied ? (copiedLabel ?? 'Copied') : label"
+    :title="copied ? 'Copied' : (title ?? label)"
+    @click="copyValue"
+  >
     <svg v-if="copied" class="app-copy-button-check" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
       <path d="m5 12.5 4.2 4.2L19 7" />
     </svg>
@@ -58,6 +98,7 @@ defineProps<{
   width: 14px;
   height: 14px;
 }
+
 .app-copy-button-check {
   fill: none;
   stroke: var(--success);

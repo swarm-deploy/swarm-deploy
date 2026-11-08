@@ -22,7 +22,6 @@ import RecentDeploymentsPanel from "../components/overview/RecentDeploymentsPane
 import TaskDetailsPanel from "../components/services/TaskDetailsPanel.vue";
 import TaskLogsModal from "../components/services/TaskLogsModal.vue";
 import { useSecretDetailsStore } from "../stores/secretDetails";
-import { copyText } from "../utils/clipboard";
 import { formatBytes, formatDate, formatNanoCPU } from "../utils/format";
 
 const route = useRoute();
@@ -187,15 +186,6 @@ function realtimeTableStateVariant(state: string): "success" | "error" | "neutra
     return "error";
   }
   return "neutral";
-}
-
-async function copyTaskID(taskID: string): Promise<void> {
-  const id = String(taskID || "").trim();
-  if (!id) {
-    return;
-  }
-
-  await copyText(id);
 }
 
 function openSecretDetails(secretName: string): void {
@@ -438,10 +428,10 @@ onUnmounted(() => {
                   <AppCopyButton
                     v-if="serviceImage"
                     class="service-image-copy-button"
+                    :value="serviceImage"
                     color="var(--text)"
-                    aria-label="Copy image reference"
-                    title="Copy image reference"
-                    @click="copyText(serviceImage)"
+                    label="Copy image reference"
+                    copied-label="Image reference copied"
                   />
                 </td>
               </tr>
@@ -563,10 +553,10 @@ onUnmounted(() => {
               <tr v-for="task in realtime" :key="task.id">
                 <td class="app-table-cell--center app-table-cell--narrow service-realtime-copy-cell">
                   <AppCopyButton
-                    :disabled="!task.id"
-                    :aria-label="`Copy task ID ${task.id}`"
+                    :value="task.id?.trim() || null"
+                    :label="`Copy task ID ${task.id}`"
                     title="Copy task ID"
-                    @click="copyTaskID(task.id)"
+                    copied-label="Task ID copied"
                   />
                 </td>
                 <td><code>{{ task.node_name || task.node || 'n/a' }}</code></td>

@@ -1,8 +1,7 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, watch } from "vue";
+import { computed, ref, watch } from "vue";
 
 import type { EnvironmentVariable, SwarmTaskDetails, SwarmTaskResources } from "../../api/types";
-import { copyText } from "../../utils/clipboard";
 import { formatBytes, formatDate, formatNanoCPU } from "../../utils/format";
 import { decodeBase64Utf8 } from "../../utils/realtime";
 import AppCopyButton from "../common/AppCopyButton.vue";
@@ -23,9 +22,7 @@ const emit = defineEmits<{
 
 const environmentSearch = ref("");
 const revealed = ref(new Set<string>());
-const copiedKey = ref("");
 const activeTab = ref("overview");
-let copiedResetTimer: ReturnType<typeof setTimeout> | undefined;
 
 const tabs = [
   { value: "overview", label: "Overview", id: "task-overview-tab", panelId: "task-overview-panel" },
@@ -59,11 +56,8 @@ watch(
     activeTab.value = "overview";
     environmentSearch.value = "";
     revealed.value = new Set();
-    clearCopiedState();
   },
 );
-
-onBeforeUnmount(clearCopiedState);
 
 function stateVariant(state: string): "success" | "error" | "neutral" {
   const value = state.trim().toLowerCase();
@@ -121,34 +115,6 @@ function displayedValue(variable: EnvironmentVariable): string {
   const decoded = decodedValue(variable);
   if (decoded === null) return "Unable to decode value";
   return decoded === "" ? "(empty)" : decoded;
-}
-
-async function copyVariableValue(variable: EnvironmentVariable): Promise<void> {
-  const value = decodedValue(variable);
-  if (value === null) return;
-  await copyText(value);
-  showCopiedState(`value:${variable.name}`);
-}
-
-async function copyDetailValue(value: string, key: string): Promise<void> {
-  if (!value) return;
-  await copyText(value);
-  showCopiedState(key);
-}
-
-function showCopiedState(key: string): void {
-  if (copiedResetTimer !== undefined) clearTimeout(copiedResetTimer);
-  copiedKey.value = key;
-  copiedResetTimer = setTimeout(() => {
-    copiedKey.value = "";
-    copiedResetTimer = undefined;
-  }, 1600);
-}
-
-function clearCopiedState(): void {
-  if (copiedResetTimer !== undefined) clearTimeout(copiedResetTimer);
-  copiedResetTimer = undefined;
-  copiedKey.value = "";
 }
 
 function hasResources(resources: SwarmTaskResources | undefined): boolean {
@@ -214,11 +180,11 @@ function hasResources(resources: SwarmTaskResources | undefined): boolean {
             <div class="realtime-task-image-primary">
               <code :title="imageReference.name">{{ imageReference.name }}</code>
               <AppCopyButton
+                :key="task.id"
+                :value="task.image"
                 color="var(--muted)"
-                :copied="copiedKey === 'image'"
-                :aria-label="copiedKey === 'image' ? 'Image reference copied' : 'Copy full image reference'"
-                :title="copiedKey === 'image' ? 'Copied' : 'Copy full image reference'"
-                @click="copyDetailValue(task.image, 'image')"
+                label="Copy full image reference"
+                copied-label="Image reference copied"
               />
             </div>
             <div v-if="imageReference.tag || imageReference.digest" class="realtime-task-image-meta">
@@ -240,11 +206,12 @@ function hasResources(resources: SwarmTaskResources | undefined): boolean {
               </dd>
               <AppCopyButton
                 v-if="identifier.value"
+                :key="task.id"
+                :value="identifier.value"
                 color="var(--muted)"
-                :copied="copiedKey === identifier.key"
-                :aria-label="copiedKey === identifier.key ? `${identifier.label} copied` : `Copy ${identifier.label.toLowerCase()}`"
-                :title="copiedKey === identifier.key ? 'Copied' : `Copy ${identifier.label}`"
-                @click="copyDetailValue(identifier.value, identifier.key)"
+                :label="`Copy ${identifier.label.toLowerCase()}`"
+                :title="`Copy ${identifier.label}`"
+                :copied-label="`${identifier.label} copied`"
               />
             </div>
           </dl>
@@ -309,12 +276,11 @@ function hasResources(resources: SwarmTaskResources | undefined): boolean {
                   <svg v-else viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12S6 6.5 12 6.5 21.5 12 21.5 12 18 17.5 12 17.5 2.5 12 2.5 12Z" /><circle cx="12" cy="12" r="2.5" /></svg>
                 </button>
                 <AppCopyButton
+                  :value="decodedValue(variable)"
                   color="var(--muted)"
-                  :copied="copiedKey === `value:${variable.name}`"
-                  :disabled="variable.encoded && decodedValue(variable) === null"
-                  :aria-label="copiedKey === `value:${variable.name}` ? `Value copied for ${variable.name}` : `Copy value for ${variable.name}`"
-                  :title="copiedKey === `value:${variable.name}` ? 'Value copied' : 'Copy value'"
-                  @click="copyVariableValue(variable)"
+                  :label="`Copy value for ${variable.name}`"
+                  title="Copy value"
+                  :copied-label="`Value copied for ${variable.name}`"
                 />
               </div>
             </li>

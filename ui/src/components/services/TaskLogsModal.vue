@@ -370,10 +370,10 @@ onUnmounted(() => {
           <span>Task</span>
           <code>{{ taskId || "n/a" }}</code>
           <AppCopyButton
-            v-if="taskId"
-            :aria-label="copiedLogKey === 'task' ? 'Task ID copied' : 'Copy task ID'"
-            :title="copiedLogKey === 'task' ? 'Copied' : 'Copy task ID'"
-            @click="copyLogValue(taskId, 'task')"
+            v-if="open && taskId"
+            :value="taskId"
+            label="Copy task ID"
+            copied-label="Task ID copied"
           />
         </div>
       </div>
@@ -517,14 +517,12 @@ onUnmounted(() => {
                   <dt>{{ key }}</dt>
                   <dd>{{ formatLogAttributeValue(value) }}</dd>
                   <dd class="task-log-attribute-actions">
-                    <button
-                      type="button" class="task-log-icon-button"
-                      :aria-label="copiedLogKey === `field-${entry.id}-${key}` ? `${key} copied` : `Copy ${key}`"
-                      :title="copiedLogKey === `field-${entry.id}-${key}` ? 'Copied' : `Copy ${key}`"
-                      @click="copyLogValue(formatLogAttributeValue(value), `field-${entry.id}-${key}`)"
-                    >
-                      <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2" /><path d="M5 15V5a2 2 0 0 1 2-2h10" /></svg>
-                    </button>
+                    <AppCopyButton
+                      :value="formatLogAttributeValue(value)"
+                      color="var(--muted)"
+                      :label="`Copy ${key}`"
+                      :copied-label="`${key} copied`"
+                    />
                   </dd>
                 </div>
               </dl>
