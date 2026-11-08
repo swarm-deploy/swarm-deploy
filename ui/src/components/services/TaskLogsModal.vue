@@ -385,15 +385,9 @@ onUnmounted(() => {
           </select>
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
         </label>
-        <div class="task-logs-view-options">
-          <div class="task-logs-segment" role="group" aria-label="Log view">
-            <button type="button" :aria-pressed="parseLogs" @click="selectLogView(true)">Parsed</button>
-            <button type="button" :aria-pressed="!parseLogs" @click="selectLogView(false)">Raw</button>
-          </div>
-          <label class="task-logs-wrap">
-            <input v-model="wrapLines" type="checkbox" />
-            Wrap lines
-          </label>
+        <div class="task-logs-segment" role="group" aria-label="Log view">
+          <button type="button" :aria-pressed="parseLogs" @click="selectLogView(true)">Parsed</button>
+          <button type="button" :aria-pressed="!parseLogs" @click="selectLogView(false)">Raw</button>
         </div>
       </div>
 
@@ -420,10 +414,25 @@ onUnmounted(() => {
     </div>
 
     <div class="task-logs-table" :class="{ 'task-logs-table--raw': !parseLogs, 'task-logs-table--wrap': wrapLines }">
-      <div class="task-log-columns task-log-line" aria-hidden="true">
+      <div class="task-log-columns task-log-line">
         <span title="Coordinated Universal Time">Time</span>
         <span v-if="parseLogs">Level</span>
-        <span>Message</span>
+        <span class="task-log-message-column">
+          Message
+          <button
+            type="button"
+            class="task-log-wrap-button"
+            :aria-pressed="wrapLines"
+            aria-label="Wrap lines"
+            title="Wrap lines"
+            @click="wrapLines = !wrapLines"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path v-if="wrapLines" d="M3 6h18M3 12h15a3 3 0 1 1 0 6h-4m2-2-2 2 2 2M3 18h7" />
+              <path v-else d="M3 6h18M3 10h18M3 14h18M3 18h18" />
+            </svg>
+          </button>
+        </span>
       </div>
       <div ref="viewer" class="task-logs-viewer" role="region" aria-label="Log entries" tabindex="0" @scroll="handleScroll">
         <p v-if="loading && logs.length === 0" class="task-logs-notice" role="status">Loading logs…</p>
