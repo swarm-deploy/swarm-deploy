@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -25,6 +26,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/outbox"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackloop/preparation"
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	"go.uber.org/mock/gomock"
@@ -253,7 +255,21 @@ func TestImagePolicyViolationLifecycle(t *testing.T) {
 func TestComposeLoadValidationLifecycle(t *testing.T) {
 	ctx := t.Context()
 	db, state := newSQLState(t)
-	bus := eventbus.NewOutboxDispatcher(outbox.New(db))
+	publications := outbox.New(db)
+	bus := eventbus.NewOutboxDispatcher(publications)
+	lastSync := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
+	previous := model.Stack{
+		LastCommit: "previous", SourceDigest: "previous-digest", LastDeployAt: lastSync, StateUpdatedAt: lastSync,
+		Status: model.StackStatus{Synced: 2},
+		Services: map[string]model.Service{
+			"swarm-deploy": {Image: "nginx:1.27", SyncStatus: model.SyncStatusSynced, SyncAt: lastSync},
+			"worker":       {Image: "busybox:1.37", SyncStatus: model.SyncStatusSynced, SyncAt: lastSync},
+		},
+	}
+	require.NoError(t, state.Update(ctx, func(runtime *model.Runtime) {
+		runtime.Stacks["app"] = previous
+		runtime.Stacks["other"] = previous
+	}))
 	alerts := alertstore.NewSQLStore(db)
 	cfg := &config.Config{Spec: config.Spec{DataDir: filepath.Join(t.TempDir(), "data")}}
 	subscriber := alertmanagement.NewSQLSubscriber(alerts, bus,
@@ -281,6 +297,30 @@ func TestComposeLoadValidationLifecycle(t *testing.T) {
 	assert.ErrorContains(t, err, "load compose")
 	assert.Equal(t, req.Stack.ComposeFile, validation.FilePath)
 	assert.ErrorContains(t, err, invalidImage)
+
+	runtime := readSQLState(t, state)
+	failed := runtime.Stacks["app"]
+	assert.Equal(t, model.StackStatus{OutOfSynced: 2}, failed.Status)
+	assert.Equal(t, req.Commit, failed.LastCommit)
+	assert.Equal(t, "preparation_failed", failed.LastError)
+	assert.True(t, failed.StateUpdatedAt.After(previous.StateUpdatedAt))
+	assert.Equal(t, previous.SourceDigest, failed.SourceDigest)
+	assert.Equal(t, previous.LastDeployAt, failed.LastDeployAt)
+	assert.Equal(t, previous.DriftedServices, failed.DriftedServices)
+	assert.Len(t, failed.Services, len(previous.Services))
+	for name, service := range previous.Services {
+		service.SyncStatus = model.SyncStatusOutOfSync
+		assert.Equal(t, service, failed.Services[name], name)
+	}
+	assert.Equal(t, previous, runtime.Stacks["other"])
+
+	published, err := publications.ListPublications(ctx, outbox.ListFilter{EventType: events.TypeNameDeployPreparationFailed})
+	require.NoError(t, err)
+	require.Len(t, published, 1)
+	failure, ok := published[0].Envelope.Event.(*events.DeployPreparationFailed)
+	require.True(t, ok)
+	assert.Empty(t, failure.Services)
+
 	attempts, err := deploymentstore.NewStore(db).List(ctx, deploymentmodel.ListFilter{})
 	require.NoError(t, err)
 	assert.Empty(t, attempts.Deployments)
@@ -304,11 +344,13 @@ func TestComposeLoadValidationLifecycle(t *testing.T) {
     x-init-deploy-jobs:
       - name: migrate
         image: example/migrate:latest
+  worker:
+    image: busybox:1.37
 `), 0o600))
 	require.NoError(t, os.WriteFile(filepath.Join(repoDir, "app.env"), []byte("MODE=production\n"), 0o600))
 	stackDeployer.EXPECT().DeployStack(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, request deployer.StackRequest) (deployer.Result, error) {
-			require.Len(t, request.Desired.Services, 1)
+			require.Len(t, request.Desired.Services, 2)
 			service := request.Desired.Services[0]
 			assert.Equal(t, "app", request.StackName)
 			assert.Equal(t, "nginx:latest", service.Image)
@@ -320,6 +362,12 @@ func TestComposeLoadValidationLifecycle(t *testing.T) {
 	serviceManager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "app"}).Return([]swarm.StackService{}, nil)
 	req.Commit = "fixed"
 	require.NoError(t, reconciler.Reconcile(ctx, req))
+	runtime = readSQLState(t, state)
+	recovered := runtime.Stacks["app"]
+	assert.Equal(t, model.StackStatus{Synced: 2}, recovered.Status)
+	assert.Equal(t, model.SyncStatus(model.SyncStatusSynced), recovered.ServiceSyncStatus("swarm-deploy"))
+	assert.Equal(t, model.SyncStatus(model.SyncStatusSynced), recovered.ServiceSyncStatus("worker"))
+	assert.Equal(t, previous, runtime.Stacks["other"])
 	drainOutbox(t, ctx, bus)
 	resolved, err := alerts.Get(ctx, alert.ID)
 	require.NoError(t, err)

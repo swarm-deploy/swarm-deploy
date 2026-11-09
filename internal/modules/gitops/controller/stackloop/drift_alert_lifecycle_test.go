@@ -260,13 +260,35 @@ func TestDriftLifecyclePublicationFailureRollsBackRuntime(t *testing.T) {
 
 func TestDriftLifecycleSurvivesPreparationFailure(t *testing.T) {
 	db, store := newSQLState(t)
-	previous := model.Stack{DriftedServices: map[string]bool{"api": true}}
+	previous := model.Stack{
+		DriftedServices: map[string]bool{"api": true},
+		Services: map[string]model.Service{
+			"api": {
+				Image: "nginx:1.27", SyncStatus: model.SyncStatusOutOfSync, SelfHealPending: true, SyncError: "drift",
+			},
+			"worker": {Image: "busybox:1.37", SyncStatus: model.SyncStatusSynced},
+		},
+	}
 	require.NoError(t, store.Update(t.Context(), func(state *model.Runtime) { state.Stacks["app"] = previous }))
 	publisher := dispatcher.NewMockDispatcher(gomock.NewController(t))
-	publisher.EXPECT().Publish(gomock.Any(), gomock.Any()).Return(nil)
+	desired := &compose.File{Compose: compose.Compose{Services: compose.Services{{Name: "api", Image: "nginx:1.28"}}}}
+	publisher.EXPECT().Publish(gomock.Any(), gomock.Cond(func(event events.Event) bool {
+		failure, ok := event.(*events.DeployPreparationFailed)
+		return ok && len(failure.Services) == 1 && failure.Services[0].Name == "api" && failure.Services[0].Image == "nginx:1.28"
+	})).Return(nil)
 	reconciler := &Reconciler{db: db, stateStore: store, event: publisher}
-	require.NoError(t, reconciler.recordFailure(t.Context(), "app", "commit", []compose.Service{{Name: "api"}}, assert.AnError))
-	assert.Equal(t, previous.DriftedServices, readSQLState(t, store).Stacks["app"].DriftedServices)
+	require.NoError(t, reconciler.recordFailure(t.Context(), "app", "commit", desired, assert.AnError))
+
+	failed := readSQLState(t, store).Stacks["app"]
+	assert.Equal(t, previous.DriftedServices, failed.DriftedServices)
+	assert.Equal(t, previous.Services["worker"], failed.Services["worker"])
+	assert.Equal(t, model.StackStatus{Synced: 1, OutOfSynced: 1}, failed.Status)
+	api := failed.Services["api"]
+	assert.Equal(t, "nginx:1.28", api.Image)
+	assert.Equal(t, model.SyncStatus(model.SyncStatusOutOfSync), api.SyncStatus)
+	assert.True(t, api.SelfHealPending)
+	assert.Equal(t, "drift", api.SyncError)
+	assert.False(t, api.SyncAt.IsZero())
 }
 
 func TestRecordPreparationFailurePublishesTypedDiagnostic(t *testing.T) {
