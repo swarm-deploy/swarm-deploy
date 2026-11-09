@@ -17,37 +17,41 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 
-type placementConstraintFault struct {
+type placementConstraintError struct {
 	faults.Coded
 	summary string
 }
 
-func (e placementConstraintFault) FaultSummary() string { return e.summary }
-func (e placementConstraintFault) Unwrap() error        { return e.Coded }
+func (e placementConstraintError) FaultSummary() string { return e.summary }
+func (e placementConstraintError) Unwrap() error        { return e.Coded }
 
-func (w *ServiceWaiter) placementSchedulingFault(
-	ctx context.Context, fault faults.Coded, placement *dockerswarm.Placement, nodes map[string]*swarmkitapi.Node,
-) faults.Coded {
+func (w *ServiceWaiter) enrichPlacementSchedulingFault(
+	ctx context.Context, progress *ServiceProgress, placement *dockerswarm.Placement, nodes map[string]*swarmkitapi.Node,
+) {
+	fault := progress.taskFault
+	if progress.State != ServicePending || fault == nil || fault.FaultCode() != faults.CodeNoSuitableNode {
+		return
+	}
 	if placement == nil || len(placement.Constraints) == 0 {
-		return fault
+		return
 	}
 	constraints, err := constraint.Parse(placement.Constraints)
 	if err != nil {
-		return fault
+		return
 	}
 	if nodes == nil {
 		listed, listErr := w.nodes.List(ctx)
 		if listErr != nil {
-			return fault
+			return
 		}
 		nodes = placementNodesByID(listed)
 	}
 	if len(nodes) == 0 {
-		return fault
+		return
 	}
 	for _, node := range nodes {
 		if nodeMatchesConstraints(constraints, node) {
-			return fault
+			return
 		}
 	}
 	label := "constraint"
@@ -55,7 +59,7 @@ func (w *ServiceWaiter) placementSchedulingFault(
 		label = "constraints"
 	}
 	summary := fmt.Sprintf("No nodes match placement %s: %s", label, strings.Join(placement.Constraints, ", "))
-	return placementConstraintFault{Coded: fault, summary: boundedDiagnostic(summary)}
+	progress.taskFault = placementConstraintError{Coded: fault, summary: boundedDiagnostic(summary)}
 }
 
 func (p *ServiceProgress) pendingSchedulingFault(
