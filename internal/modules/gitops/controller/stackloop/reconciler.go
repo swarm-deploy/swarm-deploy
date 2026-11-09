@@ -134,7 +134,7 @@ func (r *Reconciler) Reconcile(
 		Stack: req.Stack, Desired: desiredState,
 	})
 	if err != nil {
-		persistErr := r.recordFailure(ctx, req.Stack.Name, req.Commit, desiredState.Compose.Services, err)
+		persistErr := r.recordFailure(ctx, req.Stack.Name, req.Commit, desiredState, err)
 		stage := "prepare compose"
 		if stepErr, ok := errors.AsType[*pipe.StepError](err); ok {
 			stage = stepErr.StepName
@@ -269,8 +269,12 @@ func hasRemediationAttempt(remediations map[string]serviceRemediation) bool {
 }
 
 func (r *Reconciler) recordFailure(
-	ctx context.Context, stackName, commit string, services []compose.Service, cause error,
+	ctx context.Context, stackName, commit string, desired *compose.File, cause error,
 ) error {
+	var services []compose.Service
+	if desired != nil {
+		services = desired.Compose.Services
+	}
 	safeCause := faults.SafeError(cause)
 	return r.db.WithinTransaction(ctx, func(ctx context.Context) error {
 		if err := r.stateStore.Update(ctx, func(runtime *model.Runtime) {
@@ -279,6 +283,12 @@ func (r *Reconciler) recordFailure(
 			state.StateUpdatedAt = time.Now().UTC()
 			if state.Services == nil {
 				state.Services = map[string]model.Service{}
+			}
+			if desired == nil {
+				for name, service := range state.Services {
+					service.SyncStatus = model.SyncStatusOutOfSync
+					state.Services[name] = service
+				}
 			}
 			for _, service := range services {
 				previous := state.Services[service.Name]
@@ -305,7 +315,7 @@ func (r *Reconciler) recordPipelineFailure(
 	services := pl.Desired.Compose.Services
 	var persistErr error
 	if pl.Attempt == nil {
-		persistErr = r.recordFailure(ctx, req.Stack.Name, req.Commit, services, pipeErr)
+		persistErr = r.recordFailure(ctx, req.Stack.Name, req.Commit, pl.Desired, pipeErr)
 	} else {
 		// Deployments has already classified and committed the terminal Attempt.
 		// GitOps keeps the reconciliation error observable and lets the durable
