@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/mock/gomock"
 )
 
@@ -215,6 +216,45 @@ func TestServiceWaiterPendingSchedulingFaultAtTimeout(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestServiceWaiterObservesHealthyServiceBeforePlacementDiagnostics(t *testing.T) {
+	controller := gomock.NewController(t)
+	manager := swarm.NewMockServiceManager(controller)
+	nodes := swarm.NewMockNodeManager(controller)
+	blocked := testReplicatedService("api", "api-id", 1, serviceWaitTestTime, "api:2")
+	blocked.ServiceSpec.TaskTemplate.Placement = &dockerswarm.Placement{Constraints: []string{"node.labels.region == eu"}}
+	healthy := testReplicatedService("web", "web-id", 1, serviceWaitTestTime, "web:2")
+	pending := testTask("pending", 1, swarm.TaskStateRunning, swarm.TaskStatePending, serviceWaitTestTime)
+	pending.Spec = swarm.NewTaskSpec(blocked.ServiceSpec.TaskTemplate)
+	pending.Error = "no suitable node (scheduling constraints not satisfied on 1 node)"
+	running := testTask("running", 1, swarm.TaskStateRunning, swarm.TaskStateRunning, serviceWaitTestTime)
+	running.Spec = swarm.NewTaskSpec(healthy.ServiceSpec.TaskTemplate)
+
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	gomock.InOrder(
+		manager.EXPECT().ListServices(gomock.Any(), gomock.Any()).Return([]swarm.StackService{blocked, healthy}, nil),
+		manager.EXPECT().ListTasks(gomock.Any(), blocked.ID).Return([]swarm.ServiceTask{pending}, nil),
+		manager.EXPECT().ListTasks(gomock.Any(), healthy.ID).Return([]swarm.ServiceTask{running}, nil),
+		nodes.EXPECT().List(gomock.Any()).DoAndReturn(func(lookupCtx context.Context) ([]swarm.Node, error) {
+			deadline, ok := lookupCtx.Deadline()
+			require.True(t, ok)
+			assert.LessOrEqual(t, time.Until(deadline), placementDiagnosticTimeout)
+			<-lookupCtx.Done()
+			return nil, lookupCtx.Err()
+		}),
+	)
+
+	targets := map[string]struct{}{"api": {}, "web": {}}
+	state := waitState{targets: targets, last: make(map[string]ServiceProgress)}
+	waiter := NewServiceWaiter(manager, nodes, time.Millisecond, time.Second)
+	allReady, err := waiter.poll(ctx, trace.SpanFromContext(ctx), ServiceWaitRequest{StackName: "app"}, nil, targets, &state)
+	require.NoError(t, err)
+	assert.False(t, allReady)
+	assert.Equal(t, []string{"api"}, state.result().UnresolvedServices)
+	require.NotNil(t, state.last["api"].taskFault)
+	assert.Equal(t, pending.Error, state.last["api"].taskFault.FaultSummary())
 }
 
 func TestServiceWaiterClearsRecoveredSchedulingFault(t *testing.T) {

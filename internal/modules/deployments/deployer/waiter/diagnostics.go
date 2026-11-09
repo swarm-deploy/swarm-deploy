@@ -17,6 +17,8 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 
+const placementDiagnosticTimeout = 250 * time.Millisecond
+
 type placementConstraintError struct {
 	faults.Coded
 	summary string
@@ -25,30 +27,50 @@ type placementConstraintError struct {
 func (e placementConstraintError) FaultSummary() string { return e.summary }
 func (e placementConstraintError) Unwrap() error        { return e.Coded }
 
-func (w *ServiceWaiter) enrichPlacementSchedulingFault(
-	ctx context.Context, progress *ServiceProgress, placement *dockerswarm.Placement, nodes map[string]*swarmkitapi.Node,
+func (w *ServiceWaiter) enrichPlacementSchedulingFaults(
+	ctx context.Context,
+	observed []ServiceProgress,
+	current map[string]swarm.StackService,
+	nodes map[string]*swarmkitapi.Node,
 ) {
-	fault := progress.taskFault
-	if progress.State != ServicePending || fault == nil || fault.FaultCode() != faults.CodeNoSuitableNode {
-		return
-	}
-	if placement == nil || len(placement.Constraints) == 0 {
-		return
-	}
-	constraints, err := constraint.Parse(placement.Constraints)
-	if err != nil {
-		return
-	}
-	if nodes == nil {
-		listed, listErr := w.nodes.List(ctx)
-		if listErr != nil {
+	for i := range observed {
+		progress := &observed[i]
+		fault := progress.taskFault
+		if progress.State != ServicePending || fault == nil || fault.FaultCode() != faults.CodeNoSuitableNode {
+			continue
+		}
+		placement := current[progress.Name].ServiceSpec.TaskTemplate.Placement
+		if placement == nil || len(placement.Constraints) == 0 {
+			continue
+		}
+		constraints, err := constraint.Parse(placement.Constraints)
+		if err != nil {
+			continue
+		}
+		if nodes == nil {
+			nodes = w.listPlacementDiagnosticNodes(ctx)
+		}
+		if len(nodes) == 0 {
 			return
 		}
-		nodes = placementNodesByID(listed)
+		enrichPlacementSchedulingFault(progress, placement.Constraints, constraints, nodes)
 	}
-	if len(nodes) == 0 {
-		return
+}
+
+func (w *ServiceWaiter) listPlacementDiagnosticNodes(ctx context.Context) map[string]*swarmkitapi.Node {
+	ctx, cancel := context.WithTimeout(ctx, placementDiagnosticTimeout)
+	defer cancel()
+
+	nodes, err := w.nodes.List(ctx)
+	if err != nil {
+		return nil
 	}
+	return placementNodesByID(nodes)
+}
+
+func enrichPlacementSchedulingFault(
+	progress *ServiceProgress, raw []string, constraints []constraint.Constraint, nodes map[string]*swarmkitapi.Node,
+) {
 	for _, node := range nodes {
 		if nodeMatchesConstraints(constraints, node) {
 			return
@@ -58,8 +80,8 @@ func (w *ServiceWaiter) enrichPlacementSchedulingFault(
 	if len(constraints) > 1 {
 		label = "constraints"
 	}
-	summary := fmt.Sprintf("No nodes match placement %s: %s", label, strings.Join(placement.Constraints, ", "))
-	progress.taskFault = placementConstraintError{Coded: fault, summary: boundedDiagnostic(summary)}
+	summary := fmt.Sprintf("No nodes match placement %s: %s", label, strings.Join(raw, ", "))
+	progress.taskFault = placementConstraintError{Coded: progress.taskFault, summary: boundedDiagnostic(summary)}
 }
 
 func (p *ServiceProgress) pendingSchedulingFault(

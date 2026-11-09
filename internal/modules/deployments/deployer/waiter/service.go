@@ -11,6 +11,7 @@ import (
 	"time"
 
 	dockerswarm "github.com/docker/docker/api/types/swarm"
+	swarmkitapi "github.com/moby/swarmkit/v2/api"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/services"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/tracing"
@@ -207,10 +208,12 @@ func (w *ServiceWaiter) wait(
 
 		select {
 		case <-ctx.Done():
-			state.failPending(span, request.Progress, ctx.Err())
-			return errors.Join(state.terminalFailure,
-				waitInterruptedError(request.StackName, state.last, ctx.Err(), state.lastObservationError))
 		case <-ticker.C:
+		}
+		if err := ctx.Err(); err != nil {
+			state.failPending(span, request.Progress, err)
+			return errors.Join(state.terminalFailure,
+				waitInterruptedError(request.StackName, state.last, err, state.lastObservationError))
 		}
 	}
 }
@@ -248,22 +251,32 @@ func (w *ServiceWaiter) observeTargets(
 	state.converged = 0
 	allReady := true
 	var failures []error
+	var placementNodes map[string]*swarmkitapi.Node
+	observed := make([]ServiceProgress, 0, len(targets))
+	defer func() {
+		for _, progress := range observed {
+			state.emit(span, request.Progress, progress)
+		}
+	}()
 	for _, name := range sortedTargetNames(targets) {
 		if slices.Contains(request.AppliedServices, name) && baseline[name].ID != "" &&
 			!serviceChanged(baseline[name], current[name]) {
 			// Docker may briefly return the pre-apply snapshot. Neither old running
 			// tasks nor an old paused update describes the accepted service version.
-			state.emit(span, request.Progress, ServiceProgress{
+			observed = append(observed, ServiceProgress{
 				Name: name, State: ServicePending, Message: "waiting for applied service version",
 			})
 			allReady = false
 			continue
 		}
-		progress, err := w.observeService(ctx, name, baseline[name], current[name],
+		progress, nodes, err := w.observeService(ctx, name, baseline[name], current[name],
 			slices.Contains(request.UnresolvedServices, name), request.ExpectedSpecs[name], request.UpdateGenerations[name])
-		state.emit(span, request.Progress, progress)
+		observed = append(observed, progress)
 		if err != nil {
 			return false, errors.Join(append(failures, err)...)
+		}
+		if nodes != nil {
+			placementNodes = nodes
 		}
 		if progress.State == ServiceFailed {
 			diagnostic := errors.New(progress.Message)
@@ -280,6 +293,7 @@ func (w *ServiceWaiter) observeTargets(
 		}
 		allReady = false
 	}
+	w.enrichPlacementSchedulingFaults(ctx, observed, current, placementNodes)
 	return allReady, errors.Join(failures...)
 }
 
