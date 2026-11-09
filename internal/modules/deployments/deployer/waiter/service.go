@@ -202,7 +202,8 @@ waitLoop:
 				break waitLoop
 			}
 			if waitErr := state.handleObservationError(span, request, targets, observeErr); waitErr != nil {
-				return errors.Join(state.terminalFailure, waitErr)
+				cancel()
+				return errors.Join(state.terminalFailure, w.withPlacementSchedulingFault(ctx, waitErr, state.last))
 			}
 		case allReady:
 			return state.terminalFailure

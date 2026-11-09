@@ -225,18 +225,30 @@ func TestServiceWaiterPendingSchedulingFaultAtTimeout(t *testing.T) {
 func TestServiceWaiterDiagnosesPlacementAfterConvergenceEnds(t *testing.T) {
 	const (
 		regionConstraint = "node.labels.region == eu"
+		webConstraint    = "node.labels.region == ca"
 		dockerDiagnostic = "no suitable node (scheduling constraints not satisfied on 1 node)"
 	)
+	permanentErr := errors.New("web task list: permission denied")
 	for _, tc := range []struct {
 		name           string
 		taskListErr    error
+		webPending     bool
+		waitCause      error
 		wantUnresolved []string
 		wantSummary    string
 	}{
-		{"slow node list", nil, []string{"api"}, dockerDiagnostic},
+		{"slow node list", nil, false, context.DeadlineExceeded, []string{"api"}, dockerDiagnostic},
 		{
-			"another service fails observation", faults.NewSafeError("web task list unavailable", true, "", ""),
+			"another service fails observation temporarily", faults.NewSafeError("web task list unavailable", true, "", ""),
+			false, context.DeadlineExceeded, []string{"api", "web"}, "No nodes match placement constraint: " + regionConstraint,
+		},
+		{
+			"another service fails observation permanently", permanentErr, false, context.Canceled,
 			[]string{"api", "web"}, "No nodes match placement constraint: " + regionConstraint,
+		},
+		{
+			"later service has unmatched constraints", nil, true, context.DeadlineExceeded,
+			[]string{"api", "web"}, "No nodes match placement constraint: " + webConstraint,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -249,24 +261,33 @@ func TestServiceWaiterDiagnosesPlacementAfterConvergenceEnds(t *testing.T) {
 			pending := testTask("pending", 1, swarm.TaskStateRunning, swarm.TaskStatePending, serviceWaitTestTime)
 			pending.Spec = swarm.NewTaskSpec(api.ServiceSpec.TaskTemplate)
 			pending.Error = dockerDiagnostic
-			running := testTask("running", 1, swarm.TaskStateRunning, swarm.TaskStateRunning, serviceWaitTestTime)
-			running.Spec = swarm.NewTaskSpec(web.ServiceSpec.TaskTemplate)
+			webTask := testTask("web-task", 1, swarm.TaskStateRunning, swarm.TaskStateRunning, serviceWaitTestTime)
+			if tc.webPending {
+				pending.Error = "no suitable node (insufficient resources on 1 node)"
+				web.ServiceSpec.TaskTemplate.Placement = &dockerswarm.Placement{Constraints: []string{webConstraint}}
+				webTask.CurrentState = swarm.TaskStatePending
+				webTask.Error = dockerDiagnostic
+			}
+			webTask.Spec = swarm.NewTaskSpec(web.ServiceSpec.TaskTemplate)
 
 			var observationCtx context.Context
 			manager.EXPECT().ListServices(gomock.Any(), gomock.Any()).Do(func(ctx context.Context, _ swarm.ListServicesFilter) {
 				observationCtx = ctx
 			}).Return([]swarm.StackService{api, web}, nil).AnyTimes()
 			manager.EXPECT().ListTasks(gomock.Any(), api.ID).Return([]swarm.ServiceTask{pending}, nil).MinTimes(1)
-			manager.EXPECT().ListTasks(gomock.Any(), web.ID).Return([]swarm.ServiceTask{running}, tc.taskListErr).MinTimes(1)
+			manager.EXPECT().ListTasks(gomock.Any(), web.ID).Return([]swarm.ServiceTask{webTask}, tc.taskListErr).MinTimes(1)
 			nodes.EXPECT().List(gomock.Any()).DoAndReturn(func(lookupCtx context.Context) ([]swarm.Node, error) {
 				require.NotNil(t, observationCtx)
-				assert.ErrorIs(t, observationCtx.Err(), context.DeadlineExceeded)
+				assert.ErrorIs(t, observationCtx.Err(), tc.waitCause)
 				assert.NoError(t, lookupCtx.Err())
 				deadline, ok := lookupCtx.Deadline()
 				require.True(t, ok)
 				assert.LessOrEqual(t, time.Until(deadline), placementDiagnosticTimeout)
 				if tc.taskListErr != nil {
 					return []swarm.Node{{ID: "us-node", Labels: map[string]string{"region": "us"}}}, nil
+				}
+				if tc.webPending {
+					return []swarm.Node{{ID: "eu-node", Labels: map[string]string{"region": "eu"}}}, nil
 				}
 				<-lookupCtx.Done()
 				return nil, lookupCtx.Err()
@@ -275,14 +296,21 @@ func TestServiceWaiterDiagnosesPlacementAfterConvergenceEnds(t *testing.T) {
 			result, err := NewServiceWaiter(manager, nodes, time.Millisecond, 30*time.Millisecond).Wait(t.Context(), ServiceWaitRequest{
 				StackName: "app", ServiceNames: []string{"api", "web"},
 			})
-			require.ErrorIs(t, err, context.DeadlineExceeded)
+			if tc.waitCause == context.Canceled {
+				require.NotErrorIs(t, err, context.Canceled)
+				require.NotErrorIs(t, err, context.DeadlineExceeded)
+			} else {
+				require.ErrorIs(t, err, context.DeadlineExceeded)
+			}
 			assert.Equal(t, tc.wantUnresolved, result.UnresolvedServices)
 			if tc.taskListErr != nil {
 				assert.ErrorIs(t, err, tc.taskListErr)
 			}
 			var coded faults.Coded
 			require.ErrorAs(t, err, &coded)
+			assert.Equal(t, faults.CodeNoSuitableNode, coded.FaultCode())
 			assert.Equal(t, tc.wantSummary, coded.FaultSummary())
+			assert.EqualError(t, coded, dockerDiagnostic)
 		})
 	}
 }
