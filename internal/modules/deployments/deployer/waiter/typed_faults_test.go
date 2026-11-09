@@ -14,7 +14,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
-	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/mock/gomock"
 )
 
@@ -80,7 +79,8 @@ func TestWaitInterruptedErrorPreservesTechnicalChain(t *testing.T) {
 	progress := map[string]ServiceProgress{
 		"api": {State: ServicePending, Message: "waiting for rolling update to complete", taskFault: original},
 	}
-	err := waitInterruptedError("app", progress, context.DeadlineExceeded, observation)
+	waiter := &ServiceWaiter{}
+	err := waiter.waitInterruptedError(t.Context(), "app", progress, context.DeadlineExceeded, observation)
 	assert.ErrorIs(t, err, context.DeadlineExceeded)
 	assert.ErrorIs(t, err, observation)
 	assert.ErrorIs(t, err, transport)
@@ -102,10 +102,10 @@ func TestServiceWaiterPendingSchedulingFaultAtTimeout(t *testing.T) {
 	const (
 		dockerDiagnostic = "no suitable node (scheduling constraints not satisfied on 1 node)"
 		regionConstraint = "node.labels.region == eu"
-		roleConstraint   = "node.role == manager"
+		hostConstraint   = "node.hostname == us-node"
 	)
-	workerEU := swarm.Node{ID: "worker-eu", Role: "worker", Labels: map[string]string{"region": "eu"}}
-	managerUS := swarm.Node{ID: "manager-us", Role: "manager", Labels: map[string]string{"region": "us"}}
+	nodeEU := swarm.Node{ID: "node-eu", Hostname: "eu-node", Labels: map[string]string{"region": "eu"}}
+	nodeUS := swarm.Node{ID: "node-us", Hostname: "us-node", Labels: map[string]string{"region": "us"}}
 	for _, tc := range []struct {
 		name        string
 		diagnostic  string
@@ -121,17 +121,21 @@ func TestServiceWaiterPendingSchedulingFaultAtTimeout(t *testing.T) {
 	}{
 		{
 			name: "constraint on initial task", diagnostic: dockerDiagnostic, wantFault: true, initial: true,
-			constraints: []string{regionConstraint}, nodes: []swarm.Node{managerUS},
+			constraints: []string{regionConstraint}, nodes: []swarm.Node{nodeUS},
 			wantSummary: "No nodes match placement constraint: " + regionConstraint,
 		},
 		{
 			name: "no node matches all constraints", diagnostic: dockerDiagnostic, wantFault: true,
-			constraints: []string{regionConstraint, roleConstraint}, nodes: []swarm.Node{workerEU, managerUS},
-			wantSummary: "No nodes match placement constraints: " + regionConstraint + ", " + roleConstraint,
+			constraints: []string{regionConstraint, hostConstraint}, nodes: []swarm.Node{nodeEU, nodeUS},
+			wantSummary: "No nodes match placement constraints: " + regionConstraint + ", " + hostConstraint,
+		},
+		{
+			name: "desired node role cannot confirm actual role", diagnostic: dockerDiagnostic, wantFault: true,
+			constraints: []string{regionConstraint, " NoDe.RoLe != worker "},
 		},
 		{
 			name: "matching node unavailable for scheduling", diagnostic: "no suitable node (1 node not available for new tasks)", wantFault: true,
-			constraints: []string{regionConstraint}, nodes: []swarm.Node{{ID: "drained-eu", Availability: "drain", Labels: workerEU.Labels}},
+			constraints: []string{regionConstraint}, nodes: []swarm.Node{{ID: "drained-eu", Availability: "drain", Labels: nodeEU.Labels}},
 		},
 		{
 			name: "node list error", diagnostic: dockerDiagnostic, wantFault: true,
@@ -180,7 +184,7 @@ func TestServiceWaiterPendingSchedulingFaultAtTimeout(t *testing.T) {
 			manager.EXPECT().ListServices(gomock.Any(), gomock.Any()).Return([]swarm.StackService{service}, nil).AnyTimes()
 			manager.EXPECT().ListTasks(gomock.Any(), service.ID).Return([]swarm.ServiceTask{task}, nil).AnyTimes()
 			if tc.nodes != nil || tc.nodeListErr != nil {
-				nodes.EXPECT().List(gomock.Any()).Return(tc.nodes, tc.nodeListErr).MinTimes(1)
+				nodes.EXPECT().List(gomock.Any()).Return(tc.nodes, tc.nodeListErr)
 			}
 			var updates []ServiceProgress
 			result, err := NewServiceWaiter(manager, nodes, time.Millisecond, 20*time.Millisecond).Wait(t.Context(), ServiceWaitRequest{
@@ -218,51 +222,81 @@ func TestServiceWaiterPendingSchedulingFaultAtTimeout(t *testing.T) {
 	}
 }
 
-func TestServiceWaiterObservesHealthyServiceBeforePlacementDiagnostics(t *testing.T) {
-	controller := gomock.NewController(t)
-	manager := swarm.NewMockServiceManager(controller)
-	nodes := swarm.NewMockNodeManager(controller)
-	blocked := testReplicatedService("api", "api-id", 1, serviceWaitTestTime, "api:2")
-	blocked.ServiceSpec.TaskTemplate.Placement = &dockerswarm.Placement{Constraints: []string{"node.labels.region == eu"}}
-	healthy := testReplicatedService("web", "web-id", 1, serviceWaitTestTime, "web:2")
-	pending := testTask("pending", 1, swarm.TaskStateRunning, swarm.TaskStatePending, serviceWaitTestTime)
-	pending.Spec = swarm.NewTaskSpec(blocked.ServiceSpec.TaskTemplate)
-	pending.Error = "no suitable node (scheduling constraints not satisfied on 1 node)"
-	running := testTask("running", 1, swarm.TaskStateRunning, swarm.TaskStateRunning, serviceWaitTestTime)
-	running.Spec = swarm.NewTaskSpec(healthy.ServiceSpec.TaskTemplate)
-
-	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
-	defer cancel()
-	gomock.InOrder(
-		manager.EXPECT().ListServices(gomock.Any(), gomock.Any()).Return([]swarm.StackService{blocked, healthy}, nil),
-		manager.EXPECT().ListTasks(gomock.Any(), blocked.ID).Return([]swarm.ServiceTask{pending}, nil),
-		manager.EXPECT().ListTasks(gomock.Any(), healthy.ID).Return([]swarm.ServiceTask{running}, nil),
-		nodes.EXPECT().List(gomock.Any()).DoAndReturn(func(lookupCtx context.Context) ([]swarm.Node, error) {
-			deadline, ok := lookupCtx.Deadline()
-			require.True(t, ok)
-			assert.LessOrEqual(t, time.Until(deadline), placementDiagnosticTimeout)
-			<-lookupCtx.Done()
-			return nil, lookupCtx.Err()
-		}),
+func TestServiceWaiterDiagnosesPlacementAfterConvergenceEnds(t *testing.T) {
+	const (
+		regionConstraint = "node.labels.region == eu"
+		dockerDiagnostic = "no suitable node (scheduling constraints not satisfied on 1 node)"
 	)
+	for _, tc := range []struct {
+		name           string
+		taskListErr    error
+		wantUnresolved []string
+		wantSummary    string
+	}{
+		{"slow node list", nil, []string{"api"}, dockerDiagnostic},
+		{
+			"another service fails observation", faults.NewSafeError("web task list unavailable", true, "", ""),
+			[]string{"api", "web"}, "No nodes match placement constraint: " + regionConstraint,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			controller := gomock.NewController(t)
+			manager := swarm.NewMockServiceManager(controller)
+			nodes := swarm.NewMockNodeManager(controller)
+			api := testReplicatedService("api", "api-id", 1, serviceWaitTestTime, "api:2")
+			api.ServiceSpec.TaskTemplate.Placement = &dockerswarm.Placement{Constraints: []string{regionConstraint}}
+			web := testReplicatedService("web", "web-id", 1, serviceWaitTestTime, "web:2")
+			pending := testTask("pending", 1, swarm.TaskStateRunning, swarm.TaskStatePending, serviceWaitTestTime)
+			pending.Spec = swarm.NewTaskSpec(api.ServiceSpec.TaskTemplate)
+			pending.Error = dockerDiagnostic
+			running := testTask("running", 1, swarm.TaskStateRunning, swarm.TaskStateRunning, serviceWaitTestTime)
+			running.Spec = swarm.NewTaskSpec(web.ServiceSpec.TaskTemplate)
 
-	targets := map[string]struct{}{"api": {}, "web": {}}
-	state := waitState{targets: targets, last: make(map[string]ServiceProgress)}
-	waiter := NewServiceWaiter(manager, nodes, time.Millisecond, time.Second)
-	allReady, err := waiter.poll(ctx, trace.SpanFromContext(ctx), ServiceWaitRequest{StackName: "app"}, nil, targets, &state)
-	require.NoError(t, err)
-	assert.False(t, allReady)
-	assert.Equal(t, []string{"api"}, state.result().UnresolvedServices)
-	require.NotNil(t, state.last["api"].taskFault)
-	assert.Equal(t, pending.Error, state.last["api"].taskFault.FaultSummary())
+			var observationCtx context.Context
+			manager.EXPECT().ListServices(gomock.Any(), gomock.Any()).Do(func(ctx context.Context, _ swarm.ListServicesFilter) {
+				observationCtx = ctx
+			}).Return([]swarm.StackService{api, web}, nil).AnyTimes()
+			manager.EXPECT().ListTasks(gomock.Any(), api.ID).Return([]swarm.ServiceTask{pending}, nil).MinTimes(1)
+			manager.EXPECT().ListTasks(gomock.Any(), web.ID).Return([]swarm.ServiceTask{running}, tc.taskListErr).MinTimes(1)
+			nodes.EXPECT().List(gomock.Any()).DoAndReturn(func(lookupCtx context.Context) ([]swarm.Node, error) {
+				require.NotNil(t, observationCtx)
+				assert.ErrorIs(t, observationCtx.Err(), context.DeadlineExceeded)
+				assert.NoError(t, lookupCtx.Err())
+				deadline, ok := lookupCtx.Deadline()
+				require.True(t, ok)
+				assert.LessOrEqual(t, time.Until(deadline), placementDiagnosticTimeout)
+				if tc.taskListErr != nil {
+					return []swarm.Node{{ID: "us-node", Labels: map[string]string{"region": "us"}}}, nil
+				}
+				<-lookupCtx.Done()
+				return nil, lookupCtx.Err()
+			})
+
+			result, err := NewServiceWaiter(manager, nodes, time.Millisecond, 30*time.Millisecond).Wait(t.Context(), ServiceWaitRequest{
+				StackName: "app", ServiceNames: []string{"api", "web"},
+			})
+			require.ErrorIs(t, err, context.DeadlineExceeded)
+			assert.Equal(t, tc.wantUnresolved, result.UnresolvedServices)
+			if tc.taskListErr != nil {
+				assert.ErrorIs(t, err, tc.taskListErr)
+			}
+			var coded faults.Coded
+			require.ErrorAs(t, err, &coded)
+			assert.Equal(t, tc.wantSummary, coded.FaultSummary())
+		})
+	}
 }
 
 func TestServiceWaiterClearsRecoveredSchedulingFault(t *testing.T) {
 	for _, ready := range []bool{false, true} {
 		t.Run(map[bool]string{false: "pending without scheduler error", true: "converged"}[ready], func(t *testing.T) {
-			manager := swarm.NewMockServiceManager(gomock.NewController(t))
+			controller := gomock.NewController(t)
+			manager := swarm.NewMockServiceManager(controller)
+			nodes := swarm.NewMockNodeManager(controller)
 			service := testReplicatedService("api", "api-id", 1, serviceWaitTestTime, "api:2")
+			service.ServiceSpec.TaskTemplate.Placement = &dockerswarm.Placement{Constraints: []string{"node.labels.region == eu"}}
 			task := testTask("pending-task", 1, swarm.TaskStateRunning, swarm.TaskStatePending, serviceWaitTestTime)
+			task.Spec = swarm.NewTaskSpec(service.ServiceSpec.TaskTemplate)
 			task.Error = "no suitable node (insufficient resources on 1 node)"
 			manager.EXPECT().ListServices(gomock.Any(), gomock.Any()).Return([]swarm.StackService{service}, nil).AnyTimes()
 			first := manager.EXPECT().ListTasks(gomock.Any(), service.ID).Return([]swarm.ServiceTask{task}, nil)
@@ -271,7 +305,7 @@ func TestServiceWaiterClearsRecoveredSchedulingFault(t *testing.T) {
 				task.CurrentState = swarm.TaskStateRunning
 			}
 			manager.EXPECT().ListTasks(gomock.Any(), service.ID).After(first).Return([]swarm.ServiceTask{task}, nil).AnyTimes()
-			err := waitForTest(NewServiceWaiter(manager, nil, time.Millisecond, 20*time.Millisecond), t.Context(), ServiceWaitRequest{
+			err := waitForTest(NewServiceWaiter(manager, nodes, time.Millisecond, 20*time.Millisecond), t.Context(), ServiceWaitRequest{
 				StackName: "app", ServiceNames: []string{"api"},
 			})
 			if ready {

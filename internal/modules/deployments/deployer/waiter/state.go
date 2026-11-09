@@ -2,7 +2,6 @@
 package waiter
 
 import (
-	"context"
 	"fmt"
 	"reflect"
 	"time"
@@ -100,16 +99,11 @@ func (s *waitState) retryPending(
 }
 
 func (s *waitState) handleObservationError(
-	ctx context.Context,
 	span trace.Span,
 	request ServiceWaitRequest,
 	targets map[string]struct{},
 	cause error,
 ) error {
-	if ctx.Err() != nil {
-		s.failPending(span, request.Progress, ctx.Err())
-		return waitInterruptedError(request.StackName, s.last, ctx.Err(), s.lastObservationError)
-	}
 	if isTransientDockerAPIError(cause) {
 		s.retryPending(span, request.Progress, targets, cause)
 		return nil

@@ -11,7 +11,6 @@ import (
 	"unicode"
 
 	dockerswarm "github.com/docker/docker/api/types/swarm"
-	swarmkitapi "github.com/moby/swarmkit/v2/api"
 	"github.com/moby/swarmkit/v2/manager/constraint"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
@@ -27,53 +26,33 @@ type placementConstraintError struct {
 func (e placementConstraintError) FaultSummary() string { return e.summary }
 func (e placementConstraintError) Unwrap() error        { return e.Coded }
 
-func (w *ServiceWaiter) enrichPlacementSchedulingFaults(
-	ctx context.Context,
-	observed []ServiceProgress,
-	current map[string]swarm.StackService,
-	nodes map[string]*swarmkitapi.Node,
-) {
-	for i := range observed {
-		progress := &observed[i]
-		fault := progress.taskFault
-		if progress.State != ServicePending || fault == nil || fault.FaultCode() != faults.CodeNoSuitableNode {
-			continue
-		}
-		placement := current[progress.Name].ServiceSpec.TaskTemplate.Placement
-		if placement == nil || len(placement.Constraints) == 0 {
-			continue
-		}
-		constraints, err := constraint.Parse(placement.Constraints)
-		if err != nil {
-			continue
-		}
-		if nodes == nil {
-			nodes = w.listPlacementDiagnosticNodes(ctx)
-		}
-		if len(nodes) == 0 {
-			return
-		}
-		enrichPlacementSchedulingFault(progress, placement.Constraints, constraints, nodes)
+func (w *ServiceWaiter) enrichPlacementSchedulingFault(ctx context.Context, service ServiceProgress) faults.Coded {
+	fault := service.taskFault
+	raw := service.placementConstraints
+	if len(raw) == 0 || ctx.Err() != nil {
+		return fault
 	}
-}
-
-func (w *ServiceWaiter) listPlacementDiagnosticNodes(ctx context.Context) map[string]*swarmkitapi.Node {
-	ctx, cancel := context.WithTimeout(ctx, placementDiagnosticTimeout)
+	constraints, err := constraint.Parse(raw)
+	if err != nil {
+		return fault
+	}
+	for _, expression := range raw {
+		key := expression[:strings.IndexAny(expression, "=!")]
+		// Docker exposes the desired role, which may differ from the scheduler's active role.
+		if strings.EqualFold(strings.TrimSpace(key), "node.role") {
+			return fault
+		}
+	}
+	lookupCtx, cancel := context.WithTimeout(ctx, placementDiagnosticTimeout)
 	defer cancel()
 
-	nodes, err := w.nodes.List(ctx)
-	if err != nil {
-		return nil
+	nodes, err := w.nodes.List(lookupCtx)
+	if err != nil || len(nodes) == 0 {
+		return fault
 	}
-	return placementNodesByID(nodes)
-}
-
-func enrichPlacementSchedulingFault(
-	progress *ServiceProgress, raw []string, constraints []constraint.Constraint, nodes map[string]*swarmkitapi.Node,
-) {
 	for _, node := range nodes {
-		if nodeMatchesConstraints(constraints, node) {
-			return
+		if constraint.NodeMatches(constraints, node.ConstraintNode()) {
+			return fault
 		}
 	}
 	label := "constraint"
@@ -81,7 +60,7 @@ func enrichPlacementSchedulingFault(
 		label = "constraints"
 	}
 	summary := fmt.Sprintf("No nodes match placement %s: %s", label, strings.Join(raw, ", "))
-	progress.taskFault = placementConstraintError{Coded: progress.taskFault, summary: boundedDiagnostic(summary)}
+	return placementConstraintError{Coded: fault, summary: boundedDiagnostic(summary)}
 }
 
 func (p *ServiceProgress) pendingSchedulingFault(
@@ -98,6 +77,9 @@ func (p *ServiceProgress) pendingSchedulingFault(
 			latest = task
 			p.taskFault = fault
 		}
+	}
+	if p.taskFault != nil && template.Placement != nil {
+		p.placementConstraints = template.Placement.Constraints
 	}
 }
 
@@ -174,7 +156,8 @@ func formatTaskDiagnostic(task swarm.ServiceTask) string {
 	return diagnostic
 }
 
-func waitInterruptedError(
+func (w *ServiceWaiter) waitInterruptedError(
+	ctx context.Context,
 	stackName string,
 	progress map[string]ServiceProgress,
 	cause error,
@@ -203,7 +186,7 @@ func waitInterruptedError(
 		service := progress[name]
 		if service.State != ServiceReady && service.taskFault != nil &&
 			service.taskFault.FaultCode() == faults.CodeNoSuitableNode {
-			return fmt.Errorf("%w; task diagnostic: %w", err, service.taskFault)
+			return fmt.Errorf("%w; task diagnostic: %w", err, w.enrichPlacementSchedulingFault(ctx, service))
 		}
 	}
 	return err

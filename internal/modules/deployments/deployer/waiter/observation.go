@@ -15,41 +15,39 @@ import (
 func (w *ServiceWaiter) observeService(
 	ctx context.Context, name string, baseline, service swarm.StackService, unresolved bool,
 	expected dockerswarm.ServiceSpec, generation services.UpdateGeneration,
-) (ServiceProgress, map[string]*swarmkitapi.Node, error) {
+) (ServiceProgress, error) {
 	if generation.ServiceID == service.ID {
 		generation = services.ResolveUpdateGeneration(generation, service.PreviousSpec, service.ServiceSpec)
 	}
 	managed, err := services.ReplicasManaged(expected)
 	if err != nil {
-		progress := ServiceProgress{Name: name, State: ServicePending}
-		return progress, nil, fmt.Errorf("service %s replicas ownership: %w", name, err)
+		return ServiceProgress{Name: name, State: ServicePending}, fmt.Errorf("service %s replicas ownership: %w", name, err)
 	}
 	if !managed {
-		progress, observeErr := w.observeExternalService(ctx, name, baseline, service, unresolved, expected, generation)
-		return progress, nil, observeErr
+		return w.observeExternalService(ctx, name, baseline, service, unresolved, expected, generation)
 	}
 	progress := evaluateService(name, baseline, service, nil, unresolved, expected, nil, generation)
 	if service.ID == "" {
-		return progress, nil, nil
+		return progress, nil
 	}
 	_, terminal := terminalUpdateFailure(service.UpdateStatus)
 	terminal = terminal && !restoredCompletedRollback(baseline, service, expected)
 	if terminal && progress.State != ServiceFailed {
-		return progress, nil, nil // The status belongs to the previous rollout.
+		return progress, nil // The status belongs to the previous rollout.
 	}
 	if !terminal && service.Mode != replicatedServiceMode && service.Mode != globalServiceMode &&
 		service.Mode != replicatedJobServiceMode && service.Mode != globalJobServiceMode {
-		return progress, nil, nil
+		return progress, nil
 	}
 	tasks, err := w.services.ListTasks(ctx, service.ID)
 	if err != nil {
 		if terminal {
 			progress.Message += "; task diagnostics unavailable"
-			return progress, nil, nil
+			return progress, nil
 		}
 		progress.State = ServicePending
 		progress.Message = boundedDiagnostic(fmt.Sprintf("list tasks: %v", err))
-		return progress, nil, fmt.Errorf("list tasks for service %s: %w", name, err)
+		return progress, fmt.Errorf("list tasks for service %s: %w", name, err)
 	}
 	var placementNodes map[string]*swarmkitapi.Node
 	mode := serviceVerificationMode(baseline, service, unresolved, generation)
@@ -63,10 +61,9 @@ func (w *ServiceWaiter) observeService(
 		if listErr != nil {
 			progress.State = ServicePending
 			progress.Message = boundedDiagnostic(fmt.Sprintf("list nodes: %v", listErr))
-			return progress, nil, fmt.Errorf("list nodes for service %s placement: %w", name, listErr)
+			return progress, fmt.Errorf("list nodes for service %s placement: %w", name, listErr)
 		}
 		placementNodes = placementNodesByID(nodes)
 	}
-	progress = evaluateService(name, baseline, service, tasks, unresolved, expected, placementNodes, generation)
-	return progress, placementNodes, nil
+	return evaluateService(name, baseline, service, tasks, unresolved, expected, placementNodes, generation), nil
 }

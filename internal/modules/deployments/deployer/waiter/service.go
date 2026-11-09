@@ -11,7 +11,6 @@ import (
 	"time"
 
 	dockerswarm "github.com/docker/docker/api/types/swarm"
-	swarmkitapi "github.com/moby/swarmkit/v2/api"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/services"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/tracing"
@@ -67,8 +66,9 @@ type ServiceProgress struct {
 	// Message contains a bounded convergence diagnostic.
 	Message string
 
-	taskFault   faults.Coded
-	taskContext string
+	taskFault            faults.Coded
+	taskContext          string
+	placementConstraints []string
 }
 
 func (p *ServiceProgress) failTask(task swarm.ServiceTask, message string) {
@@ -151,10 +151,7 @@ func (w *ServiceWaiter) Snapshot(ctx context.Context, stackName string) ([]swarm
 // Wait blocks until the requested services converge or the wait is interrupted.
 func (w *ServiceWaiter) Wait(ctx context.Context, request ServiceWaitRequest) (ServiceWaitResult, error) {
 	startedAt := time.Now()
-	waitCtx, cancel := context.WithTimeout(ctx, w.timeout)
-	defer cancel()
-
-	waitCtx, span := serviceWaiterTracer.Start(waitCtx, "serviceWaiter.Wait", trace.WithAttributes(
+	ctx, span := serviceWaiterTracer.Start(ctx, "serviceWaiter.Wait", trace.WithAttributes(
 		tracing.ResourceStackName.String(request.StackName),
 	))
 	defer span.End()
@@ -165,7 +162,7 @@ func (w *ServiceWaiter) Wait(ctx context.Context, request ServiceWaitRequest) (S
 		finishServiceWaitSpan(span, startedAt, state, waitErr)
 	}()
 
-	waitErr = w.wait(waitCtx, span, request, &state)
+	waitErr = w.wait(ctx, span, request, &state)
 	return state.result(), waitErr
 }
 
@@ -175,7 +172,6 @@ func (w *ServiceWaiter) wait(
 	request ServiceWaitRequest,
 	state *waitState,
 ) error {
-
 	baseline := servicesByName(request.Baseline)
 	candidates := uniqueSortedNames(request.ServiceNames)
 	targets := make(map[string]struct{}, len(candidates))
@@ -186,11 +182,14 @@ func (w *ServiceWaiter) wait(
 	if len(candidates) == 0 {
 		return nil
 	}
+	waitCtx, cancel := context.WithTimeout(ctx, w.timeout)
+	defer cancel()
 	ticker := time.NewTicker(w.pollInterval)
 	defer ticker.Stop()
 
+waitLoop:
 	for {
-		allReady, observeErr := w.poll(ctx, span, request, baseline, targets, state)
+		allReady, observeErr := w.poll(waitCtx, span, request, baseline, targets, state)
 		switch {
 		case errors.Is(observeErr, ErrConvergenceFailed):
 			// Finish observing independent targets before returning the known failure.
@@ -199,7 +198,10 @@ func (w *ServiceWaiter) wait(
 				return observeErr
 			}
 		case observeErr != nil:
-			if waitErr := state.handleObservationError(ctx, span, request, targets, observeErr); waitErr != nil {
+			if waitCtx.Err() != nil {
+				break waitLoop
+			}
+			if waitErr := state.handleObservationError(span, request, targets, observeErr); waitErr != nil {
 				return errors.Join(state.terminalFailure, waitErr)
 			}
 		case allReady:
@@ -207,15 +209,18 @@ func (w *ServiceWaiter) wait(
 		}
 
 		select {
-		case <-ctx.Done():
+		case <-waitCtx.Done():
 		case <-ticker.C:
 		}
-		if err := ctx.Err(); err != nil {
-			state.failPending(span, request.Progress, err)
-			return errors.Join(state.terminalFailure,
-				waitInterruptedError(request.StackName, state.last, err, state.lastObservationError))
+		if waitCtx.Err() != nil {
+			break
 		}
 	}
+
+	cause := waitCtx.Err()
+	state.failPending(span, request.Progress, cause)
+	return errors.Join(state.terminalFailure,
+		w.waitInterruptedError(ctx, request.StackName, state.last, cause, state.lastObservationError))
 }
 
 func (w *ServiceWaiter) poll(
@@ -251,32 +256,22 @@ func (w *ServiceWaiter) observeTargets(
 	state.converged = 0
 	allReady := true
 	var failures []error
-	var placementNodes map[string]*swarmkitapi.Node
-	observed := make([]ServiceProgress, 0, len(targets))
-	defer func() {
-		for _, progress := range observed {
-			state.emit(span, request.Progress, progress)
-		}
-	}()
 	for _, name := range sortedTargetNames(targets) {
 		if slices.Contains(request.AppliedServices, name) && baseline[name].ID != "" &&
 			!serviceChanged(baseline[name], current[name]) {
 			// Docker may briefly return the pre-apply snapshot. Neither old running
 			// tasks nor an old paused update describes the accepted service version.
-			observed = append(observed, ServiceProgress{
+			state.emit(span, request.Progress, ServiceProgress{
 				Name: name, State: ServicePending, Message: "waiting for applied service version",
 			})
 			allReady = false
 			continue
 		}
-		progress, nodes, err := w.observeService(ctx, name, baseline[name], current[name],
+		progress, err := w.observeService(ctx, name, baseline[name], current[name],
 			slices.Contains(request.UnresolvedServices, name), request.ExpectedSpecs[name], request.UpdateGenerations[name])
-		observed = append(observed, progress)
+		state.emit(span, request.Progress, progress)
 		if err != nil {
 			return false, errors.Join(append(failures, err)...)
-		}
-		if nodes != nil {
-			placementNodes = nodes
 		}
 		if progress.State == ServiceFailed {
 			diagnostic := errors.New(progress.Message)
@@ -293,7 +288,6 @@ func (w *ServiceWaiter) observeTargets(
 		}
 		allReady = false
 	}
-	w.enrichPlacementSchedulingFaults(ctx, observed, current, placementNodes)
 	return allReady, errors.Join(failures...)
 }
 

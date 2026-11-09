@@ -113,7 +113,7 @@ func TestMetadataUpdateVerifiesPreservedTaskCompatibility(t *testing.T) {
 					nodes.EXPECT().List(gomock.Any()).Return([]swarm.Node{tc.node}, tc.lookupErr)
 				}
 
-				progress, _, err := NewServiceWaiter(manager, nodes, time.Millisecond, time.Second).observeService(
+				progress, err := NewServiceWaiter(manager, nodes, time.Millisecond, time.Second).observeService(
 					t.Context(), "api", before, after, false, after.ServiceSpec, services.UpdateGeneration{},
 				)
 
@@ -157,7 +157,7 @@ func TestPlacementUpdateChecksNodesForMatchingTasks(t *testing.T) {
 				manager.EXPECT().ListTasks(gomock.Any(), after.ID).Return(tasks, nil)
 				nodes.EXPECT().List(gomock.Any()).Return([]swarm.Node{tc.node}, nil)
 
-				progress, _, err := NewServiceWaiter(manager, nodes, time.Millisecond, time.Second).observeService(
+				progress, err := NewServiceWaiter(manager, nodes, time.Millisecond, time.Second).observeService(
 					t.Context(), "api", before, after, false, after.ServiceSpec, services.UpdateGeneration{},
 				)
 
