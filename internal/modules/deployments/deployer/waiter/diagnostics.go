@@ -2,6 +2,7 @@
 package waiter
 
 import (
+	"context"
 	"fmt"
 	"slices"
 	"sort"
@@ -10,9 +11,52 @@ import (
 	"unicode"
 
 	dockerswarm "github.com/docker/docker/api/types/swarm"
+	swarmkitapi "github.com/moby/swarmkit/v2/api"
+	"github.com/moby/swarmkit/v2/manager/constraint"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
+
+type placementConstraintFault struct {
+	faults.Coded
+	summary string
+}
+
+func (e placementConstraintFault) FaultSummary() string { return e.summary }
+func (e placementConstraintFault) Unwrap() error        { return e.Coded }
+
+func (w *ServiceWaiter) placementSchedulingFault(
+	ctx context.Context, fault faults.Coded, placement *dockerswarm.Placement, nodes map[string]*swarmkitapi.Node,
+) faults.Coded {
+	if placement == nil || len(placement.Constraints) == 0 {
+		return fault
+	}
+	constraints, err := constraint.Parse(placement.Constraints)
+	if err != nil {
+		return fault
+	}
+	if nodes == nil {
+		listed, listErr := w.nodes.List(ctx)
+		if listErr != nil {
+			return fault
+		}
+		nodes = placementNodesByID(listed)
+	}
+	if len(nodes) == 0 {
+		return fault
+	}
+	for _, node := range nodes {
+		if nodeMatchesConstraints(constraints, node) {
+			return fault
+		}
+	}
+	label := "constraint"
+	if len(constraints) > 1 {
+		label = "constraints"
+	}
+	summary := fmt.Sprintf("No nodes match placement %s: %s", label, strings.Join(placement.Constraints, ", "))
+	return placementConstraintFault{Coded: fault, summary: boundedDiagnostic(summary)}
+}
 
 func (p *ServiceProgress) pendingSchedulingFault(
 	tasks []swarm.ServiceTask, template dockerswarm.TaskSpec, cutoff time.Time,

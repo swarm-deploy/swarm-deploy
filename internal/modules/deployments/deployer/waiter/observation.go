@@ -9,6 +9,7 @@ import (
 	dockerswarm "github.com/docker/docker/api/types/swarm"
 	swarmkitapi "github.com/moby/swarmkit/v2/api"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/services"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 
@@ -65,5 +66,11 @@ func (w *ServiceWaiter) observeService(
 		}
 		placementNodes = placementNodesByID(nodes)
 	}
-	return evaluateService(name, baseline, service, tasks, unresolved, expected, placementNodes, generation), nil
+	progress = evaluateService(name, baseline, service, tasks, unresolved, expected, placementNodes, generation)
+	if progress.State == ServicePending && progress.taskFault != nil &&
+		progress.taskFault.FaultCode() == faults.CodeNoSuitableNode {
+		progress.taskFault = w.placementSchedulingFault(ctx, progress.taskFault,
+			service.ServiceSpec.TaskTemplate.Placement, placementNodes)
+	}
+	return progress, nil
 }

@@ -98,32 +98,74 @@ func TestWaitInterruptedErrorPreservesTechnicalChain(t *testing.T) {
 }
 
 func TestServiceWaiterPendingSchedulingFaultAtTimeout(t *testing.T) {
+	const (
+		dockerDiagnostic = "no suitable node (scheduling constraints not satisfied on 1 node)"
+		regionConstraint = "node.labels.region == eu"
+		roleConstraint   = "node.role == manager"
+	)
+	workerEU := swarm.Node{ID: "worker-eu", Role: "worker", Labels: map[string]string{"region": "eu"}}
+	managerUS := swarm.Node{ID: "manager-us", Role: "manager", Labels: map[string]string{"region": "us"}}
 	for _, tc := range []struct {
-		name       string
-		diagnostic string
-		stale      bool
-		otherSpec  bool
-		shutdown   bool
-		wantFault  bool
-		initial    bool
+		name        string
+		diagnostic  string
+		constraints []string
+		nodes       []swarm.Node
+		nodeListErr error
+		stale       bool
+		otherSpec   bool
+		shutdown    bool
+		wantFault   bool
+		initial     bool
+		wantSummary string
 	}{
-		{name: "constraints on initial task", diagnostic: "no suitable node (scheduling constraints not satisfied on 1 node)", wantFault: true, initial: true},
+		{
+			name: "constraint on initial task", diagnostic: dockerDiagnostic, wantFault: true, initial: true,
+			constraints: []string{regionConstraint}, nodes: []swarm.Node{managerUS},
+			wantSummary: "No nodes match placement constraint: " + regionConstraint,
+		},
+		{
+			name: "no node matches all constraints", diagnostic: dockerDiagnostic, wantFault: true,
+			constraints: []string{regionConstraint, roleConstraint}, nodes: []swarm.Node{workerEU, managerUS},
+			wantSummary: "No nodes match placement constraints: " + regionConstraint + ", " + roleConstraint,
+		},
+		{
+			name: "matching node unavailable for scheduling", diagnostic: "no suitable node (1 node not available for new tasks)", wantFault: true,
+			constraints: []string{regionConstraint}, nodes: []swarm.Node{{ID: "drained-eu", Availability: "drain", Labels: workerEU.Labels}},
+		},
+		{
+			name: "node list error", diagnostic: dockerDiagnostic, wantFault: true,
+			constraints: []string{regionConstraint}, nodeListErr: errors.New("node list unavailable"),
+		},
+		{
+			name: "empty node snapshot", diagnostic: dockerDiagnostic, wantFault: true,
+			constraints: []string{regionConstraint}, nodes: []swarm.Node{},
+		},
+		{
+			name: "invalid constraint", diagnostic: dockerDiagnostic, wantFault: true,
+			constraints: []string{"node.labels.region = eu"},
+		},
 		{name: "resources", diagnostic: "no suitable node (insufficient resources on 1 node)", wantFault: true},
 		{name: "nodes unavailable", diagnostic: "no suitable node (1 node not available for new tasks)", wantFault: true},
 		{name: "full diagnostic", diagnostic: "no suitable node (" + strings.Repeat("node not available; ", 30) + ")", wantFault: true},
 		{name: "ordinary pending"},
 		{name: "ambiguous pending", diagnostic: "waiting for assignment"},
-		{name: "old task", diagnostic: "no suitable node", stale: true},
+		{name: "old task", diagnostic: "no suitable node", constraints: []string{regionConstraint}, stale: true},
 		{name: "different template", diagnostic: "no suitable node", otherSpec: true},
 		{name: "retired task", diagnostic: "no suitable node", shutdown: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			manager := swarm.NewMockServiceManager(gomock.NewController(t))
+			controller := gomock.NewController(t)
+			manager := swarm.NewMockServiceManager(controller)
+			nodes := swarm.NewMockNodeManager(controller)
 			service := testReplicatedService("api", "api-id", 1, serviceWaitTestTime, "api:2")
+			if tc.constraints != nil {
+				service.ServiceSpec.TaskTemplate.Placement = &dockerswarm.Placement{Constraints: tc.constraints}
+			}
 			if !tc.initial {
 				service.UpdateStatus = &swarm.ServiceUpdateStatus{State: "updating", StartedAt: serviceWaitTestTime}
 			}
 			task := testTask("pending-task", 1, swarm.TaskStateRunning, swarm.TaskStatePending, serviceWaitTestTime)
+			task.Spec = swarm.NewTaskSpec(service.ServiceSpec.TaskTemplate)
 			task.Error = tc.diagnostic
 			if tc.stale {
 				task.CreatedAt = task.CreatedAt.Add(-time.Minute)
@@ -136,8 +178,11 @@ func TestServiceWaiterPendingSchedulingFaultAtTimeout(t *testing.T) {
 			}
 			manager.EXPECT().ListServices(gomock.Any(), gomock.Any()).Return([]swarm.StackService{service}, nil).AnyTimes()
 			manager.EXPECT().ListTasks(gomock.Any(), service.ID).Return([]swarm.ServiceTask{task}, nil).AnyTimes()
+			if tc.nodes != nil || tc.nodeListErr != nil {
+				nodes.EXPECT().List(gomock.Any()).Return(tc.nodes, tc.nodeListErr).MinTimes(1)
+			}
 			var updates []ServiceProgress
-			result, err := NewServiceWaiter(manager, nil, time.Millisecond, 20*time.Millisecond).Wait(t.Context(), ServiceWaitRequest{
+			result, err := NewServiceWaiter(manager, nodes, time.Millisecond, 20*time.Millisecond).Wait(t.Context(), ServiceWaitRequest{
 				StackName: "app", ServiceNames: []string{"api"},
 				Progress: func(p ServiceProgress) { updates = append(updates, p) },
 			})
@@ -155,7 +200,14 @@ func TestServiceWaiterPendingSchedulingFaultAtTimeout(t *testing.T) {
 			}
 			require.ErrorAs(t, err, &coded)
 			assert.Equal(t, faults.CodeNoSuitableNode, coded.FaultCode())
-			assert.Equal(t, boundedDiagnostic(tc.diagnostic), coded.FaultSummary())
+			if tc.wantSummary == "" {
+				assert.Equal(t, boundedDiagnostic(tc.diagnostic), coded.FaultSummary())
+			} else {
+				assert.Equal(t, tc.wantSummary, coded.FaultSummary())
+				var original faults.Coded
+				require.ErrorAs(t, errors.Unwrap(coded), &original)
+				assert.Equal(t, tc.diagnostic, original.FaultSummary())
+			}
 			assert.EqualError(t, coded, tc.diagnostic)
 			assert.ErrorContains(t, err, tc.diagnostic)
 			if !tc.initial {
