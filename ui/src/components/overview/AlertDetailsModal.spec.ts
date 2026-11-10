@@ -93,8 +93,8 @@ describe("Alert details modal", () => {
 
     const links = wrapper.findAllComponents(RouterLinkStub);
     expect(links.map((link) => link.props("to"))).toEqual([
-      { path: "/overview", hash: "#stack-app%2Fname" },
-      { path: "/overview", hash: "#stack-app%2Fname" },
+      { name: "stack-details", params: { stack: "app/name" } },
+      { name: "stack-details", params: { stack: "app/name" } },
     ]);
     await wrapper.get(".alert-details-metadata button").trigger("click");
     expect(openCommit).toHaveBeenCalledWith("abcdef012345");
