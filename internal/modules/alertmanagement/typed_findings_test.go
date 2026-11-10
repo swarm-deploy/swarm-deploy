@@ -28,6 +28,7 @@ func TestDockerFaultsExtractedIntoAlertFindings(t *testing.T) {
 		{swarm.TaskStateRejected, "unauthorized: authentication required", "image_pull_denied"},
 		{swarm.TaskStateRejected, `invalid mount config for type "bind": bind source path does not exist: /srv/data`, "mount_failed"},
 		{swarm.TaskStateRejected, "No such image: api:2", "image_not_found"},
+		{swarm.TaskStateRejected, `failed to prepare extraction snapshot "extract-225092350-0LGf sha256:95dbfedee91178a3278e2e146a03bfd2223378ee9f60480b71df6f8d6cc1316e": NotFound: lease does not exist: not found`, faults.CodeImageExtractionFailed},
 		{swarm.TaskStatePending, "waiting for assignment", ""},
 		{swarm.TaskStateRejected, "image pull failed: context deadline exceeded", ""},
 	} {
@@ -66,7 +67,11 @@ func TestDockerFaultsExtractedIntoAlertFindings(t *testing.T) {
 				assert.Empty(t, alerts[0].Findings)
 				return
 			}
-			assert.Equal(t, []model.Finding{{Code: tc.code, Summary: tc.diagnostic, DetectedAt: now.UTC()}}, alerts[0].Findings)
+			wantSummary := tc.diagnostic
+			if tc.code == faults.CodeImageExtractionFailed {
+				wantSummary = "Container image extraction failed: containerd snapshot lease is missing. Retry deployment; check for concurrent image cleanup."
+			}
+			assert.Equal(t, []model.Finding{{Code: tc.code, Summary: wantSummary, DetectedAt: now.UTC()}}, alerts[0].Findings)
 		})
 	}
 }
