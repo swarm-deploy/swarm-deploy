@@ -50,6 +50,33 @@ func TestDockerDiagnosticFaults(t *testing.T) {
 	}
 }
 
+func TestDockerImageExtractionFault(t *testing.T) {
+	const diagnostic = `failed to prepare extraction snapshot "extract-225092350-0LGf sha256:95dbfedee91178a3278e2e146a03bfd2223378ee9f60480b71df6f8d6cc1316e": NotFound: lease does not exist: not found`
+	const summary = "Container image extraction failed: containerd snapshot lease is missing. Retry deployment; check for concurrent image cleanup."
+	cause := errors.New(diagnostic)
+	classified := classifyDockerError(fmt.Errorf("Error response from daemon: %w", cause))
+	var coded faults.Coded
+	require.ErrorAs(t, classified, &coded)
+	assert.Equal(t, faults.CodeImageExtractionFailed, coded.FaultCode())
+	assert.Equal(t, summary, coded.FaultSummary())
+	assert.ErrorIs(t, classified, cause)
+	assert.ErrorContains(t, classified, diagnostic)
+
+	task := ServiceTask{CurrentState: TaskStateRejected, Error: diagnostic}
+	require.NotNil(t, task.Fault())
+	assert.Equal(t, faults.CodeImageExtractionFailed, task.Fault().FaultCode())
+	assert.Equal(t, summary, task.Fault().FaultSummary())
+	assert.False(t, task.ImageNotFound())
+
+	for _, unrelated := range []string{
+		"NotFound: lease does not exist: not found",
+		"failed to prepare extraction snapshot: image not found",
+	} {
+		code, _ := dockerFault(unrelated)
+		assert.Empty(t, code)
+	}
+}
+
 func TestDockerDiagnosticFaultsAvoidFalsePositives(t *testing.T) {
 	for _, diagnostic := range []string{
 		"task pending", "waiting for resources", "no eligible nodes", "image pull failed",
