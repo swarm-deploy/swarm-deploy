@@ -6,6 +6,9 @@ type Code string
 // CodeImageNotFound indicates that Docker reported a missing image.
 const CodeImageNotFound Code = "image_not_found"
 
+// CodeImageExtractionFailed indicates that Docker could not extract an image filesystem.
+const CodeImageExtractionFailed Code = "image_extraction_failed"
+
 // CodeNoSuitableNode indicates that Swarm could not schedule a task.
 const CodeNoSuitableNode Code = "no_suitable_node"
 
