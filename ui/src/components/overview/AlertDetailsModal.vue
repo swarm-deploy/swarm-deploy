@@ -32,7 +32,7 @@ const resolutionTitle = computed(() => {
 });
 const stackTarget = computed(() => {
   if (alert.value?.resourceType !== "stack" || !alert.value.resourceId) return null;
-  return { path: "/overview", hash: `#stack-${encodeURIComponent(alert.value.resourceId)}` };
+  return { name: "stack-details", params: { stack: alert.value.resourceId } };
 });
 const serviceTarget = computed(() => {
   if (alert.value?.resourceType !== "service") return null;
