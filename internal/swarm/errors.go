@@ -80,7 +80,8 @@ func dockerFault(diagnostic string) (faults.Code, string) {
 	if strings.Contains(message, "failed to prepare extraction snapshot") &&
 		strings.Contains(message, "lease does not exist") {
 		return faults.CodeImageExtractionFailed,
-			"Container image extraction failed: containerd snapshot lease is missing. Retry deployment; check for concurrent image cleanup."
+			"Container image extraction failed: containerd snapshot lease is missing. " +
+				"Retry deployment; check for concurrent image cleanup."
 	}
 	// Match Docker/Swarm diagnostics rather than generic permission or startup errors.
 	for _, pattern := range []struct {
