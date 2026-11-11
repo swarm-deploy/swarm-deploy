@@ -28,7 +28,6 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/tracing"
 	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -111,7 +110,7 @@ func New(
 // Poll checks Git and runs reconciliation only when the revision changed.
 func (r *Runner) Poll(ctx context.Context) {
 	ctx, span := r.tracer.Start(ctx, "controller.Poll", trace.WithAttributes(
-		tracing.SyncReason.String(string(TriggerPoll)),
+		tracing.SyncTrigger.String(string(TriggerPoll)),
 	))
 	defer span.End()
 
@@ -127,7 +126,7 @@ func (r *Runner) Poll(ctx context.Context) {
 		pollResult = syncRunResultUpdated
 	}
 	r.updatePollState(ctx, pollResult, nil)
-	span.AddEvent("git pull completed", trace.WithAttributes(attribute.Bool("git.updated", gitResult.Updated)))
+	span.AddEvent("git pull completed", trace.WithAttributes(tracing.SyncGitUpdated.Bool(gitResult.Updated)))
 	if gitResult.Updated {
 		r.run(ctx, Task{Reason: TriggerPoll}, &gitResult)
 	}
@@ -143,7 +142,7 @@ func (r *Runner) run(ctx context.Context, task Task, gitResult *gitx.PullResult)
 		ctx = trace.ContextWithSpanContext(ctx, task.SpanContext)
 	}
 	ctx, span := r.tracer.Start(ctx, "controller.Sync", trace.WithAttributes(
-		attribute.String("sync.trigger", string(task.Reason)),
+		tracing.SyncTrigger.String(string(task.Reason)),
 	))
 	defer span.End()
 	startedAt := time.Now()
@@ -205,7 +204,7 @@ func (r *Runner) run(ctx context.Context, task Task, gitResult *gitx.PullResult)
 	}
 
 	stackCtx, stackSpan := r.tracer.Start(ctx, "controller.dispatchStacks", trace.WithAttributes(
-		attribute.Int("stacks.total", len(plan.Stacks)), attribute.Int("stacks.changed", len(plan.Changed))))
+		tracing.StacksTotal.Int(len(plan.Stacks)), tracing.StacksChanged.Int(len(plan.Changed))))
 	if err = r.dispatchStacks(stackCtx, plan, gitResult.NewRevision, task.Reason); err != nil {
 		tracing.FailSpan(stackSpan, err)
 		stackSpan.End()

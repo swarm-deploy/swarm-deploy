@@ -7,7 +7,6 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/transport/client"
 	phttp "github.com/go-git/go-git/v5/plumbing/transport/http"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
-	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
@@ -42,7 +41,7 @@ func (t *TraceableRepository) WorkingDir() string {
 }
 
 func (t *TraceableRepository) ReadFile(ctx context.Context, revision, path string) ([]byte, error) {
-	ctx, span := t.tracer.Start(ctx, "repo.ReadFile", trace.WithAttributes(attribute.String("path", path)))
+	ctx, span := t.tracer.Start(ctx, "repo.ReadFile", trace.WithAttributes(tracing.GitPath.String(path)))
 	defer span.End()
 
 	content, err := t.repo.ReadFile(ctx, revision, path)
@@ -67,9 +66,9 @@ func (t *TraceableRepository) Pull(ctx context.Context) (PullResult, error) {
 	}
 
 	span.SetAttributes(
-		attribute.String("old_revision", result.OldRevision),
-		attribute.String("new_revision", result.NewRevision),
-		attribute.Bool("updated", result.Updated),
+		tracing.GitOldRevision.String(result.OldRevision),
+		tracing.GitNewRevision.String(result.NewRevision),
+		tracing.GitUpdated.Bool(result.Updated),
 	)
 	span.SetStatus(codes.Ok, "")
 
@@ -86,14 +85,14 @@ func (t *TraceableRepository) Head(ctx context.Context) (string, error) {
 		return "", err
 	}
 
-	span.SetAttributes(attribute.String("revision", head))
+	span.SetAttributes(tracing.GitRevision.String(head))
 	span.SetStatus(codes.Ok, "")
 
 	return head, nil
 }
 
 func (t *TraceableRepository) List(ctx context.Context, limit int) ([]CommitMeta, error) {
-	ctx, span := t.tracer.Start(ctx, "repo.List", trace.WithAttributes(attribute.Int("limit", limit)))
+	ctx, span := t.tracer.Start(ctx, "repo.List", trace.WithAttributes(tracing.GitLimit.Int(limit)))
 	defer span.End()
 
 	commits, err := t.repo.List(ctx, limit)
@@ -102,7 +101,7 @@ func (t *TraceableRepository) List(ctx context.Context, limit int) ([]CommitMeta
 		return nil, err
 	}
 
-	span.SetAttributes(attribute.Int("commits.count", len(commits)))
+	span.SetAttributes(tracing.GitCommitsCount.Int(len(commits)))
 	span.SetStatus(codes.Ok, "")
 
 	return commits, nil
@@ -114,8 +113,8 @@ func (t *TraceableRepository) Diff(
 	newRevision string,
 ) ([]CommitFileDiff, error) {
 	ctx, span := t.tracer.Start(ctx, "repo.Diff", trace.WithAttributes(
-		attribute.String("old_revision", oldRevision),
-		attribute.String("new_revision", newRevision),
+		tracing.GitOldRevision.String(oldRevision),
+		tracing.GitNewRevision.String(newRevision),
 	))
 	defer span.End()
 
@@ -125,14 +124,14 @@ func (t *TraceableRepository) Diff(
 		return nil, err
 	}
 
-	span.SetAttributes(attribute.Int("file_diff_count", len(fileDiffs)))
+	span.SetAttributes(tracing.GitFileDiffCount.Int(len(fileDiffs)))
 	span.SetStatus(codes.Ok, "")
 
 	return fileDiffs, nil
 }
 
 func (t *TraceableRepository) Show(ctx context.Context, commitHash string) (Commit, error) {
-	ctx, span := t.tracer.Start(ctx, "repo.Show", trace.WithAttributes(attribute.String("commit_hash", commitHash)))
+	ctx, span := t.tracer.Start(ctx, "repo.Show", trace.WithAttributes(tracing.GitCommitHash.String(commitHash)))
 	defer span.End()
 
 	commit, err := t.repo.Show(ctx, commitHash)
@@ -141,7 +140,7 @@ func (t *TraceableRepository) Show(ctx context.Context, commitHash string) (Comm
 		return Commit{}, err
 	}
 
-	span.SetAttributes(attribute.Int("files.count", len(commit.Files)))
+	span.SetAttributes(tracing.GitFilesCount.Int(len(commit.Files)))
 	span.SetStatus(codes.Ok, "")
 
 	return commit, nil
