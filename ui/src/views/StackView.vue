@@ -199,7 +199,7 @@ onUnmounted(() => { request++; });
           id="stack-deployments-title"
           class="stack-deployments-panel"
           title="Recent Deployments"
-          :link="{ name: 'deployments', query: { stack: stack.name } }"
+          :link="{ name: 'deployments', query: { stack_name: stack.name } }"
           :deployments="recentDeployments"
           :error="deploymentsError"
         />

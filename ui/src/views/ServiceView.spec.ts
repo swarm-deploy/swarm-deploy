@@ -241,7 +241,8 @@ describe("ServiceView", () => {
     const mobileTask = wrapper.get(".service-realtime-mobile-item");
 
     expect(mobileTask.text()).toContain("manager-1");
-    expect(mobileTask.text()).toContain("running");
+    expect(mobileTask.get(".app-status-badge").text()).toBe("Running");
+    expect(mobileTask.get(".app-status-badge").classes()).toContain("app-status-badge--success");
     expect(mobileTask.text()).toContain("Updated");
     expect(mobileTask.text()).not.toContain("Created");
     expect(mobileTask.find("dl").exists()).toBe(false);
@@ -275,8 +276,8 @@ describe("ServiceView", () => {
       "Actions",
     ]);
     expect(realtimeCard.findAll(".service-realtime-desktop .service-realtime-action-button")).toHaveLength(2);
-    expect(realtimeCard.get(".service-realtime-table .status").classes()).toContain("success");
-    expect(realtimeCard.get(".service-realtime-table .status").text()).toBe("running");
+    expect(realtimeCard.get(".service-realtime-table .app-status-badge").classes()).toContain("app-status-badge--success");
+    expect(realtimeCard.get(".service-realtime-table .app-status-badge").text()).toBe("Running");
   });
 
   it("opens task details from the icon action", async () => {

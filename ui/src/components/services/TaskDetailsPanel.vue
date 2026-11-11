@@ -6,7 +6,7 @@ import { formatBytes, formatDate, formatNanoCPU } from "../../utils/format";
 import { decodeBase64Utf8 } from "../../utils/realtime";
 import AppCopyButton from "../common/AppCopyButton.vue";
 import AppPanel from "../common/AppPanel.vue";
-import AppStatusBadge from "../common/AppStatusBadge.vue";
+import TaskStatusBadge from "./TaskStatusBadge.vue";
 import AppTabs from "../common/AppTabs.vue";
 import AppTableEmpty from "../common/AppTableEmpty.vue";
 
@@ -58,13 +58,6 @@ watch(
     revealed.value = new Set();
   },
 );
-
-function stateVariant(state: string): "success" | "error" | "neutral" {
-  const value = state.trim().toLowerCase();
-  if (["running", "complete", "completed"].includes(value)) return "success";
-  if (["failed", "rejected", "shutdown"].includes(value)) return "error";
-  return "neutral";
-}
 
 function parseImageReference(reference: string): ImageReferenceParts {
   const value = reference.trim();
@@ -164,7 +157,7 @@ function hasResources(resources: SwarmTaskResources | undefined): boolean {
           <dl class="realtime-task-runtime">
             <div>
               <dt>State</dt>
-              <dd><AppStatusBadge class="realtime-task-runtime-state" :variant="stateVariant(task.current_state)" dot>{{ task.current_state || "Unknown" }}</AppStatusBadge></dd>
+              <dd><TaskStatusBadge :state="task.current_state" /></dd>
             </div>
             <div><dt>Desired</dt><dd>{{ task.desired_state || "—" }}</dd></div>
             <div><dt>Exit code</dt><dd>{{ displayedExitCode(task) }}</dd></div>
@@ -316,7 +309,6 @@ function hasResources(resources: SwarmTaskResources | undefined): boolean {
 .realtime-task-runtime > div, .realtime-task-timestamps > div, .realtime-task-resources > div { min-width: 0; display: grid; align-content: start; gap: 4px; }
 .realtime-task-runtime dt, .realtime-task-timestamps dt, .realtime-task-resources dt, .realtime-task-runtime-error dt { color: var(--muted); font-size: .68rem; }
 .realtime-task-runtime dd, .realtime-task-timestamps dd, .realtime-task-resources dd, .realtime-task-runtime-error dd { min-width: 0; margin: 0; font-size: .78rem; overflow-wrap: anywhere; }
-.realtime-task-runtime-state { border: 0; padding: 0; font-size: .78rem; }
 .realtime-task-runtime-error { margin: 0; border-top: 1px solid var(--border-subtle); padding-top: 10px; }
 .realtime-task-runtime-error > div { display: grid; gap: 4px; }
 .realtime-task-runtime-error dd { color: var(--error); line-height: 1.4; }

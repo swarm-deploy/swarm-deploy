@@ -11,6 +11,7 @@ import AppTable from "../components/common/AppTable.vue";
 import AppTableEmpty from "../components/common/AppTableEmpty.vue";
 import SidebarIcon from "../components/layout/SidebarIcon.vue";
 import TaskDetailsPanel from "../components/services/TaskDetailsPanel.vue";
+import TaskStatusBadge from "../components/services/TaskStatusBadge.vue";
 import TaskLogsModal from "../components/services/TaskLogsModal.vue";
 import { copyText } from "../utils/clipboard";
 import { formatDate } from "../utils/format";
@@ -187,19 +188,6 @@ function stateVariant(state: RuntimeState): "success" | "warning" | "neutral" {
   if (state === "running") return "success";
   if (state === "degraded") return "warning";
   return "neutral";
-}
-
-function taskStateVariant(state: string): "success" | "error" | "neutral" {
-  const normalized = state.trim().toLowerCase();
-  if (["running", "complete", "completed"].includes(normalized)) return "success";
-  if (["failed", "rejected", "shutdown"].includes(normalized)) return "error";
-  return "neutral";
-}
-
-function taskStateLabel(state: string): string {
-  const value = state.trim();
-  if (!value) return "Unknown";
-  return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
 function shortID(id: string): string {
@@ -557,7 +545,7 @@ onUnmounted(() => {
                     <div class="realtime-task-grid">
                       <button type="button" class="realtime-task-select" @click="selectTask(task)"><strong>Slot {{ task.slot }}</strong><code>{{ shortID(task.id) }}</code></button>
                       <span class="realtime-task-node">{{ task.node_name || task.node || "Unavailable" }}</span>
-                      <AppStatusBadge class="realtime-state" :variant="taskStateVariant(task.current_state)" dot>{{ taskStateLabel(task.current_state) }}</AppStatusBadge>
+                      <TaskStatusBadge class="realtime-task-state" :state="task.current_state" />
                       <time :datetime="task.updated_at" :title="formatDate(task.updated_at)">{{ formatRelativeTime(task.updated_at) }}</time>
                       <span class="realtime-task-error-cell" :class="{ 'realtime-task-error-cell--failed': task.error && isFailedTask(task.current_state) }">
                         <span :title="task.error || undefined">{{ task.error || "—" }}</span>
@@ -796,7 +784,7 @@ onUnmounted(() => {
   .realtime-task-grid { width: calc(100% - 28px); grid-template-columns: minmax(0, 1fr) auto; gap: 5px 12px; min-height: 0; margin-left: 28px; padding: 9px 12px; }
   .realtime-task-select { grid-column: 1; grid-row: 1; }
   .realtime-task-node { grid-column: 1; grid-row: 2; color: var(--muted); }
-  .realtime-task-grid > .realtime-state { grid-column: 2; grid-row: 1; justify-self: end; }
+  .realtime-task-grid > .realtime-task-state { grid-column: 2; grid-row: 1; justify-self: end; }
   .realtime-task-grid time { grid-column: 2; grid-row: 2; justify-self: end; }
   .realtime-task-error-cell { grid-column: 1 / -1; grid-row: 3; }
   .realtime-task-actions { position: static; grid-column: 1 / -1; grid-row: 4; justify-content: flex-start; transform: none; }

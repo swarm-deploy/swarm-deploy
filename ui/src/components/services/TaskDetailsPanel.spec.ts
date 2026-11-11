@@ -54,7 +54,7 @@ describe("TaskDetailsPanel", () => {
     expect(wrapper.find("#task-overview-title").exists()).toBe(false);
     expect(wrapper.find(".realtime-logs-button").exists()).toBe(false);
     expect(wrapper.get(".realtime-task-runtime").findAll(":scope > div")).toHaveLength(3);
-    expect(wrapper.get(".realtime-task-runtime-state").classes()).not.toContain("app-status-badge--filled");
+    expect(wrapper.get(".realtime-task-runtime .app-status-badge").classes()).not.toContain("app-status-badge--filled");
     expect(wrapper.get(".realtime-task-identifiers").text()).not.toContain("Slot");
   });
 
