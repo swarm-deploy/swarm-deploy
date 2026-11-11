@@ -149,7 +149,11 @@ Notes:
 
 Assistant requests are protected by:
 
-- regex deny-list checks on user input before model execution
+- regex deny-list checks on user input and retrieved service metadata before model execution
 - immutable safety instructions inside system prompt
 
 When protection is triggered, response status is `rejected`.
+
+Tool results are not rejected by the regex deny-list, because logs, events, and release notes
+legitimately quote phrases such as "system prompt". A matching tool result is passed to the model
+with a security notice that marks it as untrusted data, and a warning is logged with the tool name.
