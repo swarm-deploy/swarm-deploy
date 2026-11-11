@@ -15,6 +15,7 @@ func TestDockerDiagnosticFaults(t *testing.T) {
 	for _, tc := range []struct {
 		diagnostic string
 		code       faults.Code
+		summary    string
 	}{
 		{"no suitable node (scheduling constraints not satisfied on 3 nodes)", faults.CodeNoSuitableNode},
 		{"no suitable node (insufficient resources on 1 node)", faults.CodeNoSuitableNode},
@@ -31,6 +32,7 @@ func TestDockerDiagnosticFaults(t *testing.T) {
 		{"failed to mount local volume: mount :/data:/var/lib/docker/volumes/data/_data: permission denied", faults.CodeMountFailed},
 		{`error mounting "/srv/data" to rootfs at "/data": permission denied`, faults.CodeMountFailed},
 		{"mount failed: exit status 32", faults.CodeMountFailed},
+		{`failed to prepare extraction snapshot "extract-225092350-0LGf sha256:95dbfedee91178a3278e2e146a03bfd2223378ee9f60480b71df6f8d6cc1316e": NotFound: lease does not exist: not found`, faults.CodeImageExtractionFailed, "Container image extraction failed: containerd snapshot lease is missing. Retry deployment; check for concurrent image cleanup."},
 	} {
 		t.Run(tc.diagnostic, func(t *testing.T) {
 			original := errors.New(tc.diagnostic)
@@ -39,7 +41,11 @@ func TestDockerDiagnosticFaults(t *testing.T) {
 			var coded faults.Coded
 			require.ErrorAs(t, classified, &coded)
 			assert.Equal(t, tc.code, coded.FaultCode())
-			assert.Equal(t, tc.diagnostic, coded.FaultSummary())
+			wantSummary := tc.diagnostic
+			if tc.summary != "" {
+				wantSummary = tc.summary
+			}
+			assert.Equal(t, wantSummary, coded.FaultSummary())
 			assert.EqualError(t, classified, cause.Error())
 			assert.ErrorIs(t, classified, cause)
 			assert.ErrorIs(t, classified, original)
@@ -47,33 +53,6 @@ func TestDockerDiagnosticFaults(t *testing.T) {
 			var temporary faults.Error
 			assert.NotErrorAs(t, classified, &temporary)
 		})
-	}
-}
-
-func TestDockerImageExtractionFault(t *testing.T) {
-	const diagnostic = `failed to prepare extraction snapshot "extract-225092350-0LGf sha256:95dbfedee91178a3278e2e146a03bfd2223378ee9f60480b71df6f8d6cc1316e": NotFound: lease does not exist: not found`
-	const summary = "Container image extraction failed: containerd snapshot lease is missing. Retry deployment; check for concurrent image cleanup."
-	cause := errors.New(diagnostic)
-	classified := classifyDockerError(fmt.Errorf("Error response from daemon: %w", cause))
-	var coded faults.Coded
-	require.ErrorAs(t, classified, &coded)
-	assert.Equal(t, faults.CodeImageExtractionFailed, coded.FaultCode())
-	assert.Equal(t, summary, coded.FaultSummary())
-	assert.ErrorIs(t, classified, cause)
-	assert.ErrorContains(t, classified, diagnostic)
-
-	task := ServiceTask{CurrentState: TaskStateRejected, Error: diagnostic}
-	require.NotNil(t, task.Fault())
-	assert.Equal(t, faults.CodeImageExtractionFailed, task.Fault().FaultCode())
-	assert.Equal(t, summary, task.Fault().FaultSummary())
-	assert.False(t, task.ImageNotFound())
-
-	for _, unrelated := range []string{
-		"NotFound: lease does not exist: not found",
-		"failed to prepare extraction snapshot: image not found",
-	} {
-		code, _ := dockerFault(unrelated)
-		assert.Empty(t, code)
 	}
 }
 
@@ -88,6 +67,7 @@ func TestDockerDiagnosticFaultsAvoidFalsePositives(t *testing.T) {
 		"container startup failed", "container exited with code 1", "exec /entrypoint: no such file or directory",
 		"failed to create shim task: OCI runtime create failed: executable file not found in $PATH",
 		"failed to create endpoint: network not found", "volume data not found",
+		"NotFound: lease does not exist: not found", "failed to prepare extraction snapshot: image not found",
 	} {
 		t.Run(diagnostic, func(t *testing.T) {
 			cause := errors.New(diagnostic)
@@ -133,6 +113,7 @@ func TestServiceTaskFaults(t *testing.T) {
 		state      TaskState
 		diagnostic string
 		code       faults.Code
+		summary    string
 	}{
 		{TaskStatePending, "no suitable node (insufficient resources on 2 nodes)", faults.CodeNoSuitableNode},
 		{TaskStateRejected, "denied: requested access to the resource is denied", faults.CodeImagePullDenied},
@@ -140,6 +121,7 @@ func TestServiceTaskFaults(t *testing.T) {
 		{TaskStateFailed, "VolumeDriver.Mount: backend unavailable", faults.CodeMountFailed},
 		{TaskStateOrphaned, "failed to mount local volume: permission denied", faults.CodeMountFailed},
 		{TaskStateRejected, "No such image: api:2", faults.CodeImageNotFound},
+		{TaskStateRejected, `failed to prepare extraction snapshot "extract-225092350-0LGf sha256:95dbfedee91178a3278e2e146a03bfd2223378ee9f60480b71df6f8d6cc1316e": NotFound: lease does not exist: not found`, faults.CodeImageExtractionFailed, "Container image extraction failed: containerd snapshot lease is missing. Retry deployment; check for concurrent image cleanup."},
 		{TaskStateRejected, "docker.io/library/api:2: not found", faults.CodeImageNotFound},
 		{TaskStateRejected, `failed to resolve reference "docker.io/library/api:2": docker.io/library/api:2: not found`, faults.CodeImageNotFound},
 		{TaskStateRejected, "manifest for api:2 not found: manifest unknown: manifest unknown", faults.CodeImageNotFound},
@@ -163,7 +145,11 @@ func TestServiceTaskFaults(t *testing.T) {
 			}
 			require.NotNil(t, fault)
 			assert.Equal(t, tc.code, fault.FaultCode())
-			assert.Equal(t, tc.diagnostic, fault.FaultSummary())
+			wantSummary := tc.diagnostic
+			if tc.summary != "" {
+				wantSummary = tc.summary
+			}
+			assert.Equal(t, wantSummary, fault.FaultSummary())
 			assert.EqualError(t, fault, tc.diagnostic)
 			assert.Equal(t, tc.code == faults.CodeImageNotFound, task.ImageNotFound())
 		})
