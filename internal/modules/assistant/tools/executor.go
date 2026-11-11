@@ -23,7 +23,6 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/tracing"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
 	"go.opentelemetry.io/otel/trace"
@@ -166,7 +165,7 @@ func (e *Executor) Execute(ctx context.Context, req routing.Request) (string, er
 	if toolResultCanBeTraced(req.ToolName) {
 		span.SetAttributes(tracing.GenAIToolCallResult.String(string(encoded)))
 	} else {
-		span.SetAttributes(attribute.Int("swarm-deploy.assistant.tool.result_chars", len(encoded)))
+		span.SetAttributes(tracing.AssistantToolResultChars.Int(len(encoded)))
 	}
 	span.SetStatus(codes.Ok, "success")
 

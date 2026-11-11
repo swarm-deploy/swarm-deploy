@@ -126,7 +126,7 @@ func (t traceableServiceManager) ListServices(
 		return nil, err
 	}
 
-	span.SetAttributes(attribute.Int("services.count", len(services)))
+	span.SetAttributes(tracing.ServicesCount.Int(len(services)))
 	span.SetStatus(codes.Ok, "")
 
 	return services, nil
@@ -229,7 +229,7 @@ func (t traceableServiceManager) ListTasks(ctx context.Context, serviceIDOrName 
 		return nil, err
 	}
 
-	span.SetAttributes(attribute.Int("tasks.count", len(tasks)))
+	span.SetAttributes(tracing.TasksCount.Int(len(tasks)))
 	span.SetStatus(codes.Ok, "")
 
 	return tasks, nil
@@ -237,7 +237,7 @@ func (t traceableServiceManager) ListTasks(ctx context.Context, serviceIDOrName 
 
 func (t traceableServiceManager) GetTask(ctx context.Context, taskID string) (ServiceTaskDetails, error) {
 	ctx, span := t.tracer.Start(ctx, "swarm.GetTask", trace.WithAttributes(
-		attribute.String("task.id", taskID),
+		tracing.TaskID.String(taskID),
 	))
 	defer span.End()
 
@@ -277,9 +277,9 @@ func (t traceableServiceManager) Logs(
 	ctx, span := t.startServiceSpan(ctx, "swarm.Logs", serviceRef)
 	defer span.End()
 
-	span.SetAttributes(attribute.Int("logs.limit", options.Limit))
-	t.setTimeAttribute(span, "logs.since", options.Since)
-	t.setTimeAttribute(span, "logs.until", options.Until)
+	span.SetAttributes(tracing.LogsLimit.Int(options.Limit))
+	t.setTimeAttribute(span, tracing.LogsSince, options.Since)
+	t.setTimeAttribute(span, tracing.LogsUntil, options.Until)
 
 	logs, err := t.serviceManager.Logs(ctx, serviceRef, options)
 	if err != nil {
@@ -287,7 +287,7 @@ func (t traceableServiceManager) Logs(
 		return nil, err
 	}
 
-	span.SetAttributes(attribute.Int("logs.count", len(logs)))
+	span.SetAttributes(tracing.LogsCount.Int(len(logs)))
 	span.SetStatus(codes.Ok, "")
 
 	return logs, nil
@@ -299,12 +299,12 @@ func (t traceableServiceManager) TaskLogs(
 	options TaskLogsOptions,
 ) (<-chan LogEntry, <-chan error, error) {
 	ctx, span := t.tracer.Start(ctx, "swarm.TaskLogs", trace.WithAttributes(
-		attribute.String("task.id", taskID),
-		attribute.Bool("logs.follow", options.Follow),
-		attribute.Int("logs.limit", options.Limit),
+		tracing.TaskID.String(taskID),
+		tracing.LogsFollow.Bool(options.Follow),
+		tracing.LogsLimit.Int(options.Limit),
 	))
-	t.setTimeAttribute(span, "logs.since", options.Since)
-	t.setTimeAttribute(span, "logs.until", options.Until)
+	t.setTimeAttribute(span, tracing.LogsSince, options.Since)
+	t.setTimeAttribute(span, tracing.LogsUntil, options.Until)
 
 	entries, errs, err := t.serviceManager.TaskLogs(ctx, taskID, options)
 	if err != nil {
@@ -327,10 +327,10 @@ func (t traceableServiceManager) startServiceSpan(
 	))
 }
 
-func (t traceableServiceManager) setTimeAttribute(span trace.Span, key string, value *time.Time) {
+func (t traceableServiceManager) setTimeAttribute(span trace.Span, key attribute.Key, value *time.Time) {
 	if value == nil {
 		return
 	}
 
-	span.SetAttributes(attribute.String(key, value.Format(time.RFC3339Nano)))
+	span.SetAttributes(key.String(value.Format(time.RFC3339Nano)))
 }
