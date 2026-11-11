@@ -432,7 +432,10 @@ func TestQueueOperationUsesSpanLink(t *testing.T) {
 	reconciler := stackloop.NewMockStackReconciler(ctrl)
 	reconciler.EXPECT().Reconcile(gomock.Any(), gomock.Any()).Return(nil)
 	recorder := tracetest.NewSpanRecorder()
-	provider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
+	provider := sdktrace.NewTracerProvider(
+		sdktrace.WithSampler(sdktrace.AlwaysSample()),
+		sdktrace.WithSpanProcessor(recorder),
+	)
 	defer func() { _ = provider.Shutdown(t.Context()) }()
 	queue := New(reconciler, newTestMetrics(t), 1)
 	queue.tracer = provider.Tracer("test.queue")
