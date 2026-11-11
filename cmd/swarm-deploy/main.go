@@ -27,6 +27,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/logx"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops"
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/notifications"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/recommendations"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources"
 	"github.com/swarm-deploy/swarm-deploy/internal/security"
@@ -50,13 +51,20 @@ var modules = []module{
 	{
 		Name: "event",
 		Initialize: func(ctx context.Context, cfg *config.Config, cnt *container) error {
-			mod, err := event.InitModule(ctx, cfg, cnt)
+			enrichUser := cfg.Spec.Web.Security.Authentication.Strategy() != config.AuthenticationStrategyNone
+			mod, err := event.InitModule(cfg.Spec.Event.History.Capacity, enrichUser, cnt)
 			cnt.Event = mod
 			if err != nil {
 				return err
 			}
 			cnt.ConfigStore = configstore.New(cfg, mod.Dispatcher)
 			return prometheus.Register(mod.Bus)
+		},
+	},
+	{
+		Name: "notifications",
+		Initialize: func(ctx context.Context, cfg *config.Config, cnt *container) error {
+			return notifications.InitModule(ctx, cfg.Spec.Notifications, cnt.Event.Dispatcher, cnt.GetStorage())
 		},
 	},
 	{

@@ -1,5 +1,5 @@
-// Package notifications defines the public contract for Event Bus notifications.
-package notifications
+// Package eventnotify maps events to notification payloads and provides their templates.
+package eventnotify
 
 import "time"
 

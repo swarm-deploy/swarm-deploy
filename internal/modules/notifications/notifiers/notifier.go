@@ -5,7 +5,7 @@ import (
 )
 
 type Message struct {
-	// Payload is the stable source-owned notification contract.
+	// Payload is the stable data contract used to render or send a notification.
 	Payload any `json:",inline"`
 	// Action selects a transport operation for lifecycle notifications.
 	Action Action `json:"-"`

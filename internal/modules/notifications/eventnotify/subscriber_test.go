@@ -1,4 +1,4 @@
-package notify
+package eventnotify
 
 import (
 	"context"
@@ -8,7 +8,6 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
-	eventnotifications "github.com/swarm-deploy/swarm-deploy/internal/modules/event/notifications"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/notifications/notifiers"
 	"go.uber.org/mock/gomock"
 )
@@ -21,8 +20,8 @@ func TestSubscriberReturnsDeliveryFailureWithoutPublishing(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			notifier := notifiers.NewMockNotifier(gomock.NewController(t))
 			event := &events.DeploySuccess{}
-			notifier.EXPECT().Notify(gomock.Any(), notifiers.Message{Payload: eventnotifications.DeploymentPayload{
-				ID: "source", Type: "DeploySuccess", Status: eventnotifications.StatusSuccess,
+			notifier.EXPECT().Notify(gomock.Any(), notifiers.Message{Payload: DeploymentPayload{
+				ID: "source", Type: "DeploySuccess", Status: StatusSuccess,
 				OccurredAt: time.Time{}.UTC(),
 			}}).Return(notifiers.Receipt{}, tc.err)
 			err := NewSubscriber(notifier).Handle(context.Background(), events.Envelope{ID: "source", Event: event})

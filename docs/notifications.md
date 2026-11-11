@@ -130,7 +130,7 @@ configuration before modules are initialized. The error includes the event type 
 path, for example:
 
 ```text
-notifications.events["DeploySuccess"].telegram[0].message: invalid template: execute template: template: notification:1:3: executing "notification" at <.Stack>: can't evaluate field Stack in type notifications.DeploymentPayload
+notifications.events["DeploySuccess"].telegram[0].message: invalid template: execute template: template: notification:1:3: executing "notification" at <.Stack>: can't evaluate field Stack in type eventnotify.DeploymentPayload
 ```
 
 The current application loads configuration only at startup; there is no hot-reload path.

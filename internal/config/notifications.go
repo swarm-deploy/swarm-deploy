@@ -9,7 +9,7 @@ import (
 	"github.com/artarts36/specw"
 	alertmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
-	eventnotify "github.com/swarm-deploy/swarm-deploy/internal/modules/event/notify"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/notifications/eventnotify"
 	notificationtemplate "github.com/swarm-deploy/swarm-deploy/internal/modules/notifications/template"
 	"go.yaml.in/yaml/v3"
 )

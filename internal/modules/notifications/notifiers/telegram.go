@@ -33,7 +33,7 @@ type TelegramOptions struct {
 	ChatThreadID int64
 	// Message is a Go template used for notification body.
 	Message string
-	// DefaultMessage is the source-owned template used when Message is empty.
+	// DefaultMessage is the notification template used when Message is empty.
 	DefaultMessage string
 	// ParseMode selects Telegram message entity parsing.
 	ParseMode string
