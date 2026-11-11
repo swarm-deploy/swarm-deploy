@@ -13,6 +13,13 @@
 - For Go changes, run `make check` before finishing. For UI changes, run `npm test` and `npm run build` in `ui/`. If a check cannot run, report why.
 - If instructed to create a pull request, always assign appropriate repository labels to the PR before finishing the task. Use only the allowed labels from the file `.github/workflows/pr-labels.yaml`
 
+## Conventional Commits
+
+- Commit messages and PR titles MUST follow Conventional Commits.
+- Format: `<type>[(scope)]: <description>`.
+- Use lowercase types and concise English imperative descriptions.
+- Examples: `feat: add notifications`, `fix: correct tracing keys`, `docs: update architecture`.
+
 ## Architecture Decisions
 
 **Agents MUST NOT make architectural decisions without explicit maintainer approval.**
