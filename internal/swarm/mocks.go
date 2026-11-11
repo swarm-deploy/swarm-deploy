@@ -14,6 +14,7 @@ import (
 	reflect "reflect"
 
 	network "github.com/docker/docker/api/types/network"
+	registry "github.com/docker/docker/api/types/registry"
 	swarm "github.com/docker/docker/api/types/swarm"
 	gomock "go.uber.org/mock/gomock"
 )
@@ -318,6 +319,21 @@ func (m *MockImageManager) Get(ctx context.Context, imageRef string) (Image, err
 func (mr *MockImageManagerMockRecorder) Get(ctx, imageRef any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Get", reflect.TypeOf((*MockImageManager)(nil).Get), ctx, imageRef)
+}
+
+// InspectDistribution mocks base method.
+func (m *MockImageManager) InspectDistribution(ctx context.Context, imageRef, encodedRegistryAuth string) (registry.DistributionInspect, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "InspectDistribution", ctx, imageRef, encodedRegistryAuth)
+	ret0, _ := ret[0].(registry.DistributionInspect)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// InspectDistribution indicates an expected call of InspectDistribution.
+func (mr *MockImageManagerMockRecorder) InspectDistribution(ctx, imageRef, encodedRegistryAuth any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InspectDistribution", reflect.TypeOf((*MockImageManager)(nil).InspectDistribution), ctx, imageRef, encodedRegistryAuth)
 }
 
 // MockSecretManager is a mock of SecretManager interface.

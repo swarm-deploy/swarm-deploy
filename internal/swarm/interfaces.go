@@ -5,6 +5,7 @@ import (
 	"context"
 
 	dockernetwork "github.com/docker/docker/api/types/network"
+	dockerregistry "github.com/docker/docker/api/types/registry"
 	dockerswarm "github.com/docker/docker/api/types/swarm"
 )
 
@@ -67,6 +68,11 @@ type ServiceManager interface {
 type ImageManager interface {
 	// Get returns compact image metadata by image reference.
 	Get(ctx context.Context, imageRef string) (Image, error)
+
+	// InspectDistribution returns registry distribution metadata through Docker Engine.
+	InspectDistribution(
+		ctx context.Context, imageRef, encodedRegistryAuth string,
+	) (dockerregistry.DistributionInspect, error)
 }
 
 type SecretManager interface {
