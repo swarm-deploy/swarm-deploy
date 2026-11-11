@@ -34,8 +34,6 @@ var (
 	StacksChanged            = attribute.Key("stacks.changed")
 	AssistantToolResultChars = attribute.Key("swarm-deploy.assistant.tool.result_chars")
 
-	SyncReason = attribute.Key("swarm-deploy.sync.reason")
-
 	ResourceStackName = attribute.Key("swarm-deploy.resource.stack.name")
 
 	ResourceComposePath   = attribute.Key("swarm-deploy.resource.compose.path")

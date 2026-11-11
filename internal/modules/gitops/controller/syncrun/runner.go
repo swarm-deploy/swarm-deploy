@@ -110,7 +110,7 @@ func New(
 // Poll checks Git and runs reconciliation only when the revision changed.
 func (r *Runner) Poll(ctx context.Context) {
 	ctx, span := r.tracer.Start(ctx, "controller.Poll", trace.WithAttributes(
-		tracing.SyncReason.String(string(TriggerPoll)),
+		tracing.SyncTrigger.String(string(TriggerPoll)),
 	))
 	defer span.End()
 
