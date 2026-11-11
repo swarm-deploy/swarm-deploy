@@ -1,7 +1,6 @@
 package registry
 
 import (
-	"context"
 	"testing"
 
 	dockerregistry "github.com/docker/docker/api/types/registry"
@@ -9,100 +8,102 @@ import (
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
+	"go.uber.org/mock/gomock"
 )
 
 func TestImageVersionResolverResolveActualVersion(t *testing.T) {
-	inspector := &fakeDistributionInspector{
-		result: dockerregistry.DistributionInspect{
-			Descriptor: ocispec.Descriptor{
-				Digest: digest.Digest("sha256:1111111111111111111111111111111111111111111111111111111111111111"),
+	const imageDigest = "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+	tests := []struct {
+		name       string
+		image      string
+		authConfig string
+		auth       dockerregistry.AuthConfig
+		want       ImageVersion
+	}{
+		{
+			name:       "default tag with Docker Hub credentials",
+			image:      "nginx",
+			authConfig: "{\"auths\":{\"https://index.docker.io/v1/\":{\"username\":\"robot\",\"password\":\"secret\"}}}",
+			auth:       dockerregistry.AuthConfig{Username: "robot", Password: "secret", ServerAddress: "docker.io"},
+			want: ImageVersion{
+				Image:      "docker.io/library/nginx:latest",
+				Registry:   "docker.io",
+				Repository: "library/nginx",
+				Tag:        "latest",
+				Digest:     imageDigest,
+			},
+		},
+		{
+			name:  "digest-only reference without credentials",
+			image: "registry.example/team/app@" + imageDigest,
+			want: ImageVersion{
+				Image:      "registry.example/team/app@" + imageDigest,
+				Registry:   "registry.example",
+				Repository: "team/app",
+				Digest:     imageDigest,
 			},
 		},
 	}
-	authManager := &fakeAuthManager{
-		auth: "encoded-auth",
-	}
-	resolver := &ImageVersionResolver{
-		inspector:   inspector,
-		authManager: authManager,
-	}
 
-	version, err := resolver.ResolveActualVersion(context.Background(), "nginx")
-	require.NoError(t, err, "resolve actual image version")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("DOCKER_AUTH_CONFIG", tt.authConfig)
+			t.Setenv("DOCKER_CONFIG", t.TempDir())
 
-	assert.Equal(t, "docker.io/library/nginx:latest", version.Image, "unexpected normalized image")
-	assert.Equal(t, "docker.io", version.Registry, "unexpected registry")
-	assert.Equal(t, "library/nginx", version.Repository, "unexpected repository")
-	assert.Equal(t, "latest", version.Tag, "unexpected tag")
-	assert.Equal(
-		t,
-		"sha256:1111111111111111111111111111111111111111111111111111111111111111",
-		version.Digest,
-		"unexpected digest",
-	)
-	assert.Equal(t, "docker.io/library/nginx:latest", inspector.imageRef, "unexpected image reference for inspect")
-	assert.Equal(t, "encoded-auth", inspector.encodedRegistryAuth, "unexpected encoded auth")
-	assert.Equal(t, "docker.io/library/nginx:latest", authManager.image, "unexpected image for auth manager")
+			var encodedAuth string
+			if tt.authConfig != "" {
+				var err error
+				encodedAuth, err = dockerregistry.EncodeAuthConfig(tt.auth)
+				require.NoError(t, err)
+			}
+
+			ctx := t.Context()
+			images := swarm.NewMockImageManager(gomock.NewController(t))
+			images.EXPECT().InspectDistribution(ctx, tt.want.Image, encodedAuth).
+				Return(dockerregistry.DistributionInspect{
+					Descriptor: ocispec.Descriptor{Digest: digest.Digest(imageDigest)},
+				}, nil)
+
+			version, err := NewImageVersionResolver(images).ResolveActualVersion(ctx, tt.image)
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, version)
+		})
+	}
 }
 
-func TestImageVersionResolverResolveActualVersionFailsOnInvalidImage(t *testing.T) {
-	resolver := &ImageVersionResolver{
-		inspector:   &fakeDistributionInspector{},
-		authManager: &fakeAuthManager{},
+func TestImageVersionResolverResolveActualVersionFailsBeforeInspection(t *testing.T) {
+	tests := []struct {
+		name       string
+		image      string
+		authConfig string
+		wantError  string
+	}{
+		{name: "invalid image", image: ":::", wantError: "parse image reference"},
+		{name: "invalid auth config", image: "nginx", authConfig: "{\"auths\":", wantError: "resolve image auth"},
 	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("DOCKER_AUTH_CONFIG", tt.authConfig)
+			t.Setenv("DOCKER_CONFIG", t.TempDir())
+			images := swarm.NewMockImageManager(gomock.NewController(t))
 
-	_, err := resolver.ResolveActualVersion(context.Background(), ":::")
-	require.Error(t, err, "expected parse image error")
-	assert.Contains(t, err.Error(), "parse image reference", "unexpected error")
+			_, err := NewImageVersionResolver(images).ResolveActualVersion(t.Context(), tt.image)
+			require.ErrorContains(t, err, tt.wantError)
+		})
+	}
 }
 
 func TestImageVersionResolverResolveActualVersionFailsOnInspectorError(t *testing.T) {
-	resolver := &ImageVersionResolver{
-		inspector: &fakeDistributionInspector{
-			err: assert.AnError,
-		},
-		authManager: &fakeAuthManager{},
-	}
+	t.Setenv("DOCKER_AUTH_CONFIG", "")
+	t.Setenv("DOCKER_CONFIG", t.TempDir())
 
-	_, err := resolver.ResolveActualVersion(context.Background(), "nginx")
-	require.Error(t, err, "expected inspect error")
-	assert.Contains(t, err.Error(), "resolve image", "unexpected error")
-}
+	ctx := t.Context()
+	images := swarm.NewMockImageManager(gomock.NewController(t))
+	images.EXPECT().InspectDistribution(ctx, "docker.io/library/nginx:latest", "").
+		Return(dockerregistry.DistributionInspect{}, assert.AnError)
 
-type fakeDistributionInspector struct {
-	result              dockerregistry.DistributionInspect
-	err                 error
-	imageRef            string
-	encodedRegistryAuth string
-}
-
-func (f *fakeDistributionInspector) DistributionInspect(
-	_ context.Context,
-	imageRef string,
-	encodedRegistryAuth string,
-) (dockerregistry.DistributionInspect, error) {
-	f.imageRef = imageRef
-	f.encodedRegistryAuth = encodedRegistryAuth
-
-	if f.err != nil {
-		return dockerregistry.DistributionInspect{}, f.err
-	}
-
-	return f.result, nil
-}
-
-type fakeAuthManager struct {
-	auth  string
-	err   error
-	image string
-}
-
-func (f *fakeAuthManager) ResolveImage(image string) (string, error) {
-	f.image = image
-
-	if f.err != nil {
-		return "", f.err
-	}
-
-	return f.auth, nil
+	_, err := NewImageVersionResolver(images).ResolveActualVersion(ctx, "nginx")
+	require.ErrorContains(t, err, "resolve image \"docker.io/library/nginx:latest\" in registry")
+	assert.ErrorIs(t, err, assert.AnError)
 }

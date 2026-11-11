@@ -55,10 +55,8 @@ func InitModule(_ context.Context, cfg *config.Config, cnt Container) (*Module, 
 		return nil, fmt.Errorf("resolve assistant temperature: %w", err)
 	}
 
-	imageVersionResolver, err := registry.NewImageVersionResolver()
-	if err != nil {
-		return nil, fmt.Errorf("build image version resolver: %w", err)
-	}
+	swarmManagers := cnt.GetSwarm()
+	imageVersionResolver := registry.NewImageVersionResolver(swarmManagers.Images)
 
 	hostingProviders, err := githosting.NewProviderManager(cfg.Spec.Hostings)
 	if err != nil {
@@ -74,7 +72,7 @@ func InitModule(_ context.Context, cfg *config.Config, cnt Container) (*Module, 
 		gitopsModule,
 		cnt.GetAlertManagementModule(),
 		eventModule,
-		cnt.GetSwarm(),
+		swarmManagers,
 		cnt.GetTaskLogs(),
 		cnt.GetRecommendationsModule().Store,
 		imageVersionResolver,
