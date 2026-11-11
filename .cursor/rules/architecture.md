@@ -239,7 +239,7 @@ below describe their current role and the established constraints to preserve.
 | `internal/compose` | Compose models, parsing, validation, normalization, referenced-file loading and digests; injectable file reader (`file.go`). Uses shared helpers. | No Docker operations or final application ServiceSpec conversion. Repository values stay literal; do not read controller environment variables for interpolation (`interpolation.go`, `docs/reconciler.md`). GitOps supplies revision-pinned reads and preparation policy. |
 | `internal/config`, `internal/configstore` | YAML types/loading/defaults/validation and accepted stack/network snapshots; ConfigStore coordinates reload and emits `ConfigurationChanged`. Config references hosting, alert, event and notification contract types. | Configuration does not execute synchronization/deployment. Preserve `StackProvider` and snapshot/readiness semantics; this is not a module-independent leaf package. Keep config docs/examples aligned with changes. |
 | `internal/storage`, `migrations/sqlite` | Shared SQLite connection, embedded Goose schema, context-aware transactions and projection helpers (`db.go`, `projection.go`). | Domain repositories own domain queries; services/handlers must not implement SQL. Reuse `storage.Database`, goqu and bound parameters. No parallel transaction infrastructure or sharing a transaction context across concurrent goroutines. See the nested-transaction documentation mismatch below. |
-| `internal/registry` | `AuthManager` resolves Docker registry credentials; `ImageVersionResolver` serves image digest queries, currently via a direct Docker client. Used by Deployments and Assistant. | No GitOps scheduling or deployment lifecycle. The direct client is an existing violation of the Docker boundary, not an exception for new operations. Keep credentials out of specs, events and logs. |
+| `internal/registry` | `AuthManager` resolves Docker registry credentials; `ImageVersionResolver` resolves image digests and uses `swarm.ImageManager` for Docker Engine distribution inspection. Used by Deployments and Assistant. | No GitOps scheduling or deployment lifecycle. Keep credentials out of specs, events and logs. |
 | `internal/githosting` | `ProviderManager` resolves repository URLs to provider adapters; `Provider` currently exposes latest-release reads for Assistant. | Does not own Git checkout or reconciliation; Git repository reads/pulls belong to `gitops/git`. Git write/PR capabilities are not implemented here today; ownership for future workflows requires a separate decision. |
 | `internal/security` | User context, logging and Event user enrichment; web entrypoints implement authentication/authorization. | Not deployment policy or a separate identity service. Preserve authenticated user propagation through existing request/event contracts. |
 | `internal/metrics`, `internal/shared` | Prometheus groups, tracing, build info, filesystem helpers, labels, typed faults, dotenv/image utilities and shared log parsing. Metrics uses Event types; `shared/logparser.Service` uses `swarm.ServiceManager`. | Not a place to relocate business ownership. Shared packages are not all dependency-free. Preserve `faults.Coded` (`Error`, `FaultCode`, `FaultSummary`), sanitization boundaries, and centrally defined tracing keys. |
@@ -254,33 +254,29 @@ below describe their current role and the established constraints to preserve.
 These observations do not authorize refactoring. Preserve behavior within task scope;
 do not expand a violation or choose a new owner without explicit approval.
 
-1. **Existing Docker-boundary violation:** `internal/registry/image_version_resolver.go`
-   constructs a Docker client and invokes `DistributionInspect` outside `internal/swarm`.
-   `go.md` already prohibits copying/expanding this pattern and scopes migration to work
-   on that integration or an explicit refactor. Any required interface change remains subject to approval.
-2. **Existing persistence-boundary violation/coupling:** `resources/service/subscriber.go`
+1. **Existing persistence-boundary violation/coupling:** `resources/service/subscriber.go`
    constructs receipt SQL and directly reads Deployments' `desired_snapshots`, contrary
    to `go.md`'s repository rule. `notifications/alerts/store.go` reads Event's
    `outbox_events` payload/schema for routing and cleanup, and uses raw cleanup SQL.
    **Clarification:** what repository contracts should expose these cross-module checks?
    Do not treat access to the shared database as ownership of another module's tables.
-3. **Ambiguous adapter/query ownership:** Resources and Recommendations import
+2. **Ambiguous adapter/query ownership:** Resources and Recommendations import
    `gitops/deployment.WithDesired`, although it only hydrates events from Deployments.
    Web/assistant deployment queries are wired through `gitops.Module.Deployments`.
    **Clarification:** are these intentional integration points or residual coupling?
    Until decided, they describe current wiring, not permission for further GitOps dependencies.
-4. **Ambiguous Event/Notifications assembly boundary:** `event/module.go` constructs
+3. **Ambiguous Event/Notifications assembly boundary:** `event/module.go` constructs
    transports and registers notifications; `event/notify` and `event/notifications`
    contain event-notification adapters/templates/contracts. Notifications in turn uses
    Event contracts/Outbox and Alert Management kind constants.
    **Clarification:** should this split remain the supported ownership boundary?
    The durable bus itself still has the generic transactional semantics documented above.
-5. **Residual Deployments wiring coupling:** `deployments/module.go` reads
+4. **Residual Deployments wiring coupling:** `deployments/module.go` reads
    `cfg.Spec.GitOps.Secrets.Age` and `cfg.Spec.GitOps.Sync.Policy`, and threads
    `*client.Client` into `deployer/initjob.NewInitJobRunner`, where it is unused.
    **Clarification:** is this configuration/constructor shape intentional or compatibility
    residue? It does not permit a GitOps module dependency or direct SDK operations.
-6. **Transaction documentation mismatch:** `docs/architecture/event-bus-outbox-schema.md`
+5. **Transaction documentation mismatch:** `docs/architecture/event-bus-outbox-schema.md`
    describes nested savepoints, but `internal/storage/db.go` joins an active transaction
    by directly invoking the callback. Independent nested rollback is therefore not a
    contract callers can currently rely on. **Clarification:** which semantics should the
