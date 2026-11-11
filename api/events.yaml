@@ -218,7 +218,6 @@ components:
       properties:
         code:
           type: string
-          enum: [image_not_found]
         summary:
           type: string
         detectedAt:

@@ -67,7 +67,7 @@ func toGeneratedAlert(alert alertmodel.Alert) generated.Alert {
 	}
 	for _, finding := range alert.Findings {
 		result.Findings = append(result.Findings, generated.AlertFinding{
-			Code: generated.AlertFindingCode(finding.Code), Summary: finding.Summary, DetectedAt: finding.DetectedAt,
+			Code: string(finding.Code), Summary: finding.Summary, DetectedAt: finding.DetectedAt,
 		})
 	}
 	if alert.DeploymentID != "" {

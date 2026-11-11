@@ -450,7 +450,7 @@ func (s *AlertFinding) Encode(e *jx.Encoder) {
 func (s *AlertFinding) encodeFields(e *jx.Encoder) {
 	{
 		e.FieldStart("code")
-		s.Code.Encode(e)
+		e.Str(s.Code)
 	}
 	{
 		e.FieldStart("summary")
@@ -480,7 +480,9 @@ func (s *AlertFinding) Decode(d *jx.Decoder) error {
 		case "code":
 			requiredBitSet[0] |= 1 << 0
 			if err := func() error {
-				if err := s.Code.Decode(d); err != nil {
+				v, err := d.Str()
+				s.Code = string(v)
+				if err != nil {
 					return err
 				}
 				return nil
@@ -563,44 +565,6 @@ func (s *AlertFinding) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON implements stdjson.Unmarshaler.
 func (s *AlertFinding) UnmarshalJSON(data []byte) error {
-	d := jx.DecodeBytes(data)
-	return s.Decode(d)
-}
-
-// Encode encodes AlertFindingCode as json.
-func (s AlertFindingCode) Encode(e *jx.Encoder) {
-	e.Str(string(s))
-}
-
-// Decode decodes AlertFindingCode from json.
-func (s *AlertFindingCode) Decode(d *jx.Decoder) error {
-	if s == nil {
-		return errors.New("invalid: unable to decode AlertFindingCode to nil")
-	}
-	v, err := d.StrBytes()
-	if err != nil {
-		return err
-	}
-	// Try to use constant string.
-	switch AlertFindingCode(v) {
-	case AlertFindingCodeImageNotFound:
-		*s = AlertFindingCodeImageNotFound
-	default:
-		*s = AlertFindingCode(v)
-	}
-
-	return nil
-}
-
-// MarshalJSON implements stdjson.Marshaler.
-func (s AlertFindingCode) MarshalJSON() ([]byte, error) {
-	e := jx.Encoder{}
-	s.Encode(&e)
-	return e.Bytes(), nil
-}
-
-// UnmarshalJSON implements stdjson.Unmarshaler.
-func (s *AlertFindingCode) UnmarshalJSON(data []byte) error {
 	d := jx.DecodeBytes(data)
 	return s.Decode(d)
 }
