@@ -1,30 +1,27 @@
-package notify
+package eventnotify
 
-import (
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
-	eventnotifications "github.com/swarm-deploy/swarm-deploy/internal/modules/event/notifications"
-)
+import "github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 
-// StandardTemplate returns the event-owned standard template for an event type.
+// StandardTemplate returns the standard notification template for an event type.
 func StandardTemplate(eventType events.TypeName) (string, bool) {
 	switch eventType {
 	case events.TypeNameDeploySuccess:
-		return eventnotifications.SuccessTemplate(), true
+		return SuccessTemplate(), true
 	case events.TypeNameNodeJoined, events.TypeNameNodeConnected, events.TypeNameNodeDisconnected:
-		return eventnotifications.DefaultTemplate(), true
+		return DefaultTemplate(), true
 	case events.TypeNameServiceMissed, events.TypeNameServiceDrifted, events.TypeNameServiceDriftFixed,
 		events.TypeNameServicePruned, events.TypeNameServiceReplicasIncreased,
 		events.TypeNameServiceReplicasDecreased, events.TypeNameServiceRestarted:
-		return eventnotifications.DefaultTemplate(), true
+		return DefaultTemplate(), true
 	case events.TypeNameServiceCatalogUpdated, events.TypeNameSyncManualStarted, events.TypeNameWebhookReceived,
 		events.TypeNameNetworkCreated:
-		return eventnotifications.DefaultTemplate(), true
+		return DefaultTemplate(), true
 	case events.TypeNameUserAuthenticated:
-		return eventnotifications.DefaultTemplate(), true
+		return DefaultTemplate(), true
 	case events.TypeNameAssistantPromptInjectionDetected:
-		return eventnotifications.DefaultTemplate(), true
+		return DefaultTemplate(), true
 	case events.TypeNameSendNotificationFailed:
-		return eventnotifications.DefaultTemplate(), true
+		return DefaultTemplate(), true
 	case events.TypeNameDeployFailed, events.TypeNameDeployPreparationFailed, events.TypeNameDeployInterrupted,
 		events.TypeNameAlertOpened, events.TypeNameAlertResolved, events.TypeNameConfigurationChanged,
 		events.TypeNameGitPullFailed, events.TypeNameGitPullSucceeded, events.TypeNameServiceRemovedFromDesired:
@@ -34,30 +31,30 @@ func StandardTemplate(eventType events.TypeName) (string, bool) {
 	}
 }
 
-// ReferencePayloads returns representative event-owned payloads used for template validation.
+// ReferencePayloads returns representative notification payloads used for template validation.
 func ReferencePayloads(eventType events.TypeName) ([]any, bool) {
 	switch eventType {
 	case events.TypeNameDeploySuccess:
-		return []any{eventnotifications.DeploymentSuccessReferencePayload()}, true
+		return []any{DeploymentSuccessReferencePayload()}, true
 	case events.TypeNameNodeJoined:
-		return []any{eventnotifications.NodeJoinedReferencePayload()}, true
+		return []any{NodeJoinedReferencePayload()}, true
 	case events.TypeNameNodeConnected:
-		return []any{eventnotifications.NodeConnectedReferencePayload()}, true
+		return []any{NodeConnectedReferencePayload()}, true
 	case events.TypeNameNodeDisconnected:
-		return []any{eventnotifications.NodeDisconnectedReferencePayload()}, true
+		return []any{NodeDisconnectedReferencePayload()}, true
 	case events.TypeNameServiceMissed, events.TypeNameServiceDrifted, events.TypeNameServiceDriftFixed,
 		events.TypeNameServicePruned, events.TypeNameServiceReplicasIncreased,
 		events.TypeNameServiceReplicasDecreased, events.TypeNameServiceRestarted:
-		return []any{eventnotifications.ServiceReferencePayload(string(eventType))}, true
+		return []any{ServiceReferencePayload(string(eventType))}, true
 	case events.TypeNameServiceCatalogUpdated, events.TypeNameSyncManualStarted, events.TypeNameWebhookReceived,
 		events.TypeNameNetworkCreated:
-		return []any{eventnotifications.ReconciliationReferencePayload(string(eventType))}, true
+		return []any{ReconciliationReferencePayload(string(eventType))}, true
 	case events.TypeNameUserAuthenticated:
-		return []any{eventnotifications.SecurityReferencePayload()}, true
+		return []any{SecurityReferencePayload()}, true
 	case events.TypeNameAssistantPromptInjectionDetected:
-		return []any{eventnotifications.AssistantReferencePayload()}, true
+		return []any{AssistantReferencePayload()}, true
 	case events.TypeNameSendNotificationFailed:
-		return []any{eventnotifications.ReferencePayload()}, true
+		return []any{ReferencePayload()}, true
 	case events.TypeNameDeployFailed, events.TypeNameDeployPreparationFailed, events.TypeNameDeployInterrupted,
 		events.TypeNameAlertOpened, events.TypeNameAlertResolved, events.TypeNameConfigurationChanged,
 		events.TypeNameGitPullFailed, events.TypeNameGitPullSucceeded, events.TypeNameServiceRemovedFromDesired:

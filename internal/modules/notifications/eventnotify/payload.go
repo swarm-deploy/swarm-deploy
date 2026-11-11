@@ -1,4 +1,4 @@
-package notify
+package eventnotify
 
 import (
 	"fmt"
@@ -6,7 +6,6 @@ import (
 
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
-	eventnotifications "github.com/swarm-deploy/swarm-deploy/internal/modules/event/notifications"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
 )
 
@@ -15,16 +14,16 @@ func notificationPayload(envelope events.Envelope) (any, error) {
 	eventID := envelope.ID
 	switch event := envelope.Event.(type) {
 	case *events.DeploySuccess:
-		return deploymentPayload(eventID, occurredAt, events.TypeNameDeploySuccess, eventnotifications.StatusSuccess,
+		return deploymentPayload(eventID, occurredAt, events.TypeNameDeploySuccess, StatusSuccess,
 			event.DeploymentID, event.AttemptID, event.StackName, event.Commit, event.Services), nil
 	case *events.NodeJoined:
-		return eventnotifications.NodePayload{ID: eventID, Type: event.Type().String(), NodeID: event.NodeID,
+		return NodePayload{ID: eventID, Type: event.Type().String(), NodeID: event.NodeID,
 			NodeName: event.NodeName, Role: event.Role, Message: event.Message(), OccurredAt: occurredAt}, nil
 	case *events.NodeConnected:
-		return eventnotifications.NodePayload{ID: eventID, Type: event.Type().String(), NodeID: event.NodeID,
+		return NodePayload{ID: eventID, Type: event.Type().String(), NodeID: event.NodeID,
 			NodeName: event.NodeName, Status: event.Status, Message: event.Message(), OccurredAt: occurredAt}, nil
 	case *events.NodeDisconnected:
-		return eventnotifications.NodePayload{ID: eventID, Type: event.Type().String(), NodeID: event.NodeID,
+		return NodePayload{ID: eventID, Type: event.Type().String(), NodeID: event.NodeID,
 			NodeName: event.NodeName, Status: event.Status, Message: event.Message(), OccurredAt: occurredAt}, nil
 	case *events.ServiceMissed:
 		return servicePayload(eventID, occurredAt, event.Type().String(), event.StackName, event.ServiceName,
@@ -50,27 +49,27 @@ func notificationPayload(envelope events.Envelope) (any, error) {
 		return servicePayload(eventID, occurredAt, event.Type().String(), event.StackName, event.ServiceName,
 			"", event.Username, 0, 0, event.Message()), nil
 	case *events.ServiceCatalogUpdated:
-		return eventnotifications.ReconciliationPayload{ID: eventID, Type: event.Type().String(), StackName: event.StackName,
+		return ReconciliationPayload{ID: eventID, Type: event.Type().String(), StackName: event.StackName,
 			Message: event.Message(), OccurredAt: occurredAt}, nil
 	case *events.SyncManualStarted:
-		return eventnotifications.ReconciliationPayload{
+		return ReconciliationPayload{
 			ID: eventID, Type: event.Type().String(), Username: event.Username,
 			Message: event.Message(), OccurredAt: occurredAt}, nil
 	case *events.WebhookReceived:
-		return eventnotifications.ReconciliationPayload{ID: eventID, Type: event.Type().String(), Queued: event.Queued,
+		return ReconciliationPayload{ID: eventID, Type: event.Type().String(), Queued: event.Queued,
 			Message: event.Message(), OccurredAt: occurredAt}, nil
 	case *events.NetworkCreated:
-		return eventnotifications.ReconciliationPayload{
+		return ReconciliationPayload{
 			ID: eventID, Type: event.Type().String(), NetworkName: event.NetworkName,
 			NetworkID: event.NetworkID, Driver: event.Driver, Message: event.Message(), OccurredAt: occurredAt}, nil
 	case *events.UserAuthenticated:
-		return eventnotifications.SecurityPayload{ID: eventID, Type: event.Type().String(), Username: event.Username,
+		return SecurityPayload{ID: eventID, Type: event.Type().String(), Username: event.Username,
 			Message: event.Message(), OccurredAt: occurredAt}, nil
 	case *events.AssistantPromptInjectionDetected:
-		return eventnotifications.AssistantPayload{ID: eventID, Type: event.Type().String(), Detector: string(event.Detector),
+		return AssistantPayload{ID: eventID, Type: event.Type().String(), Detector: string(event.Detector),
 			Username: event.Username, Message: event.Message(), OccurredAt: occurredAt}, nil
 	case *events.SendNotificationFailed:
-		return eventnotifications.Payload{ID: eventID, Type: event.Type().String(), EventType: event.EventType.String(),
+		return Payload{ID: eventID, Type: event.Type().String(), EventType: event.EventType.String(),
 			Destination: event.Destination, Channel: event.Channel, Error: errorString(event.Error),
 			Message: event.Message(), OccurredAt: occurredAt}, nil
 	default:
@@ -84,17 +83,17 @@ func deploymentPayload(
 	eventType events.TypeName,
 	status, deploymentID, attemptID, stackName, commit string,
 	services []compose.Service,
-) eventnotifications.DeploymentPayload {
-	payload := eventnotifications.DeploymentPayload{
+) DeploymentPayload {
+	payload := DeploymentPayload{
 		ID: id, DeploymentID: deploymentID, AttemptID: attemptID,
 		Type: string(eventType), Status: status, StackName: stackName,
 		Commit: commit, OccurredAt: occurredAt,
 	}
 	if len(services) > 0 {
-		payload.Services = make([]eventnotifications.DeploymentService, 0, len(services))
+		payload.Services = make([]DeploymentService, 0, len(services))
 	}
 	for _, service := range services {
-		payload.Services = append(payload.Services, eventnotifications.DeploymentService{
+		payload.Services = append(payload.Services, DeploymentService{
 			Name: service.Name, Image: service.Image,
 		})
 	}
@@ -107,8 +106,8 @@ func servicePayload(
 	eventType, stackName, serviceName, commit, username string,
 	previous, current uint64,
 	message string,
-) eventnotifications.ServicePayload {
-	return eventnotifications.ServicePayload{ID: id, Type: eventType, StackName: stackName, ServiceName: serviceName,
+) ServicePayload {
+	return ServicePayload{ID: id, Type: eventType, StackName: stackName, ServiceName: serviceName,
 		Commit: commit, Username: username, PreviousReplicas: previous, CurrentReplicas: current,
 		Message: message, OccurredAt: occurredAt}
 }

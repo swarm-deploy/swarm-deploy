@@ -1,4 +1,4 @@
-package notify
+package eventnotify
 
 import (
 	"encoding/json"

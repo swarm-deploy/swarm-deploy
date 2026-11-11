@@ -19,9 +19,8 @@ maintainer approval. Approval of a task does not imply approval of architectural
 
 All eight directories under `internal/modules` are covered below. Supporting boundaries
 are documented separately. `cmd/swarm-deploy/main.go` and each module's `module.go`
-assemble dependencies through module-specific `Container` interfaces. Notifications
-currently has no separate initializer; Event wires it. An exported Go package or a
-shared database does not by itself authorize a new cross-module dependency.
+assemble dependencies through module-specific inputs. An exported Go package or a shared
+database does not by itself authorize a new cross-module dependency.
 
 ## GitOps
 
@@ -86,7 +85,7 @@ Path: `internal/modules/event`.
 ### Responsibilities
 
 - Own event types/envelopes, safe versioned codecs, subscriber registration, durable Outbox publication/delivery, replay/discard, and independently retained Event History.
-- Provide event metrics and user enrichment. Currently also wire notification subscribers and adapt ordinary events to notification payloads/templates.
+- Provide event metrics and user enrichment.
 
 ### Non-responsibilities
 
@@ -97,7 +96,7 @@ Path: `internal/modules/event`.
 
 - Publishers use `dispatcher.Dispatcher.Publish`; subscribers implement `Handle(context.Context, events.Envelope)` with stable subscription IDs. `dispatcher.External` marks network-I/O consumers.
 - `outbox.Repository` uses shared storage; `outbox.Worker` processes committed deliveries. `history.SQLStore` and event metrics are ordinary subscribers.
-- `module.go` depends on configuration, security enrichment, metrics, and Notifications. This assembly coupling is an open boundary question, not a pure one-way dependency claim.
+- `module.go` takes the history capacity and user-enrichment setting from the composition root and wires Event's own history and metrics subscribers.
 
 ### Architectural Invariants
 
@@ -135,7 +134,7 @@ Path: `internal/modules/notifications`.
 
 ### Responsibilities
 
-- Own Telegram/custom-webhook transports, template rendering, transport receipts, and per-recipient alert message links/actions.
+- Own Telegram/custom-webhook transports, notification routes, payloads and templates, transport receipts, and per-recipient alert message links/actions.
 - Recover configured and persisted alert destinations and deliver opening/resolution transitions.
 
 ### Non-responsibilities
@@ -144,8 +143,9 @@ Path: `internal/modules/notifications`.
 
 ### Dependencies and Interactions
 
-- Event's `module.go` initializes transports and subscriptions; `event/notify` adapts ordinary events to `notifiers.Notifier`. `notifications/alerts.Register` subscribes to alert lifecycle events as an external consumer.
-- Depends on configuration, Event contracts/Outbox inspection, Alert Management kind constants, and shared storage for `notification_messages`. `alerts/store.go` also reads Outbox tables directly; see known issues.
+- The composition root initializes Notifications after Event and before the worker starts. Notifications registers event and alert deliveries as external subscribers through Event's dispatcher.
+- `notifications/eventnotify` owns the mapping from events to notification payloads and the standard templates. Configuration validation uses its reference payloads.
+- Alert notifications consume `AlertOpened` and `AlertResolved` and use Alert Management kind constants to choose message formatting. Notifications uses Event's Outbox inspection to recover subscriptions and shared storage for `notification_messages`. `alerts/store.go` also reads Outbox tables directly; see known issues.
 
 ### Architectural Invariants
 
@@ -265,12 +265,8 @@ do not expand a violation or choose a new owner without explicit approval.
    Web/assistant deployment queries are wired through `gitops.Module.Deployments`.
    **Clarification:** are these intentional integration points or residual coupling?
    Until decided, they describe current wiring, not permission for further GitOps dependencies.
-3. **Ambiguous Event/Notifications assembly boundary:** `event/module.go` constructs
-   transports and registers notifications; `event/notify` and `event/notifications`
-   contain event-notification adapters/templates/contracts. Notifications in turn uses
-   Event contracts/Outbox and Alert Management kind constants.
-   **Clarification:** should this split remain the supported ownership boundary?
-   The durable bus itself still has the generic transactional semantics documented above.
+3. **Resolved: Event/Notifications assembly boundary.** See [Event](#event) and
+   [Notifications](#notifications) for the supported ownership boundary.
 4. **Residual Deployments wiring coupling:** `deployments/module.go` reads
    `cfg.Spec.GitOps.Secrets.Age` and `cfg.Spec.GitOps.Sync.Policy`, and threads
    `*client.Client` into `deployer/initjob.NewInitJobRunner`, where it is unused.
