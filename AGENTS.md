@@ -3,6 +3,7 @@
 - This project implements Continuous Deployment for Docker Swarm
 
 ## Projects Rules
+- Before modifying code, read `.cursor/rules/architecture.md` in full and identify the modules and supporting boundaries affected by the task. This rule applies to every coding task, regardless of file type.
 - Before starting any coding task, inspect `.cursor/rules/*.md` frontmatter and load and follow only the rules applicable to the files being changed.
 - Treat frontmatter as policy:
 - `apply: always` means rule is always active.
@@ -17,30 +18,16 @@
 **Agents MUST NOT make architectural decisions without explicit maintainer approval.**
 
 - Preserve existing architecture, component boundaries, and established patterns.
-- Prefer reusing existing components over introducing new abstractions.
+- Respect the responsibilities and dependency directions documented in `.cursor/rules/architecture.md`; reuse existing components, interfaces, and interaction patterns before introducing abstractions.
+- Do not introduce cross-module dependencies, transfer responsibilities, or change architectural contracts without explicit maintainer approval.
 - Local refactoring and implementation decisions are allowed if they do not change architectural responsibilities.
-- Before making architectural changes, explain the motivation, alternatives, and trade-offs, then wait for approval.
+- If an implementation conflicts with an established boundary, stop the conflicting work, explain the conflict, motivation, alternatives, and trade-offs, and request explicit maintainer approval before proceeding. Do not resolve documented architectural ambiguities by inventing a rule.
 - Approval of a task does not imply approval of architectural changes.
 
 **When in doubt, ask before implementing.**
 
-## Project structure
-- `./ui` - Vue frontend
-- `./internal/config` - YAML runtime configuration
-- `./internal/modules/gitops` - GitOps orchestration, reconciliation, completion decisions, and recovery orchestration
-- `./internal/modules/deployments` - Deployment execution, lifecycle persistence, domain events, and desired-state snapshots
-- `./internal/modules/event` - Event Bus, Outbox, and Event History
-- `./internal/modules/alertmanagement` - Alert Management
-- `./internal/modules/notifications` - Notification delivery
-- `./internal/modules/assistant` - AI assistant, routing, and tools
-- `./internal/modules/resources` - Resource catalog
-- `./internal/entrypoints/health` - Health and metrics server
-- `./internal/entrypoints/webserver` - Web UI and REST API server
-- `./internal/entrypoints/webhookserver` - Webhook server
-- `./internal/swarm` - Docker Swarm API integration
-- `./internal/storage` - SQLite persistence
-- `./internal/metrics` - Application metrics
-- `./api/api-server.yaml` - OpenAPI contract for the web API
+The module inventory, ownership, interactions, and known boundary issues are in
+`.cursor/rules/architecture.md`. Existing scoped instructions supplement these rules.
 
 ## Assistant Tools
 
