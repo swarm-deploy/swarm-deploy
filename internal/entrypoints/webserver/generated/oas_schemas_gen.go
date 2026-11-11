@@ -240,13 +240,13 @@ func (s *Alert) SetResolution(val OptAlertResolution) {
 
 // Ref: #/components/schemas/AlertFinding
 type AlertFinding struct {
-	Code       AlertFindingCode `json:"code"`
-	Summary    string           `json:"summary"`
-	DetectedAt time.Time        `json:"detectedAt"`
+	Code       string    `json:"code"`
+	Summary    string    `json:"summary"`
+	DetectedAt time.Time `json:"detectedAt"`
 }
 
 // GetCode returns the value of Code.
-func (s *AlertFinding) GetCode() AlertFindingCode {
+func (s *AlertFinding) GetCode() string {
 	return s.Code
 }
 
@@ -261,7 +261,7 @@ func (s *AlertFinding) GetDetectedAt() time.Time {
 }
 
 // SetCode sets the value of Code.
-func (s *AlertFinding) SetCode(val AlertFindingCode) {
+func (s *AlertFinding) SetCode(val string) {
 	s.Code = val
 }
 
@@ -273,40 +273,6 @@ func (s *AlertFinding) SetSummary(val string) {
 // SetDetectedAt sets the value of DetectedAt.
 func (s *AlertFinding) SetDetectedAt(val time.Time) {
 	s.DetectedAt = val
-}
-
-type AlertFindingCode string
-
-const (
-	AlertFindingCodeImageNotFound AlertFindingCode = "image_not_found"
-)
-
-// AllValues returns all AlertFindingCode values.
-func (AlertFindingCode) AllValues() []AlertFindingCode {
-	return []AlertFindingCode{
-		AlertFindingCodeImageNotFound,
-	}
-}
-
-// MarshalText implements encoding.TextMarshaler.
-func (s AlertFindingCode) MarshalText() ([]byte, error) {
-	switch s {
-	case AlertFindingCodeImageNotFound:
-		return []byte(s), nil
-	default:
-		return nil, errors.Errorf("invalid value: %q", s)
-	}
-}
-
-// UnmarshalText implements encoding.TextUnmarshaler.
-func (s *AlertFindingCode) UnmarshalText(data []byte) error {
-	switch AlertFindingCode(data) {
-	case AlertFindingCodeImageNotFound:
-		*s = AlertFindingCodeImageNotFound
-		return nil
-	default:
-		return errors.Errorf("invalid value: %q", data)
-	}
 }
 
 type AlertKind string

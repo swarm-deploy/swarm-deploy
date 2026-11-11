@@ -45,7 +45,7 @@ func TestAlertsAPIReadsPersistedAlerts(t *testing.T) {
 	assert.Equal(t, "apply_failed", response.Alerts[0].ErrorCode.Value)
 	assert.Equal(t, "deployment", response.Alerts[0].DeploymentId.Value)
 	wantFindings := []generated.AlertFinding{{
-		Code: generated.AlertFindingCodeImageNotFound, Summary: "image api:1 missing", DetectedAt: now,
+		Code: "image_not_found", Summary: "image api:1 missing", DetectedAt: now,
 	}}
 	assert.Equal(t, wantFindings, response.Alerts[0].Findings)
 
@@ -60,6 +60,16 @@ func TestAlertsAPIReadsPersistedAlerts(t *testing.T) {
 		`"findings":[{"code":"image_not_found","summary":"image api:1 missing","detectedAt":"2026-09-22T10:00:00Z"}]`)
 	assert.True(t, details.Resolution.IsSet(), "resolution should be mapped")
 	assert.Equal(t, generated.AlertResolutionReasonResourceRemoved, details.Resolution.Value.Reason)
+}
+
+func TestAlertFindingCodeContract(t *testing.T) {
+	alert := toGeneratedAlert(alertmodel.Alert{
+		Kind: alertmodel.AlertKindSyncFailed, ResourceType: alertmodel.ResourceTypeStack,
+		Status: alertmodel.AlertStatusOpen, Occurrences: 1,
+		Findings: []alertmodel.Finding{{Code: faults.CodeImageExtractionFailed}},
+	})
+	require.Equal(t, string(faults.CodeImageExtractionFailed), alert.Findings[0].Code)
+	require.NoError(t, alert.Validate())
 }
 
 func TestAlertsAPIStackFilter(t *testing.T) {

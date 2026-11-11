@@ -70,6 +70,32 @@ func TestServiceWaiterTerminalTaskFaults(t *testing.T) {
 	}
 }
 
+func TestServiceWaiterContainerdLeaseFindingOnRollback(t *testing.T) {
+	const diagnostic = `failed to prepare extraction snapshot "extract-225092350-0LGf sha256:95dbfedee91178a3278e2e146a03bfd2223378ee9f60480b71df6f8d6cc1316e": NotFound: lease does not exist: not found`
+	const summary = "Container image extraction failed: containerd snapshot lease is missing. Retry deployment; check for concurrent image cleanup."
+	manager := swarm.NewMockServiceManager(gomock.NewController(t))
+	service := testReplicatedService("api", "api-id", 1, serviceWaitTestTime, "api:2")
+	service.UpdateStatus = &swarm.ServiceUpdateStatus{
+		State: "rollback_started",
+		Message: "update rolled back due to failure or early termination of task current-task",
+		StartedAt: serviceWaitTestTime,
+	}
+	task := testTask("current-task", 1, swarm.TaskStateShutdown, swarm.TaskStateRejected, serviceWaitTestTime)
+	task.Error = diagnostic
+	manager.EXPECT().ListServices(gomock.Any(), gomock.Any()).Return([]swarm.StackService{service}, nil)
+	manager.EXPECT().ListTasks(gomock.Any(), service.ID).Return([]swarm.ServiceTask{task}, nil)
+	err := waitForTest(newTestServiceWaiter(manager), t.Context(), ServiceWaitRequest{
+		StackName: "app", ServiceNames: []string{service.Name},
+		ExpectedSpecs: map[string]dockerswarm.ServiceSpec{service.Name: service.ServiceSpec},
+	})
+	require.ErrorIs(t, err, ErrConvergenceFailed)
+	assert.ErrorContains(t, err, diagnostic)
+	var coded faults.Coded
+	require.ErrorAs(t, err, &coded)
+	assert.Equal(t, faults.CodeImageExtractionFailed, coded.FaultCode())
+	assert.Equal(t, summary, coded.FaultSummary())
+}
+
 func TestWaitInterruptedErrorPreservesTechnicalChain(t *testing.T) {
 	task := testTask("pending-task", 1, swarm.TaskStateRunning, swarm.TaskStatePending, serviceWaitTestTime)
 	task.Error = "no suitable node (insufficient resources on 1 node)"
