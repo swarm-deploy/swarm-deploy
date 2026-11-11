@@ -29,7 +29,7 @@ var (
 	GitCommitHash            = attribute.Key("commit_hash")
 	GitFilesCount            = attribute.Key("files.count")
 	SyncGitUpdated           = attribute.Key("git.updated")
-	SyncTrigger              = attribute.Key("sync.trigger")
+	SyncTrigger              = attribute.Key("swarm-deploy.sync.trigger")
 	StacksTotal              = attribute.Key("stacks.total")
 	StacksChanged            = attribute.Key("stacks.changed")
 	AssistantToolResultChars = attribute.Key("swarm-deploy.assistant.tool.result_chars")
