@@ -37,14 +37,8 @@ func TestAlertsAPIReadsPersistedAlerts(t *testing.T) {
 	require.NoError(t, store.Create(ctx, open), "persist open alert")
 	require.NoError(t, store.Create(ctx, resolved), "persist resolved alert")
 	h := &handler{alerts: store}
-	server, err := generated.NewServer(h, h, generated.WithErrorHandler(HandleHTTPError))
-	require.NoError(t, err)
-	httpServer := httptest.NewServer(server)
-	t.Cleanup(httpServer.Close)
-	client, err := generated.NewClient(httpServer.URL)
-	require.NoError(t, err)
 
-	response, err := client.ListAlerts(ctx, generated.ListAlertsParams{Status: generated.NewOptAlertStatus(generated.AlertStatusOpen)})
+	response, err := h.ListAlerts(ctx, generated.ListAlertsParams{Status: generated.NewOptAlertStatus(generated.AlertStatusOpen)})
 	require.NoError(t, err, "list open alerts")
 	require.Len(t, response.Alerts, 1, "status filter")
 	assert.Equal(t, "open-id", response.Alerts[0].ID, "persisted alert should be returned")
@@ -57,7 +51,7 @@ func TestAlertsAPIReadsPersistedAlerts(t *testing.T) {
 	}
 	assert.Equal(t, wantFindings, response.Alerts[0].Findings)
 
-	details, err := client.GetAlert(ctx, generated.GetAlertParams{ID: "resolved-id"})
+	details, err := h.GetAlert(ctx, generated.GetAlertParams{ID: "resolved-id"})
 	require.NoError(t, err, "get alert details")
 	assert.Equal(t, "resolved-id", details.ID, "requested alert")
 	assert.Equal(t, wantFindings, details.Findings)
@@ -69,6 +63,16 @@ func TestAlertsAPIReadsPersistedAlerts(t *testing.T) {
 			`{"code":"image_extraction_failed","summary":"containerd snapshot lease is missing","detectedAt":"2026-09-22T10:00:00Z"}]`)
 	assert.True(t, details.Resolution.IsSet(), "resolution should be mapped")
 	assert.Equal(t, generated.AlertResolutionReasonResourceRemoved, details.Resolution.Value.Reason)
+}
+
+func TestAlertFindingCodeContract(t *testing.T) {
+	alert := toGeneratedAlert(alertmodel.Alert{
+		Kind: alertmodel.AlertKindSyncFailed, ResourceType: alertmodel.ResourceTypeStack,
+		Status: alertmodel.AlertStatusOpen, Occurrences: 1,
+		Findings: []alertmodel.Finding{{Code: faults.CodeImageExtractionFailed}},
+	})
+	require.Equal(t, string(faults.CodeImageExtractionFailed), alert.Findings[0].Code)
+	require.NoError(t, alert.Validate())
 }
 
 func TestAlertsAPIStackFilter(t *testing.T) {
