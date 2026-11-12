@@ -21,6 +21,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/outbox"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/notifications/notifiers"
+	notificationtemplate "github.com/swarm-deploy/swarm-deploy/internal/modules/notifications/template"
 	"github.com/swarm-deploy/swarm-deploy/internal/storage"
 )
 
@@ -35,6 +36,101 @@ func alertSpec() config.NotificationSpec {
 			Opened:   config.AlertMessageSpec{Message: "{{ .Title }}"},
 			Resolved: config.AlertMessageSpec{Action: "reply", Message: "{{ .Resolution }}"},
 		}}}},
+	}
+}
+
+func TestAlertTelegramButtons(t *testing.T) {
+	const inheritedURL = "https://example.com/current/dep-2"
+	const resolvedURL = "https://example.com/resolved/dep-2"
+	resolvedButtons := []notificationtemplate.ButtonSpec{{
+		Text: "{{ .Resolution }}", URL: "https://example.com/resolved/{{ .DeploymentID }}",
+	}}
+	for _, tt := range []struct {
+		name, action, wantURL string
+		buttons               []notificationtemplate.ButtonSpec
+		invalidEdit           bool
+	}{
+		{name: "edit rerenders current opening template", action: "edit", wantURL: inheritedURL},
+		{name: "edit uses explicit resolution buttons", action: "edit", buttons: resolvedButtons, wantURL: resolvedURL},
+		{name: "edit clears buttons with an empty list", action: "edit", buttons: []notificationtemplate.ButtonSpec{}},
+		{name: "reply does not inherit", action: "reply"},
+		{name: "reply uses resolution buttons", action: "reply", buttons: resolvedButtons, wantURL: resolvedURL},
+		{name: "edit fallback drops inherited buttons", action: "edit", wantURL: inheritedURL, invalidEdit: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			type request struct {
+				Path   string
+				Markup *struct {
+					Rows [][]notificationtemplate.Button `json:"inline_keyboard"`
+				} `json:"reply_markup"`
+			}
+			requests := make(chan request, 3)
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				body := request{Path: r.URL.Path}
+				if assert.NoError(t, json.NewDecoder(r.Body).Decode(&body)) {
+					requests <- body
+				}
+				if tt.invalidEdit && strings.HasSuffix(r.URL.Path, "/editMessageText") {
+					w.WriteHeader(http.StatusBadRequest)
+					_, _ = w.Write([]byte(`{"ok":false,"description":"message to edit not found"}`))
+					return
+				}
+				_, _ = w.Write([]byte(`{"ok":true,"result":{"message_id":71}}`))
+			}))
+			t.Cleanup(server.Close)
+			db, err := storage.OpenSQLite(t.Context(), t.TempDir())
+			require.NoError(t, err)
+			t.Cleanup(func() { require.NoError(t, db.Close()) })
+			spec := alertSpec()
+			routes := spec.Alerts["NodeDisconnected"]
+			spec.Alerts["SyncFailed"] = routes
+			route := &routes.Telegram[0]
+			route.Opened.Buttons = []notificationtemplate.ButtonSpec{{Text: "Open", URL: "https://example.com/{{ .DeploymentID }}"}}
+			route.Resolved.Action = tt.action
+			route.Resolved.Buttons = tt.buttons
+			recipients := spec.AlertRecipients("sync_failed")
+			subscriber := &Subscriber{
+				store: NewStore(db), spec: spec, recipient: recipients[0], now: time.Now, apiBaseURL: server.URL,
+			}
+			alert := events.AlertSnapshot{ID: "alert-1", Kind: "sync_failed", Title: "Sync failed", DeploymentID: "dep-1"}
+			require.NoError(t, subscriber.Handle(t.Context(), events.Envelope{Event: &events.AlertOpened{
+				Alert: alert, Recipients: recipients,
+			}}))
+			require.Len(t, requests, 1)
+			opened := <-requests
+			assert.True(t, strings.HasSuffix(opened.Path, "/sendMessage"))
+			require.NotNil(t, opened.Markup)
+			assert.Equal(t, [][]notificationtemplate.Button{{{Text: "Open", URL: "https://example.com/dep-1"}}}, opened.Markup.Rows)
+
+			route.Opened.Buttons[0].URL = "https://example.com/current/{{ .DeploymentID }}"
+			alert.DeploymentID = "dep-2"
+			alert.Resolution = "Recovered"
+			require.NoError(t, subscriber.Handle(t.Context(), events.Envelope{Event: &events.AlertResolved{Alert: alert}}))
+			if tt.invalidEdit {
+				require.Len(t, requests, 2)
+			} else {
+				require.Len(t, requests, 1)
+			}
+			resolved := <-requests
+			if tt.action == "edit" {
+				assert.True(t, strings.HasSuffix(resolved.Path, "/editMessageText"))
+			} else {
+				assert.True(t, strings.HasSuffix(resolved.Path, "/sendMessage"))
+			}
+			if tt.wantURL == "" {
+				assert.Nil(t, resolved.Markup)
+			} else {
+				require.NotNil(t, resolved.Markup)
+				require.Len(t, resolved.Markup.Rows, 1)
+				require.Len(t, resolved.Markup.Rows[0], 1)
+				assert.Equal(t, tt.wantURL, resolved.Markup.Rows[0][0].URL)
+			}
+			if tt.invalidEdit {
+				fallback := <-requests
+				assert.True(t, strings.HasSuffix(fallback.Path, "/sendMessage"))
+				assert.Nil(t, fallback.Markup)
+			}
+		})
 	}
 }
 
@@ -503,15 +599,27 @@ func TestGitAlertDefaultTelegramHTMLAndCustomTemplates(t *testing.T) {
 			require.NoError(t, err)
 			defer db.Close()
 			spec := alertSpec()
+			buttons := []notificationtemplate.ButtonSpec{{
+				Text: "{{ .ResourceID }}",
+				URL:  "https://example.com/repositories?repo={{ .ResourceID | urlquery }}",
+			}}
+			route := config.TelegramAlertChannel{
+				Opened:   config.AlertMessageSpec{Buttons: buttons},
+				Resolved: config.AlertMessageSpec{Buttons: buttons},
+			}
 			if custom {
-				spec.Alerts["GitRepositoryUnavailable"] = config.NotificationAlertRoutes{Telegram: []config.TelegramAlertChannel{{
-					Opened:   config.AlertMessageSpec{Message: "repo={{ .ResourceID }}"},
-					Resolved: config.AlertMessageSpec{Message: "recovered={{ .ResourceID }}"},
-				}}}
+				route.Opened.Message = "repo={{ .ResourceID }}"
+				route.Resolved.Message = "recovered={{ .ResourceID }}"
+			}
+			spec.Alerts["GitRepositoryUnavailable"] = config.NotificationAlertRoutes{
+				Telegram: []config.TelegramAlertChannel{route},
 			}
 			type request struct {
 				Text      string `json:"text"`
 				ParseMode string `json:"parse_mode"`
+				Markup    struct {
+					Rows [][]notificationtemplate.Button `json:"inline_keyboard"`
+				} `json:"reply_markup"`
 			}
 			var received []request
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -537,6 +645,12 @@ func TestGitAlertDefaultTelegramHTMLAndCustomTemplates(t *testing.T) {
 				Alert: alert, Recipients: []events.AlertRecipient{recipient},
 			}}))
 			require.Len(t, received, 2)
+			for _, req := range received {
+				assert.Equal(t, [][]notificationtemplate.Button{{{
+					Text: alert.ResourceID,
+					URL:  "https://example.com/repositories?repo=example.com%2Forg%2F%3Crepo%3E%26test",
+				}}}, req.Markup.Rows)
+			}
 			if custom {
 				assert.Empty(t, received[0].ParseMode)
 				assert.Empty(t, received[1].ParseMode)

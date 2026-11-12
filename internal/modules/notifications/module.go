@@ -81,6 +81,7 @@ func registerTelegramNotifications(
 				chatName, string(telegram.BotToken.Content), chat.ID,
 				notifiers.TelegramOptions{
 					ChatThreadID: chat.ThreadID, Message: channel.Message, DefaultMessage: defaultTemplate,
+					Buttons: channel.Buttons,
 					Retries: telegram.Retries, SOCKS5Address: telegram.Proxy.SOCKS5.Address.Value,
 				},
 			)

@@ -8,6 +8,25 @@ selects `default`. An unknown, empty or repeated destination is a configuration 
 The `message` field uses Go `text/template`; omitting it selects the standard template.
 The removed `notifications.on` key is rejected; no compatibility alias is provided.
 
+## Telegram buttons
+
+Add an optional `buttons` list to a Telegram event route or to an alert route's
+`opened` or `resolved` section. Each button has a `text` label and a `url`.
+Both use Go `text/template` with the same fields as the corresponding message.
+Telegram displays the buttons in configuration order, one per row.
+
+The rendered URL must be an absolute `http://`, `https://`, or `tg://` URL.
+If the template renders an empty URL, swarm-deploy skips that button. The
+[example below](#example) uses this to hide the deployment link when a `SyncFailed`
+alert has no `DeploymentID`. Button templates are validated at startup, and
+rendered URLs are checked before sending.
+
+With `resolved.action: edit`, omitting `resolved.buttons` renders the current
+`opened.buttons` templates again using the resolved alert's data. The resulting
+links can change if the templates or alert data change. Set `buttons: []` under
+`resolved` to clear the keyboard on edit, or supply a list to replace it.
+Replies and fallback sends use the buttons configured under `resolved`.
+
 ## Alert lifecycle
 
 Notification configuration uses the exact PascalCase alert names `SyncFailed`,
@@ -165,6 +184,9 @@ notifications:
             💚 deploy {{ .Status }}
             stack: {{ .StackName }}
             at: {{ date "2006-01-02 15:04" .OccurredAt }} UTC
+          buttons:
+            - text: "Open {{ .StackName }} deployment"
+              url: "https://swarm-deploy.example/deployments?deployment_id={{ .DeploymentID | urlquery }}"
     NodeJoined:
       telegram:
         - chats: [default, deployments]
@@ -177,11 +199,19 @@ notifications:
           resolved:
             action: reply
             message: "✅ {{ .Title }}: {{ .Resolution }}"
+            buttons:
+              - text: "Open alert"
+                url: "https://swarm-deploy.example/events?tab=alerts&alert_id={{ .ID | urlquery }}"
     SyncFailed:
       telegram:
         - chats: deployments
           opened:
-            message: "🔴 Synchronization failed: {{ .ResourceID }}\nhttps://swarm-deploy.example/deployments?deployment_id={{ .DeploymentID }}"
+            message: "🔴 Synchronization failed: {{ .ResourceID }}"
+            buttons:
+              - text: "Open alert"
+                url: "https://swarm-deploy.example/events?tab=alerts&alert_id={{ .ID | urlquery }}"
+              - text: "Open failed deployment"
+                url: '{{ with .DeploymentID }}https://swarm-deploy.example/deployments?deployment_id={{ . | urlquery }}{{ end }}'
           resolved:
             action: edit
             message: "✅ Synchronization recovered: {{ .ResourceID }}"

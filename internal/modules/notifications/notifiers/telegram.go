@@ -35,6 +35,10 @@ type TelegramOptions struct {
 	Message string
 	// DefaultMessage is the notification template used when Message is empty.
 	DefaultMessage string
+	// Buttons are URL button templates rendered with the message payload.
+	Buttons []notificationtemplate.ButtonSpec
+	// EditOnlyButtons limits inherited opening buttons to edits of the original message.
+	EditOnlyButtons bool
 	// ParseMode selects Telegram message entity parsing.
 	ParseMode string
 	// APIBaseURL is a base URL for Telegram Bot API.
@@ -46,16 +50,18 @@ type TelegramOptions struct {
 }
 
 type TelegramNotifier struct {
-	name         string
-	token        string
-	chatID       string
-	chatThreadID int64
-	apiBaseURL   string
-	messageTmpl  *notificationtemplate.Renderer
-	parseMode    string
-	retries      uint
-	retryOptions []retry.Option
-	client       *http.Client
+	name            string
+	token           string
+	chatID          string
+	chatThreadID    int64
+	apiBaseURL      string
+	messageTmpl     *notificationtemplate.Renderer
+	buttonTemplates notificationtemplate.ButtonTemplates
+	editOnlyButtons bool
+	parseMode       string
+	retries         uint
+	retryOptions    []retry.Option
+	client          *http.Client
 }
 
 const defaultTelegramRetries = 3
@@ -98,6 +104,10 @@ func newTelegramNotifier(name, token, chatID string, options TelegramOptions) (*
 	if err != nil {
 		return nil, fmt.Errorf("build telegram message template: %w", err)
 	}
+	buttons, err := notificationtemplate.NewButtons(options.Buttons)
+	if err != nil {
+		return nil, fmt.Errorf("build telegram button templates: %w", err)
+	}
 
 	apiBaseURL := options.APIBaseURL
 	if apiBaseURL == "" {
@@ -115,15 +125,17 @@ func newTelegramNotifier(name, token, chatID string, options TelegramOptions) (*
 	}
 
 	return &TelegramNotifier{
-		name:         name,
-		token:        token,
-		chatID:       chatID,
-		chatThreadID: options.ChatThreadID,
-		apiBaseURL:   strings.TrimRight(apiBaseURL, "/"),
-		messageTmpl:  tmpl,
-		parseMode:    options.ParseMode,
-		retries:      retries,
-		client:       client,
+		name:            name,
+		token:           token,
+		chatID:          chatID,
+		chatThreadID:    options.ChatThreadID,
+		apiBaseURL:      strings.TrimRight(apiBaseURL, "/"),
+		messageTmpl:     tmpl,
+		buttonTemplates: buttons,
+		editOnlyButtons: options.EditOnlyButtons,
+		parseMode:       options.ParseMode,
+		retries:         retries,
+		client:          client,
 	}, nil
 }
 
@@ -147,15 +159,29 @@ func (n *TelegramNotifier) Notify(ctx context.Context, event Message) (Receipt, 
 	if action == "" || event.TargetMessageID == 0 {
 		action = ActionSend
 	}
-	receipt, err := n.notifyAction(ctx, message, action, event.TargetMessageID)
+	var buttons []notificationtemplate.Button
+	if !n.editOnlyButtons || action == ActionEdit {
+		buttonPayload := event.ButtonPayload
+		if buttonPayload == nil {
+			buttonPayload = event.Payload
+		}
+		buttons, err = n.buttonTemplates.Render(buttonPayload)
+		if err != nil {
+			return Receipt{}, fmt.Errorf("render telegram button templates: %w", err)
+		}
+	}
+	receipt, err := n.notifyAction(ctx, message, action, event.TargetMessageID, buttons)
 	if errors.Is(err, ErrMessageReferenceInvalid) && action != ActionSend {
-		return n.notifyAction(ctx, message, ActionSend, 0)
+		if n.editOnlyButtons {
+			buttons = nil
+		}
+		return n.notifyAction(ctx, message, ActionSend, 0, buttons)
 	}
 	return receipt, err
 }
 
 func (n *TelegramNotifier) notifyAction(
-	ctx context.Context, message string, action Action, targetID int64,
+	ctx context.Context, message string, action Action, targetID int64, buttons []notificationtemplate.Button,
 ) (Receipt, error) {
 	payload := map[string]any{
 		"chat_id": n.chatID,
@@ -175,6 +201,13 @@ func (n *TelegramNotifier) notifyAction(
 	}
 	if n.chatThreadID > 0 && action != ActionEdit {
 		payload["message_thread_id"] = n.chatThreadID
+	}
+	if len(buttons) > 0 {
+		rows := make([][]notificationtemplate.Button, 0, len(buttons))
+		for i := range buttons {
+			rows = append(rows, buttons[i:i+1])
+		}
+		payload["reply_markup"] = map[string]any{"inline_keyboard": rows}
 	}
 
 	body, err := json.Marshal(payload)
