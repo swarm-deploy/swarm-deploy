@@ -55,7 +55,7 @@ describe("Alert details modal", () => {
       findings: [imageFinding],
     });
 
-    expect(wrapper.get(".app-status-badge--success").text()).toBe("Resolved");
+    expect(wrapper.get(".app-status-badge--neutral").text()).toBe("Resolved");
     expect(wrapper.get(".alert-details-resolution h4").text()).toBe("Recovered successfully");
     expect(wrapper.get(".alert-details-resolution p").text()).toBe("Sync completed on the next attempt");
     expect(wrapper.get(".alert-details-resolution time").attributes("datetime")).toBe(updatedAt);

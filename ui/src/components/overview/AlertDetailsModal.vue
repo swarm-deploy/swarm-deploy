@@ -3,9 +3,10 @@ import { computed } from "vue";
 
 import AppButton from "../common/AppButton.vue";
 import AppModal from "../common/AppModal.vue";
-import AppStatusBadge from "../common/AppStatusBadge.vue";
+import AlertStatusBadge from "./AlertStatusBadge.vue";
 import DeploymentIcon from "./DeploymentIcon.vue";
 import { useOverviewStore } from "../../stores/overview";
+import { alertResourceRoute } from "../../utils/alertResource";
 import { formatDate, shortCommitHash } from "../../utils/format";
 
 const overviewStore = useOverviewStore();
@@ -30,23 +31,8 @@ const resolutionTitle = computed(() => {
     default: return "Resolved";
   }
 });
-const stackTarget = computed(() => {
-  if (alert.value?.resourceType !== "stack" || !alert.value.resourceId) return null;
-  return { name: "stack-details", params: { stack: alert.value.resourceId } };
-});
-const serviceTarget = computed(() => {
-  if (alert.value?.resourceType !== "service") return null;
-  const separator = alert.value.resourceId.indexOf("/");
-  if (separator <= 0 || separator === alert.value.resourceId.length - 1) return null;
-  return {
-    name: "service-details",
-    params: {
-      stack: alert.value.resourceId.slice(0, separator),
-      service: alert.value.resourceId.slice(separator + 1),
-    },
-  };
-});
-const resourceTarget = computed(() => stackTarget.value ?? serviceTarget.value);
+const resourceTarget = computed(() => alert.value ? alertResourceRoute(alert.value) : null);
+const stackTarget = computed(() => alert.value?.resourceType === "stack" ? resourceTarget.value : null);
 
 function closeAlertDetailsModal() {
   overviewStore.closeAlertDetailsModal();
@@ -89,10 +75,7 @@ function openCommit() {
               <span class="alert-details-kind">{{ alert.kind.replaceAll("_", " ") }}</span>
               <h3>{{ alert.title || "Alert" }}</h3>
             </div>
-            <AppStatusBadge :variant="isResolved ? 'success' : 'error'" filled>
-              <DeploymentIcon v-if="isResolved" name="check" />
-              {{ isResolved ? "Resolved" : "Active" }}
-            </AppStatusBadge>
+            <AlertStatusBadge class="alert-details-status" :status="alert.status" />
           </div>
           <div class="alert-details-resource">
             <svg v-if="alert.resourceType === 'stack'" class="alert-details-stack-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" aria-hidden="true">
@@ -240,24 +223,13 @@ function openCommit() {
 .alert-details-heading,
 .alert-details-resolution { align-items: flex-start; }
 .alert-details-heading h3 { margin: 8px 0 0; font-size: 21px; line-height: 1.22; }
-.alert-details-heading .app-status-badge {
-  flex-shrink: 0;
-  min-height: 31px;
-  border: 0;
-  padding: 6px 12px;
-  font-size: 12px;
-  font-weight: 700;
-}
-.alert-details-heading .app-status-badge--success {
-  background: color-mix(in srgb, var(--alert-details-recovery) 15%, transparent);
-  color: var(--alert-details-recovery);
-}
+.alert-details-status { flex-shrink: 0; }
 .alert-details-kind { color: var(--muted); font-size: 11px; font-weight: 700; letter-spacing: .10em; text-transform: uppercase; }
 .alert-details-body h4 { margin: 0; font-size: 14px; }
 .alert-details-resource { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 9px; margin-top: 21px; color: var(--muted); }
 .alert-details-resource svg { flex: 0 0 auto; width: 16px; height: 16px; }
-.alert-details-resource strong,
-.alert-details-resource a { color: color-mix(in srgb, var(--text) 70%, var(--muted)); font-weight: 700; }
+.alert-details-resource strong { color: color-mix(in srgb, var(--text) 70%, var(--muted)); font-weight: 700; }
+.alert-details-resource a { font-weight: 700; text-decoration: underline; }
 .alert-details-occurrences::before { content: "·"; margin-inline-end: 9px; }
 
 .alert-details-link {

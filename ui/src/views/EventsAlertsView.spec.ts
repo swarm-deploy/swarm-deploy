@@ -43,7 +43,11 @@ const resolvedAlert: Alert = {
 async function mountView(path = "/events") {
   const router = createRouter({
     history: createMemoryHistory(),
-    routes: [{ path: "/events", component: EventsAlertsView }],
+    routes: [
+      { path: "/events", component: EventsAlertsView },
+      { path: "/stacks/:stack", name: "stack-details", component: { template: "<div />" } },
+      { path: "/services/:stack/:service", name: "service-details", component: { template: "<div />" } },
+    ],
   });
   await router.push(path);
   await router.isReady();
@@ -104,12 +108,32 @@ describe("Events & Alerts", () => {
     expect(wrapper.get(".alerts-table th").attributes("aria-sort")).toBe("descending");
     expect(wrapper.findAll(".alerts-title").map((title) => title.text()))
       .toEqual(["Service drift detected", "Node disconnected"]);
+    expect(wrapper.get(".app-status-badge--error").text()).toBe("Active");
+    expect(wrapper.get(".app-status-badge--neutral").text()).toBe("Resolved");
     expect(wrapper.get(".alerts-table").text()).not.toContain("Service recovered");
     await wrapper.get(".alerts-table .app-table-sort").trigger("click");
     expect(wrapper.get(".alerts-table th").attributes("aria-sort")).toBe("ascending");
     expect(wrapper.findAll(".alerts-title").map((title) => title.text()))
       .toEqual(["Node disconnected", "Service drift detected"]);
     expect(wrapper.findAll("h2")).toHaveLength(0);
+  });
+
+  it("links stack and service resources without opening the alert modal", async () => {
+    vi.mocked(fetchAlerts).mockResolvedValue({ alerts: [
+      activeAlert,
+      resolvedAlert,
+      { ...activeAlert, id: "stack-incident", resourceType: "stack", resourceId: "app" },
+      { ...activeAlert, id: "malformed-service", resourceType: "service", resourceId: "missing-stack" },
+    ] });
+    const { wrapper, router } = await mountView();
+    const resourceLinks = wrapper.findAll(".alerts-resource a");
+
+    expect(resourceLinks.map((link) => link.attributes("href"))).toEqual(["/services/app/api", "/stacks/app"]);
+    await resourceLinks[0]!.trigger("click");
+    await flushPromises();
+    expect(router.currentRoute.value.path).toBe("/services/app/api");
+    expect(openAlertDetailsModal).not.toHaveBeenCalled();
+    wrapper.unmount();
   });
 
   it("switches tabs and synchronizes the URL without dropping other query parameters", async () => {

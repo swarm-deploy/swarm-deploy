@@ -7,10 +7,11 @@ import type { Alert, AlertStatus } from "../api/types";
 import AppButton from "../components/common/AppButton.vue";
 import AppFilterPanel from "../components/common/AppFilterPanel.vue";
 import AppSearchFilter from "../components/common/AppSearchFilter.vue";
-import AppStatusBadge from "../components/common/AppStatusBadge.vue";
 import AppTable from "../components/common/AppTable.vue";
 import AppTableEmpty from "../components/common/AppTableEmpty.vue";
+import AlertStatusBadge from "../components/overview/AlertStatusBadge.vue";
 import { useOverviewStore } from "../stores/overview";
+import { alertResourceRoute } from "../utils/alertResource";
 import { formatDate } from "../utils/format";
 
 const overviewStore = useOverviewStore();
@@ -46,7 +47,8 @@ const visibleAlerts = computed(() => alerts.value
   .sort((left, right) => {
     const difference = Date.parse(updatedAt(right)) - Date.parse(updatedAt(left));
     return newestFirst.value ? difference : -difference;
-  }));
+  })
+  .map((alert) => ({ alert, resourceTarget: alertResourceRoute(alert) })));
 
 function resourceKey(alert: Alert): string {
   return `${alert.resourceType}:${alert.resourceId}`;
@@ -159,18 +161,21 @@ onMounted(() => void loadAlerts());
           <th>Occurrences</th>
         </tr>
       </template>
-      <tr v-for="alert in visibleAlerts" :key="alert.id" class="app-table-row--clickable" @click="overviewStore.openAlertDetailsModal(alert)">
+      <tr v-for="{ alert, resourceTarget } in visibleAlerts" :key="alert.id" class="app-table-row--clickable" @click="overviewStore.openAlertDetailsModal(alert)">
         <td>{{ formatDate(updatedAt(alert)) }}</td>
         <td>
-          <AppStatusBadge :variant="alert.status === 'resolved' ? 'neutral' : 'warning'" dot>
-            {{ alert.status === "resolved" ? "Resolved" : "Active" }}
-          </AppStatusBadge>
+          <AlertStatusBadge :status="alert.status" />
         </td>
         <td>
           <button class="alerts-title" type="button" @click.stop="overviewStore.openAlertDetailsModal(alert)">{{ alert.title }}</button>
           <span v-if="alert.message && alert.message !== alert.title" class="alerts-message">{{ alert.message }}</span>
         </td>
-        <td class="alerts-resource">{{ alert.resourceId || "unknown resource" }}</td>
+        <td class="alerts-resource">
+          <RouterLink v-if="resourceTarget" :to="resourceTarget" class="alerts-resource-link" @click.stop>
+            {{ alert.resourceId }}
+          </RouterLink>
+          <template v-else>{{ alert.resourceId || "unknown resource" }}</template>
+        </td>
         <td>{{ alert.occurrences }}</td>
       </tr>
     </AppTable>
@@ -222,6 +227,15 @@ onMounted(() => void loadAlerts());
 }
 .alerts-resource {
   overflow-wrap: anywhere;
+}
+.alerts-resource-link {
+  color: var(--accent-strong);
+  text-decoration: underline;
+  text-underline-offset: .18em;
+}
+.alerts-resource-link:focus-visible {
+  outline: 2px solid var(--accent-focus);
+  outline-offset: 2px;
 }
 @media (max-width: 720px) {
   .alerts-updated-column {
