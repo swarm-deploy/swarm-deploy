@@ -183,17 +183,47 @@ func TestGitPullCodecRejectsUnsafePayloads(t *testing.T) {
 
 func TestDeploymentFailureCategorySurvivesCodec(t *testing.T) {
 	for _, code := range []string{"policy_rejected", "init_failed", "apply_failed", "convergence_failed", "prune_failed"} {
-		event := &events.DeployFailed{DeployEvent: events.DeployEvent{StackName: "app"}, Error: errors.New(code)}
-		payload, err := Encode(event)
-		require.NoError(t, err)
-		assert.Contains(t, string(payload), code)
-		decoded, err := Decode(events.TypeNameDeployFailed, Version, payload)
-		require.NoError(t, err)
-		assert.Equal(t, code, decoded.(*events.DeployFailed).Error.Error())
+		t.Run(code, func(t *testing.T) {
+			payload, err := Encode(&events.DeployFailed{ErrorCode: code})
+			require.NoError(t, err)
+			assert.Contains(t, string(payload), `"code":"`+code+`"`)
+
+			decoded, err := Decode(events.TypeNameDeployFailed, Version, payload)
+			require.NoError(t, err)
+			assert.Equal(t, code, decoded.(*events.DeployFailed).ErrorCode)
+		})
 	}
-	payload, err := Encode(&events.DeployFailed{Error: errors.New("secret diagnostic")})
-	require.NoError(t, err)
-	assert.NotContains(t, string(payload), "secret diagnostic")
+}
+
+func TestEncodeDeploymentFailureCodeFallback(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		event events.DeployFailed
+		want  string
+	}{
+		{name: "known code in legacy error", event: events.DeployFailed{Error: errors.New("init_failed")}, want: "init_failed"},
+		{name: "unknown legacy error", event: events.DeployFailed{Error: errors.New("secret diagnostic")}, want: "apply_failed"},
+		{name: "empty code and no error", want: "apply_failed"},
+		{name: "unknown explicit code", event: events.DeployFailed{ErrorCode: "secret code", Error: errors.New("init_failed")}, want: "apply_failed"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			payload, err := Encode(&test.event)
+			require.NoError(t, err)
+			assert.Contains(t, string(payload), `"code":"`+test.want+`"`)
+			assert.NotContains(t, string(payload), "secret code")
+			assert.NotContains(t, string(payload), "secret diagnostic")
+		})
+	}
+}
+
+func TestDecodeDeploymentFailureCodeFallback(t *testing.T) {
+	for _, code := range []string{"", "unknown_code"} {
+		decoded, err := Decode(events.TypeNameDeployFailed, Version, []byte(`{"code":"`+code+`","diagnostic":"init_failed"}`))
+		require.NoError(t, err)
+		failure := decoded.(*events.DeployFailed)
+		assert.Equal(t, "apply_failed", failure.ErrorCode)
+		assert.EqualError(t, failure.Error, "init_failed")
+	}
 }
 
 func TestDeploymentFailureDiagnosticIsActionableAndMasked(t *testing.T) {

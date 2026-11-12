@@ -22,6 +22,15 @@ type DeploySuccess struct {
 	DeployEvent
 }
 
+// Stable error codes for DeployFailed.
+const (
+	DeployErrorCodePolicyRejected    = "policy_rejected"
+	DeployErrorCodeInitFailed        = "init_failed"
+	DeployErrorCodeApplyFailed       = "apply_failed"
+	DeployErrorCodeConvergenceFailed = "convergence_failed"
+	DeployErrorCodePruneFailed       = "prune_failed"
+)
+
 type DeployFailed struct {
 	DeployEvent
 

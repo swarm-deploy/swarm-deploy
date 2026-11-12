@@ -7,6 +7,15 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
 )
 
+// DeployErrorCodePreparationFailed is the stable error code for DeployPreparationFailed.
+const DeployErrorCodePreparationFailed = "preparation_failed"
+
+// Stable reasons for DeployInterrupted.
+const (
+	DeployInterruptReasonProcessInterrupted  = "process_interrupted"
+	DeployInterruptReasonVerificationUnknown = "verification_unknown"
+)
+
 // DeployPreparationFailed reports a safe pre-apply failure without inventing a deployment attempt.
 type DeployPreparationFailed struct {
 	// StackName identifies the stack whose desired input could not be prepared.

@@ -223,19 +223,19 @@ func (completion Completion) ErrorCode() string {
 	case CompletionSucceeded:
 		return ""
 	case CompletionApplyFailed:
-		return "apply_failed"
+		return events.DeployErrorCodeApplyFailed
 	case CompletionPolicyRejected:
-		return "policy_rejected"
+		return events.DeployErrorCodePolicyRejected
 	case CompletionInitJobFailed:
-		return "init_failed"
+		return events.DeployErrorCodeInitFailed
 	case CompletionConvergenceFailed:
-		return "convergence_failed"
+		return events.DeployErrorCodeConvergenceFailed
 	case CompletionVerificationInterrupted:
-		return "verification_unknown"
+		return events.DeployInterruptReasonVerificationUnknown
 	case CompletionCleanupFailed:
-		return "prune_failed"
+		return events.DeployErrorCodePruneFailed
 	case CompletionProcessInterrupted:
-		return "process_interrupted"
+		return events.DeployInterruptReasonProcessInterrupted
 	default:
 		return ""
 	}

@@ -40,19 +40,20 @@ func Encode(event events.Event) ([]byte, error) {
 		return encodeDeployment(e.DeployEvent)
 	case *events.DeployFailed:
 		code := e.ErrorCode
-		if code == "" {
-			code = safeFailureCode(e.Error)
+		if code == "" && e.Error != nil {
+			code = e.Error.Error()
 		}
-		return encodeDeploymentFailure(e.StackName, e.Commit, e.DeploymentID, e.AttemptID, code, e.Stage,
-			e.Error, e.Services)
+		return encodeDeploymentFailure(e.StackName, e.Commit, e.DeploymentID, e.AttemptID,
+			normalizeDeployFailureCode(code), e.Stage, e.Error, e.Services)
 	case *events.DeployPreparationFailed:
-		if e.ErrorCode != "preparation_failed" {
+		if e.ErrorCode != events.DeployErrorCodePreparationFailed {
 			return nil, errors.New("unsupported deployment preparation failure code")
 		}
 		return encodeDeploymentFailure(e.StackName, e.Commit, "", "", e.ErrorCode, e.Stage,
 			e.Error, e.Services)
 	case *events.DeployInterrupted:
-		if e.Reason != "process_interrupted" && e.Reason != "verification_unknown" {
+		if e.Reason != events.DeployInterruptReasonProcessInterrupted &&
+			e.Reason != events.DeployInterruptReasonVerificationUnknown {
 			return nil, errors.New("unsupported deployment interruption reason")
 		}
 		return encodeDeploymentFailure(e.StackName, e.Commit, e.DeploymentID, e.AttemptID, e.Reason, e.Stage,
@@ -255,7 +256,7 @@ func decodeDeploymentFailure(typ events.TypeName, payload []byte) (events.Event,
 					DeploymentID: p.DeploymentID, AttemptID: p.AttemptID,
 					StackName: p.Stack, Commit: p.Commit, Services: p.services(),
 				},
-				Error: diagnostic, ErrorCode: safeFailureCode(errors.New(p.Code)), Stage: p.Stage,
+				Error: diagnostic, ErrorCode: normalizeDeployFailureCode(p.Code), Stage: p.Stage,
 			}
 		case events.TypeNameDeployPreparationFailed:
 			return &events.DeployPreparationFailed{
@@ -341,14 +342,14 @@ func (p deploymentFailurePayload) services() []compose.Service {
 	return result
 }
 
-func safeFailureCode(err error) string {
-	if err != nil {
-		switch err.Error() {
-		case "policy_rejected", "init_failed", "apply_failed", "convergence_failed", "prune_failed":
-			return err.Error()
-		}
+func normalizeDeployFailureCode(code string) string {
+	switch code {
+	case events.DeployErrorCodePolicyRejected, events.DeployErrorCodeInitFailed, events.DeployErrorCodeApplyFailed,
+		events.DeployErrorCodeConvergenceFailed, events.DeployErrorCodePruneFailed:
+		return code
+	default:
+		return events.DeployErrorCodeApplyFailed
 	}
-	return "apply_failed"
 }
 
 func encodeDeploymentFailure(

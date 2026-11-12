@@ -279,7 +279,7 @@ func (r *Reconciler) recordFailure(
 	return r.db.WithinTransaction(ctx, func(ctx context.Context) error {
 		if err := r.stateStore.Update(ctx, func(runtime *model.Runtime) {
 			state := runtime.Stacks[stackName]
-			state.LastCommit, state.LastError = commit, "preparation_failed"
+			state.LastCommit, state.LastError = commit, events.DeployErrorCodePreparationFailed
 			state.StateUpdatedAt = time.Now().UTC()
 			if state.Services == nil {
 				state.Services = map[string]model.Service{}
@@ -303,7 +303,7 @@ func (r *Reconciler) recordFailure(
 			return err
 		}
 		return r.event.Publish(ctx, &events.DeployPreparationFailed{
-			StackName: stackName, Commit: commit, Services: services, ErrorCode: "preparation_failed",
+			StackName: stackName, Commit: commit, Services: services, ErrorCode: events.DeployErrorCodePreparationFailed,
 			Stage: preparationFailureStage(cause), Error: safeCause,
 		})
 	})
@@ -324,7 +324,7 @@ func (r *Reconciler) recordPipelineFailure(
 		failed.LastCommit, failed.LastError = req.Commit, pl.ExecutionError
 		failed.StateUpdatedAt = time.Now().UTC()
 		if failed.LastError == "" {
-			failed.LastError = "apply_failed"
+			failed.LastError = events.DeployErrorCodeApplyFailed
 		}
 		if failed.Services == nil {
 			failed.Services = map[string]model.Service{}
