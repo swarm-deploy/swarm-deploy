@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"reflect"
+	"slices"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
@@ -19,8 +20,6 @@ const Version = 1
 
 // Encode copies approved fields only. It never marshals Event, Details, errors,
 // logs, prompts, environment or Compose definitions.
-//
-//nolint:funlen // Keep the durable event allowlist together so its accepted fields are auditable.
 func Encode(event events.Event) ([]byte, error) {
 	if event == nil || (reflect.ValueOf(event).Kind() == reflect.Pointer && reflect.ValueOf(event).IsNil()) {
 		return nil, errors.New("cannot encode a nil event")
@@ -39,12 +38,8 @@ func Encode(event events.Event) ([]byte, error) {
 	case *events.DeploySuccess:
 		return encodeDeployment(e.DeployEvent)
 	case *events.DeployFailed:
-		code := e.ErrorCode
-		if code == "" && e.Error != nil {
-			code = e.Error.Error()
-		}
-		return encodeDeploymentFailure(e.StackName, e.Commit, e.DeploymentID, e.AttemptID,
-			normalizeDeployFailureCode(code), e.Stage, e.Error, e.Services)
+		return encodeDeploymentFailure(e.StackName, e.Commit, e.DeploymentID, e.AttemptID, e.ErrorCode, e.Stage,
+			e.Error, e.Services)
 	case *events.DeployPreparationFailed:
 		if e.ErrorCode != events.DeployErrorCodePreparationFailed {
 			return nil, errors.New("unsupported deployment preparation failure code")
@@ -251,12 +246,16 @@ func decodeDeploymentFailure(typ events.TypeName, payload []byte) (events.Event,
 		diagnostic := faults.NewSafeError(p.Diagnostic, p.Temporary, p.FaultCode, p.FaultSummary)
 		switch typ { //nolint:exhaustive // isDeploymentFailureType restricts this helper to these event types.
 		case events.TypeNameDeployFailed:
+			code := p.Code
+			if !slices.Contains(knownDeployFailureCodes, code) {
+				code = events.DeployErrorCodeApplyFailed
+			}
 			return &events.DeployFailed{
 				DeployEvent: events.DeployEvent{
 					DeploymentID: p.DeploymentID, AttemptID: p.AttemptID,
 					StackName: p.Stack, Commit: p.Commit, Services: p.services(),
 				},
-				Error: diagnostic, ErrorCode: normalizeDeployFailureCode(p.Code), Stage: p.Stage,
+				Error: diagnostic, ErrorCode: code, Stage: p.Stage,
 			}
 		case events.TypeNameDeployPreparationFailed:
 			return &events.DeployPreparationFailed{
@@ -318,7 +317,7 @@ type deploymentFailurePayload struct {
 	Stack string `json:"stack"`
 	// Commit identifies the source revision.
 	Commit string `json:"commit"`
-	// Code is an allowlisted safe failure category.
+	// Code is the failure category or interruption reason.
 	Code string `json:"code"`
 	// Stage identifies the failing pipeline stage.
 	Stage string `json:"stage,omitempty"`
@@ -342,20 +341,27 @@ func (p deploymentFailurePayload) services() []compose.Service {
 	return result
 }
 
-func normalizeDeployFailureCode(code string) string {
-	switch code {
-	case events.DeployErrorCodePolicyRejected, events.DeployErrorCodeInitFailed, events.DeployErrorCodeApplyFailed,
-		events.DeployErrorCodeConvergenceFailed, events.DeployErrorCodePruneFailed:
-		return code
-	default:
-		return events.DeployErrorCodeApplyFailed
-	}
+var knownDeployFailureCodes = []string{
+	events.DeployErrorCodePolicyRejected,
+	events.DeployErrorCodeInitFailed,
+	events.DeployErrorCodeApplyFailed,
+	events.DeployErrorCodeConvergenceFailed,
+	events.DeployErrorCodePruneFailed,
 }
 
 func encodeDeploymentFailure(
 	stack, commit, deploymentID, attemptID, code, stage string, diagnostic error,
 	services []compose.Service,
 ) ([]byte, error) {
+	// Only DeployFailed can reach this encoder without an explicit code.
+	if code == "" {
+		if diagnostic != nil {
+			code = diagnostic.Error()
+		}
+		if !slices.Contains(knownDeployFailureCodes, code) {
+			code = events.DeployErrorCodeApplyFailed
+		}
+	}
 	payload := deploymentFailurePayload{
 		DeploymentID: deploymentID, AttemptID: attemptID, Stack: stack, Commit: commit, Code: code, Stage: stage,
 		Services: make([]servicePayload, 0, len(services)),

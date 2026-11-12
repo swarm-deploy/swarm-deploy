@@ -195,7 +195,7 @@ func TestDeploymentFailureCategorySurvivesCodec(t *testing.T) {
 	}
 }
 
-func TestEncodeDeploymentFailureCodeFallback(t *testing.T) {
+func TestEncodeDeploymentFailureCode(t *testing.T) {
 	for _, test := range []struct {
 		name  string
 		event events.DeployFailed
@@ -204,13 +204,16 @@ func TestEncodeDeploymentFailureCodeFallback(t *testing.T) {
 		{name: "known code in legacy error", event: events.DeployFailed{Error: errors.New("init_failed")}, want: "init_failed"},
 		{name: "unknown legacy error", event: events.DeployFailed{Error: errors.New("secret diagnostic")}, want: "apply_failed"},
 		{name: "empty code and no error", want: "apply_failed"},
-		{name: "unknown explicit code", event: events.DeployFailed{ErrorCode: "secret code", Error: errors.New("init_failed")}, want: "apply_failed"},
+		{
+			name:  "preserve unknown explicit code",
+			event: events.DeployFailed{ErrorCode: "future_failure", Error: errors.New("init_failed")},
+			want:  "future_failure",
+		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			payload, err := Encode(&test.event)
 			require.NoError(t, err)
 			assert.Contains(t, string(payload), `"code":"`+test.want+`"`)
-			assert.NotContains(t, string(payload), "secret code")
 			assert.NotContains(t, string(payload), "secret diagnostic")
 		})
 	}
