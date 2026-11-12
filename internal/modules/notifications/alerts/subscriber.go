@@ -161,7 +161,9 @@ func (s *Subscriber) opened(ctx context.Context, alert events.AlertSnapshot) err
 		payload = defaultSyncFailedPayload(alert)
 		parseMode = telegramHTMLParseMode
 	}
-	notifier, err := s.notifier(rule.AlertOpenedTemplate(alert.Kind), parseMode)
+	notifier, err := s.notifier(notifiers.TelegramOptions{
+		Message: rule.AlertOpenedTemplate(alert.Kind), ParseMode: parseMode, Buttons: rule.Opened.Buttons,
+	})
 	if err != nil {
 		return err
 	}
@@ -192,13 +194,20 @@ func (s *Subscriber) resolved(ctx context.Context, event *events.AlertResolved) 
 		payload.ResourceID = html.EscapeString(alert.ResourceID)
 		parseMode = telegramHTMLParseMode
 	}
-	notifier, err := s.notifier(rule.AlertResolvedTemplate(alert.Kind), parseMode)
-	if err != nil {
-		return err
-	}
 	action := notifiers.ActionSend
 	if link.OpenedMessageID.Valid {
 		action = notifiers.Action(rule.AlertResolvedAction())
+	}
+	options := notifiers.TelegramOptions{
+		Message: rule.AlertResolvedTemplate(alert.Kind), ParseMode: parseMode, Buttons: rule.Resolved.Buttons,
+	}
+	if action == notifiers.ActionEdit && rule.Resolved.Buttons == nil {
+		options.Buttons = rule.Opened.Buttons
+		options.EditOnlyButtons = true
+	}
+	notifier, err := s.notifier(options)
+	if err != nil {
+		return err
 	}
 	receipt, err := notifier.Notify(ctx, notifiers.Message{
 		Payload: payload, Action: action, TargetMessageID: link.OpenedMessageID.Int64,
@@ -270,15 +279,18 @@ func (s *Subscriber) rule(kind string) config.TelegramAlertChannel {
 	return config.TelegramAlertChannel{}
 }
 
-func (s *Subscriber) notifier(message, parseMode string) (notifiers.Notifier, error) {
+func (s *Subscriber) notifier(options notifiers.TelegramOptions) (notifiers.Notifier, error) {
 	telegram := s.spec.Messengers.Telegram
 	if s.spec.TelegramBotIdentity() != s.recipient.BotIdentity {
 		return nil, fmt.Errorf("telegram credentials unavailable for alert recipient")
 	}
-	return notifiers.NewTelegramNotifier(s.recipient.ChatID, string(telegram.BotToken.Content), s.recipient.ChatID,
-		notifiers.TelegramOptions{ChatThreadID: s.recipient.ThreadID, Message: message,
-			ParseMode: parseMode, Retries: telegram.Retries,
-			SOCKS5Address: telegram.Proxy.SOCKS5.Address.Value, APIBaseURL: s.apiBaseURL})
+	options.ChatThreadID = s.recipient.ThreadID
+	options.Retries = telegram.Retries
+	options.SOCKS5Address = telegram.Proxy.SOCKS5.Address.Value
+	options.APIBaseURL = s.apiBaseURL
+	return notifiers.NewTelegramNotifier(
+		s.recipient.ChatID, string(telegram.BotToken.Content), s.recipient.ChatID, options,
+	)
 }
 
 func defaultSyncFailedPayload(alert events.AlertSnapshot) events.AlertSnapshot {

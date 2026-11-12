@@ -14,6 +14,7 @@ import (
 	"github.com/avast/retry-go/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	notificationtemplate "github.com/swarm-deploy/swarm-deploy/internal/modules/notifications/template"
 )
 
 func TestMaskTelegramSendError(t *testing.T) {
@@ -220,6 +221,9 @@ func TestTelegramLifecycleOperations(t *testing.T) {
 				assert.Equal(t, tt.wantAction, receipt.Action)
 			}
 			assert.Equal(t, tt.wantPaths, paths)
+			for _, body := range bodies {
+				assert.NotContains(t, body, "reply_markup")
+			}
 			if tt.message.Action == ActionReply && tt.message.TargetMessageID != 0 {
 				params, ok := bodies[0]["reply_parameters"].(map[string]any)
 				require.True(t, ok)
@@ -230,6 +234,42 @@ func TestTelegramLifecycleOperations(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestTelegramRendersURLButtonsBeforeSending(t *testing.T) {
+	requests := make(chan map[string]json.RawMessage, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]json.RawMessage
+		if assert.NoError(t, json.NewDecoder(r.Body).Decode(&body)) {
+			requests <- body
+		}
+		_, _ = w.Write([]byte(`{"ok":true,"result":{"message_id":71}}`))
+	}))
+	t.Cleanup(server.Close)
+	notifier, err := newTelegramNotifier("ops", "123:token", "-100", TelegramOptions{
+		Message: "{{ .StackName }} deployed", Retries: 1, APIBaseURL: server.URL,
+		Buttons: []notificationtemplate.ButtonSpec{
+			{Text: "Open {{ .StackName }}", URL: "https://example.com/deployments?deployment_id={{ .DeploymentID }}"},
+			{Text: "Optional", URL: "{{ .OptionalURL }}"},
+			{Text: "Telegram", URL: "tg://resolve?domain=deployments"},
+		},
+	})
+	require.NoError(t, err)
+	payload := map[string]string{"StackName": "web", "DeploymentID": "dep-1", "OptionalURL": "  "}
+	_, err = notifier.Notify(t.Context(), Message{Payload: payload})
+	require.NoError(t, err)
+	require.Len(t, requests, 1)
+	body := <-requests
+	assert.JSONEq(t, `"web deployed"`, string(body["text"]))
+	assert.JSONEq(t, `{"inline_keyboard":[
+		[{"text":"Open web","url":"https://example.com/deployments?deployment_id=dep-1"}],
+		[{"text":"Telegram","url":"tg://resolve?domain=deployments"}]
+	]}`, string(body["reply_markup"]))
+
+	payload["OptionalURL"] = "javascript:alert(1)"
+	_, err = notifier.Notify(t.Context(), Message{Payload: payload})
+	require.ErrorContains(t, err, "buttons[1].url")
+	assert.Empty(t, requests)
 }
 
 func TestTelegramUsesSourceDefaultTemplate(t *testing.T) {

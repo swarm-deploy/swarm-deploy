@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -128,6 +129,68 @@ notifications:
 	assert.Equal(t, "ops", cfg.Spec.System.Tracing.Exporter.Headers["x-arbitrary-tenant"].Value)
 	require.Len(t, cfg.Spec.Notifications.Events["DeploySuccess"].Custom, 1)
 	assert.Equal(t, "example", cfg.Spec.Notifications.Events["DeploySuccess"].Custom[0].Header["X-Arbitrary-Header"])
+}
+
+func TestLoadTelegramButtons(t *testing.T) {
+	const routes = `notifications:
+  messengers:
+    telegram:
+      botTokenPath: TOKEN_PATH
+      chats:
+        default: {id: "-100"}
+        ops: {id: "-101"}
+  events:
+    DeploySuccess:
+      telegram:
+        - buttons:
+            - text: "Open {{ .StackName }}"
+              url: "https://example.com/deployments?deployment_id={{ .DeploymentID }}"
+  alerts:
+    SyncFailed:
+      telegram:
+        - opened:
+            buttons:
+              - text: "{{ .Title }}"
+                url: "{{ if .DeploymentID }}https://example.com/{{ .DeploymentID }}{{ end }}"
+          resolved:
+            action: edit
+            buttons:
+              - text: "{{ .Resolution }}"
+                url: "tg://resolve?domain=deployments"
+        - chats: ops
+          resolved: {buttons: []}
+`
+	for _, tt := range []struct {
+		name, old, replacement, wantError string
+	}{
+		{name: "valid"},
+		{"invalid event URL", "https://example.com/deployments?", "relative?", `events["DeploySuccess"].telegram[0].buttons[0].url`},
+		{"invalid opened text", "{{ .Title }}", "{{ .Unknown }}", `.opened.buttons[0].text`},
+		{"invalid resolved template", "tg://resolve?domain=deployments", "{{ if }}", `.resolved.buttons[0].url`},
+		{"missing label", `text: "{{ .Resolution }}"`, `text: ""`, `.resolved.buttons[0].text`},
+		{"callback field", `text: "{{ .Resolution }}"`, `callback_data: "deploy"`, "field callback_data not found"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			tokenPath := filepath.Join(t.TempDir(), "telegram-token")
+			require.NoError(t, os.WriteFile(tokenPath, []byte("123:token"), 0o600))
+			source := strings.ReplaceAll(routes, "TOKEN_PATH", tokenPath)
+			if tt.old != "" {
+				source = strings.Replace(source, tt.old, tt.replacement, 1)
+			}
+			cfg, err := Load(writeRuntimeYAML(t, minimalRuntimeYAML+source))
+			if tt.wantError != "" {
+				require.ErrorContains(t, err, tt.wantError)
+				return
+			}
+			require.NoError(t, err)
+			routes := cfg.Spec.Notifications.Alerts["SyncFailed"].Telegram
+			assert.Len(t, cfg.Spec.Notifications.Events["DeploySuccess"].Telegram[0].Buttons, 1)
+			assert.Len(t, routes[0].Opened.Buttons, 1)
+			assert.Len(t, routes[0].Resolved.Buttons, 1)
+			assert.NotNil(t, routes[1].Resolved.Buttons)
+			assert.Empty(t, routes[1].Resolved.Buttons)
+		})
+	}
 }
 
 func writeRuntimeYAML(t *testing.T, content string) string {
