@@ -40,6 +40,7 @@ var capabilityProfiles = map[Capability]CapabilityProfile{
 	},
 	CapabilityServiceRuntime: {
 		Tools: []string{
+			"service_health_get",
 			"service_logs_get",
 			"service_task_list",
 			"service_task_logs_get",

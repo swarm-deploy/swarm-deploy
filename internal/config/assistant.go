@@ -20,6 +20,7 @@ const (
 	AssistantToolNameServiceTaskList                    AssistantToolName = "service_task_list"
 	AssistantToolNameServiceTaskLogsGet                 AssistantToolName = "service_task_logs_get"
 	AssistantToolNameServiceSpecGet                     AssistantToolName = "service_spec_get"
+	AssistantToolNameServiceHealthGet                   AssistantToolName = "service_health_get"
 	AssistantToolNameDNSNameResolve                     AssistantToolName = "dns_name_resolve"
 	AssistantToolNameServiceWebRoutePing                AssistantToolName = "service_webroute_ping"
 	AssistantToolNameDependencyGraphGet                 AssistantToolName = "dependency_graph_get"
