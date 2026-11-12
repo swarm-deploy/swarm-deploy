@@ -16,10 +16,10 @@ import type {
 import AppTable from "../components/common/AppTable.vue";
 import AppTableEmpty from "../components/common/AppTableEmpty.vue";
 import AppPanel from "../components/common/AppPanel.vue";
-import AppStatusBadge from "../components/common/AppStatusBadge.vue";
 import DeploymentIcon from "../components/overview/DeploymentIcon.vue";
 import RecentDeploymentsPanel from "../components/overview/RecentDeploymentsPanel.vue";
 import TaskDetailsPanel from "../components/services/TaskDetailsPanel.vue";
+import TaskStatusBadge from "../components/services/TaskStatusBadge.vue";
 import TaskLogsModal from "../components/services/TaskLogsModal.vue";
 import { useSecretDetailsStore } from "../stores/secretDetails";
 import { formatBytes, formatDate, formatNanoCPU } from "../utils/format";
@@ -153,39 +153,6 @@ function isSwarmDeployLabel(key: string): boolean {
 
 function isOtherSystemLabel(key: string): boolean {
   return key === "prometheus.port";
-}
-
-function realtimeStateClass(state: string): string {
-  const normalized = String(state || "").trim().toLowerCase();
-  if (normalized === "running" || normalized === "complete" || normalized === "completed") {
-    return "service-realtime-mobile-state--healthy";
-  }
-  if (normalized === "failed" || normalized === "rejected" || normalized === "shutdown") {
-    return "service-realtime-mobile-state--error";
-  }
-  return "service-realtime-mobile-state--unknown";
-}
-
-function realtimeTableStateClass(state: string): string {
-  const normalized = String(state || "").trim().toLowerCase();
-  if (normalized === "running" || normalized === "complete" || normalized === "completed") {
-    return "success";
-  }
-  if (normalized === "failed" || normalized === "rejected" || normalized === "shutdown") {
-    return "failed";
-  }
-  return "unknown";
-}
-
-function realtimeTableStateVariant(state: string): "success" | "error" | "neutral" {
-  const normalized = String(state || "").trim().toLowerCase();
-  if (normalized === "running" || normalized === "complete" || normalized === "completed") {
-    return "success";
-  }
-  if (normalized === "failed" || normalized === "rejected" || normalized === "shutdown") {
-    return "error";
-  }
-  return "neutral";
 }
 
 function openSecretDetails(secretName: string): void {
@@ -561,13 +528,7 @@ onUnmounted(() => {
                 </td>
                 <td><code>{{ task.node_name || task.node || 'n/a' }}</code></td>
                 <td>
-                  <AppStatusBadge
-                    class="status"
-                    :class="realtimeTableStateClass(task.current_state)"
-                    :variant="realtimeTableStateVariant(task.current_state)"
-                  >
-                    {{ task.current_state || 'n/a' }}
-                  </AppStatusBadge>
+                  <TaskStatusBadge :state="task.current_state" />
                 </td>
                 <td>{{ formatDate(task.created_at) }}</td>
                 <td>{{ formatDate(task.updated_at) }}</td>
@@ -608,10 +569,7 @@ onUnmounted(() => {
           <ul v-if="!realtimeLoading && !realtimeError && realtime.length > 0" class="service-realtime-mobile">
             <li v-for="task in realtime" :key="task.id" class="service-realtime-mobile-item">
               <div class="service-realtime-mobile-head">
-                <span class="service-realtime-mobile-state" :class="realtimeStateClass(task.current_state)">
-                  <span class="service-realtime-mobile-state-dot" aria-hidden="true" />
-                  {{ task.current_state || "n/a" }}
-                </span>
+                <TaskStatusBadge :state="task.current_state" />
                 <span class="service-realtime-actions">
                   <button
                     type="button"

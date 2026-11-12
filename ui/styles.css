@@ -1630,35 +1630,6 @@ a.overview-summary-row:focus-visible {
     gap: 10px;
   }
 
-  .service-realtime-mobile-state {
-    min-width: 0;
-    display: inline-flex;
-    align-items: center;
-    gap: 7px;
-    font-size: 0.84rem;
-    font-weight: 600;
-    overflow-wrap: anywhere;
-  }
-
-  .service-realtime-mobile-state-dot {
-    width: 7px;
-    height: 7px;
-    flex: 0 0 auto;
-    border-radius: 999px;
-    background: var(--muted);
-    box-shadow: 0 0 0 3px var(--surface-muted);
-  }
-
-  .service-realtime-mobile-state--healthy .service-realtime-mobile-state-dot {
-    background: var(--success);
-    box-shadow: 0 0 0 3px var(--success-muted);
-  }
-
-  .service-realtime-mobile-state--error .service-realtime-mobile-state-dot {
-    background: var(--error);
-    box-shadow: 0 0 0 3px var(--error-muted);
-  }
-
   .service-realtime-mobile-node {
     min-width: 0;
     color: var(--text);

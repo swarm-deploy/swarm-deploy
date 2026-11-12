@@ -137,7 +137,7 @@ describe("Stack Details", () => {
     expect(wrapper.get(".stack-services-panel .service-panel-heading").text()).toBe("Services");
     expect(wrapper.get(".deployment-activity-stub").attributes("data-stack")).toBe("app");
     expect(wrapper.get(".stack-content-grid").element.compareDocumentPosition(wrapper.get(".deployment-activity-stub").element) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(wrapper.get(".stack-deployments-panel .overview-summary-panel-header-link").attributes("href")).toBe("/deployments?stack=app");
+    expect(wrapper.get(".stack-deployments-panel .overview-summary-panel-header-link").attributes("href")).toBe("/deployments?stack_name=app");
     expect(wrapper.text()).not.toContain("foreign");
 
     await wrapper.get('[aria-label="Open alert: Alert own"]').trigger("click");
