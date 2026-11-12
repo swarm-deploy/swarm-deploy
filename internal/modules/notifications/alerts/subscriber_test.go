@@ -599,15 +599,27 @@ func TestGitAlertDefaultTelegramHTMLAndCustomTemplates(t *testing.T) {
 			require.NoError(t, err)
 			defer db.Close()
 			spec := alertSpec()
+			buttons := []notificationtemplate.ButtonSpec{{
+				Text: "{{ .ResourceID }}",
+				URL:  "https://example.com/repositories?repo={{ .ResourceID | urlquery }}",
+			}}
+			route := config.TelegramAlertChannel{
+				Opened:   config.AlertMessageSpec{Buttons: buttons},
+				Resolved: config.AlertMessageSpec{Buttons: buttons},
+			}
 			if custom {
-				spec.Alerts["GitRepositoryUnavailable"] = config.NotificationAlertRoutes{Telegram: []config.TelegramAlertChannel{{
-					Opened:   config.AlertMessageSpec{Message: "repo={{ .ResourceID }}"},
-					Resolved: config.AlertMessageSpec{Message: "recovered={{ .ResourceID }}"},
-				}}}
+				route.Opened.Message = "repo={{ .ResourceID }}"
+				route.Resolved.Message = "recovered={{ .ResourceID }}"
+			}
+			spec.Alerts["GitRepositoryUnavailable"] = config.NotificationAlertRoutes{
+				Telegram: []config.TelegramAlertChannel{route},
 			}
 			type request struct {
 				Text      string `json:"text"`
 				ParseMode string `json:"parse_mode"`
+				Markup    struct {
+					Rows [][]notificationtemplate.Button `json:"inline_keyboard"`
+				} `json:"reply_markup"`
 			}
 			var received []request
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -633,6 +645,12 @@ func TestGitAlertDefaultTelegramHTMLAndCustomTemplates(t *testing.T) {
 				Alert: alert, Recipients: []events.AlertRecipient{recipient},
 			}}))
 			require.Len(t, received, 2)
+			for _, req := range received {
+				assert.Equal(t, [][]notificationtemplate.Button{{{
+					Text: alert.ResourceID,
+					URL:  "https://example.com/repositories?repo=example.com%2Forg%2F%3Crepo%3E%26test",
+				}}}, req.Markup.Rows)
+			}
 			if custom {
 				assert.Empty(t, received[0].ParseMode)
 				assert.Empty(t, received[1].ParseMode)

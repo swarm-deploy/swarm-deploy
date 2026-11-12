@@ -161,7 +161,11 @@ func (n *TelegramNotifier) Notify(ctx context.Context, event Message) (Receipt, 
 	}
 	var buttons []notificationtemplate.Button
 	if !n.editOnlyButtons || action == ActionEdit {
-		buttons, err = n.buttonTemplates.Render(event.Payload)
+		buttonPayload := event.ButtonPayload
+		if buttonPayload == nil {
+			buttonPayload = event.Payload
+		}
+		buttons, err = n.buttonTemplates.Render(buttonPayload)
 		if err != nil {
 			return Receipt{}, fmt.Errorf("render telegram button templates: %w", err)
 		}

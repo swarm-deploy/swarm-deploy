@@ -167,7 +167,9 @@ func (s *Subscriber) opened(ctx context.Context, alert events.AlertSnapshot) err
 	if err != nil {
 		return err
 	}
-	receipt, err := notifier.Notify(ctx, notifiers.Message{Payload: payload, Action: notifiers.ActionSend})
+	receipt, err := notifier.Notify(ctx, notifiers.Message{
+		Payload: payload, ButtonPayload: alert, Action: notifiers.ActionSend,
+	})
 	if err != nil {
 		return err
 	}
@@ -210,7 +212,7 @@ func (s *Subscriber) resolved(ctx context.Context, event *events.AlertResolved) 
 		return err
 	}
 	receipt, err := notifier.Notify(ctx, notifiers.Message{
-		Payload: payload, Action: action, TargetMessageID: link.OpenedMessageID.Int64,
+		Payload: payload, ButtonPayload: alert, Action: action, TargetMessageID: link.OpenedMessageID.Int64,
 	})
 	if err != nil {
 		return err
