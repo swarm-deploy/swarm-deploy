@@ -208,6 +208,8 @@ notifications:
           opened:
             message: "🔴 Synchronization failed: {{ .ResourceID }}"
             buttons:
+              - text: "Open alert"
+                url: "https://swarm-deploy.example/events?tab=alerts&alert_id={{ .ID | urlquery }}"
               - text: "Open failed deployment"
                 url: '{{ with .DeploymentID }}https://swarm-deploy.example/deployments?deployment_id={{ . | urlquery }}{{ end }}'
           resolved:
