@@ -371,20 +371,23 @@ func serviceUpdateFlags(status *swarm.ServiceUpdateStatus) []serviceHealthFlag {
 		Evidence: map[string]any{"update_state": string(status.State)},
 	}
 	since := status.StartedAt
-	switch {
-	case status.State == swarm.ServiceUpdateStateRollbackCompleted:
+	switch status.State {
+	case swarm.ServiceUpdateStateRollbackCompleted:
 		flag.Code = serviceHealthFlagUpdateRollbackCompleted
 		flag.Severity = serviceHealthSeverityWarning
 		if !status.CompletedAt.IsZero() {
 			since = status.CompletedAt
 		}
-	case status.State == swarm.ServiceUpdateStatePaused || status.State == swarm.ServiceUpdateStateRollbackPaused:
+	case swarm.ServiceUpdateStatePaused, swarm.ServiceUpdateStateRollbackPaused:
 		flag.Code = serviceHealthFlagUpdatePaused
 		flag.Severity = serviceHealthSeverityWarning
-	case status.State == swarm.ServiceUpdateStateUpdating || status.State == swarm.ServiceUpdateStateRollbackStarted:
+	case swarm.ServiceUpdateStateUpdating, swarm.ServiceUpdateStateRollbackStarted:
 		flag.Code = serviceHealthFlagUpdateInProgress
 		flag.Severity = serviceHealthSeverityInfo
-	default:
+	case swarm.ServiceUpdateStateCompleted, swarm.ServiceUpdateStateFailed:
+		// Finished updates add no flag.
+	}
+	if flag.Code == "" {
 		return nil
 	}
 	if !since.IsZero() {

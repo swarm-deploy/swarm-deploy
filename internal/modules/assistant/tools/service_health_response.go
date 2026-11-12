@@ -38,11 +38,11 @@ const (
 	serviceHealthDay           = 24 * time.Hour
 )
 
-// serviceHealthSeverityRank orders flags from the most to the least severe.
-var serviceHealthSeverityRank = map[string]int{
-	serviceHealthSeverityCritical: 0,
-	serviceHealthSeverityWarning:  1,
-	serviceHealthSeverityInfo:     2,
+// serviceHealthSeverityOrder lists severities from the most to the least severe.
+var serviceHealthSeverityOrder = []string{
+	serviceHealthSeverityCritical,
+	serviceHealthSeverityWarning,
+	serviceHealthSeverityInfo,
 }
 
 // serviceHealthResponse is the service_health_get payload.
@@ -241,8 +241,8 @@ func serviceDeploymentFlags(
 	var flags []serviceHealthFlag
 	refs := &serviceHealthRefs{DeploymentID: latest.ID}
 	started := latest.StartedAt
-	switch {
-	case latest.Status == deploymentmodel.Running:
+	switch latest.Status {
+	case deploymentmodel.Running:
 		flags = append(flags, serviceHealthFlag{
 			Code:     serviceHealthFlagDeployInProgress,
 			Severity: serviceHealthSeverityInfo,
@@ -252,8 +252,10 @@ func serviceDeploymentFlags(
 			Refs:     refs,
 		})
 		return flags
-	case latest.Status == deploymentmodel.Failed || latest.Status == deploymentmodel.Interrupted:
+	case deploymentmodel.Failed, deploymentmodel.Interrupted:
 		flags = append(flags, serviceLastDeployFailedFlag(latest, serviceDown, refs))
+	case deploymentmodel.Succeeded, deploymentmodel.Superseded:
+		// Completed deployments add no deployment-state flag.
 	}
 	if latest.Verification.Known && slices.Contains(latest.Verification.UnresolvedServices, service) {
 		flags = append(flags, serviceHealthFlag{
@@ -425,7 +427,8 @@ func finalizeServiceHealthFlags(flags []serviceHealthFlag, now time.Time) []serv
 		result = append(result, flag)
 	}
 	sort.SliceStable(result, func(i, j int) bool {
-		return serviceHealthSeverityRank[result[i].Severity] < serviceHealthSeverityRank[result[j].Severity]
+		return slices.Index(serviceHealthSeverityOrder, result[i].Severity) <
+			slices.Index(serviceHealthSeverityOrder, result[j].Severity)
 	})
 
 	return result
