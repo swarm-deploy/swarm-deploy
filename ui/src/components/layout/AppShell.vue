@@ -55,6 +55,26 @@ watch(() => overviewStore.deploymentDetailsModalOpen, (open, wasOpen) => {
   void router.replace({ query });
 });
 
+const linkedAlertID = computed(() => {
+  const id = route.query.alert_id;
+  return route.name === "events" && route.query.tab !== "events" && typeof id === "string" ? id.trim() : "";
+});
+
+watch(linkedAlertID, (id, previousID) => {
+  if (id) {
+    if (overviewStore.alertDetailsID !== id) void overviewStore.openAlertDetailsByID(id);
+  } else if (previousID && overviewStore.alertDetailsID === previousID) {
+    overviewStore.closeAlertDetailsModal();
+  }
+}, { immediate: true });
+
+watch(() => overviewStore.alertDetailsID, (id, previousID) => {
+  if (id || !previousID || previousID !== linkedAlertID.value) return;
+  const query = { ...route.query };
+  delete query.alert_id;
+  void router.replace({ query, hash: route.hash });
+});
+
 async function handleAssistantToggle() {
   if (!assistantStore.enabled) {
     return;
@@ -101,7 +121,7 @@ onMounted(() => {
       </main>
     </div>
     <ServiceStatusModal />
-    <AlertDetailsModal />
+    <AlertDetailsModal :linked="Boolean(linkedAlertID)" />
     <DeploymentDetailsModal />
     <CommitDetailsModal />
     <StackManifestModal />

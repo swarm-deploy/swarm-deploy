@@ -1,6 +1,8 @@
 import { defineStore } from "pinia";
 
+import { ApiError } from "../api/client";
 import {
+  fetchAlert,
   fetchGitCommit,
   fetchDeployment,
   fetchServiceDeployments,
@@ -52,7 +54,11 @@ interface OverviewState {
   deploymentDetailsError: string;
   deploymentDetailsRequest: number;
   alertDetailsModalOpen: boolean;
+  alertDetailsID: string;
   alertDetailsAlert: Alert | null;
+  alertDetailsLoading: boolean;
+  alertDetailsError: string;
+  alertDetailsRequest: number;
 }
 
 export const useOverviewStore = defineStore("overview", {
@@ -88,7 +94,11 @@ export const useOverviewStore = defineStore("overview", {
     deploymentDetailsError: "",
     deploymentDetailsRequest: 0,
     alertDetailsModalOpen: false,
+    alertDetailsID: "",
     alertDetailsAlert: null,
+    alertDetailsLoading: false,
+    alertDetailsError: "",
+    alertDetailsRequest: 0,
   }),
   actions: {
     async loadOverview() {
@@ -259,12 +269,40 @@ export const useOverviewStore = defineStore("overview", {
       this.deploymentDetailsError = "";
     },
     openAlertDetailsModal(alert: Alert) {
+      ++this.alertDetailsRequest;
+      this.alertDetailsID = alert.id;
       this.alertDetailsAlert = alert;
+      this.alertDetailsLoading = false;
+      this.alertDetailsError = "";
       this.alertDetailsModalOpen = true;
     },
-    closeAlertDetailsModal() {
-      this.alertDetailsModalOpen = false;
+    async openAlertDetailsByID(id: string) {
+      const request = ++this.alertDetailsRequest;
+      this.alertDetailsModalOpen = true;
+      this.alertDetailsID = id;
       this.alertDetailsAlert = null;
+      this.alertDetailsLoading = true;
+      this.alertDetailsError = "";
+      try {
+        const alert = await fetchAlert(id);
+        if (request === this.alertDetailsRequest) this.alertDetailsAlert = alert;
+      } catch (error) {
+        if (request === this.alertDetailsRequest) {
+          this.alertDetailsError = error instanceof ApiError && error.status === 404
+            ? "This alert was not found."
+            : `Failed to load alert details: ${error instanceof Error ? error.message : "Unknown error"}`;
+        }
+      } finally {
+        if (request === this.alertDetailsRequest) this.alertDetailsLoading = false;
+      }
+    },
+    closeAlertDetailsModal() {
+      ++this.alertDetailsRequest;
+      this.alertDetailsModalOpen = false;
+      this.alertDetailsID = "";
+      this.alertDetailsAlert = null;
+      this.alertDetailsLoading = false;
+      this.alertDetailsError = "";
     },
   },
 });
