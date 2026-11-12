@@ -200,8 +200,8 @@ notifications:
             action: reply
             message: "✅ {{ .Title }}: {{ .Resolution }}"
             buttons:
-              - text: "Open swarm-deploy"
-                url: "https://swarm-deploy.example/"
+              - text: "Open alert"
+                url: "https://swarm-deploy.example/events?tab=alerts&alert_id={{ .ID | urlquery }}"
     SyncFailed:
       telegram:
         - chats: deployments
