@@ -64,6 +64,7 @@ type Request struct {
 type Preparer struct {
 	cfg              *config.Config
 	git              gitx.Repository
+	composeLoader    compose.FileLoader
 	envFilePopulator *compose.EnvFilePopulator
 	rotator          Rotator
 	pipeline         *pipe.Pipeline[*preparationPayload]
@@ -77,7 +78,7 @@ type preparationPayload struct {
 // New creates a Compose preparer.
 func New(cfg *config.Config, git gitx.Repository, rotator Rotator) *Preparer {
 	preparer := &Preparer{cfg: cfg, git: git,
-		envFilePopulator: compose.NewEnvFilePopulator(), rotator: rotator}
+		composeLoader: compose.NewFileLoader(), envFilePopulator: compose.NewEnvFilePopulator(), rotator: rotator}
 	preparer.attachPipeline(nil)
 	return preparer
 }
@@ -180,6 +181,13 @@ func (p *Preparer) attachPipeline(provider trace.TracerProvider) {
 		Name: "validate desired state",
 		Run: func(_ context.Context, payload *preparationPayload) error {
 			return compose.ValidateEffective(payload.desired.Compose, payload.desired.Path)
+		},
+	})
+
+	p.pipeline.Add(pipe.Step[*preparationPayload]{
+		Name: "recalculate service digests",
+		Run: func(_ context.Context, payload *preparationPayload) error {
+			return p.composeLoader.Recalculate(payload.desired)
 		},
 	})
 }

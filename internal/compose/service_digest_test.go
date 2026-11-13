@@ -1,6 +1,7 @@
-package stackloop
+package compose_test
 
 import (
+	"context"
 	"encoding/hex"
 	"encoding/json"
 	"testing"
@@ -9,6 +10,40 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 )
+
+func TestFileLoaderRecalculateReusesLoadedServiceDigest(t *testing.T) {
+	loader := compose.NewFileLoaderWithReader(func(context.Context, string) ([]byte, error) {
+		return []byte("services: {api: {image: api:1}}"), nil
+	})
+	file, err := loader.Load(t.Context(), "compose.yaml")
+	require.NoError(t, err)
+	loadedDigest := file.ServiceDigests["api"]
+	require.NotEmpty(t, loadedDigest)
+	sourceDigest := file.Digest
+
+	file.Compose.Services[0].Image = "api:2"
+	require.NoError(t, loader.Recalculate(file))
+	assert.NotEqual(t, loadedDigest, file.ServiceDigests["api"])
+	assert.Equal(t, sourceDigest, file.Digest, "recalculation must preserve the source digest")
+
+	recalculated := file.ServiceDigests["api"]
+	require.NoError(t, loader.Recalculate(file))
+	assert.Equal(t, recalculated, file.ServiceDigests["api"])
+}
+
+func TestFileLoaderRecalculateReplacesDigestsOnlyAfterSuccess(t *testing.T) {
+	file := parseDigestCompose(t, `
+services:
+  api:
+    image: api:1
+    command: "echo 'unterminated"
+`)
+	file.ServiceDigests = map[string]string{"existing": "digest"}
+
+	err := compose.NewFileLoader().Recalculate(file)
+	require.Error(t, err)
+	assert.Equal(t, map[string]string{"existing": "digest"}, file.ServiceDigests)
+}
 
 func TestDesiredServiceDigestTracksEffectiveDependencies(t *testing.T) {
 	base := desiredDigestFixture()
@@ -173,6 +208,62 @@ secrets:
 	assert.Equal(t, leftDigest, rightDigest)
 }
 
+func TestDesiredServiceDigestPreservesMountOrder(t *testing.T) {
+	left := parseDigestCompose(t, `
+services:
+  api:
+    image: api:1
+    volumes:
+      - ./root:/app
+      - ./config:/app/config
+`)
+	right := parseDigestCompose(t, `
+services:
+  api:
+    image: api:1
+    volumes:
+      - ./config:/app/config
+      - ./root:/app
+`)
+
+	leftDigest, err := computeDesiredServiceDigests(left)
+	require.NoError(t, err)
+	rightDigest, err := computeDesiredServiceDigests(right)
+	require.NoError(t, err)
+	assert.NotEqual(t, leftDigest, rightDigest)
+}
+
+func TestDesiredServiceDigestUsesInitJobConfigTargetSemantics(t *testing.T) {
+	short := parseDigestCompose(t, `
+services:
+  api:
+    image: api:1
+    x-init-deploy-jobs:
+      - name: migrate
+        image: migrate:1
+        configs: [settings]
+configs:
+  settings: {external: true, name: settings}
+`)
+	explicit := parseDigestCompose(t, `
+services:
+  api:
+    image: api:1
+    x-init-deploy-jobs:
+      - name: migrate
+        image: migrate:1
+        configs: [{source: settings, target: /settings}]
+configs:
+  settings: {external: true, name: settings}
+`)
+
+	shortDigest, err := computeDesiredServiceDigests(short)
+	require.NoError(t, err)
+	explicitDigest, err := computeDesiredServiceDigests(explicit)
+	require.NoError(t, err)
+	assert.NotEqual(t, shortDigest, explicitDigest)
+}
+
 func TestDesiredServiceDigestPreservesInitJobOrderAndDoesNotMutateCompose(t *testing.T) {
 	desired := desiredDigestFixture()
 	desired.Compose.Services[0].InitJobs = append(desired.Compose.Services[0].InitJobs,
@@ -200,6 +291,16 @@ func TestDesiredServiceDigestPreservesInitJobOrderAndDoesNotMutateCompose(t *tes
 }
 
 const sha256HexLength = 64
+
+func computeDesiredServiceDigests(desired *compose.File) (map[string]string, error) {
+	loader := compose.NewFileLoader()
+	if err := loader.Recalculate(desired); err != nil {
+		return nil, err
+	}
+	return desired.ServiceDigests, nil
+}
+
+func boolPointer(value bool) *bool { return &value }
 
 func desiredDigestFixture() *compose.File {
 	serviceNetwork := compose.NewServiceNetworks(&compose.ServiceNetwork{Alias: "backend"})

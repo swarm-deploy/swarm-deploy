@@ -200,14 +200,9 @@ func (r *Reconciler) recordPreparedDesired(
 	prepared *compose.File,
 	previous *model.Stack,
 ) error {
-	digests, err := computeDesiredServiceDigests(prepared)
-	if err != nil {
-		persistErr := r.recordFailure(ctx, req.Stack.Name, req.Commit, prepared, err)
-		return wrapReconcileError(
-			"compute desired service digest", prepared.Compose.Services, errors.Join(err, persistErr),
-		)
-	}
-	desiredServices, err := r.persistDesiredServices(ctx, req.Stack.Name, req.Commit, digests)
+	desiredServices, err := r.persistDesiredServices(
+		ctx, req.Stack.Name, req.Commit, prepared.ServiceDigests,
+	)
 	if err != nil {
 		return wrapReconcileError("persist desired service state", prepared.Compose.Services, err)
 	}

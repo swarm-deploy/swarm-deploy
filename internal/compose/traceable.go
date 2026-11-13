@@ -42,3 +42,8 @@ func (t *TraceableFileLoader) Load(ctx context.Context, path string) (*File, err
 
 	return file, nil
 }
+
+// Recalculate rebuilds per-service digests from the current effective Compose state.
+func (t *TraceableFileLoader) Recalculate(file *File) error {
+	return t.loader.Recalculate(file)
+}
