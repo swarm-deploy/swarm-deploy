@@ -225,6 +225,7 @@ func (r *Reconciler) processResult(
 		if payload.RetryDeferred && slices.Contains(payload.ProtectedServices, service.Name) {
 			state = prevState.Services[service.Name]
 		}
+		state = applyPendingHashState(state, prevState.Services[service.Name], service.Name, payload.PendingServices)
 		serviceStates[service.Name] = state
 	}
 
@@ -258,6 +259,20 @@ func (r *Reconciler) processResult(
 	return nil
 }
 
+func applyPendingHashState(
+	state model.Service,
+	previous model.Service,
+	serviceName string,
+	pending []string,
+) model.Service {
+	if !slices.Contains(pending, serviceName) {
+		return state
+	}
+	state.SyncStatus = model.SyncStatusOutOfSync
+	state.SyncError = previous.SyncError
+	return state
+}
+
 func hasRemediationAttempt(remediations map[string]serviceRemediation) bool {
 	for _, remediation := range remediations {
 		if remediation.attempted {
@@ -281,6 +296,9 @@ func (r *Reconciler) recordFailure(
 			state := runtime.Stacks[stackName]
 			state.LastCommit, state.LastError = commit, events.DeployErrorCodePreparationFailed
 			state.StateUpdatedAt = time.Now().UTC()
+			if desired != nil {
+				state.SourceDigest = desired.Digest
+			}
 			if state.Services == nil {
 				state.Services = map[string]model.Service{}
 			}
@@ -322,6 +340,7 @@ func (r *Reconciler) recordPipelineFailure(
 		// completion event update its runtime projection.
 		failed := prev
 		failed.LastCommit, failed.LastError = req.Commit, pl.ExecutionError
+		failed.SourceDigest = pl.Desired.Digest
 		failed.StateUpdatedAt = time.Now().UTC()
 		if failed.LastError == "" {
 			failed.LastError = events.DeployErrorCodeApplyFailed

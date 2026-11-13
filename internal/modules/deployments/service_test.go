@@ -51,7 +51,7 @@ func TestStartIfChangedCreatesNoopsAndRetries(t *testing.T) {
 		sourceChanged bool
 		wantAttempt   bool
 	}{
-		{name: "initial unchanged source", sourceChanged: false, wantAttempt: false},
+		{name: "initial unchanged source", sourceChanged: false, wantAttempt: true},
 		{name: "initial changed source", sourceChanged: true, wantAttempt: true},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {

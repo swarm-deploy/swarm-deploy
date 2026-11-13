@@ -79,6 +79,7 @@ func TestReconcileUpdatesStateOnSuccess(t *testing.T) {
 		deployments.NewService(db, reconciler.event), stackDeployer, serviceManager, reconciler.pruner, reconciler.deployMetrics,
 	)
 	reconciler.preparer = preparation.New(reconciler.cfg, repository, reconciler.composeRotator)
+	seedAppliedHashesForLegacyFixture(stateStore, reconciler.preparer, db)
 	reconciler.attachPipeline()
 
 	err := reconciler.Reconcile(context.Background(), ReconciliationRequest{
@@ -140,6 +141,7 @@ func TestReconcileUpdatesStateOnFailure(t *testing.T) {
 		deployments.NewService(db, reconciler.event), stackDeployer, serviceManager, reconciler.pruner, reconciler.deployMetrics,
 	)
 	reconciler.preparer = preparation.New(reconciler.cfg, repository, reconciler.composeRotator)
+	seedAppliedHashesForLegacyFixture(stateStore, reconciler.preparer, db)
 	reconciler.attachPipeline()
 
 	err := reconciler.Reconcile(context.Background(), ReconciliationRequest{
@@ -157,7 +159,7 @@ func TestReconcileUpdatesStateOnFailure(t *testing.T) {
 	require.True(t, exists, "expected stack state")
 	assert.Equal(t, "commit-2", stackState.LastCommit, "unexpected last commit")
 	assert.Equal(t, "apply_failed", stackState.LastError, "persist only a stable category")
-	assert.Empty(t, stackState.SourceDigest, "expected empty source digest")
+	assert.NotEmpty(t, stackState.SourceDigest, "the prepared desired source remains diagnostic state")
 	require.Len(t, stackState.Services, 1, "expected one service state")
 	serviceState := stackState.Services["api"]
 	assert.Equal(t, model.SyncStatus(model.SyncStatusOutOfSync), serviceState.SyncStatus, "unexpected sync status")
@@ -233,6 +235,7 @@ func TestReconcileSeparatesPostApplyOutcomes(t *testing.T) {
 				serviceManager, reconciler.pruner, reconciler.deployMetrics,
 			)
 			reconciler.preparer = preparation.New(reconciler.cfg, repository, reconciler.composeRotator)
+			seedAppliedHashesForLegacyFixture(stateStore, reconciler.preparer, db)
 			reconciler.attachPipeline()
 			err := reconciler.Reconcile(context.Background(), ReconciliationRequest{
 				Stack: config.StackSpec{Name: "app", ComposeFile: "app.yaml"}, Commit: "commit",
@@ -339,6 +342,7 @@ secrets:
 		deployments.NewService(db, reconciler.event), stackDeployer, serviceManager, reconciler.pruner, reconciler.deployMetrics,
 	)
 	reconciler.preparer = preparation.New(reconciler.cfg, repository, reconciler.composeRotator)
+	seedAppliedHashesForLegacyFixture(stateStore, reconciler.preparer, db)
 	reconciler.attachPipeline()
 
 	err := reconciler.Reconcile(context.Background(), ReconciliationRequest{
@@ -406,6 +410,7 @@ func TestReconcileReadsPreviousDigestFromStateStore(t *testing.T) {
 		deployments.NewService(db, reconciler.event), stackDeployer, serviceManager, reconciler.pruner, reconciler.deployMetrics,
 	)
 	reconciler.preparer = preparation.New(reconciler.cfg, repository, reconciler.composeRotator)
+	seedAppliedHashesForLegacyFixture(stateStore, reconciler.preparer, db)
 	reconciler.attachPipeline()
 
 	reconcileErr := reconciler.Reconcile(context.Background(), ReconciliationRequest{
@@ -511,6 +516,7 @@ configs:
 		deployments.NewService(db, reconciler.event), stackDeployer, serviceManager, reconciler.pruner, reconciler.deployMetrics,
 	)
 	reconciler.preparer = preparation.New(reconciler.cfg, repository, reconciler.composeRotator)
+	seedAppliedHashesForLegacyFixture(stateStore, reconciler.preparer, db)
 	reconciler.attachPipeline()
 
 	reconcileErr := reconciler.Reconcile(context.Background(), ReconciliationRequest{
@@ -608,6 +614,7 @@ secrets:
 		deployments.NewService(db, reconciler.event), stackDeployer, serviceManager, reconciler.pruner, reconciler.deployMetrics,
 	)
 	reconciler.preparer = preparation.New(reconciler.cfg, repository, reconciler.composeRotator)
+	seedAppliedHashesForLegacyFixture(stateStore, reconciler.preparer, db)
 	reconciler.attachPipeline()
 
 	reconcileErr := reconciler.Reconcile(context.Background(), ReconciliationRequest{
@@ -693,6 +700,7 @@ services:
 		deployments.NewService(db, reconciler.event), stackDeployer, serviceManager, reconciler.pruner, reconciler.deployMetrics,
 	)
 	reconciler.preparer = preparation.New(reconciler.cfg, repository, reconciler.composeRotator)
+	seedAppliedHashesForLegacyFixture(stateStore, reconciler.preparer, db)
 	reconciler.attachPipeline()
 
 	reconcileErr := reconciler.Reconcile(context.Background(), ReconciliationRequest{
@@ -779,6 +787,7 @@ services:
 				deployments.NewService(db, reconciler.event), stackDeployer, serviceManager, reconciler.pruner, reconciler.deployMetrics,
 			)
 			reconciler.preparer = preparation.New(reconciler.cfg, repository, reconciler.composeRotator)
+			seedAppliedHashesForLegacyFixture(stateStore, reconciler.preparer, db)
 			reconciler.attachPipeline()
 
 			reconcileErr := reconciler.Reconcile(context.Background(), ReconciliationRequest{
@@ -863,6 +872,7 @@ services:
 		deployments.NewService(db, reconciler.event), stackDeployer, serviceManager, reconciler.pruner, reconciler.deployMetrics,
 	)
 	reconciler.preparer = preparation.New(reconciler.cfg, repository, reconciler.composeRotator)
+	seedAppliedHashesForLegacyFixture(stateStore, reconciler.preparer, db)
 	reconciler.attachPipeline()
 
 	reconcileErr := reconciler.Reconcile(context.Background(), ReconciliationRequest{
@@ -960,6 +970,7 @@ func TestReconcilePrunesServicesWithoutNewDeployment(t *testing.T) {
 				deployments.NewService(db, reconciler.event), stackDeployer, serviceManager, reconciler.pruner, reconciler.deployMetrics,
 			)
 			reconciler.preparer = preparation.New(reconciler.cfg, repository, reconciler.composeRotator)
+			seedAppliedHashesForLegacyFixture(stateStore, reconciler.preparer, db)
 			reconciler.attachPipeline()
 
 			reconcileErr := reconciler.Reconcile(context.Background(), ReconciliationRequest{
@@ -1058,6 +1069,7 @@ func TestReconcileServiceMissedEventOnDrift(t *testing.T) {
 				serviceManager, reconciler.pruner, reconciler.deployMetrics,
 			)
 			reconciler.preparer = preparation.New(reconciler.cfg, repository, reconciler.composeRotator)
+			seedAppliedHashesForLegacyFixture(stateStore, reconciler.preparer, db)
 			reconciler.attachPipeline()
 
 			reconcileErr := reconciler.Reconcile(context.Background(), ReconciliationRequest{
@@ -1199,6 +1211,7 @@ func TestReconcileSelfHealsMissingService(t *testing.T) {
 				deployments.NewService(db, reconciler.event), stackDeployer, serviceManager, reconciler.pruner, reconciler.deployMetrics,
 			)
 			reconciler.preparer = preparation.New(reconciler.cfg, repository, reconciler.composeRotator)
+			seedAppliedHashesForLegacyFixture(stateStore, reconciler.preparer, db)
 			reconciler.attachPipeline()
 
 			err = reconciler.Reconcile(context.Background(), ReconciliationRequest{
@@ -1300,6 +1313,7 @@ func TestReconcileSelfHealsReplicaDriftAfterVerification(t *testing.T) {
 		deployments.NewService(db, reconciler.event), stackDeployer, serviceManager, reconciler.pruner, reconciler.deployMetrics,
 	)
 	reconciler.preparer = preparation.New(reconciler.cfg, repository, reconciler.composeRotator)
+	seedAppliedHashesForLegacyFixture(stateStore, reconciler.preparer, db)
 	reconciler.attachPipeline()
 
 	require.NoError(t, reconciler.Reconcile(context.Background(), ReconciliationRequest{

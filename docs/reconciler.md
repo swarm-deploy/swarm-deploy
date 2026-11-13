@@ -14,7 +14,7 @@ The current pipeline is:
 4. [Inject Downward metadata when enabled](./downward.md).
 5. Add the swarm-deploy managed label.
 6. [Rotate configs and secrets when enabled](./secrets-rotation.md).
-7. Submit the effective in-memory desired state to Deployments when the source digest changed or the desired state was mutated. Deployments validates desired state, reconciles networks, reconciles configs/secrets, converts Compose to Docker API specs, runs Init Jobs, captures the service baseline, applies services through the Docker API, and waits for convergence.
+7. Submit the effective in-memory desired state to Deployments. Deployments records versioned desired hashes, compares them with confirmed applied hashes, and creates a Deployment only for pending services, removals, or stack resources. It then validates desired state, reconciles networks and configs/secrets, converts Compose to Docker API specs, runs Init Jobs for targeted services, captures the service baseline, applies targeted services through the Docker API, and waits for convergence.
 8. Load live Swarm state.
 9. [Prune managed orphaned services when applicable](./prune.md).
 10. [Analyze drift](./drift.md).
@@ -135,9 +135,19 @@ swarm-deploy calculates a source digest for each stack. The digest includes:
 
 A change to a referenced file therefore triggers reconciliation even when the Compose YAML itself did not change.
 
-The source digest is calculated from the source definition before swarm-deploy mutates the desired state.
+The source digest is calculated from the source definition before swarm-deploy mutates the desired state. It records which source snapshot was loaded and remains useful for diagnostics and queue priority. It is not evidence that the effective state was applied and is not the Deployment admission criterion.
 
 Compose files and their `env_file`, config, and secret sources must be committed to Git. Relative paths and symlinks can resolve anywhere within the same commit. Absolute paths, absolute symlink targets, and paths that leave the repository are rejected before deployment.
+
+## Desired and applied hashes
+
+Deployment admission uses versioned hashes of the effective state sent to the native deployer. The hash model has separate identities for the complete stack, stack-scoped resources, and each service. Service hashes include the normalized supported Compose service, its referenced networks and volumes, config/secret metadata, Init Job dependencies, and content fingerprints for referenced local configs and secrets. Secret contents are never persisted; only fingerprints are stored. Map order, equivalent supported Compose syntax, source YAML formatting, Docker runtime fields, and externally managed replica counts do not change these hashes.
+
+On every reconciliation Deployments persists current desired hashes first. A service is pending when its desired and applied hash or algorithm version differs. A new service has no applied hash; a removed service retains its applied row until cleanup confirms it absent. Stack resources are tracked independently for changes that cannot be assigned to one service. A source commit that leaves a service's effective state unchanged does not target that service again.
+
+Applied hashes advance only in the same database transaction that records successful completion. Failed or interrupted attempts advance none and retain the previous successfully confirmed hashes, while marking their targets uncertain so a later desired-state revert still requires confirmation. A successful partial execution advances only explicitly confirmed services, removals, and stack resources; skipped objects retain their previous applied hashes. The complete applied stack hash advances only after every desired object and removal agrees. If persistence fails after the external apply, the transaction keeps the old evidence and the next reconciliation safely applies the pending work again.
+
+A successful partial Deployment remains immutable history. When work is still pending for the same desired stack hash, the next reconciliation creates a new Deployment ID with its own target set instead of adding an Attempt to the successful record. Attempts remain retries of failed or interrupted execution of the same immutable target set.
 
 ## `env_file` normalization
 

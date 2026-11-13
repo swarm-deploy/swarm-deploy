@@ -137,8 +137,11 @@ func TestReconcileDeferredFailureProtectsUnresolvedServiceAndFailureProjection(t
 	// Live state is observed, but the unresolved api is never automatically applied.
 	req.IsManual = true
 	stackDeployer.EXPECT().DeployStack(gomock.Any(), gomock.Cond(func(req deployer.StackRequest) bool {
-		return req.StackName == "app" &&
-			gomock.Eq(deployer.StackOptions{RetryFailedUpdates: true, UnresolvedServices: []string{"api"}}).Matches(req.Options)
+		assert.Equal(t, deployer.StackOptions{
+			TargetServices: []string{"api"}, PendingRemovals: []string{}, StackResourcesPending: true,
+			UnresolvedServices: []string{"api"}, RetryFailedUpdates: true,
+		}, req.Options)
+		return req.StackName == "app"
 	})).Return(deployer.Result{}, nil)
 	manager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "app"}).Return(nil, nil)
 	require.NoError(t, reconciler.Reconcile(t.Context(), req))

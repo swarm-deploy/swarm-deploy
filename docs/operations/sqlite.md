@@ -55,6 +55,29 @@ collected empty output. Existing databases and historical Attempts require no
 backfill; they simply have no Init Job execution rows. The migration is additive,
 and older application versions ignore the new table.
 
+Migration `0005_hash_aware_sync.sql` adds `deployment_stack_states` and
+`deployment_service_states`. The stack table separates desired and confirmed
+applied hashes for the complete stack and stack-scoped resources. The service
+table does the same per Compose service and retains applied-only rows as pending
+removals. Every hash carries an algorithm version; commit fields are diagnostic
+metadata and never decide admission. Uncertainty flags retain the last confirmed
+hash while forcing reconfirmation after a failed or interrupted external attempt.
+Exact target and confirmation history is
+stored in the existing Deployment and Attempt JSON payloads, so no public API
+shape changes are required.
+
+The migration deliberately does not backfill applied hashes. A historical
+successful Deployment is not sufficient proof because older versions could mark
+a partially applied stack successful. Existing Deployment history and the
+successful comparison baseline remain intact, but the first reconciliation after
+upgrade treats applied state as unknown and performs one conservative apply of
+the current effective state. Subsequent reconciliations are hash-aware no-ops.
+This can cause one extra safe rollout per existing stack; it avoids falsely
+reporting a skipped service as synchronized. Schema downgrade is forward-only
+because dropping these tables would discard applied-state evidence. Older
+binaries can ignore the additive tables, but returning to an older binary means
+new hash evidence will not be maintained.
+
 ## Consistent backup and incident evidence
 
 Do not copy only `swarm-deploy.sqlite` while the application is running: committed data may still be in
@@ -77,7 +100,7 @@ completion itself is process memory and disappears with the process:
 - the controller runtime sync reason, revision, result, and full recovery error;
 - `deployments` rows plus `deployment_attempts`, including statuses, phases, timestamps, commit, error codes,
   Deployment/Attempt IDs, and the `details_payload` needed to diagnose each execution;
-- `desired_snapshots`, matching `outbox_events`/`outbox_deliveries`, and the current Git revision/digest;
+- `desired_snapshots`, `deployment_stack_states`, `deployment_service_states`, matching `outbox_events`/`outbox_deliveries`, and the current Git revision/digest;
 - the consistent SQLite backup and its integrity-check result.
 
 Do not confuse the Deployment ID used by UI routes with the Attempt ID retained for completion recovery. Correlate both IDs,
@@ -100,7 +123,9 @@ update or otherwise prove the old task has stopped; later upgrades can use `star
 On restart, the lock owner marks genuinely orphaned `running` Attempts
 `interrupted` before reconciliation. Already-terminal rows remain unchanged. A
 retry receives a new Attempt ID under the same unchanged Deployment; only a successful Attempt advances the desired
-baseline. If recovery fails, preserve the database and diagnostic evidence rather
+baseline and only its explicitly confirmed targets advance applied hashes. A
+successful partial Deployment is not reopened: remaining pending targets receive
+a new Deployment ID. If recovery fails, preserve the database and diagnostic evidence rather
 than editing deployment or Goose rows by hand.
 
 ## First deployment

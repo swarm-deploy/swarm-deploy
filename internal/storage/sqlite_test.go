@@ -197,7 +197,7 @@ func TestDeploymentAttemptMigrationAllowsOldBinaryWrites(t *testing.T) {
 
 func TestDeploymentAttemptMigrationIsForwardOnly(t *testing.T) {
 	db, provider := openAtMigration1(t)
-	_, err := provider.Up(t.Context())
+	_, err := provider.UpTo(t.Context(), 4)
 	require.NoError(t, err)
 	_, err = provider.Down(t.Context())
 	require.NoError(t, err, "the Init Job table migration is reversible")
@@ -213,6 +213,41 @@ func TestDeploymentAttemptMigrationIsForwardOnly(t *testing.T) {
 	require.NoError(t, db.Get(t.Context(), &tableCount,
 		"SELECT count(*) FROM sqlite_master WHERE type='table' AND name='deployment_attempts'"))
 	assert.Equal(t, 1, tableCount)
+}
+
+func TestHashStateMigrationUsesConservativeBootstrap(t *testing.T) {
+	db, provider := openAtMigration1(t)
+	_, err := provider.UpTo(t.Context(), 4)
+	require.NoError(t, err)
+	started := time.Date(2026, 11, 13, 10, 0, 0, 0, time.UTC)
+	_, err = db.Exec(t.Context(), `INSERT INTO deployments
+		(id,stack,"commit",status,error_code,phase,started_at,finished_at,
+		 desired_payload,details_payload,changes_payload)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+		"legacy-success", "app", "commit", "succeeded", "", "cleanup", started, started,
+		`{"digest":"legacy-digest"}`, `{}`, `[]`)
+	require.NoError(t, err)
+	_, err = db.Exec(t.Context(),
+		"INSERT INTO desired_snapshots(stack,deployment_id) VALUES (?,?)", "app", "legacy-success")
+	require.NoError(t, err)
+
+	_, err = provider.Up(t.Context())
+	require.NoError(t, err)
+	var stackStates, serviceStates int
+	require.NoError(t, db.Get(t.Context(), &stackStates, "SELECT count(*) FROM deployment_stack_states"))
+	require.NoError(t, db.Get(t.Context(), &serviceStates, "SELECT count(*) FROM deployment_service_states"))
+	assert.Zero(t, stackStates, "legacy success is insufficient evidence of complete application")
+	assert.Zero(t, serviceStates)
+	var baseline string
+	require.NoError(t, db.Get(t.Context(), &baseline,
+		"SELECT deployment_id FROM desired_snapshots WHERE stack='app'"))
+	assert.Equal(t, "legacy-success", baseline, "history remains available as a comparison baseline")
+
+	_, err = provider.Down(t.Context())
+	require.Error(t, err, "applied-state evidence must not be discarded by rollback")
+	version, versionErr := provider.GetDBVersion(t.Context())
+	require.NoError(t, versionErr)
+	assert.EqualValues(t, 5, version)
 }
 
 func TestTimestampRoundTrip(t *testing.T) {
@@ -344,7 +379,7 @@ func TestFreshDatabaseEnforcesForeignKeysAndChecks(t *testing.T) {
 	var appliedVersions int
 	require.NoError(t, db.Get(t.Context(), &appliedVersions,
 		"SELECT count(*) FROM goose_db_version WHERE version_id > 0 AND is_applied = 1"))
-	assert.Equal(t, 4, appliedVersions)
+	assert.Equal(t, 5, appliedVersions)
 }
 
 func TestRestartAndRollback(t *testing.T) {

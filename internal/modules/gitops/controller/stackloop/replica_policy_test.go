@@ -112,6 +112,7 @@ func TestReconcileReplicaDriftPolicy(t *testing.T) {
 			r.executor = deployments.NewController(
 				deployments.NewService(db, publisher), stackDeployer, services, r.pruner, r.deployMetrics)
 			r.preparer = preparation.New(cfg, repository, r.composeRotator)
+			seedAppliedHashesForLegacyFixture(stateStore, r.preparer, db)
 			r.attachPipeline()
 			require.NoError(t, r.Reconcile(t.Context(), ReconciliationRequest{
 				Stack: config.StackSpec{Name: "app", ComposeFile: "app.yaml"}, Commit: "current",

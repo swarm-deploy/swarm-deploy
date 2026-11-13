@@ -22,7 +22,8 @@ type Service struct {
 type Stack struct {
 	// DriftedServices tracks verified drift episodes independently of deployment status.
 	DriftedServices map[string]bool `json:"drifted_services,omitempty"`
-	// SourceDigest is the digest of the source compose file used for deployment.
+	// SourceDigest is the latest successfully loaded source digest. It is desired-source
+	// metadata only; deployment admission and applied state use versioned effective hashes.
 	SourceDigest string `json:"source_digest"`
 	// LastCommit is the git commit hash that triggered the latest stack deployment.
 	LastCommit string `json:"last_commit"`

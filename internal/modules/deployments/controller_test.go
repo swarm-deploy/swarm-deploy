@@ -2,6 +2,7 @@ package deployments
 
 import (
 	"context"
+	"database/sql/driver"
 	"errors"
 	"fmt"
 	"strings"
@@ -235,9 +236,11 @@ func TestControllerExecuteRetriesAndSupersedesThroughCanonicalLifecycle(t *testi
 	failed, err := controller.Execute(t.Context(), executionRequest("api:1"))
 	require.Error(t, err)
 	stackDeployer.EXPECT().DeployStack(gomock.Any(), gomock.Cond(func(req deployer.StackRequest) bool {
-		return req.StackName == "app" &&
-			req.SourceComposePath == "app.yaml" &&
-			gomock.Eq(deployer.StackOptions{RetryFailedUpdates: true, UnresolvedServices: []string{"api"}}).Matches(req.Options)
+		assert.Equal(t, deployer.StackOptions{
+			TargetServices: []string{"api"}, PendingRemovals: []string{}, StackResourcesPending: true,
+			RetryFailedUpdates: true, UnresolvedServices: []string{"api"},
+		}, req.Options)
+		return req.StackName == "app" && req.SourceComposePath == "app.yaml"
 	})).
 		Return(deployer.Result{}, nil)
 	services.EXPECT().ListServices(gomock.Any(), gomock.Any()).Return(nil, nil)
@@ -255,9 +258,11 @@ func TestControllerExecuteRetriesAndSupersedesThroughCanonicalLifecycle(t *testi
 	req.Stack.Name = "other"
 	req.Commit = "two"
 	stackDeployer.EXPECT().DeployStack(gomock.Any(), gomock.Cond(func(req deployer.StackRequest) bool {
-		return req.StackName == "other" &&
-			req.SourceComposePath == "app.yaml" &&
-			gomock.Eq(deployer.StackOptions{UnresolvedServices: []string{"api"}}).Matches(req.Options)
+		assert.Equal(t, deployer.StackOptions{
+			TargetServices: []string{"api"}, PendingRemovals: []string{}, StackResourcesPending: true,
+			UnresolvedServices: []string{"api"},
+		}, req.Options)
+		return req.StackName == "other" && req.SourceComposePath == "app.yaml"
 	})).
 		Return(deployer.Result{}, nil)
 	services.EXPECT().ListServices(gomock.Any(), gomock.Any()).Return(nil, nil)
@@ -400,7 +405,7 @@ func TestControllerExecuteCompletesStackOptionsFailure(t *testing.T) {
 				}).AnyTimes()
 			mockDB.EXPECT().Select(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 				DoAndReturn(db.Select).AnyTimes()
-			mockDB.EXPECT().Exec(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(db.Exec).AnyTimes()
+			delegateDatabaseExec(t, mockDB, db)
 			stackDeployer := deployer.NewMockStackDeployer(mocks)
 			manager := swarm.NewMockServiceManager(mocks)
 			metricGroup := metrics.NewGroup(metrics.CreateGroupParams{Namespace: "test"})
@@ -509,5 +514,42 @@ func TestControllerExecuteCompletesStackOptionsFailure(t *testing.T) {
 			assert.True(t, failed.Retryable)
 			assert.NotNil(t, failed.FinishedAt)
 		})
+	}
+}
+
+type recordingMatcher struct {
+	record func(any)
+}
+
+func (m recordingMatcher) Matches(value any) bool {
+	m.record(value)
+	return true
+}
+
+func (recordingMatcher) String() string { return "records any value" }
+
+func delegateDatabaseExec(t *testing.T, mockDB *storage.MockDatabase, db storage.Database) {
+	t.Helper()
+	const maximumSQLArguments = 16
+	for argumentCount := maximumSQLArguments; argumentCount > 0; argumentCount-- {
+		var execCtx context.Context
+		var execQuery string
+		execArgs := make([]any, argumentCount)
+		matchers := make([]any, argumentCount)
+		for index := range argumentCount {
+			index := index
+			matchers[index] = recordingMatcher{record: func(value any) {
+				execArgs[index] = value
+				if index == argumentCount-1 {
+					_, execErr := db.Exec(execCtx, execQuery, execArgs...)
+					require.NoError(t, execErr)
+				}
+			}}
+		}
+		mockDB.EXPECT().Exec(
+			recordingMatcher{record: func(value any) { execCtx = value.(context.Context) }},
+			recordingMatcher{record: func(value any) { execQuery = value.(string) }},
+			matchers...,
+		).Return(driver.RowsAffected(1), nil).AnyTimes()
 	}
 }

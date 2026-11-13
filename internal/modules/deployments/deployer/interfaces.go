@@ -81,6 +81,13 @@ func NewServiceWaiter(
 
 // StackOptions controls recovery during a deployment retry.
 type StackOptions struct {
+	// TargetServices is the exact pending service set. Nil preserves legacy all-service execution;
+	// an explicit empty slice runs only stack-scoped resources and cleanup.
+	TargetServices []string
+	// PendingRemovals is lifecycle metadata used by the controller after cleanup.
+	PendingRemovals []string
+	// StackResourcesPending is lifecycle metadata used to confirm stack-scoped resources.
+	StackResourcesPending bool
 	// UnresolvedServices carries prior desired-state failures requiring verification.
 	UnresolvedServices []string
 	// UpdateGenerations carries durable boundaries from interrupted verification.

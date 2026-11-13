@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"slices"
 	"sync"
 	"time"
 
@@ -122,6 +123,7 @@ func (d *Deployer) DeployStack(ctx context.Context, request StackRequest) (Resul
 	payload := &deployStackPayload{
 		stackName: request.StackName, sourceComposePath: request.SourceComposePath, desired: request.Desired,
 		result:             Result{Verification: deploymentmodel.Verification{Known: true}},
+		targetServices:     slices.Clone(request.Options.TargetServices),
 		retryFailedUpdates: request.Options.RetryFailedUpdates,
 		unresolvedServices: request.Options.UnresolvedServices,
 		beforeUpdate:       request.BeforeUpdate,

@@ -217,6 +217,22 @@ type Attempt struct {
 	ObservedAt *time.Time `json:"observed_at,omitempty"`
 	// InitJobs contains execution metadata in original execution order; raw logs are loaded separately.
 	InitJobs []InitJobExecution `json:"init_jobs,omitempty"`
+	// AppliedServices contains services whose desired hashes this successful attempt confirmed.
+	AppliedServices []string `json:"-"`
+	// SkippedServices contains targeted services deliberately not confirmed by this successful attempt.
+	SkippedServices []string `json:"-"`
+	// ConfirmedRemovals contains absent services confirmed by successful cleanup.
+	ConfirmedRemovals []string `json:"-"`
+	// PrunedServices contains services actually removed from Swarm during cleanup.
+	PrunedServices []string `json:"-"`
+	// SkippedRemovals contains removals still pending after successful partial cleanup.
+	SkippedRemovals []string `json:"-"`
+	// ConfirmedServiceDigests records the exact hashes advanced by this attempt.
+	ConfirmedServiceDigests map[string]string `json:"-"`
+	// ConfirmedStackDigest is set only when the complete stack reached desired state.
+	ConfirmedStackDigest string `json:"-"`
+	// ConfirmedStackResourcesDigest is set when stack-scoped resources were confirmed.
+	ConfirmedStackResourcesDigest string `json:"-"`
 }
 
 // Deployment is one immutable effective desired state with zero or more persisted execution attempts.
@@ -273,6 +289,12 @@ type Deployment struct {
 	AttemptCount int `json:"attempt_count"`
 	// Attempts contains immutable execution history in newest-first order.
 	Attempts []Attempt `json:"attempts,omitempty"`
+	// PendingServices is the immutable service target set admitted for this desired snapshot.
+	PendingServices []string `json:"-"`
+	// PendingRemovals is the immutable removal target set admitted for this desired snapshot.
+	PendingRemovals []string `json:"-"`
+	// StackResourcesPending reports whether stack-scoped resources require confirmation.
+	StackResourcesPending bool `json:"-"`
 }
 
 // DeploymentSummary is the lightweight list representation of a desired-state deployment.
@@ -348,8 +370,14 @@ type Page struct {
 type Prepared struct {
 	// Definition retains supported effective Compose values after masking.
 	Definition compose.File `json:"definition"`
-	// Digest identifies the unmasked effective state without retaining plaintext.
+	// Digest identifies the complete unmasked effective desired state without retaining plaintext.
 	Digest string `json:"digest"`
+	// DigestVersion identifies the algorithm used for every digest in this snapshot.
+	DigestVersion int `json:"digest_version"`
+	// StackResourcesDigest identifies stack-scoped networks, configs, and secrets.
+	StackResourcesDigest string `json:"stack_resources_digest"`
+	// ServiceDigests identifies each service and only the dependencies that affect it.
+	ServiceDigests map[string]string `json:"service_digests"`
 	// Fields contains safe display values indexed by semantic path.
 	Fields map[string]string `json:"fields"`
 	// Fingerprints distinguish changes to values which have identical masked displays.

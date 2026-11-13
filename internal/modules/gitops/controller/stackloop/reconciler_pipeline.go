@@ -37,13 +37,16 @@ type pipelinePayload struct {
 	// RegistryAuthError is reported after ordinary reconciliation without changing deployment lifecycle.
 	RegistryAuthError error
 	// ProtectedServices cannot be remediated automatically while retry is deferred.
-	ProtectedServices []string
-	CleanupResult     rotatedCleanupResult
-	Drift             map[string]drift.ServiceDrift
-	RemainingDrift    map[string]drift.ServiceDrift
-	Remediations      map[string]serviceRemediation
-	PendingSelfHeal   map[string]bool
-	RemediationErr    []error
+	ProtectedServices     []string
+	PendingServices       []string
+	PendingRemovals       []string
+	StackResourcesPending bool
+	CleanupResult         rotatedCleanupResult
+	Drift                 map[string]drift.ServiceDrift
+	RemainingDrift        map[string]drift.ServiceDrift
+	Remediations          map[string]serviceRemediation
+	PendingSelfHeal       map[string]bool
+	RemediationErr        []error
 }
 
 func (r *Reconciler) attachPipeline() {
@@ -108,6 +111,9 @@ func (r *Reconciler) executeDeployment(ctx context.Context, payload *pipelinePay
 	payload.ExecutionError = result.ErrorCode
 	payload.RetryDeferred = result.RetryDeferred
 	payload.ProtectedServices = result.UnresolvedServices
+	payload.PendingServices = result.PendingServices
+	payload.PendingRemovals = result.PendingRemovals
+	payload.StackResourcesPending = result.StackResourcesPending
 	if errors.Is(err, deployments.ErrRegistryAuthRefresh) {
 		payload.RegistryAuthError = err
 		return nil // Maintenance must not block normal drift observation or remediation.

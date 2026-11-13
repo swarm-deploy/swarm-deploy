@@ -204,12 +204,15 @@ Deferred cycles do not self-heal, prune, overwrite the GitOps failure projection
 or publish deployment completion events. Alert occurrences therefore count real
 failed Attempts rather than scheduler ticks.
 
-A new effective desired digest starts a new Deployment with fresh retry state. Manual Sync
-retries a failed/interrupted deployment regardless of automatic retry backoff. During
+A changed effective desired hash starts a new Deployment with fresh retry state.
+The same complete desired hash also starts a new Deployment when a previously
+successful partial execution left service, removal, or stack-resource hashes
+pending; successful history is never reopened as a retry. Manual Sync retries a
+failed/interrupted deployment regardless of automatic retry backoff. During
 retry, terminal failed services receive a new `ForceUpdate` generation, including
 when the accepted ServiceSpec is already equal to desired. Retries reverify accepted unchanged specifications too, so interrupted observation
 cannot turn an unfinished rollout into a successful no-op. Healthy unchanged
-services keep their tasks. No automatic attempt limit, new configuration, or database schema is required.
+services keep their tasks. There is no automatic attempt limit.
 
 ## Externally managed replicas
 

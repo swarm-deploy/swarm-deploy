@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -59,7 +60,8 @@ type ExecuteRequest struct {
 	Desired compose.File
 	// ManualRetry explicitly retries a failed desired state, bypassing automatic backoff.
 	ManualRetry bool
-	// SourceChanged reports whether GitOps observed a new source digest.
+	// SourceChanged reports whether GitOps observed a new source digest. It is
+	// retained for compatibility and diagnostics, not deployment admission.
 	SourceChanged bool
 }
 
@@ -95,6 +97,12 @@ type ExecuteResult struct {
 	Status deploymentmodel.Status
 	// ErrorCode is the stable terminal failure category.
 	ErrorCode string
+	// PendingServices contains desired services still lacking applied confirmation.
+	PendingServices []string
+	// PendingRemovals contains service removals still awaiting successful prune confirmation.
+	PendingRemovals []string
+	// StackResourcesPending reports whether stack-scoped resources still require confirmation.
+	StackResourcesPending bool
 }
 
 type pendingCompletion struct {
@@ -212,12 +220,35 @@ func (c *Controller) execute(ctx context.Context, req ExecuteRequest) (ExecuteRe
 		return result, errors.Join(cleanupErr, completeErr)
 	}
 
-	completion := Completion{Outcome: CompletionSucceeded, ObservedAt: &result.ObservedAt}
+	return c.completeSuccess(ctx, req, attempt.ID, options, live, pruned, result)
+}
+
+func (c *Controller) completeSuccess(
+	ctx context.Context,
+	req ExecuteRequest,
+	attemptID string,
+	options deployer.StackOptions,
+	live []swarm.StackService,
+	pruned []string,
+	result ExecuteResult,
+) (ExecuteResult, error) {
+	confirmedRemovals, skippedRemovals := removalConfirmation(options.PendingRemovals, live, pruned)
+	resourcesApplied := options.StackResourcesPending
+	completion := Completion{
+		Outcome: CompletionSucceeded, ObservedAt: &result.ObservedAt,
+		AppliedServices: slices.Clone(options.TargetServices), SkippedServices: []string{},
+		ConfirmedRemovals: confirmedRemovals, SkippedRemovals: skippedRemovals,
+		PrunedServices:        slices.Clone(pruned),
+		StackResourcesApplied: &resourcesApplied,
+	}
 	result.Status = deploymentmodel.Succeeded
-	if err = c.complete(ctx, req.Stack.Name, attempt.ID, completion); err != nil {
+	if err := c.complete(ctx, req.Stack.Name, attemptID, completion); err != nil {
 		return result, err
 	}
 	c.record(req, "success")
+	if err := c.loadPendingState(ctx, req.Stack.Name, &result); err != nil {
+		return result, err
+	}
 	return result, nil
 }
 
@@ -230,24 +261,53 @@ func executionError(ctx context.Context, err error) error {
 }
 
 func (c *Controller) unchangedResult(ctx context.Context, req ExecuteRequest) (ExecuteResult, error) {
-	latest, _, err := c.lifecycle.store.Latest(ctx, req.Stack.Name)
-	if err != nil && !errors.Is(err, deploymentstore.ErrNotFound) {
+	hashState, err := c.lifecycle.store.HashState(ctx, req.Stack.Name)
+	if err != nil {
 		return ExecuteResult{}, err
 	}
-	result := ExecuteResult{Status: latest.Status, ErrorCode: latest.ErrorCode}
+	pending := hashState.Pending()
+	result := ExecuteResult{
+		PendingServices: pending.Services, PendingRemovals: pending.Removals,
+		StackResourcesPending: pending.StackResources,
+	}
+	if pending.Empty() {
+		result.Status = deploymentmodel.Succeeded
+		latest, _, latestErr := c.lifecycle.store.Latest(ctx, req.Stack.Name)
+		if latestErr != nil && !errors.Is(latestErr, deploymentstore.ErrNotFound) {
+			return ExecuteResult{}, latestErr
+		}
+		if latestErr == nil && latest.Status == deploymentmodel.Succeeded {
+			if err = c.refreshRegistryAuth(ctx, req); err != nil {
+				return result, err
+			}
+		}
+		return result, nil
+	}
+	latest, _, err := c.lifecycle.store.Latest(ctx, req.Stack.Name)
+	if err != nil && !errors.Is(err, deploymentstore.ErrNotFound) {
+		return result, err
+	}
+	result.Status, result.ErrorCode = latest.Status, latest.ErrorCode
 	result.RetryDeferred = latest.Status == deploymentmodel.Failed || latest.Status == deploymentmodel.Interrupted
 	if result.RetryDeferred {
 		result.UnresolvedServices = deferredServices(latest, req.Desired)
 	}
 	if latest.Status == deploymentmodel.Succeeded {
-		err = c.deployer.RefreshRegistryAuth(ctx, deployer.StackRequest{
-			StackName: req.Stack.Name, SourceComposePath: req.Desired.Path, Desired: req.Desired.Compose,
-		})
-		if err != nil {
-			return result, fmt.Errorf("%w: %w", ErrRegistryAuthRefresh, err)
+		if err = c.refreshRegistryAuth(ctx, req); err != nil {
+			return result, err
 		}
 	}
 	return result, nil
+}
+
+func (c *Controller) refreshRegistryAuth(ctx context.Context, req ExecuteRequest) error {
+	err := c.deployer.RefreshRegistryAuth(ctx, deployer.StackRequest{
+		StackName: req.Stack.Name, SourceComposePath: req.Desired.Path, Desired: req.Desired.Compose,
+	})
+	if err != nil {
+		return fmt.Errorf("%w: %w", ErrRegistryAuthRefresh, err)
+	}
+	return nil
 }
 
 // ExecuteService runs one synchronous service remediation through the owned Deployer.
@@ -392,14 +452,51 @@ func (c *Controller) stackOptions(
 	if err != nil {
 		return deployer.StackOptions{}, err
 	}
-	if attempt.Number == 1 && len(current.Verification.UnresolvedServices) == 0 {
-		return deployer.StackOptions{}, nil
+	options := deployer.StackOptions{
+		TargetServices:        append([]string{}, current.PendingServices...),
+		PendingRemovals:       append([]string{}, current.PendingRemovals...),
+		StackResourcesPending: current.StackResourcesPending,
 	}
-	return deployer.StackOptions{
-		RetryFailedUpdates: attempt.Number > 1,
-		UnresolvedServices: current.Verification.UnresolvedServices,
-		UpdateGenerations:  current.Verification.Generations,
-	}, nil
+	if attempt.Number == 1 && len(current.Verification.UnresolvedServices) == 0 {
+		return options, nil
+	}
+	options.RetryFailedUpdates = attempt.Number > 1
+	options.UnresolvedServices = current.Verification.UnresolvedServices
+	options.UpdateGenerations = current.Verification.Generations
+	return options, nil
+}
+
+func removalConfirmation(
+	pending []string,
+	live []swarm.StackService,
+	pruned []string,
+) ([]string, []string) {
+	liveNames := make(map[string]bool, len(live))
+	for _, service := range live {
+		liveNames[service.Name] = true
+	}
+	confirmed := make([]string, 0, len(pending))
+	skipped := make([]string, 0, len(pending))
+	for _, name := range pending {
+		if !liveNames[name] || slices.Contains(pruned, name) {
+			confirmed = append(confirmed, name)
+		} else {
+			skipped = append(skipped, name)
+		}
+	}
+	return confirmed, skipped
+}
+
+func (c *Controller) loadPendingState(ctx context.Context, stack string, result *ExecuteResult) error {
+	state, err := c.lifecycle.store.HashState(ctx, stack)
+	if err != nil {
+		return err
+	}
+	pending := state.Pending()
+	result.PendingServices = pending.Services
+	result.PendingRemovals = pending.Removals
+	result.StackResourcesPending = pending.StackResources
+	return nil
 }
 
 func deferredServices(latest deploymentmodel.Deployment, desired compose.File) []string {
