@@ -8,6 +8,10 @@ import (
 type Service struct {
 	// Image is the deployed image reference for the service.
 	Image string `json:"image"`
+	// DesiredDigest identifies the latest effective desired state observed by GitOps.
+	DesiredDigest string `json:"desired_digest,omitempty"`
+	// DesiredCommit is the Git revision where GitOps last observed DesiredDigest change.
+	DesiredCommit string `json:"desired_commit,omitempty"`
 	// SyncStatus is the latest deployment status for the service.
 	SyncStatus SyncStatus `json:"sync_status"`
 

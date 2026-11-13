@@ -262,8 +262,14 @@ func TestComposeLoadValidationLifecycle(t *testing.T) {
 		LastCommit: "previous", SourceDigest: "previous-digest", LastDeployAt: lastSync, StateUpdatedAt: lastSync,
 		Status: model.StackStatus{Synced: 2},
 		Services: map[string]model.Service{
-			"swarm-deploy": {Image: "nginx:1.27", SyncStatus: model.SyncStatusSynced, SyncAt: lastSync},
-			"worker":       {Image: "busybox:1.37", SyncStatus: model.SyncStatusSynced, SyncAt: lastSync},
+			"swarm-deploy": {
+				Image: "nginx:1.27", DesiredDigest: "swarm-deploy-digest", DesiredCommit: "desired-commit",
+				SyncStatus: model.SyncStatusSynced, SyncAt: lastSync,
+			},
+			"worker": {
+				Image: "busybox:1.37", DesiredDigest: "worker-digest", DesiredCommit: "desired-commit",
+				SyncStatus: model.SyncStatusSynced, SyncAt: lastSync,
+			},
 		},
 	}
 	require.NoError(t, state.Update(ctx, func(runtime *model.Runtime) {
