@@ -66,8 +66,9 @@ type ServiceProgress struct {
 	// Message contains a bounded convergence diagnostic.
 	Message string
 
-	taskFault   faults.Coded
-	taskContext string
+	taskFault            faults.Coded
+	taskContext          string
+	placementConstraints []string
 }
 
 func (p *ServiceProgress) failTask(task swarm.ServiceTask, message string) {
@@ -150,10 +151,7 @@ func (w *ServiceWaiter) Snapshot(ctx context.Context, stackName string) ([]swarm
 // Wait blocks until the requested services converge or the wait is interrupted.
 func (w *ServiceWaiter) Wait(ctx context.Context, request ServiceWaitRequest) (ServiceWaitResult, error) {
 	startedAt := time.Now()
-	waitCtx, cancel := context.WithTimeout(ctx, w.timeout)
-	defer cancel()
-
-	waitCtx, span := serviceWaiterTracer.Start(waitCtx, "serviceWaiter.Wait", trace.WithAttributes(
+	ctx, span := serviceWaiterTracer.Start(ctx, "serviceWaiter.Wait", trace.WithAttributes(
 		tracing.ResourceStackName.String(request.StackName),
 	))
 	defer span.End()
@@ -164,7 +162,7 @@ func (w *ServiceWaiter) Wait(ctx context.Context, request ServiceWaitRequest) (S
 		finishServiceWaitSpan(span, startedAt, state, waitErr)
 	}()
 
-	waitErr = w.wait(waitCtx, span, request, &state)
+	waitErr = w.wait(ctx, span, request, &state)
 	return state.result(), waitErr
 }
 
@@ -174,7 +172,6 @@ func (w *ServiceWaiter) wait(
 	request ServiceWaitRequest,
 	state *waitState,
 ) error {
-
 	baseline := servicesByName(request.Baseline)
 	candidates := uniqueSortedNames(request.ServiceNames)
 	targets := make(map[string]struct{}, len(candidates))
@@ -185,11 +182,14 @@ func (w *ServiceWaiter) wait(
 	if len(candidates) == 0 {
 		return nil
 	}
+	waitCtx, cancel := context.WithTimeout(ctx, w.timeout)
+	defer cancel()
 	ticker := time.NewTicker(w.pollInterval)
 	defer ticker.Stop()
 
+waitLoop:
 	for {
-		allReady, observeErr := w.poll(ctx, span, request, baseline, targets, state)
+		allReady, observeErr := w.poll(waitCtx, span, request, baseline, targets, state)
 		switch {
 		case errors.Is(observeErr, ErrConvergenceFailed):
 			// Finish observing independent targets before returning the known failure.
@@ -198,21 +198,30 @@ func (w *ServiceWaiter) wait(
 				return observeErr
 			}
 		case observeErr != nil:
-			if waitErr := state.handleObservationError(ctx, span, request, targets, observeErr); waitErr != nil {
-				return errors.Join(state.terminalFailure, waitErr)
+			if waitCtx.Err() != nil {
+				break waitLoop
+			}
+			if waitErr := state.handleObservationError(span, request, targets, observeErr); waitErr != nil {
+				cancel()
+				return errors.Join(state.terminalFailure, w.withPlacementSchedulingFault(ctx, waitErr, state.last))
 			}
 		case allReady:
 			return state.terminalFailure
 		}
 
 		select {
-		case <-ctx.Done():
-			state.failPending(span, request.Progress, ctx.Err())
-			return errors.Join(state.terminalFailure,
-				waitInterruptedError(request.StackName, state.last, ctx.Err(), state.lastObservationError))
+		case <-waitCtx.Done():
 		case <-ticker.C:
 		}
+		if waitCtx.Err() != nil {
+			break
+		}
 	}
+
+	cause := waitCtx.Err()
+	state.failPending(span, request.Progress, cause)
+	return errors.Join(state.terminalFailure,
+		w.waitInterruptedError(ctx, request.StackName, state.last, cause, state.lastObservationError))
 }
 
 func (w *ServiceWaiter) poll(
