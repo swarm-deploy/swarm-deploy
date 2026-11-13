@@ -19,8 +19,6 @@ const Version = 1
 
 // Encode copies approved fields only. It never marshals Event, Details, errors,
 // logs, prompts, environment or Compose definitions.
-//
-//nolint:funlen // Keep the durable event allowlist together so its accepted fields are auditable.
 func Encode(event events.Event) ([]byte, error) {
 	if event == nil || (reflect.ValueOf(event).Kind() == reflect.Pointer && reflect.ValueOf(event).IsNil()) {
 		return nil, errors.New("cannot encode a nil event")
@@ -39,22 +37,12 @@ func Encode(event events.Event) ([]byte, error) {
 	case *events.DeploySuccess:
 		return encodeDeployment(e.DeployEvent)
 	case *events.DeployFailed:
-		code := e.ErrorCode
-		if code == "" {
-			code = safeFailureCode(e.Error)
-		}
-		return encodeDeploymentFailure(e.StackName, e.Commit, e.DeploymentID, e.AttemptID, code, e.Stage,
+		return encodeDeploymentFailure(e.StackName, e.Commit, e.DeploymentID, e.AttemptID, e.ErrorCode, e.Stage,
 			e.Error, e.Services)
 	case *events.DeployPreparationFailed:
-		if e.ErrorCode != "preparation_failed" {
-			return nil, errors.New("unsupported deployment preparation failure code")
-		}
 		return encodeDeploymentFailure(e.StackName, e.Commit, "", "", e.ErrorCode, e.Stage,
 			e.Error, e.Services)
 	case *events.DeployInterrupted:
-		if e.Reason != "process_interrupted" && e.Reason != "verification_unknown" {
-			return nil, errors.New("unsupported deployment interruption reason")
-		}
 		return encodeDeploymentFailure(e.StackName, e.Commit, e.DeploymentID, e.AttemptID, e.Reason, e.Stage,
 			e.Error, e.Services)
 	case *events.NodeJoined:
@@ -255,7 +243,7 @@ func decodeDeploymentFailure(typ events.TypeName, payload []byte) (events.Event,
 					DeploymentID: p.DeploymentID, AttemptID: p.AttemptID,
 					StackName: p.Stack, Commit: p.Commit, Services: p.services(),
 				},
-				Error: diagnostic, ErrorCode: safeFailureCode(errors.New(p.Code)), Stage: p.Stage,
+				Error: diagnostic, ErrorCode: p.Code, Stage: p.Stage,
 			}
 		case events.TypeNameDeployPreparationFailed:
 			return &events.DeployPreparationFailed{
@@ -317,7 +305,7 @@ type deploymentFailurePayload struct {
 	Stack string `json:"stack"`
 	// Commit identifies the source revision.
 	Commit string `json:"commit"`
-	// Code is an allowlisted safe failure category.
+	// Code is the failure category or interruption reason.
 	Code string `json:"code"`
 	// Stage identifies the failing pipeline stage.
 	Stage string `json:"stage,omitempty"`
@@ -339,16 +327,6 @@ func (p deploymentFailurePayload) services() []compose.Service {
 		result = append(result, compose.Service{Name: service.Name, Image: service.Image})
 	}
 	return result
-}
-
-func safeFailureCode(err error) string {
-	if err != nil {
-		switch err.Error() {
-		case "policy_rejected", "init_failed", "apply_failed", "convergence_failed", "prune_failed":
-			return err.Error()
-		}
-	}
-	return "apply_failed"
 }
 
 func encodeDeploymentFailure(
