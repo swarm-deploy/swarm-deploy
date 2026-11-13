@@ -20,23 +20,6 @@ func (h *handler) ScaleSwarmService(
 	if req.Replicas < 0 {
 		return withStatusError(http.StatusBadRequest, errors.New("replicas must be a non-negative integer"))
 	}
-	gitopsStack, hasStack := req.GitopsStack.Get()
-	gitopsService, hasService := req.GitopsService.Get()
-	if hasStack != hasService {
-		return withStatusError(http.StatusBadRequest, errors.New("gitops_stack and gitops_service must be supplied together"))
-	}
-	if hasStack {
-		pauseState, pauseErr := h.syncPauses.GetService(ctx, gitopsStack, gitopsService)
-		if pauseErr != nil {
-			return pauseHTTPError(pauseErr)
-		}
-		if !pauseState.Effective {
-			return withStatusError(http.StatusConflict, errors.New("GitOps-managed service must be paused before scaling"))
-		}
-		if waitErr := h.control.WaitStackIdle(ctx, gitopsStack); waitErr != nil {
-			return withStatusError(http.StatusConflict, errors.New("current stack operation did not finish"))
-		}
-	}
 
 	replicas := uint64(req.Replicas)
 	result, err := h.serviceInspector.ScaleByID(ctx, params.ServiceID, replicas)

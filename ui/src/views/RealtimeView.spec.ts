@@ -485,7 +485,7 @@ describe("Realtime service scaling", () => {
     wrapper.unmount();
   });
 
-  it("persists Pause Sync before scaling and waits through the GitOps target contract", async () => {
+  it("persists Pause Sync before scaling", async () => {
     const order: string[] = [];
     pauseMocks.setServiceSyncPause.mockImplementation(async () => {
       order.push("pause");
@@ -505,7 +505,31 @@ describe("Realtime service scaling", () => {
     await flushPromises();
 
     expect(order).toEqual(["pause", "scale"]);
-    expect(apiMocks.scaleSwarmService).toHaveBeenCalledWith("one", 5, { stack: "infra", service: "api" });
+    expect(apiMocks.scaleSwarmService).toHaveBeenCalledWith("one", 5);
+    wrapper.unmount();
+  });
+
+  it("ignores a stale Pause Sync lookup after switching services", async () => {
+    let resolveAPI!: (value: { effective_paused: boolean; effective_source: string }) => void;
+    let resolveWorker!: (value: { effective_paused: boolean; effective_source: string }) => void;
+    pauseMocks.getServiceSyncPause.mockImplementation((_stack: string, service: string) => new Promise((resolve) => {
+      if (service === "api") resolveAPI = resolve;
+      else resolveWorker = resolve;
+    }));
+    const wrapper = await mountView();
+
+    await wrapper.get('[aria-label="Scale api"]').trigger("click");
+    await wrapper.get('[aria-label="Close scaling modal"]').trigger("click");
+    await wrapper.get('[aria-label="Scale worker"]').trigger("click");
+    resolveWorker({ effective_paused: true, effective_source: "stack" });
+    await flushPromises();
+    expect(wrapper.get('[role="dialog"]').text()).toContain("worker");
+    expect(wrapper.get('[role="dialog"]').text()).toContain("Sync paused by: Stack");
+
+    resolveAPI({ effective_paused: true, effective_source: "service" });
+    await flushPromises();
+    expect(wrapper.get('[role="dialog"]').text()).toContain("Sync paused by: Stack");
+    expect(wrapper.get('[role="dialog"]').text()).not.toContain("Sync paused by: Service");
     wrapper.unmount();
   });
 

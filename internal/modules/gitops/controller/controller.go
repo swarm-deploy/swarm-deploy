@@ -145,11 +145,6 @@ func (c *Controller) Manual(ctx context.Context) bool {
 	return c.scheduler.Schedule(ctx, syncrun.Task{TriggeredBy: user.Name, Reason: syncrun.TriggerManual})
 }
 
-// WaitStackIdle waits for only the named stack's current and queued operations.
-func (c *Controller) WaitStackIdle(ctx context.Context, stack string) error {
-	return c.stacks.WaitStackIdle(ctx, stack)
-}
-
 // Webhook requests a non-blocking webhook synchronization and records the receipt.
 func (c *Controller) Webhook(ctx context.Context) (bool, error) {
 	queued := c.scheduler.Schedule(ctx, syncrun.Task{Reason: syncrun.TriggerWebhook})

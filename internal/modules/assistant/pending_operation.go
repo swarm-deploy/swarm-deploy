@@ -23,10 +23,8 @@ const defaultPendingOperationTTL = 15 * time.Minute
 const targetResolverMaxTokens = 96
 
 type syncPauseTargetResolver interface {
-	ManagedSyncServices(ctx context.Context) (map[string][]string, error)
 	StackSyncPause(ctx context.Context, stack string) (syncpause.StackState, error)
 	ServiceSyncPause(ctx context.Context, stack, service string) (syncpause.ServiceState, error)
-	WaitStackSyncIdle(ctx context.Context, stack string) error
 }
 
 // OperationType identifies a mutating operation handled by the deterministic backend flow.
@@ -503,14 +501,6 @@ func (g *graph) executeConfirmedPauseScale(
 		g.pending.set(conversationID, retry)
 		return pauseAnswer + " Scaling is forbidden by `assistant.tools`. The pause remains active; " +
 			"confirm if scaling becomes allowed and should be retried.", nil
-	}
-	if waitErr := g.pauseTargets.WaitStackSyncIdle(ctx, op.Stack); waitErr != nil {
-		g.pending.set(conversationID, retry)
-		return fmt.Sprintf(
-			"%s Scaling did not run because waiting for the current stack operation failed: %s. "+
-				"The pause remains active. Retry only scaling?",
-			pauseAnswer, strings.TrimSpace(waitErr.Error()),
-		), nil
 	}
 	scalePayload, err := json.Marshal(map[string]any{
 		"stack": op.Stack, "service": op.Service, "replicas": op.Replicas,

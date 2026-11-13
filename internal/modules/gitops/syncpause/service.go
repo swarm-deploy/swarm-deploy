@@ -247,22 +247,6 @@ func normalizedExpiration(value *time.Time) *time.Time {
 	return &normalized
 }
 
-// ManagedServices returns the current GitOps runtime service state for assistant target resolution.
-func (s *Service) ManagedServices(ctx context.Context) (map[string][]string, error) {
-	runtime, err := s.state.Read(ctx)
-	if err != nil {
-		return nil, err
-	}
-	result := make(map[string][]string, len(runtime.Stacks))
-	for stack, state := range runtime.Stacks {
-		for service := range state.Services {
-			result[stack] = append(result[stack], service)
-		}
-		sort.Strings(result[stack])
-	}
-	return result, nil
-}
-
 // PreserveNames returns the effective preserved names for desired and prior runtime services.
 func PreserveNames(policy ActivePolicy, desired []string, prior gitopsmodel.Stack) []string {
 	names := map[string]struct{}{}

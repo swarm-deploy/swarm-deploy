@@ -94,6 +94,7 @@ const scalePauseState = ref<ServiceSyncPauseResponse | null>(null);
 const scalePausePersisted = ref(false);
 const scalePauseLookupFailed = ref(false);
 const scalePauseDurationOptions: { value: string; label: string }[] = syncPauseDurations.map(({ value, label }) => ({ value, label }));
+let scalePauseRequest = 0;
 
 const validScaleInput = computed(() => (
   typeof scaleInput.value === "number" && Number.isSafeInteger(scaleInput.value) && scaleInput.value >= 0
@@ -119,6 +120,7 @@ function pauseUntil(expiresAt: string | null | undefined): string {
 }
 
 async function openScale(service: SwarmService): Promise<void> {
+  const request = ++scalePauseRequest;
   scalingService.value = service;
   scaleInput.value = service.configured_replicas ?? "";
   scaleError.value = "";
@@ -131,17 +133,23 @@ async function openScale(service: SwarmService): Promise<void> {
   scalePauseLookupFailed.value = false;
   if (service.stack && service.name) {
     try {
-      scalePauseState.value = await getServiceSyncPause(service.stack, service.name);
+      const pauseState = await getServiceSyncPause(service.stack, service.name);
+      if (disposed || request !== scalePauseRequest || scalingService.value?.id !== service.id) return;
+      scalePauseState.value = pauseState;
       scalePauseManaged.value = true;
     } catch (reason) {
+      if (disposed || request !== scalePauseRequest || scalingService.value?.id !== service.id) return;
       if (!(reason instanceof ApiError) || reason.status !== 404) {
         scalePauseLookupFailed.value = true;
         scaleError.value = errorMessage(reason);
       }
     } finally {
-      scalePauseLoading.value = false;
+      if (!disposed && request === scalePauseRequest && scalingService.value?.id === service.id) {
+        scalePauseLoading.value = false;
+      }
     }
   }
+  if (disposed || request !== scalePauseRequest || scalingService.value?.id !== service.id) return;
   await nextTick();
   scaleInputElement.value?.focus();
   scaleInputElement.value?.select();
@@ -149,6 +157,7 @@ async function openScale(service: SwarmService): Promise<void> {
 
 function closeScale(): void {
   if (scalePending.value) return;
+  scalePauseRequest++;
   scalingService.value = null;
 }
 
@@ -172,16 +181,7 @@ async function submitScale(): Promise<void> {
       );
       scalePausePersisted.value = true;
     }
-    const waitForGitOps = scalePauseManaged.value
-      && Boolean(scalePauseState.value?.effective_paused || scalePausePersisted.value);
-    if (waitForGitOps) {
-      await scaleSwarmService(serviceID, Number(scaleInput.value), {
-        stack: service.stack,
-        service: service.name,
-      });
-    } else {
-      await scaleSwarmService(serviceID, Number(scaleInput.value));
-    }
+    await scaleSwarmService(serviceID, Number(scaleInput.value));
     if (disposed) return;
     scalePending.value = false;
     closeScale();
@@ -698,7 +698,8 @@ onUnmounted(() => {
           <span v-if="scalePauseLoading">Checking GitOps Pause Sync state...</span>
           <span v-else-if="!scalePauseManaged">Manual scaling may be overwritten by the next GitOps synchronization.</span>
           <span v-else-if="!scalePauseState?.effective_paused && !scalePauseChecked">Manual scaling may be overwritten by the next GitOps synchronization.</span>
-          <span v-else>Scaling waits for this stack's current GitOps operation after Pause Sync is active.</span>
+          <span v-else-if="scalePauseState?.effective_paused">Pause Sync is active. Scaling starts immediately.</span>
+          <span v-else>Pause Sync will be enabled first. Scaling starts immediately afterward.</span>
         </p>
         <template v-if="scalePauseManaged && !scalePauseLoading">
           <div v-if="scalePauseState?.effective_paused" class="realtime-scale-pause-state" role="status">

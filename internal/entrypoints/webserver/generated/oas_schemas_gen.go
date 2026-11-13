@@ -5803,9 +5803,7 @@ type ScaleSwarmServiceNoContent struct{}
 
 // Ref: #/components/schemas/ScaleSwarmServiceRequest
 type ScaleSwarmServiceRequest struct {
-	Replicas      int64     `json:"replicas"`
-	GitopsStack   OptString `json:"gitops_stack"`
-	GitopsService OptString `json:"gitops_service"`
+	Replicas int64 `json:"replicas"`
 }
 
 // GetReplicas returns the value of Replicas.
@@ -5813,29 +5811,9 @@ func (s *ScaleSwarmServiceRequest) GetReplicas() int64 {
 	return s.Replicas
 }
 
-// GetGitopsStack returns the value of GitopsStack.
-func (s *ScaleSwarmServiceRequest) GetGitopsStack() OptString {
-	return s.GitopsStack
-}
-
-// GetGitopsService returns the value of GitopsService.
-func (s *ScaleSwarmServiceRequest) GetGitopsService() OptString {
-	return s.GitopsService
-}
-
 // SetReplicas sets the value of Replicas.
 func (s *ScaleSwarmServiceRequest) SetReplicas(val int64) {
 	s.Replicas = val
-}
-
-// SetGitopsStack sets the value of GitopsStack.
-func (s *ScaleSwarmServiceRequest) SetGitopsStack(val OptString) {
-	s.GitopsStack = val
-}
-
-// SetGitopsService sets the value of GitopsService.
-func (s *ScaleSwarmServiceRequest) SetGitopsService(val OptString) {
-	s.GitopsService = val
 }
 
 // Ref: #/components/schemas/SearchResponse

@@ -26,23 +26,32 @@ const error = ref("");
 const notice = ref("");
 const hasStackPause = computed(() => Boolean(state.value?.stack_pause));
 const servicePauses = computed(() => state.value?.service_pauses ?? []);
+const canSubmit = computed(() => state.value !== null && !loading.value && !pending.value && !error.value);
 const durationOptions: { value: string; label: string }[] = syncPauseDurations.map(({ value, label }) => ({ value, label }));
+let loadRequest = 0;
 
 async function load(): Promise<void> {
   if (!props.open || !props.stack) return;
+  const request = ++loadRequest;
+  const stack = props.stack;
   loading.value = true;
+  state.value = null;
   error.value = "";
   notice.value = "";
   try {
-    state.value = await getStackSyncPauses(props.stack);
+    const response = await getStackSyncPauses(stack);
+    if (request !== loadRequest || !props.open || props.stack !== stack) return;
+    state.value = response;
   } catch (reason) {
+    if (request !== loadRequest || !props.open || props.stack !== stack) return;
     error.value = reason instanceof Error ? reason.message : "Failed to load Pause Sync state";
   } finally {
-    loading.value = false;
+    if (request === loadRequest && props.open && props.stack === stack) loading.value = false;
   }
 }
 
 async function submit(): Promise<void> {
+  if (!canSubmit.value) return;
   pending.value = true;
   error.value = "";
   try {
@@ -82,7 +91,15 @@ function pauseUntil(expiresAt: string | null): string {
   return expiresAt ? formatDate(expiresAt) : "No expiration";
 }
 
-watch(() => [props.open, props.stack], () => { if (props.open) void load(); }, { immediate: true });
+watch(() => [props.open, props.stack] as const, ([open]) => {
+  if (open) {
+    void load();
+    return;
+  }
+  loadRequest++;
+  loading.value = false;
+  state.value = null;
+}, { immediate: true });
 </script>
 
 <template>
@@ -128,7 +145,7 @@ watch(() => [props.open, props.stack], () => { if (props.open) void load(); }, {
         <p v-if="error" class="sync-pause-error" role="alert">{{ error }}</p>
         <div class="sync-pause-actions">
           <AppButton variant="secondary" type="button" :disabled="pending" @click="emit('close')">Cancel</AppButton>
-          <AppButton type="submit" :disabled="pending">{{ hasStackPause ? "Resume stack sync" : "Pause entire stack" }}</AppButton>
+          <AppButton type="submit" :disabled="!canSubmit">{{ hasStackPause ? "Resume stack sync" : "Pause entire stack" }}</AppButton>
         </div>
       </template>
     </div>

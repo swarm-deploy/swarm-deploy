@@ -215,11 +215,9 @@ type Invoker interface {
 	PutStackSyncPause(ctx context.Context, request *SyncPauseRequest, params PutStackSyncPauseParams) (*StackSyncPausesResponse, error)
 	// ScaleSwarmService invokes scaleSwarmService operation.
 	//
-	// Updates live replicated services, including standalone services, without waiting for tasks. When
-	// gitops_stack and gitops_service are supplied, the target must already be effectively paused and
-	// scaling waits only for that stack's current GitOps operation. Invalid input or unsupported modes
-	// return 400, missing services return 404, concurrent updates return 409, and Docker errors return
-	// 500.
+	// Updates live replicated services, including standalone services, without waiting for tasks or
+	// GitOps operations. Invalid input or unsupported modes return 400, missing services return 404,
+	// concurrent updates return 409, and Docker errors return 500.
 	//
 	// PUT /api/v1/swarm/services/{serviceID}/replicas
 	ScaleSwarmService(ctx context.Context, request *ScaleSwarmServiceRequest, params ScaleSwarmServiceParams) error
@@ -4749,11 +4747,9 @@ func (c *Client) sendPutStackSyncPause(ctx context.Context, request *SyncPauseRe
 
 // ScaleSwarmService invokes scaleSwarmService operation.
 //
-// Updates live replicated services, including standalone services, without waiting for tasks. When
-// gitops_stack and gitops_service are supplied, the target must already be effectively paused and
-// scaling waits only for that stack's current GitOps operation. Invalid input or unsupported modes
-// return 400, missing services return 404, concurrent updates return 409, and Docker errors return
-// 500.
+// Updates live replicated services, including standalone services, without waiting for tasks or
+// GitOps operations. Invalid input or unsupported modes return 400, missing services return 404,
+// concurrent updates return 409, and Docker errors return 500.
 //
 // PUT /api/v1/swarm/services/{serviceID}/replicas
 func (c *Client) ScaleSwarmService(ctx context.Context, request *ScaleSwarmServiceRequest, params ScaleSwarmServiceParams) error {

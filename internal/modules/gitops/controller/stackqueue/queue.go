@@ -70,7 +70,6 @@ type Queue struct {
 	started             bool
 	stopped             bool
 	idle                chan struct{}
-	stateChanged        chan struct{}
 	done                sync.WaitGroup
 }
 
@@ -89,7 +88,6 @@ func New(reconciler stackloop.StackReconciler, syncMetrics metrics.Sync, paralle
 		running:             map[string]operation{},
 		changedAfterFailure: map[string]bool{},
 		idle:                idle,
-		stateChanged:        make(chan struct{}),
 	}
 	q.cond = sync.NewCond(&q.mu)
 	return q
@@ -294,25 +292,6 @@ func (q *Queue) WaitIdle(ctx context.Context) error {
 	}
 }
 
-// WaitStackIdle blocks until the named stack has no waiting or running operation.
-func (q *Queue) WaitStackIdle(ctx context.Context, stack string) error {
-	for {
-		q.mu.Lock()
-		_, pending := q.pending[stack]
-		_, running := q.running[stack]
-		changed := q.stateChanged
-		q.mu.Unlock()
-		if !pending && !running {
-			return nil
-		}
-		select {
-		case <-changed:
-		case <-ctx.Done():
-			return ctx.Err()
-		}
-	}
-}
-
 func (q *Queue) work(ctx context.Context) {
 	for {
 		name, op, ok := q.next()
@@ -426,8 +405,6 @@ func (q *Queue) enqueueLocked(name string) {
 // updateStateLocked publishes queue gauges and maintains the idle notification channel.
 func (q *Queue) updateStateLocked() {
 	q.metrics.SetStackQueue(len(q.pending), len(q.running))
-	close(q.stateChanged)
-	q.stateChanged = make(chan struct{})
 
 	busy := len(q.pending) > 0 || len(q.running) > 0
 	select {

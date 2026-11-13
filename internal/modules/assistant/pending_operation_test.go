@@ -387,10 +387,6 @@ func newPendingTestGraph(store *MockServiceStore, tools *fakeTools) *graph {
 
 type fakePauseTargets struct{ stackState syncpause.StackState }
 
-func (f *fakePauseTargets) ManagedSyncServices(context.Context) (map[string][]string, error) {
-	return map[string][]string{"app": {"api"}}, nil
-}
-
 func (f *fakePauseTargets) StackSyncPause(context.Context, string) (syncpause.StackState, error) {
 	return f.stackState, nil
 }
@@ -398,5 +394,3 @@ func (f *fakePauseTargets) StackSyncPause(context.Context, string) (syncpause.St
 func (f *fakePauseTargets) ServiceSyncPause(context.Context, string, string) (syncpause.ServiceState, error) {
 	return syncpause.ServiceState{}, nil
 }
-
-func (f *fakePauseTargets) WaitStackSyncIdle(context.Context, string) error { return nil }

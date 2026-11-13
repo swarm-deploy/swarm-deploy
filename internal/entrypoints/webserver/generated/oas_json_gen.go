@@ -11017,24 +11017,10 @@ func (s *ScaleSwarmServiceRequest) encodeFields(e *jx.Encoder) {
 		e.FieldStart("replicas")
 		e.Int64(s.Replicas)
 	}
-	{
-		if s.GitopsStack.Set {
-			e.FieldStart("gitops_stack")
-			s.GitopsStack.Encode(e)
-		}
-	}
-	{
-		if s.GitopsService.Set {
-			e.FieldStart("gitops_service")
-			s.GitopsService.Encode(e)
-		}
-	}
 }
 
-var jsonFieldsNameOfScaleSwarmServiceRequest = [3]string{
+var jsonFieldsNameOfScaleSwarmServiceRequest = [1]string{
 	0: "replicas",
-	1: "gitops_stack",
-	2: "gitops_service",
 }
 
 // Decode decodes ScaleSwarmServiceRequest from json.
@@ -11057,26 +11043,6 @@ func (s *ScaleSwarmServiceRequest) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"replicas\"")
-			}
-		case "gitops_stack":
-			if err := func() error {
-				s.GitopsStack.Reset()
-				if err := s.GitopsStack.Decode(d); err != nil {
-					return err
-				}
-				return nil
-			}(); err != nil {
-				return errors.Wrap(err, "decode field \"gitops_stack\"")
-			}
-		case "gitops_service":
-			if err := func() error {
-				s.GitopsService.Reset()
-				if err := s.GitopsService.Decode(d); err != nil {
-					return err
-				}
-				return nil
-			}(); err != nil {
-				return errors.Wrap(err, "decode field \"gitops_service\"")
 			}
 		default:
 			return d.Skip()

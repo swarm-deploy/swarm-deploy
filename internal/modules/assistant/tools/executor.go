@@ -40,9 +40,6 @@ type Executor struct {
 	metrics     metrics.MCP
 	tracer      trace.Tracer
 	syncPauses  *syncpause.Service
-	stackWaiter interface {
-		WaitStackIdle(context.Context, string) error
-	}
 }
 
 // NewExecutor creates an assistant tool executor from service components.
@@ -112,14 +109,7 @@ func NewExecutor(
 		metrics:     mcpMetrics,
 		tracer:      otel.Tracer("github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/tools"),
 		syncPauses:  gitopsModule.SyncPauses,
-		stackWaiter: gitopsModule.Controller,
 	}
-}
-
-// ManagedSyncServices exposes GitOps-owned target identities to the deterministic
-// confirmation flow. It intentionally does not use the Resources catalog.
-func (e *Executor) ManagedSyncServices(ctx context.Context) (map[string][]string, error) {
-	return e.syncPauses.ManagedServices(ctx)
 }
 
 // StackSyncPause returns GitOps-owned stack pause state for confirmation warnings.
@@ -130,11 +120,6 @@ func (e *Executor) StackSyncPause(ctx context.Context, stack string) (syncpause.
 // ServiceSyncPause revalidates a GitOps-owned service target.
 func (e *Executor) ServiceSyncPause(ctx context.Context, stack, service string) (syncpause.ServiceState, error) {
 	return e.syncPauses.GetService(ctx, stack, service)
-}
-
-// WaitStackSyncIdle waits only for the selected stack's current GitOps operation.
-func (e *Executor) WaitStackSyncIdle(ctx context.Context, stack string) error {
-	return e.stackWaiter.WaitStackIdle(ctx, stack)
 }
 
 // Definitions returns available assistant tool metadata.
