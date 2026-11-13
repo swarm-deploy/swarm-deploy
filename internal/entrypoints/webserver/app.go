@@ -19,6 +19,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/middlewares"
 	alertstore "github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops"
 	recommendationstore "github.com/swarm-deploy/swarm-deploy/internal/modules/recommendations/modelstore"
@@ -166,6 +167,7 @@ func NewApplication(
 	webConfig config.WebSpec,
 	stackProvider config.StackProvider,
 	gitopsModule *gitops.Module,
+	deploymentsModule *deployments.Module,
 	swarmService *swarm.Swarm,
 	eventModule *event.Module,
 	resourcesModule *resources.Module,
@@ -190,7 +192,7 @@ func NewApplication(
 		recommendations,
 		alerts,
 		assistantService,
-		gitopsModule.Deployments,
+		deploymentsModule.Store,
 		taskLogs,
 		eventModule.Dispatcher,
 	)

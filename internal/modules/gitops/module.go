@@ -8,7 +8,6 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/configstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments"
-	deploymentstore "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
@@ -23,8 +22,6 @@ import (
 )
 
 type Module struct {
-	// Deployments queries actual apply attempts, independently of event projections.
-	Deployments   *deploymentstore.Store
 	Controller    *controller.Controller
 	Store         *modelstore.SQLStore
 	GitRepository git.Repository
@@ -62,8 +59,9 @@ func InitModule(
 	srv.SyncPauses = syncpause.NewService(
 		cnt.GetStorage(), srv.Store, cnt.GetConfigStore(), cnt.GetEventModule().Dispatcher,
 	)
-	srv.Deployments = deploymentstore.NewStore(cnt.GetStorage())
-	projection := deployment.NewProjectionSubscriber(cnt.GetStorage(), srv.Deployments, srv.Store)
+	projection := deployment.NewProjectionSubscriber(
+		cnt.GetStorage(), cnt.GetDeploymentsModule().Store, srv.Store,
+	)
 	if err := dispatcher.SubscribeMany(cnt.GetEventModule().Dispatcher, []events.TypeName{
 		events.TypeNameDeploySuccess, events.TypeNameDeployFailed, events.TypeNameDeployInterrupted,
 	}, "gitops-runtime", projection); err != nil {

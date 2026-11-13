@@ -16,6 +16,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/tools/routing"
+	deploymentstore "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/syncpause"
@@ -48,6 +49,7 @@ type Executor struct {
 func NewExecutor(
 	resourcesModule *resources.Module,
 	gitopsModule *gitops.Module,
+	deployments *deploymentstore.Store,
 	alertModule *alertmanagement.Module,
 	eventModule *event.Module,
 	swarmService *swarm.Swarm,
@@ -62,8 +64,8 @@ func NewExecutor(
 		NewListHistoryEvents(eventModule.History),
 		NewAlertList(alertModule.Store),
 		NewAlertGet(alertModule.Store),
-		NewDeploymentList(gitopsModule.Deployments),
-		NewDeploymentGet(gitopsModule.Deployments),
+		NewDeploymentList(deployments),
+		NewDeploymentGet(deployments),
 		NewSyncPauseGet(gitopsModule.SyncPauses),
 		NewSyncPauseSet(gitopsModule.SyncPauses),
 		NewSyncPauseResume(gitopsModule.SyncPauses),
