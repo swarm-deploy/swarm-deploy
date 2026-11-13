@@ -414,23 +414,38 @@ button:hover,
 .overview-sync-indicator--warning { color: var(--warning); }
 .overview-sync-indicator--error { color: var(--error); }
 
-.overview-webhook-details {
+.overview-webhook-details,
+.app-resource-link {
   border: 0;
   border-bottom: 1px dashed currentColor;
   border-radius: 3px;
   background: transparent;
   color: inherit;
   padding: 1px 2px;
+}
+
+.overview-webhook-details {
   font: inherit;
   font-weight: 500;
 }
 
+.app-resource-link {
+  text-decoration: none;
+}
+
 .overview-webhook-details:hover,
-.overview-webhook-details:focus-visible {
+.overview-webhook-details:focus-visible,
+.app-resource-link:hover,
+.app-resource-link:focus-visible {
   color: inherit;
   background: var(--surface-hover);
   filter: none;
   transform: none;
+}
+
+.app-resource-link:focus-visible {
+  outline: 2px solid var(--accent-focus);
+  outline-offset: -1px;
 }
 
 .overview-sync-commit-badge {
@@ -2938,16 +2953,10 @@ a.overview-summary-row:focus-visible {
   font-size: 0.88rem;
 }
 
-.app-resource-link,
 .assistant-md-link {
   color: var(--accent-strong);
   text-decoration: underline;
   text-decoration-thickness: 1px;
-}
-
-.app-resource-link:focus-visible {
-  outline: 2px solid var(--accent-focus);
-  outline-offset: -1px;
 }
 
 .assistant-md-table-wrap {
