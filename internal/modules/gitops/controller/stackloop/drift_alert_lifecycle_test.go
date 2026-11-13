@@ -192,7 +192,11 @@ func TestReconcileDriftRecoveryPersistsAndDeliversEvents(t *testing.T) {
 					require.NoError(t, attemptErr)
 					assert.Equal(t, failedAttempt, afterAttempt, "persisted failed Attempt must remain unchanged")
 					if !tc.verificationFails && !tc.retryable {
-						assert.Equal(t, model.SyncStatus(model.SyncStatusSynced), state.Services["peer"].SyncStatus)
+						wantPeer := model.SyncStatus(model.SyncStatusSynced)
+						if tc.failureOnly {
+							wantPeer = model.SyncStatusOutOfSync
+						}
+						assert.Equal(t, wantPeer, state.Services["peer"].SyncStatus)
 					}
 				}
 			}

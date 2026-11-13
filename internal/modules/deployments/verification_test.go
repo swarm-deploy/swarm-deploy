@@ -59,7 +59,7 @@ func TestUpdateGenerationSurvivesInterruptedApplyAndDesiredStateChanges(t *testi
 	assert.Empty(t, saved.Verification.Generations, "verified services release their generation boundary")
 }
 
-func TestRejectedUpdateThenNoOpApplyVerifiesHealthyService(t *testing.T) {
+func TestRejectedUpdateThenRevertRequiresAppliedReconfirmation(t *testing.T) {
 	db, err := storage.OpenSQLite(t.Context(), t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
@@ -110,6 +110,13 @@ func TestRejectedUpdateThenNoOpApplyVerifiesHealthyService(t *testing.T) {
 		Verification: deploymentmodel.Verification{Known: true}}))
 	next, err := lifecycle.StartIfChanged(t.Context(), "app", "A-again", initialDesired, true)
 	require.NoError(t, err)
+	require.NotNil(t, next, "an unsuccessful write may have changed runtime before rejection")
+	assert.NotEqual(t, attempt.DeploymentID, next.DeploymentID)
+	state, err := store.HashState(t.Context(), "app")
+	require.NoError(t, err)
+	assert.NotEmpty(t, state.Services["api"].AppliedDigest)
+	assert.True(t, state.Services["api"].AppliedUncertain)
+	assert.Equal(t, []string{"api"}, state.Pending().Services)
 	saved, err = store.Get(t.Context(), next.DeploymentID)
 	require.NoError(t, err)
 	applied, err = applier.Apply(t.Context(), "app", []dockerswarm.ServiceSpec{current.Spec}, services.ApplyOptions{UpdateGenerations: saved.Verification.Generations})

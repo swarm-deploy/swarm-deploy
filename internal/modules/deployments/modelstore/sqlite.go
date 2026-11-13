@@ -332,20 +332,31 @@ type deploymentDetails struct {
 	// UpdateGenerations retains only non-secret pre-update boundaries.
 	UpdateGenerations map[string]deploymentmodel.UpdateGeneration `json:"update_generations,omitempty"`
 	// UnresolvedServices retains verification obligations across desired-state deployments.
-	UnresolvedServices []string                          `json:"unresolved_services"`
-	ErrorDiagnostic    string                            `json:"error_diagnostic,omitempty"`
-	Retryable          bool                              `json:"retryable,omitempty"`
-	ApplyStatus        deploymentmodel.StageStatus       `json:"apply_status"`
-	VerificationStatus deploymentmodel.StageStatus       `json:"verification_status"`
-	CleanupStatus      deploymentmodel.StageStatus       `json:"cleanup_status"`
-	ActualStateStatus  deploymentmodel.ActualStateStatus `json:"actual_state_status"`
-	ObservedAt         *time.Time                        `json:"observed_at,omitempty"`
-	ComparisonBasis    deploymentmodel.ComparisonBasis   `json:"comparison_basis"`
-	ComparisonStatus   deploymentmodel.ComparisonStatus  `json:"comparison_status"`
-	BasisDeploymentID  string                            `json:"basis_deployment_id,omitempty"`
-	Summary            deploymentmodel.ChangeSummary     `json:"summary"`
-	Resources          deploymentmodel.ResourceSummary   `json:"resources"`
-	DiffAvailable      bool                              `json:"diff_available"`
+	UnresolvedServices            []string                          `json:"unresolved_services"`
+	ErrorDiagnostic               string                            `json:"error_diagnostic,omitempty"`
+	Retryable                     bool                              `json:"retryable,omitempty"`
+	ApplyStatus                   deploymentmodel.StageStatus       `json:"apply_status"`
+	VerificationStatus            deploymentmodel.StageStatus       `json:"verification_status"`
+	CleanupStatus                 deploymentmodel.StageStatus       `json:"cleanup_status"`
+	ActualStateStatus             deploymentmodel.ActualStateStatus `json:"actual_state_status"`
+	ObservedAt                    *time.Time                        `json:"observed_at,omitempty"`
+	ComparisonBasis               deploymentmodel.ComparisonBasis   `json:"comparison_basis"`
+	ComparisonStatus              deploymentmodel.ComparisonStatus  `json:"comparison_status"`
+	BasisDeploymentID             string                            `json:"basis_deployment_id,omitempty"`
+	Summary                       deploymentmodel.ChangeSummary     `json:"summary"`
+	Resources                     deploymentmodel.ResourceSummary   `json:"resources"`
+	DiffAvailable                 bool                              `json:"diff_available"`
+	PendingServices               []string                          `json:"pending_services"`
+	PendingRemovals               []string                          `json:"pending_removals"`
+	StackResourcesPending         bool                              `json:"stack_resources_pending,omitempty"`
+	AppliedServices               []string                          `json:"applied_services,omitempty"`
+	SkippedServices               []string                          `json:"skipped_services,omitempty"`
+	ConfirmedRemovals             []string                          `json:"confirmed_removals,omitempty"`
+	PrunedServices                []string                          `json:"pruned_services,omitempty"`
+	SkippedRemovals               []string                          `json:"skipped_removals,omitempty"`
+	ConfirmedServiceDigests       map[string]string                 `json:"confirmed_service_digests,omitempty"`
+	ConfirmedStackDigest          string                            `json:"confirmed_stack_digest,omitempty"`
+	ConfirmedStackResourcesDigest string                            `json:"confirmed_stack_resources_digest,omitempty"`
 }
 
 type deploymentRow struct {
@@ -386,6 +397,8 @@ func detailsFromDeployment(d deploymentmodel.Deployment) deploymentDetails {
 		ComparisonBasis: d.ComparisonBasis, ComparisonStatus: d.ComparisonStatus,
 		BasisDeploymentID: d.BasisDeploymentID, Summary: d.Summary,
 		Resources: d.Resources, DiffAvailable: d.DiffAvailable,
+		PendingServices: d.PendingServices, PendingRemovals: d.PendingRemovals,
+		StackResourcesPending: d.StackResourcesPending,
 	}
 }
 
@@ -435,7 +448,8 @@ func (row deploymentRow) deployment() (deploymentmodel.Deployment, error) {
 		ComparisonStatus: details.ComparisonStatus, BasisDeploymentID: details.BasisDeploymentID,
 		Summary: details.Summary, Resources: details.Resources, Changes: changes,
 		DiffAvailable: details.DiffAvailable, LatestAttemptID: row.LatestAttemptID.String,
-		AttemptCount: row.AttemptCount,
+		AttemptCount: row.AttemptCount, PendingServices: details.PendingServices,
+		PendingRemovals: details.PendingRemovals, StackResourcesPending: details.StackResourcesPending,
 	}
 	if row.FinishedAt.Valid {
 		finished := row.FinishedAt.Time.UTC()
@@ -489,7 +503,13 @@ func (row attemptRow) attempt() (deploymentmodel.Attempt, error) {
 		ErrorDiagnostic: details.ErrorDiagnostic, Retryable: details.Retryable, Phase: row.Phase,
 		ApplyStatus: details.ApplyStatus, VerificationStatus: details.VerificationStatus,
 		CleanupStatus: details.CleanupStatus, ActualStateStatus: details.ActualStateStatus,
-		ObservedAt: details.ObservedAt,
+		ObservedAt: details.ObservedAt, AppliedServices: details.AppliedServices,
+		SkippedServices: details.SkippedServices, ConfirmedRemovals: details.ConfirmedRemovals,
+		PrunedServices:                details.PrunedServices,
+		SkippedRemovals:               details.SkippedRemovals,
+		ConfirmedServiceDigests:       details.ConfirmedServiceDigests,
+		ConfirmedStackDigest:          details.ConfirmedStackDigest,
+		ConfirmedStackResourcesDigest: details.ConfirmedStackResourcesDigest,
 	}
 	if row.FinishedAt.Valid {
 		finished := row.FinishedAt.Time.UTC()
@@ -816,6 +836,11 @@ func (s *Store) prepared(ctx context.Context, id string) (deploymentmodel.Prepar
 	return prepared, notFound(err)
 }
 
+// Prepared loads a deployment's complete sanitized desired snapshot and private fingerprints.
+func (s *Store) Prepared(ctx context.Context, id string) (deploymentmodel.Prepared, error) {
+	return s.prepared(ctx, id)
+}
+
 func notFound(err error) error {
 	if errors.Is(err, sql.ErrNoRows) {
 		return ErrNotFound
@@ -925,6 +950,12 @@ func (s *Store) FinishAttempt(
 		ErrorDiagnostic: attempt.ErrorDiagnostic, Retryable: attempt.Retryable, ApplyStatus: attempt.ApplyStatus,
 		VerificationStatus: attempt.VerificationStatus, CleanupStatus: attempt.CleanupStatus,
 		ActualStateStatus: attempt.ActualStateStatus, ObservedAt: attempt.ObservedAt,
+		AppliedServices: attempt.AppliedServices, SkippedServices: attempt.SkippedServices,
+		ConfirmedRemovals: attempt.ConfirmedRemovals, SkippedRemovals: attempt.SkippedRemovals,
+		PrunedServices:                attempt.PrunedServices,
+		ConfirmedServiceDigests:       attempt.ConfirmedServiceDigests,
+		ConfirmedStackDigest:          attempt.ConfirmedStackDigest,
+		ConfirmedStackResourcesDigest: attempt.ConfirmedStackResourcesDigest,
 	})
 	if err != nil {
 		return err

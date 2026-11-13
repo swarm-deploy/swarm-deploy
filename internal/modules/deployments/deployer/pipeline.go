@@ -139,7 +139,8 @@ func (d *Deployer) convertStack(ctx context.Context, payload *deployStackPayload
 
 func (d *Deployer) runStackInitJobs(ctx context.Context, payload *deployStackPayload) error {
 	results, err := d.runInitJobs(
-		ctx, payload.stackName, payload.desired.Services, payload.resolved, payload.converted.Networks,
+		ctx, payload.stackName, targetComposeServices(payload.desired.Services, payload.targetServices),
+		payload.resolved, payload.converted.Networks,
 	)
 	payload.result.InitJobs = results
 	return safePipelineError(err)
@@ -154,7 +155,10 @@ func (d *Deployer) applyStack(ctx context.Context, payload *deployStackPayload) 
 	payload.result.Verification = deploymentmodel.Verification{}
 	applyCtx, cancel := payload.stageContext(ctx)
 	defer cancel()
-	changed, err := d.serviceApplier.Apply(applyCtx, payload.stackName, payload.converted.Services,
+	changed, err := d.serviceApplier.Apply(
+		applyCtx,
+		payload.stackName,
+		targetServiceSpecs(payload.stackName, payload.converted.Services, payload.targetServices),
 		services.ApplyOptions{
 			RetryFailedUpdates: payload.retryFailedUpdates, BeforeUpdate: payload.beforeUpdate,
 			UpdateGenerations: payload.updateGenerations,
@@ -180,10 +184,11 @@ func (d *Deployer) applyStack(ctx context.Context, payload *deployStackPayload) 
 func (d *Deployer) waitForStack(ctx context.Context, payload *deployStackPayload) error {
 	waitCtx, cancel := payload.stageContext(ctx)
 	defer cancel()
-	if len(payload.converted.Services) == 0 {
+	targetSpecs := targetServiceSpecs(payload.stackName, payload.converted.Services, payload.targetServices)
+	if len(targetSpecs) == 0 && len(payload.unresolvedServices) == 0 {
 		return nil
 	}
-	names := verificationServiceNames(payload.stackName, payload.converted.Services, payload.applyPayload)
+	names := verificationServiceNames(payload.stackName, targetSpecs, payload.applyPayload)
 	if payload.retryFailedUpdates {
 		// A prior apply may have succeeded before observation was interrupted.
 		// Reverify accepted, unchanged services too, without forcing healthy tasks.
@@ -211,6 +216,37 @@ func (d *Deployer) waitForStack(ctx context.Context, payload *deployStackPayload
 		Known: true, UnresolvedServices: verification.UnresolvedServices,
 	}
 	return safePipelineError(err)
+}
+
+func targetComposeServices(services compose.Services, targets []string) compose.Services {
+	if targets == nil {
+		return services
+	}
+	result := make(compose.Services, 0, len(targets))
+	for _, service := range services {
+		if slices.Contains(targets, service.Name) {
+			result = append(result, service)
+		}
+	}
+	return result
+}
+
+func targetServiceSpecs(
+	stackName string,
+	services []dockerswarm.ServiceSpec,
+	targets []string,
+) []dockerswarm.ServiceSpec {
+	if targets == nil {
+		return services
+	}
+	result := make([]dockerswarm.ServiceSpec, 0, len(targets))
+	for _, service := range services {
+		name := strings.TrimPrefix(service.Name, stackName+"_")
+		if slices.Contains(targets, name) {
+			result = append(result, service)
+		}
+	}
+	return result
 }
 
 func (d *Deployer) prepareService(_ context.Context, payload *deployServicePayload) error {

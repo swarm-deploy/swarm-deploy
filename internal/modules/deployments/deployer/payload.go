@@ -29,6 +29,7 @@ type deployStackPayload struct {
 	converted          *converter.StackSpec
 	resolved           resolvedResources
 	result             Result
+	targetServices     []string
 	retryFailedUpdates bool
 	unresolvedServices []string
 	beforeUpdate       func(context.Context, string, services.UpdateGeneration) (func(context.Context) error, error)

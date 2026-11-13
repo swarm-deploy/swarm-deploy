@@ -20,12 +20,15 @@ func comparisonCompose(desired compose.Compose) (compose.Compose, error) {
 	desired.Services = slices.Clone(desired.Services)
 	for i := range desired.Services {
 		service := &desired.Services[i]
+		if err := normalizeReplicaOwnership(service); err != nil {
+			return desired, err
+		}
 		for _, field := range []struct {
 			name    string
 			command *compose.Command
 		}{{"command", &service.Command}, {"entrypoint", &service.Entrypoint}} {
-			words, err := field.command.Words()
-			if err != nil {
+			words, wordsErr := field.command.Words()
+			if wordsErr != nil {
 				return desired, fmt.Errorf("services.%s.%s: invalid quoting", service.Name, field.name)
 			}
 			if len(words) == 0 {
@@ -47,6 +50,19 @@ func comparisonCompose(desired compose.Compose) (compose.Compose, error) {
 		}
 	}
 	return desired, nil
+}
+
+func normalizeReplicaOwnership(service *compose.Service) error {
+	replicasManaged, ownershipSpecified, err := service.ReplicasManagedPolicy()
+	if err != nil {
+		return fmt.Errorf("services.%s.deploy.labels: %w", service.Name, err)
+	}
+	if ownershipSpecified && !replicasManaged {
+		// Replica count is owned by the external controller and is intentionally
+		// excluded from both comparison and hash admission.
+		service.Deploy.Replicas = nil
+	}
+	return nil
 }
 
 func normalizeObjectRefs(node map[string]any, key string) {

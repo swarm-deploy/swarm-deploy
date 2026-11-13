@@ -34,6 +34,11 @@ func Prepare(file compose.File) (Prepared, error) {
 			resourceDigests["configs/"+name] = fingerprint(config.Data)
 		}
 	}
+	for name, secret := range file.Compose.Secrets {
+		if secret != nil && secret.Data != nil {
+			resourceDigests["secrets/"+name] = fingerprint(secret.Data)
+		}
+	}
 	comparison, err := comparisonCompose(file.Compose)
 	if err != nil {
 		return Prepared{}, err
@@ -56,18 +61,15 @@ func Prepare(file compose.File) (Prepared, error) {
 			return fmt.Sprint(left["name"]) < fmt.Sprint(right["name"])
 		})
 	}
-	identity := struct {
-		// Compose is normalized effective state, temporarily held only in memory.
-		Compose map[string]any `json:"Compose"`
-		// Resources includes referenced file-content digests.
-		Resources map[string]string `json:"Resources"`
-	}{tree, resourceDigests}
-	canonical, err := json.Marshal(identity)
+	digests, err := computeDigests(comparison, resourceDigests)
 	if err != nil {
 		return Prepared{}, err
 	}
-	result := Prepared{Digest: fingerprint(canonical), Fields: map[string]string{},
-		Fingerprints: map[string]string{}, Redacted: map[string]bool{}}
+	result := Prepared{
+		Digest: digests.Stack, DigestVersion: DigestAlgorithmVersion,
+		StackResourcesDigest: digests.StackResources, ServiceDigests: digests.Services,
+		Fields: map[string]string{}, Fingerprints: map[string]string{}, Redacted: map[string]bool{},
+	}
 	result.sanitize(tree, "", "")
 	safe, err := json.Marshal(tree)
 	if err != nil {

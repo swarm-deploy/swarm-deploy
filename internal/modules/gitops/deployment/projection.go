@@ -2,6 +2,7 @@ package deployment
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -64,6 +65,10 @@ func (s *ProjectionSubscriber) project(
 	if latest.ID != deployment.ID || latest.LatestAttemptID != attempt.ID {
 		return nil
 	}
+	hashState, err := s.deployments.HashState(ctx, deployment.Stack)
+	if err != nil && !errors.Is(err, deploymentstore.ErrNotFound) {
+		return err
+	}
 	return s.runtime.Update(ctx, func(runtime *gitopsmodel.Runtime) {
 		// Deployment events can arrive after a newer GitOps reconciliation that
 		// did not create an Attempt (for example, a preparation failure).
@@ -71,7 +76,7 @@ func (s *ProjectionSubscriber) project(
 		if !current.StateUpdatedAt.IsZero() && !projectionTime(attempt).After(current.StateUpdatedAt) {
 			return
 		}
-		projectRuntime(runtime, deployment, attempt, desired, status, errorCode)
+		projectRuntime(runtime, deployment, attempt, desired, hashState, status, errorCode)
 	})
 }
 
@@ -80,6 +85,7 @@ func projectRuntime(
 	deployment deploymentmodel.Deployment,
 	attempt deploymentmodel.Attempt,
 	desired deploymentmodel.Prepared,
+	hashState deploymentmodel.HashState,
 	status deploymentmodel.Status,
 	errorCode string,
 ) {
@@ -99,8 +105,12 @@ func projectRuntime(
 		current.SyncError = errorCode
 		current.SyncStatus = gitopsmodel.SyncStatusOutOfSync
 		if status == deploymentmodel.Succeeded {
-			current.SyncStatus = gitopsmodel.SyncStatusSynced
-			current.SyncError = ""
+			hashes := hashState.Services[service.Name]
+			if hashes.DesiredDigest != "" && hashes.DesiredDigest == hashes.AppliedDigest &&
+				hashes.DesiredVersion == hashes.AppliedVersion {
+				current.SyncStatus = gitopsmodel.SyncStatusSynced
+				current.SyncError = ""
+			}
 		}
 		state.Services[service.Name] = current
 	}

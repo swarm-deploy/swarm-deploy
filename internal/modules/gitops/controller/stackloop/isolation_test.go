@@ -86,7 +86,7 @@ func TestDeferredDeploymentIsolatesIndependentReconciliation(t *testing.T) {
 			healthy := []swarm.StackService{{Name: "a", UpdateStatus: &swarm.ServiceUpdateStatus{State: "paused"}}, {Name: "b"}, {Name: "c"}, orphan}
 			manager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "app"}).Return(healthy, nil)
 			require.NoError(t, create().Reconcile(t.Context(), req))
-			assert.Equal(t, model.SyncStatus(model.SyncStatusSynced), readSQLState(t, stateStore).Stacks["app"].Services["b"].SyncStatus)
+			assert.Equal(t, model.SyncStatus(model.SyncStatusOutOfSync), readSQLState(t, stateStore).Stacks["app"].Services["b"].SyncStatus)
 			// Then both a and b disappear: only b may be remediated. Recreate the process on every tick.
 			missing := []swarm.StackService{{Name: "c"}, orphan}
 			for range 3 {
@@ -103,12 +103,8 @@ func TestDeferredDeploymentIsolatesIndependentReconciliation(t *testing.T) {
 				assert.Equal(t, original.Services["a"], state.Services["a"])
 				assert.Equal(t, "convergence_failed", state.LastError)
 				assert.Equal(t, original.LastDeployAt, state.LastDeployAt)
-				want := model.SyncStatus(model.SyncStatusOutOfSync)
-				if tc.heal {
-					want = model.SyncStatusSynced
-				}
-				assert.Equal(t, want, state.Services["b"].SyncStatus)
-				assert.Equal(t, model.SyncStatus(model.SyncStatusSynced), state.Services["c"].SyncStatus)
+				assert.Equal(t, model.SyncStatus(model.SyncStatusOutOfSync), state.Services["b"].SyncStatus)
+				assert.Equal(t, model.SyncStatus(model.SyncStatusOutOfSync), state.Services["c"].SyncStatus)
 			}
 			// A maintenance observation error must not become a new SyncFailed occurrence.
 			manager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "app"}).Return(nil, assert.AnError)

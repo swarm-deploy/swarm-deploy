@@ -49,21 +49,41 @@ type Completion struct {
 	Retryable bool
 	// ObservedAt records when post-apply Swarm state was read successfully.
 	ObservedAt *time.Time
+	// AppliedServices lists targeted services confirmed by a successful partial or complete execution.
+	// Nil together with SkippedServices defaults to every pending service for compatibility.
+	AppliedServices []string
+	// SkippedServices lists targeted services deliberately left pending.
+	SkippedServices []string
+	// ConfirmedRemovals lists pending removals confirmed absent after successful cleanup.
+	// Nil together with SkippedRemovals defaults to every pending removal for compatibility.
+	ConfirmedRemovals []string
+	// SkippedRemovals lists services whose removal remains pending.
+	SkippedRemovals []string
+	// PrunedServices lists services actually removed by successful cleanup.
+	PrunedServices []string
+	// StackResourcesApplied explicitly controls stack-resource confirmation when non-nil.
+	StackResourcesApplied *bool
 }
 
 type completionState struct {
-	rolloutVerification deploymentmodel.Verification
-	status              deploymentmodel.Status
-	errorCode           string
-	diagnostic          error
-	retryable           bool
-	phase               deploymentmodel.Phase
-	apply               deploymentmodel.StageStatus
-	verification        deploymentmodel.StageStatus
-	cleanup             deploymentmodel.StageStatus
-	actual              deploymentmodel.ActualStateStatus
-	observedAt          *time.Time
-	eventStage          string
+	rolloutVerification   deploymentmodel.Verification
+	status                deploymentmodel.Status
+	errorCode             string
+	diagnostic            error
+	retryable             bool
+	phase                 deploymentmodel.Phase
+	apply                 deploymentmodel.StageStatus
+	verification          deploymentmodel.StageStatus
+	cleanup               deploymentmodel.StageStatus
+	actual                deploymentmodel.ActualStateStatus
+	observedAt            *time.Time
+	eventStage            string
+	appliedServices       []string
+	skippedServices       []string
+	confirmedRemovals     []string
+	skippedRemovals       []string
+	prunedServices        []string
+	stackResourcesApplied *bool
 }
 
 // Complete persists one terminal attempt transition, updates the successful baseline when applicable,
@@ -105,6 +125,10 @@ func (s *Service) complete(
 		return err
 	}
 
+	prepared, err := s.store.Prepared(ctx, deployment.ID)
+	if err != nil {
+		return err
+	}
 	finishedAt := s.now().UTC()
 	attempt.Status, attempt.FinishedAt, attempt.ErrorCode = state.status, &finishedAt, state.errorCode
 	attempt.ErrorDiagnostic = faults.SafeDiagnostic(state.diagnostic)
@@ -133,10 +157,21 @@ func (s *Service) complete(
 			deployment.Verification, deployment.Verification.UnresolvedServices,
 		)
 	}
+	fullyApplied := false
+	if state.status == deploymentmodel.Succeeded {
+		fullyApplied, err = s.confirmSuccessfulState(ctx, deployment, &attempt, prepared, state)
+		if err != nil {
+			return err
+		}
+	} else if err = s.store.MarkAppliedUncertain(
+		ctx, deployment.Stack, deployment.PendingServices, deployment.StackResourcesPending,
+	); err != nil {
+		return err
+	}
 	if err = s.store.FinishAttempt(ctx, deployment, attempt); err != nil {
 		return err
 	}
-	if state.status == deploymentmodel.Succeeded {
+	if state.status == deploymentmodel.Succeeded && fullyApplied {
 		if err = s.store.SaveBaseline(ctx, deployment.ID); err != nil {
 			return err
 		}
@@ -144,12 +179,54 @@ func (s *Service) complete(
 	return s.publishCompletion(ctx, deployment, attempt, desired, state)
 }
 
+func (s *Service) confirmSuccessfulState(
+	ctx context.Context,
+	deployment deploymentmodel.Deployment,
+	attempt *deploymentmodel.Attempt,
+	prepared deploymentmodel.Prepared,
+	state completionState,
+) (bool, error) {
+	applied, skipped, removals, skippedRemovals, resourcesApplied, err :=
+		resolveConfirmation(deployment, state)
+	if err != nil {
+		return false, err
+	}
+	hashState, err := s.store.ConfirmAppliedState(
+		ctx, deployment.Stack, deployment.Commit, prepared, applied, removals, resourcesApplied,
+	)
+	if err != nil {
+		return false, err
+	}
+	attempt.AppliedServices, attempt.SkippedServices = applied, skipped
+	attempt.ConfirmedRemovals, attempt.SkippedRemovals = removals, skippedRemovals
+	attempt.PrunedServices = slices.Clone(state.prunedServices)
+	attempt.ConfirmedServiceDigests = make(map[string]string, len(applied))
+	for _, name := range applied {
+		attempt.ConfirmedServiceDigests[name] = prepared.ServiceDigests[name]
+	}
+	if resourcesApplied {
+		attempt.ConfirmedStackResourcesDigest = prepared.StackResourcesDigest
+	}
+	fullyApplied := hashState.AppliedDigest == prepared.Digest &&
+		hashState.AppliedVersion == prepared.DigestVersion
+	if fullyApplied {
+		attempt.ConfirmedStackDigest = prepared.Digest
+	}
+	return fullyApplied, nil
+}
+
 func (completion Completion) state() (completionState, error) {
 	state := completionState{
-		rolloutVerification: completion.rolloutObligations(),
-		errorCode:           completion.ErrorCode(),
-		diagnostic:          faults.SafeError(completion.Diagnostic),
-		observedAt:          completion.ObservedAt,
+		rolloutVerification:   completion.rolloutObligations(),
+		errorCode:             completion.ErrorCode(),
+		diagnostic:            faults.SafeError(completion.Diagnostic),
+		observedAt:            completion.ObservedAt,
+		appliedServices:       completion.AppliedServices,
+		skippedServices:       completion.SkippedServices,
+		confirmedRemovals:     completion.ConfirmedRemovals,
+		skippedRemovals:       completion.SkippedRemovals,
+		prunedServices:        completion.PrunedServices,
+		stackResourcesApplied: completion.StackResourcesApplied,
 	}
 	// Persist retry eligibility without changing the stable public failure codes.
 	switch completion.Outcome {
@@ -215,6 +292,58 @@ func (completion Completion) state() (completionState, error) {
 		return completionState{}, fmt.Errorf("unsupported completion outcome %q", completion.Outcome)
 	}
 	return state, nil
+}
+
+func resolveConfirmation(
+	deployment deploymentmodel.Deployment,
+	state completionState,
+) ([]string, []string, []string, []string, bool, error) {
+	applied, skipped, err := confirmationPartition(
+		deployment.PendingServices, state.appliedServices, state.skippedServices, "service",
+	)
+	if err != nil {
+		return nil, nil, nil, nil, false, err
+	}
+	removals, skippedRemovals, err := confirmationPartition(
+		deployment.PendingRemovals, state.confirmedRemovals, state.skippedRemovals, "removal",
+	)
+	if err != nil {
+		return nil, nil, nil, nil, false, err
+	}
+	resourcesApplied := deployment.StackResourcesPending
+	if state.stackResourcesApplied != nil {
+		resourcesApplied = *state.stackResourcesApplied
+	}
+	if resourcesApplied && !deployment.StackResourcesPending {
+		return nil, nil, nil, nil, false, fmt.Errorf("stack resources were not pending for deployment")
+	}
+	return applied, skipped, removals, skippedRemovals, resourcesApplied, nil
+}
+
+func confirmationPartition(
+	target []string,
+	confirmed []string,
+	skipped []string,
+	kind string,
+) ([]string, []string, error) {
+	if confirmed == nil && skipped == nil {
+		return slices.Clone(target), []string{}, nil
+	}
+	confirmed = slices.Clone(confirmed)
+	skipped = slices.Clone(skipped)
+	slices.Sort(confirmed)
+	slices.Sort(skipped)
+	if len(slices.Compact(confirmed)) != len(confirmed) || len(slices.Compact(skipped)) != len(skipped) {
+		return nil, nil, fmt.Errorf("duplicate %s confirmation", kind)
+	}
+	actual := append(slices.Clone(confirmed), skipped...)
+	slices.Sort(actual)
+	expected := slices.Clone(target)
+	slices.Sort(expected)
+	if !slices.Equal(actual, expected) {
+		return nil, nil, fmt.Errorf("%s confirmation does not match pending target", kind)
+	}
+	return confirmed, skipped, nil
 }
 
 // ErrorCode returns the stable terminal error category for the selected outcome.

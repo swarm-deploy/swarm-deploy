@@ -53,21 +53,24 @@ const automaticRetryDelay = time.Minute
 const maximumRetryDelay = time.Hour
 const retryBackoffMultiplier = 2
 
-// StartOptions controls an explicit retry of a persisted unsuccessful deployment.
+// StartOptions controls deployment admission and explicit retry behavior.
 type StartOptions struct {
 	// ManualRetry bypasses failure classification and automatic retry backoff.
 	ManualRetry bool
+	// SuppressedRemovals contains already-pending removals currently blocked by
+	// ownership or prune policy. They remain durable but do not create attempts.
+	SuppressedRemovals []string
 }
 
-// StartIfChanged creates an attempt before the caller begins external apply.
-// Unchanged non-retryable failures are suppressed. Transient failures are retried
-// indefinitely with capped exponential backoff. Manual retries bypass both.
+// StartIfChanged stores current desired hashes and creates an attempt when any
+// desired object lacks matching applied evidence. SourceChanged is retained for
+// caller compatibility but is not an admission criterion.
 func (s *Service) StartIfChanged(
 	ctx context.Context,
 	stack string,
 	commit string,
 	file compose.File,
-	sourceChanged bool,
+	_ bool,
 	options ...StartOptions,
 ) (*deploymentmodel.Attempt, error) {
 	desired, err := deploymentmodel.Prepare(file)
@@ -77,8 +80,11 @@ func (s *Service) StartIfChanged(
 	var result *deploymentmodel.Attempt
 	err = s.db.WithinTransaction(ctx, func(ctx context.Context) error {
 		var startErr error
-		manualRetry := len(options) > 0 && options[0].ManualRetry
-		result, startErr = s.startPrepared(ctx, stack, commit, desired, sourceChanged, manualRetry)
+		var startOptions StartOptions
+		if len(options) > 0 {
+			startOptions = options[0]
+		}
+		result, startErr = s.startPrepared(ctx, stack, commit, desired, startOptions)
 		return startErr
 	})
 	if err != nil {
@@ -92,20 +98,31 @@ func (s *Service) startPrepared(
 	stack string,
 	commit string,
 	desired deploymentmodel.Prepared,
-	sourceChanged, manualRetry bool,
+	options StartOptions,
 ) (*deploymentmodel.Attempt, error) {
+	hashState, err := s.store.SaveDesiredState(ctx, stack, commit, desired)
+	if err != nil {
+		return nil, err
+	}
+	pending := hashState.Pending()
+	pending.Removals = removeSuppressed(pending.Removals, options.SuppressedRemovals)
+	if pending.Empty() {
+		return nil, nil //nolint:nilnil // Matching desired/applied hashes are a deliberate no-op.
+	}
 	latest, latestDesired, err := s.store.Latest(ctx, stack)
 	if errors.Is(err, deploymentstore.ErrNotFound) {
-		if !sourceChanged {
-			return nil, nil //nolint:nilnil // Nil attempt explicitly means no deployment execution.
-		}
-		return s.createDeployment(ctx, stack, commit, desired)
+		return s.createDeployment(ctx, stack, commit, desired, pending)
 	}
 	if err != nil {
 		return nil, err
 	}
 	if latestDesired.Digest == desired.Digest {
-		return s.startExisting(ctx, latest, manualRetry)
+		if latest.Status == deploymentmodel.Succeeded {
+			// A successful partial execution is immutable history. Remaining work
+			// gets a fresh Deployment even though the desired snapshot is unchanged.
+			return s.createDeployment(ctx, stack, commit, desired, pending)
+		}
+		return s.startExisting(ctx, latest, options.ManualRetry)
 	}
 	removedServices := desiredServiceRemovals(latestDesired.Definition, desired.Definition)
 	if err = s.supersedePrevious(ctx, latest); err != nil {
@@ -119,7 +136,7 @@ func (s *Service) startPrepared(
 			return nil, err
 		}
 	}
-	attempt, err := s.createDeployment(ctx, stack, commit, desired, deploymentmodel.Verification{
+	attempt, err := s.createDeployment(ctx, stack, commit, desired, pending, deploymentmodel.Verification{
 		Known: true, UnresolvedServices: unresolvedServices(latest, desired.Definition),
 		Generations: unresolvedGenerations(latest.Verification, unresolvedServices(latest, desired.Definition)),
 	})
@@ -134,6 +151,15 @@ func (s *Service) startPrepared(
 		}
 	}
 	return attempt, nil
+}
+
+func removeSuppressed(pending, suppressed []string) []string {
+	if len(suppressed) == 0 {
+		return pending
+	}
+	return slices.DeleteFunc(pending, func(name string) bool {
+		return slices.Contains(suppressed, name)
+	})
 }
 
 func desiredServiceRemovals(previous, current compose.File) []string {
@@ -221,9 +247,10 @@ func (s *Service) createDeployment(
 	stack string,
 	commit string,
 	desired deploymentmodel.Prepared,
+	pending deploymentmodel.PendingState,
 	unresolved ...deploymentmodel.Verification,
 ) (*deploymentmodel.Attempt, error) {
-	d, attempt, err := s.newDeployment(ctx, stack, commit, desired)
+	d, attempt, err := s.newDeployment(ctx, stack, commit, desired, pending)
 	if err != nil {
 		return nil, err
 	}
@@ -241,6 +268,7 @@ func (s *Service) newDeployment(
 	stack string,
 	commit string,
 	desired deploymentmodel.Prepared,
+	pending deploymentmodel.PendingState,
 ) (deploymentmodel.Deployment, deploymentmodel.Attempt, error) {
 	basis, basisKind, basisID, err := s.comparisonBasis(ctx, stack)
 	if err != nil {
@@ -252,20 +280,23 @@ func (s *Service) newDeployment(
 	attempt := newAttempt(id, 1, s.now())
 	d := deploymentmodel.Deployment{
 		ID: id, Stack: stack, Commit: commit, Status: deploymentmodel.Running, StartedAt: attempt.StartedAt,
-		Phase:              deploymentmodel.PhaseApply,
-		ApplyStatus:        deploymentmodel.StageRunning,
-		VerificationStatus: deploymentmodel.StagePending,
-		CleanupStatus:      deploymentmodel.StagePending,
-		ActualStateStatus:  deploymentmodel.ActualStateUnknown,
-		ComparisonBasis:    basisKind,
-		ComparisonStatus:   deploymentmodel.ComparisonUnknown,
-		BasisDeploymentID:  basisID,
-		Summary:            summary,
-		Resources:          resources,
-		Changes:            changes,
-		DiffAvailable:      true,
-		LatestAttemptID:    attempt.ID,
-		AttemptCount:       1,
+		Phase:                 deploymentmodel.PhaseApply,
+		ApplyStatus:           deploymentmodel.StageRunning,
+		VerificationStatus:    deploymentmodel.StagePending,
+		CleanupStatus:         deploymentmodel.StagePending,
+		ActualStateStatus:     deploymentmodel.ActualStateUnknown,
+		ComparisonBasis:       basisKind,
+		ComparisonStatus:      deploymentmodel.ComparisonUnknown,
+		BasisDeploymentID:     basisID,
+		Summary:               summary,
+		Resources:             resources,
+		Changes:               changes,
+		DiffAvailable:         true,
+		LatestAttemptID:       attempt.ID,
+		AttemptCount:          1,
+		PendingServices:       slices.Clone(pending.Services),
+		PendingRemovals:       slices.Clone(pending.Removals),
+		StackResourcesPending: pending.StackResources,
 	}
 	return d, attempt, nil
 }

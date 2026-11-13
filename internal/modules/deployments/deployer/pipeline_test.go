@@ -58,6 +58,21 @@ func TestDeployPipelinesPreserveRequiredPhaseOrdering(t *testing.T) {
 	})
 }
 
+func TestTargetServiceProjectionDistinguishesSubsetFromResourceOnlyApply(t *testing.T) {
+	composeServices := compose.Services{{Name: "api"}, {Name: "worker"}}
+	assert.Equal(t, composeServices, targetComposeServices(composeServices, nil))
+	assert.Equal(t, compose.Services{{Name: "worker"}},
+		targetComposeServices(composeServices, []string{"worker"}))
+	assert.Empty(t, targetComposeServices(composeServices, []string{}))
+
+	specs := []dockerswarm.ServiceSpec{{Annotations: dockerswarm.Annotations{Name: "app_api"}},
+		{Annotations: dockerswarm.Annotations{Name: "app_worker"}}}
+	assert.Equal(t, specs, targetServiceSpecs("app", specs, nil))
+	assert.Equal(t, []dockerswarm.ServiceSpec{specs[1]},
+		targetServiceSpecs("app", specs, []string{"worker"}))
+	assert.Empty(t, targetServiceSpecs("app", specs, []string{}))
+}
+
 func TestDeployPipelineFailureMasksCredentials(t *testing.T) {
 	tests := []struct {
 		name string
