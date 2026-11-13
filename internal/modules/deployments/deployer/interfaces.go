@@ -6,7 +6,6 @@ import (
 	"context"
 	"time"
 
-	"github.com/docker/docker/client"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/initjob"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/resources"
@@ -63,13 +62,12 @@ func NewSecretResolver(decoders ...SecretDecoder) *SecretResolver {
 func NewAgeDecoder(identity []byte) *AgeDecoder { return secrets.NewAgeDecoder(identity) }
 
 func NewInitJobRunner(
-	dockerClient *client.Client,
 	swarmService *swarm.Swarm,
 	pollInterval time.Duration,
 	timeout time.Duration,
 	metrics InitJobMetrics,
 ) *initjob.InitJobRunner {
-	return initjob.NewInitJobRunner(dockerClient, swarmService, pollInterval, timeout, metrics)
+	return initjob.NewInitJobRunner(swarmService, pollInterval, timeout, metrics)
 }
 
 func NewServiceWaiter(

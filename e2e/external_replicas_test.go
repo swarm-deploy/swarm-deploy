@@ -62,7 +62,7 @@ func newExternalSwarmFixtureWithTimeout(t *testing.T, timeout time.Duration) *ex
 		stack: fmt.Sprintf("sdexternal%d", time.Now().UnixNano()), path: filepath.Join(t.TempDir(), "compose.yaml"),
 		subnet: fmt.Sprintf("198.18.%d.0/24", externalSubnetSequence.Add(1))}
 	f.observer = newSwarmObserver(t)
-	f.deployer = deployer.NewDeployer(100*time.Millisecond, 40*time.Second, cli, f.sw, nil,
+	f.deployer = deployer.NewDeployer(100*time.Millisecond, 40*time.Second, f.sw, nil,
 		deployer.NewSecretResolver(deployer.PlaintextDecoder{}))
 	t.Cleanup(func() {
 		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 25*time.Second)

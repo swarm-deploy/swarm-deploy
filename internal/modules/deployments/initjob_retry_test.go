@@ -66,7 +66,7 @@ func TestInitJobCreationFailureRetryEligibilityPersistsAcrossRestart(t *testing.
 			if tc.closeServer {
 				server.Close()
 			}
-			runner := initjob.NewInitJobRunner(dockerClient, swarm.NewSwarm(dockerClient),
+			runner := initjob.NewInitJobRunner(swarm.NewSwarm(dockerClient),
 				time.Millisecond, time.Second, &metrics.NopDeploys{})
 			_, creationErr := runner.Run(t.Context(), initjob.Spec{StackName: "app", ServiceName: "api",
 				Job: compose.InitJob{Name: "migrate", Image: "busybox:1.36"}})

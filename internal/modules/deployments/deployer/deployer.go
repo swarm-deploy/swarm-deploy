@@ -9,7 +9,6 @@ import (
 	"time"
 
 	pipe "github.com/artarts36/gopipe"
-	"github.com/docker/docker/client"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/converter"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/initjob"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/networks"
@@ -63,7 +62,6 @@ type Deployer struct {
 func NewDeployer(
 	initJobPoll time.Duration,
 	initJobTimeout time.Duration,
-	dockerClient *client.Client,
 	swarmService *swarm.Swarm,
 	initJobMetrics InitJobMetrics,
 	secretResolver *SecretResolver,
@@ -73,7 +71,6 @@ func NewDeployer(
 		services:       swarmService.Services,
 		resources:      newResourceReconciler(swarmService),
 		initJobRunner: initjob.NewInitJobRunner(
-			dockerClient,
 			swarmService,
 			initJobPoll,
 			initJobTimeout,

@@ -205,7 +205,7 @@ func newCredentialReconcileFixture(t *testing.T, extra string) *credentialReconc
 	mockRepositoryFiles(repository, repoDir)
 	cfg := &config.Config{Spec: config.Spec{GitOps: config.GitOpsSpec{Sync: config.SyncSpec{Policy: config.SyncPolicySpec{SelfHeal: true}}}}}
 	sw := &swarm.Swarm{Services: manager, Networks: networks, Configs: configs, Secrets: secrets}
-	native := deployer.NewDeployer(time.Millisecond, time.Second, nil, sw, &metrics.NopDeploys{},
+	native := deployer.NewDeployer(time.Millisecond, time.Second, sw, &metrics.NopDeploys{},
 		deployer.NewSecretResolver(deployer.PlaintextDecoder{}))
 	f.reconciler = newTestReconciler(cfg, repository, deployments.NewService(db, bus), native, sw,
 		bus, &metrics.NopDeploys{}, state, db)

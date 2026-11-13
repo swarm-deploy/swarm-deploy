@@ -50,7 +50,7 @@ func TestRealSwarmPausedUpdateRetryAndRecovery(t *testing.T) {
 	sw := swarm.NewSwarm(dockerClient)
 	bus := &dispatcher.NopDispatcher{}
 	lifecycle := deployments.NewService(db, bus)
-	stackDeployer := deployer.NewDeployer(100*time.Millisecond, time.Minute, dockerClient, sw, nil, deployer.NewSecretResolver(deployer.PlaintextDecoder{}))
+	stackDeployer := deployer.NewDeployer(100*time.Millisecond, time.Minute, sw, nil, deployer.NewSecretResolver(deployer.PlaintextDecoder{}))
 	controller := deployments.NewController(lifecycle, stackDeployer, sw.Services, pruner.NewServicePruner(sw.Services, bus, config.SyncPolicySpec{}), &metrics.NopDeploys{})
 	sideVersion := "v1"
 	load := func(command string) compose.File {

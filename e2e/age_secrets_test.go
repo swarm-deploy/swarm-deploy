@@ -108,7 +108,7 @@ deployments:
 
 			swarmService := swarm.NewSwarm(dockerClient)
 			stackDeployer := deployer.NewDeployer(cfg.Spec.Deployments.PollInterval.Value, cfg.Spec.Deployments.InitJobs.MaxDuration.Value,
-				dockerClient, swarmService, &metrics.NopDeploys{},
+				swarmService, &metrics.NopDeploys{},
 				deployer.NewSecretResolver(deployer.NewAgeDecoder(cfg.Spec.GitOps.Secrets.Age.IdentityFile.Content), deployer.PlaintextDecoder{}))
 			bus := eventbus.NewOutboxDispatcher(outbox.New(db))
 			deployMetrics := &metrics.NopDeploys{}
