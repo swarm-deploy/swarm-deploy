@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops"
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
@@ -34,6 +35,7 @@ func newTestApplication(t *testing.T, webConfig config.WebSpec) *Application {
 		webConfig,
 		nil,
 		&gitops.Module{GitRepository: gitRepository},
+		&deployments.Module{},
 		&swarm.Swarm{Services: serviceManager},
 		&event.Module{},
 		&resources.Module{Secrets: &resourcesecrets.Domain{Store: secretsStore}},

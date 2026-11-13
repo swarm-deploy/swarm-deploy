@@ -11,6 +11,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/conversation"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/tools"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/recommendations"
@@ -38,6 +39,8 @@ type Container interface {
 	// GetConfigStore returns the shared runtime configuration store.
 	GetConfigStore() *configstore.ConfigStore
 	GetResourcesModule() *resources.Module
+	// GetDeploymentsModule returns deployment persistence and execution infrastructure.
+	GetDeploymentsModule() *deployments.Module
 	GetGitOpsModule() *gitops.Module
 	GetRecommendationsModule() *recommendations.Module
 	// GetAlertManagementModule returns the initialized Alert Management module.
@@ -70,6 +73,7 @@ func InitModule(_ context.Context, cfg *config.Config, cnt Container) (*Module, 
 	toolExecutor := tools.NewExecutor(
 		resourcesModule,
 		gitopsModule,
+		cnt.GetDeploymentsModule().Store,
 		cnt.GetAlertManagementModule(),
 		eventModule,
 		swarmManagers,

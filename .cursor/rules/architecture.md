@@ -41,7 +41,7 @@ Path: `internal/modules/gitops`.
 
 - `controller/stackloop/reconciler.go` uses `deployments.Executor.Execute` and `ExecuteService`; the public execution call is synchronous even though sync runs dispatch stacks asynchronously.
 - `controller/controller.go` acquires process ownership before calling `Executor.Recover` and starting reconciliation. GitOps coordinates when recovery runs; Deployments performs it.
-- `deployment/projection.go` consumes completion events and reads the Deployments repository. Reconciliation also updates GitOps runtime state directly for preparation failures, drift, and no-Attempt results.
+- `deployment/projection.go` consumes completion events and reads through the Store exposed by the Deployments module. Reconciliation also updates GitOps runtime state directly for preparation failures, drift, and no-Attempt results.
 - Uses `git.Repository`, `compose.FileLoader`, `configstore.ConfigStore`, Swarm managers, Event publication, shared storage, and metrics. `networkloop` handles networks from runtime configuration; Deployments handles Compose networks. No-Attempt pruning reuses `deployments/pruner.ServicePruner`.
 
 ### Architectural Invariants
@@ -67,7 +67,7 @@ Path: `internal/modules/deployments`.
 
 ### Dependencies and Interactions
 
-- `controller.go` exposes `Executor` (`Execute`, `ExecuteService`, `Recover`); `service.go` and `completion.go` persist lifecycle state and publish Event contracts through shared storage transactions.
+- `module.go` exposes the Deployment Store alongside `Controller`. `controller.go` exposes `Executor` (`Execute`, `ExecuteService`, `Recover`); `service.go` and `completion.go` persist lifecycle state and publish Event contracts through shared storage transactions.
 - `deployer/pipeline.go` consumes prepared in-memory Compose and Swarm manager interfaces; registry auth comes from `registry.AuthManager`. Single-service remediation does not create a stack Deployment or run Init Jobs.
 - Module wiring still reads GitOps configuration fields; see known issues. Docker operations use Swarm managers. It does not import the GitOps module.
 
@@ -169,14 +169,14 @@ Path: `internal/modules/resources`.
 ### Dependencies and Interactions
 
 - Node/secret collectors use Swarm managers and the shared Docker event stream. Node facts are published through Event.
-- `module.go` subscribes service metadata to `DeploySuccess` via `gitops/deployment.WithDesired` and the Deployments store. `service/subscriber.go` inspects Docker outside a transaction, then persists the catalog and publishes `ServiceCatalogUpdated` atomically with its receipt.
+- `module.go` subscribes service metadata to `DeploySuccess`; `service/subscriber.go` explicitly loads sanitized desired state through the Store exposed by Deployments. It inspects Docker outside a transaction, then persists the catalog and publishes `ServiceCatalogUpdated` atomically with its receipt.
 - API/assistant use resource repositories and `graph.Builder`; Assistant RAG consumes catalog updates. Secret Manager calls use the discovered cloud-secrets gRPC adapter.
 
 ### Architectural Invariants
 
 - Catalog projections are eventually consistent, not authoritative deployment completion or continuous live health. Preserve source receipts/current-baseline checks during replay.
 - Use Swarm managers for Docker operations. Keep external secret creation and synchronization separate; `Create` does not imply `Sync`.
-- The GitOps adapter dependency and subscriber-owned SQL are known issues, not patterns for new consumers.
+- Subscriber-owned SQL is a known issue, not a pattern for new consumers.
 
 ## Recommendations
 
@@ -193,13 +193,13 @@ Path: `internal/modules/recommendations`.
 
 ### Dependencies and Interactions
 
-- `module.go` subscribes to `DeploySuccess`/`DeployFailed` via `gitops/deployment.WithDesired`, reading sanitized desired state from Deployments.
+- `module.go` subscribes to `DeploySuccess`/`DeployFailed`; the subscriber explicitly loads sanitized desired state through the Store exposed by Deployments.
 - `analyzer.StackAnalyzer` works on Compose-backed models; the scheduled-service analyzer consults configuration. `Recommender` writes through `modelstore.Store`; API/assistant read it.
 
 ### Architectural Invariants
 
 - Analysis produces advice without mutating desired or live state. Preserve `sqlite_subscriber.go` ordering guards so delayed events cannot overwrite newer results.
-- Do not turn the existing GitOps adapter import into ownership of recommendations by GitOps; its placement requires clarification.
+- Recommendation analysis depends on the Deployments-owned Store, not on GitOps.
 
 ## Assistant
 
@@ -225,7 +225,7 @@ Path: `internal/modules/assistant`.
 
 - Preserve capability/tool allowlists and `graph_tool.go`'s rejection of model-initiated mutations. Mutations go through `pending_operation.go` confirmation and target revalidation.
 - Tools use existing module interfaces/managers and authoritative results; do not bypass them with SDK calls, SQL, or model-invented outcomes.
-- Deployment reads currently arrive through `gitops.Module.Deployments`; this wiring does not transfer lifecycle ownership to GitOps (see known issues).
+- Deployment tools read through the Store exposed by the Deployments module.
 
 ## Supporting boundaries
 
@@ -260,11 +260,6 @@ do not expand a violation or choose a new owner without explicit approval.
    `outbox_events` payload/schema for routing and cleanup, and uses raw cleanup SQL.
    **Clarification:** what repository contracts should expose these cross-module checks?
    Do not treat access to the shared database as ownership of another module's tables.
-2. **Ambiguous adapter/query ownership:** Resources and Recommendations import
-   `gitops/deployment.WithDesired`, although it only hydrates events from Deployments.
-   Web/assistant deployment queries are wired through `gitops.Module.Deployments`.
-   **Clarification:** are these intentional integration points or residual coupling?
-   Until decided, they describe current wiring, not permission for further GitOps dependencies.
 3. **Resolved: Event/Notifications assembly boundary.** See [Event](#event) and
    [Notifications](#notifications) for the supported ownership boundary.
 4. **Residual Deployments wiring coupling:** `deployments/module.go` reads

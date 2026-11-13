@@ -5,11 +5,10 @@ import (
 	"fmt"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
-	deploymentstore "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/modelstore"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/deployment"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/node"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/secretmanager"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/secrets"
@@ -38,6 +37,8 @@ type Container interface {
 	GetStorage() storage.Database
 	GetSwarm() *swarm.Swarm
 	GetEventModule() *event.Module
+	// GetDeploymentsModule returns deployment persistence and execution infrastructure.
+	GetDeploymentsModule() *deployments.Module
 }
 
 func InitModule(
@@ -80,7 +81,8 @@ func InitModule(
 
 func (s *Module) registerEventSubscribers(cnt Container) error {
 	return cnt.GetEventModule().Dispatcher.Subscribe(events.TypeNameDeploySuccess, "service-metadata",
-		dispatcher.External(deployment.WithDesired(deploymentstore.NewStore(cnt.GetStorage()),
-			service.NewSubscriber(s.ServiceStore, cnt.GetSwarm(), metadata.NewExtractor(),
-				cnt.GetStorage(), cnt.GetEventModule().Dispatcher))))
+		dispatcher.External(service.NewSubscriber(
+			s.ServiceStore, cnt.GetDeploymentsModule().Store, cnt.GetSwarm(), metadata.NewExtractor(),
+			cnt.GetStorage(), cnt.GetEventModule().Dispatcher,
+		)))
 }
