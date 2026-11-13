@@ -13,6 +13,13 @@
 - For Go changes, run `make check` before finishing. For UI changes, run `npm test` and `npm run build` in `ui/`. If a check cannot run, report why.
 - If instructed to create a pull request, always assign appropriate repository labels to the PR before finishing the task. Use only the allowed labels from the file `.github/workflows/pr-labels.yaml`
 
+## Pull Request Descriptions
+
+- Every pull request description MUST include `## User-facing changes` and `## Events`, including PRs that only change backend or internal code.
+- Under `User-facing changes`, describe changes to observable user behavior: UI/UX, sync and deployment behavior, statuses, diagnostics, errors, notifications, and assistant responses. Describe the effect on users, not just implementation details. Write `None` if there is no user-facing impact.
+- Under `Events`, list added, changed, or removed domain, lifecycle, and activity events, including their name/type, emission conditions, payload or meaning, and where users see them when applicable. Include changes to event consumption or presentation that affect behavior. Write `None` if events are unchanged.
+- Review the actual diff before claiming `None`. Keep these sections accurate when a PR changes during review.
+
 ## Conventional Commits
 
 - Commit messages and PR titles MUST follow Conventional Commits.
