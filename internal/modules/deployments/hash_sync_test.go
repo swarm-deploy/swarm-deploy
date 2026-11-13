@@ -5,8 +5,15 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/swarm-deploy/swarm-deploy/internal/config"
+	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer"
 	deploymentmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/model"
 	deploymentstore "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/modelstore"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/pruner"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/labelsdict"
+	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
+	"go.uber.org/mock/gomock"
 )
 
 func TestHashAwareSyncRetriesSkippedServiceWithSameDesiredDigest(t *testing.T) {
@@ -128,6 +135,13 @@ func TestNewAndRemovedServicesRemainPendingUntilConfirmed(t *testing.T) {
 	state, err := store.HashState(t.Context(), "app")
 	require.NoError(t, err)
 	assert.Equal(t, []string{"api"}, state.Pending().Removals)
+	blocked, err := lifecycle.StartIfChanged(t.Context(), "app", "two", desiredServices(), false,
+		StartOptions{SuppressedRemovals: []string{"api"}})
+	require.NoError(t, err)
+	assert.Nil(t, blocked, "policy-blocked removal must not create a deployment on every reconciliation")
+	state, err = store.HashState(t.Context(), "app")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"api"}, state.Pending().Removals, "suppression must not erase durable removal state")
 
 	retry, err := lifecycle.StartIfChanged(t.Context(), "app", "two", desiredServices(), false)
 	require.NoError(t, err)
@@ -137,6 +151,43 @@ func TestNewAndRemovedServicesRemainPendingUntilConfirmed(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, state.Pending().Removals)
 	assert.Empty(t, state.Services)
+}
+
+func TestControllerDoesNotRepeatDeploymentForPolicyBlockedRemoval(t *testing.T) {
+	db, lifecycle, bus := openService(t)
+	store := deploymentstore.NewStore(db)
+	initial, err := lifecycle.StartIfChanged(t.Context(), "app", "one", desiredServices("api"), true)
+	require.NoError(t, err)
+	require.NoError(t, lifecycle.Complete(t.Context(), initial.ID, Completion{Outcome: CompletionSucceeded}))
+	removed, err := lifecycle.StartIfChanged(t.Context(), "app", "two", desiredServices(), true)
+	require.NoError(t, err)
+	require.NoError(t, lifecycle.Complete(t.Context(), removed.ID, Completion{
+		Outcome: CompletionSucceeded, ConfirmedRemovals: []string{}, SkippedRemovals: []string{"api"},
+	}))
+
+	mocks := gomock.NewController(t)
+	manager := swarm.NewMockServiceManager(mocks)
+	manager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "app"}).Return([]swarm.StackService{{
+		Name: "api", Labels: map[string]string{
+			labelsdict.ServiceManagedLabelKey: labelsdict.ServiceManagedLabelValue,
+		},
+	}}, nil)
+	stackDeployer := deployer.NewMockStackDeployer(mocks)
+	stackDeployer.EXPECT().RefreshRegistryAuth(gomock.Any(), gomock.Any()).Return(nil)
+	controller := NewController(lifecycle, stackDeployer, manager,
+		pruner.NewServicePruner(manager, bus, config.SyncPolicySpec{Prune: false}), &metrics.NopDeploys{})
+	result, err := controller.Execute(t.Context(), ExecuteRequest{
+		Stack: config.StackSpec{Name: "app"}, Commit: "two", Desired: desiredServices(),
+	})
+	require.NoError(t, err)
+	assert.Nil(t, result.Attempt)
+	assert.Equal(t, []string{"api"}, result.PendingRemovals)
+	state, err := store.HashState(t.Context(), "app")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"api"}, state.Pending().Removals)
+	page, err := store.List(t.Context(), deploymentmodel.ListFilter{Stacks: []string{"app"}})
+	require.NoError(t, err)
+	assert.Len(t, page.Deployments, 2)
 }
 
 func TestAppliedHashPersistenceFailureLeavesAttemptRetryable(t *testing.T) {

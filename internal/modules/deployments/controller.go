@@ -48,6 +48,8 @@ type Executor interface {
 type ServicePruner interface {
 	// Prune removes eligible orphaned services and returns their names.
 	Prune(context.Context, pruner.PruneServicesRequest) ([]string, error)
+	// ShouldPrune reports whether one live orphan is currently owned and eligible.
+	ShouldPrune(swarm.StackService, config.StackSpec) bool
 }
 
 // ExecuteRequest contains the effective desired state and execution inputs prepared by GitOps.
@@ -148,9 +150,12 @@ func (c *Controller) execute(ctx context.Context, req ExecuteRequest) (ExecuteRe
 	if err := c.recoverPending(ctx, req.Stack.Name); err != nil {
 		return ExecuteResult{}, fmt.Errorf("recover deployment completion: %w", err)
 	}
-	attempt, err := c.lifecycle.StartIfChanged(
-		ctx, req.Stack.Name, req.Commit, req.Desired, req.SourceChanged, StartOptions{ManualRetry: req.ManualRetry},
-	)
+	suppressedRemovals, err := c.suppressedRemovals(ctx, req)
+	if err != nil {
+		return ExecuteResult{}, err
+	}
+	attempt, err := c.lifecycle.StartIfChanged(ctx, req.Stack.Name, req.Commit, req.Desired, req.SourceChanged,
+		StartOptions{ManualRetry: req.ManualRetry, SuppressedRemovals: suppressedRemovals})
 	result := ExecuteResult{Attempt: attempt}
 	if err != nil {
 		return result, err
@@ -221,6 +226,37 @@ func (c *Controller) execute(ctx context.Context, req ExecuteRequest) (ExecuteRe
 	}
 
 	return c.completeSuccess(ctx, req, attempt.ID, options, live, pruned, result)
+}
+
+func (c *Controller) suppressedRemovals(ctx context.Context, req ExecuteRequest) ([]string, error) {
+	state, err := c.lifecycle.store.HashState(ctx, req.Stack.Name)
+	if errors.Is(err, deploymentstore.ErrNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	candidates := make(map[string]bool)
+	for name, service := range state.Services {
+		if service.DesiredDigest == "" && (service.AppliedDigest != "" || service.AppliedUncertain) {
+			candidates[name] = true
+		}
+	}
+	if len(candidates) == 0 {
+		return nil, nil
+	}
+	live, err := c.services.ListServices(ctx, swarm.ListServicesFilter{Stack: req.Stack.Name})
+	if err != nil {
+		return nil, fmt.Errorf("load pending removal policies: %w", err)
+	}
+	suppressed := make([]string, 0, len(candidates))
+	for _, service := range live {
+		if candidates[service.Name] && !c.pruner.ShouldPrune(service, req.Stack) {
+			suppressed = append(suppressed, service.Name)
+		}
+	}
+	slices.Sort(suppressed)
+	return suppressed, nil
 }
 
 func (c *Controller) completeSuccess(

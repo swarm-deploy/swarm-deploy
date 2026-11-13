@@ -53,10 +53,13 @@ const automaticRetryDelay = time.Minute
 const maximumRetryDelay = time.Hour
 const retryBackoffMultiplier = 2
 
-// StartOptions controls an explicit retry of a persisted unsuccessful deployment.
+// StartOptions controls deployment admission and explicit retry behavior.
 type StartOptions struct {
 	// ManualRetry bypasses failure classification and automatic retry backoff.
 	ManualRetry bool
+	// SuppressedRemovals contains already-pending removals currently blocked by
+	// ownership or prune policy. They remain durable but do not create attempts.
+	SuppressedRemovals []string
 }
 
 // StartIfChanged stores current desired hashes and creates an attempt when any
@@ -77,8 +80,11 @@ func (s *Service) StartIfChanged(
 	var result *deploymentmodel.Attempt
 	err = s.db.WithinTransaction(ctx, func(ctx context.Context) error {
 		var startErr error
-		manualRetry := len(options) > 0 && options[0].ManualRetry
-		result, startErr = s.startPrepared(ctx, stack, commit, desired, manualRetry)
+		var startOptions StartOptions
+		if len(options) > 0 {
+			startOptions = options[0]
+		}
+		result, startErr = s.startPrepared(ctx, stack, commit, desired, startOptions)
 		return startErr
 	})
 	if err != nil {
@@ -92,13 +98,14 @@ func (s *Service) startPrepared(
 	stack string,
 	commit string,
 	desired deploymentmodel.Prepared,
-	manualRetry bool,
+	options StartOptions,
 ) (*deploymentmodel.Attempt, error) {
 	hashState, err := s.store.SaveDesiredState(ctx, stack, commit, desired)
 	if err != nil {
 		return nil, err
 	}
 	pending := hashState.Pending()
+	pending.Removals = removeSuppressed(pending.Removals, options.SuppressedRemovals)
 	if pending.Empty() {
 		return nil, nil //nolint:nilnil // Matching desired/applied hashes are a deliberate no-op.
 	}
@@ -115,7 +122,7 @@ func (s *Service) startPrepared(
 			// gets a fresh Deployment even though the desired snapshot is unchanged.
 			return s.createDeployment(ctx, stack, commit, desired, pending)
 		}
-		return s.startExisting(ctx, latest, manualRetry)
+		return s.startExisting(ctx, latest, options.ManualRetry)
 	}
 	removedServices := desiredServiceRemovals(latestDesired.Definition, desired.Definition)
 	if err = s.supersedePrevious(ctx, latest); err != nil {
@@ -144,6 +151,15 @@ func (s *Service) startPrepared(
 		}
 	}
 	return attempt, nil
+}
+
+func removeSuppressed(pending, suppressed []string) []string {
+	if len(suppressed) == 0 {
+		return pending
+	}
+	return slices.DeleteFunc(pending, func(name string) bool {
+		return slices.Contains(suppressed, name)
+	})
 }
 
 func desiredServiceRemovals(previous, current compose.File) []string {

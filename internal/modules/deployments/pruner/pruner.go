@@ -39,6 +39,15 @@ func NewServicePruner(
 	}
 }
 
+// ShouldPrune reports whether a live orphan is managed and its effective prune policy is enabled.
+func (p *ServicePruner) ShouldPrune(service swarm.StackService, stackCfg config.StackSpec) bool {
+	if !labelsdict.ServiceManaged(service.Labels) {
+		return false
+	}
+	_, enabled := p.resolvePolicy(service.Labels, stackCfg)
+	return enabled
+}
+
 // Prune deletes managed orphan services according to sync policy.
 func (p *ServicePruner) Prune(
 	ctx context.Context,
