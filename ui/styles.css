@@ -2938,10 +2938,16 @@ a.overview-summary-row:focus-visible {
   font-size: 0.88rem;
 }
 
+.app-resource-link,
 .assistant-md-link {
   color: var(--accent-strong);
   text-decoration: underline;
   text-decoration-thickness: 1px;
+}
+
+.app-resource-link:focus-visible {
+  outline: 2px solid var(--accent-focus);
+  outline-offset: -1px;
 }
 
 .assistant-md-table-wrap {

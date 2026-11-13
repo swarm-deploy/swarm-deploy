@@ -84,17 +84,18 @@ function syncErrorText(syncError: string | undefined): string {
     <tr
       v-for="service in services"
       :key="`${service.stack}-${service.name}`"
-      class="app-table-row--clickable"
-      tabindex="0"
-      role="button"
-      :aria-label="`Open details for ${service.name || 'service'}`"
+      :class="{ 'app-table-row--clickable': service.stack && service.name }"
       @click="openServiceDetails(service.stack, service.name)"
-      @keydown.enter="openServiceDetails(service.stack, service.name)"
-      @keydown.space.prevent="openServiceDetails(service.stack, service.name)"
     >
       <td class="services-cell-name" :title="service.name || undefined">
         <span class="stack-service-name-wrap">
-          <strong class="stack-service-name">{{ service.name || "unknown" }}</strong>
+          <RouterLink
+            v-if="service.stack && service.name"
+            class="stack-service-name app-resource-link"
+            :to="{ name: 'service-details', params: { stack: service.stack, service: service.name } }"
+            @click.stop
+          >{{ service.name }}</RouterLink>
+          <strong v-else class="stack-service-name">{{ service.name || "unknown" }}</strong>
         </span>
       </td>
       <td v-if="variant === 'stack-detail'" class="services-cell-image" :title="service.image">{{ service.image_version || "—" }}</td>

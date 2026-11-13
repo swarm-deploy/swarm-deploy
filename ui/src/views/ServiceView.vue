@@ -378,7 +378,11 @@ onUnmounted(() => {
               </tr>
               <tr>
                 <th scope="row">Stack</th>
-                <td>{{ serviceInfo?.stack || stackName }}</td>
+                <td>
+                  <RouterLink class="app-resource-link" :to="{ name: 'stack-details', params: { stack: stackName } }">
+                    {{ stackName }}
+                  </RouterLink>
+                </td>
               </tr>
               <tr>
                 <th scope="row">Type</th>

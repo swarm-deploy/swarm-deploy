@@ -462,7 +462,11 @@ describe("ServiceView", () => {
     ] });
     const wrapper = await mountServiceView();
     expect(wrapper.findAll(".service-panel")).toHaveLength(4);
-    expect(wrapper.getComponent({ name: "RouterLink" }).props("to")).toEqual({
+    expect(wrapper.getComponent(".app-resource-link").props("to")).toEqual({
+      name: "stack-details",
+      params: { stack: "infra" },
+    });
+    expect(wrapper.getComponent(".overview-summary-panel-header-link").props("to")).toEqual({
       name: "deployments",
       query: { stack_name: "infra", service_name: "api" },
     });

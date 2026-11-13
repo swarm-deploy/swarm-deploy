@@ -200,14 +200,19 @@ describe("Stack Details", () => {
     wrapper.unmount();
   });
 
-  it("shows all services without a local search and opens a service with the keyboard", async () => {
+  it("shows all services without a local search and links to a service and retains row navigation", async () => {
     const { wrapper, router } = await render();
     await flushPromises();
     expect(wrapper.find('input[type="search"]').exists()).toBe(false);
     expect(wrapper.findAll(".services-stack-table tbody tr")).toHaveLength(3);
-    await wrapper.get('[aria-label="Open details for worker"]').trigger("keydown", { key: "Enter" });
+    const workerLink = wrapper.get('a[href="/services/app/worker"]');
+    expect(workerLink.text()).toBe("worker");
+    await workerLink.trigger("click");
     await flushPromises();
     expect(router.currentRoute.value.fullPath).toBe("/services/app/worker");
+    await wrapper.get('.services-stack-table tbody tr:first-child .services-cell-type').trigger("click");
+    await flushPromises();
+    expect(router.currentRoute.value.fullPath).toBe("/services/app/api");
     wrapper.unmount();
   });
 
