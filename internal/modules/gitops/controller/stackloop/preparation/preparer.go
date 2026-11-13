@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -182,11 +181,6 @@ func (p *Preparer) attachPipeline(provider trace.TracerProvider) {
 			return compose.ValidateEffective(payload.desired.Compose, payload.desired.Path)
 		},
 	})
-}
-
-// CleanupStale removes legacy CLI artifacts after controller ownership handoff.
-func (p *Preparer) CleanupStale(ctx context.Context) error {
-	return os.RemoveAll(filepath.Join(p.cfg.Spec.DataDir, "rendered"))
 }
 
 func checkImagePolicy(policy config.ImagePolicySpec, desired *compose.File) error {
