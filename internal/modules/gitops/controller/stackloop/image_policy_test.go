@@ -2,7 +2,6 @@ package stackloop
 
 import (
 	"context"
-	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -24,7 +23,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	eventhistory "github.com/swarm-deploy/swarm-deploy/internal/modules/event/history"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/outbox"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackloop/preparation"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackloop/policies"
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
@@ -32,133 +31,10 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
-func TestImagePolicyViolation(t *testing.T) {
-	digest := "nginx@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-	latestDigest := "nginx:latest@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-	tests := []struct {
-		name   string
-		policy config.ImagePolicySpec
-		image  string
-		want   string
-	}{
-		{name: "disabled allows malformed", image: "%%%"},
-		{name: "required allows tag", policy: imagePolicy(true, false, false), image: "nginx:1.27"},
-		{name: "required allows digest", policy: imagePolicy(true, false, false), image: digest},
-		{name: "required rejects untagged", policy: imagePolicy(true, false, false), image: "nginx",
-			want: preparation.ImageViolationRequired},
-		{name: "no latest allows explicit version", policy: imagePolicy(false, true, false), image: "nginx:1.27"},
-		{name: "no latest allows digest", policy: imagePolicy(false, true, false), image: digest},
-		{name: "no latest rejects explicit latest", policy: imagePolicy(false, true, false), image: "nginx:latest",
-			want: preparation.ImageViolationLatest},
-		{name: "no latest rejects explicit latest with digest", policy: imagePolicy(false, true, false),
-			image: latestDigest, want: preparation.ImageViolationLatest},
-		{name: "no latest rejects implicit latest", policy: imagePolicy(false, true, false), image: "nginx",
-			want: preparation.ImageViolationLatest},
-		{name: "only sha rejects tag", policy: imagePolicy(false, false, true), image: "nginx:1.27",
-			want: preparation.ImageViolationOnlySHA},
-		{name: "only sha allows digest", policy: imagePolicy(false, false, true), image: digest},
-		{name: "enabled policy rejects malformed", policy: imagePolicy(true, false, false), image: "%%%",
-			want: preparation.ImageViolationInvalid},
-	}
-	for _, testCase := range tests {
-		t.Run(testCase.name, func(t *testing.T) {
-			assert.Equal(t, testCase.want, preparation.ImagePolicyViolation(testCase.policy, testCase.image))
-		})
-	}
-}
-
-func TestCheckImagePolicyValidatesInitJobs(t *testing.T) {
-	digest := "example/api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-	jobDigest := "example/migrate@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-	tests := []struct {
-		name   string
-		policy config.ImagePolicySpec
-		image  string
-		code   string
-	}{
-		{name: "required", policy: imagePolicy(true, false, false), image: "example/migrate",
-			code: preparation.ImageViolationRequired},
-		{name: "no latest", policy: imagePolicy(false, true, false), image: "example/migrate:latest",
-			code: preparation.ImageViolationLatest},
-		{name: "only sha", policy: imagePolicy(false, false, true), image: "example/migrate:1.2.3",
-			code: preparation.ImageViolationOnlySHA},
-		{name: "no latest allows digest only", policy: imagePolicy(false, true, false), image: jobDigest},
-		{name: "disabled", image: "%%%"},
-	}
-	for _, testCase := range tests {
-		t.Run(testCase.name, func(t *testing.T) {
-			err := preparation.ValidateImagePolicy(testCase.policy, &compose.File{
-				Path: "/repo/app.yaml",
-				Compose: compose.Compose{Services: compose.Services{{
-					Name: "api", Image: digest,
-					InitJobs: []compose.InitJob{{Name: "migrate", Image: testCase.image}},
-				}}},
-			})
-			if testCase.code == "" {
-				require.NoError(t, err)
-				return
-			}
-
-			var validationErr *compose.ValidateComposeError
-			require.ErrorAs(t, err, &validationErr)
-			require.Len(t, validationErr.Issues, 1)
-			assert.Equal(t, "service", validationErr.Issues[0].ResourceType)
-			assert.Equal(t, "api", validationErr.Issues[0].ResourceName)
-			assert.Equal(t, `x-init-deploy-jobs["migrate"].image`, validationErr.Issues[0].Field)
-			assert.Equal(t, testCase.code, validationErr.Issues[0].Code)
-			assert.Contains(t, validationErr.Issues[0].Message, `init job "migrate"`)
-			assert.NotContains(t, validationErr.Issues[0].Message, testCase.image)
-		})
-	}
-}
-
 func imagePolicy(required, noLatest, onlySHA bool) config.ImagePolicySpec {
 	return config.ImagePolicySpec{Tag: config.ImageTagPolicySpec{
 		Required: required, NoLatest: noLatest, OnlySHA: onlySHA,
 	}}
-}
-
-func TestCheckImagePolicyReturnsAllStructuredIssues(t *testing.T) {
-	err := preparation.ValidateImagePolicy(imagePolicy(false, true, false), &compose.File{
-		Path: "/repo/app.yaml",
-		Compose: compose.Compose{Services: compose.Services{
-			{Name: "api", Image: "nginx:latest", InitJobs: []compose.InitJob{
-				{Name: "migrate", Image: "example/migrate:latest"},
-			}},
-			{Name: "worker", Image: "registry.example/worker", InitJobs: []compose.InitJob{
-				{Name: "seed", Image: "example/seed"},
-			}},
-			{Name: "valid", Image: "registry.example/valid:1.2.3", InitJobs: []compose.InitJob{
-				{Name: "prepare", Image: "example/prepare:1.2.3"},
-			}},
-		}},
-	})
-
-	var validationErr *compose.ValidateComposeError
-	require.ErrorAs(t, err, &validationErr)
-	assert.Equal(t, "/repo/app.yaml", validationErr.FilePath)
-	require.Len(t, validationErr.Issues, 4)
-	assert.Equal(t, compose.ValidationIssue{
-		ResourceType: "service", ResourceName: "api", Field: "image", Code: preparation.ImageViolationLatest,
-		Message: `image must not use the latest tag`,
-	}, validationErr.Issues[0])
-	assert.Equal(t, compose.ValidationIssue{
-		ResourceType: "service", ResourceName: "api", Field: `x-init-deploy-jobs["migrate"].image`,
-		Code:    preparation.ImageViolationLatest,
-		Message: `init job "migrate": image must not use the latest tag`,
-	}, validationErr.Issues[1])
-	assert.Equal(t, compose.ValidationIssue{
-		ResourceType: "service", ResourceName: "worker", Field: "image", Code: preparation.ImageViolationLatest,
-		Message: `image must not use the latest tag`,
-	}, validationErr.Issues[2])
-	assert.Equal(t, compose.ValidationIssue{
-		ResourceType: "service", ResourceName: "worker", Field: `x-init-deploy-jobs["seed"].image`,
-		Code:    preparation.ImageViolationLatest,
-		Message: `init job "seed": image must not use the latest tag`,
-	}, validationErr.Issues[3])
-	assert.Contains(t, validationErr.Error(), `service "api": image:`)
-	assert.Contains(t, validationErr.Error(), `service "api": x-init-deploy-jobs["migrate"].image:`)
-	assert.Contains(t, validationErr.Error(), `service "worker": x-init-deploy-jobs["seed"].image:`)
 }
 
 func TestImagePolicyViolationLifecycle(t *testing.T) {
@@ -199,7 +75,7 @@ func TestImagePolicyViolationLifecycle(t *testing.T) {
 	var validationErr *compose.ValidateComposeError
 	require.ErrorAs(t, err, &validationErr)
 	require.Len(t, validationErr.Issues, 1)
-	assert.Equal(t, preparation.ImageViolationLatest, validationErr.Issues[0].Code)
+	assert.Equal(t, policies.ImageViolationLatest, validationErr.Issues[0].Code)
 
 	drainOutbox(t, ctx, bus)
 	stored, err := alerts.List(ctx, alertstore.ListFilter{})
@@ -377,15 +253,6 @@ func TestComposeLoadValidationLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, attempts.Deployments, 1)
 	assert.Equal(t, deploymentmodel.Succeeded, attempts.Deployments[0].Status)
-}
-
-func TestImagePolicyErrorsArePermanent(t *testing.T) {
-	err := preparation.ValidateImagePolicy(imagePolicy(false, true, false), &compose.File{
-		Compose: compose.Compose{Services: compose.Services{{Name: "api", Image: "nginx:latest"}}},
-	})
-	require.Error(t, err)
-	var temporary interface{ Temporary() bool }
-	assert.False(t, errors.As(err, &temporary))
 }
 
 func drainOutbox(t *testing.T, ctx context.Context, bus *eventbus.OutboxDispatcher) {
