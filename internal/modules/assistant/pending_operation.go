@@ -24,7 +24,6 @@ const targetResolverMaxTokens = 96
 
 type syncPauseTargetResolver interface {
 	StackSyncPause(ctx context.Context, stack string) (syncpause.StackState, error)
-	ServiceSyncPause(ctx context.Context, stack, service string) (syncpause.ServiceState, error)
 }
 
 // OperationType identifies a mutating operation handled by the deterministic backend flow.
@@ -61,8 +60,6 @@ type OperationIntent struct {
 	Target string `json:"target,omitempty"`
 	// Replicas is the requested replica count, when present.
 	Replicas *uint64 `json:"replicas,omitempty"`
-	// Scope is stack or service for Pause Sync operations.
-	Scope string `json:"scope,omitempty"`
 	// ExpiresAt is the absolute pause expiration; nil means no expiration.
 	ExpiresAt *time.Time `json:"expires_at,omitempty"`
 }
@@ -92,12 +89,8 @@ type PendingOperation struct {
 	Service string
 	// Replicas is the desired count for a replica change.
 	Replicas *uint64
-	// Scope is stack or service for Pause Sync operations.
-	Scope string
 	// PauseExpiresAt is nil for a pause without expiration.
 	PauseExpiresAt *time.Time
-	// RemainingServicePauses supports the stack-resume confirmation warning.
-	RemainingServicePauses int
 	// ExpiresAt is the time after which this operation is discarded.
 	ExpiresAt time.Time
 }
@@ -157,7 +150,7 @@ func (s *pendingOperationStore) claim(conversationID string, expected PendingOpe
 		!equalOptionalUint64(current.Replicas, expected.Replicas) {
 		return false
 	}
-	if current.Scope != expected.Scope || !equalOptionalTime(current.PauseExpiresAt, expected.PauseExpiresAt) {
+	if !equalOptionalTime(current.PauseExpiresAt, expected.PauseExpiresAt) {
 		return false
 	}
 	delete(s.operations, conversationID)
@@ -188,7 +181,6 @@ func (g *graph) startPendingOperation(
 		Stage:          PendingOperationCollecting,
 		Target:         strings.TrimSpace(intent.Target),
 		Replicas:       intent.Replicas,
-		Scope:          strings.TrimSpace(intent.Scope),
 		PauseExpiresAt: intent.ExpiresAt,
 	}
 	if op.Type == OperationDeploySync {
@@ -220,7 +212,7 @@ func (g *graph) startPendingOperation(
 	return confirmationMessage(op), usage
 }
 
-//nolint:nestif // Scope-specific target revalidation keeps stack and service warnings explicit.
+//nolint:nestif // Combined pause-before-scale validates both stack and service targets before confirmation.
 func (g *graph) startPauseOperation(
 	ctx context.Context,
 	conversationID string,
@@ -230,34 +222,30 @@ func (g *graph) startPauseOperation(
 		return "Pause Sync is unavailable.", conversation.TokenUsage{}
 	}
 	target := strings.Trim(strings.TrimSpace(op.Target), "/")
-	if op.Scope == "" {
-		if strings.Contains(target, "/") {
-			op.Scope = string(syncpause.ScopeService)
-		} else {
-			op.Scope = string(syncpause.ScopeStack)
-		}
-	}
-	if op.Scope != string(syncpause.ScopeStack) && op.Scope != string(syncpause.ScopeService) {
-		return "Укажите область Pause Sync: `stack` или `service`.", conversation.TokenUsage{}
-	}
-	if op.Scope == string(syncpause.ScopeStack) {
-		op.Stack = target
-		state, err := g.pauseTargets.StackSyncPause(ctx, op.Stack)
-		if err != nil {
-			return "Стек не найден в состоянии GitOps. Уточните имя стека.", conversation.TokenUsage{}
-		}
-		if op.Type == OperationSyncPauseResume {
-			op.RemainingServicePauses = len(state.ServicePauses)
-		}
-	} else {
+	if op.Type == OperationSyncPauseSet && op.Replicas != nil {
 		stack, service, ok := strings.Cut(target, "/")
 		if !ok || strings.TrimSpace(stack) == "" || strings.TrimSpace(service) == "" {
-			return "Укажите GitOps-сервис в формате `stack/service`.", conversation.TokenUsage{}
+			return "Для Pause before Scale укажите сервис в формате `stack/service`.", conversation.TokenUsage{}
 		}
 		op.Stack, op.Service = strings.TrimSpace(stack), strings.TrimSpace(service)
-		if _, err := g.pauseTargets.ServiceSyncPause(ctx, op.Stack, op.Service); err != nil {
-			return "Сервис не найден в состоянии GitOps. Уточните цель `stack/service`.", conversation.TokenUsage{}
+		services, err := g.store.ReadAll(ctx)
+		if err != nil {
+			return "Не удалось прочитать каталог сервисов. Повторите запрос.", conversation.TokenUsage{}
 		}
+		resolution := resolveServiceTarget(services, op.Stack+"/"+op.Service)
+		if !resolution.ok || !strings.EqualFold(resolution.stack, op.Stack) ||
+			!strings.EqualFold(resolution.service, op.Service) {
+			return "Сервис не найден. Уточните цель `stack/service`.", conversation.TokenUsage{}
+		}
+		op.Stack, op.Service = resolution.stack, resolution.service
+	} else {
+		if strings.Contains(target, "/") {
+			return "Pause Sync поддерживается только для всего стека. Укажите имя стека.", conversation.TokenUsage{}
+		}
+		op.Stack = target
+	}
+	if _, err := g.pauseTargets.StackSyncPause(ctx, op.Stack); err != nil {
+		return "Стек не найден в состоянии GitOps. Уточните имя стека.", conversation.TokenUsage{}
 	}
 	op.Stage = PendingOperationConfirmation
 	g.pending.set(conversationID, op)
@@ -449,34 +437,31 @@ func (g *graph) pauseOperationArguments(
 	if g.pauseTargets == nil {
 		return CapabilityPauseSync, nil, "Pause Sync is unavailable.", nil
 	}
-	arguments := map[string]any{"scope": op.Scope, "stack": op.Stack}
-	if op.Scope == string(syncpause.ScopeService) {
-		arguments["service"] = op.Service
-	}
+	arguments := map[string]any{"stack": op.Stack}
 	if op.Type == OperationSyncPauseSet {
 		arguments["expires_at"] = op.PauseExpiresAt
 	}
-	if op.Scope == string(syncpause.ScopeStack) {
-		if !g.stackPauseTargetValid(ctx, op.Stack) {
-			return CapabilityPauseSync, nil,
-				"Стек изменился или больше не управляется GitOps. Операция отменена.", nil
-		}
-		return CapabilityPauseSync, arguments, "", nil
-	}
-	if !g.servicePauseTargetValid(ctx, op.Stack, op.Service) {
+	if !g.stackPauseTargetValid(ctx, op.Stack) {
 		return CapabilityPauseSync, nil,
-			"Сервис изменился или больше не управляется GitOps. Операция отменена.", nil
+			"Стек изменился или больше не управляется GitOps. Операция отменена.", nil
+	}
+	if op.Type == OperationSyncPauseSet && op.Replicas != nil {
+		services, err := g.store.ReadAll(ctx)
+		if err != nil {
+			return CapabilityPauseSync, nil, "", err
+		}
+		resolution := resolveServiceTarget(services, op.Stack+"/"+op.Service)
+		if !resolution.ok || !strings.EqualFold(resolution.stack, op.Stack) ||
+			!strings.EqualFold(resolution.service, op.Service) {
+			return CapabilityPauseSync, nil,
+				"Сервис изменился или больше не существует. Операция отменена.", nil
+		}
 	}
 	return CapabilityPauseSync, arguments, "", nil
 }
 
 func (g *graph) stackPauseTargetValid(ctx context.Context, stack string) bool {
 	_, err := g.pauseTargets.StackSyncPause(ctx, stack)
-	return err == nil
-}
-
-func (g *graph) servicePauseTargetValid(ctx context.Context, stack, service string) bool {
-	_, err := g.pauseTargets.ServiceSyncPause(ctx, stack, service)
 	return err == nil
 }
 
@@ -489,10 +474,6 @@ func (g *graph) executeConfirmedPauseScale(
 	pauseAnswer, err := finalizeTerminalToolResult(string(op.Type), pauseResult)
 	if err != nil {
 		return "", err
-	}
-	if op.Scope != string(syncpause.ScopeService) {
-		return pauseAnswer +
-			" Scaling was not attempted because a combined Pause + Scale request requires service scope.", nil
 	}
 	retry := PendingOperation{Type: OperationServiceReplicasSet, Stage: PendingOperationConfirmation,
 		Target: op.Stack + "/" + op.Service, Stack: op.Stack, Service: op.Service, Replicas: op.Replicas}
@@ -736,29 +717,20 @@ func confirmationMessage(op PendingOperation) string {
 		return fmt.Sprintf("Установить %d реплик для `%s` в стеке `%s`?", *op.Replicas, op.Service, op.Stack)
 	}
 	if op.Type == OperationSyncPauseSet {
-		target := fmt.Sprintf("стека `%s`", op.Stack)
-		if op.Scope == string(syncpause.ScopeService) {
-			target = fmt.Sprintf("сервиса `%s` в стеке `%s`", op.Service, op.Stack)
-		}
 		expiration := "без срока действия"
 		if op.PauseExpiresAt != nil {
 			expiration = op.PauseExpiresAt.UTC().Format(time.RFC3339)
 		}
 		if op.Replicas != nil {
-			return fmt.Sprintf("Приостановить Sync для %s до %s, затем установить %d реплик?", target, expiration, *op.Replicas)
+			return fmt.Sprintf(
+				"Приостановить Sync для всего стека `%s` до %s, затем установить %d реплик для сервиса `%s`?",
+				op.Stack, expiration, *op.Replicas, op.Service,
+			)
 		}
-		return fmt.Sprintf("Приостановить Sync для %s до %s?", target, expiration)
+		return fmt.Sprintf("Приостановить Sync для стека `%s` до %s?", op.Stack, expiration)
 	}
 	if op.Type == OperationSyncPauseResume {
-		target := fmt.Sprintf("стека `%s`", op.Stack)
-		if op.Scope == string(syncpause.ScopeService) {
-			target = fmt.Sprintf("сервиса `%s` в стеке `%s`", op.Service, op.Stack)
-		}
-		warning := ""
-		if op.Scope == string(syncpause.ScopeStack) && op.RemainingServicePauses > 0 {
-			warning = fmt.Sprintf(" %d прямых пауз сервисов останутся активными.", op.RemainingServicePauses)
-		}
-		return fmt.Sprintf("Удалить прямую Pause Sync для %s?%s", target, warning)
+		return fmt.Sprintf("Удалить Pause Sync для стека `%s`?", op.Stack)
 	}
 	return fmt.Sprintf("Перезапустить `%s` в стеке `%s`?", op.Service, op.Stack)
 }

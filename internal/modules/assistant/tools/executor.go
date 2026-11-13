@@ -117,11 +117,6 @@ func (e *Executor) StackSyncPause(ctx context.Context, stack string) (syncpause.
 	return e.syncPauses.GetStack(ctx, stack)
 }
 
-// ServiceSyncPause revalidates a GitOps-owned service target.
-func (e *Executor) ServiceSyncPause(ctx context.Context, stack, service string) (syncpause.ServiceState, error) {
-	return e.syncPauses.GetService(ctx, stack, service)
-}
-
 // Definitions returns available assistant tool metadata.
 func (e *Executor) Definitions() []routing.ToolDefinition {
 	return e.definitions

@@ -17,10 +17,10 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
-func TestServiceCalculatesIndependentEffectivePausePrecedence(t *testing.T) {
-	service, publisher, now := newPauseService(t)
-	publisher.EXPECT().Publish(gomock.Any(), gomock.AssignableToTypeOf(&events.SyncPaused{})).Return(nil).Times(3)
-	publisher.EXPECT().Publish(gomock.Any(), gomock.AssignableToTypeOf(&events.SyncResumed{})).Return(nil).Times(3)
+func TestServiceCalculatesStackPauseState(t *testing.T) {
+	service, publisher, _ := newPauseService(t)
+	publisher.EXPECT().Publish(gomock.Any(), gomock.AssignableToTypeOf(&events.SyncPaused{})).Return(nil)
+	publisher.EXPECT().Publish(gomock.Any(), gomock.AssignableToTypeOf(&events.SyncResumed{})).Return(nil)
 
 	changed, err := service.SetStack(t.Context(), "app", nil)
 	require.NoError(t, err)
@@ -28,55 +28,33 @@ func TestServiceCalculatesIndependentEffectivePausePrecedence(t *testing.T) {
 	changed, err = service.SetStack(t.Context(), "app", nil)
 	require.NoError(t, err)
 	assert.False(t, changed, "idempotent writes must not publish")
-	expires := now.Add(time.Hour)
-	changed, err = service.SetService(t.Context(), "app", "api", &expires)
-	require.NoError(t, err)
-	assert.True(t, changed)
 
 	stack, err := service.GetStack(t.Context(), "app")
 	require.NoError(t, err)
 	require.NotNil(t, stack.StackPause)
-	assert.Len(t, stack.ServicePauses, 1)
 	assert.ElementsMatch(t, []string{"api", "worker"}, stack.EffectivelyPausedServices)
-	api, err := service.GetService(t.Context(), "app", "api")
-	require.NoError(t, err)
-	assert.True(t, api.Effective)
-	assert.Equal(t, EffectiveSourceBoth, api.Source)
 
 	removed, err := service.ResumeStack(t.Context(), "app")
 	require.NoError(t, err)
 	assert.True(t, removed)
-	api, err = service.GetService(t.Context(), "app", "api")
+	stack, err = service.GetStack(t.Context(), "app")
 	require.NoError(t, err)
-	assert.Equal(t, EffectiveSourceService, api.Source, "stack resume must preserve service pauses")
-
-	_, err = service.SetStack(t.Context(), "app", nil)
-	require.NoError(t, err)
-	removed, err = service.ResumeService(t.Context(), "app", "api")
-	require.NoError(t, err)
-	assert.True(t, removed)
-	api, err = service.GetService(t.Context(), "app", "api")
-	require.NoError(t, err)
-	assert.True(t, api.Effective)
-	assert.Equal(t, EffectiveSourceStack, api.Source, "removing service pause under stack pause stays effective")
-	_, err = service.ResumeStack(t.Context(), "app")
-	require.NoError(t, err)
+	assert.Nil(t, stack.StackPause)
+	assert.Empty(t, stack.EffectivelyPausedServices)
 }
 
 func TestServiceExpiresOnceDuringExplicitProcessing(t *testing.T) {
 	service, publisher, now := newPauseService(t)
 	expires := now.Add(time.Hour)
 	publisher.EXPECT().Publish(gomock.Any(), gomock.AssignableToTypeOf(&events.SyncPaused{})).Return(nil)
-	require.NoError(t, func() error {
-		_, err := service.SetService(t.Context(), "app", "api", &expires)
-		return err
-	}())
+	_, err := service.SetStack(t.Context(), "app", &expires)
+	require.NoError(t, err)
 
 	expiredEvents := 0
 	publisher.EXPECT().Publish(gomock.Any(), gomock.AssignableToTypeOf(&events.SyncPauseExpired{})).
 		DoAndReturn(func(_ context.Context, event events.Event) error {
 			expiredEvents++
-			assert.Equal(t, "api", event.(*events.SyncPauseExpired).ServiceName)
+			assert.Equal(t, "app", event.(*events.SyncPauseExpired).StackName)
 			return nil
 		})
 	service.now = func() time.Time { return expires.Add(time.Nanosecond) }
@@ -93,7 +71,7 @@ func TestExpirationRollsBackWhenEventCannotBePersisted(t *testing.T) {
 	service, publisher, now := newPauseService(t)
 	expires := now.Add(time.Hour)
 	publisher.EXPECT().Publish(gomock.Any(), gomock.AssignableToTypeOf(&events.SyncPaused{})).Return(nil)
-	_, err := service.SetService(t.Context(), "app", "api", &expires)
+	_, err := service.SetStack(t.Context(), "app", &expires)
 	require.NoError(t, err)
 
 	publisher.EXPECT().Publish(gomock.Any(), gomock.AssignableToTypeOf(&events.SyncPauseExpired{})).
@@ -101,7 +79,7 @@ func TestExpirationRollsBackWhenEventCannotBePersisted(t *testing.T) {
 	service.now = func() time.Time { return expires.Add(time.Second) }
 	_, err = service.Expire(t.Context())
 	require.Error(t, err)
-	_, found, err := service.repo.Direct(t.Context(), ScopeService, "app", "api")
+	_, found, err := service.repo.Direct(t.Context(), "app")
 	require.NoError(t, err)
 	assert.True(t, found, "policy transition must roll back with the event")
 }
@@ -109,7 +87,7 @@ func TestExpirationRollsBackWhenEventCannotBePersisted(t *testing.T) {
 func TestPausePolicyDoesNotChangeSyncStatus(t *testing.T) {
 	service, publisher, _ := newPauseService(t)
 	publisher.EXPECT().Publish(gomock.Any(), gomock.AssignableToTypeOf(&events.SyncPaused{})).Return(nil)
-	_, err := service.SetService(t.Context(), "app", "api", nil)
+	_, err := service.SetStack(t.Context(), "app", nil)
 	require.NoError(t, err)
 
 	runtime, err := service.state.Read(t.Context())

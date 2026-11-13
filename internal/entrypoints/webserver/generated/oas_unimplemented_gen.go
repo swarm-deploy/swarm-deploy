@@ -50,13 +50,6 @@ func (UnimplementedHandler) DeleteNodeLabel(ctx context.Context, params DeleteNo
 	return ht.ErrNotImplemented
 }
 
-// DeleteServiceSyncPause implements deleteServiceSyncPause operation.
-//
-// DELETE /api/v1/stacks/{stack}/services/{service}/sync-pause
-func (UnimplementedHandler) DeleteServiceSyncPause(ctx context.Context, params DeleteServiceSyncPauseParams) error {
-	return ht.ErrNotImplemented
-}
-
 // DeleteStackSyncPause implements deleteStackSyncPause operation.
 //
 // DELETE /api/v1/stacks/{stack}/sync-pause
@@ -159,13 +152,6 @@ func (UnimplementedHandler) GetSecretByName(ctx context.Context, params GetSecre
 //
 // GET /api/v1/stacks/{stack}/services/{service}
 func (UnimplementedHandler) GetService(ctx context.Context, params GetServiceParams) (r *ServiceStatusResponse, _ error) {
-	return r, ht.ErrNotImplemented
-}
-
-// GetServiceSyncPause implements getServiceSyncPause operation.
-//
-// GET /api/v1/stacks/{stack}/services/{service}/sync-pause
-func (UnimplementedHandler) GetServiceSyncPause(ctx context.Context, params GetServiceSyncPauseParams) (r *ServiceSyncPauseResponse, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -319,13 +305,6 @@ func (UnimplementedHandler) ListSwarmServiceTasks(ctx context.Context, params Li
 //
 // GET /api/v1/swarm/services
 func (UnimplementedHandler) ListSwarmServices(ctx context.Context) (r *SwarmServicesResponse, _ error) {
-	return r, ht.ErrNotImplemented
-}
-
-// PutServiceSyncPause implements putServiceSyncPause operation.
-//
-// PUT /api/v1/stacks/{stack}/services/{service}/sync-pause
-func (UnimplementedHandler) PutServiceSyncPause(ctx context.Context, req *SyncPauseRequest, params PutServiceSyncPauseParams) (r *ServiceSyncPauseResponse, _ error) {
 	return r, ht.ErrNotImplemented
 }
 

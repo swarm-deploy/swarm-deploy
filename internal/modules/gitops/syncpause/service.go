@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"slices"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
@@ -27,9 +26,6 @@ type StackProvider interface {
 
 // ErrStackNotManaged reports a target absent from accepted GitOps configuration and runtime state.
 var ErrStackNotManaged = errors.New("stack is not managed by GitOps")
-
-// ErrServiceNotManaged reports a target absent from GitOps runtime state.
-var ErrServiceNotManaged = errors.New("service is not managed by GitOps")
 
 // ErrExpirationNotFuture reports an expiration which cannot create an active pause.
 var ErrExpirationNotFuture = errors.New("pause expiration must be in the future")
@@ -54,12 +50,12 @@ func NewService(
 	return &Service{db: db, repo: NewRepository(db), state: state, stacks: stacks, events: eventDispatcher, now: time.Now}
 }
 
-// Active returns current direct pause policy without persisting expiration transitions.
+// Active returns the current stack pause policy without persisting expiration transitions.
 func (s *Service) Active(ctx context.Context, stack string) (ActivePolicy, error) {
 	return s.repo.Active(ctx, stack, s.now())
 }
 
-// GetStack returns active direct pauses and calculated effective service names.
+// GetStack returns the active pause and calculated effectively paused service names.
 func (s *Service) GetStack(ctx context.Context, stack string) (StackState, error) {
 	runtime, err := s.state.Read(ctx)
 	if err != nil {
@@ -70,7 +66,7 @@ func (s *Service) GetStack(ctx context.Context, stack string) (StackState, error
 		return StackState{}, err
 	}
 	stackState, tracked := runtime.Stacks[stack]
-	if !tracked && !s.stackConfigured(stack) && policy.StackPause == nil && len(policy.ServicePauses) == 0 {
+	if !tracked && !s.stackConfigured(stack) && policy.StackPause == nil {
 		return StackState{}, ErrStackNotManaged
 	}
 	managed := make([]string, 0, len(stackState.Services))
@@ -78,64 +74,21 @@ func (s *Service) GetStack(ctx context.Context, stack string) (StackState, error
 		managed = append(managed, name)
 	}
 	sort.Strings(managed)
-	servicePauses := make([]Pause, 0, len(policy.ServicePauses))
-	for _, pause := range policy.ServicePauses {
-		servicePauses = append(servicePauses, pause)
-	}
-	sort.Slice(servicePauses, func(i, j int) bool { return servicePauses[i].ServiceName < servicePauses[j].ServiceName })
-	effective := make([]string, 0, len(managed))
-	for _, name := range managed {
-		if policy.Preserves(name) {
-			effective = append(effective, name)
-		}
+	effective := []string(nil)
+	if policy.Preserves() {
+		effective = slices.Clone(managed)
 	}
 	return StackState{
-		StackPause: policy.StackPause, ServicePauses: servicePauses,
-		ManagedServices: managed, EffectivelyPausedServices: effective,
+		StackPause: policy.StackPause, ManagedServices: managed, EffectivelyPausedServices: effective,
 	}, nil
 }
 
-// GetService returns direct and effective pause state for one service.
-func (s *Service) GetService(ctx context.Context, stack, service string) (ServiceState, error) {
-	if err := s.validateService(ctx, stack, service, true); err != nil {
-		return ServiceState{}, err
-	}
-	policy, err := s.repo.Active(ctx, stack, s.now())
-	if err != nil {
-		return ServiceState{}, err
-	}
-	state := ServiceState{StackPause: policy.StackPause, Source: policy.Source(service)}
-	if pause, ok := policy.ServicePauses[service]; ok {
-		state.ServicePause = &pause
-	}
-	state.Effective = state.Source != EffectiveSourceNone
-	return state, nil
-}
-
-// SetStack creates or changes a direct stack pause.
+// SetStack creates or changes a stack pause.
 func (s *Service) SetStack(ctx context.Context, stack string, expiresAt *time.Time) (bool, error) {
 	if !s.stackConfigured(stack) {
 		return false, ErrStackNotManaged
 	}
-	return s.set(ctx, Pause{Scope: ScopeStack, StackName: stack, ExpiresAt: normalizedExpiration(expiresAt)})
-}
-
-// SetService creates or changes a direct service pause.
-func (s *Service) SetService(
-	ctx context.Context, stack, service string, expiresAt *time.Time,
-) (bool, error) {
-	// An existing pause remains a valid GitOps-owned target after the service is
-	// removed from Git, because that pause is what protects the live service
-	// from pruning until an operator explicitly resumes it.
-	if err := s.validateService(ctx, stack, service, true); err != nil {
-		return false, err
-	}
-	return s.set(ctx, Pause{
-		Scope: ScopeService, StackName: stack, ServiceName: service, ExpiresAt: normalizedExpiration(expiresAt),
-	})
-}
-
-func (s *Service) set(ctx context.Context, pause Pause) (bool, error) {
+	pause := Pause{StackName: stack, ExpiresAt: normalizedExpiration(expiresAt)}
 	if pause.ExpiresAt != nil && !pause.ExpiresAt.After(s.now()) {
 		return false, ErrExpirationNotFuture
 	}
@@ -147,34 +100,22 @@ func (s *Service) set(ctx context.Context, pause Pause) (bool, error) {
 			return err
 		}
 		return s.events.Publish(ctx, &events.SyncPaused{SyncPauseEvent: events.SyncPauseEvent{
-			Scope: string(pause.Scope), StackName: pause.StackName,
-			ServiceName: pause.ServiceName, ExpiresAt: pause.ExpiresAt,
+			StackName: pause.StackName, ExpiresAt: pause.ExpiresAt,
 		}})
 	})
 	return changed, err
 }
 
-// ResumeStack removes only the direct stack pause.
+// ResumeStack removes the stack pause.
 func (s *Service) ResumeStack(ctx context.Context, stack string) (bool, error) {
-	return s.resume(ctx, ScopeStack, stack, "")
-}
-
-// ResumeService removes only the direct service pause.
-func (s *Service) ResumeService(ctx context.Context, stack, service string) (bool, error) {
-	return s.resume(ctx, ScopeService, stack, service)
-}
-
-func (s *Service) resume(ctx context.Context, scope Scope, stack, service string) (bool, error) {
 	removed := false
 	err := s.db.WithinTransaction(ctx, func(ctx context.Context) error {
 		var err error
-		removed, err = s.repo.Delete(ctx, scope, stack, service)
+		removed, err = s.repo.Delete(ctx, stack)
 		if err != nil || !removed {
 			return err
 		}
-		return s.events.Publish(ctx, &events.SyncResumed{SyncPauseEvent: events.SyncPauseEvent{
-			Scope: string(scope), StackName: stack, ServiceName: service,
-		}})
+		return s.events.Publish(ctx, &events.SyncResumed{SyncPauseEvent: events.SyncPauseEvent{StackName: stack}})
 	})
 	return removed, err
 }
@@ -190,16 +131,15 @@ func (s *Service) Expire(ctx context.Context) ([]Pause, error) {
 			return err
 		}
 		for _, pause := range expired {
-			removed, deleteErr := s.repo.Delete(ctx, pause.Scope, pause.StackName, pause.ServiceName)
+			removed, deleteErr := s.repo.Delete(ctx, pause.StackName)
 			if deleteErr != nil {
 				return deleteErr
 			}
 			if !removed {
-				return fmt.Errorf("expired pause disappeared during transaction: %s/%s", pause.StackName, pause.ServiceName)
+				return fmt.Errorf("expired pause disappeared during transaction: %s", pause.StackName)
 			}
 			if err = s.events.Publish(ctx, &events.SyncPauseExpired{SyncPauseEvent: events.SyncPauseEvent{
-				Scope: string(pause.Scope), StackName: pause.StackName,
-				ServiceName: pause.ServiceName, ExpiresAt: pause.ExpiresAt,
+				StackName: pause.StackName, ExpiresAt: pause.ExpiresAt,
 			}}); err != nil {
 				return err
 			}
@@ -207,32 +147,6 @@ func (s *Service) Expire(ctx context.Context) ([]Pause, error) {
 		return nil
 	})
 	return expired, err
-}
-
-func (s *Service) validateService(ctx context.Context, stack, service string, allowExisting bool) error {
-	stack, service = strings.TrimSpace(stack), strings.TrimSpace(service)
-	if stack == "" || service == "" {
-		return ErrServiceNotManaged
-	}
-	runtime, err := s.state.Read(ctx)
-	if err != nil {
-		return err
-	}
-	if stackState, ok := runtime.Stacks[stack]; ok {
-		if _, ok = stackState.Services[service]; ok {
-			return nil
-		}
-	}
-	if allowExisting {
-		_, found, directErr := s.repo.Direct(ctx, ScopeService, stack, service)
-		if directErr != nil {
-			return directErr
-		}
-		if found {
-			return nil
-		}
-	}
-	return ErrServiceNotManaged
 }
 
 func (s *Service) stackConfigured(name string) bool {
@@ -247,20 +161,17 @@ func normalizedExpiration(value *time.Time) *time.Time {
 	return &normalized
 }
 
-// PreserveNames returns the effective preserved names for desired and prior runtime services.
+// PreserveNames returns every desired and prior service name while the stack is paused.
 func PreserveNames(policy ActivePolicy, desired []string, prior gitopsmodel.Stack) []string {
-	names := map[string]struct{}{}
-	if policy.StackPause != nil {
-		for _, name := range desired {
-			names[name] = struct{}{}
-		}
-		for name := range prior.Services {
-			names[name] = struct{}{}
-		}
-	} else {
-		for name := range policy.ServicePauses {
-			names[name] = struct{}{}
-		}
+	if !policy.Preserves() {
+		return nil
+	}
+	names := make(map[string]struct{}, len(desired)+len(prior.Services))
+	for _, name := range desired {
+		names[name] = struct{}{}
+	}
+	for name := range prior.Services {
+		names[name] = struct{}{}
 	}
 	result := make([]string, 0, len(names))
 	for name := range names {

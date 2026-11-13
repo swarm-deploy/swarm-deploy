@@ -12,72 +12,38 @@ import (
 )
 
 type pauseRow struct {
-	StackName   string       `db:"stack_name"`
-	ServiceName string       `db:"service_name"`
-	ExpiresAt   sql.NullTime `db:"expires_at"`
+	StackName string       `db:"stack_name"`
+	ExpiresAt sql.NullTime `db:"expires_at"`
 }
 
-// Repository persists direct pause records in GitOps-owned tables.
+// Repository persists stack pause records in GitOps-owned storage.
 type Repository struct{ db storage.Database }
 
 // NewRepository creates a pause repository.
 func NewRepository(db storage.Database) *Repository { return &Repository{db: db} }
 
-// Active returns active direct pauses for one stack at now.
+// Active returns the active stack pause at now.
 func (r *Repository) Active(ctx context.Context, stack string, now time.Time) (ActivePolicy, error) {
-	policy := ActivePolicy{ServicePauses: map[string]Pause{}}
-	stackPause, found, err := r.stack(ctx, stack, now, true)
+	pause, found, err := r.stack(ctx, stack, now, true)
 	if err != nil {
 		return ActivePolicy{}, err
 	}
-	if found {
-		policy.StackPause = &stackPause
+	if !found {
+		return ActivePolicy{}, nil
 	}
-	query, args, err := r.db.Dialect().From("gitops_service_sync_pauses").Prepared(true).
-		Select("stack_name", "service_name", "expires_at").
-		Where(goqu.Ex{"stack_name": stack}, activeExpression(now)).
-		Order(goqu.I("service_name").Asc()).ToSQL()
-	if err != nil {
-		return ActivePolicy{}, err
-	}
-	var rows []pauseRow
-	if err = r.db.Select(ctx, &rows, query, args...); err != nil {
-		return ActivePolicy{}, err
-	}
-	for _, row := range rows {
-		pause := row.pause(ScopeService)
-		policy.ServicePauses[pause.ServiceName] = pause
-	}
-	return policy, nil
+	return ActivePolicy{StackPause: &pause}, nil
 }
 
-// Direct returns a direct pause even when it is expired.
-func (r *Repository) Direct(ctx context.Context, scope Scope, stack, service string) (Pause, bool, error) {
-	if scope == ScopeStack {
-		return r.stack(ctx, stack, time.Time{}, false)
-	}
-	query, args, err := r.db.Dialect().From("gitops_service_sync_pauses").Prepared(true).
-		Select("stack_name", "service_name", "expires_at").
-		Where(goqu.Ex{"stack_name": stack, "service_name": service}).ToSQL()
-	if err != nil {
-		return Pause{}, false, err
-	}
-	var row pauseRow
-	err = r.db.Get(ctx, &row, query, args...)
-	if errors.Is(err, sql.ErrNoRows) {
-		return Pause{}, false, nil
-	}
-	if err != nil {
-		return Pause{}, false, err
-	}
-	return row.pause(ScopeService), true, nil
+// Direct returns a stack pause even when it is expired.
+func (r *Repository) Direct(ctx context.Context, stack string) (Pause, bool, error) {
+	return r.stack(ctx, stack, time.Time{}, false)
 }
 
 func (r *Repository) stack(
 	ctx context.Context, stack string, now time.Time, activeOnly bool,
 ) (Pause, bool, error) {
 	dataset := r.db.Dialect().From("gitops_stack_sync_pauses").Prepared(true).
-		Select("stack_name", goqu.V("").As("service_name"), "expires_at").Where(goqu.Ex{"stack_name": stack})
+		Select("stack_name", "expires_at").Where(goqu.Ex{"stack_name": stack})
 	if activeOnly {
 		dataset = dataset.Where(activeExpression(now))
 	}
@@ -93,33 +59,27 @@ func (r *Repository) stack(
 	if err != nil {
 		return Pause{}, false, err
 	}
-	return row.pause(ScopeStack), true, nil
+	return row.pause(), true, nil
 }
 
-// Upsert stores a direct pause and reports whether its expiration changed.
+// Upsert stores a stack pause and reports whether its expiration changed.
 func (r *Repository) Upsert(ctx context.Context, pause Pause) (bool, error) {
-	existing, found, err := r.Direct(ctx, pause.Scope, pause.StackName, pause.ServiceName)
+	existing, found, err := r.Direct(ctx, pause.StackName)
 	if err != nil {
 		return false, err
 	}
 	if found && equalExpiration(existing.ExpiresAt, pause.ExpiresAt) {
 		return false, nil
 	}
-	table := "gitops_stack_sync_pauses"
 	record := goqu.Record{"stack_name": pause.StackName, "expires_at": nullableTime(pause.ExpiresAt)}
-	where := goqu.Ex{"stack_name": pause.StackName}
-	if pause.Scope == ScopeService {
-		table = "gitops_service_sync_pauses"
-		record["service_name"] = pause.ServiceName
-		where["service_name"] = pause.ServiceName
-	}
 	var query string
 	var args []any
 	if found {
-		query, args, err = r.db.Dialect().Update(table).Prepared(true).
-			Set(goqu.Record{"expires_at": nullableTime(pause.ExpiresAt)}).Where(where).ToSQL()
+		query, args, err = r.db.Dialect().Update("gitops_stack_sync_pauses").Prepared(true).
+			Set(goqu.Record{"expires_at": nullableTime(pause.ExpiresAt)}).
+			Where(goqu.Ex{"stack_name": pause.StackName}).ToSQL()
 	} else {
-		query, args, err = r.db.Dialect().Insert(table).Prepared(true).Rows(record).ToSQL()
+		query, args, err = r.db.Dialect().Insert("gitops_stack_sync_pauses").Prepared(true).Rows(record).ToSQL()
 	}
 	if err != nil {
 		return false, err
@@ -128,15 +88,10 @@ func (r *Repository) Upsert(ctx context.Context, pause Pause) (bool, error) {
 	return err == nil, err
 }
 
-// Delete removes one direct pause and reports whether a row existed.
-func (r *Repository) Delete(ctx context.Context, scope Scope, stack, service string) (bool, error) {
-	table := "gitops_stack_sync_pauses"
-	where := goqu.Ex{"stack_name": stack}
-	if scope == ScopeService {
-		table = "gitops_service_sync_pauses"
-		where["service_name"] = service
-	}
-	query, args, err := r.db.Dialect().Delete(table).Prepared(true).Where(where).ToSQL()
+// Delete removes one stack pause and reports whether a row existed.
+func (r *Repository) Delete(ctx context.Context, stack string) (bool, error) {
+	query, args, err := r.db.Dialect().Delete("gitops_stack_sync_pauses").Prepared(true).
+		Where(goqu.Ex{"stack_name": stack}).ToSQL()
 	if err != nil {
 		return false, err
 	}
@@ -148,39 +103,23 @@ func (r *Repository) Delete(ctx context.Context, scope Scope, stack, service str
 	return count > 0, err
 }
 
-// Expired returns expired pauses in deterministic order.
+// Expired returns expired stack pauses in deterministic order.
 func (r *Repository) Expired(ctx context.Context, now time.Time) ([]Pause, error) {
-	var pauses []Pause
-	for _, item := range []struct {
-		table string
-		scope Scope
-	}{{"gitops_stack_sync_pauses", ScopeStack}, {"gitops_service_sync_pauses", ScopeService}} {
-		columns := []any{"stack_name", goqu.V("").As("service_name"), "expires_at"}
-		if item.scope == ScopeService {
-			columns[1] = "service_name"
-		}
-		query, args, err := r.db.Dialect().From(item.table).Prepared(true).Select(columns...).
-			Where(goqu.C("expires_at").IsNotNull(), goqu.C("expires_at").Lte(now.UTC())).ToSQL()
-		if err != nil {
-			return nil, err
-		}
-		var rows []pauseRow
-		if err = r.db.Select(ctx, &rows, query, args...); err != nil {
-			return nil, err
-		}
-		for _, row := range rows {
-			pauses = append(pauses, row.pause(item.scope))
-		}
+	query, args, err := r.db.Dialect().From("gitops_stack_sync_pauses").Prepared(true).
+		Select("stack_name", "expires_at").
+		Where(goqu.C("expires_at").IsNotNull(), goqu.C("expires_at").Lte(now.UTC())).ToSQL()
+	if err != nil {
+		return nil, err
 	}
-	sort.Slice(pauses, func(i, j int) bool {
-		if pauses[i].StackName != pauses[j].StackName {
-			return pauses[i].StackName < pauses[j].StackName
-		}
-		if pauses[i].Scope != pauses[j].Scope {
-			return pauses[i].Scope < pauses[j].Scope
-		}
-		return pauses[i].ServiceName < pauses[j].ServiceName
-	})
+	var rows []pauseRow
+	if err = r.db.Select(ctx, &rows, query, args...); err != nil {
+		return nil, err
+	}
+	pauses := make([]Pause, 0, len(rows))
+	for _, row := range rows {
+		pauses = append(pauses, row.pause())
+	}
+	sort.Slice(pauses, func(i, j int) bool { return pauses[i].StackName < pauses[j].StackName })
 	return pauses, nil
 }
 
@@ -202,8 +141,8 @@ func equalExpiration(left, right *time.Time) bool {
 	return left.Equal(*right)
 }
 
-func (r pauseRow) pause(scope Scope) Pause {
-	pause := Pause{Scope: scope, StackName: r.StackName, ServiceName: r.ServiceName}
+func (r pauseRow) pause() Pause {
+	pause := Pause{StackName: r.StackName}
 	if r.ExpiresAt.Valid {
 		expires := r.ExpiresAt.Time.UTC()
 		pause.ExpiresAt = &expires

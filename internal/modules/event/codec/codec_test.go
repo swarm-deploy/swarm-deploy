@@ -80,14 +80,10 @@ func TestConfigurationChangedCodecHasNoDomainPayload(t *testing.T) {
 func TestSyncPauseEventsRoundTripNullableExpiration(t *testing.T) {
 	expires := time.Date(2026, time.November, 13, 20, 0, 0, 0, time.UTC)
 	for _, original := range []events.Event{
-		&events.SyncPaused{SyncPauseEvent: events.SyncPauseEvent{Scope: "stack", StackName: "app"}},
-		&events.SyncPaused{SyncPauseEvent: events.SyncPauseEvent{
-			Scope: "service", StackName: "app", ServiceName: "api", ExpiresAt: &expires,
-		}},
-		&events.SyncResumed{SyncPauseEvent: events.SyncPauseEvent{Scope: "service", StackName: "app", ServiceName: "api"}},
-		&events.SyncPauseExpired{SyncPauseEvent: events.SyncPauseEvent{
-			Scope: "service", StackName: "app", ServiceName: "api", ExpiresAt: &expires,
-		}},
+		&events.SyncPaused{SyncPauseEvent: events.SyncPauseEvent{StackName: "app"}},
+		&events.SyncPaused{SyncPauseEvent: events.SyncPauseEvent{StackName: "app", ExpiresAt: &expires}},
+		&events.SyncResumed{SyncPauseEvent: events.SyncPauseEvent{StackName: "app"}},
+		&events.SyncPauseExpired{SyncPauseEvent: events.SyncPauseEvent{StackName: "app", ExpiresAt: &expires}},
 	} {
 		payload, err := Encode(original)
 		require.NoError(t, err)

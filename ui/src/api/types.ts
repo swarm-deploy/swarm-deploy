@@ -28,28 +28,14 @@ export interface StackView {
   effectively_paused_services?: number;
 }
 
-export type SyncPauseScope = "stack" | "service";
-export type EffectiveSyncPauseSource = "stack" | "service" | "both";
-
 export interface SyncPauseRecord {
-  scope: SyncPauseScope;
   stack: string;
-  service?: string;
   expires_at: string | null;
 }
 
 export interface StackSyncPausesResponse {
   stack_pause?: SyncPauseRecord;
-  service_pauses: SyncPauseRecord[];
-  effective_services: { service: string; source: EffectiveSyncPauseSource }[];
   effectively_paused_services: number;
-}
-
-export interface ServiceSyncPauseResponse {
-  stack_pause?: SyncPauseRecord;
-  service_pause?: SyncPauseRecord;
-  effective_paused: boolean;
-  effective_source?: EffectiveSyncPauseSource;
 }
 
 export interface StacksResponse {

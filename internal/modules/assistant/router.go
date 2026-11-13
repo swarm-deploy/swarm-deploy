@@ -208,7 +208,7 @@ Do not add capabilities merely because a route commonly uses them. Add only what
 Date/time uses the cross-cutting date tool and needs no capability.
 For restart or replica changes, operation is {"type":"service_restart_trigger|service_replicas_set","target":"literal target or empty","replicas":number-or-null}; include service_operations.
 For a request to start synchronization, use the deployments route and operation {"type":"deploy_sync_trigger","target":"","replicas":null}; include deployment_sync.
-For Pause Sync mutations, use operation {"type":"sync_pause_set|sync_pause_resume","target":"stack or stack/service","scope":"stack|service","expires_at":"absolute RFC3339 time or null","replicas":number-or-null}; include pause_sync. A replicas value combines pause-first with scaling.
+For stack-level Pause Sync mutations, use operation {"type":"sync_pause_set|sync_pause_resume","target":"stack","expires_at":"absolute RFC3339 time or null","replicas":null}; include pause_sync. For pause-before-scale, use sync_pause_set with target "stack/service" and replicas set; this pauses the entire stack before scaling the selected service.
 Target is copied from the current user message. Never infer a missing operation target from history.
 Examples:
 "Привет" -> {"route":"general","capabilities":[],"operation":null}

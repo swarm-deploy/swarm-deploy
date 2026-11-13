@@ -1292,9 +1292,6 @@ func (s *DSNSuggestionsResponse) SetSuggestions(val []DSNSuggestion) {
 // DeleteNodeLabelNoContent is response for DeleteNodeLabel operation.
 type DeleteNodeLabelNoContent struct{}
 
-// DeleteServiceSyncPauseNoContent is response for DeleteServiceSyncPause operation.
-type DeleteServiceSyncPauseNoContent struct{}
-
 // DeleteStackSyncPauseNoContent is response for DeleteStackSyncPause operation.
 type DeleteStackSyncPauseNoContent struct{}
 
@@ -3051,81 +3048,6 @@ func (s *DeploymentsResponse) SetNextCursor(val OptString) {
 	s.NextCursor = val
 }
 
-// Ref: #/components/schemas/EffectivePausedService
-type EffectivePausedService struct {
-	Service string                   `json:"service"`
-	Source  EffectiveSyncPauseSource `json:"source"`
-}
-
-// GetService returns the value of Service.
-func (s *EffectivePausedService) GetService() string {
-	return s.Service
-}
-
-// GetSource returns the value of Source.
-func (s *EffectivePausedService) GetSource() EffectiveSyncPauseSource {
-	return s.Source
-}
-
-// SetService sets the value of Service.
-func (s *EffectivePausedService) SetService(val string) {
-	s.Service = val
-}
-
-// SetSource sets the value of Source.
-func (s *EffectivePausedService) SetSource(val EffectiveSyncPauseSource) {
-	s.Source = val
-}
-
-// Ref: #/components/schemas/EffectiveSyncPauseSource
-type EffectiveSyncPauseSource string
-
-const (
-	EffectiveSyncPauseSourceStack   EffectiveSyncPauseSource = "stack"
-	EffectiveSyncPauseSourceService EffectiveSyncPauseSource = "service"
-	EffectiveSyncPauseSourceBoth    EffectiveSyncPauseSource = "both"
-)
-
-// AllValues returns all EffectiveSyncPauseSource values.
-func (EffectiveSyncPauseSource) AllValues() []EffectiveSyncPauseSource {
-	return []EffectiveSyncPauseSource{
-		EffectiveSyncPauseSourceStack,
-		EffectiveSyncPauseSourceService,
-		EffectiveSyncPauseSourceBoth,
-	}
-}
-
-// MarshalText implements encoding.TextMarshaler.
-func (s EffectiveSyncPauseSource) MarshalText() ([]byte, error) {
-	switch s {
-	case EffectiveSyncPauseSourceStack:
-		return []byte(s), nil
-	case EffectiveSyncPauseSourceService:
-		return []byte(s), nil
-	case EffectiveSyncPauseSourceBoth:
-		return []byte(s), nil
-	default:
-		return nil, errors.Errorf("invalid value: %q", s)
-	}
-}
-
-// UnmarshalText implements encoding.TextUnmarshaler.
-func (s *EffectiveSyncPauseSource) UnmarshalText(data []byte) error {
-	switch EffectiveSyncPauseSource(data) {
-	case EffectiveSyncPauseSourceStack:
-		*s = EffectiveSyncPauseSourceStack
-		return nil
-	case EffectiveSyncPauseSourceService:
-		*s = EffectiveSyncPauseSourceService
-		return nil
-	case EffectiveSyncPauseSourceBoth:
-		*s = EffectiveSyncPauseSourceBoth
-		return nil
-	default:
-		return errors.Errorf("invalid value: %q", data)
-	}
-}
-
 // Ref: #/components/schemas/EnvironmentVariable
 type EnvironmentVariable struct {
 	Name  string `json:"name"`
@@ -4606,52 +4528,6 @@ func (o OptDeploymentActivityInterval) Get() (v DeploymentActivityInterval, ok b
 
 // Or returns value if set, or given parameter if does not.
 func (o OptDeploymentActivityInterval) Or(d DeploymentActivityInterval) DeploymentActivityInterval {
-	if v, ok := o.Get(); ok {
-		return v
-	}
-	return d
-}
-
-// NewOptEffectiveSyncPauseSource returns new OptEffectiveSyncPauseSource with value set to v.
-func NewOptEffectiveSyncPauseSource(v EffectiveSyncPauseSource) OptEffectiveSyncPauseSource {
-	return OptEffectiveSyncPauseSource{
-		Value: v,
-		Set:   true,
-	}
-}
-
-// OptEffectiveSyncPauseSource is optional EffectiveSyncPauseSource.
-type OptEffectiveSyncPauseSource struct {
-	Value EffectiveSyncPauseSource
-	Set   bool
-}
-
-// IsSet returns true if OptEffectiveSyncPauseSource was set.
-func (o OptEffectiveSyncPauseSource) IsSet() bool { return o.Set }
-
-// Reset unsets value.
-func (o *OptEffectiveSyncPauseSource) Reset() {
-	var v EffectiveSyncPauseSource
-	o.Value = v
-	o.Set = false
-}
-
-// SetTo sets value to v.
-func (o *OptEffectiveSyncPauseSource) SetTo(v EffectiveSyncPauseSource) {
-	o.Set = true
-	o.Value = v
-}
-
-// Get returns value and boolean that denotes whether value was set.
-func (o OptEffectiveSyncPauseSource) Get() (v EffectiveSyncPauseSource, ok bool) {
-	if !o.Set {
-		return v, false
-	}
-	return o.Value, true
-}
-
-// Or returns value if set, or given parameter if does not.
-func (o OptEffectiveSyncPauseSource) Or(d EffectiveSyncPauseSource) EffectiveSyncPauseSource {
 	if v, ok := o.Get(); ok {
 		return v
 	}
@@ -7345,54 +7221,6 @@ func (s *ServiceStatusResponse) SetLinks(val []ServiceLink) {
 	s.Links = val
 }
 
-// Ref: #/components/schemas/ServiceSyncPauseResponse
-type ServiceSyncPauseResponse struct {
-	StackPause      OptSyncPauseRecord          `json:"stack_pause"`
-	ServicePause    OptSyncPauseRecord          `json:"service_pause"`
-	EffectivePaused bool                        `json:"effective_paused"`
-	EffectiveSource OptEffectiveSyncPauseSource `json:"effective_source"`
-}
-
-// GetStackPause returns the value of StackPause.
-func (s *ServiceSyncPauseResponse) GetStackPause() OptSyncPauseRecord {
-	return s.StackPause
-}
-
-// GetServicePause returns the value of ServicePause.
-func (s *ServiceSyncPauseResponse) GetServicePause() OptSyncPauseRecord {
-	return s.ServicePause
-}
-
-// GetEffectivePaused returns the value of EffectivePaused.
-func (s *ServiceSyncPauseResponse) GetEffectivePaused() bool {
-	return s.EffectivePaused
-}
-
-// GetEffectiveSource returns the value of EffectiveSource.
-func (s *ServiceSyncPauseResponse) GetEffectiveSource() OptEffectiveSyncPauseSource {
-	return s.EffectiveSource
-}
-
-// SetStackPause sets the value of StackPause.
-func (s *ServiceSyncPauseResponse) SetStackPause(val OptSyncPauseRecord) {
-	s.StackPause = val
-}
-
-// SetServicePause sets the value of ServicePause.
-func (s *ServiceSyncPauseResponse) SetServicePause(val OptSyncPauseRecord) {
-	s.ServicePause = val
-}
-
-// SetEffectivePaused sets the value of EffectivePaused.
-func (s *ServiceSyncPauseResponse) SetEffectivePaused(val bool) {
-	s.EffectivePaused = val
-}
-
-// SetEffectiveSource sets the value of EffectiveSource.
-func (s *ServiceSyncPauseResponse) SetEffectiveSource(val OptEffectiveSyncPauseSource) {
-	s.EffectiveSource = val
-}
-
 // Ref: #/components/schemas/ServiceSyncStatus
 type ServiceSyncStatus string
 
@@ -7575,26 +7403,14 @@ func (s *StackStatus) SetOutOfSynced(val int64) {
 
 // Ref: #/components/schemas/StackSyncPausesResponse
 type StackSyncPausesResponse struct {
-	StackPause    OptSyncPauseRecord `json:"stack_pause"`
-	ServicePauses []SyncPauseRecord  `json:"service_pauses"`
-	// GitOps-managed services currently paused, with the source of effective pause.
-	EffectiveServices         []EffectivePausedService `json:"effective_services"`
-	EffectivelyPausedServices int                      `json:"effectively_paused_services"`
+	StackPause OptSyncPauseRecord `json:"stack_pause"`
+	// Number of GitOps-managed services covered by the active stack pause.
+	EffectivelyPausedServices int `json:"effectively_paused_services"`
 }
 
 // GetStackPause returns the value of StackPause.
 func (s *StackSyncPausesResponse) GetStackPause() OptSyncPauseRecord {
 	return s.StackPause
-}
-
-// GetServicePauses returns the value of ServicePauses.
-func (s *StackSyncPausesResponse) GetServicePauses() []SyncPauseRecord {
-	return s.ServicePauses
-}
-
-// GetEffectiveServices returns the value of EffectiveServices.
-func (s *StackSyncPausesResponse) GetEffectiveServices() []EffectivePausedService {
-	return s.EffectiveServices
 }
 
 // GetEffectivelyPausedServices returns the value of EffectivelyPausedServices.
@@ -7605,16 +7421,6 @@ func (s *StackSyncPausesResponse) GetEffectivelyPausedServices() int {
 // SetStackPause sets the value of StackPause.
 func (s *StackSyncPausesResponse) SetStackPause(val OptSyncPauseRecord) {
 	s.StackPause = val
-}
-
-// SetServicePauses sets the value of ServicePauses.
-func (s *StackSyncPausesResponse) SetServicePauses(val []SyncPauseRecord) {
-	s.ServicePauses = val
-}
-
-// SetEffectiveServices sets the value of EffectiveServices.
-func (s *StackSyncPausesResponse) SetEffectiveServices(val []EffectivePausedService) {
-	s.EffectiveServices = val
 }
 
 // SetEffectivelyPausedServices sets the value of EffectivelyPausedServices.
@@ -8152,15 +7958,8 @@ func (s *SyncInfo) SetLastRevision(val OptString) {
 
 // Ref: #/components/schemas/SyncPauseRecord
 type SyncPauseRecord struct {
-	Scope     SyncPauseRecordScope `json:"scope"`
-	Stack     string               `json:"stack"`
-	Service   OptString            `json:"service"`
-	ExpiresAt NilDateTime          `json:"expires_at"`
-}
-
-// GetScope returns the value of Scope.
-func (s *SyncPauseRecord) GetScope() SyncPauseRecordScope {
-	return s.Scope
+	Stack     string      `json:"stack"`
+	ExpiresAt NilDateTime `json:"expires_at"`
 }
 
 // GetStack returns the value of Stack.
@@ -8168,19 +7967,9 @@ func (s *SyncPauseRecord) GetStack() string {
 	return s.Stack
 }
 
-// GetService returns the value of Service.
-func (s *SyncPauseRecord) GetService() OptString {
-	return s.Service
-}
-
 // GetExpiresAt returns the value of ExpiresAt.
 func (s *SyncPauseRecord) GetExpiresAt() NilDateTime {
 	return s.ExpiresAt
-}
-
-// SetScope sets the value of Scope.
-func (s *SyncPauseRecord) SetScope(val SyncPauseRecordScope) {
-	s.Scope = val
 }
 
 // SetStack sets the value of Stack.
@@ -8188,55 +7977,9 @@ func (s *SyncPauseRecord) SetStack(val string) {
 	s.Stack = val
 }
 
-// SetService sets the value of Service.
-func (s *SyncPauseRecord) SetService(val OptString) {
-	s.Service = val
-}
-
 // SetExpiresAt sets the value of ExpiresAt.
 func (s *SyncPauseRecord) SetExpiresAt(val NilDateTime) {
 	s.ExpiresAt = val
-}
-
-type SyncPauseRecordScope string
-
-const (
-	SyncPauseRecordScopeStack   SyncPauseRecordScope = "stack"
-	SyncPauseRecordScopeService SyncPauseRecordScope = "service"
-)
-
-// AllValues returns all SyncPauseRecordScope values.
-func (SyncPauseRecordScope) AllValues() []SyncPauseRecordScope {
-	return []SyncPauseRecordScope{
-		SyncPauseRecordScopeStack,
-		SyncPauseRecordScopeService,
-	}
-}
-
-// MarshalText implements encoding.TextMarshaler.
-func (s SyncPauseRecordScope) MarshalText() ([]byte, error) {
-	switch s {
-	case SyncPauseRecordScopeStack:
-		return []byte(s), nil
-	case SyncPauseRecordScopeService:
-		return []byte(s), nil
-	default:
-		return nil, errors.Errorf("invalid value: %q", s)
-	}
-}
-
-// UnmarshalText implements encoding.TextUnmarshaler.
-func (s *SyncPauseRecordScope) UnmarshalText(data []byte) error {
-	switch SyncPauseRecordScope(data) {
-	case SyncPauseRecordScopeStack:
-		*s = SyncPauseRecordScopeStack
-		return nil
-	case SyncPauseRecordScopeService:
-		*s = SyncPauseRecordScopeService
-		return nil
-	default:
-		return errors.Errorf("invalid value: %q", data)
-	}
 }
 
 // Ref: #/components/schemas/SyncPauseRequest

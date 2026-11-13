@@ -6,11 +6,11 @@ import { ApiError } from "../api/client";
 import { fetchSwarmServices, fetchSwarmServiceTasks, fetchSwarmTask, scaleSwarmService } from "../api/services";
 import {
   expirationForDuration,
-  getServiceSyncPause,
-  setServiceSyncPause,
+  getStackSyncPauses,
+  setStackSyncPause,
   syncPauseDurations,
 } from "../api/syncPauses";
-import type { ServiceRealtimeTask, ServiceSyncPauseResponse, SwarmService, SwarmTaskDetails } from "../api/types";
+import type { ServiceRealtimeTask, StackSyncPausesResponse, SwarmService, SwarmTaskDetails } from "../api/types";
 import AppButton from "../components/common/AppButton.vue";
 import AppSelect from "../components/common/AppSelect.vue";
 import AppStatusBadge from "../components/common/AppStatusBadge.vue";
@@ -90,7 +90,7 @@ const scalePauseLoading = ref(false);
 const scalePauseManaged = ref(false);
 const scalePauseChecked = ref(false);
 const scalePauseDuration = ref("1");
-const scalePauseState = ref<ServiceSyncPauseResponse | null>(null);
+const scalePauseState = ref<StackSyncPausesResponse | null>(null);
 const scalePausePersisted = ref(false);
 const scalePauseLookupFailed = ref(false);
 const scalePauseDurationOptions: { value: string; label: string }[] = syncPauseDurations.map(({ value, label }) => ({ value, label }));
@@ -106,14 +106,6 @@ const canScale = computed(() => (
   && !scalePauseLoading.value
   && !scalePauseLookupFailed.value
 ));
-
-const scaleEffectivePauseLabel = computed(() => {
-  const source = scalePauseState.value?.effective_source;
-  if (source === "both") return "Stack and service";
-  if (source === "stack") return "Stack";
-  if (source === "service") return "Service";
-  return "";
-});
 
 function pauseUntil(expiresAt: string | null | undefined): string {
   return expiresAt ? formatDate(expiresAt) : "No expiration";
@@ -133,7 +125,7 @@ async function openScale(service: SwarmService): Promise<void> {
   scalePauseLookupFailed.value = false;
   if (service.stack && service.name) {
     try {
-      const pauseState = await getServiceSyncPause(service.stack, service.name);
+      const pauseState = await getStackSyncPauses(service.stack);
       if (disposed || request !== scalePauseRequest || scalingService.value?.id !== service.id) return;
       scalePauseState.value = pauseState;
       scalePauseManaged.value = true;
@@ -174,9 +166,8 @@ async function submitScale(): Promise<void> {
   try {
     const service = scalingService.value;
     if (scalePauseManaged.value && scalePauseChecked.value && !scalePausePersisted.value) {
-      scalePauseState.value = await setServiceSyncPause(
+      scalePauseState.value = await setStackSyncPause(
         service.stack,
-        service.name,
         expirationForDuration(scalePauseDuration.value),
       );
       scalePausePersisted.value = true;
@@ -697,20 +688,19 @@ onUnmounted(() => {
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 11v6m0-10h.01" /></svg>
           <span v-if="scalePauseLoading">Checking GitOps Pause Sync state...</span>
           <span v-else-if="!scalePauseManaged">Manual scaling may be overwritten by the next GitOps synchronization.</span>
-          <span v-else-if="!scalePauseState?.effective_paused && !scalePauseChecked">Manual scaling may be overwritten by the next GitOps synchronization.</span>
-          <span v-else-if="scalePauseState?.effective_paused">Pause Sync is active. Scaling starts immediately.</span>
-          <span v-else>Pause Sync will be enabled first. Scaling starts immediately afterward.</span>
+          <span v-else-if="!scalePauseState?.stack_pause && !scalePauseChecked">Manual scaling may be overwritten by the next GitOps synchronization.</span>
+          <span v-else-if="scalePauseState?.stack_pause">Stack Pause Sync is active. Scaling starts immediately.</span>
+          <span v-else>Pause Sync will be enabled for the entire stack first. Scaling starts immediately afterward.</span>
         </p>
         <template v-if="scalePauseManaged && !scalePauseLoading">
-          <div v-if="scalePauseState?.effective_paused" class="realtime-scale-pause-state" role="status">
-            <strong>Sync paused by: {{ scaleEffectivePauseLabel }}</strong>
-            <span v-if="scalePauseState.stack_pause">Stack pause until: {{ pauseUntil(scalePauseState.stack_pause.expires_at) }}</span>
-            <span v-if="scalePauseState.service_pause">Service pause until: {{ pauseUntil(scalePauseState.service_pause.expires_at) }}</span>
+          <div v-if="scalePauseState?.stack_pause" class="realtime-scale-pause-state" role="status">
+            <strong>Sync paused for the entire stack</strong>
+            <span>Stack pause until: {{ pauseUntil(scalePauseState.stack_pause.expires_at) }}</span>
           </div>
           <template v-else>
             <label class="realtime-scale-pause-toggle">
               <input v-model="scalePauseChecked" type="checkbox" :disabled="scalePending || scalePausePersisted" />
-              <span>Pause sync</span>
+              <span>Pause sync for the entire stack</span>
             </label>
             <div v-if="scalePauseChecked" class="realtime-scale-pause-duration">
               <span>Pause duration</span>

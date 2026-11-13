@@ -10,9 +10,7 @@ import (
 )
 
 type syncPausePayload struct {
-	Scope     string     `json:"scope"`
 	Stack     string     `json:"stack"`
-	Service   string     `json:"service,omitempty"`
 	ExpiresAt *time.Time `json:"expires_at,omitempty"`
 	HasExpiry bool       `json:"has_expiry"`
 }
@@ -21,10 +19,7 @@ func encodeSyncPause(event events.SyncPauseEvent) ([]byte, error) {
 	if err := validateSyncPause(event); err != nil {
 		return nil, err
 	}
-	payload := syncPausePayload{
-		Scope: event.Scope, Stack: event.StackName, Service: event.ServiceName,
-		ExpiresAt: event.ExpiresAt, HasExpiry: event.ExpiresAt != nil,
-	}
+	payload := syncPausePayload{Stack: event.StackName, ExpiresAt: event.ExpiresAt, HasExpiry: event.ExpiresAt != nil}
 	return json.Marshal(payload)
 }
 
@@ -36,9 +31,7 @@ func decodeSyncPause(typ events.TypeName, payload []byte) (events.Event, error) 
 	if !value.HasExpiry {
 		value.ExpiresAt = nil
 	}
-	contract := events.SyncPauseEvent{
-		Scope: value.Scope, StackName: value.Stack, ServiceName: value.Service, ExpiresAt: value.ExpiresAt,
-	}
+	contract := events.SyncPauseEvent{StackName: value.Stack, ExpiresAt: value.ExpiresAt}
 	if err := validateSyncPause(contract); err != nil {
 		return nil, err
 	}
@@ -57,18 +50,6 @@ func decodeSyncPause(typ events.TypeName, payload []byte) (events.Event, error) 
 func validateSyncPause(event events.SyncPauseEvent) error {
 	if strings.TrimSpace(event.StackName) == "" {
 		return errors.New("sync pause stack is required")
-	}
-	switch event.Scope {
-	case "stack":
-		if event.ServiceName != "" {
-			return errors.New("stack pause must not identify a service")
-		}
-	case "service":
-		if strings.TrimSpace(event.ServiceName) == "" {
-			return errors.New("service pause requires a service")
-		}
-	default:
-		return errors.New("invalid sync pause scope")
 	}
 	return nil
 }

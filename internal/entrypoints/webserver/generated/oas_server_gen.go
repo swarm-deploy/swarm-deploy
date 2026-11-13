@@ -29,10 +29,6 @@ type Handler interface {
 	//
 	// DELETE /api/v1/nodes/{id}/labels/{key}
 	DeleteNodeLabel(ctx context.Context, params DeleteNodeLabelParams) error
-	// DeleteServiceSyncPause implements deleteServiceSyncPause operation.
-	//
-	// DELETE /api/v1/stacks/{stack}/services/{service}/sync-pause
-	DeleteServiceSyncPause(ctx context.Context, params DeleteServiceSyncPauseParams) error
 	// DeleteStackSyncPause implements deleteStackSyncPause operation.
 	//
 	// DELETE /api/v1/stacks/{stack}/sync-pause
@@ -89,10 +85,6 @@ type Handler interface {
 	//
 	// GET /api/v1/stacks/{stack}/services/{service}
 	GetService(ctx context.Context, params GetServiceParams) (*ServiceStatusResponse, error)
-	// GetServiceSyncPause implements getServiceSyncPause operation.
-	//
-	// GET /api/v1/stacks/{stack}/services/{service}/sync-pause
-	GetServiceSyncPause(ctx context.Context, params GetServiceSyncPauseParams) (*ServiceSyncPauseResponse, error)
 	// GetStackDeploymentActivity implements getStackDeploymentActivity operation.
 	//
 	// Aggregated deployment operations for a configured stack, grouped by UTC start time.
@@ -179,10 +171,6 @@ type Handler interface {
 	//
 	// GET /api/v1/swarm/services
 	ListSwarmServices(ctx context.Context) (*SwarmServicesResponse, error)
-	// PutServiceSyncPause implements putServiceSyncPause operation.
-	//
-	// PUT /api/v1/stacks/{stack}/services/{service}/sync-pause
-	PutServiceSyncPause(ctx context.Context, req *SyncPauseRequest, params PutServiceSyncPauseParams) (*ServiceSyncPauseResponse, error)
 	// PutStackSyncPause implements putStackSyncPause operation.
 	//
 	// PUT /api/v1/stacks/{stack}/sync-pause

@@ -107,25 +107,19 @@ func finalizeTerminalToolResult(toolName, result string) (string, error) {
 
 func finalizePauseToolResult(toolName, result string) (string, error) {
 	var pauseResult struct {
-		Scope   string `json:"scope"`
 		Stack   string `json:"stack"`
-		Service string `json:"service"`
 		Changed *bool  `json:"changed"`
 	}
 	if err := json.Unmarshal([]byte(result), &pauseResult); err != nil {
 		return "", fmt.Errorf("decode Pause Sync result: %w", err)
 	}
-	target := fmt.Sprintf("stack %q", pauseResult.Stack)
-	if pauseResult.Scope == "service" {
-		target = fmt.Sprintf("service %q in stack %q", pauseResult.Service, pauseResult.Stack)
-	}
 	if pauseResult.Changed != nil && !*pauseResult.Changed {
 		return "Pause Sync policy was already in the requested state.", nil
 	}
 	if toolName == syncPauseSetTool {
-		return fmt.Sprintf("Pause Sync enabled for %s.", target), nil
+		return fmt.Sprintf("Pause Sync enabled for stack %q.", pauseResult.Stack), nil
 	}
-	return fmt.Sprintf("Direct Pause Sync policy removed for %s.", target), nil
+	return fmt.Sprintf("Pause Sync policy removed for stack %q.", pauseResult.Stack), nil
 }
 
 func appendActionWarning(answer, warning string) string {

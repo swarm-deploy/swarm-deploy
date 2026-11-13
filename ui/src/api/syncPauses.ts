@@ -1,5 +1,5 @@
 import { apiRequest } from "./client";
-import type { ServiceSyncPauseResponse, StackSyncPausesResponse } from "./types";
+import type { StackSyncPausesResponse } from "./types";
 
 export function getStackSyncPauses(stack: string): Promise<StackSyncPausesResponse> {
   return apiRequest(`/api/v1/stacks/${encodeURIComponent(stack)}/sync-pauses`);
@@ -13,24 +13,6 @@ export function setStackSyncPause(stack: string, expiresAt: string | null): Prom
 
 export function resumeStackSync(stack: string): Promise<void> {
   return apiRequest(`/api/v1/stacks/${encodeURIComponent(stack)}/sync-pause`, { method: "DELETE" });
-}
-
-export function getServiceSyncPause(stack: string, service: string): Promise<ServiceSyncPauseResponse> {
-  return apiRequest(`/api/v1/stacks/${encodeURIComponent(stack)}/services/${encodeURIComponent(service)}/sync-pause`);
-}
-
-export function setServiceSyncPause(
-  stack: string, service: string, expiresAt: string | null,
-): Promise<ServiceSyncPauseResponse> {
-  return apiRequest(`/api/v1/stacks/${encodeURIComponent(stack)}/services/${encodeURIComponent(service)}/sync-pause`, {
-    method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ expires_at: expiresAt }),
-  });
-}
-
-export function removeServiceSyncPause(stack: string, service: string): Promise<void> {
-  return apiRequest(`/api/v1/stacks/${encodeURIComponent(stack)}/services/${encodeURIComponent(service)}/sync-pause`, {
-    method: "DELETE",
-  });
 }
 
 export const syncPauseDurations = [

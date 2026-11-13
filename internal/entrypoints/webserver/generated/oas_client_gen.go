@@ -47,10 +47,6 @@ type Invoker interface {
 	//
 	// DELETE /api/v1/nodes/{id}/labels/{key}
 	DeleteNodeLabel(ctx context.Context, params DeleteNodeLabelParams) error
-	// DeleteServiceSyncPause invokes deleteServiceSyncPause operation.
-	//
-	// DELETE /api/v1/stacks/{stack}/services/{service}/sync-pause
-	DeleteServiceSyncPause(ctx context.Context, params DeleteServiceSyncPauseParams) error
 	// DeleteStackSyncPause invokes deleteStackSyncPause operation.
 	//
 	// DELETE /api/v1/stacks/{stack}/sync-pause
@@ -111,10 +107,6 @@ type Invoker interface {
 	//
 	// GET /api/v1/stacks/{stack}/services/{service}
 	GetService(ctx context.Context, params GetServiceParams) (*ServiceStatusResponse, error)
-	// GetServiceSyncPause invokes getServiceSyncPause operation.
-	//
-	// GET /api/v1/stacks/{stack}/services/{service}/sync-pause
-	GetServiceSyncPause(ctx context.Context, params GetServiceSyncPauseParams) (*ServiceSyncPauseResponse, error)
 	// GetStackDeploymentActivity invokes getStackDeploymentActivity operation.
 	//
 	// Aggregated deployment operations for a configured stack, grouped by UTC start time.
@@ -205,10 +197,6 @@ type Invoker interface {
 	//
 	// GET /api/v1/swarm/services
 	ListSwarmServices(ctx context.Context) (*SwarmServicesResponse, error)
-	// PutServiceSyncPause invokes putServiceSyncPause operation.
-	//
-	// PUT /api/v1/stacks/{stack}/services/{service}/sync-pause
-	PutServiceSyncPause(ctx context.Context, request *SyncPauseRequest, params PutServiceSyncPauseParams) (*ServiceSyncPauseResponse, error)
 	// PutStackSyncPause invokes putStackSyncPause operation.
 	//
 	// PUT /api/v1/stacks/{stack}/sync-pause
@@ -737,116 +725,6 @@ func (c *Client) sendDeleteNodeLabel(ctx context.Context, params DeleteNodeLabel
 
 	stage = "DecodeResponse"
 	result, err := decodeDeleteNodeLabelResponse(resp)
-	if err != nil {
-		return res, errors.Wrap(err, "decode response")
-	}
-
-	return result, nil
-}
-
-// DeleteServiceSyncPause invokes deleteServiceSyncPause operation.
-//
-// DELETE /api/v1/stacks/{stack}/services/{service}/sync-pause
-func (c *Client) DeleteServiceSyncPause(ctx context.Context, params DeleteServiceSyncPauseParams) error {
-	_, err := c.sendDeleteServiceSyncPause(ctx, params)
-	return err
-}
-
-func (c *Client) sendDeleteServiceSyncPause(ctx context.Context, params DeleteServiceSyncPauseParams) (res *DeleteServiceSyncPauseNoContent, err error) {
-	otelAttrs := []attribute.KeyValue{
-		otelogen.OperationID("deleteServiceSyncPause"),
-		semconv.HTTPRequestMethodKey.String("DELETE"),
-		semconv.URLTemplateKey.String("/api/v1/stacks/{stack}/services/{service}/sync-pause"),
-	}
-	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
-
-	// Run stopwatch.
-	startTime := time.Now()
-	defer func() {
-		// Use floating point division here for higher precision (instead of Millisecond method).
-		elapsedDuration := time.Since(startTime)
-		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
-	}()
-
-	// Increment request counter.
-	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
-
-	// Start a span for this request.
-	ctx, span := c.cfg.Tracer.Start(ctx, DeleteServiceSyncPauseOperation,
-		trace.WithAttributes(otelAttrs...),
-		clientSpanKind,
-	)
-	// Track stage for error reporting.
-	var stage string
-	defer func() {
-		if err != nil {
-			span.RecordError(err)
-			span.SetStatus(codes.Error, stage)
-			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
-		}
-		span.End()
-	}()
-
-	stage = "BuildURL"
-	u := uri.Clone(c.requestURL(ctx))
-	var pathParts [5]string
-	pathParts[0] = "/api/v1/stacks/"
-	{
-		// Encode "stack" parameter.
-		e := uri.NewPathEncoder(uri.PathEncoderConfig{
-			Param:   "stack",
-			Style:   uri.PathStyleSimple,
-			Explode: false,
-		})
-		if err := func() error {
-			return e.EncodeValue(conv.StringToString(params.Stack))
-		}(); err != nil {
-			return res, errors.Wrap(err, "encode path")
-		}
-		encoded, err := e.Result()
-		if err != nil {
-			return res, errors.Wrap(err, "encode path")
-		}
-		pathParts[1] = encoded
-	}
-	pathParts[2] = "/services/"
-	{
-		// Encode "service" parameter.
-		e := uri.NewPathEncoder(uri.PathEncoderConfig{
-			Param:   "service",
-			Style:   uri.PathStyleSimple,
-			Explode: false,
-		})
-		if err := func() error {
-			return e.EncodeValue(conv.StringToString(params.Service))
-		}(); err != nil {
-			return res, errors.Wrap(err, "encode path")
-		}
-		encoded, err := e.Result()
-		if err != nil {
-			return res, errors.Wrap(err, "encode path")
-		}
-		pathParts[3] = encoded
-	}
-	pathParts[4] = "/sync-pause"
-	uri.AddPathParts(u, pathParts[:]...)
-
-	stage = "EncodeRequest"
-	r, err := ht.NewRequest(ctx, "DELETE", u)
-	if err != nil {
-		return res, errors.Wrap(err, "create request")
-	}
-
-	stage = "SendRequest"
-	resp, err := c.cfg.Client.Do(r)
-	if err != nil {
-		return res, errors.Wrap(err, "do request")
-	}
-	body := resp.Body
-	defer body.Close()
-
-	stage = "DecodeResponse"
-	result, err := decodeDeleteServiceSyncPauseResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -2146,116 +2024,6 @@ func (c *Client) sendGetService(ctx context.Context, params GetServiceParams) (r
 
 	stage = "DecodeResponse"
 	result, err := decodeGetServiceResponse(resp)
-	if err != nil {
-		return res, errors.Wrap(err, "decode response")
-	}
-
-	return result, nil
-}
-
-// GetServiceSyncPause invokes getServiceSyncPause operation.
-//
-// GET /api/v1/stacks/{stack}/services/{service}/sync-pause
-func (c *Client) GetServiceSyncPause(ctx context.Context, params GetServiceSyncPauseParams) (*ServiceSyncPauseResponse, error) {
-	res, err := c.sendGetServiceSyncPause(ctx, params)
-	return res, err
-}
-
-func (c *Client) sendGetServiceSyncPause(ctx context.Context, params GetServiceSyncPauseParams) (res *ServiceSyncPauseResponse, err error) {
-	otelAttrs := []attribute.KeyValue{
-		otelogen.OperationID("getServiceSyncPause"),
-		semconv.HTTPRequestMethodKey.String("GET"),
-		semconv.URLTemplateKey.String("/api/v1/stacks/{stack}/services/{service}/sync-pause"),
-	}
-	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
-
-	// Run stopwatch.
-	startTime := time.Now()
-	defer func() {
-		// Use floating point division here for higher precision (instead of Millisecond method).
-		elapsedDuration := time.Since(startTime)
-		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
-	}()
-
-	// Increment request counter.
-	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
-
-	// Start a span for this request.
-	ctx, span := c.cfg.Tracer.Start(ctx, GetServiceSyncPauseOperation,
-		trace.WithAttributes(otelAttrs...),
-		clientSpanKind,
-	)
-	// Track stage for error reporting.
-	var stage string
-	defer func() {
-		if err != nil {
-			span.RecordError(err)
-			span.SetStatus(codes.Error, stage)
-			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
-		}
-		span.End()
-	}()
-
-	stage = "BuildURL"
-	u := uri.Clone(c.requestURL(ctx))
-	var pathParts [5]string
-	pathParts[0] = "/api/v1/stacks/"
-	{
-		// Encode "stack" parameter.
-		e := uri.NewPathEncoder(uri.PathEncoderConfig{
-			Param:   "stack",
-			Style:   uri.PathStyleSimple,
-			Explode: false,
-		})
-		if err := func() error {
-			return e.EncodeValue(conv.StringToString(params.Stack))
-		}(); err != nil {
-			return res, errors.Wrap(err, "encode path")
-		}
-		encoded, err := e.Result()
-		if err != nil {
-			return res, errors.Wrap(err, "encode path")
-		}
-		pathParts[1] = encoded
-	}
-	pathParts[2] = "/services/"
-	{
-		// Encode "service" parameter.
-		e := uri.NewPathEncoder(uri.PathEncoderConfig{
-			Param:   "service",
-			Style:   uri.PathStyleSimple,
-			Explode: false,
-		})
-		if err := func() error {
-			return e.EncodeValue(conv.StringToString(params.Service))
-		}(); err != nil {
-			return res, errors.Wrap(err, "encode path")
-		}
-		encoded, err := e.Result()
-		if err != nil {
-			return res, errors.Wrap(err, "encode path")
-		}
-		pathParts[3] = encoded
-	}
-	pathParts[4] = "/sync-pause"
-	uri.AddPathParts(u, pathParts[:]...)
-
-	stage = "EncodeRequest"
-	r, err := ht.NewRequest(ctx, "GET", u)
-	if err != nil {
-		return res, errors.Wrap(err, "create request")
-	}
-
-	stage = "SendRequest"
-	resp, err := c.cfg.Client.Do(r)
-	if err != nil {
-		return res, errors.Wrap(err, "do request")
-	}
-	body := resp.Body
-	defer body.Close()
-
-	stage = "DecodeResponse"
-	result, err := decodeGetServiceSyncPauseResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -4531,119 +4299,6 @@ func (c *Client) sendListSwarmServices(ctx context.Context) (res *SwarmServicesR
 
 	stage = "DecodeResponse"
 	result, err := decodeListSwarmServicesResponse(resp)
-	if err != nil {
-		return res, errors.Wrap(err, "decode response")
-	}
-
-	return result, nil
-}
-
-// PutServiceSyncPause invokes putServiceSyncPause operation.
-//
-// PUT /api/v1/stacks/{stack}/services/{service}/sync-pause
-func (c *Client) PutServiceSyncPause(ctx context.Context, request *SyncPauseRequest, params PutServiceSyncPauseParams) (*ServiceSyncPauseResponse, error) {
-	res, err := c.sendPutServiceSyncPause(ctx, request, params)
-	return res, err
-}
-
-func (c *Client) sendPutServiceSyncPause(ctx context.Context, request *SyncPauseRequest, params PutServiceSyncPauseParams) (res *ServiceSyncPauseResponse, err error) {
-	otelAttrs := []attribute.KeyValue{
-		otelogen.OperationID("putServiceSyncPause"),
-		semconv.HTTPRequestMethodKey.String("PUT"),
-		semconv.URLTemplateKey.String("/api/v1/stacks/{stack}/services/{service}/sync-pause"),
-	}
-	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
-
-	// Run stopwatch.
-	startTime := time.Now()
-	defer func() {
-		// Use floating point division here for higher precision (instead of Millisecond method).
-		elapsedDuration := time.Since(startTime)
-		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
-	}()
-
-	// Increment request counter.
-	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
-
-	// Start a span for this request.
-	ctx, span := c.cfg.Tracer.Start(ctx, PutServiceSyncPauseOperation,
-		trace.WithAttributes(otelAttrs...),
-		clientSpanKind,
-	)
-	// Track stage for error reporting.
-	var stage string
-	defer func() {
-		if err != nil {
-			span.RecordError(err)
-			span.SetStatus(codes.Error, stage)
-			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
-		}
-		span.End()
-	}()
-
-	stage = "BuildURL"
-	u := uri.Clone(c.requestURL(ctx))
-	var pathParts [5]string
-	pathParts[0] = "/api/v1/stacks/"
-	{
-		// Encode "stack" parameter.
-		e := uri.NewPathEncoder(uri.PathEncoderConfig{
-			Param:   "stack",
-			Style:   uri.PathStyleSimple,
-			Explode: false,
-		})
-		if err := func() error {
-			return e.EncodeValue(conv.StringToString(params.Stack))
-		}(); err != nil {
-			return res, errors.Wrap(err, "encode path")
-		}
-		encoded, err := e.Result()
-		if err != nil {
-			return res, errors.Wrap(err, "encode path")
-		}
-		pathParts[1] = encoded
-	}
-	pathParts[2] = "/services/"
-	{
-		// Encode "service" parameter.
-		e := uri.NewPathEncoder(uri.PathEncoderConfig{
-			Param:   "service",
-			Style:   uri.PathStyleSimple,
-			Explode: false,
-		})
-		if err := func() error {
-			return e.EncodeValue(conv.StringToString(params.Service))
-		}(); err != nil {
-			return res, errors.Wrap(err, "encode path")
-		}
-		encoded, err := e.Result()
-		if err != nil {
-			return res, errors.Wrap(err, "encode path")
-		}
-		pathParts[3] = encoded
-	}
-	pathParts[4] = "/sync-pause"
-	uri.AddPathParts(u, pathParts[:]...)
-
-	stage = "EncodeRequest"
-	r, err := ht.NewRequest(ctx, "PUT", u)
-	if err != nil {
-		return res, errors.Wrap(err, "create request")
-	}
-	if err := encodePutServiceSyncPauseRequest(request, r); err != nil {
-		return res, errors.Wrap(err, "encode request")
-	}
-
-	stage = "SendRequest"
-	resp, err := c.cfg.Client.Do(r)
-	if err != nil {
-		return res, errors.Wrap(err, "do request")
-	}
-	body := resp.Body
-	defer body.Close()
-
-	stage = "DecodeResponse"
-	result, err := decodePutServiceSyncPauseResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}

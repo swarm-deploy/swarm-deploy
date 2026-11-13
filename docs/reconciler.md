@@ -25,13 +25,11 @@ Some steps are conditional. For example, the image policy step is absent when ev
 
 ## Pause Sync policy
 
-GitOps owns persistent Pause Sync policy at two independent scopes: one direct pause for a stack and direct
-pauses for individual services. A service is effectively paused when either record is active. Removing a
-stack pause never removes service pauses, and removing a service pause while its stack is paused does not
-make that service effectively unpaused. Pause is separate from the existing `Synced` and `OutOfSync` status.
+GitOps owns one persistent Pause Sync policy per stack. While active, it preserves every service in that
+stack. Pause is separate from the existing `Synced` and `OutOfSync` status.
 
-Pause records contain only their GitOps target and an optional absolute expiration. They do not copy service
-specifications or runtime state. Expired records are removed transactionally with their expiration events at
+Pause records contain only the GitOps stack name and an optional absolute expiration. They do not copy
+service specifications or runtime state. Expired records are removed transactionally with their expiration events at
 the beginning of the next ordinary GitOps sync; no expiration scheduler or worker runs between syncs. An
 operation already running when a pause is created is not canceled.
 
@@ -42,9 +40,10 @@ convergence waiting, service-level mutations, and pruning, while continuing to d
 stack. The no-Attempt pruning and GitOps self-heal paths use the same set. This also keeps a paused live
 service running when it has been removed from Git until its effective pause is removed.
 
-Each Deployment and Attempt records the service names intentionally skipped for that execution. Effective
-pause state and paused counts are calculated from active pause records and GitOps-managed services rather
-than persisted as a second policy projection.
+Each Deployment and Attempt records the service names intentionally skipped for that execution. The paused
+count is calculated from the active stack pause and GitOps-managed services rather than persisted as a second
+policy projection. Realtime and the assistant can enable the stack pause before scaling one of its services;
+scaling starts immediately after the pause is persisted and retries only scaling if that second step fails.
 
 ## Sync runs and the stack queue
 

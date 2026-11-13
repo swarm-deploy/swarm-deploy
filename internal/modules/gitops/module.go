@@ -26,7 +26,7 @@ type Module struct {
 	Store         *modelstore.SQLStore
 	GitRepository git.Repository
 	Differ        *differ.Differ
-	// SyncPauses owns persistent stack and service pause policy.
+	// SyncPauses owns persistent stack pause policy.
 	SyncPauses *syncpause.Service
 
 	cfg *config.Config
