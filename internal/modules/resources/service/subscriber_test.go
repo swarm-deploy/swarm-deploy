@@ -8,6 +8,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments"
+	deploymentstore "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	eventbus "github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
@@ -47,17 +49,19 @@ func TestSubscriberRepeatedDeliveryIsIdempotent(t *testing.T) {
 			assert.Equal(t, "app", updated.StackName)
 			return nil
 		}).Times(1)
-	subscriber := NewSubscriber(store, &swarm.Swarm{
+	desired := compose.File{Compose: compose.Compose{Services: []compose.Service{{
+		Name: "api", Image: "desired:1",
+	}}}}
+	deploymentID := saveSuccessfulDeployment(t, db, "app", desired)
+	subscriber := NewSubscriber(store, deploymentstore.NewStore(db), &swarm.Swarm{
 		Services: inspector,
 		Images:   images,
 		Configs:  swarm.NewMockConfigManager(ctrl),
 	}, metadata.NewExtractor(), db, publisher)
 	event := events.Envelope{ID: "deploy-success", Event: &events.DeploySuccess{
 		DeployEvent: events.DeployEvent{
-			StackName: "app",
-			StackDefinition: compose.File{Compose: compose.Compose{Services: []compose.Service{{
-				Name: "api", Image: "desired:1",
-			}}}},
+			DeploymentID: deploymentID,
+			StackName:    "app",
 		},
 	}}
 
@@ -290,7 +294,11 @@ func TestSubscriberHandle(t *testing.T) {
 			store := modelstore.NewSQLStore(db)
 			require.NoError(t, err)
 
-			sub := NewSubscriber(store, &swarm.Swarm{
+			desired := compose.File{Compose: compose.Compose{Services: []compose.Service{{
+				Name: "api", Image: "ghcr.io/swarm-deploy/payments-api:v1.2.3",
+			}}}}
+			deploymentID := saveSuccessfulDeployment(t, db, "payments", desired)
+			sub := NewSubscriber(store, deploymentstore.NewStore(db), &swarm.Swarm{
 				Services: inspector,
 				Images:   images,
 				Configs:  configs,
@@ -300,17 +308,8 @@ func TestSubscriberHandle(t *testing.T) {
 
 			err = sub.Handle(context.Background(), events.Envelope{ID: "deploy", Event: &events.DeploySuccess{
 				DeployEvent: events.DeployEvent{
-					StackName: "payments",
-					StackDefinition: compose.File{
-						Compose: compose.Compose{
-							Services: []compose.Service{
-								{
-									Name:  "api",
-									Image: "ghcr.io/swarm-deploy/payments-api:v1.2.3",
-								},
-							},
-						},
-					},
+					DeploymentID: deploymentID,
+					StackName:    "payments",
 				},
 			}})
 			require.NoError(t, err)
@@ -347,12 +346,16 @@ func TestSubscriberHandleLoadsWebRouteConfigs(t *testing.T) {
 			expectedDomain:  "api.example.com",
 		},
 		{
-			name:           "loads config from desired data before swarm",
+			name:           "loads config from swarm after desired data is sanitized",
 			desiredPresent: true,
 			desiredData: []byte("routes:\n" +
 				"  - from: https://file.example.com\n" +
 				"    to: http://api:8080\n"),
-			expectedDomain: "file.example.com",
+			swarmConfigData: []byte("routes:\n" +
+				"  - from: https://live.example.com\n" +
+				"    to: http://api:8080\n"),
+			loadSwarmConfig: true,
+			expectedDomain:  "live.example.com",
 		},
 		{
 			name:           "falls back to swarm when desired data is absent",
@@ -364,10 +367,14 @@ func TestSubscriberHandleLoadsWebRouteConfigs(t *testing.T) {
 			expectedDomain:  "fallback.example.com",
 		},
 		{
-			name:            "uses empty desired data without falling back to swarm",
-			desiredPresent:  true,
-			desiredData:     []byte{},
-			swarmConfigData: []byte("routes:\n  - from: https://fallback.example.com\n"),
+			name:           "falls back to swarm for empty desired data",
+			desiredPresent: true,
+			desiredData:    []byte{},
+			swarmConfigData: []byte("routes:\n" +
+				"  - from: https://fallback.example.com\n" +
+				"    to: http://api:8080\n"),
+			loadSwarmConfig: true,
+			expectedDomain:  "fallback.example.com",
 		},
 	}
 
@@ -427,7 +434,16 @@ func TestSubscriberHandleLoadsWebRouteConfigs(t *testing.T) {
 					Return(swarm.Config{Data: testCase.swarmConfigData}, nil)
 			}
 
-			sub := NewSubscriber(store, &swarm.Swarm{
+			desired := compose.File{Compose: compose.Compose{
+				Configs: desiredConfigs,
+				Services: []compose.Service{{
+					Name:    "pomerium",
+					Image:   "ghcr.io/swarm-deploy/pomerium:v1",
+					Configs: []compose.ObjectRef{desiredConfigRef},
+				}},
+			}}
+			deploymentID := saveSuccessfulDeployment(t, db, "prod", desired)
+			sub := NewSubscriber(store, deploymentstore.NewStore(db), &swarm.Swarm{
 				Services: inspector,
 				Images:   images,
 				Configs:  configs,
@@ -435,19 +451,8 @@ func TestSubscriberHandleLoadsWebRouteConfigs(t *testing.T) {
 
 			err = sub.Handle(context.Background(), events.Envelope{ID: "deploy", Event: &events.DeploySuccess{
 				DeployEvent: events.DeployEvent{
-					StackName: "prod",
-					StackDefinition: compose.File{
-						Compose: compose.Compose{
-							Configs: desiredConfigs,
-							Services: []compose.Service{
-								{
-									Name:    "pomerium",
-									Image:   "ghcr.io/swarm-deploy/pomerium:v1",
-									Configs: []compose.ObjectRef{desiredConfigRef},
-								},
-							},
-						},
-					},
+					DeploymentID: deploymentID,
+					StackName:    "prod",
 				},
 			}})
 			require.NoError(t, err)
@@ -475,4 +480,21 @@ func TestSubscriberHandleLoadsWebRouteConfigs(t *testing.T) {
 			}, info.WebRoutes)
 		})
 	}
+}
+
+func saveSuccessfulDeployment(
+	t *testing.T,
+	db storage.Database,
+	stack string,
+	desired compose.File,
+) string {
+	t.Helper()
+	lifecycle := deployments.NewService(db, &dispatcher.NopDispatcher{})
+	attempt, err := lifecycle.StartIfChanged(t.Context(), stack, "commit", desired, true)
+	require.NoError(t, err)
+	require.NotNil(t, attempt)
+	require.NoError(t, lifecycle.Complete(t.Context(), attempt.ID, deployments.Completion{
+		Outcome: deployments.CompletionSucceeded,
+	}))
+	return attempt.DeploymentID
 }
