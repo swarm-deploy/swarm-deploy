@@ -414,38 +414,23 @@ button:hover,
 .overview-sync-indicator--warning { color: var(--warning); }
 .overview-sync-indicator--error { color: var(--error); }
 
-.overview-webhook-details,
-.app-resource-link {
+.overview-webhook-details {
   border: 0;
   border-bottom: 1px dashed currentColor;
   border-radius: 3px;
   background: transparent;
   color: inherit;
   padding: 1px 2px;
-}
-
-.overview-webhook-details {
   font: inherit;
   font-weight: 500;
 }
 
-.app-resource-link {
-  text-decoration: none;
-}
-
 .overview-webhook-details:hover,
-.overview-webhook-details:focus-visible,
-.app-resource-link:hover,
-.app-resource-link:focus-visible {
+.overview-webhook-details:focus-visible {
   color: inherit;
   background: var(--surface-hover);
   filter: none;
   transform: none;
-}
-
-.app-resource-link:focus-visible {
-  outline: 2px solid var(--accent-focus);
-  outline-offset: -1px;
 }
 
 .overview-sync-commit-badge {
@@ -2273,6 +2258,39 @@ a.overview-summary-row:focus-visible {
   outline-offset: -1px;
 }
 
+.app-resource-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+  border-radius: 3px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.app-resource-link::after {
+  content: "";
+  flex: none;
+  width: .4em;
+  height: .4em;
+  margin-inline-end: 2px;
+  border-right: 1.5px solid currentColor;
+  border-top: 1.5px solid currentColor;
+  color: var(--muted);
+  transform: rotate(45deg);
+}
+
+.app-resource-link:hover::after,
+.app-resource-link:focus-visible::after {
+  color: inherit;
+}
+
+.app-resource-link:focus-visible {
+  outline: 2px solid var(--accent-focus);
+  outline-offset: 2px;
+}
+
 .app-table-cell--center {
   text-align: center !important;
 }
@@ -2455,6 +2473,7 @@ a.overview-summary-row:focus-visible {
 }
 
 .services-stack-table .stack-service-name {
+  min-width: 0;
   display: block;
   overflow: hidden;
   text-overflow: ellipsis;

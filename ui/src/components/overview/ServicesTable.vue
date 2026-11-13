@@ -91,10 +91,12 @@ function syncErrorText(syncError: string | undefined): string {
         <span class="stack-service-name-wrap">
           <RouterLink
             v-if="service.stack && service.name"
-            class="stack-service-name app-resource-link"
+            class="app-resource-link"
             :to="{ name: 'service-details', params: { stack: service.stack, service: service.name } }"
             @click.stop
-          >{{ service.name }}</RouterLink>
+          >
+            <span class="stack-service-name">{{ service.name }}</span>
+          </RouterLink>
           <strong v-else class="stack-service-name">{{ service.name || "unknown" }}</strong>
         </span>
       </td>
