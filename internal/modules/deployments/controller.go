@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -61,6 +62,8 @@ type ExecuteRequest struct {
 	ManualRetry bool
 	// SourceChanged reports whether GitOps observed a new source digest.
 	SourceChanged bool
+	// PreservedServices are skipped without Deployments interpreting the caller's policy.
+	PreservedServices []string
 }
 
 // ExecuteServiceRequest contains one drift-remediation execution.
@@ -141,7 +144,9 @@ func (c *Controller) execute(ctx context.Context, req ExecuteRequest) (ExecuteRe
 		return ExecuteResult{}, fmt.Errorf("recover deployment completion: %w", err)
 	}
 	attempt, err := c.lifecycle.StartIfChanged(
-		ctx, req.Stack.Name, req.Commit, req.Desired, req.SourceChanged, StartOptions{ManualRetry: req.ManualRetry},
+		ctx, req.Stack.Name, req.Commit, req.Desired, req.SourceChanged, StartOptions{
+			ManualRetry: req.ManualRetry, PreservedServices: req.PreservedServices,
+		},
 	)
 	result := ExecuteResult{Attempt: attempt}
 	if err != nil {
@@ -163,6 +168,7 @@ func (c *Controller) execute(ctx context.Context, req ExecuteRequest) (ExecuteRe
 		StackName:         req.Stack.Name,
 		SourceComposePath: req.Desired.Path,
 		Desired:           req.Desired.Compose,
+		PreservedServices: req.PreservedServices,
 		Options:           options,
 		BeforeUpdate: func(
 			ctx context.Context, name string, generation deploymentmodel.UpdateGeneration,
@@ -198,6 +204,7 @@ func (c *Controller) execute(ctx context.Context, req ExecuteRequest) (ExecuteRe
 
 	pruned, cleanupErr := c.pruner.Prune(ctx, pruner.PruneServicesRequest{
 		Stack: req.Stack, Commit: req.Commit, Desired: req.Desired.Compose.Services, Live: live,
+		PreservedServices: req.PreservedServices,
 	})
 	result.PrunedServices = pruned
 	cleanupErr = executionError(ctx, cleanupErr)
@@ -242,6 +249,7 @@ func (c *Controller) unchangedResult(ctx context.Context, req ExecuteRequest) (E
 	if latest.Status == deploymentmodel.Succeeded {
 		err = c.deployer.RefreshRegistryAuth(ctx, deployer.StackRequest{
 			StackName: req.Stack.Name, SourceComposePath: req.Desired.Path, Desired: req.Desired.Compose,
+			PreservedServices: req.PreservedServices,
 		})
 		if err != nil {
 			return result, fmt.Errorf("%w: %w", ErrRegistryAuthRefresh, err)
@@ -348,6 +356,9 @@ func (c *Controller) persistInitJobs(ctx context.Context, attemptID string, resu
 
 func (c *Controller) record(req ExecuteRequest, status string) {
 	for _, service := range req.Desired.Compose.Services {
+		if slices.Contains(req.PreservedServices, service.Name) {
+			continue
+		}
 		c.metrics.RecordDeploy(req.Stack.Name, service.Name, status)
 	}
 }

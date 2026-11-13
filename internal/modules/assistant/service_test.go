@@ -48,6 +48,7 @@ type fakeTools struct {
 	definitions   []routing.ToolDefinition
 	executeErr    error
 	executeResult string
+	executeFunc   func(routing.Request) (string, error)
 }
 
 func (f *fakeTools) Definitions() []routing.ToolDefinition {
@@ -71,6 +72,9 @@ func (f *fakeTools) Execute(_ context.Context, req routing.Request) (string, err
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls = append(f.calls, req.ToolName)
+	if f.executeFunc != nil {
+		return f.executeFunc(req)
+	}
 
 	if f.executeErr != nil {
 		return "", f.executeErr

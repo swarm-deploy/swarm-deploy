@@ -1292,6 +1292,12 @@ func (s *DSNSuggestionsResponse) SetSuggestions(val []DSNSuggestion) {
 // DeleteNodeLabelNoContent is response for DeleteNodeLabel operation.
 type DeleteNodeLabelNoContent struct{}
 
+// DeleteServiceSyncPauseNoContent is response for DeleteServiceSyncPause operation.
+type DeleteServiceSyncPauseNoContent struct{}
+
+// DeleteStackSyncPauseNoContent is response for DeleteStackSyncPause operation.
+type DeleteStackSyncPauseNoContent struct{}
+
 // Merged schema.
 // Ref: #/components/schemas/Deployment
 type Deployment struct {
@@ -1327,6 +1333,8 @@ type Deployment struct {
 	ConfigurationYaml OptString           `json:"configuration_yaml"`
 	Changes           []DeploymentChange  `json:"changes"`
 	Attempts          []DeploymentAttempt `json:"attempts"`
+	// Services intentionally skipped by the latest Attempt.
+	SkippedServices []string `json:"skipped_services"`
 }
 
 // GetID returns the value of ID.
@@ -1464,6 +1472,11 @@ func (s *Deployment) GetAttempts() []DeploymentAttempt {
 	return s.Attempts
 }
 
+// GetSkippedServices returns the value of SkippedServices.
+func (s *Deployment) GetSkippedServices() []string {
+	return s.SkippedServices
+}
+
 // SetID sets the value of ID.
 func (s *Deployment) SetID(val string) {
 	s.ID = val
@@ -1597,6 +1610,11 @@ func (s *Deployment) SetChanges(val []DeploymentChange) {
 // SetAttempts sets the value of Attempts.
 func (s *Deployment) SetAttempts(val []DeploymentAttempt) {
 	s.Attempts = val
+}
+
+// SetSkippedServices sets the value of SkippedServices.
+func (s *Deployment) SetSkippedServices(val []string) {
+	s.SkippedServices = val
 }
 
 // Ref: #/components/schemas/DeploymentActivityBucket
@@ -1785,6 +1803,8 @@ type DeploymentAttempt struct {
 	FinishedAt         OptDateTime                  `json:"finished_at"`
 	DurationMs         OptInt64                     `json:"duration_ms"`
 	InitJobs           []DeploymentInitJobExecution `json:"init_jobs"`
+	// Services intentionally preserved and not applied or observed by this Attempt.
+	SkippedServices []string `json:"skipped_services"`
 }
 
 // GetID returns the value of ID.
@@ -1862,6 +1882,11 @@ func (s *DeploymentAttempt) GetInitJobs() []DeploymentInitJobExecution {
 	return s.InitJobs
 }
 
+// GetSkippedServices returns the value of SkippedServices.
+func (s *DeploymentAttempt) GetSkippedServices() []string {
+	return s.SkippedServices
+}
+
 // SetID sets the value of ID.
 func (s *DeploymentAttempt) SetID(val string) {
 	s.ID = val
@@ -1935,6 +1960,11 @@ func (s *DeploymentAttempt) SetDurationMs(val OptInt64) {
 // SetInitJobs sets the value of InitJobs.
 func (s *DeploymentAttempt) SetInitJobs(val []DeploymentInitJobExecution) {
 	s.InitJobs = val
+}
+
+// SetSkippedServices sets the value of SkippedServices.
+func (s *DeploymentAttempt) SetSkippedServices(val []string) {
+	s.SkippedServices = val
 }
 
 // Ref: #/components/schemas/DeploymentAttemptStatus
@@ -3021,6 +3051,81 @@ func (s *DeploymentsResponse) SetNextCursor(val OptString) {
 	s.NextCursor = val
 }
 
+// Ref: #/components/schemas/EffectivePausedService
+type EffectivePausedService struct {
+	Service string                   `json:"service"`
+	Source  EffectiveSyncPauseSource `json:"source"`
+}
+
+// GetService returns the value of Service.
+func (s *EffectivePausedService) GetService() string {
+	return s.Service
+}
+
+// GetSource returns the value of Source.
+func (s *EffectivePausedService) GetSource() EffectiveSyncPauseSource {
+	return s.Source
+}
+
+// SetService sets the value of Service.
+func (s *EffectivePausedService) SetService(val string) {
+	s.Service = val
+}
+
+// SetSource sets the value of Source.
+func (s *EffectivePausedService) SetSource(val EffectiveSyncPauseSource) {
+	s.Source = val
+}
+
+// Ref: #/components/schemas/EffectiveSyncPauseSource
+type EffectiveSyncPauseSource string
+
+const (
+	EffectiveSyncPauseSourceStack   EffectiveSyncPauseSource = "stack"
+	EffectiveSyncPauseSourceService EffectiveSyncPauseSource = "service"
+	EffectiveSyncPauseSourceBoth    EffectiveSyncPauseSource = "both"
+)
+
+// AllValues returns all EffectiveSyncPauseSource values.
+func (EffectiveSyncPauseSource) AllValues() []EffectiveSyncPauseSource {
+	return []EffectiveSyncPauseSource{
+		EffectiveSyncPauseSourceStack,
+		EffectiveSyncPauseSourceService,
+		EffectiveSyncPauseSourceBoth,
+	}
+}
+
+// MarshalText implements encoding.TextMarshaler.
+func (s EffectiveSyncPauseSource) MarshalText() ([]byte, error) {
+	switch s {
+	case EffectiveSyncPauseSourceStack:
+		return []byte(s), nil
+	case EffectiveSyncPauseSourceService:
+		return []byte(s), nil
+	case EffectiveSyncPauseSourceBoth:
+		return []byte(s), nil
+	default:
+		return nil, errors.Errorf("invalid value: %q", s)
+	}
+}
+
+// UnmarshalText implements encoding.TextUnmarshaler.
+func (s *EffectiveSyncPauseSource) UnmarshalText(data []byte) error {
+	switch EffectiveSyncPauseSource(data) {
+	case EffectiveSyncPauseSourceStack:
+		*s = EffectiveSyncPauseSourceStack
+		return nil
+	case EffectiveSyncPauseSourceService:
+		*s = EffectiveSyncPauseSourceService
+		return nil
+	case EffectiveSyncPauseSourceBoth:
+		*s = EffectiveSyncPauseSourceBoth
+		return nil
+	default:
+		return errors.Errorf("invalid value: %q", data)
+	}
+}
+
 // Ref: #/components/schemas/EnvironmentVariable
 type EnvironmentVariable struct {
 	Name  string `json:"name"`
@@ -3378,6 +3483,11 @@ func (*GetDeploymentInitJobLogsOKRawApplicationOctetStream) getDeploymentInitJob
 type GetEventNotFound struct{}
 
 func (*GetEventNotFound) getEventRes() {}
+
+// GetStackSyncPausesNotFound is response for GetStackSyncPauses operation.
+type GetStackSyncPausesNotFound struct{}
+
+func (*GetStackSyncPausesNotFound) getStackSyncPausesRes() {}
 
 type GetTaskLogsOK struct {
 	Data io.Reader
@@ -3955,6 +4065,51 @@ func (o NilDSNSuggestionEngine) Or(d DSNSuggestionEngine) DSNSuggestionEngine {
 	return d
 }
 
+// NewNilDateTime returns new NilDateTime with value set to v.
+func NewNilDateTime(v time.Time) NilDateTime {
+	return NilDateTime{
+		Value: v,
+	}
+}
+
+// NilDateTime is nullable time.Time.
+type NilDateTime struct {
+	Value time.Time
+	Null  bool
+}
+
+// SetTo sets value to v.
+func (o *NilDateTime) SetTo(v time.Time) {
+	o.Null = false
+	o.Value = v
+}
+
+// IsNull returns true if value is Null.
+func (o NilDateTime) IsNull() bool { return o.Null }
+
+// SetToNull sets value to null.
+func (o *NilDateTime) SetToNull() {
+	o.Null = true
+	var v time.Time
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o NilDateTime) Get() (v time.Time, ok bool) {
+	if o.Null {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o NilDateTime) Or(d time.Time) time.Time {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
 // NewNilInt returns new NilInt with value set to v.
 func NewNilInt(v int) NilInt {
 	return NilInt{
@@ -4457,6 +4612,52 @@ func (o OptDeploymentActivityInterval) Or(d DeploymentActivityInterval) Deployme
 	return d
 }
 
+// NewOptEffectiveSyncPauseSource returns new OptEffectiveSyncPauseSource with value set to v.
+func NewOptEffectiveSyncPauseSource(v EffectiveSyncPauseSource) OptEffectiveSyncPauseSource {
+	return OptEffectiveSyncPauseSource{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptEffectiveSyncPauseSource is optional EffectiveSyncPauseSource.
+type OptEffectiveSyncPauseSource struct {
+	Value EffectiveSyncPauseSource
+	Set   bool
+}
+
+// IsSet returns true if OptEffectiveSyncPauseSource was set.
+func (o OptEffectiveSyncPauseSource) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptEffectiveSyncPauseSource) Reset() {
+	var v EffectiveSyncPauseSource
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptEffectiveSyncPauseSource) SetTo(v EffectiveSyncPauseSource) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptEffectiveSyncPauseSource) Get() (v EffectiveSyncPauseSource, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptEffectiveSyncPauseSource) Or(d EffectiveSyncPauseSource) EffectiveSyncPauseSource {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
 // NewOptEventHistoryItemDetails returns new OptEventHistoryItemDetails with value set to v.
 func NewOptEventHistoryItemDetails(v EventHistoryItemDetails) OptEventHistoryItemDetails {
 	return OptEventHistoryItemDetails{
@@ -4497,6 +4698,52 @@ func (o OptEventHistoryItemDetails) Get() (v EventHistoryItemDetails, ok bool) {
 
 // Or returns value if set, or given parameter if does not.
 func (o OptEventHistoryItemDetails) Or(d EventHistoryItemDetails) EventHistoryItemDetails {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptInt returns new OptInt with value set to v.
+func NewOptInt(v int) OptInt {
+	return OptInt{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptInt is optional int.
+type OptInt struct {
+	Value int
+	Set   bool
+}
+
+// IsSet returns true if OptInt was set.
+func (o OptInt) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptInt) Reset() {
+	var v int
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptInt) SetTo(v int) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptInt) Get() (v int, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptInt) Or(d int) int {
 	if v, ok := o.Get(); ok {
 		return v
 	}
@@ -5285,6 +5532,52 @@ func (o OptSwarmTaskResources) Or(d SwarmTaskResources) SwarmTaskResources {
 	return d
 }
 
+// NewOptSyncPauseRecord returns new OptSyncPauseRecord with value set to v.
+func NewOptSyncPauseRecord(v SyncPauseRecord) OptSyncPauseRecord {
+	return OptSyncPauseRecord{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptSyncPauseRecord is optional SyncPauseRecord.
+type OptSyncPauseRecord struct {
+	Value SyncPauseRecord
+	Set   bool
+}
+
+// IsSet returns true if OptSyncPauseRecord was set.
+func (o OptSyncPauseRecord) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptSyncPauseRecord) Reset() {
+	var v SyncPauseRecord
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptSyncPauseRecord) SetTo(v SyncPauseRecord) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptSyncPauseRecord) Get() (v SyncPauseRecord, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptSyncPauseRecord) Or(d SyncPauseRecord) SyncPauseRecord {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
 // NewOptSynchronizedSecretIdentity returns new OptSynchronizedSecretIdentity with value set to v.
 func NewOptSynchronizedSecretIdentity(v SynchronizedSecretIdentity) OptSynchronizedSecretIdentity {
 	return OptSynchronizedSecretIdentity{
@@ -5510,7 +5803,9 @@ type ScaleSwarmServiceNoContent struct{}
 
 // Ref: #/components/schemas/ScaleSwarmServiceRequest
 type ScaleSwarmServiceRequest struct {
-	Replicas int64 `json:"replicas"`
+	Replicas      int64     `json:"replicas"`
+	GitopsStack   OptString `json:"gitops_stack"`
+	GitopsService OptString `json:"gitops_service"`
 }
 
 // GetReplicas returns the value of Replicas.
@@ -5518,9 +5813,29 @@ func (s *ScaleSwarmServiceRequest) GetReplicas() int64 {
 	return s.Replicas
 }
 
+// GetGitopsStack returns the value of GitopsStack.
+func (s *ScaleSwarmServiceRequest) GetGitopsStack() OptString {
+	return s.GitopsStack
+}
+
+// GetGitopsService returns the value of GitopsService.
+func (s *ScaleSwarmServiceRequest) GetGitopsService() OptString {
+	return s.GitopsService
+}
+
 // SetReplicas sets the value of Replicas.
 func (s *ScaleSwarmServiceRequest) SetReplicas(val int64) {
 	s.Replicas = val
+}
+
+// SetGitopsStack sets the value of GitopsStack.
+func (s *ScaleSwarmServiceRequest) SetGitopsStack(val OptString) {
+	s.GitopsStack = val
+}
+
+// SetGitopsService sets the value of GitopsService.
+func (s *ScaleSwarmServiceRequest) SetGitopsService(val OptString) {
+	s.GitopsService = val
 }
 
 // Ref: #/components/schemas/SearchResponse
@@ -7052,6 +7367,54 @@ func (s *ServiceStatusResponse) SetLinks(val []ServiceLink) {
 	s.Links = val
 }
 
+// Ref: #/components/schemas/ServiceSyncPauseResponse
+type ServiceSyncPauseResponse struct {
+	StackPause      OptSyncPauseRecord          `json:"stack_pause"`
+	ServicePause    OptSyncPauseRecord          `json:"service_pause"`
+	EffectivePaused bool                        `json:"effective_paused"`
+	EffectiveSource OptEffectiveSyncPauseSource `json:"effective_source"`
+}
+
+// GetStackPause returns the value of StackPause.
+func (s *ServiceSyncPauseResponse) GetStackPause() OptSyncPauseRecord {
+	return s.StackPause
+}
+
+// GetServicePause returns the value of ServicePause.
+func (s *ServiceSyncPauseResponse) GetServicePause() OptSyncPauseRecord {
+	return s.ServicePause
+}
+
+// GetEffectivePaused returns the value of EffectivePaused.
+func (s *ServiceSyncPauseResponse) GetEffectivePaused() bool {
+	return s.EffectivePaused
+}
+
+// GetEffectiveSource returns the value of EffectiveSource.
+func (s *ServiceSyncPauseResponse) GetEffectiveSource() OptEffectiveSyncPauseSource {
+	return s.EffectiveSource
+}
+
+// SetStackPause sets the value of StackPause.
+func (s *ServiceSyncPauseResponse) SetStackPause(val OptSyncPauseRecord) {
+	s.StackPause = val
+}
+
+// SetServicePause sets the value of ServicePause.
+func (s *ServiceSyncPauseResponse) SetServicePause(val OptSyncPauseRecord) {
+	s.ServicePause = val
+}
+
+// SetEffectivePaused sets the value of EffectivePaused.
+func (s *ServiceSyncPauseResponse) SetEffectivePaused(val bool) {
+	s.EffectivePaused = val
+}
+
+// SetEffectiveSource sets the value of EffectiveSource.
+func (s *ServiceSyncPauseResponse) SetEffectiveSource(val OptEffectiveSyncPauseSource) {
+	s.EffectiveSource = val
+}
+
 // Ref: #/components/schemas/ServiceSyncStatus
 type ServiceSyncStatus string
 
@@ -7232,15 +7595,67 @@ func (s *StackStatus) SetOutOfSynced(val int64) {
 	s.OutOfSynced = val
 }
 
+// Ref: #/components/schemas/StackSyncPausesResponse
+type StackSyncPausesResponse struct {
+	StackPause    OptSyncPauseRecord `json:"stack_pause"`
+	ServicePauses []SyncPauseRecord  `json:"service_pauses"`
+	// GitOps-managed services currently paused, with the source of effective pause.
+	EffectiveServices         []EffectivePausedService `json:"effective_services"`
+	EffectivelyPausedServices int                      `json:"effectively_paused_services"`
+}
+
+// GetStackPause returns the value of StackPause.
+func (s *StackSyncPausesResponse) GetStackPause() OptSyncPauseRecord {
+	return s.StackPause
+}
+
+// GetServicePauses returns the value of ServicePauses.
+func (s *StackSyncPausesResponse) GetServicePauses() []SyncPauseRecord {
+	return s.ServicePauses
+}
+
+// GetEffectiveServices returns the value of EffectiveServices.
+func (s *StackSyncPausesResponse) GetEffectiveServices() []EffectivePausedService {
+	return s.EffectiveServices
+}
+
+// GetEffectivelyPausedServices returns the value of EffectivelyPausedServices.
+func (s *StackSyncPausesResponse) GetEffectivelyPausedServices() int {
+	return s.EffectivelyPausedServices
+}
+
+// SetStackPause sets the value of StackPause.
+func (s *StackSyncPausesResponse) SetStackPause(val OptSyncPauseRecord) {
+	s.StackPause = val
+}
+
+// SetServicePauses sets the value of ServicePauses.
+func (s *StackSyncPausesResponse) SetServicePauses(val []SyncPauseRecord) {
+	s.ServicePauses = val
+}
+
+// SetEffectiveServices sets the value of EffectiveServices.
+func (s *StackSyncPausesResponse) SetEffectiveServices(val []EffectivePausedService) {
+	s.EffectiveServices = val
+}
+
+// SetEffectivelyPausedServices sets the value of EffectivelyPausedServices.
+func (s *StackSyncPausesResponse) SetEffectivelyPausedServices(val int) {
+	s.EffectivelyPausedServices = val
+}
+
+func (*StackSyncPausesResponse) getStackSyncPausesRes() {}
+
 // Ref: #/components/schemas/StackView
 type StackView struct {
-	Name         string      `json:"name"`
-	ComposeFile  string      `json:"compose_file"`
-	Status       StackStatus `json:"status"`
-	LastError    OptString   `json:"last_error"`
-	LastCommit   OptString   `json:"last_commit"`
-	LastDeployAt OptDateTime `json:"last_deploy_at"`
-	SourceDigest OptString   `json:"source_digest"`
+	Name                      string      `json:"name"`
+	ComposeFile               string      `json:"compose_file"`
+	Status                    StackStatus `json:"status"`
+	LastError                 OptString   `json:"last_error"`
+	LastCommit                OptString   `json:"last_commit"`
+	LastDeployAt              OptDateTime `json:"last_deploy_at"`
+	SourceDigest              OptString   `json:"source_digest"`
+	EffectivelyPausedServices OptInt      `json:"effectively_paused_services"`
 }
 
 // GetName returns the value of Name.
@@ -7278,6 +7693,11 @@ func (s *StackView) GetSourceDigest() OptString {
 	return s.SourceDigest
 }
 
+// GetEffectivelyPausedServices returns the value of EffectivelyPausedServices.
+func (s *StackView) GetEffectivelyPausedServices() OptInt {
+	return s.EffectivelyPausedServices
+}
+
 // SetName sets the value of Name.
 func (s *StackView) SetName(val string) {
 	s.Name = val
@@ -7311,6 +7731,11 @@ func (s *StackView) SetLastDeployAt(val OptDateTime) {
 // SetSourceDigest sets the value of SourceDigest.
 func (s *StackView) SetSourceDigest(val OptString) {
 	s.SourceDigest = val
+}
+
+// SetEffectivelyPausedServices sets the value of EffectivelyPausedServices.
+func (s *StackView) SetEffectivelyPausedServices(val OptInt) {
+	s.EffectivelyPausedServices = val
 }
 
 // Ref: #/components/schemas/StacksResponse
@@ -7745,6 +8170,111 @@ func (s *SyncInfo) SetLastWebhook(val OptLastWebhookStatus) {
 // SetLastRevision sets the value of LastRevision.
 func (s *SyncInfo) SetLastRevision(val OptString) {
 	s.LastRevision = val
+}
+
+// Ref: #/components/schemas/SyncPauseRecord
+type SyncPauseRecord struct {
+	Scope     SyncPauseRecordScope `json:"scope"`
+	Stack     string               `json:"stack"`
+	Service   OptString            `json:"service"`
+	ExpiresAt NilDateTime          `json:"expires_at"`
+}
+
+// GetScope returns the value of Scope.
+func (s *SyncPauseRecord) GetScope() SyncPauseRecordScope {
+	return s.Scope
+}
+
+// GetStack returns the value of Stack.
+func (s *SyncPauseRecord) GetStack() string {
+	return s.Stack
+}
+
+// GetService returns the value of Service.
+func (s *SyncPauseRecord) GetService() OptString {
+	return s.Service
+}
+
+// GetExpiresAt returns the value of ExpiresAt.
+func (s *SyncPauseRecord) GetExpiresAt() NilDateTime {
+	return s.ExpiresAt
+}
+
+// SetScope sets the value of Scope.
+func (s *SyncPauseRecord) SetScope(val SyncPauseRecordScope) {
+	s.Scope = val
+}
+
+// SetStack sets the value of Stack.
+func (s *SyncPauseRecord) SetStack(val string) {
+	s.Stack = val
+}
+
+// SetService sets the value of Service.
+func (s *SyncPauseRecord) SetService(val OptString) {
+	s.Service = val
+}
+
+// SetExpiresAt sets the value of ExpiresAt.
+func (s *SyncPauseRecord) SetExpiresAt(val NilDateTime) {
+	s.ExpiresAt = val
+}
+
+type SyncPauseRecordScope string
+
+const (
+	SyncPauseRecordScopeStack   SyncPauseRecordScope = "stack"
+	SyncPauseRecordScopeService SyncPauseRecordScope = "service"
+)
+
+// AllValues returns all SyncPauseRecordScope values.
+func (SyncPauseRecordScope) AllValues() []SyncPauseRecordScope {
+	return []SyncPauseRecordScope{
+		SyncPauseRecordScopeStack,
+		SyncPauseRecordScopeService,
+	}
+}
+
+// MarshalText implements encoding.TextMarshaler.
+func (s SyncPauseRecordScope) MarshalText() ([]byte, error) {
+	switch s {
+	case SyncPauseRecordScopeStack:
+		return []byte(s), nil
+	case SyncPauseRecordScopeService:
+		return []byte(s), nil
+	default:
+		return nil, errors.Errorf("invalid value: %q", s)
+	}
+}
+
+// UnmarshalText implements encoding.TextUnmarshaler.
+func (s *SyncPauseRecordScope) UnmarshalText(data []byte) error {
+	switch SyncPauseRecordScope(data) {
+	case SyncPauseRecordScopeStack:
+		*s = SyncPauseRecordScopeStack
+		return nil
+	case SyncPauseRecordScopeService:
+		*s = SyncPauseRecordScopeService
+		return nil
+	default:
+		return errors.Errorf("invalid value: %q", data)
+	}
+}
+
+// Ref: #/components/schemas/SyncPauseRequest
+type SyncPauseRequest struct {
+	// Absolute expiration; null means no expiration.
+	ExpiresAt NilDateTime `json:"expires_at"`
+}
+
+// GetExpiresAt returns the value of ExpiresAt.
+func (s *SyncPauseRequest) GetExpiresAt() NilDateTime {
+	return s.ExpiresAt
+}
+
+// SetExpiresAt sets the value of ExpiresAt.
+func (s *SyncPauseRequest) SetExpiresAt(val NilDateTime) {
+	s.ExpiresAt = val
 }
 
 // Ref: #/components/schemas/SynchronizedSecretIdentity

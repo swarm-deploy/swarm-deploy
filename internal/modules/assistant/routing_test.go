@@ -706,6 +706,9 @@ func requestContains(request capturedChatRequest, text string) bool {
 func assistantTestToolDefinitions() []routing.ToolDefinition {
 	names := []string{
 		"deploy_sync_trigger",
+		"sync_pause_get",
+		"sync_pause_set",
+		"sync_pause_resume",
 		"history_event_list",
 		"alert_list",
 		"alert_get",

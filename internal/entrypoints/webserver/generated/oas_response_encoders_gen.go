@@ -69,6 +69,20 @@ func encodeDeleteNodeLabelResponse(response *DeleteNodeLabelNoContent, w http.Re
 	return nil
 }
 
+func encodeDeleteServiceSyncPauseResponse(response *DeleteServiceSyncPauseNoContent, w http.ResponseWriter, span trace.Span) error {
+	w.WriteHeader(204)
+	span.SetStatus(codes.Ok, http.StatusText(204))
+
+	return nil
+}
+
+func encodeDeleteStackSyncPauseResponse(response *DeleteStackSyncPauseNoContent, w http.ResponseWriter, span trace.Span) error {
+	w.WriteHeader(204)
+	span.SetStatus(codes.Ok, http.StatusText(204))
+
+	return nil
+}
+
 func encodeGetAlertResponse(response *Alert, w http.ResponseWriter, span trace.Span) error {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(200)
@@ -276,6 +290,20 @@ func encodeGetServiceResponse(response *ServiceStatusResponse, w http.ResponseWr
 	return nil
 }
 
+func encodeGetServiceSyncPauseResponse(response *ServiceSyncPauseResponse, w http.ResponseWriter, span trace.Span) error {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(200)
+	span.SetStatus(codes.Ok, http.StatusText(200))
+
+	e := new(jx.Encoder)
+	response.Encode(e)
+	if _, err := e.WriteTo(w); err != nil {
+		return errors.Wrap(err, "write")
+	}
+
+	return nil
+}
+
 func encodeGetStackDeploymentActivityResponse(response *DeploymentActivityResponse, w http.ResponseWriter, span trace.Span) error {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(200)
@@ -316,6 +344,32 @@ func encodeGetStackResourcesResponse(response *StackResourcesResponse, w http.Re
 	}
 
 	return nil
+}
+
+func encodeGetStackSyncPausesResponse(response GetStackSyncPausesRes, w http.ResponseWriter, span trace.Span) error {
+	switch response := response.(type) {
+	case *StackSyncPausesResponse:
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.WriteHeader(200)
+		span.SetStatus(codes.Ok, http.StatusText(200))
+
+		e := new(jx.Encoder)
+		response.Encode(e)
+		if _, err := e.WriteTo(w); err != nil {
+			return errors.Wrap(err, "write")
+		}
+
+		return nil
+
+	case *GetStackSyncPausesNotFound:
+		w.WriteHeader(404)
+		span.SetStatus(codes.Error, http.StatusText(404))
+
+		return nil
+
+	default:
+		return errors.Errorf("unexpected response type: %T", response)
+	}
 }
 
 func encodeGetSwarmTaskResponse(response *SwarmTaskDetailsHeaders, w http.ResponseWriter, span trace.Span) error {
@@ -552,6 +606,34 @@ func encodeListSwarmServiceTasksResponse(response *ServiceRealtimeResponse, w ht
 }
 
 func encodeListSwarmServicesResponse(response *SwarmServicesResponse, w http.ResponseWriter, span trace.Span) error {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(200)
+	span.SetStatus(codes.Ok, http.StatusText(200))
+
+	e := new(jx.Encoder)
+	response.Encode(e)
+	if _, err := e.WriteTo(w); err != nil {
+		return errors.Wrap(err, "write")
+	}
+
+	return nil
+}
+
+func encodePutServiceSyncPauseResponse(response *ServiceSyncPauseResponse, w http.ResponseWriter, span trace.Span) error {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(200)
+	span.SetStatus(codes.Ok, http.StatusText(200))
+
+	e := new(jx.Encoder)
+	response.Encode(e)
+	if _, err := e.WriteTo(w); err != nil {
+		return errors.Wrap(err, "write")
+	}
+
+	return nil
+}
+
+func encodePutStackSyncPauseResponse(response *StackSyncPausesResponse, w http.ResponseWriter, span trace.Span) error {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(200)
 	span.SetStatus(codes.Ok, http.StatusText(200))

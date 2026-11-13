@@ -329,6 +329,8 @@ type summaryRow struct {
 }
 
 type deploymentDetails struct {
+	// SkippedServices records neutral caller-preserved services for an Attempt.
+	SkippedServices []string `json:"skipped_services,omitempty"`
 	// UpdateGenerations retains only non-secret pre-update boundaries.
 	UpdateGenerations map[string]deploymentmodel.UpdateGeneration `json:"update_generations,omitempty"`
 	// UnresolvedServices retains verification obligations across desired-state deployments.
@@ -489,7 +491,7 @@ func (row attemptRow) attempt() (deploymentmodel.Attempt, error) {
 		ErrorDiagnostic: details.ErrorDiagnostic, Retryable: details.Retryable, Phase: row.Phase,
 		ApplyStatus: details.ApplyStatus, VerificationStatus: details.VerificationStatus,
 		CleanupStatus: details.CleanupStatus, ActualStateStatus: details.ActualStateStatus,
-		ObservedAt: details.ObservedAt,
+		ObservedAt: details.ObservedAt, SkippedServices: details.SkippedServices,
 	}
 	if row.FinishedAt.Valid {
 		finished := row.FinishedAt.Time.UTC()
@@ -647,6 +649,9 @@ func (s *Store) Get(ctx context.Context, id string) (deploymentmodel.Deployment,
 	result.Attempts, err = s.attempts(ctx, id)
 	if err != nil {
 		return deploymentmodel.Deployment{}, err
+	}
+	if len(result.Attempts) > 0 {
+		result.SkippedServices = append([]string(nil), result.Attempts[0].SkippedServices...)
 	}
 	initJobs, err := s.initJobs(ctx, id)
 	if err != nil {
@@ -894,7 +899,8 @@ func (s *Store) insertAttemptRow(ctx context.Context, attempt deploymentmodel.At
 		return fmt.Errorf("attempt start time is required")
 	}
 	details, err := json.Marshal(deploymentDetails{
-		ApplyStatus: attempt.ApplyStatus, VerificationStatus: attempt.VerificationStatus,
+		SkippedServices: attempt.SkippedServices,
+		ApplyStatus:     attempt.ApplyStatus, VerificationStatus: attempt.VerificationStatus,
 		CleanupStatus: attempt.CleanupStatus, ActualStateStatus: attempt.ActualStateStatus,
 	})
 	if err != nil {
@@ -922,6 +928,7 @@ func (s *Store) FinishAttempt(
 		return fmt.Errorf("terminal attempt requires finish time")
 	}
 	attemptDetails, err := json.Marshal(deploymentDetails{
+		SkippedServices: attempt.SkippedServices,
 		ErrorDiagnostic: attempt.ErrorDiagnostic, Retryable: attempt.Retryable, ApplyStatus: attempt.ApplyStatus,
 		VerificationStatus: attempt.VerificationStatus, CleanupStatus: attempt.CleanupStatus,
 		ActualStateStatus: attempt.ActualStateStatus, ObservedAt: attempt.ObservedAt,

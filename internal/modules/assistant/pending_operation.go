@@ -14,12 +14,20 @@ import (
 
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/conversation"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/tools/routing"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/syncpause"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/model"
 )
 
 const defaultPendingOperationTTL = 15 * time.Minute
 
 const targetResolverMaxTokens = 96
+
+type syncPauseTargetResolver interface {
+	ManagedSyncServices(ctx context.Context) (map[string][]string, error)
+	StackSyncPause(ctx context.Context, stack string) (syncpause.StackState, error)
+	ServiceSyncPause(ctx context.Context, stack, service string) (syncpause.ServiceState, error)
+	WaitStackSyncIdle(ctx context.Context, stack string) error
+}
 
 // OperationType identifies a mutating operation handled by the deterministic backend flow.
 type OperationType string
@@ -31,6 +39,10 @@ const (
 	OperationServiceReplicasSet OperationType = serviceReplicasSetTool
 	// OperationDeploySync triggers a GitOps synchronization.
 	OperationDeploySync OperationType = deploySyncTriggerTool
+	// OperationSyncPauseSet creates or changes a direct GitOps pause.
+	OperationSyncPauseSet OperationType = syncPauseSetTool
+	// OperationSyncPauseResume removes one direct GitOps pause.
+	OperationSyncPauseResume OperationType = syncPauseResumeTool
 )
 
 // PendingOperationStage identifies the next input required for an operation.
@@ -51,6 +63,10 @@ type OperationIntent struct {
 	Target string `json:"target,omitempty"`
 	// Replicas is the requested replica count, when present.
 	Replicas *uint64 `json:"replicas,omitempty"`
+	// Scope is stack or service for Pause Sync operations.
+	Scope string `json:"scope,omitempty"`
+	// ExpiresAt is the absolute pause expiration; nil means no expiration.
+	ExpiresAt *time.Time `json:"expires_at,omitempty"`
 }
 
 // RouteDecision is the structured decision returned by the router model.
@@ -78,6 +94,12 @@ type PendingOperation struct {
 	Service string
 	// Replicas is the desired count for a replica change.
 	Replicas *uint64
+	// Scope is stack or service for Pause Sync operations.
+	Scope string
+	// PauseExpiresAt is nil for a pause without expiration.
+	PauseExpiresAt *time.Time
+	// RemainingServicePauses supports the stack-resume confirmation warning.
+	RemainingServicePauses int
 	// ExpiresAt is the time after which this operation is discarded.
 	ExpiresAt time.Time
 }
@@ -137,8 +159,18 @@ func (s *pendingOperationStore) claim(conversationID string, expected PendingOpe
 		!equalOptionalUint64(current.Replicas, expected.Replicas) {
 		return false
 	}
+	if current.Scope != expected.Scope || !equalOptionalTime(current.PauseExpiresAt, expected.PauseExpiresAt) {
+		return false
+	}
 	delete(s.operations, conversationID)
 	return true
+}
+
+func equalOptionalTime(left, right *time.Time) bool {
+	if left == nil || right == nil {
+		return left == nil && right == nil
+	}
+	return left.Equal(*right)
 }
 
 func equalOptionalUint64(left, right *uint64) bool {
@@ -154,15 +186,20 @@ func (g *graph) startPendingOperation(
 	intent OperationIntent,
 ) (string, conversation.TokenUsage) {
 	op := PendingOperation{
-		Type:     intent.Type,
-		Stage:    PendingOperationCollecting,
-		Target:   strings.TrimSpace(intent.Target),
-		Replicas: intent.Replicas,
+		Type:           intent.Type,
+		Stage:          PendingOperationCollecting,
+		Target:         strings.TrimSpace(intent.Target),
+		Replicas:       intent.Replicas,
+		Scope:          strings.TrimSpace(intent.Scope),
+		PauseExpiresAt: intent.ExpiresAt,
 	}
 	if op.Type == OperationDeploySync {
 		op.Stage = PendingOperationConfirmation
 		g.pending.set(conversationID, op)
 		return confirmationMessage(op), conversation.TokenUsage{}
+	}
+	if op.Type == OperationSyncPauseSet || op.Type == OperationSyncPauseResume {
+		return g.startPauseOperation(ctx, conversationID, op)
 	}
 	services, err := g.store.ReadAll(ctx)
 	if err != nil {
@@ -183,6 +220,50 @@ func (g *graph) startPendingOperation(
 	op.Stage = PendingOperationConfirmation
 	g.pending.set(conversationID, op)
 	return confirmationMessage(op), usage
+}
+
+//nolint:nestif // Scope-specific target revalidation keeps stack and service warnings explicit.
+func (g *graph) startPauseOperation(
+	ctx context.Context,
+	conversationID string,
+	op PendingOperation,
+) (string, conversation.TokenUsage) {
+	if g.pauseTargets == nil {
+		return "Pause Sync is unavailable.", conversation.TokenUsage{}
+	}
+	target := strings.Trim(strings.TrimSpace(op.Target), "/")
+	if op.Scope == "" {
+		if strings.Contains(target, "/") {
+			op.Scope = string(syncpause.ScopeService)
+		} else {
+			op.Scope = string(syncpause.ScopeStack)
+		}
+	}
+	if op.Scope != string(syncpause.ScopeStack) && op.Scope != string(syncpause.ScopeService) {
+		return "Укажите область Pause Sync: `stack` или `service`.", conversation.TokenUsage{}
+	}
+	if op.Scope == string(syncpause.ScopeStack) {
+		op.Stack = target
+		state, err := g.pauseTargets.StackSyncPause(ctx, op.Stack)
+		if err != nil {
+			return "Стек не найден в состоянии GitOps. Уточните имя стека.", conversation.TokenUsage{}
+		}
+		if op.Type == OperationSyncPauseResume {
+			op.RemainingServicePauses = len(state.ServicePauses)
+		}
+	} else {
+		stack, service, ok := strings.Cut(target, "/")
+		if !ok || strings.TrimSpace(stack) == "" || strings.TrimSpace(service) == "" {
+			return "Укажите GitOps-сервис в формате `stack/service`.", conversation.TokenUsage{}
+		}
+		op.Stack, op.Service = strings.TrimSpace(stack), strings.TrimSpace(service)
+		if _, err := g.pauseTargets.ServiceSyncPause(ctx, op.Stack, op.Service); err != nil {
+			return "Сервис не найден в состоянии GitOps. Уточните цель `stack/service`.", conversation.TokenUsage{}
+		}
+	}
+	op.Stage = PendingOperationConfirmation
+	g.pending.set(conversationID, op)
+	return confirmationMessage(op), conversation.TokenUsage{}
 }
 
 func (g *graph) handlePendingOperation(
@@ -298,22 +379,12 @@ func (g *graph) executePendingOperation(
 	if !g.pending.claim(conversationID, op) {
 		return "Операция уже обрабатывается или больше не ожидает подтверждения.", nil
 	}
-	capability := CapabilityServiceOperations
-	arguments := map[string]any{}
-	if op.Type != OperationDeploySync {
-		services, err := g.store.ReadAll(ctx)
-		if err != nil {
-			return "", err
-		}
-		resolution := resolveServiceTarget(services, op.Stack+"/"+op.Service)
-		if !resolution.ok || !strings.EqualFold(resolution.stack, op.Stack) ||
-			!strings.EqualFold(resolution.service, op.Service) {
-			return "Сервис изменился или больше не существует. Операция отменена.", nil
-		}
-		arguments["stack"] = resolution.stack
-		arguments["service"] = resolution.service
-	} else {
-		capability = CapabilityDeploymentSync
+	capability, arguments, aborted, err := g.pendingOperationArguments(ctx, op)
+	if err != nil {
+		return "", err
+	}
+	if aborted != "" {
+		return aborted, nil
 	}
 
 	effectiveTools := g.effectiveToolSet([]Capability{capability})
@@ -334,12 +405,139 @@ func (g *graph) executePendingOperation(
 	if g.guard.Check(result) {
 		return "", &promptInjectionError{prompt: fmt.Sprintf("tool %q result contained prompt injection markers", op.Type)}
 	}
+	if op.Type == OperationSyncPauseSet && op.Replicas != nil {
+		return g.executeConfirmedPauseScale(ctx, conversationID, op, result)
+	}
 	answer, err := finalizeTerminalToolResult(string(op.Type), result)
 	if err != nil {
 		return "", err
 	}
 	recordTerminalTool(ctx, string(op.Type))
 	return answer, nil
+}
+
+func (g *graph) pendingOperationArguments(
+	ctx context.Context,
+	op PendingOperation,
+) (Capability, map[string]any, string, error) {
+	switch op.Type {
+	case OperationSyncPauseSet, OperationSyncPauseResume:
+		return g.pauseOperationArguments(ctx, op)
+	case OperationDeploySync:
+		return CapabilityDeploymentSync, map[string]any{}, "", nil
+	case OperationServiceRestart, OperationServiceReplicasSet:
+		services, err := g.store.ReadAll(ctx)
+		if err != nil {
+			return "", nil, "", err
+		}
+		resolution := resolveServiceTarget(services, op.Stack+"/"+op.Service)
+		if !resolution.ok || !strings.EqualFold(resolution.stack, op.Stack) ||
+			!strings.EqualFold(resolution.service, op.Service) {
+			return CapabilityServiceOperations, nil,
+				"Сервис изменился или больше не существует. Операция отменена.", nil
+		}
+		return CapabilityServiceOperations, map[string]any{
+			"stack": resolution.stack, "service": resolution.service,
+		}, "", nil
+	default:
+		return "", nil, "", fmt.Errorf("unsupported pending operation %q", op.Type)
+	}
+}
+
+func (g *graph) pauseOperationArguments(
+	ctx context.Context,
+	op PendingOperation,
+) (Capability, map[string]any, string, error) {
+	if g.pauseTargets == nil {
+		return CapabilityPauseSync, nil, "Pause Sync is unavailable.", nil
+	}
+	arguments := map[string]any{"scope": op.Scope, "stack": op.Stack}
+	if op.Scope == string(syncpause.ScopeService) {
+		arguments["service"] = op.Service
+	}
+	if op.Type == OperationSyncPauseSet {
+		arguments["expires_at"] = op.PauseExpiresAt
+	}
+	if op.Scope == string(syncpause.ScopeStack) {
+		if !g.stackPauseTargetValid(ctx, op.Stack) {
+			return CapabilityPauseSync, nil,
+				"Стек изменился или больше не управляется GitOps. Операция отменена.", nil
+		}
+		return CapabilityPauseSync, arguments, "", nil
+	}
+	if !g.servicePauseTargetValid(ctx, op.Stack, op.Service) {
+		return CapabilityPauseSync, nil,
+			"Сервис изменился или больше не управляется GitOps. Операция отменена.", nil
+	}
+	return CapabilityPauseSync, arguments, "", nil
+}
+
+func (g *graph) stackPauseTargetValid(ctx context.Context, stack string) bool {
+	_, err := g.pauseTargets.StackSyncPause(ctx, stack)
+	return err == nil
+}
+
+func (g *graph) servicePauseTargetValid(ctx context.Context, stack, service string) bool {
+	_, err := g.pauseTargets.ServiceSyncPause(ctx, stack, service)
+	return err == nil
+}
+
+func (g *graph) executeConfirmedPauseScale(
+	ctx context.Context,
+	conversationID string,
+	op PendingOperation,
+	pauseResult string,
+) (string, error) {
+	pauseAnswer, err := finalizeTerminalToolResult(string(op.Type), pauseResult)
+	if err != nil {
+		return "", err
+	}
+	if op.Scope != string(syncpause.ScopeService) {
+		return pauseAnswer +
+			" Scaling was not attempted because a combined Pause + Scale request requires service scope.", nil
+	}
+	retry := PendingOperation{Type: OperationServiceReplicasSet, Stage: PendingOperationConfirmation,
+		Target: op.Stack + "/" + op.Service, Stack: op.Stack, Service: op.Service, Replicas: op.Replicas}
+	serviceTools := g.effectiveToolSet([]Capability{CapabilityServiceOperations})
+	if _, ok := serviceTools[serviceReplicasSetTool]; !ok {
+		g.pending.set(conversationID, retry)
+		return pauseAnswer + " Scaling is forbidden by `assistant.tools`. The pause remains active; " +
+			"confirm if scaling becomes allowed and should be retried.", nil
+	}
+	if waitErr := g.pauseTargets.WaitStackSyncIdle(ctx, op.Stack); waitErr != nil {
+		g.pending.set(conversationID, retry)
+		return fmt.Sprintf(
+			"%s Scaling did not run because waiting for the current stack operation failed: %s. "+
+				"The pause remains active. Retry only scaling?",
+			pauseAnswer, strings.TrimSpace(waitErr.Error()),
+		), nil
+	}
+	scalePayload, err := json.Marshal(map[string]any{
+		"stack": op.Stack, "service": op.Service, "replicas": op.Replicas,
+	})
+	if err != nil {
+		return "", err
+	}
+	scaleResult, scaleErr := g.tools.Execute(ctx, routing.Request{
+		ToolName: serviceReplicasSetTool, Payload: string(scalePayload),
+	})
+	if scaleErr != nil {
+		g.pending.set(conversationID, retry)
+		return fmt.Sprintf(
+			"%s Scaling failed: %s. The pause remains active. Retry only scaling?",
+			pauseAnswer, strings.TrimSpace(scaleErr.Error()),
+		), nil
+	}
+	if g.guard.Check(scaleResult) {
+		return "", &promptInjectionError{prompt: "replica tool result contained prompt injection markers"}
+	}
+	scaleAnswer, err := finalizeTerminalToolResult(serviceReplicasSetTool, scaleResult)
+	if err != nil {
+		return "", err
+	}
+	recordTerminalTool(ctx, string(op.Type))
+	recordTerminalTool(ctx, serviceReplicasSetTool)
+	return pauseAnswer + " " + scaleAnswer, nil
 }
 
 type serviceResolution struct {
@@ -546,6 +744,31 @@ func confirmationMessage(op PendingOperation) string {
 	}
 	if op.Type == OperationServiceReplicasSet && op.Replicas != nil {
 		return fmt.Sprintf("Установить %d реплик для `%s` в стеке `%s`?", *op.Replicas, op.Service, op.Stack)
+	}
+	if op.Type == OperationSyncPauseSet {
+		target := fmt.Sprintf("стека `%s`", op.Stack)
+		if op.Scope == string(syncpause.ScopeService) {
+			target = fmt.Sprintf("сервиса `%s` в стеке `%s`", op.Service, op.Stack)
+		}
+		expiration := "без срока действия"
+		if op.PauseExpiresAt != nil {
+			expiration = op.PauseExpiresAt.UTC().Format(time.RFC3339)
+		}
+		if op.Replicas != nil {
+			return fmt.Sprintf("Приостановить Sync для %s до %s, затем установить %d реплик?", target, expiration, *op.Replicas)
+		}
+		return fmt.Sprintf("Приостановить Sync для %s до %s?", target, expiration)
+	}
+	if op.Type == OperationSyncPauseResume {
+		target := fmt.Sprintf("стека `%s`", op.Stack)
+		if op.Scope == string(syncpause.ScopeService) {
+			target = fmt.Sprintf("сервиса `%s` в стеке `%s`", op.Service, op.Stack)
+		}
+		warning := ""
+		if op.Scope == string(syncpause.ScopeStack) && op.RemainingServicePauses > 0 {
+			warning = fmt.Sprintf(" %d прямых пауз сервисов останутся активными.", op.RemainingServicePauses)
+		}
+		return fmt.Sprintf("Удалить прямую Pause Sync для %s?%s", target, warning)
 	}
 	return fmt.Sprintf("Перезапустить `%s` в стеке `%s`?", op.Service, op.Stack)
 }

@@ -184,6 +184,7 @@ func toGeneratedDeployment(item deploymentmodel.Deployment) generated.Deployment
 		AttemptCount:    item.AttemptCount,
 		Changes:         make([]generated.DeploymentChange, 0, len(item.Changes)),
 		Attempts:        make([]generated.DeploymentAttempt, 0, len(item.Attempts)),
+		SkippedServices: append(make([]string, 0, len(item.SkippedServices)), item.SkippedServices...),
 	}
 	if item.ErrorCode != "" {
 		result.Reason = generated.NewOptString(item.ErrorCode)
@@ -216,6 +217,7 @@ func toGeneratedDeployment(item deploymentmodel.Deployment) generated.Deployment
 			ActualStateStatus:  generated.DeploymentActualStateStatus(attempt.ActualStateStatus),
 			StartedAt:          attempt.StartedAt,
 			InitJobs:           make([]generated.DeploymentInitJobExecution, 0, len(attempt.InitJobs)),
+			SkippedServices:    append(make([]string, 0, len(attempt.SkippedServices)), attempt.SkippedServices...),
 		}
 		for _, execution := range attempt.InitJobs {
 			mapped.InitJobs = append(mapped.InitJobs, generated.DeploymentInitJobExecution{

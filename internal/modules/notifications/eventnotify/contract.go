@@ -24,7 +24,8 @@ func StandardTemplate(eventType events.TypeName) (string, bool) {
 		return DefaultTemplate(), true
 	case events.TypeNameDeployFailed, events.TypeNameDeployPreparationFailed, events.TypeNameDeployInterrupted,
 		events.TypeNameAlertOpened, events.TypeNameAlertResolved, events.TypeNameConfigurationChanged,
-		events.TypeNameGitPullFailed, events.TypeNameGitPullSucceeded, events.TypeNameServiceRemovedFromDesired:
+		events.TypeNameGitPullFailed, events.TypeNameGitPullSucceeded, events.TypeNameServiceRemovedFromDesired,
+		events.TypeNameSyncPaused, events.TypeNameSyncResumed, events.TypeNameSyncPauseExpired:
 		return "", false
 	default:
 		return "", false
@@ -57,7 +58,8 @@ func ReferencePayloads(eventType events.TypeName) ([]any, bool) {
 		return []any{ReferencePayload()}, true
 	case events.TypeNameDeployFailed, events.TypeNameDeployPreparationFailed, events.TypeNameDeployInterrupted,
 		events.TypeNameAlertOpened, events.TypeNameAlertResolved, events.TypeNameConfigurationChanged,
-		events.TypeNameGitPullFailed, events.TypeNameGitPullSucceeded, events.TypeNameServiceRemovedFromDesired:
+		events.TypeNameGitPullFailed, events.TypeNameGitPullSucceeded, events.TypeNameServiceRemovedFromDesired,
+		events.TypeNameSyncPaused, events.TypeNameSyncResumed, events.TypeNameSyncPauseExpired:
 		return nil, false
 	default:
 		return nil, false

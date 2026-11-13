@@ -5,10 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"slices"
 	"sync"
 	"time"
 
 	pipe "github.com/artarts36/gopipe"
+	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/converter"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/initjob"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/networks"
@@ -101,7 +103,8 @@ func (d *Deployer) RefreshRegistryAuth(ctx context.Context, request StackRequest
 		),
 	)
 	defer span.End()
-	converted, err := d.converter.Convert(ctx, request.StackName, request.Desired)
+	desired := withoutPreservedServices(request.Desired, request.PreservedServices)
+	converted, err := d.converter.Convert(ctx, request.StackName, desired)
 	if err != nil {
 		err = fmt.Errorf("convert registry authentication targets: %w", err)
 	} else {
@@ -119,13 +122,18 @@ func (d *Deployer) RefreshRegistryAuth(ctx context.Context, request StackRequest
 // DeployStack runs the full stack deployment pipeline.
 func (d *Deployer) DeployStack(ctx context.Context, request StackRequest) (Result, error) {
 	d.attachPipelines()
+	desired := withoutPreservedServices(request.Desired, request.PreservedServices)
 	payload := &deployStackPayload{
-		stackName: request.StackName, sourceComposePath: request.SourceComposePath, desired: request.Desired,
-		result:             Result{Verification: deploymentmodel.Verification{Known: true}},
+		stackName: request.StackName, sourceComposePath: request.SourceComposePath, desired: desired,
+		result: Result{Verification: deploymentmodel.Verification{Known: true},
+			SkippedServices: slices.Clone(request.PreservedServices)},
 		retryFailedUpdates: request.Options.RetryFailedUpdates,
-		unresolvedServices: request.Options.UnresolvedServices,
-		beforeUpdate:       request.BeforeUpdate,
-		applyPayload:       applyPayload{updateGenerations: maps.Clone(request.Options.UpdateGenerations)},
+		unresolvedServices: slices.DeleteFunc(slices.Clone(request.Options.UnresolvedServices), func(name string) bool {
+			return slices.Contains(request.PreservedServices, name)
+		}),
+		preservedServices: slices.Clone(request.PreservedServices),
+		beforeUpdate:      request.BeforeUpdate,
+		applyPayload:      applyPayload{updateGenerations: maps.Clone(request.Options.UpdateGenerations)},
 	}
 
 	ctx, span := otel.GetTracerProvider().Tracer(deployerTracerName).Start(
@@ -140,6 +148,13 @@ func (d *Deployer) DeployStack(ctx context.Context, request StackRequest) (Resul
 		span.SetStatus(codes.Ok, "")
 	}
 	return payload.result, err
+}
+
+func withoutPreservedServices(desired compose.Compose, preserved []string) compose.Compose {
+	desired.Services = slices.DeleteFunc(slices.Clone(desired.Services), func(service compose.Service) bool {
+		return slices.Contains(preserved, service.Name)
+	})
+	return desired
 }
 
 // DeployService runs the single-service deployment pipeline without Init Jobs or pruning.

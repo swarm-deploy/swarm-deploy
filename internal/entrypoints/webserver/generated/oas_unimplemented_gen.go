@@ -50,6 +50,20 @@ func (UnimplementedHandler) DeleteNodeLabel(ctx context.Context, params DeleteNo
 	return ht.ErrNotImplemented
 }
 
+// DeleteServiceSyncPause implements deleteServiceSyncPause operation.
+//
+// DELETE /api/v1/stacks/{stack}/services/{service}/sync-pause
+func (UnimplementedHandler) DeleteServiceSyncPause(ctx context.Context, params DeleteServiceSyncPauseParams) error {
+	return ht.ErrNotImplemented
+}
+
+// DeleteStackSyncPause implements deleteStackSyncPause operation.
+//
+// DELETE /api/v1/stacks/{stack}/sync-pause
+func (UnimplementedHandler) DeleteStackSyncPause(ctx context.Context, params DeleteStackSyncPauseParams) error {
+	return ht.ErrNotImplemented
+}
+
 // GetAlert implements getAlert operation.
 //
 // GET /api/v1/alerts/{id}
@@ -148,6 +162,13 @@ func (UnimplementedHandler) GetService(ctx context.Context, params GetServicePar
 	return r, ht.ErrNotImplemented
 }
 
+// GetServiceSyncPause implements getServiceSyncPause operation.
+//
+// GET /api/v1/stacks/{stack}/services/{service}/sync-pause
+func (UnimplementedHandler) GetServiceSyncPause(ctx context.Context, params GetServiceSyncPauseParams) (r *ServiceSyncPauseResponse, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // GetStackDeploymentActivity implements getStackDeploymentActivity operation.
 //
 // Aggregated deployment operations for a configured stack, grouped by UTC start time.
@@ -172,6 +193,13 @@ func (UnimplementedHandler) GetStackManifestos(ctx context.Context, params GetSt
 //
 // GET /api/v1/stacks/{stack}/resources
 func (UnimplementedHandler) GetStackResources(ctx context.Context, params GetStackResourcesParams) (r *StackResourcesResponse, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// GetStackSyncPauses implements getStackSyncPauses operation.
+//
+// GET /api/v1/stacks/{stack}/sync-pauses
+func (UnimplementedHandler) GetStackSyncPauses(ctx context.Context, params GetStackSyncPausesParams) (r GetStackSyncPausesRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -294,11 +322,27 @@ func (UnimplementedHandler) ListSwarmServices(ctx context.Context) (r *SwarmServ
 	return r, ht.ErrNotImplemented
 }
 
+// PutServiceSyncPause implements putServiceSyncPause operation.
+//
+// PUT /api/v1/stacks/{stack}/services/{service}/sync-pause
+func (UnimplementedHandler) PutServiceSyncPause(ctx context.Context, req *SyncPauseRequest, params PutServiceSyncPauseParams) (r *ServiceSyncPauseResponse, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// PutStackSyncPause implements putStackSyncPause operation.
+//
+// PUT /api/v1/stacks/{stack}/sync-pause
+func (UnimplementedHandler) PutStackSyncPause(ctx context.Context, req *SyncPauseRequest, params PutStackSyncPauseParams) (r *StackSyncPausesResponse, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // ScaleSwarmService implements scaleSwarmService operation.
 //
-// Updates live replicated services, including standalone services, without waiting for tasks. GitOps
-// synchronization may overwrite this change. Invalid input or unsupported modes return 400, missing
-// services return 404, concurrent updates return 409, and Docker errors return 500.
+// Updates live replicated services, including standalone services, without waiting for tasks. When
+// gitops_stack and gitops_service are supplied, the target must already be effectively paused and
+// scaling waits only for that stack's current GitOps operation. Invalid input or unsupported modes
+// return 400, missing services return 404, concurrent updates return 409, and Docker errors return
+// 500.
 //
 // PUT /api/v1/swarm/services/{serviceID}/replicas
 func (UnimplementedHandler) ScaleSwarmService(ctx context.Context, req *ScaleSwarmServiceRequest, params ScaleSwarmServiceParams) error {

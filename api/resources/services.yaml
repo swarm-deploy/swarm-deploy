@@ -49,7 +49,8 @@ paths:
       operationId: scaleSwarmService
       description: >-
         Updates live replicated services, including standalone services, without waiting for tasks.
-        GitOps synchronization may overwrite this change. Invalid input or unsupported modes return
+        When gitops_stack and gitops_service are supplied, the target must already be effectively paused
+        and scaling waits only for that stack's current GitOps operation. Invalid input or unsupported modes return
         400, missing services return 404, concurrent updates return 409, and Docker errors return 500.
       parameters:
         - in: path
@@ -413,6 +414,12 @@ components:
           type: integer
           format: int64
           minimum: 0
+        gitops_stack:
+          type: string
+          minLength: 1
+        gitops_service:
+          type: string
+          minLength: 1
     SwarmServiceReplicas:
       type: object
       required: [running, desired]

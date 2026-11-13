@@ -207,6 +207,22 @@ func TestServicePrunerPrune(t *testing.T) {
 	}
 }
 
+func TestServicePrunerPreservesCallerSkippedServiceRemovedFromGit(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	serviceManager := swarm.NewMockServiceManager(ctrl)
+	pruner := NewServicePruner(serviceManager, dispatcher.NewMockDispatcher(ctrl), config.SyncPolicySpec{Prune: true})
+
+	pruned, err := pruner.Prune(t.Context(), PruneServicesRequest{
+		Stack: config.StackSpec{Name: "app"}, Commit: "commit-1",
+		Desired: compose.Services{}, PreservedServices: []string{"worker"},
+		Live: []swarm.StackService{{ID: "worker-id", Name: "worker", Labels: map[string]string{
+			labelsdict.ServiceManagedLabelKey: labelsdict.ServiceManagedLabelValue,
+		}}},
+	})
+	require.NoError(t, err)
+	assert.Empty(t, pruned)
+}
+
 func TestServicePrunerTracing(t *testing.T) {
 	errRemoveFailed := errors.New("remove failed")
 	errPublishFailed := errors.New("publish failed")

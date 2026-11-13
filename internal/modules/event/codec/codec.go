@@ -29,6 +29,9 @@ func Encode(event events.Event) ([]byte, error) {
 	if payload, serviceReference, err := encodeServiceReference(event); serviceReference {
 		return payload, err
 	}
+	if payload, pause, err := encodeSyncPauseContract(event); pause {
+		return payload, err
+	}
 	switch e := event.(type) {
 	case *events.ConfigurationChanged:
 		return encodeConfigurationChanged(e)
@@ -80,6 +83,22 @@ func Encode(event events.Event) ([]byte, error) {
 	}
 }
 
+func encodeSyncPauseContract(event events.Event) ([]byte, bool, error) {
+	switch value := event.(type) {
+	case *events.SyncPaused:
+		payload, err := encodeSyncPause(value.SyncPauseEvent)
+		return payload, true, err
+	case *events.SyncResumed:
+		payload, err := encodeSyncPause(value.SyncPauseEvent)
+		return payload, true, err
+	case *events.SyncPauseExpired:
+		payload, err := encodeSyncPause(value.SyncPauseEvent)
+		return payload, true, err
+	default:
+		return nil, false, nil
+	}
+}
+
 // Decode rejects unsupported schema versions and types without losing the delivery.
 func Decode(typ events.TypeName, version int, payload []byte) (events.Event, error) {
 	if version != Version {
@@ -92,6 +111,8 @@ func Decode(typ events.TypeName, version int, payload []byte) (events.Event, err
 		return event, err
 	}
 	switch typ { //nolint:exhaustive // Failure events are decoded by decodeDeploymentFailure above.
+	case events.TypeNameSyncPaused, events.TypeNameSyncResumed, events.TypeNameSyncPauseExpired:
+		return decodeSyncPause(typ, payload)
 	case events.TypeNameConfigurationChanged:
 		return decodeConfigurationChanged(payload)
 	case events.TypeNameGitPullFailed:

@@ -178,6 +178,7 @@ func NewApplication(
 		webConfig.UI,
 		stackProvider,
 		gitopsModule.Store,
+		gitopsModule.SyncPauses,
 		gitopsModule.Controller,
 		gitopsModule.GitRepository,
 		swarmService,

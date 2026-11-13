@@ -20,6 +20,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackloop/preparation"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/modelstore"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/syncpause"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
 	"github.com/swarm-deploy/swarm-deploy/internal/storage"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
@@ -42,6 +43,7 @@ type Reconciler struct {
 	secretManager   swarm.SecretManager
 	configManager   swarm.ConfigManager
 	resourceCleaner *rotatedResourceCleaner
+	pauseService    *syncpause.Service
 }
 
 // New builds a stack reconciler loop.
@@ -55,6 +57,7 @@ func New(
 	preparer *preparation.Preparer,
 	composeRotator *Rotator,
 	db storage.Database,
+	pauseServices ...*syncpause.Service,
 ) *Reconciler {
 	reconciler := &Reconciler{db: db, executor: executor,
 		cfg:            cfg,
@@ -68,6 +71,9 @@ func New(
 		serviceManager: swarmService.Services,
 		secretManager:  swarmService.Secrets,
 		configManager:  swarmService.Configs,
+	}
+	if len(pauseServices) > 0 {
+		reconciler.pauseService = pauseServices[0]
 	}
 	reconciler.resourceCleaner = newRotatedResourceCleaner(
 		reconciler.secretManager,
@@ -114,6 +120,8 @@ func (r *Reconciler) Cleanup(ctx context.Context, stack config.StackSpec, commit
 }
 
 // Reconcile applies one stack definition.
+//
+//nolint:gocognit // Reconciliation intentionally keeps preparation, pause policy and pipeline state together.
 func (r *Reconciler) Reconcile(
 	ctx context.Context,
 	req ReconciliationRequest,
@@ -150,6 +158,17 @@ func (r *Reconciler) Reconcile(
 		HasPreviousDrift: stackHasDrift(prev),
 		Desired:          prepared,
 		PendingSelfHeal:  map[string]bool{},
+	}
+	if r.pauseService != nil {
+		policy, pauseErr := r.pauseService.Active(ctx, req.Stack.Name)
+		if pauseErr != nil {
+			return fmt.Errorf("read sync pause policy: %w", pauseErr)
+		}
+		desiredNames := make([]string, 0, len(prepared.Compose.Services))
+		for _, service := range prepared.Compose.Services {
+			desiredNames = append(desiredNames, service.Name)
+		}
+		pl.PreservedServices = syncpause.PreserveNames(policy, desiredNames, prev)
 	}
 	for name, service := range prev.Services {
 		if service.SelfHealPending {
@@ -191,6 +210,7 @@ func (r *Reconciler) currentStackState(ctx context.Context, stackName string) (m
 	return stack, ok, nil
 }
 
+//nolint:gocognit // Runtime projection preserves prior paused state across several independent outcome branches.
 func (r *Reconciler) processResult(
 	ctx context.Context,
 	req ReconciliationRequest,
@@ -202,6 +222,16 @@ func (r *Reconciler) processResult(
 
 	serviceStates := make(map[string]model.Service, len(desired.Compose.Services))
 	for _, service := range desired.Compose.Services {
+		if slices.Contains(payload.PreservedServices, service.Name) {
+			if previous, ok := prevState.Services[service.Name]; ok {
+				serviceStates[service.Name] = previous
+			} else {
+				serviceStates[service.Name] = model.Service{
+					Image: service.Image, SyncStatus: model.SyncStatusOutOfSync,
+				}
+			}
+			continue
+		}
 		state := model.Service{
 			Image:           service.Image,
 			SyncStatus:      model.SyncStatusSynced,
@@ -227,12 +257,25 @@ func (r *Reconciler) processResult(
 		}
 		serviceStates[service.Name] = state
 	}
+	for _, name := range payload.PreservedServices {
+		if _, desired := serviceStates[name]; desired {
+			continue
+		}
+		if previous, ok := prevState.Services[name]; ok {
+			serviceStates[name] = previous
+		}
+	}
 
 	driftedServices := prevState.DriftedServices
 	if payload.RemainingDrift != nil {
 		driftedServices = make(map[string]bool, len(payload.RemainingDrift))
 		for name := range payload.RemainingDrift {
 			driftedServices[name] = true
+		}
+		for _, name := range payload.PreservedServices {
+			if prevState.DriftedServices[name] {
+				driftedServices[name] = true
+			}
 		}
 	}
 
@@ -380,6 +423,9 @@ func (r *Reconciler) publishDriftEvents(
 		return nil
 	}
 	for _, service := range payload.Desired.Compose.Services {
+		if slices.Contains(payload.PreservedServices, service.Name) {
+			continue
+		}
 		if err := r.publishServiceDriftEvents(ctx, req, prevState, payload, service.Name); err != nil {
 			return err
 		}

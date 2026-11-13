@@ -23,6 +23,29 @@ The current pipeline is:
 
 Some steps are conditional. For example, the image policy step is absent when every image rule is disabled, and environment population runs only when at least one desired service declares `env_file`.
 
+## Pause Sync policy
+
+GitOps owns persistent Pause Sync policy at two independent scopes: one direct pause for a stack and direct
+pauses for individual services. A service is effectively paused when either record is active. Removing a
+stack pause never removes service pauses, and removing a service pause while its stack is paused does not
+make that service effectively unpaused. Pause is separate from the existing `Synced` and `OutOfSync` status.
+
+Pause records contain only their GitOps target and an optional absolute expiration. They do not copy service
+specifications or runtime state. Expired records are removed transactionally with their expiration events at
+the beginning of the next ordinary GitOps sync; no expiration scheduler or worker runs between syncs. An
+operation already running when a pause is created is not canceled.
+
+For each stack reconciliation, GitOps calculates the service names that its current pause policy must
+preserve. It passes those names to Deployments through the neutral `PreservedServices` execution contract.
+Deployments does not read or interpret Pause Sync policy: it excludes preserved services from service apply,
+convergence waiting, service-level mutations, and pruning, while continuing to deploy other services in the
+stack. The no-Attempt pruning and GitOps self-heal paths use the same set. This also keeps a paused live
+service running when it has been removed from Git until its effective pause is removed.
+
+Each Deployment and Attempt records the service names intentionally skipped for that execution. Effective
+pause state and paused counts are calculated from active pause records and GitOps-managed services rather
+than persisted as a second policy projection.
+
 ## Sync runs and the stack queue
 
 A sync run (startup, Git poll with a new revision, webhook, manual sync or the periodic `gitops.sync.interval`) does

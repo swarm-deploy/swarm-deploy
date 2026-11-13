@@ -24,10 +24,25 @@ export function fetchSwarmTask(taskID: string): Promise<SwarmTaskDetails> {
   return apiRequest<SwarmTaskDetails>(`/api/v1/swarm/tasks/${encodeURIComponent(taskID)}`);
 }
 
-export function scaleSwarmService(serviceID: string, replicas: number): Promise<void> {
+export interface GitOpsScaleTarget {
+  stack: string;
+  service: string;
+}
+
+export function scaleSwarmService(
+  serviceID: string,
+  replicas: number,
+  gitopsTarget?: GitOpsScaleTarget,
+): Promise<void> {
   return apiRequest<void>(`/api/v1/swarm/services/${encodeURIComponent(serviceID)}/replicas`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ replicas }),
+    body: JSON.stringify({
+      replicas,
+      ...(gitopsTarget ? {
+        gitops_stack: gitopsTarget.stack,
+        gitops_service: gitopsTarget.service,
+      } : {}),
+    }),
   });
 }

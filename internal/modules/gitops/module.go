@@ -17,6 +17,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/differ"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/modelstore"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/syncpause"
 	"github.com/swarm-deploy/swarm-deploy/internal/storage"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
@@ -28,6 +29,8 @@ type Module struct {
 	Store         *modelstore.SQLStore
 	GitRepository git.Repository
 	Differ        *differ.Differ
+	// SyncPauses owns persistent stack and service pause policy.
+	SyncPauses *syncpause.Service
 
 	cfg *config.Config
 }
@@ -56,6 +59,9 @@ func InitModule(
 	}
 
 	srv.Store = modelstore.NewSQLStore(cnt.GetStorage())
+	srv.SyncPauses = syncpause.NewService(
+		cnt.GetStorage(), srv.Store, cnt.GetConfigStore(), cnt.GetEventModule().Dispatcher,
+	)
 	srv.Deployments = deploymentstore.NewStore(cnt.GetStorage())
 	projection := deployment.NewProjectionSubscriber(cnt.GetStorage(), srv.Deployments, srv.Store)
 	if err := dispatcher.SubscribeMany(cnt.GetEventModule().Dispatcher, []events.TypeName{
@@ -74,6 +80,7 @@ func InitModule(
 		cnt.GetEventModule().Dispatcher,
 		srv.Store,
 		cnt.GetStorage(),
+		srv.SyncPauses,
 	)
 	return srv, nil
 }

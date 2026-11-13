@@ -33,6 +33,84 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/StackResourcesResponse'
+  /api/v1/stacks/{stack}/sync-pauses:
+    get:
+      operationId: getStackSyncPauses
+      parameters:
+        - $ref: '#/components/parameters/StackName'
+      responses:
+        '200':
+          description: Active direct pauses and the calculated effectively paused service count.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StackSyncPausesResponse'
+        '404':
+          description: Stack is not managed by GitOps.
+  /api/v1/stacks/{stack}/sync-pause:
+    put:
+      operationId: putStackSyncPause
+      parameters:
+        - $ref: '#/components/parameters/StackName'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SyncPauseRequest'
+      responses:
+        '200':
+          description: Current stack pause state.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StackSyncPausesResponse'
+    delete:
+      operationId: deleteStackSyncPause
+      parameters:
+        - $ref: '#/components/parameters/StackName'
+      responses:
+        '204':
+          description: Direct stack pause removed; service pauses are unchanged.
+  /api/v1/stacks/{stack}/services/{service}/sync-pause:
+    get:
+      operationId: getServiceSyncPause
+      parameters:
+        - $ref: '#/components/parameters/StackName'
+        - $ref: '#/components/parameters/ServiceName'
+      responses:
+        '200':
+          description: Direct and effective service pause state.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceSyncPauseResponse'
+    put:
+      operationId: putServiceSyncPause
+      parameters:
+        - $ref: '#/components/parameters/StackName'
+        - $ref: '#/components/parameters/ServiceName'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SyncPauseRequest'
+      responses:
+        '200':
+          description: Current direct and effective service pause state.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceSyncPauseResponse'
+    delete:
+      operationId: deleteServiceSyncPause
+      parameters:
+        - $ref: '#/components/parameters/StackName'
+        - $ref: '#/components/parameters/ServiceName'
+      responses:
+        '204':
+          description: Direct service pause removed; a stack pause may remain effective.
   /api/v1/stacks/{stack}/manifestos:
     get:
       operationId: getStackManifestos
@@ -76,7 +154,87 @@ paths:
               schema:
                 $ref: '#/components/schemas/QueueResponse'
 components:
+  parameters:
+    StackName:
+      in: path
+      name: stack
+      required: true
+      schema:
+        type: string
+        minLength: 1
+    ServiceName:
+      in: path
+      name: service
+      required: true
+      schema:
+        type: string
+        minLength: 1
   schemas:
+    SyncPauseRequest:
+      type: object
+      required: [expires_at]
+      properties:
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Absolute expiration; null means no expiration.
+    SyncPauseRecord:
+      type: object
+      required: [scope, stack, expires_at]
+      properties:
+        scope:
+          type: string
+          enum: [stack, service]
+        stack:
+          type: string
+        service:
+          type: string
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+    EffectiveSyncPauseSource:
+      type: string
+      enum: [stack, service, both]
+    StackSyncPausesResponse:
+      type: object
+      required: [service_pauses, effective_services, effectively_paused_services]
+      properties:
+        stack_pause:
+          $ref: '#/components/schemas/SyncPauseRecord'
+        service_pauses:
+          type: array
+          items:
+            $ref: '#/components/schemas/SyncPauseRecord'
+        effective_services:
+          type: array
+          description: GitOps-managed services currently paused, with the source of effective pause.
+          items:
+            $ref: '#/components/schemas/EffectivePausedService'
+        effectively_paused_services:
+          type: integer
+          minimum: 0
+    EffectivePausedService:
+      type: object
+      required: [service, source]
+      properties:
+        service:
+          type: string
+        source:
+          $ref: '#/components/schemas/EffectiveSyncPauseSource'
+    ServiceSyncPauseResponse:
+      type: object
+      required: [effective_paused]
+      properties:
+        stack_pause:
+          $ref: '#/components/schemas/SyncPauseRecord'
+        service_pause:
+          $ref: '#/components/schemas/SyncPauseRecord'
+        effective_paused:
+          type: boolean
+        effective_source:
+          $ref: '#/components/schemas/EffectiveSyncPauseSource'
     StackResourceInfo:
       type: object
       description: Resource identity without values, configuration data or labels.
@@ -191,6 +349,9 @@ components:
           format: date-time
         source_digest:
           type: string
+        effectively_paused_services:
+          type: integer
+          minimum: 0
     StacksResponse:
       type: object
       required: [stacks, sync]
