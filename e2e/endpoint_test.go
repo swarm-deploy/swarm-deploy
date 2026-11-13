@@ -169,7 +169,7 @@ func testEndpointControllerRecovery(t *testing.T, followup string) {
 	t.Logf("recovery: matching spec=%t, nonempty registry credentials=%t", services.SpecsEqual(accepted.Spec, converted.Services[0]), auth != "")
 	// Simulate losing the controller immediately after Docker accepts the write:
 	// leave the Attempt running, then rebuild execution components from SQLite.
-	freshDeployer := deployer.NewDeployer(20*time.Millisecond, 40*time.Second, f.docker, f.sw, nil, deployer.NewSecretResolver(deployer.PlaintextDecoder{}))
+	freshDeployer := deployer.NewDeployer(20*time.Millisecond, 40*time.Second, f.sw, nil, deployer.NewSecretResolver(deployer.PlaintextDecoder{}))
 	recovered := deployments.NewController(deployments.NewService(f.db, f.bus), freshDeployer, f.sw.Services,
 		pruner.NewServicePruner(f.sw.Services, f.bus, config.SyncPolicySpec{}), &metrics.NopDeploys{})
 	require.NoError(t, recovered.Recover(f.ctx))

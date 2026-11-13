@@ -42,7 +42,7 @@ func TestNativeDeploymentCarriesUnresolvedRolloutAcrossDesiredDigests(t *testing
 	configs.EXPECT().List(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
 	secrets.EXPECT().List(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
 	sw := &swarm.Swarm{Services: manager, Networks: networks, Configs: configs, Secrets: secrets}
-	native := deployer.NewDeployer(time.Millisecond, time.Second, nil, sw, nil, deployer.NewSecretResolver(deployer.PlaintextDecoder{}))
+	native := deployer.NewDeployer(time.Millisecond, time.Second, sw, nil, deployer.NewSecretResolver(deployer.PlaintextDecoder{}))
 	create := func() *Controller {
 		return NewController(NewService(db, bus), native, manager, pruner.NewServicePruner(manager, bus, config.SyncPolicySpec{}), &metrics.NopDeploys{})
 	}
@@ -335,7 +335,7 @@ func TestNativeRetryDoesNotTouchUnrelatedPausedExternalJob(t *testing.T) {
 	converted, err := converter.New(networks, configs, secrets).Convert(t.Context(), "app", desired.Compose)
 	require.NoError(t, err)
 	sw := &swarm.Swarm{Services: manager, Networks: networks, Configs: configs, Secrets: secrets}
-	native := deployer.NewDeployer(time.Millisecond, time.Second, nil, sw, nil, deployer.NewSecretResolver(deployer.PlaintextDecoder{}))
+	native := deployer.NewDeployer(time.Millisecond, time.Second, sw, nil, deployer.NewSecretResolver(deployer.PlaintextDecoder{}))
 	create := func() *Controller {
 		return NewController(NewService(db, bus), native, manager, pruner.NewServicePruner(manager, bus, config.SyncPolicySpec{}), &metrics.NopDeploys{})
 	}

@@ -26,7 +26,7 @@ func TestInvalidDesiredStateCannotMutateDockerResources(t *testing.T) {
 				Configs: swarm.NewMockConfigManager(ctrl), Secrets: swarm.NewMockSecretManager(ctrl),
 			}
 			// All manager mocks are strict: even resource reads must wait for validation.
-			d := NewDeployer(time.Millisecond, time.Second, nil, sw, nil, newTestSecretResolver())
+			d := NewDeployer(time.Millisecond, time.Second, sw, nil, newTestSecretResolver())
 			desired, err := compose.Parse([]byte("services: {app: {image: alpine, " + option + "}}\nconfigs: {app: {file: cfg}}\nsecrets: {password: {file: password}}"))
 			require.NoError(t, err)
 			for _, service := range []bool{false, true} {

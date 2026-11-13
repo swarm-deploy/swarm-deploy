@@ -69,7 +69,7 @@ Path: `internal/modules/deployments`.
 
 - `controller.go` exposes `Executor` (`Execute`, `ExecuteService`, `Recover`); `service.go` and `completion.go` persist lifecycle state and publish Event contracts through shared storage transactions.
 - `deployer/pipeline.go` consumes prepared in-memory Compose and Swarm manager interfaces; registry auth comes from `registry.AuthManager`. Single-service remediation does not create a stack Deployment or run Init Jobs.
-- Module wiring still reads GitOps configuration fields and passes an unused Docker client argument through constructors; see known issues. It does not import the GitOps module.
+- Module wiring still reads GitOps configuration fields; see known issues. Docker operations use Swarm managers. It does not import the GitOps module.
 
 ### Architectural Invariants
 
@@ -238,7 +238,7 @@ below describe their current role and the established constraints to preserve.
 | `internal/swarm` | Docker SDK adapter: service/task, image, config, secret, node, network, plugin operations and shared Docker event stream (`interfaces.go`, `swarm.go`, `events.go`). Uses shared faults/tracing. | All new Docker Engine/Swarm operations go through these managers, per `go.md`. No GitOps or deployment orchestration. SDK data types may cross the boundary; duplicate DTOs/parallel clients are not required. |
 | `internal/compose` | Compose models, parsing, validation, normalization, referenced-file loading and digests; injectable file reader (`file.go`). Uses shared helpers. | No Docker operations or final application ServiceSpec conversion. Repository values stay literal; do not read controller environment variables for interpolation (`interpolation.go`, `docs/reconciler.md`). GitOps supplies revision-pinned reads and preparation policy. |
 | `internal/config`, `internal/configstore` | YAML types/loading/defaults/validation and accepted stack/network snapshots; ConfigStore coordinates reload and emits `ConfigurationChanged`. Config references hosting, alert, event and notification contract types. | Configuration does not execute synchronization/deployment. Preserve `StackProvider` and snapshot/readiness semantics; this is not a module-independent leaf package. Keep config docs/examples aligned with changes. |
-| `internal/storage`, `migrations/sqlite` | Shared SQLite connection, embedded Goose schema, context-aware transactions and projection helpers (`db.go`, `projection.go`). | Domain repositories own domain queries; services/handlers must not implement SQL. Reuse `storage.Database`, goqu and bound parameters. No parallel transaction infrastructure or sharing a transaction context across concurrent goroutines. See the nested-transaction documentation mismatch below. |
+| `internal/storage`, `migrations/sqlite` | Shared SQLite connection, embedded Goose schema, context-aware transactions and projection helpers (`db.go`, `projection.go`). | Domain repositories own domain queries; services/handlers must not implement SQL. Reuse `storage.Database`, goqu and bound parameters. No parallel transaction infrastructure or sharing a transaction context across concurrent goroutines. Nested `WithinTransaction` calls join the active transaction without savepoints or independent rollback. |
 | `internal/registry` | `AuthManager` resolves Docker registry credentials; `ImageVersionResolver` resolves image digests and uses `swarm.ImageManager` for Docker Engine distribution inspection. Used by Deployments and Assistant. | No GitOps scheduling or deployment lifecycle. Keep credentials out of specs, events and logs. |
 | `internal/githosting` | `ProviderManager` resolves repository URLs to provider adapters; `Provider` currently exposes latest-release reads for Assistant. | Does not own Git checkout or reconciliation; Git repository reads/pulls belong to `gitops/git`. Git write/PR capabilities are not implemented here today; ownership for future workflows requires a separate decision. |
 | `internal/security` | User context, logging and Event user enrichment; web entrypoints implement authentication/authorization. | Not deployment policy or a separate identity service. Preserve authenticated user propagation through existing request/event contracts. |
@@ -268,12 +268,8 @@ do not expand a violation or choose a new owner without explicit approval.
 3. **Resolved: Event/Notifications assembly boundary.** See [Event](#event) and
    [Notifications](#notifications) for the supported ownership boundary.
 4. **Residual Deployments wiring coupling:** `deployments/module.go` reads
-   `cfg.Spec.GitOps.Secrets.Age` and `cfg.Spec.GitOps.Sync.Policy`, and threads
-   `*client.Client` into `deployer/initjob.NewInitJobRunner`, where it is unused.
-   **Clarification:** is this configuration/constructor shape intentional or compatibility
-   residue? It does not permit a GitOps module dependency or direct SDK operations.
-5. **Transaction documentation mismatch:** `docs/architecture/event-bus-outbox-schema.md`
-   describes nested savepoints, but `internal/storage/db.go` joins an active transaction
-   by directly invoking the callback. Independent nested rollback is therefore not a
-   contract callers can currently rely on. **Clarification:** which semantics should the
-   documentation promise? Do not change transaction behavior to settle this discrepancy.
+   `cfg.Spec.GitOps.Secrets.Age` and `cfg.Spec.GitOps.Sync.Policy`.
+   **Clarification:** is this configuration shape intentional or compatibility residue?
+   It does not permit a GitOps module dependency or direct SDK operations.
+5. **Resolved: transaction documentation mismatch.** Nested `WithinTransaction` calls
+   join the active transaction without savepoints or independent rollback.

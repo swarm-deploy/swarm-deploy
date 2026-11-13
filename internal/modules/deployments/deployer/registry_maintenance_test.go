@@ -56,7 +56,7 @@ func TestRegistryAuthMaintenanceConvertsWithoutRunningDeploymentPipeline(t *test
 		})
 	// All other resource and service operations are strict unexpected calls,
 	// including Init Job creation, resource reconciliation and convergence polling.
-	native := NewDeployer(time.Millisecond, time.Second, nil, sw, nil, newTestSecretResolver())
+	native := NewDeployer(time.Millisecond, time.Second, sw, nil, newTestSecretResolver())
 	require.NoError(t, native.RefreshRegistryAuth(t.Context(), StackRequest{StackName: "demo", Desired: *desired}))
 }
 
@@ -82,7 +82,7 @@ func TestRegistryAuthMaintenanceRetainsCallerCancellation(t *testing.T) {
 					}
 					return swarm.Network{}, actual.Err()
 				})
-			native := NewDeployer(time.Millisecond, time.Second, nil, sw, nil, newTestSecretResolver())
+			native := NewDeployer(time.Millisecond, time.Second, sw, nil, newTestSecretResolver())
 			err := native.RefreshRegistryAuth(ctx, StackRequest{StackName: "demo", Desired: compose.Compose{
 				Services: compose.Services{{Name: "api", Image: "registry.example/api:1"}},
 			}})

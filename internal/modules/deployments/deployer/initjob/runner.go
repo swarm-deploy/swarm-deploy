@@ -12,7 +12,6 @@ import (
 	"time"
 
 	dockerswarm "github.com/docker/docker/api/types/swarm"
-	"github.com/docker/docker/client"
 	"github.com/swarm-deploy/swarm-deploy/internal/registry"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
@@ -48,9 +47,7 @@ type InitJobRunner struct {
 }
 
 // NewInitJobRunner creates init job runner with async cleanup queue.
-// The client argument is retained for compatibility; Docker operations use swarmService.
 func NewInitJobRunner(
-	_ *client.Client,
 	swarmService *swarm.Swarm,
 	pollInterval time.Duration,
 	timeout time.Duration,

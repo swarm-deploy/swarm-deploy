@@ -22,7 +22,7 @@ Event History uses a stable subscription and idempotent projection. Failed deliv
 
 ## Transaction propagation in Go
 
-The shared `storage.Database` uses a context-aware transactor with nested savepoints.
+The shared `storage.Database` uses a context-aware transactor. A nested `WithinTransaction` joins the active transaction without creating a savepoint; it cannot roll back independently of the outer transaction.
 Its DB getter selects the active transaction from context; callers do not pass `sql.Tx` explicitly.
 One `storage.Database` owns the transactor/getter. `BEGIN IMMEDIATE` serializes writers;
 WAL permits committed-state readers. Do not share a transaction context between concurrent goroutines.

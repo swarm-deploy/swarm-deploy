@@ -39,7 +39,7 @@ func TestDeployStackCompatibilityOnRealSwarm(t *testing.T) {
 	dir := t.TempDir()
 	swarmService := swarm.NewSwarm(dockerClient)
 	observer := newSwarmObserver(t)
-	stackDeployer := deployer.NewDeployer(100*time.Millisecond, 2*time.Minute, dockerClient, swarmService, nil, deployer.NewSecretResolver(deployer.PlaintextDecoder{}))
+	stackDeployer := deployer.NewDeployer(100*time.Millisecond, 2*time.Minute, swarmService, nil, deployer.NewSecretResolver(deployer.PlaintextDecoder{}))
 	composePath := filepath.Join(dir, "compose.yaml")
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)

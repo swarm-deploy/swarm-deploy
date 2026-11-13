@@ -4,7 +4,6 @@ package deployments
 import (
 	"context"
 
-	"github.com/docker/docker/client"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer"
@@ -26,8 +25,6 @@ type Container interface {
 	GetStorage() storage.Database
 	// GetEventModule returns transactional event publication infrastructure.
 	GetEventModule() *event.Module
-	// GetDockerClient returns the shared Docker API client.
-	GetDockerClient() *client.Client
 	// GetMetrics returns the shared application metrics.
 	GetMetrics() *metrics.Group
 	// GetSwarm returns the shared Docker Swarm services.
@@ -39,7 +36,6 @@ func InitModule(_ context.Context, cfg *config.Config, cnt Container) (*Module, 
 	stackDeployer := deployer.NewDeployer(
 		cfg.Spec.Deployments.PollInterval.Value,
 		cfg.Spec.Deployments.InitJobs.MaxDuration.Value,
-		cnt.GetDockerClient(),
 		cnt.GetSwarm(),
 		cnt.GetMetrics().Deploys,
 		deployer.NewSecretResolver(
