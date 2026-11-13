@@ -141,6 +141,9 @@ func (r *Reconciler) Reconcile(
 		}
 		return wrapReconcileError(stage, desiredState.Compose.Services, errors.Join(err, persistErr))
 	}
+	if err = r.recordPreparedDesired(ctx, req, prepared, &prev); err != nil {
+		return err
+	}
 
 	pl := &pipelinePayload{
 		Stack:            req.Stack,
@@ -191,6 +194,58 @@ func (r *Reconciler) currentStackState(ctx context.Context, stackName string) (m
 	return stack, ok, nil
 }
 
+func (r *Reconciler) recordPreparedDesired(
+	ctx context.Context,
+	req ReconciliationRequest,
+	prepared *compose.File,
+	previous *model.Stack,
+) error {
+	digests, err := computeDesiredServiceDigests(prepared)
+	if err != nil {
+		persistErr := r.recordFailure(ctx, req.Stack.Name, req.Commit, prepared, err)
+		return wrapReconcileError(
+			"compute desired service digest", prepared.Compose.Services, errors.Join(err, persistErr),
+		)
+	}
+	desiredServices, err := r.persistDesiredServices(ctx, req.Stack.Name, req.Commit, digests)
+	if err != nil {
+		return wrapReconcileError("persist desired service state", prepared.Compose.Services, err)
+	}
+	if previous.Services == nil {
+		previous.Services = map[string]model.Service{}
+	}
+	for name, service := range desiredServices {
+		previous.Services[name] = service
+	}
+	return nil
+}
+
+func (r *Reconciler) persistDesiredServices(
+	ctx context.Context,
+	stackName string,
+	commit string,
+	digests map[string]string,
+) (map[string]model.Service, error) {
+	services := make(map[string]model.Service, len(digests))
+	err := r.stateStore.Update(ctx, func(runtime *model.Runtime) {
+		stack := runtime.Stacks[stackName]
+		if stack.Services == nil {
+			stack.Services = map[string]model.Service{}
+		}
+		for name, digest := range digests {
+			service := stack.Services[name]
+			if service.DesiredDigest != digest || service.DesiredCommit == "" {
+				service.DesiredCommit = commit
+			}
+			service.DesiredDigest = digest
+			stack.Services[name] = service
+			services[name] = service
+		}
+		runtime.Stacks[stackName] = stack
+	})
+	return services, err
+}
+
 func (r *Reconciler) processResult(
 	ctx context.Context,
 	req ReconciliationRequest,
@@ -202,8 +257,11 @@ func (r *Reconciler) processResult(
 
 	serviceStates := make(map[string]model.Service, len(desired.Compose.Services))
 	for _, service := range desired.Compose.Services {
+		previous := prevState.Services[service.Name]
 		state := model.Service{
 			Image:           service.Image,
+			DesiredDigest:   previous.DesiredDigest,
+			DesiredCommit:   previous.DesiredCommit,
 			SyncStatus:      model.SyncStatusSynced,
 			SyncAt:          now,
 			SelfHealPending: payload.Attempt == nil && payload.PendingSelfHeal[service.Name],
@@ -293,7 +351,8 @@ func (r *Reconciler) recordFailure(
 			for _, service := range services {
 				previous := state.Services[service.Name]
 				state.Services[service.Name] = model.Service{
-					Image: service.Image, SyncStatus: model.SyncStatusOutOfSync, SyncAt: time.Now(),
+					Image: service.Image, DesiredDigest: previous.DesiredDigest, DesiredCommit: previous.DesiredCommit,
+					SyncStatus: model.SyncStatusOutOfSync, SyncAt: time.Now(),
 					SelfHealPending: previous.SelfHealPending, SyncError: previous.SyncError,
 				}
 			}
@@ -330,8 +389,10 @@ func (r *Reconciler) recordPipelineFailure(
 			failed.Services = map[string]model.Service{}
 		}
 		for _, service := range services {
+			previous := failed.Services[service.Name]
 			failed.Services[service.Name] = model.Service{
-				Image: service.Image, SyncStatus: model.SyncStatusOutOfSync, SyncAt: time.Now(),
+				Image: service.Image, DesiredDigest: previous.DesiredDigest, DesiredCommit: previous.DesiredCommit,
+				SyncStatus: model.SyncStatusOutOfSync, SyncAt: time.Now(),
 			}
 		}
 		failed.Status = model.NewStackStatus(failed.Services)
