@@ -3,35 +3,18 @@ package preparation
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	"path/filepath"
-	"strings"
 
 	pipe "github.com/artarts36/gopipe"
-	"github.com/distribution/reference"
 	downward "github.com/swarm-deploy/downward/go"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackloop/policies"
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/labelsdict"
 	"go.opentelemetry.io/otel/trace"
-)
-
-const (
-	imageViolationInvalid  = "image.invalid"
-	imageViolationRequired = "image.tag.required"
-	imageViolationLatest   = "image.tag.no_latest"
-	imageViolationOnlySHA  = "image.tag.only_sha"
-)
-
-// Image policy violation codes are preserved in preparation failures.
-const (
-	ImageViolationInvalid  = imageViolationInvalid
-	ImageViolationRequired = imageViolationRequired
-	ImageViolationLatest   = imageViolationLatest
-	ImageViolationOnlySHA  = imageViolationOnlySHA
 )
 
 var downwardEnvironment = map[string]string{
@@ -116,8 +99,8 @@ func (p *Preparer) attachPipeline(provider trace.TracerProvider) {
 	if p.cfg.Spec.GitOps.Sync.Policy.Image.Enabled() {
 		p.pipeline.Add(pipe.Step[*preparationPayload]{
 			Name: "check image policy",
-			Run: func(_ context.Context, payload *preparationPayload) error {
-				return checkImagePolicy(p.cfg.Spec.GitOps.Sync.Policy.Image, payload.desired)
+			Run: func(ctx context.Context, payload *preparationPayload) error {
+				return checkImagePolicy(ctx, p.cfg.Spec.GitOps.Sync.Policy.Image, payload.desired)
 			},
 		})
 	}
@@ -183,76 +166,16 @@ func (p *Preparer) attachPipeline(provider trace.TracerProvider) {
 	})
 }
 
-func checkImagePolicy(policy config.ImagePolicySpec, desired *compose.File) error {
+func checkImagePolicy(ctx context.Context, policy config.ImagePolicySpec, desired *compose.File) error {
+	checker := policies.NewImageChecker(policy)
 	issues := make([]compose.ValidationIssue, 0)
 	for _, service := range desired.Compose.Services {
-		if code := imagePolicyViolation(policy, service.Image); code != "" {
-			issues = append(issues, compose.ValidationIssue{ResourceType: "service", ResourceName: service.Name,
-				Field: "image", Code: code, Message: imagePolicyViolationMessage(code)})
-		}
-		for _, job := range service.InitJobs {
-			if code := imagePolicyViolation(policy, job.Image); code != "" {
-				issues = append(issues, compose.ValidationIssue{ResourceType: "service", ResourceName: service.Name,
-					Field: fmt.Sprintf("x-init-deploy-jobs[%q].image", job.Name), Code: code,
-					Message: fmt.Sprintf("init job %q: %s", job.Name, imagePolicyViolationMessage(code))})
-			}
-		}
+		issues = append(issues, checker.Check(ctx, service)...)
 	}
 	if len(issues) > 0 {
 		return &compose.ValidateComposeError{FilePath: desired.Path, Issues: issues}
 	}
 	return nil
-}
-
-// ValidateImagePolicy validates service and init-job images in a source Compose definition.
-func ValidateImagePolicy(policy config.ImagePolicySpec, desired *compose.File) error {
-	return checkImagePolicy(policy, desired)
-}
-
-func imagePolicyViolation(policy config.ImagePolicySpec, image string) string {
-	if !policy.Enabled() {
-		return ""
-	}
-	named, err := reference.ParseNormalizedNamed(strings.TrimSpace(image))
-	if err != nil {
-		return imageViolationInvalid
-	}
-	_, hasDigest := named.(reference.Canonical)
-	tagged, hasTag := named.(reference.NamedTagged)
-	tag := ""
-	if hasTag {
-		tag = tagged.Tag()
-	}
-	switch {
-	case policy.Tag.OnlySHA && !hasDigest:
-		return imageViolationOnlySHA
-	case policy.Tag.Required && !hasTag && !hasDigest:
-		return imageViolationRequired
-	case policy.Tag.NoLatest && ((hasTag && tag == "latest") || (!hasTag && !hasDigest)):
-		return imageViolationLatest
-	default:
-		return ""
-	}
-}
-
-// ImagePolicyViolation returns the stable validation code for an image reference.
-func ImagePolicyViolation(policy config.ImagePolicySpec, image string) string {
-	return imagePolicyViolation(policy, image)
-}
-
-func imagePolicyViolationMessage(code string) string {
-	switch code {
-	case imageViolationInvalid:
-		return "image reference is invalid"
-	case imageViolationRequired:
-		return "image must have an explicit tag or digest"
-	case imageViolationLatest:
-		return "image must not use the latest tag"
-	case imageViolationOnlySHA:
-		return "image must use a digest"
-	default:
-		return "image policy rejected the service image"
-	}
 }
 
 func addDownward(desired *compose.File, stackName string) bool {
