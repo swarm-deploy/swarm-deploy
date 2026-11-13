@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"reflect"
-	"slices"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
@@ -41,16 +40,9 @@ func Encode(event events.Event) ([]byte, error) {
 		return encodeDeploymentFailure(e.StackName, e.Commit, e.DeploymentID, e.AttemptID, e.ErrorCode, e.Stage,
 			e.Error, e.Services)
 	case *events.DeployPreparationFailed:
-		if e.ErrorCode != events.DeployErrorCodePreparationFailed {
-			return nil, errors.New("unsupported deployment preparation failure code")
-		}
 		return encodeDeploymentFailure(e.StackName, e.Commit, "", "", e.ErrorCode, e.Stage,
 			e.Error, e.Services)
 	case *events.DeployInterrupted:
-		if e.Reason != events.DeployInterruptReasonProcessInterrupted &&
-			e.Reason != events.DeployInterruptReasonVerificationUnknown {
-			return nil, errors.New("unsupported deployment interruption reason")
-		}
 		return encodeDeploymentFailure(e.StackName, e.Commit, e.DeploymentID, e.AttemptID, e.Reason, e.Stage,
 			e.Error, e.Services)
 	case *events.NodeJoined:
@@ -246,16 +238,12 @@ func decodeDeploymentFailure(typ events.TypeName, payload []byte) (events.Event,
 		diagnostic := faults.NewSafeError(p.Diagnostic, p.Temporary, p.FaultCode, p.FaultSummary)
 		switch typ { //nolint:exhaustive // isDeploymentFailureType restricts this helper to these event types.
 		case events.TypeNameDeployFailed:
-			code := p.Code
-			if !slices.Contains(knownDeployFailureCodes, code) {
-				code = events.DeployErrorCodeApplyFailed
-			}
 			return &events.DeployFailed{
 				DeployEvent: events.DeployEvent{
 					DeploymentID: p.DeploymentID, AttemptID: p.AttemptID,
 					StackName: p.Stack, Commit: p.Commit, Services: p.services(),
 				},
-				Error: diagnostic, ErrorCode: code, Stage: p.Stage,
+				Error: diagnostic, ErrorCode: p.Code, Stage: p.Stage,
 			}
 		case events.TypeNameDeployPreparationFailed:
 			return &events.DeployPreparationFailed{
@@ -341,27 +329,10 @@ func (p deploymentFailurePayload) services() []compose.Service {
 	return result
 }
 
-var knownDeployFailureCodes = []string{
-	events.DeployErrorCodePolicyRejected,
-	events.DeployErrorCodeInitFailed,
-	events.DeployErrorCodeApplyFailed,
-	events.DeployErrorCodeConvergenceFailed,
-	events.DeployErrorCodePruneFailed,
-}
-
 func encodeDeploymentFailure(
 	stack, commit, deploymentID, attemptID, code, stage string, diagnostic error,
 	services []compose.Service,
 ) ([]byte, error) {
-	// Only DeployFailed can reach this encoder without an explicit code.
-	if code == "" {
-		if diagnostic != nil {
-			code = diagnostic.Error()
-		}
-		if !slices.Contains(knownDeployFailureCodes, code) {
-			code = events.DeployErrorCodeApplyFailed
-		}
-	}
 	payload := deploymentFailurePayload{
 		DeploymentID: deploymentID, AttemptID: attemptID, Stack: stack, Commit: commit, Code: code, Stage: stage,
 		Services: make([]servicePayload, 0, len(services)),

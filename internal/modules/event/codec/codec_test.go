@@ -50,16 +50,6 @@ func TestSensitiveFieldsAreNeverPersisted(t *testing.T) {
 	}
 }
 
-func TestDeploymentLifecycleCodecRejectsUnboundedDiagnostics(t *testing.T) {
-	for _, event := range []events.Event{
-		&events.DeployPreparationFailed{StackName: "stack", ErrorCode: "raw secret"},
-		&events.DeployInterrupted{StackName: "stack", Reason: "raw secret"},
-	} {
-		_, err := Encode(event)
-		require.Error(t, err)
-	}
-}
-
 func TestVersionAndPayloadValidation(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
@@ -181,51 +171,23 @@ func TestGitPullCodecRejectsUnsafePayloads(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestDeploymentFailureCategorySurvivesCodec(t *testing.T) {
-	for _, code := range []string{"policy_rejected", "init_failed", "apply_failed", "convergence_failed", "prune_failed"} {
-		t.Run(code, func(t *testing.T) {
-			payload, err := Encode(&events.DeployFailed{ErrorCode: code})
-			require.NoError(t, err)
-			assert.Contains(t, string(payload), `"code":"`+code+`"`)
+func TestDeploymentLifecycleCodesSurviveCodec(t *testing.T) {
+	for _, code := range []string{"", "init_failed", "future_code"} {
+		for _, event := range []events.Event{
+			&events.DeployFailed{ErrorCode: code, Error: errors.New("apply_failed")},
+			&events.DeployPreparationFailed{ErrorCode: code},
+			&events.DeployInterrupted{Reason: code},
+		} {
+			t.Run(event.Type().String()+"/code="+code, func(t *testing.T) {
+				payload, err := Encode(event)
+				require.NoError(t, err)
+				assert.Contains(t, string(payload), `"code":"`+code+`"`)
 
-			decoded, err := Decode(events.TypeNameDeployFailed, Version, payload)
-			require.NoError(t, err)
-			assert.Equal(t, code, decoded.(*events.DeployFailed).ErrorCode)
-		})
-	}
-}
-
-func TestEncodeDeploymentFailureCode(t *testing.T) {
-	for _, test := range []struct {
-		name  string
-		event events.DeployFailed
-		want  string
-	}{
-		{name: "known code in legacy error", event: events.DeployFailed{Error: errors.New("init_failed")}, want: "init_failed"},
-		{name: "unknown legacy error", event: events.DeployFailed{Error: errors.New("secret diagnostic")}, want: "apply_failed"},
-		{name: "empty code and no error", want: "apply_failed"},
-		{
-			name:  "preserve unknown explicit code",
-			event: events.DeployFailed{ErrorCode: "future_failure", Error: errors.New("init_failed")},
-			want:  "future_failure",
-		},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			payload, err := Encode(&test.event)
-			require.NoError(t, err)
-			assert.Contains(t, string(payload), `"code":"`+test.want+`"`)
-			assert.NotContains(t, string(payload), "secret diagnostic")
-		})
-	}
-}
-
-func TestDecodeDeploymentFailureCodeFallback(t *testing.T) {
-	for _, code := range []string{"", "unknown_code"} {
-		decoded, err := Decode(events.TypeNameDeployFailed, Version, []byte(`{"code":"`+code+`","diagnostic":"init_failed"}`))
-		require.NoError(t, err)
-		failure := decoded.(*events.DeployFailed)
-		assert.Equal(t, "apply_failed", failure.ErrorCode)
-		assert.EqualError(t, failure.Error, "init_failed")
+				decoded, err := Decode(event.Type().Name(), Version, payload)
+				require.NoError(t, err)
+				assert.Equal(t, code, decoded.Details()[events.AttributeErrorCode])
+			})
+		}
 	}
 }
 
