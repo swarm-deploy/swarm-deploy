@@ -177,6 +177,28 @@ func TestDeployStackPassesNoTargetsWhenApplicationIsUnchanged(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestDeployStackSkipsPreservedServiceAndAppliesIndependentService(t *testing.T) {
+	deployer := &Deployer{
+		secretResolver: newTestSecretResolver(), initJobRunner: &fakeInitJobExecutor{},
+		serviceWaiter: newSuccessfulServiceWaiter(t),
+	}
+	manager := swarm.NewMockServiceManager(gomock.NewController(t))
+	manager.EXPECT().Inspect(gomock.Any(), "demo_worker").Return(dockerswarm.Service{}, swarm.ErrServiceNotFound)
+	manager.EXPECT().Create(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, spec dockerswarm.ServiceSpec, _ dockerswarm.ServiceCreateOptions) (string, error) {
+			assert.Equal(t, "demo_worker", spec.Name)
+			return "worker-id", nil
+		})
+	wireNativeTestDeployerWithServiceManager(t, deployer, manager, false)
+
+	result, err := deployer.DeployStack(t.Context(), StackRequest{
+		StackName: "demo", SourceComposePath: "source.yaml",
+		Desired: minimalCompose("api", "worker"), PreservedServices: []string{"api"},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"api"}, result.SkippedServices)
+}
+
 func TestDeployStackParentCancellationInterruptsConvergence(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	waiter := NewMockServiceWaitExecutor(ctrl)

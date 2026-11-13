@@ -47,6 +47,10 @@ type Invoker interface {
 	//
 	// DELETE /api/v1/nodes/{id}/labels/{key}
 	DeleteNodeLabel(ctx context.Context, params DeleteNodeLabelParams) error
+	// DeleteStackSyncPause invokes deleteStackSyncPause operation.
+	//
+	// DELETE /api/v1/stacks/{stack}/sync-pause
+	DeleteStackSyncPause(ctx context.Context, params DeleteStackSyncPauseParams) error
 	// GetAlert invokes getAlert operation.
 	//
 	// GET /api/v1/alerts/{id}
@@ -121,6 +125,10 @@ type Invoker interface {
 	//
 	// GET /api/v1/stacks/{stack}/resources
 	GetStackResources(ctx context.Context, params GetStackResourcesParams) (*StackResourcesResponse, error)
+	// GetStackSyncPauses invokes getStackSyncPauses operation.
+	//
+	// GET /api/v1/stacks/{stack}/sync-pauses
+	GetStackSyncPauses(ctx context.Context, params GetStackSyncPausesParams) (GetStackSyncPausesRes, error)
 	// GetSwarmTask invokes getSwarmTask operation.
 	//
 	// GET /api/v1/swarm/tasks/{taskID}
@@ -189,11 +197,15 @@ type Invoker interface {
 	//
 	// GET /api/v1/swarm/services
 	ListSwarmServices(ctx context.Context) (*SwarmServicesResponse, error)
+	// PutStackSyncPause invokes putStackSyncPause operation.
+	//
+	// PUT /api/v1/stacks/{stack}/sync-pause
+	PutStackSyncPause(ctx context.Context, request *SyncPauseRequest, params PutStackSyncPauseParams) (*StackSyncPausesResponse, error)
 	// ScaleSwarmService invokes scaleSwarmService operation.
 	//
-	// Updates live replicated services, including standalone services, without waiting for tasks. GitOps
-	// synchronization may overwrite this change. Invalid input or unsupported modes return 400, missing
-	// services return 404, concurrent updates return 409, and Docker errors return 500.
+	// Updates live replicated services, including standalone services, without waiting for tasks or
+	// GitOps operations. Invalid input or unsupported modes return 400, missing services return 404,
+	// concurrent updates return 409, and Docker errors return 500.
 	//
 	// PUT /api/v1/swarm/services/{serviceID}/replicas
 	ScaleSwarmService(ctx context.Context, request *ScaleSwarmServiceRequest, params ScaleSwarmServiceParams) error
@@ -713,6 +725,97 @@ func (c *Client) sendDeleteNodeLabel(ctx context.Context, params DeleteNodeLabel
 
 	stage = "DecodeResponse"
 	result, err := decodeDeleteNodeLabelResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// DeleteStackSyncPause invokes deleteStackSyncPause operation.
+//
+// DELETE /api/v1/stacks/{stack}/sync-pause
+func (c *Client) DeleteStackSyncPause(ctx context.Context, params DeleteStackSyncPauseParams) error {
+	_, err := c.sendDeleteStackSyncPause(ctx, params)
+	return err
+}
+
+func (c *Client) sendDeleteStackSyncPause(ctx context.Context, params DeleteStackSyncPauseParams) (res *DeleteStackSyncPauseNoContent, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("deleteStackSyncPause"),
+		semconv.HTTPRequestMethodKey.String("DELETE"),
+		semconv.URLTemplateKey.String("/api/v1/stacks/{stack}/sync-pause"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, DeleteStackSyncPauseOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/api/v1/stacks/"
+	{
+		// Encode "stack" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "stack",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.StringToString(params.Stack))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = "/sync-pause"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "DELETE", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer body.Close()
+
+	stage = "DecodeResponse"
+	result, err := decodeDeleteStackSyncPauseResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -2221,6 +2324,97 @@ func (c *Client) sendGetStackResources(ctx context.Context, params GetStackResou
 
 	stage = "DecodeResponse"
 	result, err := decodeGetStackResourcesResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetStackSyncPauses invokes getStackSyncPauses operation.
+//
+// GET /api/v1/stacks/{stack}/sync-pauses
+func (c *Client) GetStackSyncPauses(ctx context.Context, params GetStackSyncPausesParams) (GetStackSyncPausesRes, error) {
+	res, err := c.sendGetStackSyncPauses(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetStackSyncPauses(ctx context.Context, params GetStackSyncPausesParams) (res GetStackSyncPausesRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getStackSyncPauses"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/api/v1/stacks/{stack}/sync-pauses"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetStackSyncPausesOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/api/v1/stacks/"
+	{
+		// Encode "stack" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "stack",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.StringToString(params.Stack))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = "/sync-pauses"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer body.Close()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetStackSyncPausesResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -4112,11 +4306,105 @@ func (c *Client) sendListSwarmServices(ctx context.Context) (res *SwarmServicesR
 	return result, nil
 }
 
+// PutStackSyncPause invokes putStackSyncPause operation.
+//
+// PUT /api/v1/stacks/{stack}/sync-pause
+func (c *Client) PutStackSyncPause(ctx context.Context, request *SyncPauseRequest, params PutStackSyncPauseParams) (*StackSyncPausesResponse, error) {
+	res, err := c.sendPutStackSyncPause(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendPutStackSyncPause(ctx context.Context, request *SyncPauseRequest, params PutStackSyncPauseParams) (res *StackSyncPausesResponse, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("putStackSyncPause"),
+		semconv.HTTPRequestMethodKey.String("PUT"),
+		semconv.URLTemplateKey.String("/api/v1/stacks/{stack}/sync-pause"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, PutStackSyncPauseOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/api/v1/stacks/"
+	{
+		// Encode "stack" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "stack",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.StringToString(params.Stack))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = "/sync-pause"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "PUT", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodePutStackSyncPauseRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer body.Close()
+
+	stage = "DecodeResponse"
+	result, err := decodePutStackSyncPauseResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // ScaleSwarmService invokes scaleSwarmService operation.
 //
-// Updates live replicated services, including standalone services, without waiting for tasks. GitOps
-// synchronization may overwrite this change. Invalid input or unsupported modes return 400, missing
-// services return 404, concurrent updates return 409, and Docker errors return 500.
+// Updates live replicated services, including standalone services, without waiting for tasks or
+// GitOps operations. Invalid input or unsupported modes return 400, missing services return 404,
+// concurrent updates return 409, and Docker errors return 500.
 //
 // PUT /api/v1/swarm/services/{serviceID}/replicas
 func (c *Client) ScaleSwarmService(ctx context.Context, request *ScaleSwarmServiceRequest, params ScaleSwarmServiceParams) error {

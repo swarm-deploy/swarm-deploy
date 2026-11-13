@@ -33,6 +33,45 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/StackResourcesResponse'
+  /api/v1/stacks/{stack}/sync-pauses:
+    get:
+      operationId: getStackSyncPauses
+      parameters:
+        - $ref: '#/components/parameters/StackName'
+      responses:
+        '200':
+          description: Active stack pause and the calculated effectively paused service count.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StackSyncPausesResponse'
+        '404':
+          description: Stack is not managed by GitOps.
+  /api/v1/stacks/{stack}/sync-pause:
+    put:
+      operationId: putStackSyncPause
+      parameters:
+        - $ref: '#/components/parameters/StackName'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SyncPauseRequest'
+      responses:
+        '200':
+          description: Current stack pause state.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StackSyncPausesResponse'
+    delete:
+      operationId: deleteStackSyncPause
+      parameters:
+        - $ref: '#/components/parameters/StackName'
+      responses:
+        '204':
+          description: Stack pause removed.
   /api/v1/stacks/{stack}/manifestos:
     get:
       operationId: getStackManifestos
@@ -76,7 +115,44 @@ paths:
               schema:
                 $ref: '#/components/schemas/QueueResponse'
 components:
+  parameters:
+    StackName:
+      in: path
+      name: stack
+      required: true
+      schema:
+        type: string
+        minLength: 1
   schemas:
+    SyncPauseRequest:
+      type: object
+      required: [expires_at]
+      properties:
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Absolute expiration; null means no expiration.
+    SyncPauseRecord:
+      type: object
+      required: [stack, expires_at]
+      properties:
+        stack:
+          type: string
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+    StackSyncPausesResponse:
+      type: object
+      required: [effectively_paused_services]
+      properties:
+        stack_pause:
+          $ref: '#/components/schemas/SyncPauseRecord'
+        effectively_paused_services:
+          type: integer
+          description: Number of GitOps-managed services covered by the active stack pause.
+          minimum: 0
     StackResourceInfo:
       type: object
       description: Resource identity without values, configuration data or labels.
@@ -191,6 +267,9 @@ components:
           format: date-time
         source_digest:
           type: string
+        effectively_paused_services:
+          type: integer
+          minimum: 0
     StacksResponse:
       type: object
       required: [stacks, sync]

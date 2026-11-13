@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
@@ -61,6 +62,12 @@ func (p *ServicePruner) Prune(
 	var pruneErrors []error
 	for _, liveService := range req.Live {
 		liveServiceNames = append(liveServiceNames, liveService.Name)
+		if slices.Contains(req.PreservedServices, liveService.Name) {
+			span.AddEvent("Service skipped: service is preserved", trace.WithAttributes(
+				tracing.ResourceServiceName.String(liveService.Name),
+			))
+			continue
+		}
 
 		if _, exists := desiredServiceNames[liveService.Name]; exists {
 			span.AddEvent("Service skipped: service exists in desired state", trace.WithAttributes(

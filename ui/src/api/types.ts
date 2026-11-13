@@ -25,6 +25,17 @@ export interface StackView {
   last_commit?: string;
   last_deploy_at?: string;
   source_digest?: string;
+  effectively_paused_services?: number;
+}
+
+export interface SyncPauseRecord {
+  stack: string;
+  expires_at: string | null;
+}
+
+export interface StackSyncPausesResponse {
+  stack_pause?: SyncPauseRecord;
+  effectively_paused_services: number;
 }
 
 export interface StacksResponse {

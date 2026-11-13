@@ -34,6 +34,9 @@ func (r *Reconciler) selfHealDrift(ctx context.Context, payload *pipelinePayload
 	span := trace.SpanFromContext(ctx)
 
 	for _, service := range payload.Desired.Compose.Services {
+		if slices.Contains(payload.PreservedServices, service.Name) {
+			continue
+		}
 		if payload.RetryDeferred && slices.Contains(payload.ProtectedServices, service.Name) {
 			continue
 		}

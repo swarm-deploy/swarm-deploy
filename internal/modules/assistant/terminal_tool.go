@@ -13,6 +13,9 @@ const (
 	serviceRestartTriggerTool          = "service_restart_trigger"
 	serviceReplicasSetTool             = "service_replicas_set"
 	deploySyncTriggerTool              = "deploy_sync_trigger"
+	syncPauseGetTool                   = "sync_pause_get"
+	syncPauseSetTool                   = "sync_pause_set"
+	syncPauseResumeTool                = "sync_pause_resume"
 	assistantPromptInjectionReportTool = "assistant_prompt_injection_report"
 	promptInjectionRejectedResponse    = "Request was rejected by prompt injection protection."
 )
@@ -27,13 +30,17 @@ var toolBehaviors = map[string]ToolBehavior{
 	serviceRestartTriggerTool:          {Terminal: true},
 	serviceReplicasSetTool:             {Terminal: true},
 	deploySyncTriggerTool:              {Terminal: true},
+	syncPauseSetTool:                   {Terminal: true},
+	syncPauseResumeTool:                {Terminal: true},
 	assistantPromptInjectionReportTool: {Terminal: true},
 }
 
 func isMutatingTool(toolName string) bool {
 	return toolName == serviceRestartTriggerTool ||
 		toolName == serviceReplicasSetTool ||
-		toolName == deploySyncTriggerTool
+		toolName == deploySyncTriggerTool ||
+		toolName == syncPauseSetTool ||
+		toolName == syncPauseResumeTool
 }
 
 func isTerminalTool(toolName string) bool {
@@ -62,6 +69,9 @@ func finalizeTerminalToolResult(toolName, result string) (string, error) {
 			return "Synchronization request was not queued because another synchronization is already pending.", nil
 		}
 		return "Synchronization request queued successfully.", nil
+	}
+	if toolName == syncPauseSetTool || toolName == syncPauseResumeTool {
+		return finalizePauseToolResult(toolName, result)
 	}
 
 	var actionResult tools.ServiceActionResult
@@ -93,6 +103,23 @@ func finalizeTerminalToolResult(toolName, result string) (string, error) {
 	default:
 		return "", fmt.Errorf("terminal formatter is not configured for tool %q", toolName)
 	}
+}
+
+func finalizePauseToolResult(toolName, result string) (string, error) {
+	var pauseResult struct {
+		Stack   string `json:"stack"`
+		Changed *bool  `json:"changed"`
+	}
+	if err := json.Unmarshal([]byte(result), &pauseResult); err != nil {
+		return "", fmt.Errorf("decode Pause Sync result: %w", err)
+	}
+	if pauseResult.Changed != nil && !*pauseResult.Changed {
+		return "Pause Sync policy was already in the requested state.", nil
+	}
+	if toolName == syncPauseSetTool {
+		return fmt.Sprintf("Pause Sync enabled for stack %q.", pauseResult.Stack), nil
+	}
+	return fmt.Sprintf("Pause Sync policy removed for stack %q.", pauseResult.Stack), nil
 }
 
 func appendActionWarning(answer, warning string) string {

@@ -11,4 +11,6 @@ type PruneServicesRequest struct {
 	Commit  string
 	Desired []compose.Service
 	Live    []swarm.StackService
+	// PreservedServices are intentionally retained even when absent from desired state.
+	PreservedServices []string
 }

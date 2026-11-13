@@ -77,6 +77,22 @@ func TestConfigurationChangedCodecHasNoDomainPayload(t *testing.T) {
 	assert.Empty(t, decoded.Details())
 }
 
+func TestSyncPauseEventsRoundTripNullableExpiration(t *testing.T) {
+	expires := time.Date(2026, time.November, 13, 20, 0, 0, 0, time.UTC)
+	for _, original := range []events.Event{
+		&events.SyncPaused{SyncPauseEvent: events.SyncPauseEvent{StackName: "app"}},
+		&events.SyncPaused{SyncPauseEvent: events.SyncPauseEvent{StackName: "app", ExpiresAt: &expires}},
+		&events.SyncResumed{SyncPauseEvent: events.SyncPauseEvent{StackName: "app"}},
+		&events.SyncPauseExpired{SyncPauseEvent: events.SyncPauseEvent{StackName: "app", ExpiresAt: &expires}},
+	} {
+		payload, err := Encode(original)
+		require.NoError(t, err)
+		decoded, err := Decode(original.Type().Name(), Version, payload)
+		require.NoError(t, err)
+		assert.Equal(t, original, decoded)
+	}
+}
+
 func TestServiceDriftEventsRoundTrip(t *testing.T) {
 	for _, original := range []events.Event{
 		&events.ServiceMissed{StackName: "app", ServiceName: "api", Commit: "abc", Resolved: true},

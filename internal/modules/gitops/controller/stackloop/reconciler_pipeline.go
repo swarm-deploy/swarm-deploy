@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"slices"
 	"time"
 
 	pipe "github.com/artarts36/gopipe"
@@ -38,6 +39,8 @@ type pipelinePayload struct {
 	RegistryAuthError error
 	// ProtectedServices cannot be remediated automatically while retry is deferred.
 	ProtectedServices []string
+	// PreservedServices are intentionally skipped by the neutral deployment execution contract.
+	PreservedServices []string
 	CleanupResult     rotatedCleanupResult
 	Drift             map[string]drift.ServiceDrift
 	RemainingDrift    map[string]drift.ServiceDrift
@@ -100,6 +103,7 @@ func (r *Reconciler) executeDeployment(ctx context.Context, payload *pipelinePay
 	result, err := r.executor.Execute(ctx, deployments.ExecuteRequest{
 		Stack: payload.Stack, Commit: payload.Commit, Desired: *payload.Desired,
 		SourceChanged: payload.IsNewDigest, ManualRetry: payload.IsManualSync,
+		PreservedServices: payload.PreservedServices,
 	})
 	payload.Attempt = result.Attempt
 	payload.LiveServices = result.LiveServices
@@ -128,10 +132,11 @@ func (r *Reconciler) loadLiveState(ctx context.Context, payload *pipelinePayload
 
 func (r *Reconciler) pruneOrphanedServices(ctx context.Context, payload *pipelinePayload) error {
 	prunedServices, err := r.pruner.Prune(ctx, pruner.PruneServicesRequest{
-		Stack:   payload.Stack,
-		Commit:  payload.Commit,
-		Desired: payload.Desired.Compose.Services,
-		Live:    payload.LiveServices,
+		Stack:             payload.Stack,
+		Commit:            payload.Commit,
+		Desired:           payload.Desired.Compose.Services,
+		Live:              payload.LiveServices,
+		PreservedServices: payload.PreservedServices,
 	})
 	if err != nil {
 		return err
@@ -231,9 +236,14 @@ func liveServicesAfterPrune(services []swarm.StackService, pruned []string) []sw
 }
 
 func (r *Reconciler) analyzeDrift(_ context.Context, payload *pipelinePayload) error {
+	desired := *payload.Desired
+	desired.Compose.Services = slices.DeleteFunc(
+		slices.Clone(desired.Compose.Services),
+		func(service compose.Service) bool { return slices.Contains(payload.PreservedServices, service.Name) },
+	)
 	driftResp, err := r.driftAnalyzer.Analyze(drift.AnalyzeRequest{
 		Stack:   payload.Stack,
-		Desired: *payload.Desired,
+		Desired: desired,
 		Live:    payload.LiveServices,
 	})
 

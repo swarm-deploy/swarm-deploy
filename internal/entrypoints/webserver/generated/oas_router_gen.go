@@ -26,7 +26,10 @@ var (
 	rn12AllowedHeaders = map[string]string{
 		"POST": "Content-Type",
 	}
-	rn75AllowedHeaders = map[string]string{
+	rn18AllowedHeaders = map[string]string{
+		"PUT": "Content-Type",
+	}
+	rn78AllowedHeaders = map[string]string{
 		"PUT": "Content-Type",
 	}
 )
@@ -1343,55 +1346,39 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 										return
 									}
 
-								case 's': // Prefix: "services/"
+								case 's': // Prefix: "s"
 
-									if l := len("services/"); len(elem) >= l && elem[0:l] == "services/" {
+									if l := len("s"); len(elem) >= l && elem[0:l] == "s" {
 										elem = elem[l:]
 									} else {
 										break
 									}
 
-									// Param: "service"
-									// Match until "/"
-									idx := strings.IndexByte(elem, '/')
-									if idx < 0 {
-										idx = len(elem)
-									}
-									args[1] = elem[:idx]
-									elem = elem[idx:]
-
 									if len(elem) == 0 {
-										switch r.Method {
-										case "GET":
-											s.handleGetServiceRequest([2]string{
-												args[0],
-												args[1],
-											}, elemIsEscaped, w, r)
-										default:
-											s.notAllowed(w, r, notAllowedParams{
-												allowedMethods: "GET",
-												allowedHeaders: nil,
-												acceptPost:     "",
-												acceptPatch:    "",
-											})
-										}
-
-										return
+										break
 									}
 									switch elem[0] {
-									case '/': // Prefix: "/deployments"
+									case 'e': // Prefix: "ervices/"
 
-										if l := len("/deployments"); len(elem) >= l && elem[0:l] == "/deployments" {
+										if l := len("ervices/"); len(elem) >= l && elem[0:l] == "ervices/" {
 											elem = elem[l:]
 										} else {
 											break
 										}
 
+										// Param: "service"
+										// Match until "/"
+										idx := strings.IndexByte(elem, '/')
+										if idx < 0 {
+											idx = len(elem)
+										}
+										args[1] = elem[:idx]
+										elem = elem[idx:]
+
 										if len(elem) == 0 {
-											// Leaf node.
 											switch r.Method {
 											case "GET":
-												s.handleListServiceDeploymentsRequest([2]string{
+												s.handleGetServiceRequest([2]string{
 													args[0],
 													args[1],
 												}, elemIsEscaped, w, r)
@@ -1405,6 +1392,95 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 											}
 
 											return
+										}
+										switch elem[0] {
+										case '/': // Prefix: "/deployments"
+
+											if l := len("/deployments"); len(elem) >= l && elem[0:l] == "/deployments" {
+												elem = elem[l:]
+											} else {
+												break
+											}
+
+											if len(elem) == 0 {
+												// Leaf node.
+												switch r.Method {
+												case "GET":
+													s.handleListServiceDeploymentsRequest([2]string{
+														args[0],
+														args[1],
+													}, elemIsEscaped, w, r)
+												default:
+													s.notAllowed(w, r, notAllowedParams{
+														allowedMethods: "GET",
+														allowedHeaders: nil,
+														acceptPost:     "",
+														acceptPatch:    "",
+													})
+												}
+
+												return
+											}
+
+										}
+
+									case 'y': // Prefix: "ync-pause"
+
+										if l := len("ync-pause"); len(elem) >= l && elem[0:l] == "ync-pause" {
+											elem = elem[l:]
+										} else {
+											break
+										}
+
+										if len(elem) == 0 {
+											switch r.Method {
+											case "DELETE":
+												s.handleDeleteStackSyncPauseRequest([1]string{
+													args[0],
+												}, elemIsEscaped, w, r)
+											case "PUT":
+												s.handlePutStackSyncPauseRequest([1]string{
+													args[0],
+												}, elemIsEscaped, w, r)
+											default:
+												s.notAllowed(w, r, notAllowedParams{
+													allowedMethods: "DELETE,PUT",
+													allowedHeaders: rn18AllowedHeaders,
+													acceptPost:     "",
+													acceptPatch:    "",
+												})
+											}
+
+											return
+										}
+										switch elem[0] {
+										case 's': // Prefix: "s"
+
+											if l := len("s"); len(elem) >= l && elem[0:l] == "s" {
+												elem = elem[l:]
+											} else {
+												break
+											}
+
+											if len(elem) == 0 {
+												// Leaf node.
+												switch r.Method {
+												case "GET":
+													s.handleGetStackSyncPausesRequest([1]string{
+														args[0],
+													}, elemIsEscaped, w, r)
+												default:
+													s.notAllowed(w, r, notAllowedParams{
+														allowedMethods: "GET",
+														allowedHeaders: nil,
+														acceptPost:     "",
+														acceptPatch:    "",
+													})
+												}
+
+												return
+											}
+
 										}
 
 									}
@@ -1502,7 +1578,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 											default:
 												s.notAllowed(w, r, notAllowedParams{
 													allowedMethods: "PUT",
-													allowedHeaders: rn75AllowedHeaders,
+													allowedHeaders: rn78AllowedHeaders,
 													acceptPost:     "",
 													acceptPatch:    "",
 												})
@@ -2973,62 +3049,136 @@ func (s *Server) FindPath(method string, u *url.URL) (r Route, _ bool) {
 										}
 									}
 
-								case 's': // Prefix: "services/"
+								case 's': // Prefix: "s"
 
-									if l := len("services/"); len(elem) >= l && elem[0:l] == "services/" {
+									if l := len("s"); len(elem) >= l && elem[0:l] == "s" {
 										elem = elem[l:]
 									} else {
 										break
 									}
 
-									// Param: "service"
-									// Match until "/"
-									idx := strings.IndexByte(elem, '/')
-									if idx < 0 {
-										idx = len(elem)
-									}
-									args[1] = elem[:idx]
-									elem = elem[idx:]
-
 									if len(elem) == 0 {
-										switch method {
-										case "GET":
-											r.name = GetServiceOperation
-											r.summary = ""
-											r.operationID = "getService"
-											r.operationGroup = ""
-											r.pathPattern = "/api/v1/stacks/{stack}/services/{service}"
-											r.args = args
-											r.count = 2
-											return r, true
-										default:
-											return
-										}
+										break
 									}
 									switch elem[0] {
-									case '/': // Prefix: "/deployments"
+									case 'e': // Prefix: "ervices/"
 
-										if l := len("/deployments"); len(elem) >= l && elem[0:l] == "/deployments" {
+										if l := len("ervices/"); len(elem) >= l && elem[0:l] == "ervices/" {
 											elem = elem[l:]
 										} else {
 											break
 										}
 
+										// Param: "service"
+										// Match until "/"
+										idx := strings.IndexByte(elem, '/')
+										if idx < 0 {
+											idx = len(elem)
+										}
+										args[1] = elem[:idx]
+										elem = elem[idx:]
+
 										if len(elem) == 0 {
-											// Leaf node.
 											switch method {
 											case "GET":
-												r.name = ListServiceDeploymentsOperation
+												r.name = GetServiceOperation
 												r.summary = ""
-												r.operationID = "listServiceDeployments"
+												r.operationID = "getService"
 												r.operationGroup = ""
-												r.pathPattern = "/api/v1/stacks/{stack}/services/{service}/deployments"
+												r.pathPattern = "/api/v1/stacks/{stack}/services/{service}"
 												r.args = args
 												r.count = 2
 												return r, true
 											default:
 												return
 											}
+										}
+										switch elem[0] {
+										case '/': // Prefix: "/deployments"
+
+											if l := len("/deployments"); len(elem) >= l && elem[0:l] == "/deployments" {
+												elem = elem[l:]
+											} else {
+												break
+											}
+
+											if len(elem) == 0 {
+												// Leaf node.
+												switch method {
+												case "GET":
+													r.name = ListServiceDeploymentsOperation
+													r.summary = ""
+													r.operationID = "listServiceDeployments"
+													r.operationGroup = ""
+													r.pathPattern = "/api/v1/stacks/{stack}/services/{service}/deployments"
+													r.args = args
+													r.count = 2
+													return r, true
+												default:
+													return
+												}
+											}
+
+										}
+
+									case 'y': // Prefix: "ync-pause"
+
+										if l := len("ync-pause"); len(elem) >= l && elem[0:l] == "ync-pause" {
+											elem = elem[l:]
+										} else {
+											break
+										}
+
+										if len(elem) == 0 {
+											switch method {
+											case "DELETE":
+												r.name = DeleteStackSyncPauseOperation
+												r.summary = ""
+												r.operationID = "deleteStackSyncPause"
+												r.operationGroup = ""
+												r.pathPattern = "/api/v1/stacks/{stack}/sync-pause"
+												r.args = args
+												r.count = 1
+												return r, true
+											case "PUT":
+												r.name = PutStackSyncPauseOperation
+												r.summary = ""
+												r.operationID = "putStackSyncPause"
+												r.operationGroup = ""
+												r.pathPattern = "/api/v1/stacks/{stack}/sync-pause"
+												r.args = args
+												r.count = 1
+												return r, true
+											default:
+												return
+											}
+										}
+										switch elem[0] {
+										case 's': // Prefix: "s"
+
+											if l := len("s"); len(elem) >= l && elem[0:l] == "s" {
+												elem = elem[l:]
+											} else {
+												break
+											}
+
+											if len(elem) == 0 {
+												// Leaf node.
+												switch method {
+												case "GET":
+													r.name = GetStackSyncPausesOperation
+													r.summary = ""
+													r.operationID = "getStackSyncPauses"
+													r.operationGroup = ""
+													r.pathPattern = "/api/v1/stacks/{stack}/sync-pauses"
+													r.args = args
+													r.count = 1
+													return r, true
+												default:
+													return
+												}
+											}
+
 										}
 
 									}

@@ -183,6 +183,8 @@ type InitJobExecution struct {
 
 // Attempt is one execution of the deployment pipeline for a Deployment.
 type Attempt struct {
+	// SkippedServices contains services intentionally preserved by the caller's neutral execution policy.
+	SkippedServices []string `json:"skipped_services"`
 	// ID uniquely identifies this execution.
 	ID string `json:"id"`
 	// DeploymentID identifies the immutable desired state being executed.
@@ -221,6 +223,8 @@ type Attempt struct {
 
 // Deployment is one immutable effective desired state with zero or more persisted execution attempts.
 type Deployment struct {
+	// SkippedServices mirrors the latest Attempt for convenient detail reads.
+	SkippedServices []string `json:"skipped_services"`
 	// Verification retains rollout obligations across desired-state deployments.
 	Verification Verification `json:"-"`
 	// ID uniquely identifies this desired state; retries reuse it.

@@ -8,6 +8,7 @@ import EventDetailsModal from "../components/overview/EventDetailsModal.vue";
 import StackCard from "../components/overview/StackCard.vue";
 import SummaryPanel from "../components/overview/SummaryPanel.vue";
 import SummaryRow from "../components/overview/SummaryRow.vue";
+import SyncPauseModal from "../components/overview/SyncPauseModal.vue";
 import { useOverviewStore } from "../stores/overview";
 import { formatDate, shortCommitHash } from "../utils/format";
 
@@ -22,6 +23,7 @@ const eventDetailsOpen = ref(false);
 const eventDetailsLoading = ref(false);
 const eventDetailsError = ref("");
 const eventDetails = ref<EventHistoryItem | null>(null);
+const pauseStack = ref("");
 const deploymentsLimit = 4;
 const alertEventsLimit = 4;
 const recommendationsLimit = 4;
@@ -187,6 +189,10 @@ async function openStackManifest(stackName: string) {
 
   await overviewStore.openStackManifestModal(stack);
 }
+
+function openPauseSync(stackName: string) { pauseStack.value = stackName; }
+function closePauseSync() { pauseStack.value = ""; }
+async function pauseChanged() { await overviewStore.loadOverview(); }
 
 function openAlertDetails(alert: Alert) {
   overviewStore.openAlertDetailsModal(alert);
@@ -438,6 +444,7 @@ onUnmounted(() => {
         :service-count="serviceCount(stack.name)"
         @compare="openStackManifest"
         @commit="openCommitDetails"
+        @pause="openPauseSync"
       />
     </div>
   </section>
@@ -449,4 +456,5 @@ onUnmounted(() => {
     :error="eventDetailsError"
     @close="closeEventDetails"
   />
+  <SyncPauseModal :open="Boolean(pauseStack)" :stack="pauseStack" @close="closePauseSync" @changed="pauseChanged" />
 </template>

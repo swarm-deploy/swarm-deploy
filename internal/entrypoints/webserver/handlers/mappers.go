@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"math"
 	"strings"
 	"time"
@@ -27,15 +28,25 @@ const (
 	swarmDeployLabelPrefix = "org.swarm-deploy"
 )
 
-func (h *handler) listStacks(snapshot model.Runtime) []generated.StackView {
+func (h *handler) listStacks(ctx context.Context, snapshot model.Runtime) ([]generated.StackView, error) {
 	stacks := h.stackProvider.Stacks()
 	mapped := make([]generated.StackView, 0, len(stacks))
 	for _, stackCfg := range stacks {
 		stackSnapshot, exists := snapshot.Stacks[stackCfg.Name]
-		mapped = append(mapped, toGeneratedStack(stackCfg, stackSnapshot, exists))
+		item := toGeneratedStack(stackCfg, stackSnapshot, exists)
+		paused := 0
+		if h.syncPauses != nil {
+			pauseState, err := h.syncPauses.GetStack(ctx, stackCfg.Name)
+			if err != nil {
+				return nil, err
+			}
+			paused = len(pauseState.EffectivelyPausedServices)
+		}
+		item.EffectivelyPausedServices = generated.NewOptInt(paused)
+		mapped = append(mapped, item)
 	}
 
-	return mapped
+	return mapped, nil
 }
 
 func toGeneratedStack(stackCfg config.StackSpec, stack model.Stack, exists bool) generated.StackView {

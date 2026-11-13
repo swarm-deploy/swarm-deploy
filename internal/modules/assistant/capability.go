@@ -18,6 +18,8 @@ const (
 	CapabilityAlertManagement Capability = "alert_management"
 	// CapabilityDeploymentSync enables manual deployment synchronization.
 	CapabilityDeploymentSync Capability = "deployment_sync"
+	// CapabilityPauseSync enables GitOps-owned Pause Sync inspection and confirmed mutations.
+	CapabilityPauseSync Capability = "pause_sync"
 	// CapabilityRegistry enables container registry image lookups.
 	CapabilityRegistry Capability = "registry"
 	// CapabilityExternalRelease enables upstream repository release lookups.
@@ -53,6 +55,9 @@ var capabilityProfiles = map[Capability]CapabilityProfile{
 			"service_replicas_set",
 			"service_restart_trigger",
 		},
+	},
+	CapabilityPauseSync: {
+		Tools: []string{"sync_pause_get", "sync_pause_set", "sync_pause_resume"},
 	},
 	CapabilityCluster: {
 		Tools: []string{
@@ -123,13 +128,16 @@ func defaultCapabilitiesForRoute(route Route) []Capability {
 			CapabilityServiceContext,
 			CapabilityServiceRuntime,
 			CapabilityServiceOperations,
+			CapabilityPauseSync,
 			CapabilityRegistry,
 			CapabilityExternalRelease,
 		}
 	case RouteCluster:
 		return []Capability{CapabilityCluster, CapabilityAlertManagement}
 	case RouteDeployments:
-		return []Capability{CapabilityDeploymentHistory, CapabilityAlertManagement, CapabilityDeploymentSync}
+		return []Capability{
+			CapabilityDeploymentHistory, CapabilityAlertManagement, CapabilityDeploymentSync, CapabilityPauseSync,
+		}
 	case RouteDiagnostics:
 		return []Capability{
 			CapabilityServiceContext,

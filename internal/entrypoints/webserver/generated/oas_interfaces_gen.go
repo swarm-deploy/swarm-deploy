@@ -9,6 +9,10 @@ type GetEventRes interface {
 	getEventRes()
 }
 
+type GetStackSyncPausesRes interface {
+	getStackSyncPausesRes()
+}
+
 type GetTaskLogsRes interface {
 	getTaskLogsRes()
 }

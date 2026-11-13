@@ -9,8 +9,16 @@ const apiMocks = vi.hoisted(() => ({
   fetchSwarmTask: vi.fn(),
   scaleSwarmService: vi.fn(),
 }));
+const pauseMocks = vi.hoisted(() => ({
+  getStackSyncPauses: vi.fn(),
+  setStackSyncPause: vi.fn(),
+}));
 
 vi.mock("../api/services", () => apiMocks);
+vi.mock("../api/syncPauses", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../api/syncPauses")>()),
+  ...pauseMocks,
+}));
 vi.mock("../components/services/TaskLogsModal.vue", () => ({ default: { template: "<div />" } }));
 
 const services = [
@@ -55,6 +63,11 @@ describe("RealtimeView", () => {
     apiMocks.fetchSwarmServiceTasks.mockResolvedValue({ tasks });
     apiMocks.scaleSwarmService.mockResolvedValue(undefined);
     apiMocks.fetchSwarmTask.mockImplementation(async (id: string) => taskDetails(id));
+    pauseMocks.getStackSyncPauses.mockResolvedValue({ effectively_paused_services: 0 });
+    pauseMocks.setStackSyncPause.mockResolvedValue({
+      stack_pause: { stack: "infra", expires_at: null },
+      effectively_paused_services: 2,
+    });
   });
 
   afterEach(() => {
@@ -347,6 +360,11 @@ describe("Realtime service scaling", () => {
     apiMocks.fetchSwarmServiceTasks.mockResolvedValue({ tasks });
     apiMocks.fetchSwarmTask.mockImplementation(async (id: string) => taskDetails(id));
     apiMocks.scaleSwarmService.mockResolvedValue(undefined);
+    pauseMocks.getStackSyncPauses.mockResolvedValue({ effectively_paused_services: 0 });
+    pauseMocks.setStackSyncPause.mockResolvedValue({
+      stack_pause: { stack: "infra", expires_at: null },
+      effectively_paused_services: 2,
+    });
   });
 
   afterEach(() => {
@@ -462,6 +480,73 @@ describe("Realtime service scaling", () => {
     expect(wrapper.get('[role="dialog"] [role="alert"]').text()).toContain("service changed");
     expect(wrapper.get('button[type="submit"]').attributes("disabled")).toBeUndefined();
     expect(apiMocks.fetchSwarmServices).toHaveBeenCalledTimes(1);
+    wrapper.unmount();
+  });
+
+  it("persists Pause Sync before scaling", async () => {
+    const order: string[] = [];
+    pauseMocks.setStackSyncPause.mockImplementation(async () => {
+      order.push("pause");
+      return {
+        stack_pause: { stack: "infra", expires_at: null },
+        effectively_paused_services: 2,
+      };
+    });
+    apiMocks.scaleSwarmService.mockImplementation(async () => { order.push("scale"); });
+    const wrapper = await mountView();
+    await wrapper.get('[aria-label="Scale api"]').trigger("click");
+    await flushPromises();
+    await wrapper.get('.realtime-scale-pause-toggle input[type="checkbox"]').setValue(true);
+    await wrapper.get("#realtime-scale-replicas").setValue("5");
+    await wrapper.get("form").trigger("submit");
+    await flushPromises();
+
+    expect(order).toEqual(["pause", "scale"]);
+    expect(apiMocks.scaleSwarmService).toHaveBeenCalledWith("one", 5);
+    wrapper.unmount();
+  });
+
+  it("ignores a stale Pause Sync lookup after switching services", async () => {
+    let resolveFirst!: (value: object) => void;
+    let resolveSecond!: (value: object) => void;
+    pauseMocks.getStackSyncPauses
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveFirst = resolve; }))
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveSecond = resolve; }));
+    const wrapper = await mountView();
+
+    await wrapper.get('[aria-label="Scale api"]').trigger("click");
+    await wrapper.get('[aria-label="Close scaling modal"]').trigger("click");
+    await wrapper.get('[aria-label="Scale worker"]').trigger("click");
+    resolveSecond({ stack_pause: { stack: "infra", expires_at: null }, effectively_paused_services: 2 });
+    await flushPromises();
+    expect(wrapper.get('[role="dialog"]').text()).toContain("worker");
+    expect(wrapper.get('[role="dialog"]').text()).toContain("Sync paused for the entire stack");
+
+    resolveFirst({ effectively_paused_services: 0 });
+    await flushPromises();
+    expect(wrapper.get('[role="dialog"]').text()).toContain("Sync paused for the entire stack");
+    wrapper.unmount();
+  });
+
+  it("keeps a successful pause when scaling fails and retries only scaling", async () => {
+    apiMocks.scaleSwarmService.mockRejectedValueOnce(new Error("manager unavailable")).mockResolvedValueOnce(undefined);
+    const wrapper = await mountView();
+    await wrapper.get('[aria-label="Scale api"]').trigger("click");
+    await flushPromises();
+    await wrapper.get('.realtime-scale-pause-toggle input[type="checkbox"]').setValue(true);
+    await wrapper.get("#realtime-scale-replicas").setValue("5");
+    await wrapper.get("form").trigger("submit");
+    await flushPromises();
+
+    expect(wrapper.get('[role="dialog"] [role="alert"]').text()).toContain("Sync is paused, but scaling failed");
+    expect(wrapper.get('[role="dialog"]').text()).toContain("Retry will only retry scaling");
+    expect(pauseMocks.setStackSyncPause).toHaveBeenCalledTimes(1);
+
+    await wrapper.get("form").trigger("submit");
+    await flushPromises();
+    expect(pauseMocks.setStackSyncPause).toHaveBeenCalledTimes(1);
+    expect(apiMocks.scaleSwarmService).toHaveBeenCalledTimes(2);
+    expect(wrapper.find('[role="dialog"]').exists()).toBe(false);
     wrapper.unmount();
   });
 

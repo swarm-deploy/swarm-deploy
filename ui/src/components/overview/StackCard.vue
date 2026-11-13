@@ -15,6 +15,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   compare: [stackName: string];
   commit: [commitHash: string];
+  pause: [stackName: string];
 }>();
 
 const status = computed(() => stackSyncStatus(props.stack.status));
@@ -27,6 +28,7 @@ const statusVariant = computed(() => ({
 } as const)[statusKind.value]);
 
 const serviceLabel = computed(() => `${props.serviceCount} ${props.serviceCount === 1 ? "service" : "services"}`);
+const pausedLabel = computed(() => `${props.stack.effectively_paused_services ?? 0} paused`);
 const stackAnchor = computed(() => `stack-${encodeURIComponent(props.stack.name)}`);
 </script>
 
@@ -44,6 +46,7 @@ const stackAnchor = computed(() => `stack-${encodeURIComponent(props.stack.name)
           {{ statusLabel }}
         </AppStatusBadge>
         <span class="overview-stack-services-badge">{{ serviceLabel }}</span>
+        <span v-if="stack.effectively_paused_services" class="overview-stack-services-badge">{{ pausedLabel }}</span>
       </div>
     </header>
 
@@ -73,6 +76,9 @@ const stackAnchor = computed(() => `stack-${encodeURIComponent(props.stack.name)
     <footer class="overview-stack-card-actions">
       <button type="button" class="overview-stack-card-action" @click.stop="emit('compare', stack.name)">
         Compare state
+      </button>
+      <button type="button" class="overview-stack-card-action" @click.stop="emit('pause', stack.name)">
+        Pause sync
       </button>
     </footer>
   </AppCard>

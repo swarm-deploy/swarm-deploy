@@ -48,8 +48,8 @@ paths:
     put:
       operationId: scaleSwarmService
       description: >-
-        Updates live replicated services, including standalone services, without waiting for tasks.
-        GitOps synchronization may overwrite this change. Invalid input or unsupported modes return
+        Updates live replicated services, including standalone services, without waiting for tasks
+        or GitOps operations. Invalid input or unsupported modes return
         400, missing services return 404, concurrent updates return 409, and Docker errors return 500.
       parameters:
         - in: path

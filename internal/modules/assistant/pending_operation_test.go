@@ -3,6 +3,7 @@ package assistant
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"go.uber.org/mock/gomock"
 	"net/http"
 	"net/http/httptest"
@@ -14,7 +15,9 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/conversation"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/guard"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/tools/routing"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/syncpause"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/model"
 )
 
@@ -239,6 +242,68 @@ func TestPendingOperationConfirmsDeploySync(t *testing.T) {
 	assert.Equal(t, []string{deploySyncTriggerTool}, tools.calls)
 }
 
+func TestPendingPauseStackResumeRequiresConfirmation(t *testing.T) {
+	tools := &fakeTools{definitions: assistantTestToolDefinitions(), executeResult: `{"stack":"app","changed":true}`}
+	g := newPendingTestGraph(serviceStore(t, nil), tools)
+	g.pauseTargets = &fakePauseTargets{}
+
+	answer, usage := g.startPendingOperation(t.Context(), "conversation", OperationIntent{
+		Type: OperationSyncPauseResume, Target: "app",
+	})
+	assert.Zero(t, usage)
+	assert.Contains(t, answer, "Удалить Pause Sync для стека `app`")
+
+	handled, answer, _, err := g.handlePendingOperation(t.Context(), "conversation", "confirm")
+	require.NoError(t, err)
+	assert.True(t, handled)
+	assert.Contains(t, answer, "Pause Sync policy removed")
+	assert.Equal(t, []string{syncPauseResumeTool}, tools.calls)
+}
+
+func TestPendingPauseAndScaleFailureRetainsRetryForScaleOnly(t *testing.T) {
+	scaleCalls := 0
+	tools := &fakeTools{definitions: assistantTestToolDefinitions()}
+	tools.executeFunc = func(request routing.Request) (string, error) {
+		switch request.ToolName {
+		case syncPauseSetTool:
+			payload, ok := request.Payload.(string)
+			require.True(t, ok)
+			assert.JSONEq(t, `{"stack":"app","expires_at":null}`, payload)
+			return `{"stack":"app","changed":true}`, nil
+		case serviceReplicasSetTool:
+			scaleCalls++
+			if scaleCalls == 1 {
+				return "", errors.New("manager unavailable")
+			}
+			return `{"stack":"app","service":"api","replicas":3}`, nil
+		default:
+			return "", errors.New("unexpected tool")
+		}
+	}
+	g := newPendingTestGraph(serviceStore(t, []model.Info{{Stack: "app", Name: "api"}}), tools)
+	g.pauseTargets = &fakePauseTargets{}
+	replicas := uint64(3)
+
+	answer, _ := g.startPendingOperation(t.Context(), "conversation", OperationIntent{
+		Type: OperationSyncPauseSet, Target: "app/api", Replicas: &replicas,
+	})
+	assert.Contains(t, answer, "всего стека `app`")
+	assert.Contains(t, answer, "затем установить 3 реплик для сервиса `api`")
+	handled, answer, _, err := g.handlePendingOperation(t.Context(), "conversation", "yes")
+	require.NoError(t, err)
+	assert.True(t, handled)
+	assert.Contains(t, answer, "The pause remains active. Retry only scaling?")
+
+	op, ok := g.pending.get("conversation")
+	require.True(t, ok)
+	assert.Equal(t, OperationServiceReplicasSet, op.Type)
+	handled, answer, _, err = g.handlePendingOperation(t.Context(), "conversation", "yes")
+	require.NoError(t, err)
+	assert.True(t, handled)
+	assert.Contains(t, answer, "replicas updated successfully")
+	assert.Equal(t, []string{syncPauseSetTool, serviceReplicasSetTool, serviceReplicasSetTool}, tools.calls)
+}
+
 func TestPendingOperationCollectsMissingServiceWithoutModels(t *testing.T) {
 	store := serviceStore(t, []model.Info{{Stack: "core", Name: "api"}, {Stack: "core", Name: "worker"}})
 	g := newPendingTestGraph(store, &fakeTools{})
@@ -320,4 +385,10 @@ func newPendingTestGraph(store *MockServiceStore, tools *fakeTools) *graph {
 		config: Config{}, guard: guard.NewInjectionChecker(), tools: tools, store: store,
 		allowedToolSet: map[string]struct{}{}, pending: newPendingOperationStore(time.Hour),
 	}
+}
+
+type fakePauseTargets struct{ stackState syncpause.StackState }
+
+func (f *fakePauseTargets) StackSyncPause(context.Context, string) (syncpause.StackState, error) {
+	return f.stackState, nil
 }

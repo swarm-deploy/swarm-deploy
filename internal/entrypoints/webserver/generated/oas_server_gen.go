@@ -29,6 +29,10 @@ type Handler interface {
 	//
 	// DELETE /api/v1/nodes/{id}/labels/{key}
 	DeleteNodeLabel(ctx context.Context, params DeleteNodeLabelParams) error
+	// DeleteStackSyncPause implements deleteStackSyncPause operation.
+	//
+	// DELETE /api/v1/stacks/{stack}/sync-pause
+	DeleteStackSyncPause(ctx context.Context, params DeleteStackSyncPauseParams) error
 	// GetAlert implements getAlert operation.
 	//
 	// GET /api/v1/alerts/{id}
@@ -99,6 +103,10 @@ type Handler interface {
 	//
 	// GET /api/v1/stacks/{stack}/resources
 	GetStackResources(ctx context.Context, params GetStackResourcesParams) (*StackResourcesResponse, error)
+	// GetStackSyncPauses implements getStackSyncPauses operation.
+	//
+	// GET /api/v1/stacks/{stack}/sync-pauses
+	GetStackSyncPauses(ctx context.Context, params GetStackSyncPausesParams) (GetStackSyncPausesRes, error)
 	// GetSwarmTask implements getSwarmTask operation.
 	//
 	// GET /api/v1/swarm/tasks/{taskID}
@@ -163,11 +171,15 @@ type Handler interface {
 	//
 	// GET /api/v1/swarm/services
 	ListSwarmServices(ctx context.Context) (*SwarmServicesResponse, error)
+	// PutStackSyncPause implements putStackSyncPause operation.
+	//
+	// PUT /api/v1/stacks/{stack}/sync-pause
+	PutStackSyncPause(ctx context.Context, req *SyncPauseRequest, params PutStackSyncPauseParams) (*StackSyncPausesResponse, error)
 	// ScaleSwarmService implements scaleSwarmService operation.
 	//
-	// Updates live replicated services, including standalone services, without waiting for tasks. GitOps
-	// synchronization may overwrite this change. Invalid input or unsupported modes return 400, missing
-	// services return 404, concurrent updates return 409, and Docker errors return 500.
+	// Updates live replicated services, including standalone services, without waiting for tasks or
+	// GitOps operations. Invalid input or unsupported modes return 400, missing services return 404,
+	// concurrent updates return 409, and Docker errors return 500.
 	//
 	// PUT /api/v1/swarm/services/{serviceID}/replicas
 	ScaleSwarmService(ctx context.Context, req *ScaleSwarmServiceRequest, params ScaleSwarmServiceParams) error

@@ -23,6 +23,28 @@ The current pipeline is:
 
 Some steps are conditional. For example, the image policy step is absent when every image rule is disabled, and environment population runs only when at least one desired service declares `env_file`.
 
+## Pause Sync policy
+
+GitOps owns one persistent Pause Sync policy per stack. While active, it preserves every service in that
+stack. Pause is separate from the existing `Synced` and `OutOfSync` status.
+
+Pause records contain only the GitOps stack name and an optional absolute expiration. They do not copy
+service specifications or runtime state. Expired records are removed transactionally with their expiration events at
+the beginning of the next ordinary GitOps sync; no expiration scheduler or worker runs between syncs. An
+operation already running when a pause is created is not canceled.
+
+For each stack reconciliation, GitOps calculates the service names that its current pause policy must
+preserve. It passes those names to Deployments through the neutral `PreservedServices` execution contract.
+Deployments does not read or interpret Pause Sync policy: it excludes preserved services from service apply,
+convergence waiting, service-level mutations, and pruning, while continuing to deploy other services in the
+stack. The no-Attempt pruning and GitOps self-heal paths use the same set. This also keeps a paused live
+service running when it has been removed from Git until its effective pause is removed.
+
+Each Deployment and Attempt records the service names intentionally skipped for that execution. The paused
+count is calculated from the active stack pause and GitOps-managed services rather than persisted as a second
+policy projection. Realtime and the assistant can enable the stack pause before scaling one of its services;
+scaling starts immediately after the pause is persisted and retries only scaling if that second step fails.
+
 ## Sync runs and the stack queue
 
 A sync run (startup, Git poll with a new revision, webhook, manual sync or the periodic `gitops.sync.interval`) does

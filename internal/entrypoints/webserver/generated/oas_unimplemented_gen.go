@@ -50,6 +50,13 @@ func (UnimplementedHandler) DeleteNodeLabel(ctx context.Context, params DeleteNo
 	return ht.ErrNotImplemented
 }
 
+// DeleteStackSyncPause implements deleteStackSyncPause operation.
+//
+// DELETE /api/v1/stacks/{stack}/sync-pause
+func (UnimplementedHandler) DeleteStackSyncPause(ctx context.Context, params DeleteStackSyncPauseParams) error {
+	return ht.ErrNotImplemented
+}
+
 // GetAlert implements getAlert operation.
 //
 // GET /api/v1/alerts/{id}
@@ -175,6 +182,13 @@ func (UnimplementedHandler) GetStackResources(ctx context.Context, params GetSta
 	return r, ht.ErrNotImplemented
 }
 
+// GetStackSyncPauses implements getStackSyncPauses operation.
+//
+// GET /api/v1/stacks/{stack}/sync-pauses
+func (UnimplementedHandler) GetStackSyncPauses(ctx context.Context, params GetStackSyncPausesParams) (r GetStackSyncPausesRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // GetSwarmTask implements getSwarmTask operation.
 //
 // GET /api/v1/swarm/tasks/{taskID}
@@ -294,11 +308,18 @@ func (UnimplementedHandler) ListSwarmServices(ctx context.Context) (r *SwarmServ
 	return r, ht.ErrNotImplemented
 }
 
+// PutStackSyncPause implements putStackSyncPause operation.
+//
+// PUT /api/v1/stacks/{stack}/sync-pause
+func (UnimplementedHandler) PutStackSyncPause(ctx context.Context, req *SyncPauseRequest, params PutStackSyncPauseParams) (r *StackSyncPausesResponse, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // ScaleSwarmService implements scaleSwarmService operation.
 //
-// Updates live replicated services, including standalone services, without waiting for tasks. GitOps
-// synchronization may overwrite this change. Invalid input or unsupported modes return 400, missing
-// services return 404, concurrent updates return 409, and Docker errors return 500.
+// Updates live replicated services, including standalone services, without waiting for tasks or
+// GitOps operations. Invalid input or unsupported modes return 400, missing services return 404,
+// concurrent updates return 409, and Docker errors return 500.
 //
 // PUT /api/v1/swarm/services/{serviceID}/replicas
 func (UnimplementedHandler) ScaleSwarmService(ctx context.Context, req *ScaleSwarmServiceRequest, params ScaleSwarmServiceParams) error {

@@ -22,6 +22,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/syncrun"
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/modelstore"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/syncpause"
 	"github.com/swarm-deploy/swarm-deploy/internal/security"
 	"github.com/swarm-deploy/swarm-deploy/internal/storage"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
@@ -65,12 +66,13 @@ func New(
 	eventDispatcher dispatcher.Dispatcher,
 	stateStore modelstore.Store,
 	db storage.Database,
+	pauseService *syncpause.Service,
 ) *Controller {
 	rotator := stackloop.NewRotator()
 	preparer := preparation.New(cfg, git, rotator)
 	stackReconciler := stackloop.NewStackReconciler(
 		cfg, deploymentExecutor, swarmService, eventDispatcher, metricGroup.Deploys,
-		stateStore, preparer, rotator, db,
+		stateStore, preparer, rotator, db, pauseService,
 	)
 	puller := gitpull.NewPuller(
 		git, gitpull.NewMonitor(db, stateStore, eventDispatcher), metricGroup.Git, cfg.Spec.GitOps.Git,
@@ -81,7 +83,7 @@ func New(
 	stacks := stackqueue.New(stackReconciler, metricGroup.Sync, cfg.Spec.GitOps.Sync.Parallelism)
 	runner := syncrun.New(
 		configStore, git, metricGroup, eventDispatcher, stateStore,
-		networkCoordinator, puller, stacks,
+		networkCoordinator, puller, stacks, pauseService,
 	)
 	return &Controller{
 		deployments:  deploymentExecutor,

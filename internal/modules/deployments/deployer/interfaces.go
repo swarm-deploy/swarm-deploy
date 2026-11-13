@@ -17,6 +17,8 @@ import (
 
 // Result contains observable results produced while deploying one stack.
 type Result struct {
+	// SkippedServices are caller-preserved services intentionally not applied or observed.
+	SkippedServices []string
 	// SpecificationOnlyServices were verified for spec acceptance without checking task health.
 	SpecificationOnlyServices []string
 	// Verification contains the known rollout obligations produced by execution.
@@ -97,6 +99,8 @@ type StackRequest struct {
 	SourceComposePath string
 	// Desired is the prepared in-memory definition to apply.
 	Desired compose.Compose
+	// PreservedServices are omitted from service-level mutations and convergence waits.
+	PreservedServices []string
 	// Options controls recovery of previous failed updates.
 	Options StackOptions
 	// BeforeUpdate optionally records a service generation durably before Docker apply.

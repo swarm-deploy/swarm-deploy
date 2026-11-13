@@ -2,8 +2,15 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 
 import AppModal from "../components/common/AppModal.vue";
+import { ApiError } from "../api/client";
 import { fetchSwarmServices, fetchSwarmServiceTasks, fetchSwarmTask, scaleSwarmService } from "../api/services";
-import type { ServiceRealtimeTask, SwarmService, SwarmTaskDetails } from "../api/types";
+import {
+  expirationForDuration,
+  getStackSyncPauses,
+  setStackSyncPause,
+  syncPauseDurations,
+} from "../api/syncPauses";
+import type { ServiceRealtimeTask, StackSyncPausesResponse, SwarmService, SwarmTaskDetails } from "../api/types";
 import AppButton from "../components/common/AppButton.vue";
 import AppSelect from "../components/common/AppSelect.vue";
 import AppStatusBadge from "../components/common/AppStatusBadge.vue";
@@ -79,18 +86,62 @@ const scaleInput = ref<number | string>("");
 const scalePending = ref(false);
 const scaleError = ref("");
 const scaleInputElement = ref<HTMLInputElement | null>(null);
+const scalePauseLoading = ref(false);
+const scalePauseManaged = ref(false);
+const scalePauseChecked = ref(false);
+const scalePauseDuration = ref("1");
+const scalePauseState = ref<StackSyncPausesResponse | null>(null);
+const scalePausePersisted = ref(false);
+const scalePauseLookupFailed = ref(false);
+const scalePauseDurationOptions: { value: string; label: string }[] = syncPauseDurations.map(({ value, label }) => ({ value, label }));
+let scalePauseRequest = 0;
 
 const validScaleInput = computed(() => (
   typeof scaleInput.value === "number" && Number.isSafeInteger(scaleInput.value) && scaleInput.value >= 0
 ));
 const canScale = computed(() => (
-  validScaleInput.value && scaleInput.value !== scalingService.value?.configured_replicas && !scalePending.value
+  validScaleInput.value
+  && scaleInput.value !== scalingService.value?.configured_replicas
+  && !scalePending.value
+  && !scalePauseLoading.value
+  && !scalePauseLookupFailed.value
 ));
 
+function pauseUntil(expiresAt: string | null | undefined): string {
+  return expiresAt ? formatDate(expiresAt) : "No expiration";
+}
+
 async function openScale(service: SwarmService): Promise<void> {
+  const request = ++scalePauseRequest;
   scalingService.value = service;
   scaleInput.value = service.configured_replicas ?? "";
   scaleError.value = "";
+  scalePauseLoading.value = Boolean(service.stack && service.name);
+  scalePauseManaged.value = false;
+  scalePauseChecked.value = false;
+  scalePauseDuration.value = "1";
+  scalePauseState.value = null;
+  scalePausePersisted.value = false;
+  scalePauseLookupFailed.value = false;
+  if (service.stack && service.name) {
+    try {
+      const pauseState = await getStackSyncPauses(service.stack);
+      if (disposed || request !== scalePauseRequest || scalingService.value?.id !== service.id) return;
+      scalePauseState.value = pauseState;
+      scalePauseManaged.value = true;
+    } catch (reason) {
+      if (disposed || request !== scalePauseRequest || scalingService.value?.id !== service.id) return;
+      if (!(reason instanceof ApiError) || reason.status !== 404) {
+        scalePauseLookupFailed.value = true;
+        scaleError.value = errorMessage(reason);
+      }
+    } finally {
+      if (!disposed && request === scalePauseRequest && scalingService.value?.id === service.id) {
+        scalePauseLoading.value = false;
+      }
+    }
+  }
+  if (disposed || request !== scalePauseRequest || scalingService.value?.id !== service.id) return;
   await nextTick();
   scaleInputElement.value?.focus();
   scaleInputElement.value?.select();
@@ -98,6 +149,7 @@ async function openScale(service: SwarmService): Promise<void> {
 
 function closeScale(): void {
   if (scalePending.value) return;
+  scalePauseRequest++;
   scalingService.value = null;
 }
 
@@ -112,6 +164,14 @@ async function submitScale(): Promise<void> {
   scalePending.value = true;
   scaleError.value = "";
   try {
+    const service = scalingService.value;
+    if (scalePauseManaged.value && scalePauseChecked.value && !scalePausePersisted.value) {
+      scalePauseState.value = await setStackSyncPause(
+        service.stack,
+        expirationForDuration(scalePauseDuration.value),
+      );
+      scalePausePersisted.value = true;
+    }
     await scaleSwarmService(serviceID, Number(scaleInput.value));
     if (disposed) return;
     scalePending.value = false;
@@ -123,7 +183,11 @@ async function submitScale(): Promise<void> {
     }
     await loadServices(true);
   } catch (reason) {
-    if (!disposed) scaleError.value = errorMessage(reason);
+    if (!disposed) {
+      scaleError.value = scalePausePersisted.value
+        ? `Sync is paused, but scaling failed: ${errorMessage(reason)}`
+        : errorMessage(reason);
+    }
   } finally {
     if (!disposed) scalePending.value = false;
   }
@@ -622,7 +686,30 @@ onUnmounted(() => {
         </div>
         <p class="form-helper" role="note">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 11v6m0-10h.01" /></svg>
-          <span>Manual scaling may be overwritten by the next GitOps synchronization.</span>
+          <span v-if="scalePauseLoading">Checking GitOps Pause Sync state...</span>
+          <span v-else-if="!scalePauseManaged">Manual scaling may be overwritten by the next GitOps synchronization.</span>
+          <span v-else-if="!scalePauseState?.stack_pause && !scalePauseChecked">Manual scaling may be overwritten by the next GitOps synchronization.</span>
+          <span v-else-if="scalePauseState?.stack_pause">Stack Pause Sync is active. Scaling starts immediately.</span>
+          <span v-else>Pause Sync will be enabled for the entire stack first. Scaling starts immediately afterward.</span>
+        </p>
+        <template v-if="scalePauseManaged && !scalePauseLoading">
+          <div v-if="scalePauseState?.stack_pause" class="realtime-scale-pause-state" role="status">
+            <strong>Sync paused for the entire stack</strong>
+            <span>Stack pause until: {{ pauseUntil(scalePauseState.stack_pause.expires_at) }}</span>
+          </div>
+          <template v-else>
+            <label class="realtime-scale-pause-toggle">
+              <input v-model="scalePauseChecked" type="checkbox" :disabled="scalePending || scalePausePersisted" />
+              <span>Pause sync for the entire stack</span>
+            </label>
+            <div v-if="scalePauseChecked" class="realtime-scale-pause-duration">
+              <span>Pause duration</span>
+              <AppSelect v-model="scalePauseDuration" :options="scalePauseDurationOptions" label="Pause duration" />
+            </div>
+          </template>
+        </template>
+        <p v-if="scalePausePersisted && scaleError" class="form-helper" role="status">
+          Pause Sync remains active. Retry will only retry scaling.
         </p>
         <p v-if="scaleError" class="realtime-scale-error" role="alert">{{ scaleError }}</p>
         <div class="realtime-scale-actions">
@@ -647,6 +734,10 @@ onUnmounted(() => {
 .realtime-scale-divider { width: 100%; margin: 8px 0 2px; border: 0; border-top: 1px solid var(--line); }
 .realtime-scale-summary dt { color: var(--muted); }
 .realtime-scale-summary dd { margin: 0; overflow-wrap: anywhere; }
+.realtime-scale-pause-state { display: grid; gap: 4px; padding: 10px; border: 1px solid var(--line); border-radius: 6px; font-size: .8rem; }
+.realtime-scale-pause-state span { color: var(--muted); }
+.realtime-scale-pause-toggle { display: flex; align-items: center; gap: 8px; font-size: .84rem; }
+.realtime-scale-pause-duration { display: grid; gap: 6px; font-size: .8rem; }
 .realtime-scale-input { display: flex; align-items: stretch; min-width: 0; height: 32px; overflow: hidden; border: 1px solid var(--border-default); border-radius: 6px; background: var(--surface-input); }
 .realtime-scale-input:focus-within { border-color: var(--accent-border); outline: 2px solid var(--accent-focus); outline-offset: 1px; }
 .realtime-scale-input input { flex: 1 1 auto; min-width: 0; width: 100%; height: 100%; border: 0; border-radius: 0; outline: 0; background: transparent; color: var(--text); padding: 4px 8px; text-align: center; font: inherit; font-size: .84rem; appearance: textfield; }

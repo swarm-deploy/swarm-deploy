@@ -1292,6 +1292,9 @@ func (s *DSNSuggestionsResponse) SetSuggestions(val []DSNSuggestion) {
 // DeleteNodeLabelNoContent is response for DeleteNodeLabel operation.
 type DeleteNodeLabelNoContent struct{}
 
+// DeleteStackSyncPauseNoContent is response for DeleteStackSyncPause operation.
+type DeleteStackSyncPauseNoContent struct{}
+
 // Merged schema.
 // Ref: #/components/schemas/Deployment
 type Deployment struct {
@@ -1327,6 +1330,8 @@ type Deployment struct {
 	ConfigurationYaml OptString           `json:"configuration_yaml"`
 	Changes           []DeploymentChange  `json:"changes"`
 	Attempts          []DeploymentAttempt `json:"attempts"`
+	// Services intentionally skipped by the latest Attempt.
+	SkippedServices []string `json:"skipped_services"`
 }
 
 // GetID returns the value of ID.
@@ -1464,6 +1469,11 @@ func (s *Deployment) GetAttempts() []DeploymentAttempt {
 	return s.Attempts
 }
 
+// GetSkippedServices returns the value of SkippedServices.
+func (s *Deployment) GetSkippedServices() []string {
+	return s.SkippedServices
+}
+
 // SetID sets the value of ID.
 func (s *Deployment) SetID(val string) {
 	s.ID = val
@@ -1597,6 +1607,11 @@ func (s *Deployment) SetChanges(val []DeploymentChange) {
 // SetAttempts sets the value of Attempts.
 func (s *Deployment) SetAttempts(val []DeploymentAttempt) {
 	s.Attempts = val
+}
+
+// SetSkippedServices sets the value of SkippedServices.
+func (s *Deployment) SetSkippedServices(val []string) {
+	s.SkippedServices = val
 }
 
 // Ref: #/components/schemas/DeploymentActivityBucket
@@ -1785,6 +1800,8 @@ type DeploymentAttempt struct {
 	FinishedAt         OptDateTime                  `json:"finished_at"`
 	DurationMs         OptInt64                     `json:"duration_ms"`
 	InitJobs           []DeploymentInitJobExecution `json:"init_jobs"`
+	// Services intentionally preserved and not applied or observed by this Attempt.
+	SkippedServices []string `json:"skipped_services"`
 }
 
 // GetID returns the value of ID.
@@ -1862,6 +1879,11 @@ func (s *DeploymentAttempt) GetInitJobs() []DeploymentInitJobExecution {
 	return s.InitJobs
 }
 
+// GetSkippedServices returns the value of SkippedServices.
+func (s *DeploymentAttempt) GetSkippedServices() []string {
+	return s.SkippedServices
+}
+
 // SetID sets the value of ID.
 func (s *DeploymentAttempt) SetID(val string) {
 	s.ID = val
@@ -1935,6 +1957,11 @@ func (s *DeploymentAttempt) SetDurationMs(val OptInt64) {
 // SetInitJobs sets the value of InitJobs.
 func (s *DeploymentAttempt) SetInitJobs(val []DeploymentInitJobExecution) {
 	s.InitJobs = val
+}
+
+// SetSkippedServices sets the value of SkippedServices.
+func (s *DeploymentAttempt) SetSkippedServices(val []string) {
+	s.SkippedServices = val
 }
 
 // Ref: #/components/schemas/DeploymentAttemptStatus
@@ -3379,6 +3406,11 @@ type GetEventNotFound struct{}
 
 func (*GetEventNotFound) getEventRes() {}
 
+// GetStackSyncPausesNotFound is response for GetStackSyncPauses operation.
+type GetStackSyncPausesNotFound struct{}
+
+func (*GetStackSyncPausesNotFound) getStackSyncPausesRes() {}
+
 type GetTaskLogsOK struct {
 	Data io.Reader
 }
@@ -3955,6 +3987,51 @@ func (o NilDSNSuggestionEngine) Or(d DSNSuggestionEngine) DSNSuggestionEngine {
 	return d
 }
 
+// NewNilDateTime returns new NilDateTime with value set to v.
+func NewNilDateTime(v time.Time) NilDateTime {
+	return NilDateTime{
+		Value: v,
+	}
+}
+
+// NilDateTime is nullable time.Time.
+type NilDateTime struct {
+	Value time.Time
+	Null  bool
+}
+
+// SetTo sets value to v.
+func (o *NilDateTime) SetTo(v time.Time) {
+	o.Null = false
+	o.Value = v
+}
+
+// IsNull returns true if value is Null.
+func (o NilDateTime) IsNull() bool { return o.Null }
+
+// SetToNull sets value to null.
+func (o *NilDateTime) SetToNull() {
+	o.Null = true
+	var v time.Time
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o NilDateTime) Get() (v time.Time, ok bool) {
+	if o.Null {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o NilDateTime) Or(d time.Time) time.Time {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
 // NewNilInt returns new NilInt with value set to v.
 func NewNilInt(v int) NilInt {
 	return NilInt{
@@ -4497,6 +4574,52 @@ func (o OptEventHistoryItemDetails) Get() (v EventHistoryItemDetails, ok bool) {
 
 // Or returns value if set, or given parameter if does not.
 func (o OptEventHistoryItemDetails) Or(d EventHistoryItemDetails) EventHistoryItemDetails {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptInt returns new OptInt with value set to v.
+func NewOptInt(v int) OptInt {
+	return OptInt{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptInt is optional int.
+type OptInt struct {
+	Value int
+	Set   bool
+}
+
+// IsSet returns true if OptInt was set.
+func (o OptInt) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptInt) Reset() {
+	var v int
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptInt) SetTo(v int) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptInt) Get() (v int, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptInt) Or(d int) int {
 	if v, ok := o.Get(); ok {
 		return v
 	}
@@ -5279,6 +5402,52 @@ func (o OptSwarmTaskResources) Get() (v SwarmTaskResources, ok bool) {
 
 // Or returns value if set, or given parameter if does not.
 func (o OptSwarmTaskResources) Or(d SwarmTaskResources) SwarmTaskResources {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptSyncPauseRecord returns new OptSyncPauseRecord with value set to v.
+func NewOptSyncPauseRecord(v SyncPauseRecord) OptSyncPauseRecord {
+	return OptSyncPauseRecord{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptSyncPauseRecord is optional SyncPauseRecord.
+type OptSyncPauseRecord struct {
+	Value SyncPauseRecord
+	Set   bool
+}
+
+// IsSet returns true if OptSyncPauseRecord was set.
+func (o OptSyncPauseRecord) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptSyncPauseRecord) Reset() {
+	var v SyncPauseRecord
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptSyncPauseRecord) SetTo(v SyncPauseRecord) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptSyncPauseRecord) Get() (v SyncPauseRecord, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptSyncPauseRecord) Or(d SyncPauseRecord) SyncPauseRecord {
 	if v, ok := o.Get(); ok {
 		return v
 	}
@@ -7232,15 +7401,45 @@ func (s *StackStatus) SetOutOfSynced(val int64) {
 	s.OutOfSynced = val
 }
 
+// Ref: #/components/schemas/StackSyncPausesResponse
+type StackSyncPausesResponse struct {
+	StackPause OptSyncPauseRecord `json:"stack_pause"`
+	// Number of GitOps-managed services covered by the active stack pause.
+	EffectivelyPausedServices int `json:"effectively_paused_services"`
+}
+
+// GetStackPause returns the value of StackPause.
+func (s *StackSyncPausesResponse) GetStackPause() OptSyncPauseRecord {
+	return s.StackPause
+}
+
+// GetEffectivelyPausedServices returns the value of EffectivelyPausedServices.
+func (s *StackSyncPausesResponse) GetEffectivelyPausedServices() int {
+	return s.EffectivelyPausedServices
+}
+
+// SetStackPause sets the value of StackPause.
+func (s *StackSyncPausesResponse) SetStackPause(val OptSyncPauseRecord) {
+	s.StackPause = val
+}
+
+// SetEffectivelyPausedServices sets the value of EffectivelyPausedServices.
+func (s *StackSyncPausesResponse) SetEffectivelyPausedServices(val int) {
+	s.EffectivelyPausedServices = val
+}
+
+func (*StackSyncPausesResponse) getStackSyncPausesRes() {}
+
 // Ref: #/components/schemas/StackView
 type StackView struct {
-	Name         string      `json:"name"`
-	ComposeFile  string      `json:"compose_file"`
-	Status       StackStatus `json:"status"`
-	LastError    OptString   `json:"last_error"`
-	LastCommit   OptString   `json:"last_commit"`
-	LastDeployAt OptDateTime `json:"last_deploy_at"`
-	SourceDigest OptString   `json:"source_digest"`
+	Name                      string      `json:"name"`
+	ComposeFile               string      `json:"compose_file"`
+	Status                    StackStatus `json:"status"`
+	LastError                 OptString   `json:"last_error"`
+	LastCommit                OptString   `json:"last_commit"`
+	LastDeployAt              OptDateTime `json:"last_deploy_at"`
+	SourceDigest              OptString   `json:"source_digest"`
+	EffectivelyPausedServices OptInt      `json:"effectively_paused_services"`
 }
 
 // GetName returns the value of Name.
@@ -7278,6 +7477,11 @@ func (s *StackView) GetSourceDigest() OptString {
 	return s.SourceDigest
 }
 
+// GetEffectivelyPausedServices returns the value of EffectivelyPausedServices.
+func (s *StackView) GetEffectivelyPausedServices() OptInt {
+	return s.EffectivelyPausedServices
+}
+
 // SetName sets the value of Name.
 func (s *StackView) SetName(val string) {
 	s.Name = val
@@ -7311,6 +7515,11 @@ func (s *StackView) SetLastDeployAt(val OptDateTime) {
 // SetSourceDigest sets the value of SourceDigest.
 func (s *StackView) SetSourceDigest(val OptString) {
 	s.SourceDigest = val
+}
+
+// SetEffectivelyPausedServices sets the value of EffectivelyPausedServices.
+func (s *StackView) SetEffectivelyPausedServices(val OptInt) {
+	s.EffectivelyPausedServices = val
 }
 
 // Ref: #/components/schemas/StacksResponse
@@ -7745,6 +7954,48 @@ func (s *SyncInfo) SetLastWebhook(val OptLastWebhookStatus) {
 // SetLastRevision sets the value of LastRevision.
 func (s *SyncInfo) SetLastRevision(val OptString) {
 	s.LastRevision = val
+}
+
+// Ref: #/components/schemas/SyncPauseRecord
+type SyncPauseRecord struct {
+	Stack     string      `json:"stack"`
+	ExpiresAt NilDateTime `json:"expires_at"`
+}
+
+// GetStack returns the value of Stack.
+func (s *SyncPauseRecord) GetStack() string {
+	return s.Stack
+}
+
+// GetExpiresAt returns the value of ExpiresAt.
+func (s *SyncPauseRecord) GetExpiresAt() NilDateTime {
+	return s.ExpiresAt
+}
+
+// SetStack sets the value of Stack.
+func (s *SyncPauseRecord) SetStack(val string) {
+	s.Stack = val
+}
+
+// SetExpiresAt sets the value of ExpiresAt.
+func (s *SyncPauseRecord) SetExpiresAt(val NilDateTime) {
+	s.ExpiresAt = val
+}
+
+// Ref: #/components/schemas/SyncPauseRequest
+type SyncPauseRequest struct {
+	// Absolute expiration; null means no expiration.
+	ExpiresAt NilDateTime `json:"expires_at"`
+}
+
+// GetExpiresAt returns the value of ExpiresAt.
+func (s *SyncPauseRequest) GetExpiresAt() NilDateTime {
+	return s.ExpiresAt
+}
+
+// SetExpiresAt sets the value of ExpiresAt.
+func (s *SyncPauseRequest) SetExpiresAt(val NilDateTime) {
+	s.ExpiresAt = val
 }
 
 // Ref: #/components/schemas/SynchronizedSecretIdentity
