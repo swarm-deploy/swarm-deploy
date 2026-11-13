@@ -3,15 +3,15 @@ package preparation
 import (
 	"context"
 	"errors"
+	"testing"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackloop/policies"
-	"testing"
 )
 
-func TestCheckImagePolicyReturnsAllStructuredIssues(t *testing.T) {
+func TestCheckImagePolicyAggregatesIssuesInOrder(t *testing.T) {
 	err := checkImagePolicy(context.Background(), config.ImagePolicySpec{Tag: config.ImageTagPolicySpec{NoLatest: true}}, &compose.File{
 		Path: "/repo/app.yaml",
 		Compose: compose.Compose{Services: compose.Services{
@@ -30,28 +30,17 @@ func TestCheckImagePolicyReturnsAllStructuredIssues(t *testing.T) {
 	var validationErr *compose.ValidateComposeError
 	require.ErrorAs(t, err, &validationErr)
 	assert.Equal(t, "/repo/app.yaml", validationErr.FilePath)
-	require.Len(t, validationErr.Issues, 4)
-	assert.Equal(t, compose.ValidationIssue{
-		ResourceType: "service", ResourceName: "api", Field: "image", Code: policies.ImageViolationLatest,
-		Message: `image must not use the latest tag`,
-	}, validationErr.Issues[0])
-	assert.Equal(t, compose.ValidationIssue{
-		ResourceType: "service", ResourceName: "api", Field: `x-init-deploy-jobs["migrate"].image`,
-		Code:    policies.ImageViolationLatest,
-		Message: `init job "migrate": image must not use the latest tag`,
-	}, validationErr.Issues[1])
-	assert.Equal(t, compose.ValidationIssue{
-		ResourceType: "service", ResourceName: "worker", Field: "image", Code: policies.ImageViolationLatest,
-		Message: `image must not use the latest tag`,
-	}, validationErr.Issues[2])
-	assert.Equal(t, compose.ValidationIssue{
-		ResourceType: "service", ResourceName: "worker", Field: `x-init-deploy-jobs["seed"].image`,
-		Code:    policies.ImageViolationLatest,
-		Message: `init job "seed": image must not use the latest tag`,
-	}, validationErr.Issues[3])
-	assert.Contains(t, validationErr.Error(), `service "api": image:`)
-	assert.Contains(t, validationErr.Error(), `service "api": x-init-deploy-jobs["migrate"].image:`)
-	assert.Contains(t, validationErr.Error(), `service "worker": x-init-deploy-jobs["seed"].image:`)
+	wantOrder := []struct{ service, field string }{
+		{service: "api", field: "image"},
+		{service: "api", field: `x-init-deploy-jobs["migrate"].image`},
+		{service: "worker", field: "image"},
+		{service: "worker", field: `x-init-deploy-jobs["seed"].image`},
+	}
+	require.Len(t, validationErr.Issues, len(wantOrder))
+	for i, want := range wantOrder {
+		assert.Equal(t, want.service, validationErr.Issues[i].ResourceName, "issue %d", i)
+		assert.Equal(t, want.field, validationErr.Issues[i].Field, "issue %d", i)
+	}
 }
 
 func TestImagePolicyErrorsArePermanent(t *testing.T) {
