@@ -1,7 +1,7 @@
 package model
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"strings"
 	"testing"
 
@@ -98,4 +98,13 @@ func TestComparisonDoesNotMutateParserMetadata(t *testing.T) {
 	after, err := json.Marshal(parsed)
 	require.NoError(t, err)
 	assert.JSONEq(t, string(before), string(after))
+}
+
+func TestDesiredDigestMatchesPersistedBaseline(t *testing.T) {
+	prepared := prepareComparisonFixture(t, "    command: [echo, '<hello>']\n"+
+		"    labels: {zebra: last, alpha: first}\n"+
+		"    healthcheck: {test: 'true', retries: 0}\n"+
+		"    read_only: true\n")
+	// This digest was recorded before migrating the JSON encoder.
+	assert.Equal(t, "8f9f0c431808ba6fced58eafc7b2a045be2bb27aa8e0a1c2d072cdbe5ec76786", prepared.Digest)
 }

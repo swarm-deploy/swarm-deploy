@@ -1,7 +1,8 @@
 package modelstore
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -35,7 +36,7 @@ func TestVerificationReadsHistoricalPayloadsAndPreservesKnownEmptyResults(t *tes
 			require.NoError(t, err)
 			assert.Equal(t, tc.known, decoded.Verification.Known)
 			assert.ElementsMatch(t, tc.names, decoded.Verification.UnresolvedServices)
-			var fields map[string]json.RawMessage
+			var fields map[string]jsontext.Value
 			require.NoError(t, json.Unmarshal([]byte(details), &fields))
 			if tc.known && len(tc.names) == 0 {
 				assert.JSONEq(t, `[]`, string(fields["unresolved_services"]))

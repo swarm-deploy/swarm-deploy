@@ -1,7 +1,7 @@
 package swarm
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -28,7 +28,7 @@ func TestServiceManagerResolvesDigestPinnedPlatforms(t *testing.T) {
 				assert.Equal(t, "test-registry-auth", req.Header.Get(dockerregistry.AuthHeader))
 				w.Header().Set("Content-Type", "application/json")
 				if req.Method == http.MethodGet && req.URL.Path == "/v1.48/distribution/"+image+"/json" {
-					require.NoError(t, json.NewEncoder(w).Encode(dockerregistry.DistributionInspect{
+					require.NoError(t, json.MarshalWrite(w, dockerregistry.DistributionInspect{
 						Descriptor: ocispec.Descriptor{Digest: digest.Digest("sha256:" + strings.Repeat("a", 64))},
 						Platforms:  []ocispec.Platform{{OS: "linux", Architecture: "amd64"}, {OS: "linux", Architecture: "arm64"}},
 					}))
@@ -39,16 +39,16 @@ func TestServiceManagerResolvesDigestPinnedPlatforms(t *testing.T) {
 					return
 				}
 				var spec dockerswarm.ServiceSpec
-				require.NoError(t, json.NewDecoder(req.Body).Decode(&spec))
+				require.NoError(t, json.UnmarshalRead(req.Body, &spec))
 				assert.Equal(t, image, spec.TaskTemplate.ContainerSpec.Image)
 				require.NotNil(t, spec.TaskTemplate.Placement)
 				assert.Equal(t, platforms, spec.TaskTemplate.Placement.Platforms)
 				assert.Equal(t, []string{"node.labels.pool==api"}, spec.TaskTemplate.Placement.Constraints)
 				if operation == "create" {
-					require.NoError(t, json.NewEncoder(w).Encode(dockerswarm.ServiceCreateResponse{ID: "api-id"}))
+					require.NoError(t, json.MarshalWrite(w, dockerswarm.ServiceCreateResponse{ID: "api-id"}))
 				} else {
 					assert.Equal(t, "7", req.URL.Query().Get("version"))
-					require.NoError(t, json.NewEncoder(w).Encode(dockerswarm.ServiceUpdateResponse{}))
+					require.NoError(t, json.MarshalWrite(w, dockerswarm.ServiceUpdateResponse{}))
 				}
 			}))
 			t.Cleanup(server.Close)

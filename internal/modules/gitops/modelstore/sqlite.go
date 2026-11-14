@@ -3,7 +3,7 @@ package modelstore
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 
 	"github.com/doug-martin/goqu/v9"
@@ -57,7 +57,7 @@ func (s *SQLStore) Save(ctx context.Context, state model.Runtime) error {
 	if state.Networks == nil {
 		state.Networks = map[string]model.Network{}
 	}
-	payload, err := json.Marshal(state)
+	payload, err := json.Marshal(state, json.FormatNilMapAsNull(true))
 	if err != nil {
 		return err
 	}

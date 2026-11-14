@@ -2,7 +2,7 @@ package recommendations
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"strings"
 	"testing"
 

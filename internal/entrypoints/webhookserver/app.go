@@ -1,7 +1,8 @@
 package webhookserver
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -128,5 +129,5 @@ func readBody(w http.ResponseWriter, r *http.Request, maxBodyBytes int64) ([]byt
 func writeJSON(w http.ResponseWriter, status int, payload any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(payload)
+	_ = json.MarshalEncode(jsontext.NewEncoder(w), payload)
 }

@@ -6,7 +6,7 @@ import (
 
 type Message struct {
 	// Payload is the stable data contract used to render or send a notification.
-	Payload any `json:",inline"`
+	Payload any `json:"Payload"`
 	// ButtonPayload optionally supplies unformatted data for Telegram buttons.
 	ButtonPayload any `json:"-"`
 	// Action selects a transport operation for lifecycle notifications.

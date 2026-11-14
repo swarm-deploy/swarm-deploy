@@ -2,7 +2,7 @@ package assistant
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"unicode/utf8"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/tools/routing"

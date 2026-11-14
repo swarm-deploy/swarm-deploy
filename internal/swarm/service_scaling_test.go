@@ -1,7 +1,8 @@
 package swarm
 
 import (
-	"encoding/json"
+	jsonv1 "encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -58,14 +59,15 @@ func TestServiceManagerScaling(t *testing.T) {
 				switch req.Method {
 				case http.MethodGet:
 					assert.Equal(t, "/v1.48/services/"+selector, req.URL.Path)
-					require.NoError(t, json.NewEncoder(w).Encode(dockerswarm.Service{ID: "service-id",
-						Meta: dockerswarm.Meta{Version: dockerswarm.Version{Index: 42}}, Spec: spec}))
+					require.NoError(t, json.MarshalWrite(w, dockerswarm.Service{
+						ID: "service-id", Meta: dockerswarm.Meta{Version: dockerswarm.Version{Index: 42}}, Spec: spec,
+					}, jsonv1.DefaultOptionsV1()))
 				case http.MethodPost:
 					updates++
 					assert.Equal(t, "/v1.48/services/service-id/update", req.URL.Path)
 					assert.Equal(t, "42", req.URL.Query().Get("version"))
 					var actual dockerswarm.ServiceSpec
-					require.NoError(t, json.NewDecoder(req.Body).Decode(&actual))
+					require.NoError(t, json.UnmarshalRead(req.Body, &actual, jsonv1.DefaultOptionsV1()))
 					expected := spec
 					expected.Mode.Replicated = &dockerswarm.ReplicatedService{Replicas: &tc.target}
 					assert.Equal(t, expected, actual, "all unrelated spec fields must survive")
@@ -110,7 +112,7 @@ func TestServiceManagerScaleUnsupportedModes(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 				assert.Equal(t, http.MethodGet, req.Method)
 				w.Header().Set("Content-Type", "application/json")
-				require.NoError(t, json.NewEncoder(w).Encode(dockerswarm.Service{Spec: dockerswarm.ServiceSpec{Mode: mode}}))
+				require.NoError(t, json.MarshalWrite(w, dockerswarm.Service{Spec: dockerswarm.ServiceSpec{Mode: mode}}, jsonv1.DefaultOptionsV1()))
 			}))
 			t.Cleanup(server.Close)
 			_, err := newServiceManager(newTestDockerClient(t, server)).ScaleByID(t.Context(), "id", 2)
@@ -147,11 +149,11 @@ func TestServiceManagerScaleDockerErrors(t *testing.T) {
 				}
 				if status != 0 {
 					w.WriteHeader(status)
-					require.NoError(t, json.NewEncoder(w).Encode(map[string]string{"message": tc.message}))
+					require.NoError(t, json.MarshalWrite(w, map[string]string{"message": tc.message}))
 					return
 				}
 				previous := uint64(1)
-				require.NoError(t, json.NewEncoder(w).Encode(dockerswarm.Service{ID: "id",
+				require.NoError(t, json.MarshalWrite(w, dockerswarm.Service{ID: "id",
 					Spec: dockerswarm.ServiceSpec{Mode: dockerswarm.ServiceMode{Replicated: &dockerswarm.ReplicatedService{Replicas: &previous}}}}))
 			}))
 			t.Cleanup(server.Close)

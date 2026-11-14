@@ -1,7 +1,7 @@
 package swarm
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -25,12 +25,12 @@ func TestUpdateSecretLabelsPreservesMetadata(t *testing.T) {
 		switch req.URL.Path {
 		case "/v1.48/secrets/secret-id":
 			assert.Equal(t, http.MethodGet, req.Method)
-			assert.NoError(t, json.NewEncoder(w).Encode(original))
+			assert.NoError(t, json.MarshalWrite(w, original))
 		case "/v1.48/secrets/secret-id/update":
 			assert.Equal(t, http.MethodPost, req.Method)
 			assert.Equal(t, "7", req.URL.Query().Get("version"))
 			var spec dockerswarm.SecretSpec
-			assert.NoError(t, json.NewDecoder(req.Body).Decode(&spec))
+			assert.NoError(t, json.UnmarshalRead(req.Body, &spec))
 			assert.Equal(t, labels, spec.Labels)
 			assert.Equal(t, original.Spec.Name, spec.Name)
 			assert.Equal(t, original.Spec.Driver, spec.Driver)
@@ -58,7 +58,7 @@ func TestUpdateSecretLabelsRechecksOwnership(t *testing.T) {
 					http.Error(w, "unexpected update", http.StatusInternalServerError)
 					return
 				}
-				assert.NoError(t, json.NewEncoder(w).Encode(dockerswarm.Secret{
+				assert.NoError(t, json.MarshalWrite(w, dockerswarm.Secret{
 					ID: "secret-id", Spec: dockerswarm.SecretSpec{Annotations: dockerswarm.Annotations{
 						Name: "password", Labels: map[string]string{stackNamespaceLabelKey: owner},
 					}},

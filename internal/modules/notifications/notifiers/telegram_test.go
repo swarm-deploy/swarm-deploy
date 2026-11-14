@@ -2,7 +2,8 @@ package notifiers
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"io"
 	"log/slog"
@@ -198,7 +199,7 @@ func TestTelegramLifecycleOperations(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				paths = append(paths, strings.TrimPrefix(r.URL.Path, "/bot123:token"))
 				var body map[string]any
-				require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+				require.NoError(t, json.UnmarshalRead(r.Body, &body))
 				bodies = append(bodies, body)
 				if len(paths) == 1 && tt.firstStatus != 0 {
 					w.WriteHeader(tt.firstStatus)
@@ -237,10 +238,10 @@ func TestTelegramLifecycleOperations(t *testing.T) {
 }
 
 func TestTelegramRendersURLButtonsBeforeSending(t *testing.T) {
-	requests := make(chan map[string]json.RawMessage, 1)
+	requests := make(chan map[string]jsontext.Value, 1)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var body map[string]json.RawMessage
-		if assert.NoError(t, json.NewDecoder(r.Body).Decode(&body)) {
+		var body map[string]jsontext.Value
+		if assert.NoError(t, json.UnmarshalRead(r.Body, &body)) {
 			requests <- body
 		}
 		_, _ = w.Write([]byte(`{"ok":true,"result":{"message_id":71}}`))

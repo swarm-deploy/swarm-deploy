@@ -2,7 +2,8 @@ package tools
 
 import (
 	"context"
-	"encoding/json"
+	jsonv1 "encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"strings"
 	"time"
@@ -170,12 +171,13 @@ func boundTaskLogEntries(entries []logparser.Entry) ([]logparser.Entry, bool) {
 		entry.RawMessage, fieldTruncated = truncateTaskLogText(entry.RawMessage, maxTaskLogFieldBytes)
 		truncated = truncated || fieldTruncated
 
-		if attributes, err := json.Marshal(entry.Attributes); err != nil || len(attributes) > maxTaskLogFieldBytes {
+		attributes, err := json.Marshal(entry.Attributes, jsonv1.DefaultOptionsV1())
+		if err != nil || len(attributes) > maxTaskLogFieldBytes {
 			entry.Attributes = map[string]any{"_truncated": true}
 			truncated = true
 		}
 
-		encoded, err := json.Marshal(entry)
+		encoded, err := json.Marshal(entry, jsonv1.DefaultOptionsV1())
 		if err != nil {
 			truncated = true
 			continue

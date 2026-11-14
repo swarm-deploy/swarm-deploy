@@ -1,14 +1,16 @@
 package logparser
 
 import (
-	"bytes"
-	"encoding/json"
-	"io"
+	jsonv1 "encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
 	"unicode"
+
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/utils"
 )
 
 // Level is a normalized structured log severity.
@@ -149,15 +151,10 @@ func parsePlainTextLevel(raw string) (Level, bool) {
 }
 
 func parseJSONFields(raw string) (map[string]any, bool) {
-	decoder := json.NewDecoder(bytes.NewBufferString(strings.TrimSpace(raw)))
-	decoder.UseNumber()
-
-	fields := map[string]any{}
-	if err := decoder.Decode(&fields); err != nil {
-		return nil, false
-	}
-	var trailing any
-	if err := decoder.Decode(&trailing); err != io.EOF {
+	var fields map[string]any
+	if err := json.Unmarshal([]byte(strings.TrimSpace(raw)), &fields, utils.PreserveJSONNumbers(),
+		jsontext.AllowDuplicateNames(true), jsontext.AllowInvalidUTF8(true), jsonv1.MergeWithLegacySemantics(true),
+	); err != nil {
 		return nil, false
 	}
 
@@ -273,7 +270,7 @@ func normalizeFields(entry Entry, fields map[string]any) Entry {
 }
 
 func parseStructuredLevel(value any) (Level, bool) {
-	if number, ok := value.(json.Number); ok {
+	if number, ok := value.(jsonv1.Number); ok {
 		switch number.String() {
 		case "10":
 			return LevelTrace, true
@@ -386,7 +383,7 @@ func parseTimestamp(value any) (time.Time, bool) {
 				return parsed.UTC(), true
 			}
 		}
-	case json.Number:
+	case jsonv1.Number:
 		value, err := typed.Float64()
 		if err == nil {
 			seconds, nanoseconds := splitUnixTimestamp(value)
@@ -415,7 +412,7 @@ func stringValue(value any) string {
 		return text
 	}
 
-	encoded, err := json.Marshal(value)
+	encoded, err := json.Marshal(value, jsonv1.DefaultOptionsV1())
 	if err != nil {
 		return ""
 	}

@@ -2,7 +2,7 @@ package notifications
 
 import (
 	"crypto/sha256"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -26,7 +26,7 @@ func TestInitModuleDeliversPendingWebhookAfterRestart(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var message struct{ Payload eventnotify.NodePayload }
 		assert.Equal(t, http.MethodPost, r.Method)
-		if assert.NoError(t, json.NewDecoder(r.Body).Decode(&message)) {
+		if assert.NoError(t, json.UnmarshalRead(r.Body, &message)) {
 			received <- message.Payload
 		}
 		w.WriteHeader(http.StatusNoContent)

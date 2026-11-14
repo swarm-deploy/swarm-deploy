@@ -4,7 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
-	"encoding/json"
+	jsonv1 "encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -88,7 +89,7 @@ func TestServiceManagerListServices(t *testing.T) {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		require.NoError(t, json.NewEncoder(w).Encode(response))
+		require.NoError(t, json.MarshalWrite(w, response, jsonv1.DefaultOptionsV1()))
 	}))
 	t.Cleanup(server.Close)
 
@@ -128,15 +129,15 @@ func TestServiceManagerNativeApplyOperations(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		switch req.Method + " " + req.URL.Path {
 		case http.MethodGet + " /v1.48/services/demo_api":
-			require.NoError(t, json.NewEncoder(w).Encode(dockerswarm.Service{
+			require.NoError(t, json.MarshalWrite(w, dockerswarm.Service{
 				ID: "service-id", Meta: dockerswarm.Meta{Version: dockerswarm.Version{Index: 7}},
 				Spec: dockerswarm.ServiceSpec{Annotations: dockerswarm.Annotations{Name: "demo_api"}},
 			}))
 		case http.MethodPost + " /v1.48/services/create":
-			require.NoError(t, json.NewEncoder(w).Encode(map[string]string{"ID": "created-id"}))
+			require.NoError(t, json.MarshalWrite(w, map[string]string{"ID": "created-id"}))
 		case http.MethodPost + " /v1.48/services/service-id/update":
 			assert.Equal(t, "7", req.URL.Query().Get("version"))
-			require.NoError(t, json.NewEncoder(w).Encode(map[string]any{}))
+			require.NoError(t, json.MarshalWrite(w, map[string]any{}))
 		default:
 			http.Error(w, `{"message":"unexpected request"}`, http.StatusInternalServerError)
 		}
@@ -189,7 +190,7 @@ func TestServiceManagerListTasksByIDOrFullName(t *testing.T) {
 				assert.Equal(t, "/v1.48/tasks", req.URL.Path)
 				assert.JSONEq(t, `{"service":{"`+serviceIDOrName+`":true}}`, req.URL.Query().Get("filters"))
 				w.Header().Set("Content-Type", "application/json")
-				require.NoError(t, json.NewEncoder(w).Encode([]dockerswarm.Task{
+				require.NoError(t, json.MarshalWrite(w, []dockerswarm.Task{
 					{
 						ID:           "task-running",
 						JobIteration: &dockerswarm.Version{Index: 7},
@@ -245,7 +246,7 @@ func TestServiceManagerGetTask(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		assert.Equal(t, "/v1.48/tasks/task-1", req.URL.Path)
 		w.Header().Set("Content-Type", "application/json")
-		require.NoError(t, json.NewEncoder(w).Encode(dockerswarm.Task{
+		require.NoError(t, json.MarshalWrite(w, dockerswarm.Task{
 			ID:        "task-1",
 			ServiceID: "service-1",
 			NodeID:    "node-1",
@@ -293,7 +294,7 @@ func TestServiceManagerGetTaskWithoutContainerStatus(t *testing.T) {
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		require.NoError(t, json.NewEncoder(w).Encode(dockerswarm.Task{ID: "pending"}))
+		require.NoError(t, json.MarshalWrite(w, dockerswarm.Task{ID: "pending"}))
 	}))
 	t.Cleanup(server.Close)
 

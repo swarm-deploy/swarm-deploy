@@ -2,7 +2,8 @@ package history
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"time"
@@ -109,7 +110,7 @@ func (s *SQLStore) Handle(ctx context.Context, e events.Envelope) error {
 func (s *SQLStore) insert(ctx context.Context, entry Entry, publicationSequence int64) error {
 	var details any
 	if len(entry.Details) > 0 {
-		payload, err := json.Marshal(entry.Details)
+		payload, err := json.Marshal(entry.Details, jsontext.AllowInvalidUTF8(true))
 		if err != nil {
 			return err
 		}

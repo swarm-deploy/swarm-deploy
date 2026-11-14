@@ -2,7 +2,8 @@ package handlers
 
 import (
 	"context"
-	"encoding/json"
+	jsonv1 "encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -154,7 +155,7 @@ func writeTaskLogEvent(w io.Writer, flusher sseFlusher, entry logparser.Entry, p
 		event.RawMessage = entry.RawMessage
 	}
 
-	payload, err := json.Marshal(event)
+	payload, err := json.Marshal(event, jsonv1.DefaultOptionsV1())
 	if err != nil {
 		return fmt.Errorf("marshal log event: %w", err)
 	}
@@ -170,7 +171,7 @@ func writeTaskLogEvent(w io.Writer, flusher sseFlusher, entry logparser.Entry, p
 }
 
 func writeTaskLogCountsEvent(w io.Writer, flusher sseFlusher, counts map[logparser.Level]int) error {
-	payload, err := json.Marshal(taskLogCountsSSEEvent{Counts: counts})
+	payload, err := json.Marshal(taskLogCountsSSEEvent{Counts: counts}, jsonv1.DefaultOptionsV1())
 	if err != nil {
 		return fmt.Errorf("marshal log level counts: %w", err)
 	}

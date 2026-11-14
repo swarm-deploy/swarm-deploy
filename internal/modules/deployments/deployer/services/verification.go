@@ -3,7 +3,8 @@ package services
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
+	jsonv1 "encoding/json"
+	"encoding/json/v2"
 	"reflect"
 	"time"
 
@@ -122,7 +123,8 @@ func verificationSpecDigest(spec dockerswarm.ServiceSpec) string {
 	spec = cloneSpec(spec)
 	normalizeDockerDefaults(&spec)
 	normalizeServiceSets(&spec)
-	payload, _ := json.Marshal(canonicalSpec(spec))
+	// Keep the digest compatible with the predecessor recorded in existing attempts.
+	payload, _ := json.Marshal(canonicalSpec(spec), jsonv1.DefaultOptionsV1())
 	digest := sha256.Sum256(payload)
 	return hex.EncodeToString(digest[:])
 }

@@ -13,7 +13,7 @@ type Service struct {
 
 	SyncError string `json:"sync_error"`
 	// SelfHealPending retains a remediation until execution-owned convergence is verified.
-	SelfHealPending bool `json:"self_heal_pending,omitempty"`
+	SelfHealPending bool `json:"self_heal_pending,omitzero"`
 
 	// SyncAt is the timestamp of the latest service deployment attempt.
 	SyncAt time.Time `json:"last_sync_at"`
