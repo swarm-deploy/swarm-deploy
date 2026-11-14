@@ -17,7 +17,7 @@ import (
 type Module struct {
 	// Store persists and queries alerts.
 	Store *modelstore.SQLStore
-	// Subscriber consumes deployment lifecycle events.
+	// Subscriber consumes source events for the alert projection.
 	Subscriber *SQLSubscriber
 }
 
