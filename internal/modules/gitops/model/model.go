@@ -8,6 +8,8 @@ import (
 type Service struct {
 	// Image is the deployed image reference for the service.
 	Image string `json:"image"`
+	// DesiredCommit is the Git revision of the latest desired state prepared for the service.
+	DesiredCommit string `json:"desired_commit,omitempty"`
 	// SyncStatus is the latest deployment status for the service.
 	SyncStatus SyncStatus `json:"sync_status"`
 

@@ -264,7 +264,8 @@ func TestDriftLifecycleSurvivesPreparationFailure(t *testing.T) {
 		DriftedServices: map[string]bool{"api": true},
 		Services: map[string]model.Service{
 			"api": {
-				Image: "nginx:1.27", SyncStatus: model.SyncStatusOutOfSync, SelfHealPending: true, SyncError: "drift",
+				Image: "nginx:1.27", DesiredCommit: "prepared",
+				SyncStatus: model.SyncStatusOutOfSync, SelfHealPending: true, SyncError: "drift",
 			},
 			"worker": {Image: "busybox:1.37", SyncStatus: model.SyncStatusSynced},
 		},
@@ -277,7 +278,7 @@ func TestDriftLifecycleSurvivesPreparationFailure(t *testing.T) {
 		return ok && len(failure.Services) == 1 && failure.Services[0].Name == "api" && failure.Services[0].Image == "nginx:1.28"
 	})).Return(nil)
 	reconciler := &Reconciler{db: db, stateStore: store, event: publisher}
-	require.NoError(t, reconciler.recordFailure(t.Context(), "app", "commit", desired, assert.AnError))
+	require.NoError(t, reconciler.recordFailure(t.Context(), "app", "commit", desired, false, assert.AnError))
 
 	failed := readSQLState(t, store).Stacks["app"]
 	assert.Equal(t, previous.DriftedServices, failed.DriftedServices)
@@ -285,6 +286,7 @@ func TestDriftLifecycleSurvivesPreparationFailure(t *testing.T) {
 	assert.Equal(t, model.StackStatus{Synced: 1, OutOfSynced: 1}, failed.Status)
 	api := failed.Services["api"]
 	assert.Equal(t, "nginx:1.28", api.Image)
+	assert.Equal(t, "prepared", api.DesiredCommit)
 	assert.Equal(t, model.SyncStatus(model.SyncStatusOutOfSync), api.SyncStatus)
 	assert.True(t, api.SelfHealPending)
 	assert.Equal(t, "drift", api.SyncError)
@@ -307,7 +309,7 @@ func TestRecordPreparationFailurePublishesTypedDiagnostic(t *testing.T) {
 	})
 	reconciler := &Reconciler{db: db, stateStore: store, event: publisher}
 	cause := fmt.Errorf("prepare token=private-value: %w", swarm.ErrImageNotFound)
-	require.NoError(t, reconciler.recordFailure(t.Context(), "app", "commit", nil, cause))
+	require.NoError(t, reconciler.recordFailure(t.Context(), "app", "commit", nil, false, cause))
 }
 
 func TestDriftLifecycleRequiresVerifiedAnalysis(t *testing.T) {

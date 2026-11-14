@@ -95,6 +95,7 @@ func TestReconcileUpdatesStateOnSuccess(t *testing.T) {
 	require.Len(t, stackState.Services, 1, "expected one service state")
 	serviceState := stackState.Services["api"]
 	assert.Equal(t, "nginx:latest", serviceState.Image, "unexpected image")
+	assert.Equal(t, "commit-1", serviceState.DesiredCommit)
 	assert.Equal(t, model.SyncStatus(model.SyncStatusSynced), serviceState.SyncStatus, "unexpected sync status")
 }
 
@@ -155,6 +156,7 @@ func TestReconcileUpdatesStateOnFailure(t *testing.T) {
 	assert.Empty(t, stackState.SourceDigest, "expected empty source digest")
 	require.Len(t, stackState.Services, 1, "expected one service state")
 	serviceState := stackState.Services["api"]
+	assert.Equal(t, "commit-2", serviceState.DesiredCommit)
 	assert.Equal(t, model.SyncStatus(model.SyncStatusOutOfSync), serviceState.SyncStatus, "unexpected sync status")
 	page, listErr := deploymentstore.NewStore(db).List(context.Background(), deploymentmodel.ListFilter{})
 	require.NoError(t, listErr)
@@ -880,6 +882,7 @@ services:
 		Commit: "commit-downward-3",
 	})
 	require.NoError(t, reconcileErr, "second reconcile")
+	assert.Equal(t, "commit-downward-3", readSQLState(t, stateStore).Stacks["app"].Services["api"].DesiredCommit)
 }
 
 func TestReconcilePrunesServicesWithoutNewDeployment(t *testing.T) {
