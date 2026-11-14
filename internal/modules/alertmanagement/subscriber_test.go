@@ -72,6 +72,7 @@ func TestSubscriberDeploymentLifecycle(t *testing.T) {
 	assert.Equal(t, openedAt, alerts[0].OpenedAt, "repeated failures must preserve the opening time")
 	assert.Equal(t, uint64(2), alerts[0].Occurrences, "occurrences should increment")
 	assert.Equal(t, "registry unavailable", alerts[0].Message, "latest failure should replace the message")
+	assert.Empty(t, alerts[0].DeploymentID, "the new failure has no deployment ID")
 	assert.NotEqual(t, alerts[0].OpenEventID, alerts[0].LatestEventID, "latest event should advance")
 	assert.Equal(t, "failure-2", alerts[0].LatestEventID, "latest event reference")
 
@@ -112,6 +113,10 @@ func TestSubscriberServiceDriftLifecycle(t *testing.T) {
 	require.NoError(t, subscriber.Handle(ctx, events.Envelope{ID: "missing", Event: &events.ServiceMissed{
 		StackName: "payments", ServiceName: "api", Commit: "two",
 	}}))
+	original, err := store.FindOpenByFingerprint(ctx, model.ServiceDriftFingerprint("payments", "api"))
+	require.NoError(t, err)
+	original.Title = "Existing incident title"
+	require.NoError(t, store.Update(ctx, original))
 	require.NoError(t, subscriber.Handle(ctx, events.Envelope{ID: "drifted-again", Event: &events.ServiceDrifted{
 		StackName: "payments", ServiceName: "api", Commit: "three", Reason: "replica count differs",
 	}}))
@@ -124,6 +129,8 @@ func TestSubscriberServiceDriftLifecycle(t *testing.T) {
 	assert.Equal(t, "service_drift:service:payments/api", alerts[0].Fingerprint)
 	assert.Equal(t, uint64(2), alerts[0].Occurrences)
 	assert.Equal(t, "replica count differs", alerts[0].Message)
+	assert.Equal(t, "three", alerts[0].Commit)
+	assert.Equal(t, original.Title, alerts[0].Title)
 
 	require.NoError(t, subscriber.Handle(ctx, events.Envelope{ID: "fixed", Event: &events.ServiceDriftFixed{
 		StackName: "payments", ServiceName: "api", Commit: "four",

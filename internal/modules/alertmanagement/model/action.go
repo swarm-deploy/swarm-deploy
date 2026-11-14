@@ -14,14 +14,15 @@ const (
 type AlertAction struct {
 	// Kind identifies the change to apply.
 	Kind AlertActionKind
-	// Alert carries the fingerprint, failure data or resolution for the change.
+	// Alert carries the incident to persist, or the fingerprint and resolution for other actions.
+	// For RecordFailure, an empty ID identifies a new incident.
 	Alert Alert
 	// OpenAfter is the number of consecutive failures required to open an incident.
 	OpenAfter uint64
 	// TrackFailureStreak records consecutive failures across events.
 	TrackFailureStreak bool
-	// PreserveExistingMessage keeps useful detail when a repeat has no diagnostic.
-	PreserveExistingMessage bool
+	// Findings lists diagnostics to add to the incident's existing findings.
+	Findings []Finding
 	// KeepFailureStreaks lists the desired stack fingerprints to retain during reconciliation.
 	KeepFailureStreaks []string
 }

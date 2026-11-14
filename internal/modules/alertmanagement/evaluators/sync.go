@@ -8,6 +8,7 @@ import (
 
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/model"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
 )
@@ -16,16 +17,17 @@ const interruptedTitle = "Synchronization outcome unknown"
 
 // SyncEvaluator evaluates failures and recoveries of stack synchronization.
 type SyncEvaluator struct {
+	store  modelstore.Store
 	stacks config.StackProvider
 }
 
-// NewSyncEvaluator uses the desired stack configuration to recognize removed stacks.
-func NewSyncEvaluator(stacks config.StackProvider) *SyncEvaluator {
-	return &SyncEvaluator{stacks: stacks}
+// NewSyncEvaluator reads open sync incidents and recognizes removed stacks.
+func NewSyncEvaluator(store modelstore.Store, stacks config.StackProvider) *SyncEvaluator {
+	return &SyncEvaluator{store: store, stacks: stacks}
 }
 
 // Evaluate returns actions for a deployment, preparation or interruption event.
-func (e *SyncEvaluator) Evaluate(_ context.Context, event events.Envelope) ([]model.AlertAction, error) {
+func (e *SyncEvaluator) Evaluate(ctx context.Context, event events.Envelope) ([]model.AlertAction, error) {
 	switch source := event.Event.(type) {
 	case *events.DeployFailed:
 		diagnostic := source.Error
@@ -34,22 +36,22 @@ func (e *SyncEvaluator) Evaluate(_ context.Context, event events.Envelope) ([]mo
 				diagnostic = errors.New(logs)
 			}
 		}
-		return e.failure(model.Alert{
+		return e.failure(ctx, model.Alert{
 			ResourceID: source.StackName, Title: "Synchronization failed",
 			FailureStage: source.Stage, ErrorCode: source.ErrorCode, DeploymentID: source.DeploymentID,
 			Commit: source.Commit, LatestEventID: event.ID,
-		}, source.Error, diagnostic), nil
+		}, source.Error, diagnostic)
 	case *events.DeployPreparationFailed:
-		return e.failure(model.Alert{
+		return e.failure(ctx, model.Alert{
 			ResourceID: source.StackName, Title: "Synchronization failed",
 			FailureStage: source.Stage, ErrorCode: source.ErrorCode, Commit: source.Commit, LatestEventID: event.ID,
-		}, source.Error, source.Error), nil
+		}, source.Error, source.Error)
 	case *events.DeployInterrupted:
-		return e.failure(model.Alert{
+		return e.failure(ctx, model.Alert{
 			ResourceID: source.StackName, Title: interruptedTitle,
 			FailureStage: source.Stage, ErrorCode: source.Reason, DeploymentID: source.DeploymentID,
 			Commit: source.Commit, LatestEventID: event.ID,
-		}, source.Error, source.Error), nil
+		}, source.Error, source.Error)
 	case *events.DeploySuccess:
 		fingerprint := model.SyncFailedFingerprint(source.StackName)
 		return []model.AlertAction{
@@ -61,28 +63,26 @@ func (e *SyncEvaluator) Evaluate(_ context.Context, event events.Envelope) ([]mo
 	}
 }
 
-func (e *SyncEvaluator) failure(alert model.Alert, cause, diagnostic error) []model.AlertAction {
-	alert.Fingerprint = model.SyncFailedFingerprint(alert.ResourceID)
-	if e.stackRemoved(alert.ResourceID) {
-		return []model.AlertAction{resetFailureStreak(alert.Fingerprint)}
+func (e *SyncEvaluator) failure(
+	ctx context.Context, incoming model.Alert, cause, diagnostic error,
+) ([]model.AlertAction, error) {
+	incoming.Fingerprint = model.SyncFailedFingerprint(incoming.ResourceID)
+	if e.stackRemoved(incoming.ResourceID) {
+		return []model.AlertAction{resetFailureStreak(incoming.Fingerprint)}, nil
 	}
 
-	alert.Kind = model.AlertKindSyncFailed
-	alert.ResourceType = model.ResourceTypeStack
-	alert.Message = faults.SafeDiagnostic(diagnostic)
-	hasDiagnostic := alert.Message != "" && alert.Message != alert.ErrorCode
-	if !hasDiagnostic {
-		stage := alert.FailureStage
-		if stage == "" {
-			stage = "an unknown stage"
-		}
-		if alert.Title == interruptedTitle {
-			alert.Message = fmt.Sprintf(
-				"Deployment outcome is unknown after interruption during %s. No detailed diagnostic was recorded.", stage,
-			)
-		} else {
-			alert.Message = fmt.Sprintf("Synchronization failed during %s. No detailed diagnostic was recorded.", stage)
-		}
+	incoming.Kind = model.AlertKindSyncFailed
+	incoming.ResourceType = model.ResourceTypeStack
+	alert, err := alertForFailure(ctx, e.store, incoming)
+	if err != nil {
+		return nil, err
+	}
+	alert.Title, alert.FailureStage, alert.ErrorCode = incoming.Title, incoming.FailureStage, incoming.ErrorCode
+	alert.DeploymentID, alert.Commit, alert.LatestEventID = incoming.DeploymentID, incoming.Commit, incoming.LatestEventID
+	if message := faults.SafeDiagnostic(diagnostic); message != "" && message != incoming.ErrorCode {
+		alert.Message = message
+	} else if alert.Message == "" {
+		alert.Message = missingDiagnosticMessage(incoming.Title, incoming.FailureStage)
 	}
 
 	openAfter := openImmediately
@@ -90,16 +90,32 @@ func (e *SyncEvaluator) failure(alert model.Alert, cause, diagnostic error) []mo
 	if errors.As(cause, &classified) && classified.Temporary() {
 		openAfter = temporaryFailureThreshold
 	}
+	return []model.AlertAction{{
+		Kind: model.RecordFailure, Alert: alert, OpenAfter: openAfter, TrackFailureStreak: true,
+		Findings: failureFindings(cause),
+	}}, nil
+}
+
+func missingDiagnosticMessage(title, stage string) string {
+	if stage == "" {
+		stage = "an unknown stage"
+	}
+	if title == interruptedTitle {
+		return fmt.Sprintf(
+			"Deployment outcome is unknown after interruption during %s. No detailed diagnostic was recorded.", stage,
+		)
+	}
+	return fmt.Sprintf("Synchronization failed during %s. No detailed diagnostic was recorded.", stage)
+}
+
+func failureFindings(cause error) []model.Finding {
 	var coded faults.Coded
 	if errors.As(cause, &coded) {
 		if code := coded.FaultCode(); code != "" {
-			alert.Findings = []model.Finding{{Code: code, Summary: coded.FaultSummary()}}
+			return []model.Finding{{Code: code, Summary: coded.FaultSummary()}}
 		}
 	}
-	return []model.AlertAction{{
-		Kind: model.RecordFailure, Alert: alert, OpenAfter: openAfter, TrackFailureStreak: true,
-		PreserveExistingMessage: !hasDiagnostic,
-	}}
+	return nil
 }
 
 func (e *SyncEvaluator) stackRemoved(stackName string) bool {

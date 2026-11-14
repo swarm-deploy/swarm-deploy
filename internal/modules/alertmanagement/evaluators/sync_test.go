@@ -8,12 +8,14 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/model"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
+	"github.com/swarm-deploy/swarm-deploy/internal/testutil"
 )
 
 func TestSyncEvaluatorKeepsThresholdAcrossTemporaryFailures(t *testing.T) {
-	evaluator := NewSyncEvaluator(&config.Config{})
+	evaluator := NewSyncEvaluator(modelstore.NewSQLStore(testutil.OpenSQLite(t)), &config.Config{})
 	for i, event := range []events.Event{
 		&events.DeployFailed{
 			DeployEvent: events.DeployEvent{StackName: "app"},
@@ -42,6 +44,7 @@ func TestSyncEvaluatorKeepsThresholdAcrossTemporaryFailures(t *testing.T) {
 }
 
 func TestSyncEvaluatorFailureDiagnostics(t *testing.T) {
+	evaluator := NewSyncEvaluator(modelstore.NewSQLStore(testutil.OpenSQLite(t)), &config.Config{})
 	for _, tc := range []struct {
 		name    string
 		event   events.Event
@@ -64,12 +67,11 @@ func TestSyncEvaluatorFailureDiagnostics(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			actions, err := NewSyncEvaluator(&config.Config{}).Evaluate(t.Context(), events.Envelope{ID: "source", Event: tc.event})
+			actions, err := evaluator.Evaluate(t.Context(), events.Envelope{ID: "source", Event: tc.event})
 			require.NoError(t, err)
 			require.Len(t, actions, 1)
 			action := actions[0]
 			assert.EqualValues(t, 1, action.OpenAfter)
-			assert.True(t, action.PreserveExistingMessage)
 			assert.Equal(t, tc.title, action.Alert.Title)
 			assert.Equal(t, tc.message, action.Alert.Message)
 			assert.Equal(t, tc.stage, action.Alert.FailureStage)

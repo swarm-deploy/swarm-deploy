@@ -10,13 +10,16 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/model"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/codec"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
+	"github.com/swarm-deploy/swarm-deploy/internal/testutil"
 )
 
 func TestDockerFaultsExtractedIntoAlertFindings(t *testing.T) {
+	evaluator := NewSyncEvaluator(modelstore.NewSQLStore(testutil.OpenSQLite(t)), &config.Config{})
 	for _, tc := range []struct {
 		state      swarm.TaskState
 		diagnostic string
@@ -52,20 +55,20 @@ func TestDockerFaultsExtractedIntoAlertFindings(t *testing.T) {
 			require.NoError(t, err)
 			decoded, err := codec.Decode(typeName, codec.Version, payload)
 			require.NoError(t, err)
-			actions, err := NewSyncEvaluator(&config.Config{}).Evaluate(t.Context(), events.Envelope{ID: "failure", Event: decoded})
+			actions, err := evaluator.Evaluate(t.Context(), events.Envelope{ID: "failure", Event: decoded})
 			require.NoError(t, err)
 			require.Len(t, actions, 1)
-			alert := actions[0].Alert
-			assert.Contains(t, alert.Message, "verify service app/api: "+tc.diagnostic)
+			action := actions[0]
+			assert.Contains(t, action.Alert.Message, "verify service app/api: "+tc.diagnostic)
 			if tc.code == "" {
-				assert.Empty(t, alert.Findings)
+				assert.Empty(t, action.Findings)
 				return
 			}
 			wantSummary := tc.diagnostic
 			if tc.code == faults.CodeImageExtractionFailed {
 				wantSummary = "Container image extraction failed: containerd snapshot lease is missing. Retry deployment; check for concurrent image cleanup."
 			}
-			assert.Equal(t, []model.Finding{{Code: tc.code, Summary: wantSummary}}, alert.Findings)
+			assert.Equal(t, []model.Finding{{Code: tc.code, Summary: wantSummary}}, action.Findings)
 		})
 	}
 }

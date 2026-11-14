@@ -24,10 +24,10 @@ type Subscriber struct {
 // NewSubscriber wires alert evaluation and lifecycle application.
 func NewSubscriber(store modelstore.Store, lifecycle Lifecycle, stacks config.StackProvider) *Subscriber {
 	return &Subscriber{
-		sync:          evaluators.NewSyncEvaluator(stacks),
-		gitRepository: evaluators.GitRepositoryEvaluator{},
-		node:          evaluators.NodeEvaluator{},
-		serviceDrift:  evaluators.ServiceDriftEvaluator{},
+		sync:          evaluators.NewSyncEvaluator(store, stacks),
+		gitRepository: evaluators.NewGitRepositoryEvaluator(store),
+		node:          evaluators.NewNodeEvaluator(store),
+		serviceDrift:  evaluators.NewServiceDriftEvaluator(store),
 		configuration: evaluators.NewConfigurationEvaluator(store, stacks),
 		lifecycle:     lifecycle,
 	}

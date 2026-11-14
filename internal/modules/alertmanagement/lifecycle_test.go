@@ -73,10 +73,10 @@ func TestLifecycleUpdatesOpenIncidentAndAccumulatesDistinctFindings(t *testing.T
 	failure := model.AlertAction{Kind: model.RecordFailure, OpenAfter: 1, TrackFailureStreak: true,
 		Alert: model.Alert{
 			Fingerprint: fingerprint, Kind: model.AlertKindSyncFailed, ResourceType: model.ResourceTypeStack, ResourceID: "app",
-			Message: "useful detail", LatestEventID: "failure", Findings: []model.Finding{
-				{Code: faults.CodeImageNotFound, Summary: "No such image: api:1"},
-			},
-		}}
+			Message: "useful detail", LatestEventID: "failure",
+		},
+		Findings: []model.Finding{{Code: faults.CodeImageNotFound, Summary: "No such image: api:1"}},
+	}
 	require.NoError(t, lifecycle.Apply(ctx, []model.AlertAction{failure}))
 	opened, err := store.FindOpenByFingerprint(ctx, fingerprint)
 	require.NoError(t, err)
@@ -84,11 +84,10 @@ func TestLifecycleUpdatesOpenIncidentAndAccumulatesDistinctFindings(t *testing.T
 
 	now = start.Add(time.Minute)
 	failure.OpenAfter = 3
-	failure.PreserveExistingMessage = true
-	failure.Alert.Message = "generic failure"
+	failure.Alert = opened
 	failure.Alert.DeploymentID = "new-deployment"
 	failure.Alert.LatestEventID = "repeat"
-	failure.Alert.Findings = append(failure.Alert.Findings,
+	failure.Findings = append(failure.Findings,
 		model.Finding{Code: faults.CodeImageNotFound, Summary: "No such image: api:2"},
 		model.Finding{Code: faults.CodeImageNotFound},
 	)
@@ -107,7 +106,7 @@ func TestLifecycleUpdatesOpenIncidentAndAccumulatesDistinctFindings(t *testing.T
 		{Code: faults.CodeImageNotFound, Summary: "No such image: api:2", DetectedAt: now.UTC()},
 		{Code: faults.CodeImageNotFound, DetectedAt: now.UTC()},
 	}, updated.Findings)
-	assert.True(t, failure.Alert.Findings[0].DetectedAt.IsZero(), "applying actions must preserve their templates")
+	assert.True(t, failure.Findings[0].DetectedAt.IsZero(), "applying actions must preserve their templates")
 	assert.Equal(t, 1, alertSignalCount(t, db, "AlertOpened"))
 
 	now = start.Add(2 * time.Minute)

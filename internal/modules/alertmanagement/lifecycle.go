@@ -61,86 +61,41 @@ func (l *alertLifecycle) apply(ctx context.Context, action model.AlertAction, no
 }
 
 func (l *alertLifecycle) recordFailure(ctx context.Context, action model.AlertAction, now time.Time) error {
-	incoming := action.Alert
+	alert := action.Alert
 	failures := uint64(1)
 	if action.TrackFailureStreak {
 		var err error
-		failures, err = l.store.IncrementFailureStreak(ctx, incoming.Fingerprint)
+		failures, err = l.store.IncrementFailureStreak(ctx, alert.Fingerprint)
 		if err != nil {
-			return fmt.Errorf("increment failure streak for %q: %w", incoming.Fingerprint, err)
+			return fmt.Errorf("increment failure streak for %q: %w", alert.Fingerprint, err)
 		}
 	}
-
-	existing, err := l.store.FindOpenByFingerprint(ctx, incoming.Fingerprint)
-	if err == nil {
-		// Repeat failures refresh only the diagnostics this alert kind reports.
-		switch incoming.Kind {
-		case model.AlertKindSyncFailed:
-		case model.AlertKindGitRepositoryUnavailable:
-			incoming.Title, incoming.FailureStage = existing.Title, existing.FailureStage
-			incoming.DeploymentID, incoming.Commit = existing.DeploymentID, existing.Commit
-		case model.AlertKindServiceDrift:
-			incoming.Title, incoming.FailureStage = existing.Title, existing.FailureStage
-			incoming.ErrorCode, incoming.DeploymentID = existing.ErrorCode, existing.DeploymentID
-		case model.AlertKindNodeDisconnected:
-			incoming.Title, incoming.Message = existing.Title, existing.Message
-			incoming.FailureStage, incoming.ErrorCode = existing.FailureStage, existing.ErrorCode
-			incoming.DeploymentID, incoming.Commit = existing.DeploymentID, existing.Commit
-		}
-		incoming.LatestEventID = l.eventReferenceID(incoming.Kind, incoming.LatestEventID)
-		return l.updateFailure(ctx, existing, incoming, action.PreserveExistingMessage, now)
-	}
-	if !errors.Is(err, modelstore.ErrAlertNotFound) {
-		return fmt.Errorf("find open alert %q: %w", incoming.Fingerprint, err)
-	}
-	if failures < action.OpenAfter {
+	if alert.ID == "" && failures < action.OpenAfter {
 		return nil
 	}
 
-	incoming.ID = l.newID()
-	incoming.Status = model.AlertStatusOpen
-	incoming.ResolvedAt, incoming.Resolution = nil, nil
-	incoming.Occurrences = failures
-	incoming.OpenedAt, incoming.UpdatedAt = now, now
-	incoming.LatestEventID = l.eventReferenceID(incoming.Kind, incoming.LatestEventID)
-	incoming.OpenEventID = incoming.LatestEventID
-	incoming.Findings = nil
-	appendFindings(&incoming, action.Alert.Findings, now)
-	createErr := l.store.Create(ctx, incoming)
-	if createErr == nil {
-		return l.publisher.Publish(ctx, &events.AlertOpened{
-			Alert: alertSnapshot(incoming), Recipients: l.recipients(incoming.Kind),
-		})
-	}
-	if incoming.Kind != model.AlertKindNodeDisconnected && errors.Is(createErr, modelstore.ErrOpenAlertExists) {
-		existing, err = l.store.FindOpenByFingerprint(ctx, incoming.Fingerprint)
-		if err == nil {
-			return l.updateFailure(ctx, existing, incoming, action.PreserveExistingMessage, now)
-		}
-		if !errors.Is(err, modelstore.ErrAlertNotFound) {
-			return fmt.Errorf("refetch concurrent alert %q: %w", incoming.Fingerprint, err)
-		}
-	}
-	return fmt.Errorf("create alert %q: %w", incoming.Fingerprint, createErr)
-}
-
-func (l *alertLifecycle) updateFailure(
-	ctx context.Context, alert, incoming model.Alert, preserveMessage bool, now time.Time,
-) error {
-	alert.Occurrences++
 	alert.UpdatedAt = now
-	alert.LatestEventID = incoming.LatestEventID
-	if !preserveMessage || alert.Message == "" {
-		alert.Message = incoming.Message
+	alert.LatestEventID = l.eventReferenceID(alert.Kind, alert.LatestEventID)
+	appendFindings(&alert, action.Findings, now)
+	if alert.ID != "" {
+		alert.Occurrences++
+		if err := l.store.Update(ctx, alert); err != nil {
+			return fmt.Errorf("update alert %q: %w", alert.Fingerprint, err)
+		}
+		return nil
 	}
-	alert.Title = incoming.Title
-	alert.FailureStage, alert.ErrorCode = incoming.FailureStage, incoming.ErrorCode
-	alert.DeploymentID, alert.Commit = incoming.DeploymentID, incoming.Commit
-	appendFindings(&alert, incoming.Findings, now)
-	if err := l.store.Update(ctx, alert); err != nil {
-		return fmt.Errorf("update alert %q: %w", alert.Fingerprint, err)
+
+	alert.ID = l.newID()
+	alert.Status = model.AlertStatusOpen
+	alert.Occurrences = failures
+	alert.OpenedAt = now
+	alert.OpenEventID = alert.LatestEventID
+	if err := l.store.Create(ctx, alert); err != nil {
+		return fmt.Errorf("create alert %q: %w", alert.Fingerprint, err)
 	}
-	return nil
+	return l.publisher.Publish(ctx, &events.AlertOpened{
+		Alert: alertSnapshot(alert), Recipients: l.recipients(alert.Kind),
+	})
 }
 
 func appendFindings(alert *model.Alert, findings []model.Finding, now time.Time) {
