@@ -264,7 +264,7 @@ func TestDriftLifecycleSurvivesPreparationFailure(t *testing.T) {
 		DriftedServices: map[string]bool{"api": true},
 		Services: map[string]model.Service{
 			"api": {
-				Image: "nginx:1.27", DesiredDigest: "digest", DesiredCommit: "prepared",
+				Image: "nginx:1.27", DesiredCommit: "prepared",
 				SyncStatus: model.SyncStatusOutOfSync, SelfHealPending: true, SyncError: "drift",
 			},
 			"worker": {Image: "busybox:1.37", SyncStatus: model.SyncStatusSynced},
@@ -286,7 +286,6 @@ func TestDriftLifecycleSurvivesPreparationFailure(t *testing.T) {
 	assert.Equal(t, model.StackStatus{Synced: 1, OutOfSynced: 1}, failed.Status)
 	api := failed.Services["api"]
 	assert.Equal(t, "nginx:1.28", api.Image)
-	assert.Equal(t, "digest", api.DesiredDigest)
 	assert.Equal(t, "prepared", api.DesiredCommit)
 	assert.Equal(t, model.SyncStatus(model.SyncStatusOutOfSync), api.SyncStatus)
 	assert.True(t, api.SelfHealPending)

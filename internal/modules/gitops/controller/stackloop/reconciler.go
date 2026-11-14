@@ -198,37 +198,23 @@ func (r *Reconciler) currentStackState(ctx context.Context, stackName string) (m
 func (r *Reconciler) recordPreparedDesired(
 	ctx context.Context, req ReconciliationRequest, prepared *compose.File,
 ) error {
-	digests, err := prepared.DesiredServiceDigests()
-	if err != nil {
-		return wrapReconcileError("digest desired service state", prepared.Compose.Services, err)
-	}
-	if err = r.persistDesiredServices(ctx, req.Stack.Name, req.Commit, digests); err != nil {
-		return wrapReconcileError("persist desired service state", prepared.Compose.Services, err)
-	}
-	return nil
-}
-
-func (r *Reconciler) persistDesiredServices(
-	ctx context.Context, stackName, commit string, digests map[string]string,
-) error {
-	if len(digests) == 0 {
+	services := prepared.Compose.Services
+	if len(services) == 0 {
 		return nil
 	}
-	return r.stateStore.Update(ctx, func(runtime *model.Runtime) {
-		stack := runtime.Stacks[stackName]
+	err := r.stateStore.Update(ctx, func(runtime *model.Runtime) {
+		stack := runtime.Stacks[req.Stack.Name]
 		if stack.Services == nil {
-			stack.Services = make(map[string]model.Service, len(digests))
+			stack.Services = make(map[string]model.Service, len(services))
 		}
-		for name, digest := range digests {
-			service := stack.Services[name]
-			if service.DesiredDigest != digest || service.DesiredCommit == "" {
-				service.DesiredDigest = digest
-				service.DesiredCommit = commit
-				stack.Services[name] = service
-			}
+		for _, service := range services {
+			state := stack.Services[service.Name]
+			state.DesiredCommit = req.Commit
+			stack.Services[service.Name] = state
 		}
-		runtime.Stacks[stackName] = stack
+		runtime.Stacks[req.Stack.Name] = stack
 	})
+	return wrapReconcileError("persist desired service commit", services, err)
 }
 
 func (r *Reconciler) processResult(
@@ -333,7 +319,7 @@ func (r *Reconciler) recordFailure(
 			for _, service := range services {
 				previous := state.Services[service.Name]
 				state.Services[service.Name] = model.Service{
-					Image: service.Image, DesiredDigest: previous.DesiredDigest, DesiredCommit: previous.DesiredCommit,
+					Image: service.Image, DesiredCommit: previous.DesiredCommit,
 					SyncStatus: model.SyncStatusOutOfSync, SyncAt: time.Now(),
 					SelfHealPending: previous.SelfHealPending, SyncError: previous.SyncError,
 				}
@@ -414,7 +400,7 @@ func replaceStackResult(runtime *model.Runtime, stackName string, result model.S
 	current := runtime.Stacks[stackName]
 	for name, service := range result.Services {
 		desired := current.Services[name]
-		service.DesiredDigest, service.DesiredCommit = desired.DesiredDigest, desired.DesiredCommit
+		service.DesiredCommit = desired.DesiredCommit
 		result.Services[name] = service
 	}
 	runtime.Stacks[stackName] = result

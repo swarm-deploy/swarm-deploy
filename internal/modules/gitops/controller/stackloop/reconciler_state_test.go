@@ -59,7 +59,6 @@ func TestReconcileUpdatesStateOnSuccess(t *testing.T) {
 			state, err := stateStore.Read(ctx)
 			require.NoError(t, err)
 			service := state.Stacks["app"].Services["api"]
-			assert.NotEmpty(t, service.DesiredDigest)
 			assert.Equal(t, "commit-1", service.DesiredCommit)
 			return deployer.Result{}, nil
 		})
@@ -102,7 +101,6 @@ func TestReconcileUpdatesStateOnSuccess(t *testing.T) {
 	require.Len(t, stackState.Services, 1, "expected one service state")
 	serviceState := stackState.Services["api"]
 	assert.Equal(t, "nginx:latest", serviceState.Image, "unexpected image")
-	assert.NotEmpty(t, serviceState.DesiredDigest)
 	assert.Equal(t, "commit-1", serviceState.DesiredCommit)
 	assert.Equal(t, model.SyncStatus(model.SyncStatusSynced), serviceState.SyncStatus, "unexpected sync status")
 }
@@ -164,7 +162,6 @@ func TestReconcileUpdatesStateOnFailure(t *testing.T) {
 	assert.Empty(t, stackState.SourceDigest, "expected empty source digest")
 	require.Len(t, stackState.Services, 1, "expected one service state")
 	serviceState := stackState.Services["api"]
-	assert.NotEmpty(t, serviceState.DesiredDigest)
 	assert.Equal(t, "commit-2", serviceState.DesiredCommit)
 	assert.Equal(t, model.SyncStatus(model.SyncStatusOutOfSync), serviceState.SyncStatus, "unexpected sync status")
 	page, listErr := deploymentstore.NewStore(db).List(context.Background(), deploymentmodel.ListFilter{})
@@ -176,35 +173,6 @@ func TestReconcileUpdatesStateOnFailure(t *testing.T) {
 	assert.Equal(t, deploymentmodel.StageFailed, attempt.ApplyStatus)
 	assert.Equal(t, deploymentmodel.StageSkipped, attempt.VerificationStatus)
 	assert.Equal(t, deploymentmodel.ActualStateUnknown, attempt.ActualStateStatus)
-}
-
-func TestPersistDesiredServicesTracksChangesPerService(t *testing.T) {
-	store := modelstore.NewMemoryStore()
-	updatedAt := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
-	require.NoError(t, store.Update(t.Context(), func(runtime *model.Runtime) {
-		runtime.Stacks["app"] = model.Stack{StateUpdatedAt: updatedAt, Services: map[string]model.Service{
-			"api": {Image: "api:1", SyncStatus: model.SyncStatusSynced},
-		}}
-	}))
-	reconciler := &Reconciler{stateStore: store}
-
-	for _, test := range []struct {
-		commit, digest, apiCommit string
-	}{
-		{commit: "commit-1", digest: "digest-a", apiCommit: "commit-1"},
-		{commit: "commit-2", digest: "digest-a", apiCommit: "commit-1"},
-		{commit: "commit-3", digest: "digest-b", apiCommit: "commit-3"},
-		{commit: "commit-4", digest: "digest-a", apiCommit: "commit-4"},
-	} {
-		require.NoError(t, reconciler.persistDesiredServices(t.Context(), "app", test.commit, map[string]string{
-			"api": test.digest, "worker": "digest-worker",
-		}))
-		stack := store.Get().Stacks["app"]
-		assert.Equal(t, test.apiCommit, stack.Services["api"].DesiredCommit, test.commit)
-		assert.Equal(t, "commit-1", stack.Services["worker"].DesiredCommit, test.commit)
-		assert.Equal(t, model.SyncStatus(model.SyncStatusSynced), stack.Services["api"].SyncStatus)
-		assert.Equal(t, updatedAt, stack.StateUpdatedAt)
-	}
 }
 
 func TestReconcileSeparatesPostApplyOutcomes(t *testing.T) {
@@ -920,7 +888,7 @@ services:
 		Commit: "commit-downward-3",
 	})
 	require.NoError(t, reconcileErr, "second reconcile")
-	assert.Equal(t, "commit-downward-2", readSQLState(t, stateStore).Stacks["app"].Services["api"].DesiredCommit)
+	assert.Equal(t, "commit-downward-3", readSQLState(t, stateStore).Stacks["app"].Services["api"].DesiredCommit)
 }
 
 func TestReconcilePrunesServicesWithoutNewDeployment(t *testing.T) {
