@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
+	"github.com/swarm-deploy/swarm-deploy/internal/compose/composetest"
 )
 
 func prepareComparisonFixture(t *testing.T, service string) Prepared {
@@ -114,6 +115,36 @@ volumes: {data: {}}
 	prepared, err := Prepare(compose.File{Path: "compose.yaml", Digest: "source-digest", Compose: *parsed})
 	require.NoError(t, err)
 	assert.Equal(t, "352941afe43fced7b8cc82626ecddd629436b76778cb824fceff57b0fc370b80", prepared.Digest)
+}
+
+// TestPreparePreservesPersistedDigests pins desired-state digests computed before
+// Compose normalization moved onto typed methods. A changed digest starts one
+// Deployment per affected stack, which also runs every Init Job of the stack.
+func TestPreparePreservesPersistedDigests(t *testing.T) {
+	expected := map[string]string{
+		"service object references":                         "004df134462da6f5f3aff343203e9e4d97c4236dc329790f6f9a13837e9a92f5",
+		"init job object references":                        "9bad51ebc932bbca74b93d9921f6020290554e24e276caf04ba6a0573c0f7806",
+		"execution syntax":                                  "bdb1f473f291452616f95ef0ce30028c540a83cfe0eada471303319625962ebb",
+		"capabilities":                                      "fa7286269c7a89a513997b3bddc5f1ccdee5c84334510838c23062005b1275b5",
+		"service ordering":                                  "4d5d867999d52fa965c857f60b31fb1246cc6dfe2939dc5e5d82e61f80ea85b4",
+		"programmatic model":                                "5c7b14fb9e5da2a42d89ccf08db4ca37a3599e87b9b730efdb0f1bfd373dfc85",
+		"programmatic zero values":                          "e7c28d8d81369991bbc40b18b104eaa3ca37bbc1edcf5788c2b682b32ea04f10",
+		"loaded mounts, ports and networks":                 "7ffdfdf3f8ad39f8fc8bdfbee05d576f2e9aaddc45bc72a752c119b208ad703d",
+		"environment and labels named like parser metadata": "4c184ab6ae19f23b0fbdbfde1028bc6d428882c3bbd45cc7fb072cc04ffbfe98",
+	}
+	fixtures := composetest.CanonicalFixtures()
+	require.Len(t, expected, len(fixtures))
+	for _, fixture := range fixtures {
+		t.Run(fixture.Name, func(t *testing.T) {
+			file, err := fixture.Load()
+			require.NoError(t, err)
+
+			prepared, err := Prepare(file)
+			require.NoError(t, err)
+
+			assert.Equal(t, expected[fixture.Name], prepared.Digest)
+		})
+	}
 }
 
 func TestPreparedSnapshotDecodesLegacyComposeMetadata(t *testing.T) {
