@@ -55,13 +55,7 @@ func TestReconcileUpdatesStateOnSuccess(t *testing.T) {
 			return req.StackName == "app" &&
 				req.SourceComposePath == filepath.Join(repoDir, "app.yaml")
 		})).
-		DoAndReturn(func(ctx context.Context, _ deployer.StackRequest) (deployer.Result, error) {
-			state, err := stateStore.Read(ctx)
-			require.NoError(t, err)
-			service := state.Stacks["app"].Services["api"]
-			assert.Equal(t, "commit-1", service.DesiredCommit)
-			return deployer.Result{}, nil
-		})
+		Return(deployer.Result{}, nil)
 	serviceManager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "app"}).Return(nil, nil)
 
 	reconciler := &Reconciler{

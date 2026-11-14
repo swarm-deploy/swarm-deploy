@@ -129,10 +129,10 @@ func TestProjectionSuccessRestoresServicesAndSourceDigest(t *testing.T) {
 	assert.Empty(t, stack.LastError)
 	assert.Equal(t, gitopsmodel.SyncStatus(gitopsmodel.SyncStatusSynced), stack.Services["api"].SyncStatus)
 	assert.Empty(t, stack.Services["api"].SyncError)
-	assert.Equal(t, "desired-commit", stack.Services["api"].DesiredCommit)
+	assert.Equal(t, "commit", stack.Services["api"].DesiredCommit)
 }
 
-func TestProjectRuntimePreservesDesiredRevisionForEveryOutcome(t *testing.T) {
+func TestProjectRuntimeRecordsDesiredRevisionForEveryOutcome(t *testing.T) {
 	tests := []struct {
 		name      string
 		status    deploymentmodel.Status
@@ -154,7 +154,7 @@ func TestProjectRuntimePreservesDesiredRevisionForEveryOutcome(t *testing.T) {
 				attempt, deploymentmodel.Prepared{Definition: projectionDesired("api:1")}, test.status, test.errorCode)
 
 			service := runtime.Stacks["app"].Services["api"]
-			assert.Equal(t, "desired-commit", service.DesiredCommit)
+			assert.Equal(t, "deployment-commit", service.DesiredCommit)
 		})
 	}
 }
