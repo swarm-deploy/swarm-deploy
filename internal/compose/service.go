@@ -4,6 +4,7 @@ import (
 	jsonv1 "encoding/json"
 	"encoding/json/v2"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/labelsdict"
@@ -87,6 +88,24 @@ type ServiceHealth struct {
 	StartPeriod   string  `yaml:"start_period,omitempty" json:"start_period,omitempty"`
 	StartInterval string  `yaml:"start_interval,omitempty" json:"start_interval,omitempty"`
 	Disable       bool    `yaml:"disable,omitempty" json:"disable,omitempty"`
+}
+
+// HealthcheckShell is the healthcheck test prefix that runs the rest through the container shell.
+const HealthcheckShell = "CMD-SHELL"
+
+// Canonical returns the healthcheck with its test in exec form: a scalar test
+// runs through the container shell as [CMD-SHELL, test], and an empty test has
+// nil arguments. Canonical is idempotent and does not modify h.
+func (h ServiceHealth) Canonical() ServiceHealth {
+	words := slices.Clone(h.Test.Args)
+	if len(words) > 0 && !h.Test.IsList() {
+		words = append([]string{HealthcheckShell}, words...)
+	}
+	if len(words) == 0 {
+		words = nil
+	}
+	h.Test = NewCommand(words)
+	return h
 }
 
 type ServiceLogging struct {

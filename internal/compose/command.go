@@ -3,6 +3,7 @@ package compose
 import (
 	jsonv1 "encoding/json"
 	"encoding/json/v2"
+	"errors"
 	"fmt"
 	"slices"
 
@@ -86,4 +87,21 @@ func (c Command) Words() ([]string, error) {
 		return nil, fmt.Errorf("invalid scalar command")
 	}
 	return shlex.Split(c.Args[0])
+}
+
+// errInvalidQuoting hides the command text, which may contain secrets.
+var errInvalidQuoting = errors.New("invalid quoting")
+
+// Exec returns the command in exec (list) form, as Docker runs it.
+// Scalar shell syntax is split into words without invoking a shell; an empty
+// command has nil arguments. Exec is idempotent and does not modify c.
+func (c Command) Exec() (Command, error) {
+	words, err := c.Words()
+	if err != nil {
+		return c, errInvalidQuoting
+	}
+	if len(words) == 0 {
+		words = nil
+	}
+	return NewCommand(words), nil
 }
