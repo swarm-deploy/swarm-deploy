@@ -200,6 +200,35 @@ func TestPreparedSnapshotOmitsParserMetadata(t *testing.T) {
 	assert.True(t, service.Command.IsList())
 }
 
+func TestComparisonShowsUserEntriesNamedAlias(t *testing.T) {
+	prepare := func(value string) Prepared {
+		parsed, err := compose.Parse([]byte(`services:
+  api:
+    image: alpine
+    labels: {Alias: ` + value + `}
+    environment: {Alias: ` + value + `}
+    networks: [backend]
+    configs: [app]
+configs: {app: {external: true}}
+`))
+		require.NoError(t, err)
+		prepared, err := Prepare(compose.File{Compose: *parsed})
+		require.NoError(t, err)
+		return prepared
+	}
+	before, after := prepare("old"), prepare("new")
+
+	assert.Equal(t, "old", before.Fields["services/api/labels/Map/Alias"])
+	assert.Equal(t, "old", before.Fields["services/api/environment/Map/Alias"])
+	assert.NotContains(t, before.Fields, "services/api/networks/List/@backend/Alias", "identity is in the path")
+	assert.NotContains(t, before.Fields, "configs/app/Alias", "identity is in the path")
+	fields := []string{}
+	for _, change := range Compare(before, after) {
+		fields = append(fields, change.Field)
+	}
+	assert.ElementsMatch(t, []string{"labels.alias", "environment.alias"}, fields)
+}
+
 func TestPreparedSnapshotDecodesLegacyComposeMetadata(t *testing.T) {
 	payload := []byte(`{
   "definition": {"path":"compose.yaml","compose":{"services":[{

@@ -69,7 +69,7 @@ func Prepare(file compose.File) (Prepared, error) {
 	}
 	result := Prepared{Digest: fingerprint(identityPayload), Fields: map[string]string{},
 		Fingerprints: map[string]string{}, Redacted: map[string]bool{}}
-	result.sanitize(tree, "", "")
+	result.sanitize(tree, "", "", "")
 	safe, err := json.Marshal(tree, jsonv1.DefaultOptionsV1())
 	if err != nil {
 		return Prepared{}, err
@@ -87,15 +87,20 @@ func Prepare(file compose.File) (Prepared, error) {
 	return result, nil
 }
 
-func (p *Prepared) sanitize(value any, path, key string) any {
+// sanitize masks value in place and records its fields. identityField names the
+// field that identifies value in path; it is kept in the safe definition but not
+// recorded, because the path already represents it.
+func (p *Prepared) sanitize(value any, path, key, identityField string) any {
 	switch node := value.(type) {
 	case map[string]any:
+		// Entries of top-level resource maps (configs, secrets) carry their key as alias.
+		childIdentity := ""
+		if path != "" && !strings.Contains(path, "/") {
+			childIdentity = aliasField
+		}
 		for name, child := range node {
 			childPath := joinPath(path, name)
-			// Alias values identify map/list entries and are already represented in
-			// semantic paths. Keeping them in the safe definition preserves faithful
-			// YAML while omitting a duplicate display field.
-			if name == "Alias" {
+			if name == identityField {
 				continue
 			}
 			// Commands, entrypoints, healthchecks and init-job scripts are opaque.
@@ -106,7 +111,7 @@ func (p *Prepared) sanitize(value any, path, key string) any {
 				continue
 			}
 			// Config file bytes are already excluded by Compose's JSON contract.
-			node[name] = p.sanitize(child, childPath, name)
+			node[name] = p.sanitize(child, childPath, name, childIdentity)
 		}
 		return node
 	case []any:
@@ -343,38 +348,44 @@ func Summarize(changes []Change) (ChangeSummary, ResourceSummary) {
 func (p *Prepared) sanitizeList(node []any, path, key string) any {
 	used := map[string]int{}
 	for i, child := range node {
-		segment := listSegment(child, i)
+		segment, identityField := listSegment(child, i)
 		count := used[segment]
 		used[segment] = count + 1
 		if count > 0 {
 			segment += fmt.Sprintf("#%d", count)
 		}
 		fieldKey := listFieldKey(node, i, key)
-		node[i] = p.sanitize(child, joinPath(path, segment), fieldKey)
+		node[i] = p.sanitize(child, joinPath(path, segment), fieldKey, identityField)
 	}
 	return node
 }
 
-func listSegment(child any, index int) string {
+// aliasField is the JSON name of the alias that identifies Compose configs,
+// secrets and network attachments.
+const aliasField = "Alias"
+
+// listSegment returns the persisted path segment of a list element and, when the
+// element is identified by its alias, the field that the segment represents.
+func listSegment(child any, index int) (string, string) {
 	object, ok := child.(map[string]any)
 	if !ok {
-		return strconv.Itoa(index)
+		return strconv.Itoa(index), ""
 	}
 	switch {
 	case object["name"] != nil:
-		return fmt.Sprint(object["name"])
+		return fmt.Sprint(object["name"]), ""
 	case object["Target"] != nil:
-		return "@" + fmt.Sprint(object["Target"])
+		return "@" + fmt.Sprint(object["Target"]), ""
 	case object["target"] != nil:
 		segment := "@" + fmt.Sprint(object["target"])
 		if object["protocol"] != nil {
 			segment += "/" + fmt.Sprint(object["protocol"])
 		}
-		return segment
-	case object["Alias"] != nil:
-		return "@" + fmt.Sprint(object["Alias"])
+		return segment, ""
+	case object[aliasField] != nil:
+		return "@" + fmt.Sprint(object[aliasField]), aliasField
 	default:
-		return strconv.Itoa(index)
+		return strconv.Itoa(index), ""
 	}
 }
 
