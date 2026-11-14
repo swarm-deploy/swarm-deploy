@@ -26,7 +26,7 @@ func TestServicesNormalizeOnDecode(t *testing.T) {
       - name: migrate
         image: alpine
         secrets: [token, {source: cert, target: tls.crt, uid: "0"}]
-        configs: [app, {source: nofile, uid: "1000"}]
+        configs: [app, {source: owned, uid: "1000"}]
 `
 	parsed, err := Parse([]byte(raw))
 	require.NoError(t, err)
@@ -49,8 +49,8 @@ func TestServicesNormalizeOnDecode(t *testing.T) {
 				{Source: "cert", Target: "/run/secrets/tls.crt"},
 			}, service.InitJobs[0].Secrets)
 			assert.Equal(t, []ObjectRef{
-				{Source: "app", Target: "/run/secrets/app"},
-				{Source: "nofile"},
+				{Source: "app", Target: "/app"},
+				{Source: "owned", Target: "/owned", Uid: "1000"},
 			}, service.InitJobs[0].Configs)
 		})
 	}

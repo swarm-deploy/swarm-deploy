@@ -119,19 +119,18 @@ volumes: {data: {}}
 	assert.Equal(t, "352941afe43fced7b8cc82626ecddd629436b76778cb824fceff57b0fc370b80", prepared.Digest)
 }
 
-// TestPreparePreservesPersistedDigests pins desired-state digests and snapshot
-// fields computed before Compose normalization moved onto typed methods. A changed
-// digest starts one Deployment per affected stack, which also runs every Init Job
-// of the stack. Changed fields show spurious changes against persisted baselines.
-func TestPreparePreservesPersistedDigests(t *testing.T) {
+// TestPreparePinsDesiredStateDigests pins desired-state digests and snapshot
+// fields. Fixtures with Init Job configs use the same default target as
+// service configs. The other fixtures retain their persisted formats.
+func TestPreparePinsDesiredStateDigests(t *testing.T) {
 	expected := map[string]struct{ digest, fields string }{
 		"service object references": {
 			"004df134462da6f5f3aff343203e9e4d97c4236dc329790f6f9a13837e9a92f5",
 			"751e41b7de55924cfd32deca894938504e0674aba12338034683953e2bf268b0",
 		},
 		"init job object references": {
-			"9bad51ebc932bbca74b93d9921f6020290554e24e276caf04ba6a0573c0f7806",
-			"ede6f5c7956b35178b74a28dca2ed1447844ff4263f9b32976abeb607b7aa50b",
+			"06e7f0fc93f079d97182c61cab368b456cbee9da74cddba73b593a9bfd252a46",
+			"41471c061ba36d6a1b67400b47b32b94c30568cc0b211f159331070af5c56aa4",
 		},
 		"execution syntax": {
 			"bdb1f473f291452616f95ef0ce30028c540a83cfe0eada471303319625962ebb",
@@ -154,8 +153,8 @@ func TestPreparePreservesPersistedDigests(t *testing.T) {
 			"f295c05f8ffbf23198ce59739573261a719ad46ea878520479993555f291b0cc",
 		},
 		"programmatic model": {
-			"5c7b14fb9e5da2a42d89ccf08db4ca37a3599e87b9b730efdb0f1bfd373dfc85",
-			"012ab859ba21b09781956988b1a3ef9a2de40e6d641bdcc7639ea7a07f275935",
+			"945194d630e949058dfb5468c475dcf22cceb2b9c1cc0bc4985efed35fc97be8",
+			"d404d6253d9f8225187b803c31635baec4d7af0e9dde9438ca5651bffaa8530f",
 		},
 		"programmatic zero values": {
 			"e7c28d8d81369991bbc40b18b104eaa3ca37bbc1edcf5788c2b682b32ea04f10",

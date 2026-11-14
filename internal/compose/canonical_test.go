@@ -103,9 +103,7 @@ func TestCanonicalizeNormalizesProgrammaticCapabilities(t *testing.T) {
 	assert.Equal(t, Capabilities{"sys_admin", "net_admin"}, programmatic.Services[0].CapDrop)
 }
 
-// TestCanonicalizeInitJobObjectReferences pins the canonical form of Init Job references.
-// It follows InitJobRunner: a config without a target is attached without a file, and
-// a short-form config keeps the secret-style target assigned by the parser.
+// TestCanonicalizeInitJobObjectReferences pins the mount paths used in the digest.
 func TestCanonicalizeInitJobObjectReferences(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -117,7 +115,7 @@ func TestCanonicalizeInitJobObjectReferences(t *testing.T) {
 			name:     "config without target",
 			field:    ConfigsField,
 			refs:     `[{source: app, uid: "1000", gid: "1000"}]`,
-			expected: []any{map[string]any{"source": "app"}},
+			expected: []any{map[string]any{"source": "app", "target": "/app", "uid": "1000", "gid": "1000"}},
 		},
 		{
 			name:     "config with target and default ownership",
@@ -129,7 +127,7 @@ func TestCanonicalizeInitJobObjectReferences(t *testing.T) {
 			name:     "short-form config",
 			field:    ConfigsField,
 			refs:     `[app]`,
-			expected: []any{map[string]any{"source": "app", "target": "/run/secrets/app"}},
+			expected: []any{map[string]any{"source": "app", "target": "/app"}},
 		},
 		{
 			name:  "secrets",

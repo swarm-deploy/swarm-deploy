@@ -69,7 +69,7 @@ func (j *InitJob) UnmarshalJSON(data []byte) error {
 // resolveObjectRefs resolves config and secret references as Init Jobs mount them.
 func (j *InitJob) resolveObjectRefs() {
 	j.Secrets = mapObjectRefs(j.Secrets, ObjectRef.InitJobSecret)
-	j.Configs = mapObjectRefs(j.Configs, ObjectRef.InitJobConfig)
+	j.Configs = mapObjectRefs(j.Configs, ObjectRef.ServiceConfig)
 }
 
 func mapObjectRefs(refs []ObjectRef, resolve func(ObjectRef) ObjectRef) []ObjectRef {

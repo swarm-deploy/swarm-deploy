@@ -84,8 +84,8 @@ const (
 	secretsDir = "/run/secrets/"
 )
 
-// ServiceConfig resolves a service config reference to the file the service
-// converter mounts: a short-form or target-less config is mounted at /<source>.
+// ServiceConfig resolves a config reference for a service or Init Job.
+// A short-form or target-less config is mounted at /<source>.
 // See resolved for the remaining normalization.
 func (r ObjectRef) ServiceConfig() ObjectRef {
 	if r.shortForm || r.Target == "" {
@@ -103,18 +103,6 @@ func (r ObjectRef) ServiceSecret() ObjectRef {
 		r.Target = r.Source
 	}
 	return r.resolved()
-}
-
-// InitJobConfig resolves a config reference as Init Jobs mount it: a short-form
-// reference keeps the target assigned by the parser, and a config without a
-// target is attached without a file, so its uid, gid and mode are dropped.
-// See resolved for the remaining normalization.
-func (r ObjectRef) InitJobConfig() ObjectRef {
-	r = r.resolved()
-	if r.Target == "" {
-		r.Uid, r.Gid, r.Mode = "", "", nil
-	}
-	return r
 }
 
 // InitJobSecret resolves a secret reference as Init Jobs mount it: a short-form

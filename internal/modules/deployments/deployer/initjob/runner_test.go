@@ -111,7 +111,7 @@ func TestBuildInitServiceSpecUsesResolvedResourceIDs(t *testing.T) {
 	assert.Equal(t, "0", container.Secrets[0].File.GID)
 }
 
-func TestBuildInitServiceSpecMountsInheritedReferencesLikeService(t *testing.T) {
+func TestBuildInitServiceSpecMountsConfigsLikeService(t *testing.T) {
 	parsed, err := compose.Parse([]byte(`services:
   api:
     image: alpine
@@ -120,7 +120,7 @@ func TestBuildInitServiceSpecMountsInheritedReferencesLikeService(t *testing.T) 
     x-init-deploy-jobs:
       - image: migrator
         secrets: [{source: token, target: /run/secrets/token}, {source: cert, target: /run/secrets/tls.crt}, key]
-        configs: [{source: app, target: /app}, {source: nofile}, {source: job, target: /run/secrets/job}]
+        configs: [{source: app}, local, {source: owned, uid: "1000", mode: 0400}, {source: job, target: /run/secrets/job}]
 `))
 	require.NoError(t, err)
 	service := parsed.Services[0]
@@ -137,7 +137,7 @@ func TestBuildInitServiceSpecMountsInheritedReferencesLikeService(t *testing.T) 
 		StackName: "demo", ServiceName: "api", Job: service.InitJobs[0],
 		ServiceSecrets: service.Secrets, ServiceConfigs: service.Configs,
 		ResolvedSecrets: resolvedResources("token", "cert", "key"),
-		ResolvedConfigs: resolvedResources("app", "plain", "base", "nofile", "job"),
+		ResolvedConfigs: resolvedResources("app", "plain", "base", "local", "owned", "job"),
 	}, "migrate")
 	require.NoError(t, err)
 
@@ -156,10 +156,10 @@ func TestBuildInitServiceSpecMountsInheritedReferencesLikeService(t *testing.T) 
 		config("app", "/app", "0", compose.DefaultObjectFileMode),
 		config("plain", "/plain", "1000", compose.DefaultObjectFileMode),
 		config("base", "/etc/base.conf", "0", 0o440),
-		{ConfigID: "nofile-id", ConfigName: "demo_nofile"},
+		config("local", "/local", "0", compose.DefaultObjectFileMode),
+		config("owned", "/owned", "1000", 0o400),
 		config("job", "/run/secrets/job", "0", compose.DefaultObjectFileMode),
-	}, spec.TaskTemplate.ContainerSpec.Configs,
-		"inherited configs use service targets; a job config without target has no file")
+	}, spec.TaskTemplate.ContainerSpec.Configs)
 }
 
 func TestInitJobRunnerCollectsLogsWithoutChangingOutcomeAndCleansUp(t *testing.T) {

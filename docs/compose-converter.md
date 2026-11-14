@@ -89,8 +89,8 @@ Config and secret references contain the actual ID/name, target, UID/GID and
 file mode (default `0444`, UID/GID `0`). Short-form and target-less config targets
 are `/<alias>`; short-form and target-less secrets use the alias, which Docker
 mounts under its secret directory. These rules and Docker's defaults are defined
-once on `compose.ObjectRef` (`ServiceConfig`, `ServiceSecret`, `InitJobConfig`,
-`InitJobSecret`, `FileOwnership`) and shared by conversion, InitJobRunner and the
+once on `compose.ObjectRef` (`ServiceConfig`, `ServiceSecret`, `InitJobSecret`,
+`FileOwnership`) and shared by conversion, InitJobRunner and the
 effective digest. References are resolved while Compose is loaded, so the short
 form is only Compose syntax: loaded definitions and snapshots contain explicit
 targets.
@@ -99,27 +99,21 @@ Init Jobs are excluded from application service conversion. Their declared
 networks are included and undefined dependencies are rejected. InitJobRunner
 owns the temporary services and job lifecycle.
 
-Init Job config and secret references are resolved while Compose is loaded, the
-way InitJobRunner applies them, not with application service defaults. A config
-without a target is attached without a file, so its UID, GID and mode are
-ignored; a short-form config keeps the parser's `/run/secrets/<alias>` target.
-Secret targets resolve to `/run/secrets/<source>` when empty and under
-`/run/secrets/` when relative.
+Init Jobs mount their own config and secret references and those inherited from
+the service. All configs default to `/<alias>`, with their configured UID, GID
+and mode. An explicit target sets the mount path. Earlier releases mounted
+short-form configs in Init Jobs at `/run/secrets/<alias>` and attached long-form
+configs without a target without a file. Set `target: /run/secrets/<alias>`
+explicitly if a job still needs that path.
 
-Init Jobs also mount the config and secret references of their service. These
-inherited references are mounted where the service mounts them: a short-form or
-target-less service config at `/<alias>` with the service's UID, GID and mode.
-Earlier releases applied the Init Job rules to them, mounting a short-form service
-config at `/run/secrets/<alias>` and a target-less one without a file. Inherited
-and job references are resolved before duplicates are removed, so equivalent
-spellings of one file are attached once. The effective digest contains only the
-Init Job's own references, so this change does not start Deployments.
+Init Job secret targets resolve to `/run/secrets/<source>` when empty and under
+`/run/secrets/` when relative. Inherited and job references are resolved before
+duplicates are removed, so equivalent spellings of one file are attached once.
 
-Earlier releases compared Init Job configs with
-application defaults (`/<alias>`), and they also ignored user environment
-variables, labels and resource names that matched internal model fields such as
-`Keys`, `env_file` or `Map`. Stacks with such definitions get a new effective
-digest once after upgrading, which starts one Deployment that runs their Init Jobs.
+Earlier releases ignored user environment variables, labels and resource names
+that matched internal model fields such as `Keys`, `env_file` or `Map`. Stacks
+with such definitions get a new effective digest once after upgrading, which
+starts one Deployment that runs their Init Jobs.
 
 The effective digest (`compose.Canonicalize`) applies the same typed normalization
 to definitions built in code and sorts order-insensitive lists (ports, mounts,

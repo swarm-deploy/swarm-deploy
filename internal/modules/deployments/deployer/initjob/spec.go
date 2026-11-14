@@ -81,9 +81,8 @@ func (r *InitJobRunner) addInitJobObjects(
 	spec Spec,
 	containerSpec *dockerswarm.ContainerSpec,
 ) error {
-	// Inherited service references are mounted where the service mounts them, and
-	// job references with Init Job rules. Both are resolved before deduplication,
-	// so equivalent spellings of one file are attached once.
+	// Resolve mount targets before deduplication so equivalent spellings of one
+	// file are attached once.
 	secrets := mergeObjectRefs(resolveObjectRefs(spec.ServiceSecrets, inheritedSecret),
 		resolveObjectRefs(spec.Job.Secrets, compose.ObjectRef.InitJobSecret))
 	for _, secret := range secrets {
@@ -97,8 +96,8 @@ func (r *InitJobRunner) addInitJobObjects(
 		}
 		containerSpec.Secrets = append(containerSpec.Secrets, ref)
 	}
-	configs := mergeObjectRefs(resolveObjectRefs(spec.ServiceConfigs, inheritedConfig),
-		resolveObjectRefs(spec.Job.Configs, compose.ObjectRef.InitJobConfig))
+	configs := mergeObjectRefs(resolveObjectRefs(spec.ServiceConfigs, compose.ObjectRef.ServiceConfig),
+		resolveObjectRefs(spec.Job.Configs, compose.ObjectRef.ServiceConfig))
 	for _, cfg := range configs {
 		ref := resolvedConfigReference(cfg, spec.ResolvedConfigs)
 		if ref == nil {
@@ -129,12 +128,6 @@ func inheritedSecret(ref compose.ObjectRef) compose.ObjectRef {
 	return ref.ServiceSecret().InitJobSecret()
 }
 
-// inheritedConfig mounts a service config at the service's target. The resolved
-// target is never empty, so InitJobConfig only drops Docker's defaults.
-func inheritedConfig(ref compose.ObjectRef) compose.ObjectRef {
-	return ref.ServiceConfig().InitJobConfig()
-}
-
 // resolveObjectRefs resolves each reference with resolve.
 func resolveObjectRefs(
 	refs []compose.ObjectRef, resolve func(compose.ObjectRef) compose.ObjectRef,
@@ -160,7 +153,7 @@ func resolvedSecretReference(
 		File: &dockerswarm.SecretReferenceFileTarget{Name: object.Target, UID: uid, GID: gid, Mode: mode}}
 }
 
-// resolvedConfigReference mounts a config resolved with compose.ObjectRef.InitJobConfig.
+// resolvedConfigReference mounts a config resolved with compose.ObjectRef.ServiceConfig.
 func resolvedConfigReference(
 	object compose.ObjectRef,
 	resolved map[string]resources.ResolvedResource,
@@ -169,12 +162,9 @@ func resolvedConfigReference(
 	if !ok {
 		return nil
 	}
-	ref := &dockerswarm.ConfigReference{ConfigID: resource.ID, ConfigName: resource.Name}
-	if object.Target != "" {
-		uid, gid, mode := object.FileOwnership()
-		ref.File = &dockerswarm.ConfigReferenceFileTarget{Name: object.Target, UID: uid, GID: gid, Mode: mode}
-	}
-	return ref
+	uid, gid, mode := object.FileOwnership()
+	return &dockerswarm.ConfigReference{ConfigID: resource.ID, ConfigName: resource.Name,
+		File: &dockerswarm.ConfigReferenceFileTarget{Name: object.Target, UID: uid, GID: gid, Mode: mode}}
 }
 
 func (r *InitJobRunner) resolveNetworkTarget(ctx context.Context, stackName, network string) (string, error) {
