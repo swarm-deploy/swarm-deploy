@@ -61,7 +61,7 @@ func hasActiveAuthSession(r *http.Request) bool {
 }
 
 func setActiveAuthSession(w http.ResponseWriter, cookiePath string) {
-	http.SetCookie(w, &http.Cookie{
+	http.SetCookie(w, &http.Cookie{ //nolint:gosec // Secure would break configured HTTP endpoints.
 		Name:     authSessionCookieName,
 		Value:    authSessionCookieValue,
 		Path:     cookiePath,

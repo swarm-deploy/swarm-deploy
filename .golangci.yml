@@ -22,7 +22,7 @@ linters:
     - gocritic
     - gocyclo
     - godot
-    - gomodguard
+    - gomodguard_v2
     - goprintffuncname
     - gosec
     - govet
@@ -97,27 +97,30 @@ linters:
       ignore-comments: true
     gocognit:
       min-complexity: 20
+    goconst:
+      exclude-types:
+        - Call
+        - CompositeLit
     gocritic:
       settings:
         captLocal:
           paramsOnly: false
         underef:
           skipRecvDeref: false
-    gomodguard:
+    gomodguard_v2:
       blocked:
-        modules:
-          - github.com/golang/protobuf:
-              recommendations:
-                - google.golang.org/protobuf
-              reason: see https://developers.google.com/protocol-buffers/docs/reference/go/faq#modules
-          - github.com/satori/go.uuid:
-              recommendations:
-                - github.com/google/uuid
-              reason: satori's package is not maintained
-          - github.com/gofrs/uuid:
-              recommendations:
-                - github.com/google/uuid
-              reason: gofrs' package is not go module
+        - module: github.com/golang/protobuf
+          recommendations:
+            - google.golang.org/protobuf
+          reason: see https://developers.google.com/protocol-buffers/docs/reference/go/faq#modules
+        - module: github.com/satori/go.uuid
+          recommendations:
+            - github.com/google/uuid
+          reason: satori's package is not maintained
+        - module: github.com/gofrs/uuid
+          recommendations:
+            - github.com/google/uuid
+          reason: gofrs' package is not go module
     govet:
       disable:
         - fieldalignment
