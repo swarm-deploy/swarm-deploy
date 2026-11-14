@@ -20,10 +20,8 @@ type Service struct {
 	Restart string `yaml:"restart,omitempty" json:"restart,omitempty"`
 	// StopGracePeriod is the time Docker gives a task to exit before forcefully stopping it.
 	StopGracePeriod string `yaml:"stop_grace_period,omitempty" json:"stop_grace_period,omitempty"`
-	// CapAdd lists Linux capabilities added to the service containers.
-	CapAdd []string `yaml:"cap_add,omitempty" json:"cap_add,omitempty"`
-	// CapDrop lists Linux capabilities removed from the service containers.
-	CapDrop []string `yaml:"cap_drop,omitempty" json:"cap_drop,omitempty"`
+	// Capabilities defines which Linux capabilities are added or removed.
+	Capabilities ServiceCapabilities `yaml:",inline" json:",embed"`
 
 	// User configures the Compose user option.
 	User string `yaml:"user,omitempty" json:"user,omitempty"`
