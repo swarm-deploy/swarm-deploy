@@ -1,6 +1,8 @@
 package compose
 
 import (
+	jsonv1 "encoding/json"
+	"encoding/json/v2"
 	"slices"
 	"testing"
 
@@ -87,6 +89,58 @@ func TestServiceHealthCanonical(t *testing.T) {
 			assert.Equal(t, ServiceHealth{Test: NewCommand(tc.expected), Interval: "5s"}, canonical)
 			assert.Equal(t, original, health, "Canonical must not modify its receiver")
 			assert.Equal(t, canonical, canonical.Canonical(), "Canonical must be idempotent")
+		})
+	}
+}
+
+func TestCommandJSON(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		command Command
+		payload string
+	}{
+		{name: "exec form", command: NewCommand([]string{"echo", "a b"}), payload: `{"Args":["echo","a b"]}`},
+		{name: "empty exec form", command: NewCommand(nil), payload: `{"Args":null}`},
+		{name: "scalar form", command: Command{Args: []string{"echo hi"}}, payload: `{"Args":["echo hi"],"IsList":false}`},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			payload, err := json.Marshal(tc.command, jsonv1.DefaultOptionsV1())
+			require.NoError(t, err)
+			var restored Command
+			require.NoError(t, json.Unmarshal(payload, &restored, jsonv1.DefaultOptionsV1()))
+
+			assert.JSONEq(t, tc.payload, string(payload))
+			assert.Equal(t, tc.command.Args, restored.Args)
+			assert.Equal(t, tc.command.IsList() || len(tc.command.Args) == 0, restored.IsList())
+		})
+	}
+}
+
+func TestCommandDecodesLegacyFormFlag(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		payload string
+		isList  bool
+	}{
+		{payload: `{"Args":["echo","hi"],"IsList":true}`, isList: true},
+		{payload: `{"Args":["echo hi"],"IsList":false}`, isList: false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.payload, func(t *testing.T) {
+			t.Parallel()
+			var command Command
+
+			require.NoError(t, json.Unmarshal([]byte(tc.payload), &command, jsonv1.DefaultOptionsV1()))
+
+			assert.Equal(t, tc.isList, command.IsList())
 		})
 	}
 }

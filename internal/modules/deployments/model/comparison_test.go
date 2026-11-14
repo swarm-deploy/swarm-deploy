@@ -184,6 +184,22 @@ func TestPreparePreservesPersistedDigests(t *testing.T) {
 	}
 }
 
+func TestPreparedSnapshotOmitsParserMetadata(t *testing.T) {
+	prepared := prepareComparisonFixture(t, "    command: sleep 10\n    healthcheck: {test: 'true'}\n"+
+		"    secrets: [key]\n    configs: [cfg]\n    environment: {MODE: production}\n"+
+		"    volumes: [data:/data]\n    networks: [backend]\n")
+
+	payload, err := json.Marshal(prepared.Definition, jsonv1.DefaultOptionsV1())
+	require.NoError(t, err)
+
+	for _, metadata := range []string{"IsList", "short_form", "Keys", "AliasMap", `"Names"`, `"Aliases"`, `"Map":{"/data"`} {
+		assert.NotContains(t, string(payload), metadata)
+	}
+	service := prepared.Definition.Compose.Services[0]
+	assert.Equal(t, []string{"****", "****"}, service.Command.Args, "commands are opaque")
+	assert.True(t, service.Command.IsList())
+}
+
 func TestPreparedSnapshotDecodesLegacyComposeMetadata(t *testing.T) {
 	payload := []byte(`{
   "definition": {"path":"compose.yaml","compose":{"services":[{

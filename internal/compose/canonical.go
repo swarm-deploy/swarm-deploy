@@ -23,11 +23,11 @@ import (
 // affected stack on the next sync, which also runs every Init Job of the stack.
 // Keep the output stable and update the persisted-digest tests deliberately.
 func Canonicalize(desired Compose) ([]byte, error) {
-	normalized, err := canonicalCompose(desired)
+	normalized, err := CanonicalCompose(desired)
 	if err != nil {
 		return nil, err
 	}
-	payload, err := json.Marshal(normalized, jsonv1.DefaultOptionsV1())
+	payload, err := json.Marshal(normalized, digestOptions())
 	if err != nil {
 		return nil, fmt.Errorf("encode effective Compose: %w", err)
 	}
@@ -43,9 +43,25 @@ func Canonicalize(desired Compose) ([]byte, error) {
 	return canonical, nil
 }
 
-// canonicalCompose returns a normalized copy of desired. Collections that
+// digestOptions encode Command as releases before typed normalization did, with
+// an explicit form flag, because this encoding feeds persisted digests.
+func digestOptions() json.Options {
+	type legacyCommand struct {
+		Args   []string `json:"Args"`
+		IsList bool     `json:"IsList"`
+	}
+	return json.JoinOptions(jsonv1.DefaultOptionsV1(), json.WithMarshalers(
+		json.MarshalFunc(func(command Command) ([]byte, error) {
+			return json.Marshal(legacyCommand{Args: command.Args, IsList: command.isList}, jsonv1.DefaultOptionsV1())
+		}),
+	))
+}
+
+// CanonicalCompose returns the normalized copy of desired whose encoding
+// Canonicalize digests: equivalent syntax is normalized, references are
+// resolved, and order-insensitive lists are sorted. Collections that
 // normalization reorders or replaces are copied first, so desired is not modified.
-func canonicalCompose(desired Compose) (Compose, error) {
+func CanonicalCompose(desired Compose) (Compose, error) {
 	desired.Services = slices.Clone(desired.Services)
 	for i := range desired.Services {
 		if err := canonicalizeService(&desired.Services[i]); err != nil {

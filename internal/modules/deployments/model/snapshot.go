@@ -35,12 +35,18 @@ func Prepare(file compose.File) (Prepared, error) {
 			resourceDigests["configs/"+name] = fingerprint(config.Data)
 		}
 	}
-	canonicalCompose, err := compose.Canonicalize(file.Compose)
+	canonical, err := compose.CanonicalCompose(file.Compose)
 	if err != nil {
 		return Prepared{}, err
 	}
-	var tree map[string]any
-	if err = json.Unmarshal(canonicalCompose, &tree, utils.PreserveJSONNumbers()); err != nil {
+	// The digest keeps the encoding of persisted baselines; the snapshot uses the
+	// current encoding of the same normalized definition.
+	digestCompose, err := compose.Canonicalize(canonical)
+	if err != nil {
+		return Prepared{}, err
+	}
+	var digestTree map[string]any
+	if err = json.Unmarshal(digestCompose, &digestTree, utils.PreserveJSONNumbers()); err != nil {
 		return Prepared{}, err
 	}
 	identity := struct {
@@ -48,12 +54,20 @@ func Prepare(file compose.File) (Prepared, error) {
 		Compose map[string]any `json:"Compose"`
 		// Resources includes referenced file-content digests.
 		Resources map[string]string `json:"Resources"`
-	}{tree, resourceDigests}
-	canonical, err := json.Marshal(identity, jsonv1.DefaultOptionsV1())
+	}{digestTree, resourceDigests}
+	identityPayload, err := json.Marshal(identity, jsonv1.DefaultOptionsV1())
 	if err != nil {
 		return Prepared{}, err
 	}
-	result := Prepared{Digest: fingerprint(canonical), Fields: map[string]string{},
+	snapshot, err := json.Marshal(canonical, jsonv1.DefaultOptionsV1())
+	if err != nil {
+		return Prepared{}, err
+	}
+	var tree map[string]any
+	if err = json.Unmarshal(snapshot, &tree, utils.PreserveJSONNumbers()); err != nil {
+		return Prepared{}, err
+	}
+	result := Prepared{Digest: fingerprint(identityPayload), Fields: map[string]string{},
 		Fingerprints: map[string]string{}, Redacted: map[string]bool{}}
 	result.sanitize(tree, "", "")
 	safe, err := json.Marshal(tree, jsonv1.DefaultOptionsV1())
@@ -117,9 +131,6 @@ func (p *Prepared) sanitizeOpaque(value any, path string) any {
 	switch node := value.(type) {
 	case map[string]any:
 		for name, child := range node {
-			if name == "IsList" {
-				continue
-			}
 			node[name] = p.sanitizeOpaque(child, joinPath(path, name))
 		}
 		return node
