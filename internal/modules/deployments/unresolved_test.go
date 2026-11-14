@@ -275,7 +275,7 @@ func TestUnresolvedMetadataSurvivesDatabaseReopen(t *testing.T) {
 }
 
 func TestPreApplyFailuresRetainOnlyExistingRolloutObligations(t *testing.T) {
-	for _, outcome := range []CompletionOutcome{CompletionInitJobFailed, CompletionPolicyRejected} {
+	for _, outcome := range []CompletionOutcome{CompletionInitJobFailed} {
 		for _, unresolved := range []bool{false, true} {
 			t.Run(fmt.Sprint(outcome, unresolved), func(t *testing.T) {
 				db, lifecycle, bus := openService(t)

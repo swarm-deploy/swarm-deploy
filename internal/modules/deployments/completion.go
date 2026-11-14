@@ -23,8 +23,6 @@ const (
 	CompletionSucceeded CompletionOutcome = "succeeded"
 	// CompletionApplyFailed records a known apply-stage failure.
 	CompletionApplyFailed CompletionOutcome = "apply_failed"
-	// CompletionPolicyRejected records an image-policy rejection before apply.
-	CompletionPolicyRejected CompletionOutcome = "policy_rejected"
 	// CompletionInitJobFailed records an Init Job failure before stack apply.
 	CompletionInitJobFailed CompletionOutcome = "init_failed"
 	// CompletionConvergenceFailed records a known terminal service update failure.
@@ -162,7 +160,7 @@ func (completion Completion) state() (completionState, error) {
 			errors.Is(completion.Diagnostic, context.DeadlineExceeded) ||
 			errors.Is(completion.Diagnostic, services.ErrUpdateDeferred) ||
 			(errors.As(completion.Diagnostic, &temporary) && temporary.Temporary())
-	case CompletionSucceeded, CompletionPolicyRejected, CompletionConvergenceFailed:
+	case CompletionSucceeded, CompletionConvergenceFailed:
 		// These outcomes never trigger an automatic retry.
 	}
 	switch completion.Outcome {
@@ -177,7 +175,7 @@ func (completion Completion) state() (completionState, error) {
 		if completion.ObservedAt != nil {
 			state.actual = deploymentmodel.ActualStateObserved
 		}
-	case CompletionApplyFailed, CompletionPolicyRejected, CompletionInitJobFailed:
+	case CompletionApplyFailed, CompletionInitJobFailed:
 		if completion.ObservedAt != nil {
 			return completionState{}, fmt.Errorf("apply failure cannot contain an observation timestamp")
 		}
@@ -224,8 +222,6 @@ func (completion Completion) ErrorCode() string {
 		return ""
 	case CompletionApplyFailed:
 		return events.DeployErrorCodeApplyFailed
-	case CompletionPolicyRejected:
-		return events.DeployErrorCodePolicyRejected
 	case CompletionInitJobFailed:
 		return events.DeployErrorCodeInitFailed
 	case CompletionConvergenceFailed:
@@ -276,7 +272,7 @@ func (completion Completion) rolloutObligations() deploymentmodel.Verification {
 	// A failed pre-apply check has not created a new failed service generation.
 	// Keep inherited obligations, but do not require replacement of healthy tasks.
 	if !completion.Verification.Known &&
-		(completion.Outcome == CompletionInitJobFailed || completion.Outcome == CompletionPolicyRejected) {
+		completion.Outcome == CompletionInitJobFailed {
 		return deploymentmodel.Verification{Known: true}
 	}
 	return completion.Verification
