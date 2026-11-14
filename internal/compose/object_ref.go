@@ -18,8 +18,10 @@ type ObjectRef struct {
 	// File is a resolved repository-backed source path. It is runtime metadata and is not serialized.
 	File string `yaml:"-" json:"-"`
 
-	// ShortForm retains the scalar Compose syntax across JSON snapshots.
-	// Configs use a different default target from long-form references.
+	// ShortForm retains the scalar Compose syntax across JSON serialization. It is
+	// semantic for service references, which keep their source form after loading:
+	// the service and its Init Jobs resolve a short-form config target differently.
+	// Resolved references, as in canonical and snapshot forms, never set it.
 	ShortForm bool `yaml:"-" json:"short_form,omitempty"`
 }
 

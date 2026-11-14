@@ -260,7 +260,8 @@ func publicField(parts []string) string {
 	fields := make([]string, 0, len(parts))
 	for _, part := range parts {
 		switch part {
-		case "Map", "Keys", "Args", "Extra", "Ports", "Volumes", "Names", "List", "AliasMap", "Alias":
+		// Wrapper fields of Compose types. Parser metadata never reaches snapshot fields.
+		case "Map", "Args", "Extra", "Ports", "Volumes", "List":
 			continue
 		}
 		if _, err := strconv.Atoi(part); err == nil {

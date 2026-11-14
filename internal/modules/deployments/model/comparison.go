@@ -8,18 +8,14 @@ import (
 
 const ignoredOptionPathParts = 4
 
+// ignoredComparisonPath reports metadata that baselines persisted by older
+// releases can still contain: the command form flag and Swarm-ignored options.
 func ignoredComparisonPath(path string) bool {
 	parts := strings.Split(path, "/")
 	last := len(parts) - 1
 	if last > 0 && parts[last] == "IsList" {
 		switch parts[last-1] {
 		case "command", "entrypoint", "test":
-			return true
-		}
-	}
-	if last > 1 && parts[last] == "short_form" {
-		switch parts[last-2] {
-		case compose.SecretsField, compose.ConfigsField:
 			return true
 		}
 	}

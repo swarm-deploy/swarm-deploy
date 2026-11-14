@@ -78,7 +78,6 @@ func TestComparisonIgnoresLegacyMetadataWithoutHidingUserFields(t *testing.T) {
 	after := Prepared{Fields: map[string]string{}, Fingerprints: map[string]string{}}
 	for _, path := range []string{
 		"services/api/entrypoint/IsList", "services/api/command/IsList",
-		"services/api/secrets/@key/short_form", "services/api/configs/@cfg/short_form",
 		"services/api/Extra/privileged", "services/api/Extra/depends_on/db/condition",
 	} {
 		before.Fields[path], before.Fingerprints[path] = "true", "old"
