@@ -1,7 +1,8 @@
 package services
 
 import (
-	"encoding/json"
+	jsonv1 "encoding/json"
+	"encoding/json/v2"
 	"reflect"
 	"slices"
 	"strings"
@@ -69,9 +70,9 @@ func SpecsEqual(current, desired dockerswarm.ServiceSpec) bool {
 }
 
 func cloneSpec(spec dockerswarm.ServiceSpec) dockerswarm.ServiceSpec {
-	payload, _ := json.Marshal(spec)
+	payload, _ := json.Marshal(spec, jsonv1.DefaultOptionsV1())
 	var cloned dockerswarm.ServiceSpec
-	_ = json.Unmarshal(payload, &cloned)
+	_ = json.Unmarshal(payload, &cloned, jsonv1.DefaultOptionsV1())
 	return cloned
 }
 
@@ -138,9 +139,9 @@ func resolvedImageMatches(actual, wanted string) bool {
 }
 
 func canonicalSpec(spec dockerswarm.ServiceSpec) any {
-	payload, _ := json.Marshal(spec)
+	payload, _ := json.Marshal(spec, jsonv1.DefaultOptionsV1())
 	var value any
-	_ = json.Unmarshal(payload, &value)
+	_ = json.Unmarshal(payload, &value, jsonv1.DefaultOptionsV1())
 	return pruneEmpty(value)
 }
 

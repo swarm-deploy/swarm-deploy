@@ -1,7 +1,7 @@
 package codec
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net/url"
 	"strings"

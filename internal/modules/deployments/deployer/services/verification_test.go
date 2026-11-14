@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/docker/docker/api/types/container"
 	dockerswarm "github.com/docker/docker/api/types/swarm"
 	"github.com/stretchr/testify/assert"
 )
@@ -231,4 +232,14 @@ func TestNormalizedFollowupCannotWeakenEarlierVerification(t *testing.T) {
 			assert.Zero(t, lost.TasksAfter)
 		})
 	}
+}
+
+func TestVerificationDigestMatchesPersistedPredecessor(t *testing.T) {
+	spec := serviceSpec("api", "api:1")
+	spec.Labels = map[string]string{"zebra": "last", "alpha": "<first>"}
+	spec.TaskTemplate.ContainerSpec.Healthcheck = &container.HealthConfig{
+		Test: []string{"CMD", "true"}, Interval: 5 * time.Second,
+	}
+	// This digest was recorded before migrating the JSON encoder.
+	assert.Equal(t, "2c76b49d30b54fae76777843f8857090b93b42f61d7b5efb55a6ecae21714b18", verificationSpecDigest(spec))
 }

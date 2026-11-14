@@ -60,6 +60,7 @@ func TestVersionAndPayloadValidation(t *testing.T) {
 		{"future version", events.TypeNameNodeJoined, 2, `{}`},
 		{"unknown type", "unknown", 1, `{}`},
 		{"unknown field", events.TypeNameNodeJoined, 1, `{"password":"secret"}`},
+		{"duplicate field", events.TypeNameNodeJoined, 1, `{"id":"one","id":"two"}`},
 		{"trailing data", events.TypeNameNodeJoined, 1, `{} {}`},
 		{"null payload", events.TypeNameNodeJoined, 1, `null`},
 	} {

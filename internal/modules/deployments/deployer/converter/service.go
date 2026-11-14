@@ -34,7 +34,7 @@ func convertService(
 	if err != nil {
 		return spec, fmt.Errorf("entrypoint: invalid quoting")
 	}
-	container.CapabilityAdd, container.CapabilityDrop = compose.NormalizeCapabilities(service.CapAdd, service.CapDrop)
+	container.CapabilityAdd, container.CapabilityDrop = capabilities(service.CapAdd, service.CapDrop)
 	for _, key := range sortedKeys(service.Environment.Map) {
 		value := key + "=" + service.Environment.Map[key]
 		if slices.Contains(service.Environment.Unset, key) {
@@ -79,6 +79,12 @@ func convertService(
 
 func commandWords(command compose.Command) ([]string, error) {
 	return command.Words()
+}
+
+// capabilities normalizes again because prepared Compose may be built without decoding.
+func capabilities(add, drop compose.Capabilities) ([]string, []string) {
+	added, dropped := compose.NormalizeCapabilities(add, drop)
+	return added.DockerNames(), dropped.DockerNames()
 }
 
 func endpoint(service compose.Service) (*dockerswarm.EndpointSpec, error) {

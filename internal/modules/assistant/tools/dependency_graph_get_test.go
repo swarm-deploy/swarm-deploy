@@ -2,7 +2,7 @@ package tools
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -87,7 +87,7 @@ func TestGetDependencyGraphExecute(t *testing.T) {
 				Nodes []resourcegraph.Node `json:"nodes"`
 			}
 
-			encoded, err := json.Marshal(response.Payload)
+			encoded, err := json.Marshal(response.Payload, json.FormatNilSliceAsNull(true))
 			require.NoError(t, err, "encode response payload")
 			require.NoError(t, json.Unmarshal(encoded, &payload), "decode response")
 

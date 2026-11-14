@@ -2,7 +2,7 @@ version: "3.9"
 
 services:
   swarm-deploy:
-    image: golang:1.25-alpine
+    image: golang:1.27.4-alpine
     working_dir: /app
     command: "go run ./cmd/swarm-deploy -config swarm-deploy.local.yaml"
     volumes:

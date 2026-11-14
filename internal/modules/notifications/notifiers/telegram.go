@@ -3,7 +3,8 @@ package notifiers
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -313,7 +314,7 @@ func (n *TelegramNotifier) sendRequest(
 		Parameters  struct {
 			RetryAfter int `json:"retry_after"`
 		} `json:"parameters"`
-		Result json.RawMessage `json:"result"`
+		Result jsontext.Value `json:"result"`
 	}
 	if err = json.Unmarshal(respBody, &answer); err != nil {
 		return Receipt{}, fmt.Errorf("decode telegram response: %w", err)

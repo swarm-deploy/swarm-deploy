@@ -30,7 +30,7 @@ func NonRestartingTaskFailure(
 		if task.Slot <= 0 || task.CreatedAt.Before(since) {
 			continue
 		}
-		if uint64(task.Slot) > replicas { //nolint:gosec // Positive int task slots always fit uint64.
+		if uint64(task.Slot) > replicas {
 			continue
 		}
 		previous, exists := latest[task.Slot]
@@ -88,7 +88,7 @@ func serviceTaskHistories(
 		}
 		key := task.Node
 		if spec.Mode.Replicated != nil {
-			if task.Slot <= 0 || uint64(task.Slot) > replicas { //nolint:gosec // Positive task slots fit uint64.
+			if task.Slot <= 0 || uint64(task.Slot) > replicas {
 				continue
 			}
 			key = strconv.Itoa(task.Slot)

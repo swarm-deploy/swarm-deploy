@@ -2,6 +2,8 @@ package analyzer
 
 import (
 	"context"
+	jsonv1 "encoding/json"
+	"encoding/json/v2"
 	"testing"
 	"time"
 
@@ -51,6 +53,18 @@ func TestServiceCapabilitiesAnalyzerAnalyze(t *testing.T) {
 			wantTypes:      []model.Type{model.TypeServiceCapabilitiesPrivileged, model.TypeServiceCapabilitiesSensitive},
 			wantSeverities: []model.Severity{model.SeverityHigh, model.SeverityMedium},
 		},
+		{
+			name:           "prefixed high risk capability",
+			capAdd:         "[CAP_SYS_ADMIN]",
+			wantTypes:      []model.Type{model.TypeServiceCapabilitiesPrivileged},
+			wantSeverities: []model.Severity{model.SeverityHigh},
+		},
+		{
+			name:           "prefixed lower-case medium risk capability",
+			capAdd:         "[cap_net_raw]",
+			wantTypes:      []model.Type{model.TypeServiceCapabilitiesSensitive},
+			wantSeverities: []model.Severity{model.SeverityMedium},
+		},
 	}
 
 	for _, testCase := range tests {
@@ -80,4 +94,17 @@ func TestServiceCapabilitiesAnalyzerAnalyze(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestServiceCapabilitiesAnalyzerPersistedDefinition(t *testing.T) {
+	// Recommendations read definitions from deployment snapshots; decoding normalizes them.
+	var desired compose.Compose
+	payload := []byte(`{"services":[{"name":"api","image":"api:1","cap_add":[" cap_sys_admin "]}]}`)
+	require.NoError(t, json.Unmarshal(payload, &desired, jsonv1.DefaultOptionsV1()))
+	analyzer := &ServiceCapabilitiesAnalyzer{now: time.Now}
+
+	recommendations := analyzer.Analyze(context.Background(), recommendationTestStack(desired.Services...))
+
+	require.Len(t, recommendations, 1)
+	assert.Equal(t, model.TypeServiceCapabilitiesPrivileged, recommendations[0].Type)
 }

@@ -106,7 +106,6 @@ func (l *fileLoader) Load(ctx context.Context, path string) (*File, error) {
 		return nil, &ValidateComposeError{FilePath: path, Issues: decodeIssues(err), Err: err}
 	}
 	setIgnoredOptions(&schema, ignored)
-	normalizeComposeCapabilities(&schema)
 	baseDir := composeBaseDir(path)
 	if issues := l.linkServices(&schema, baseDir); len(issues) > 0 {
 		if interpolated {

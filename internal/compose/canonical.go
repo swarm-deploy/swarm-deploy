@@ -2,11 +2,14 @@ package compose
 
 import (
 	"bytes"
-	"encoding/json"
+	jsonv1 "encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"slices"
 	"sort"
 	"strings"
+
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/utils"
 )
 
 const (
@@ -21,18 +24,16 @@ func Canonicalize(desired Compose) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	payload, err := json.Marshal(normalized)
+	payload, err := json.Marshal(normalized, jsonv1.DefaultOptionsV1())
 	if err != nil {
 		return nil, fmt.Errorf("encode effective Compose: %w", err)
 	}
 	var tree map[string]any
-	decoder := json.NewDecoder(bytes.NewReader(payload))
-	decoder.UseNumber()
-	if err = decoder.Decode(&tree); err != nil {
+	if err = json.Unmarshal(payload, &tree, utils.PreserveJSONNumbers()); err != nil {
 		return nil, fmt.Errorf("decode effective Compose: %w", err)
 	}
 	normalizeEffectiveTree(tree)
-	canonical, err := json.Marshal(tree)
+	canonical, err := json.Marshal(tree, jsonv1.DefaultOptionsV1())
 	if err != nil {
 		return nil, fmt.Errorf("encode canonical Compose: %w", err)
 	}
@@ -199,7 +200,7 @@ func normalizeObjectOwnership(ref map[string]any) {
 			delete(ref, owner)
 		}
 	}
-	if ref["mode"] == nil || ref["mode"] == json.Number("292") { // Docker's default file mode, 0444.
+	if ref["mode"] == nil || ref["mode"] == jsonv1.Number("292") { // Docker's default file mode, 0444.
 		delete(ref, "mode")
 	}
 }
@@ -210,8 +211,8 @@ func sortJSONList(node map[string]any, key string) {
 		return
 	}
 	sort.SliceStable(list, func(i, j int) bool {
-		left, _ := json.Marshal(list[i])
-		right, _ := json.Marshal(list[j])
+		left, _ := json.Marshal(list[i], jsonv1.DefaultOptionsV1())
+		right, _ := json.Marshal(list[j], jsonv1.DefaultOptionsV1())
 		return bytes.Compare(left, right) < 0
 	})
 }

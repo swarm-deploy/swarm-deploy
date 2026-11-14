@@ -2,7 +2,6 @@ package analyzer
 
 import (
 	"context"
-	"strings"
 	"time"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
@@ -51,16 +50,15 @@ func (a *ServiceCapabilitiesAnalyzer) analyze(service compose.Service) []model.R
 	hasHighRisk := false
 	hasMediumRisk := false
 
+	// Decoding normalizes capabilities in both Compose YAML and persisted snapshots.
 	for _, capability := range service.CapAdd {
-		normalized := strings.ToUpper(strings.TrimSpace(capability))
-		if normalized == "ALL" {
+		if capability == compose.CapabilityAll {
 			hasAll = true
 		}
-		normalized = strings.TrimPrefix(normalized, "CAP_")
-		if _, ok := highRiskCapabilities[normalized]; ok {
+		if _, ok := highRiskCapabilities[capability]; ok {
 			hasHighRisk = true
 		}
-		if _, ok := mediumRiskCapabilities[normalized]; ok {
+		if _, ok := mediumRiskCapabilities[capability]; ok {
 			hasMediumRisk = true
 		}
 	}

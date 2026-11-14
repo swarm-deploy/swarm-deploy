@@ -1,7 +1,7 @@
 package model
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"strings"
 	"testing"
 
@@ -132,8 +132,17 @@ func TestPreparedSnapshotDecodesLegacyComposeMetadata(t *testing.T) {
 	require.NoError(t, json.Unmarshal(payload, &prepared))
 	require.Len(t, prepared.Definition.Compose.Services, 1)
 	service := prepared.Definition.Compose.Services[0]
-	assert.Equal(t, []string{"SYS_ADMIN"}, service.CapAdd)
+	assert.Equal(t, compose.Capabilities{"SYS_ADMIN"}, service.CapAdd)
 	assert.Equal(t, "user-value", service.Environment.Map["Keys"])
 	assert.Equal(t, "legacy-digest", prepared.Digest)
 	assert.Empty(t, Compare(prepared, prepared))
+}
+
+func TestDesiredDigestMatchesPersistedBaseline(t *testing.T) {
+	prepared := prepareComparisonFixture(t, "    command: [echo, '<hello>']\n"+
+		"    labels: {zebra: last, alpha: first}\n"+
+		"    healthcheck: {test: 'true', retries: 0}\n"+
+		"    read_only: true\n")
+	// This digest was recorded before migrating the JSON encoder.
+	assert.Equal(t, "8f9f0c431808ba6fced58eafc7b2a045be2bb27aa8e0a1c2d072cdbe5ec76786", prepared.Digest)
 }

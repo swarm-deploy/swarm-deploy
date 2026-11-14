@@ -1,10 +1,10 @@
 package model
 
 import (
-	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
+	jsonv1 "encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"maps"
 	"sort"
@@ -14,6 +14,7 @@ import (
 
 	"github.com/artarts36/envmasker"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/utils"
 )
 
 const (
@@ -39,30 +40,28 @@ func Prepare(file compose.File) (Prepared, error) {
 		return Prepared{}, err
 	}
 	var tree map[string]any
-	decoder := json.NewDecoder(bytes.NewReader(canonicalCompose))
-	decoder.UseNumber()
-	if err = decoder.Decode(&tree); err != nil {
+	if err = json.Unmarshal(canonicalCompose, &tree, utils.PreserveJSONNumbers()); err != nil {
 		return Prepared{}, err
 	}
 	identity := struct {
 		// Compose is normalized effective state, temporarily held only in memory.
-		Compose json.RawMessage `json:"Compose"`
+		Compose map[string]any `json:"Compose"`
 		// Resources includes referenced file-content digests.
 		Resources map[string]string `json:"Resources"`
-	}{canonicalCompose, resourceDigests}
-	canonical, err := json.Marshal(identity)
+	}{tree, resourceDigests}
+	canonical, err := json.Marshal(identity, jsonv1.DefaultOptionsV1())
 	if err != nil {
 		return Prepared{}, err
 	}
 	result := Prepared{Digest: fingerprint(canonical), Fields: map[string]string{},
 		Fingerprints: map[string]string{}, Redacted: map[string]bool{}}
 	result.sanitize(tree, "", "")
-	safe, err := json.Marshal(tree)
+	safe, err := json.Marshal(tree, jsonv1.DefaultOptionsV1())
 	if err != nil {
 		return Prepared{}, err
 	}
 	result.Definition = compose.File{Path: file.Path, Digest: file.Digest, ResourceDigests: resourceDigests}
-	if err = json.Unmarshal(safe, &result.Definition.Compose); err != nil {
+	if err = json.Unmarshal(safe, &result.Definition.Compose, jsonv1.DefaultOptionsV1()); err != nil {
 		return Prepared{}, err
 	}
 	for name, digest := range resourceDigests {

@@ -28,6 +28,5 @@ func Parse(raw []byte) (*Compose, error) {
 		return nil, fmt.Errorf("decode compose schema: %w", decodeErr)
 	}
 	setIgnoredOptions(&schema, ignored)
-	normalizeComposeCapabilities(&schema)
 	return &schema, nil
 }

@@ -8,12 +8,14 @@ import (
 type Service struct {
 	// Image is the deployed image reference for the service.
 	Image string `json:"image"`
+	// DesiredCommit is the Git revision of the latest desired state prepared for the service.
+	DesiredCommit string `json:"desired_commit,omitempty"`
 	// SyncStatus is the latest deployment status for the service.
 	SyncStatus SyncStatus `json:"sync_status"`
 
 	SyncError string `json:"sync_error"`
 	// SelfHealPending retains a remediation until execution-owned convergence is verified.
-	SelfHealPending bool `json:"self_heal_pending,omitempty"`
+	SelfHealPending bool `json:"self_heal_pending,omitzero"`
 
 	// SyncAt is the timestamp of the latest service deployment attempt.
 	SyncAt time.Time `json:"last_sync_at"`

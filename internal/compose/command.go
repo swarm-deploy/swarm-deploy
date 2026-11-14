@@ -1,7 +1,8 @@
 package compose
 
 import (
-	"encoding/json"
+	jsonv1 "encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"slices"
 
@@ -59,13 +60,13 @@ func (c Command) MarshalYAML() (interface{}, error) {
 // MarshalJSON preserves the scalar/list distinction because Compose gives
 // those forms different command execution semantics.
 func (c Command) MarshalJSON() ([]byte, error) {
-	return json.Marshal(commandJSON{Args: c.Args, IsList: c.isList})
+	return json.Marshal(commandJSON{Args: c.Args, IsList: c.isList}, jsonv1.DefaultOptionsV1())
 }
 
 // UnmarshalJSON restores the execution form in persisted desired snapshots.
 func (c *Command) UnmarshalJSON(data []byte) error {
 	var value commandJSON
-	if err := json.Unmarshal(data, &value); err != nil {
+	if err := json.Unmarshal(data, &value, jsonv1.DefaultOptionsV1()); err != nil {
 		return err
 	}
 	c.Args = value.Args
