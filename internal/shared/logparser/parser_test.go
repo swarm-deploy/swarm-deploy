@@ -33,6 +33,16 @@ func TestParserParse(t *testing.T) {
 			},
 		},
 		{
+			name:        "json merges repeated object attributes",
+			message:     `{"msg":"request","ctx":{"request_id":"abc","region":"us","tags":["old"]},"ctx":{"region":"eu","tags":["new"]}}`,
+			wantTime:    dockerTimestamp,
+			wantLevel:   LevelInfo,
+			wantMessage: "request",
+			wantAttrs: map[string]any{
+				"ctx": map[string]any{"request_id": "abc", "region": "eu", "tags": []any{"new"}},
+			},
+		},
+		{
 			name:        "logfmt structured log",
 			message:     `ts=2026-10-19T18:29:58Z level=err msg="request failed" request_id=req-2 retry=true`,
 			wantTime:    time.Date(2026, time.October, 19, 18, 29, 58, 0, time.UTC),

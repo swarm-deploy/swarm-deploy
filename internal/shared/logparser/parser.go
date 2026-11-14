@@ -153,7 +153,7 @@ func parsePlainTextLevel(raw string) (Level, bool) {
 func parseJSONFields(raw string) (map[string]any, bool) {
 	var fields map[string]any
 	if err := json.Unmarshal([]byte(strings.TrimSpace(raw)), &fields, utils.PreserveJSONNumbers(),
-		jsontext.AllowDuplicateNames(true), jsontext.AllowInvalidUTF8(true), jsonv1.MergeWithLegacySemantics(true),
+		jsontext.AllowDuplicateNames(true), jsontext.AllowInvalidUTF8(true),
 	); err != nil {
 		return nil, false
 	}
