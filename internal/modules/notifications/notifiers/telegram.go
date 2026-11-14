@@ -339,9 +339,7 @@ func (n *TelegramNotifier) sendRequest(
 		if endpoint == telegramEditEndpoint && resp.StatusCode == http.StatusBadRequest &&
 			strings.Contains(strings.ToLower(answer.Description), "message is not modified") {
 			receipt := Receipt{MessageID: targetID, Action: ActionEdit}
-			n.publishHealthEvent(ctx, &events.MessengerDeliverySucceeded{
-				ResourceID: telegramChannelResourceID(n.name),
-			})
+			n.publishDeliverySucceeded(ctx)
 			return receipt, nil
 		}
 		if targetID != 0 && resp.StatusCode == http.StatusBadRequest &&
@@ -359,9 +357,7 @@ func (n *TelegramNotifier) sendRequest(
 	}
 	if endpoint == telegramEditEndpoint && string(answer.Result) == "true" {
 		receipt := Receipt{MessageID: targetID, Action: ActionEdit}
-		n.publishHealthEvent(ctx, &events.MessengerDeliverySucceeded{
-			ResourceID: telegramChannelResourceID(n.name),
-		})
+		n.publishDeliverySucceeded(ctx)
 		return receipt, nil
 	}
 	var result struct {
@@ -380,9 +376,7 @@ func (n *TelegramNotifier) sendRequest(
 		action = ActionReply
 	}
 	receipt := Receipt{MessageID: result.MessageID, Action: action}
-	n.publishHealthEvent(ctx, &events.MessengerDeliverySucceeded{
-		ResourceID: telegramChannelResourceID(n.name),
-	})
+	n.publishDeliverySucceeded(ctx)
 	return receipt, nil
 }
 
@@ -398,6 +392,9 @@ func (n *TelegramNotifier) publishReachability(ctx context.Context, status int) 
 }
 
 func (n *TelegramNotifier) publishMisconfiguration(ctx context.Context, status int, apiDescription string) {
+	if n.name == "" {
+		return
+	}
 	code, description, misconfigured := classifyTelegramConfigurationError(status, apiDescription)
 	if !misconfigured {
 		return
@@ -405,6 +402,14 @@ func (n *TelegramNotifier) publishMisconfiguration(ctx context.Context, status i
 	n.publishHealthEvent(ctx, &events.MessengerMisconfigured{
 		ResourceID: telegramChannelResourceID(n.name), ErrorCode: code, Description: description,
 	})
+}
+
+func (n *TelegramNotifier) publishDeliverySucceeded(ctx context.Context) {
+	if n.name != "" {
+		n.publishHealthEvent(ctx, &events.MessengerDeliverySucceeded{
+			ResourceID: telegramChannelResourceID(n.name),
+		})
+	}
 }
 
 func (n *TelegramNotifier) publishHealthEvent(ctx context.Context, event events.Event) {

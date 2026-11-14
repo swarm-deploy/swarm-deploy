@@ -95,7 +95,9 @@ func Register(
 		recipients[recipient] = true
 	}
 	for recipient := range recipients {
-		handler := dispatcher.External(&Subscriber{store: store, spec: spec, recipient: recipient, now: time.Now})
+		handler := dispatcher.External(&Subscriber{
+			store: store, spec: spec, recipient: recipient, publisher: bus, now: time.Now,
+		})
 		id := SubscriptionID(recipient)
 		if err = bus.Subscribe(events.TypeNameAlertOpened, id, handler); err != nil {
 			return err
@@ -112,6 +114,7 @@ type Subscriber struct {
 	store      *Store
 	spec       config.NotificationSpec
 	recipient  events.AlertRecipient
+	publisher  dispatcher.Dispatcher
 	now        func() time.Time
 	apiBaseURL string
 }
@@ -149,7 +152,7 @@ func (s *Subscriber) opened(ctx context.Context, alert events.AlertSnapshot) err
 	if link.OpenedAt.Valid || link.ResolvedAt.Valid {
 		return nil
 	}
-	rule := s.rule(alert.Kind)
+	rule, chatName := s.route(alert.Kind)
 	payload := alert
 	parseMode := ""
 	if alert.Kind == string(alertmodel.AlertKindGitRepositoryUnavailable) && strings.TrimSpace(rule.Opened.Message) == "" {
@@ -161,7 +164,7 @@ func (s *Subscriber) opened(ctx context.Context, alert events.AlertSnapshot) err
 		payload = defaultSyncFailedPayload(alert)
 		parseMode = telegramHTMLParseMode
 	}
-	notifier, err := s.notifier(notifiers.TelegramOptions{
+	notifier, err := s.notifier(alert.Kind, chatName, notifiers.TelegramOptions{
 		Message: rule.AlertOpenedTemplate(alert.Kind), ParseMode: parseMode, Buttons: rule.Opened.Buttons,
 	})
 	if err != nil {
@@ -188,7 +191,7 @@ func (s *Subscriber) resolved(ctx context.Context, event *events.AlertResolved) 
 	if link.ResolvedAt.Valid {
 		return nil
 	}
-	rule := s.rule(alert.Kind)
+	rule, chatName := s.route(alert.Kind)
 	payload := alert
 	parseMode := ""
 	if alert.Kind == string(alertmodel.AlertKindGitRepositoryUnavailable) &&
@@ -207,7 +210,7 @@ func (s *Subscriber) resolved(ctx context.Context, event *events.AlertResolved) 
 		options.Buttons = rule.Opened.Buttons
 		options.EditOnlyButtons = true
 	}
-	notifier, err := s.notifier(options)
+	notifier, err := s.notifier(alert.Kind, chatName, options)
 	if err != nil {
 		return err
 	}
@@ -265,23 +268,32 @@ func containsRecipient(recipients []events.AlertRecipient, target events.AlertRe
 	return false
 }
 
-func (s *Subscriber) rule(kind string) config.TelegramAlertChannel {
+func (s *Subscriber) route(kind string) (config.TelegramAlertChannel, string) {
 	rules := s.spec.AlertTelegramRoutes(kind)
+	chats := s.spec.Messengers.Telegram.Chats
 	for _, rule := range rules {
 		for _, name := range (config.TelegramChannel{Chats: rule.Chats}).ChatNames() {
-			chat := s.spec.Messengers.Telegram.Chats[name]
+			chat := chats[name]
 			if chat.ID == s.recipient.ChatID && chat.ThreadID == s.recipient.ThreadID {
-				return rule
+				return rule, name
 			}
 		}
 	}
-	if len(rules) > 0 {
-		return rules[0]
+	// A persisted recipient may still be configured under a different route.
+	var chatName string
+	for name, chat := range chats {
+		if chat.ID == s.recipient.ChatID && chat.ThreadID == s.recipient.ThreadID &&
+			(chatName == "" || name < chatName) {
+			chatName = name
+		}
 	}
-	return config.TelegramAlertChannel{}
+	if len(rules) > 0 {
+		return rules[0], chatName
+	}
+	return config.TelegramAlertChannel{}, chatName
 }
 
-func (s *Subscriber) notifier(options notifiers.TelegramOptions) (notifiers.Notifier, error) {
+func (s *Subscriber) notifier(kind, chatName string, options notifiers.TelegramOptions) (notifiers.Notifier, error) {
 	telegram := s.spec.Messengers.Telegram
 	if s.spec.TelegramBotIdentity() != s.recipient.BotIdentity {
 		return nil, fmt.Errorf("telegram credentials unavailable for alert recipient")
@@ -290,10 +302,14 @@ func (s *Subscriber) notifier(options notifiers.TelegramOptions) (notifiers.Noti
 	options.Retries = telegram.Retries
 	options.SOCKS5Address = telegram.Proxy.SOCKS5.Address.Value
 	options.APIBaseURL = s.apiBaseURL
+	publisher := s.publisher
+	if kind == string(alertmodel.AlertKindMessengerUnavailable) ||
+		kind == string(alertmodel.AlertKindMessengerMisconfigured) {
+		// Messenger health alerts cannot create or resolve other messenger health alerts.
+		publisher = &dispatcher.NopDispatcher{}
+	}
 	return notifiers.NewTelegramNotifier(
-		s.recipient.ChatID, string(telegram.BotToken.Content), s.recipient.ChatID,
-		// Alert lifecycle delivery suppresses messenger health observations to avoid recursive incidents.
-		&dispatcher.NopDispatcher{}, options,
+		chatName, string(telegram.BotToken.Content), s.recipient.ChatID, publisher, options,
 	)
 }
 

@@ -269,6 +269,9 @@ func (c *NotificationSpec) validate() []error {
 	err := c.validateAlertRoutes()
 	errs = append(errs, err...)
 	for eventTypeName, routes := range c.Events {
+		if eventTypeName == events.TypeNameSendNotificationFailed {
+			continue // Accept the retired route for existing configurations.
+		}
 		if !eventTypeName.Valid() {
 			errs = append(errs, fmt.Errorf(
 				"notifications.events[%q] has unknown or non-public event type", eventTypeName,

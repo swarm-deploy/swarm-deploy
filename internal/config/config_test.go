@@ -800,6 +800,27 @@ notifications:
 	assert.Contains(t, err.Error(), `notifications.events["unknownEvent"] has unknown or non-public event type`, "unexpected error")
 }
 
+func TestLoadAcceptsRetiredNotificationRoute(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "swarm-deploy.yaml")
+	require.NoError(t, os.WriteFile(configPath, []byte(`
+gitops:
+  git:
+    repository: https://example.com/repo.git
+  stacks:
+    file: ./stacks.yaml
+notifications:
+  events:
+    SendNotificationFailed:
+      custom:
+        - name: audit
+          url: https://example.com/hook
+`), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(filepath.Dir(configPath), "stacks.yaml"), []byte("stacks: []\n"), 0o600))
+
+	_, err := Load(configPath)
+	require.NoError(t, err)
+}
+
 func TestLoadValidatesNotificationTemplates(t *testing.T) {
 	tests := []struct {
 		name      string

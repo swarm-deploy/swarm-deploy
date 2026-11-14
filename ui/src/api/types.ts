@@ -197,8 +197,14 @@ export interface AlertFinding {
 export interface Alert {
   id: string;
   fingerprint: string;
-  kind: "sync_failed" | "node_disconnected" | "git_repository_unavailable" | "service_drift";
-  resourceType: "stack" | "node" | "repository" | "service";
+  kind:
+    | "sync_failed"
+    | "node_disconnected"
+    | "git_repository_unavailable"
+    | "service_drift"
+    | "messenger_unavailable"
+    | "messenger_misconfigured";
+  resourceType: "stack" | "node" | "repository" | "service" | "messenger";
   resourceId: string;
   status: AlertStatus;
   title: string;
