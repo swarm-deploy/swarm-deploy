@@ -34,34 +34,22 @@ func Prepare(file compose.File) (Prepared, error) {
 			resourceDigests["configs/"+name] = fingerprint(config.Data)
 		}
 	}
-	comparison, err := comparisonCompose(file.Compose)
+	canonicalCompose, err := compose.Canonicalize(file.Compose)
 	if err != nil {
 		return Prepared{}, err
 	}
-	payload, err := json.Marshal(comparison)
-	if err != nil {
-		return Prepared{}, fmt.Errorf("encode effective desired state: %w", err)
-	}
 	var tree map[string]any
-	decoder := json.NewDecoder(bytes.NewReader(payload))
+	decoder := json.NewDecoder(bytes.NewReader(canonicalCompose))
 	decoder.UseNumber()
 	if err = decoder.Decode(&tree); err != nil {
 		return Prepared{}, err
 	}
-	normalize(tree)
-	if services, ok := tree["services"].([]any); ok {
-		sort.SliceStable(services, func(i, j int) bool {
-			left, _ := services[i].(map[string]any)
-			right, _ := services[j].(map[string]any)
-			return fmt.Sprint(left["name"]) < fmt.Sprint(right["name"])
-		})
-	}
 	identity := struct {
 		// Compose is normalized effective state, temporarily held only in memory.
-		Compose map[string]any `json:"Compose"`
+		Compose json.RawMessage `json:"Compose"`
 		// Resources includes referenced file-content digests.
 		Resources map[string]string `json:"Resources"`
-	}{tree, resourceDigests}
+	}{canonicalCompose, resourceDigests}
 	canonical, err := json.Marshal(identity)
 	if err != nil {
 		return Prepared{}, err
@@ -84,43 +72,6 @@ func Prepare(file compose.File) (Prepared, error) {
 		result.Redacted[path] = true
 	}
 	return result, nil
-}
-
-func normalize(value any) {
-	switch node := value.(type) {
-	case map[string]any:
-		normalizeObjectRefs(node, secretsField)
-		normalizeObjectRefs(node, configsField)
-		// Environment.Keys is parser ordering, not container state. EnvFiles have
-		// already been merged into environment and can contain duplicate raw values.
-		delete(node, "Keys")
-		delete(node, "env_file")
-		// ServiceVolumes.Map and ServiceNetworks.AliasMap duplicate their lists.
-		if _, isVolumeList := node["Volumes"]; isVolumeList {
-			delete(node, "Map")
-		}
-		if _, isNetworkList := node["List"]; isNetworkList {
-			delete(node, "AliasMap")
-			delete(node, "Names")
-			delete(node, "Aliases")
-		}
-		for _, child := range node {
-			normalize(child)
-		}
-		for _, listKey := range []string{"Ports", "Volumes", "List", "cap_add", "cap_drop", secretsField, configsField} {
-			if list, ok := node[listKey].([]any); ok {
-				sort.SliceStable(list, func(i, j int) bool {
-					left, _ := json.Marshal(list[i])
-					right, _ := json.Marshal(list[j])
-					return bytes.Compare(left, right) < 0
-				})
-			}
-		}
-	case []any:
-		for _, child := range node {
-			normalize(child)
-		}
-	}
 }
 
 func (p *Prepared) sanitize(value any, path, key string) any {

@@ -99,3 +99,41 @@ func TestComparisonDoesNotMutateParserMetadata(t *testing.T) {
 	require.NoError(t, err)
 	assert.JSONEq(t, string(before), string(after))
 }
+
+func TestPreparePreservesExistingDigestForUnaffectedCompose(t *testing.T) {
+	parsed, err := compose.Parse([]byte(`services:
+  api:
+    image: alpine:3
+    command: [echo, hello]
+    environment: {MODE: production}
+    ports: ["8080:80"]
+    volumes: [data:/data, ./config:/config:ro]
+volumes: {data: {}}
+`))
+	require.NoError(t, err)
+	prepared, err := Prepare(compose.File{Path: "compose.yaml", Digest: "source-digest", Compose: *parsed})
+	require.NoError(t, err)
+	assert.Equal(t, "352941afe43fced7b8cc82626ecddd629436b76778cb824fceff57b0fc370b80", prepared.Digest)
+}
+
+func TestPreparedSnapshotDecodesLegacyComposeMetadata(t *testing.T) {
+	payload := []byte(`{
+  "definition": {"path":"compose.yaml","compose":{"services":[{
+    "name":"api","image":"alpine","command":{"Args":["****"],"IsList":true},
+    "entrypoint":{"Args":null,"IsList":true},"cap_add":["SYS_ADMIN"],
+    "environment":{"Map":{"Keys":"user-value"},"Keys":null},
+    "labels":{"Map":null},"deploy":{"labels":{"Map":null}},"logging":{},
+    "volumes":{"Volumes":null,"Map":null}
+  }],"networks":null,"configs":null,"secrets":null,"volumes":null}},
+  "digest":"legacy-digest","fields":{"services/api/image":"alpine"},
+  "fingerprints":{"services/api/image":"legacy-fingerprint"},"redacted":{}
+}`)
+	var prepared Prepared
+	require.NoError(t, json.Unmarshal(payload, &prepared))
+	require.Len(t, prepared.Definition.Compose.Services, 1)
+	service := prepared.Definition.Compose.Services[0]
+	assert.Equal(t, []string{"SYS_ADMIN"}, service.CapAdd)
+	assert.Equal(t, "user-value", service.Environment.Map["Keys"])
+	assert.Equal(t, "legacy-digest", prepared.Digest)
+	assert.Empty(t, Compare(prepared, prepared))
+}

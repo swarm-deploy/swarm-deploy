@@ -32,6 +32,32 @@ func TestCommandAndEntrypointShellSemantics(t *testing.T) {
 	}
 }
 
+func TestCapabilityConversionMatchesDecodedAndProgrammaticCompose(t *testing.T) {
+	decoded, err := compose.Parse([]byte(`services:
+  api:
+    image: alpine
+    cap_add: [net_admin, CAP_NET_ADMIN, RESET]
+    cap_drop: [net_admin, sys_admin]
+`))
+	require.NoError(t, err)
+	programmatic := decoded.Services[0]
+	programmatic.CapAdd = []string{"net_admin", "CAP_NET_ADMIN", "RESET"}
+	programmatic.CapDrop = []string{"net_admin", "sys_admin"}
+
+	decodedSpec, err := convertService(
+		"demo", decoded.Services[0], nil, []NetworkSpec{{Alias: "default", ID: "network"}}, resources.Resolved{},
+	)
+	require.NoError(t, err)
+	programmaticSpec, err := convertService(
+		"demo", programmatic, nil, []NetworkSpec{{Alias: "default", ID: "network"}}, resources.Resolved{},
+	)
+	require.NoError(t, err)
+
+	assert.Equal(t, decodedSpec, programmaticSpec)
+	assert.Equal(t, []string{"CAP_NET_ADMIN"}, programmaticSpec.TaskTemplate.ContainerSpec.CapabilityAdd)
+	assert.Equal(t, []string{"CAP_SYS_ADMIN"}, programmaticSpec.TaskTemplate.ContainerSpec.CapabilityDrop)
+}
+
 func TestConvertExtendedServiceOptions(t *testing.T) {
 	source := `services:
   api:
