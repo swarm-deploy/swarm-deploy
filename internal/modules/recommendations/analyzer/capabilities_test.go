@@ -2,6 +2,8 @@ package analyzer
 
 import (
 	"context"
+	jsonv1 "encoding/json"
+	"encoding/json/v2"
 	"testing"
 	"time"
 
@@ -94,12 +96,14 @@ func TestServiceCapabilitiesAnalyzerAnalyze(t *testing.T) {
 	}
 }
 
-func TestServiceCapabilitiesAnalyzerNormalizesPersistedDefinitions(t *testing.T) {
-	// Snapshots persisted before parse-time normalization keep capabilities as written.
+func TestServiceCapabilitiesAnalyzerPersistedDefinition(t *testing.T) {
+	// Recommendations read definitions from deployment snapshots; decoding normalizes them.
+	var desired compose.Compose
+	payload := []byte(`{"services":[{"name":"api","image":"api:1","cap_add":[" cap_sys_admin "]}]}`)
+	require.NoError(t, json.Unmarshal(payload, &desired, jsonv1.DefaultOptionsV1()))
 	analyzer := &ServiceCapabilitiesAnalyzer{now: time.Now}
-	stack := recommendationTestStack(compose.Service{Name: "api", Image: "api:1", CapAdd: []string{" cap_sys_admin "}})
 
-	recommendations := analyzer.Analyze(context.Background(), stack)
+	recommendations := analyzer.Analyze(context.Background(), recommendationTestStack(desired.Services...))
 
 	require.Len(t, recommendations, 1)
 	assert.Equal(t, model.TypeServiceCapabilitiesPrivileged, recommendations[0].Type)

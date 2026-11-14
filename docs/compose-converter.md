@@ -42,7 +42,8 @@ config/secret files, logging, replicated/global service and job modes, replicas,
 placement, CPU/memory limits and reservations, discrete generic reservations,
 PID limits, restart policies, and update and rollback policies.
 
-Capabilities are normalized when Compose is parsed: names are trimmed, upper-cased
+Capabilities are normalized when Compose is parsed and when persisted deployment
+snapshots are read, so older deployments are displayed in the same form: names are trimmed, upper-cased
 and stored without the `CAP_` prefix, `RESET` is discarded, `ALL` replaces the rest
 of its list, and a capability present in both `cap_add` and `cap_drop` is only added.
 Conversion restores the `CAP_` prefix expected by the Docker API. Definitions that

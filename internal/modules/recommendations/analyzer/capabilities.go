@@ -50,10 +50,8 @@ func (a *ServiceCapabilitiesAnalyzer) analyze(service compose.Service) []model.R
 	hasHighRisk := false
 	hasMediumRisk := false
 
-	// Definitions come from persisted deployment snapshots, which may predate
-	// parse-time normalization, so normalize again; the operation is idempotent.
-	added, _ := compose.NormalizeCapabilities(service.CapAdd, service.CapDrop)
-	for _, capability := range added {
+	// Decoding normalizes capabilities in both Compose YAML and persisted snapshots.
+	for _, capability := range service.CapAdd {
 		if capability == compose.CapabilityAll {
 			hasAll = true
 		}
