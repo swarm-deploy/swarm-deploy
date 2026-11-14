@@ -38,6 +38,12 @@ func TestNormalizeCapabilities(t *testing.T) {
 		},
 		{name: "drop emptied by add is nil", add: Capabilities{"NET_ADMIN"}, drop: Capabilities{"NET_ADMIN"},
 			wantAdd: Capabilities{"NET_ADMIN"}},
+		{
+			// Docker must still reject typos; they must not collapse into a valid capability.
+			name:    "malformed names keep the docker name",
+			add:     Capabilities{"CAP_CAP_SYS_ADMIN", " cap_ sys_admin", "sys-admin", ""},
+			wantAdd: Capabilities{"CAP_", "CAP_ SYS_ADMIN", "CAP_CAP_SYS_ADMIN", "CAP_SYS-ADMIN"},
+		},
 		{name: "prefixed keywords are not keywords", add: Capabilities{"CAP_ALL", "cap_reset"},
 			wantAdd: Capabilities{"CAP_ALL", "CAP_RESET"}},
 	}
