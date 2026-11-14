@@ -51,6 +51,18 @@ func TestServiceCapabilitiesAnalyzerAnalyze(t *testing.T) {
 			wantTypes:      []model.Type{model.TypeServiceCapabilitiesPrivileged, model.TypeServiceCapabilitiesSensitive},
 			wantSeverities: []model.Severity{model.SeverityHigh, model.SeverityMedium},
 		},
+		{
+			name:           "prefixed high risk capability",
+			capAdd:         "[CAP_SYS_ADMIN]",
+			wantTypes:      []model.Type{model.TypeServiceCapabilitiesPrivileged},
+			wantSeverities: []model.Severity{model.SeverityHigh},
+		},
+		{
+			name:           "prefixed lower-case medium risk capability",
+			capAdd:         "[cap_net_raw]",
+			wantTypes:      []model.Type{model.TypeServiceCapabilitiesSensitive},
+			wantSeverities: []model.Severity{model.SeverityMedium},
+		},
 	}
 
 	for _, testCase := range tests {
@@ -80,4 +92,15 @@ func TestServiceCapabilitiesAnalyzerAnalyze(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestServiceCapabilitiesAnalyzerNormalizesPersistedDefinitions(t *testing.T) {
+	// Snapshots persisted before parse-time normalization keep capabilities as written.
+	analyzer := &ServiceCapabilitiesAnalyzer{now: time.Now}
+	stack := recommendationTestStack(compose.Service{Name: "api", Image: "api:1", CapAdd: []string{" cap_sys_admin "}})
+
+	recommendations := analyzer.Analyze(context.Background(), stack)
+
+	require.Len(t, recommendations, 1)
+	assert.Equal(t, model.TypeServiceCapabilitiesPrivileged, recommendations[0].Type)
 }

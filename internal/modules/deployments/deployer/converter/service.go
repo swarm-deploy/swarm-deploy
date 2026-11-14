@@ -82,24 +82,21 @@ func commandWords(command compose.Command) ([]string, error) {
 	return command.Words()
 }
 
+// capabilities normalizes again because prepared Compose may be built without the parser.
 func capabilities(add, drop []string) ([]string, []string) {
-	added, dropped := normalizeCapabilities(add), normalizeCapabilities(drop)
-	dropped = slices.DeleteFunc(dropped, func(value string) bool { return slices.Contains(added, value) })
-	return added, dropped
+	added, dropped := compose.NormalizeCapabilities(add, drop)
+	return dockerCapabilities(added), dockerCapabilities(dropped)
 }
 
-func normalizeCapabilities(values []string) []string {
-	var result []string
+// dockerCapabilities restores the CAP_ prefix used by the Docker API.
+func dockerCapabilities(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	result := make([]string, 0, len(values))
 	for _, value := range values {
-		value = strings.ToUpper(strings.TrimSpace(value))
-		if value == "RESET" {
-			continue
-		}
-		if value == "ALL" {
-			return []string{"ALL"}
-		}
-		if !strings.HasPrefix(value, "CAP_") {
-			value = "CAP_" + value
+		if value != compose.CapabilityAll && !strings.HasPrefix(value, compose.CapabilityPrefix) {
+			value = compose.CapabilityPrefix + value
 		}
 		result = append(result, value)
 	}

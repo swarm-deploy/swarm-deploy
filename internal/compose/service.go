@@ -21,8 +21,10 @@ type Service struct {
 	// StopGracePeriod is the time Docker gives a task to exit before forcefully stopping it.
 	StopGracePeriod string `yaml:"stop_grace_period,omitempty" json:"stop_grace_period,omitempty"`
 	// CapAdd lists Linux capabilities added to the service containers.
+	// Parsing normalizes it with NormalizeCapabilities.
 	CapAdd []string `yaml:"cap_add,omitempty" json:"cap_add,omitempty"`
 	// CapDrop lists Linux capabilities removed from the service containers.
+	// Parsing normalizes it with NormalizeCapabilities.
 	CapDrop []string `yaml:"cap_drop,omitempty" json:"cap_drop,omitempty"`
 
 	// User configures the Compose user option.
@@ -153,6 +155,7 @@ func (s *Services) UnmarshalYAML(n *yaml.Node) error {
 		}
 
 		srv.Name = name
+		srv.CapAdd, srv.CapDrop = NormalizeCapabilities(srv.CapAdd, srv.CapDrop)
 
 		services = append(services, srv)
 	}

@@ -40,3 +40,26 @@ func TestExtraHostsIPv6(t *testing.T) {
 		})
 	}
 }
+
+func TestCapabilitiesUseDockerNames(t *testing.T) {
+	for _, tc := range []struct {
+		name              string
+		add, drop         []string
+		wantAdd, wantDrop []string
+	}{
+		{name: "empty"},
+		{name: "canonical compose names", add: []string{"NET_ADMIN", "SYS_PTRACE"},
+			wantAdd: []string{"CAP_NET_ADMIN", "CAP_SYS_PTRACE"}},
+		{name: "unparsed source names", add: []string{"cap_net_admin", "RESET"}, drop: []string{"net_admin", "mknod"},
+			wantAdd: []string{"CAP_NET_ADMIN"}, wantDrop: []string{"CAP_MKNOD"}},
+		{name: "all keeps its name", drop: []string{"all"}, wantDrop: []string{"ALL"}},
+		{name: "fully cancelled drop is nil", add: []string{"NET_ADMIN"}, drop: []string{"NET_ADMIN"},
+			wantAdd: []string{"CAP_NET_ADMIN"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			add, drop := capabilities(tc.add, tc.drop)
+			assert.Equal(t, tc.wantAdd, add)
+			assert.Equal(t, tc.wantDrop, drop)
+		})
+	}
+}
