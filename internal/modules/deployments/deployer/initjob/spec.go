@@ -81,9 +81,10 @@ func (r *InitJobRunner) addInitJobObjects(
 	spec Spec,
 	containerSpec *dockerswarm.ContainerSpec,
 ) error {
-	// Service references are mounted with Init Job defaults; resolve them before
-	// deduplication so equivalent spellings of one file are attached once.
-	secrets := mergeObjectRefs(resolveObjectRefs(spec.ServiceSecrets, compose.ObjectRef.InitJobSecret),
+	// Inherited service references are mounted where the service mounts them, and
+	// job references with Init Job rules. Both are resolved before deduplication,
+	// so equivalent spellings of one file are attached once.
+	secrets := mergeObjectRefs(resolveObjectRefs(spec.ServiceSecrets, inheritedSecret),
 		resolveObjectRefs(spec.Job.Secrets, compose.ObjectRef.InitJobSecret))
 	for _, secret := range secrets {
 		ref := resolvedSecretReference(secret, spec.ResolvedSecrets)
@@ -96,7 +97,7 @@ func (r *InitJobRunner) addInitJobObjects(
 		}
 		containerSpec.Secrets = append(containerSpec.Secrets, ref)
 	}
-	configs := mergeObjectRefs(resolveObjectRefs(spec.ServiceConfigs, compose.ObjectRef.InitJobConfig),
+	configs := mergeObjectRefs(resolveObjectRefs(spec.ServiceConfigs, inheritedConfig),
 		resolveObjectRefs(spec.Job.Configs, compose.ObjectRef.InitJobConfig))
 	for _, cfg := range configs {
 		ref := resolvedConfigReference(cfg, spec.ResolvedConfigs)
@@ -122,7 +123,19 @@ func networkAliases(networks *compose.ServiceNetworks) []string {
 	return networks.GetNames()
 }
 
-// resolveObjectRefs resolves references with compose.ObjectRef.InitJobSecret or InitJobConfig.
+// inheritedSecret mounts a service secret at the service's path, spelled absolute
+// like Init Job secrets so that it deduplicates with them.
+func inheritedSecret(ref compose.ObjectRef) compose.ObjectRef {
+	return ref.ServiceSecret().InitJobSecret()
+}
+
+// inheritedConfig mounts a service config at the service's target. The resolved
+// target is never empty, so InitJobConfig only drops Docker's defaults.
+func inheritedConfig(ref compose.ObjectRef) compose.ObjectRef {
+	return ref.ServiceConfig().InitJobConfig()
+}
+
+// resolveObjectRefs resolves each reference with resolve.
 func resolveObjectRefs(
 	refs []compose.ObjectRef, resolve func(compose.ObjectRef) compose.ObjectRef,
 ) []compose.ObjectRef {

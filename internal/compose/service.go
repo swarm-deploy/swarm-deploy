@@ -203,10 +203,10 @@ func (s *Services) UnmarshalJSON(data []byte) error {
 // normalizeServices replaces equivalent spellings whose difference carries no
 // meaning for Docker, so conversion, digests, diffs and history agree on one form:
 // commands and healthcheck tests use exec form, capabilities are canonical, and
-// Init Job config and secret references are resolved.
+// config and secret references are resolved with the rules of the service or
+// Init Job that declares them. Init Jobs mount the references they inherit from
+// their service as the service does.
 //
-// Service config and secret references keep their source form: Init Jobs also
-// mount them, with different defaults than the service (see ObjectRef).
 // List order is kept because mount order is part of the deployed ServiceSpec.
 func normalizeServices(services []Service) error {
 	for i := range services {
@@ -223,6 +223,8 @@ func normalizeServices(services []Service) error {
 			service.Healthcheck = &health
 		}
 		service.CapAdd, service.CapDrop = NormalizeCapabilities(service.CapAdd, service.CapDrop)
+		service.Secrets = mapObjectRefs(service.Secrets, ObjectRef.ServiceSecret)
+		service.Configs = mapObjectRefs(service.Configs, ObjectRef.ServiceConfig)
 		for j := range service.InitJobs {
 			service.InitJobs[j].resolveObjectRefs()
 		}

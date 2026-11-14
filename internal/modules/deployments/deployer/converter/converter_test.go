@@ -544,8 +544,7 @@ services:
 configs: {settings: {}, explicit: {}}
 secrets: {token: {}}
 `)
-	require.True(t, desired.Services[0].Configs[0].IsShortForm())
-	require.False(t, desired.Services[0].Configs[1].IsShortForm())
+	require.Equal(t, "/settings", desired.Services[0].Configs[0].Target, "short form is resolved while decoding")
 	before, err := converter.Convert(context.Background(), "demo", desired)
 	require.NoError(t, err)
 
@@ -553,8 +552,6 @@ secrets: {token: {}}
 	require.NoError(t, err)
 	var restored compose.Compose
 	require.NoError(t, json.Unmarshal(payload, &restored))
-	require.True(t, restored.Services[0].Configs[0].IsShortForm())
-	require.False(t, restored.Services[0].Configs[1].IsShortForm())
 
 	after, err := converter.Convert(context.Background(), "demo", restored)
 	require.NoError(t, err)

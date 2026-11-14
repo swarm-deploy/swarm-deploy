@@ -329,12 +329,12 @@ func programmaticFixture() (compose.File, error) {
 		CapAdd:  compose.Capabilities{"net_admin", "CAP_NET_ADMIN", "RESET", "<x>"},
 		CapDrop: compose.Capabilities{"sys_admin", "net_admin"},
 		Secrets: []compose.ObjectRef{
-			{Source: "token", Target: "/run/secrets/token", ShortForm: true},
+			{Source: "token"},
 			{Source: "key", Uid: "0", Gid: "0", Mode: &defaultMode},
 			{Source: "cert", Target: "tls.crt", Mode: &ownMode},
 		},
 		Configs: []compose.ObjectRef{
-			{Source: "app", Target: "/run/secrets/app", ShortForm: true},
+			{Source: "app"},
 			{Source: "nofile", Uid: "1000"},
 			{Source: "abs", Target: "/etc/abs.conf", Mode: &defaultMode},
 		},
@@ -358,12 +358,12 @@ func programmaticFixture() (compose.File, error) {
 			Environment: *jobEnvironment,
 			Networks:    compose.NewServiceNetworks(&compose.ServiceNetwork{Alias: "backend"}),
 			Secrets: []compose.ObjectRef{
-				{Source: "token", Target: "/run/secrets/token", ShortForm: true},
+				{Source: "token", Target: "/run/secrets/token"},
 				{Source: "cert", Target: "tls.crt"},
 				{Source: "key"},
 			},
 			Configs: []compose.ObjectRef{
-				{Source: "app", Target: "/run/secrets/app", ShortForm: true},
+				{Source: "app", Target: "/run/secrets/app"},
 				{Source: "nofile", Uid: "1000", Mode: &ownMode},
 				{Source: "abs", Target: "/etc/abs.conf", Uid: "0", Mode: &defaultMode},
 			},

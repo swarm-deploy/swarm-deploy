@@ -54,12 +54,10 @@ func TestServicesNormalizeOnDecode(t *testing.T) {
 			}, service.InitJobs[0].Configs)
 		})
 	}
-	// Init Jobs also mount service references with their own defaults, so the
-	// parser keeps the source form of service references.
-	assert.Equal(t, []ObjectRef{{Source: "token", Target: "/run/secrets/token", ShortForm: true}},
-		parsed.Services[0].Secrets)
-	assert.Equal(t, []ObjectRef{{Source: "app", Target: "/run/secrets/app", ShortForm: true}},
-		parsed.Services[0].Configs)
+	for name, services := range map[string]Services{"yaml": parsed.Services, "json": restored} {
+		assert.Equal(t, []ObjectRef{{Source: "token", Target: "token"}}, services[0].Secrets, name)
+		assert.Equal(t, []ObjectRef{{Source: "app", Target: "/app"}}, services[0].Configs, name)
+	}
 }
 
 func TestServicesNormalizeLegacySnapshotCommands(t *testing.T) {

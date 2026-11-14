@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -110,7 +111,7 @@ func TestBuildInitServiceSpecUsesResolvedResourceIDs(t *testing.T) {
 	assert.Equal(t, "0", container.Secrets[0].File.GID)
 }
 
-func TestBuildInitServiceSpecMountsObjectReferencesWithInitJobDefaults(t *testing.T) {
+func TestBuildInitServiceSpecMountsInheritedReferencesLikeService(t *testing.T) {
 	parsed, err := compose.Parse([]byte(`services:
   api:
     image: alpine
@@ -119,7 +120,7 @@ func TestBuildInitServiceSpecMountsObjectReferencesWithInitJobDefaults(t *testin
     x-init-deploy-jobs:
       - image: migrator
         secrets: [{source: token, target: /run/secrets/token}, {source: cert, target: /run/secrets/tls.crt}, key]
-        configs: [{source: app, target: /run/secrets/app}]
+        configs: [{source: app, target: /app}, {source: nofile}, {source: job, target: /run/secrets/job}]
 `))
 	require.NoError(t, err)
 	service := parsed.Services[0]
@@ -136,7 +137,7 @@ func TestBuildInitServiceSpecMountsObjectReferencesWithInitJobDefaults(t *testin
 		StackName: "demo", ServiceName: "api", Job: service.InitJobs[0],
 		ServiceSecrets: service.Secrets, ServiceConfigs: service.Configs,
 		ResolvedSecrets: resolvedResources("token", "cert", "key"),
-		ResolvedConfigs: resolvedResources("app", "plain", "base"),
+		ResolvedConfigs: resolvedResources("app", "plain", "base", "nofile", "job"),
 	}, "migrate")
 	require.NoError(t, err)
 
@@ -144,16 +145,21 @@ func TestBuildInitServiceSpecMountsObjectReferencesWithInitJobDefaults(t *testin
 		return &swarm.SecretReference{SecretID: name + "-id", SecretName: "demo_" + name,
 			File: &swarm.SecretReferenceFileTarget{Name: target, UID: "0", GID: "0", Mode: compose.DefaultObjectFileMode}}
 	}
+	config := func(name, target, uid string, mode os.FileMode) *swarm.ConfigReference {
+		return &swarm.ConfigReference{ConfigID: name + "-id", ConfigName: "demo_" + name,
+			File: &swarm.ConfigReferenceFileTarget{Name: target, UID: uid, GID: "0", Mode: mode}}
+	}
 	assert.Equal(t, []*swarm.SecretReference{
 		secret("token", "/run/secrets/token"), secret("cert", "/run/secrets/tls.crt"), secret("key", "/run/secrets/key"),
 	}, spec.TaskTemplate.ContainerSpec.Secrets, "equivalent targets are mounted once")
 	assert.Equal(t, []*swarm.ConfigReference{
-		{ConfigID: "app-id", ConfigName: "demo_app", File: &swarm.ConfigReferenceFileTarget{
-			Name: "/run/secrets/app", UID: "0", GID: "0", Mode: compose.DefaultObjectFileMode}},
-		{ConfigID: "plain-id", ConfigName: "demo_plain"},
-		{ConfigID: "base-id", ConfigName: "demo_base", File: &swarm.ConfigReferenceFileTarget{
-			Name: "/etc/base.conf", UID: "0", GID: "0", Mode: 0o440}},
-	}, spec.TaskTemplate.ContainerSpec.Configs, "a short-form config keeps its parsed target; a config without target has no file")
+		config("app", "/app", "0", compose.DefaultObjectFileMode),
+		config("plain", "/plain", "1000", compose.DefaultObjectFileMode),
+		config("base", "/etc/base.conf", "0", 0o440),
+		{ConfigID: "nofile-id", ConfigName: "demo_nofile"},
+		config("job", "/run/secrets/job", "0", compose.DefaultObjectFileMode),
+	}, spec.TaskTemplate.ContainerSpec.Configs,
+		"inherited configs use service targets; a job config without target has no file")
 }
 
 func TestInitJobRunnerCollectsLogsWithoutChangingOutcomeAndCleansUp(t *testing.T) {

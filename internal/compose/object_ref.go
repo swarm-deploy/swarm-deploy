@@ -18,11 +18,9 @@ type ObjectRef struct {
 	// File is a resolved repository-backed source path. It is runtime metadata and is not serialized.
 	File string `yaml:"-" json:"-"`
 
-	// ShortForm retains the scalar Compose syntax across JSON serialization. It is
-	// semantic for service references, which keep their source form after loading:
-	// the service and its Init Jobs resolve a short-form config target differently.
-	// Resolved references, as in canonical and snapshot forms, never set it.
-	ShortForm bool `yaml:"-" json:"short_form,omitempty"`
+	// shortForm marks scalar Compose syntax until decoding resolves the reference
+	// (see normalizeServices). Resolved references never carry it.
+	shortForm bool
 }
 
 type objectRef struct {
@@ -36,8 +34,8 @@ type objectRef struct {
 func (r *ObjectRef) UnmarshalYAML(n *yaml.Node) error {
 	if n.Kind == yaml.ScalarNode {
 		r.Source = n.Value
-		r.Target = "/run/secrets/" + n.Value
-		r.ShortForm = true
+		r.Target = secretsDir + n.Value
+		r.shortForm = true
 
 		return nil
 	}
@@ -63,7 +61,7 @@ func (r *ObjectRef) UnmarshalYAML(n *yaml.Node) error {
 }
 
 func (r ObjectRef) MarshalYAML() (interface{}, error) {
-	if r.ShortForm {
+	if r.shortForm {
 		return r.Source, nil
 	}
 
@@ -75,9 +73,6 @@ func (r ObjectRef) MarshalYAML() (interface{}, error) {
 		Mode:   r.Mode,
 	}, nil
 }
-
-// IsShortForm reports whether the reference used scalar Compose syntax.
-func (r ObjectRef) IsShortForm() bool { return r.ShortForm }
 
 const (
 	// DefaultObjectFileMode is the file mode Docker uses for config and secret files.
@@ -93,7 +88,7 @@ const (
 // converter mounts: a short-form or target-less config is mounted at /<source>.
 // See resolved for the remaining normalization.
 func (r ObjectRef) ServiceConfig() ObjectRef {
-	if r.ShortForm || r.Target == "" {
+	if r.shortForm || r.Target == "" {
 		r.Target = "/" + r.Source
 	}
 	return r.resolved()
@@ -104,7 +99,7 @@ func (r ObjectRef) ServiceConfig() ObjectRef {
 // which Docker mounts under /run/secrets/. Relative targets keep their spelling
 // because it is part of the deployed ServiceSpec. See resolved for the rest.
 func (r ObjectRef) ServiceSecret() ObjectRef {
-	if r.ShortForm || r.Target == "" {
+	if r.shortForm || r.Target == "" {
 		r.Target = r.Source
 	}
 	return r.resolved()
@@ -162,7 +157,7 @@ func SecretPath(target string) string {
 // are omitted. The returned reference does not share Mode with r, so the
 // resolution methods are idempotent and never modify their receiver.
 func (r ObjectRef) resolved() ObjectRef {
-	r.ShortForm = false
+	r.shortForm = false
 	if r.Uid == DefaultObjectOwner {
 		r.Uid = ""
 	}
