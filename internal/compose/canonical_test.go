@@ -92,7 +92,7 @@ func TestCanonicalizePreservesUserMapEntries(t *testing.T) {
 	}, labels)
 }
 
-func TestCanonicalizePreservesSignificantListOrdering(t *testing.T) {
+func TestCanonicalizeIgnoresInsignificantListOrdering(t *testing.T) {
 	tests := []struct {
 		name   string
 		before string
@@ -105,23 +105,6 @@ volumes: {data: {}, cache: {}}
 `,
 			after: `services: {api: {image: alpine, volumes: [cache:/cache, data:/data]}}
 volumes: {data: {}, cache: {}}
-`,
-		},
-		{
-			name: "init jobs",
-			before: `services:
-  api:
-    image: alpine
-    x-init-deploy-jobs:
-      - {name: migrate, image: alpine, command: [migrate]}
-      - {name: seed, image: alpine, command: [seed]}
-`,
-			after: `services:
-  api:
-    image: alpine
-    x-init-deploy-jobs:
-      - {name: seed, image: alpine, command: [seed]}
-      - {name: migrate, image: alpine, command: [migrate]}
 `,
 		},
 		{
@@ -147,9 +130,28 @@ volumes: {data: {}, cache: {}}
 
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
-			assert.NotEqual(t, mustCanonicalCompose(t, testCase.before), mustCanonicalCompose(t, testCase.after))
+			assert.Equal(t, mustCanonicalCompose(t, testCase.before), mustCanonicalCompose(t, testCase.after))
 		})
 	}
+}
+
+func TestCanonicalizePreservesInitJobOrdering(t *testing.T) {
+	before := `services:
+  api:
+    image: alpine
+    x-init-deploy-jobs:
+      - {name: migrate, image: alpine, command: [migrate]}
+      - {name: seed, image: alpine, command: [seed]}
+`
+	after := `services:
+  api:
+    image: alpine
+    x-init-deploy-jobs:
+      - {name: seed, image: alpine, command: [seed]}
+      - {name: migrate, image: alpine, command: [migrate]}
+`
+
+	assert.NotEqual(t, mustCanonicalCompose(t, before), mustCanonicalCompose(t, after))
 }
 
 func mustCanonicalCompose(t *testing.T, raw string) []byte {

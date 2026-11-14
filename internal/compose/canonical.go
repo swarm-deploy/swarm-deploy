@@ -121,7 +121,7 @@ func normalizeEnvironmentTree(value any) {
 func normalizeVolumeTree(value any) {
 	volumes, _ := value.(map[string]any)
 	delete(volumes, "Map")
-	// Mount order controls the order passed to Docker and must remain intact.
+	sortJSONList(volumes, "Volumes")
 }
 
 func normalizeNetworkTree(value any) {
@@ -146,9 +146,7 @@ func normalizeObjectRefs(node map[string]any, key string, initJob bool) {
 		}
 		normalizeObjectRef(ref, key, initJob)
 	}
-	if !initJob {
-		sortJSONList(node, key)
-	}
+	sortJSONList(node, key)
 }
 
 func normalizeObjectRef(ref map[string]any, key string, initJob bool) {
