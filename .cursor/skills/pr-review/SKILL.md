@@ -2,8 +2,8 @@
 name: pr-review
 description: >
   Review GitHub Pull Requests for correctness, regressions,
-  architectural consistency, unnecessary complexity, and
-  test coverage. Use when asked to review or analyze a PR.
+  architecture, solution systematicity, proportional complexity,
+  and test coverage. Use when asked to review or analyze a PR.
 ---
 
 # Pull Request Review
@@ -53,6 +53,43 @@ Review in the following order:
 
 Suggest simplifications only when they provide a concrete benefit.
 
+### Solution Design: Systematicity & Complexity
+
+Evaluate the quality of the solution, not just its implementation.
+
+#### Systematicity
+
+- Does the change address the root cause rather than work around a symptom?
+- Is the behavior implemented in the component that owns it?
+- Does it cover all relevant code paths consistently?
+- Does it reuse existing invariants, contracts, and mechanisms?
+- Does it introduce special cases, duplicated logic, or compensating behavior?
+- Would the same underlying problem require another fix elsewhere?
+
+#### Proportional complexity
+
+- Is the solution proportionate to the problem?
+- Could the root cause be addressed with fewer components, abstractions,
+  dependencies, or state transitions?
+- Does it add unnecessary indirection, synchronization, persistence, or configuration?
+- Is added complexity justified by concrete requirements rather than
+  hypothetical future needs?
+- Does a broader solution reduce overall complexity or only relocate and expand it?
+
+#### Classification
+
+Distinguish between:
+
+- **Systematic solution:** addresses the root cause with justified complexity.
+- **Appropriate local fix:** solves an isolated problem without architectural debt.
+- **Workaround:** masks a broader problem or adds compensating behavior.
+- **Overengineering:** adds complexity disproportionate to the problem.
+
+Do not demand broad refactoring when a local fix is sufficient.
+When reporting a workaround or overengineering, explain the root problem
+and suggest the smallest systematic alternative.
+Evaluate total system complexity, not merely changed lines.
+
 ### Tests
 
 - Verify that changed behavior is covered.
@@ -94,6 +131,14 @@ For every finding provide:
 - Suggested direction for fixing it.
 
 Separate confirmed defects from optional improvements.
+
+Always include a short **Solution assessment**: systematic solution,
+appropriate local fix, workaround, or overengineering.
+Explain the assessment using the root cause, component ownership, and
+proportional complexity. If the PR contains independent solutions,
+assess them separately when a single classification would be misleading.
+An assessment alone is not a defect; report a finding only when there
+is a concrete, actionable issue.
 
 If no actionable findings exist, explicitly state that.
 
