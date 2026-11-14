@@ -4,13 +4,16 @@ import (
 	"testing"
 
 	secretmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/secrets/model"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/secretservice"
 )
 
 func TestToGeneratedSecretsIncludesDescription(t *testing.T) {
-	mapped := toGeneratedSecrets([]secretmodel.Secret{{
-		ID:          "secret-id",
-		Name:        "database-password",
-		Description: "Database password",
+	mapped := toGeneratedSecrets([]secretservice.SecretWithUsage{{
+		Secret: secretmodel.Secret{
+			ID:          "secret-id",
+			Name:        "database-password",
+			Description: "Database password",
+		},
 	}})
 
 	if len(mapped) != 1 {

@@ -17,7 +17,7 @@ import (
 type rotatedResourceCleaner struct {
 	secrets swarm.SecretManager
 	configs swarm.ConfigManager
-	policy  config.SecretRotationCleanupSpec
+	policy  config.ResourceRotationCleanupSpec
 	now     func() time.Time
 }
 
@@ -43,7 +43,7 @@ type rotatedResourceRemoval struct {
 func newRotatedResourceCleaner(
 	secrets swarm.SecretManager,
 	configs swarm.ConfigManager,
-	policy config.SecretRotationCleanupSpec,
+	policy config.ResourceRotationCleanupSpec,
 ) *rotatedResourceCleaner {
 	return &rotatedResourceCleaner{
 		secrets: secrets,

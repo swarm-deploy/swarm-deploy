@@ -5,13 +5,12 @@ import (
 	"fmt"
 
 	"github.com/doug-martin/goqu/v9"
-	_ "github.com/doug-martin/goqu/v9/dialect/sqlite3"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/recommendations/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/storage"
 )
 
 // SQLStore persists recommendations while preserving existing occurrence timestamps.
-type SQLStore struct{ db *storage.Database }
+type SQLStore struct{ db storage.Database }
 
 // recommendationKey mirrors UNIQUE(stack, service, source_file, type) of the recommendations table.
 type recommendationKey struct {
@@ -24,11 +23,11 @@ func keyOf(r model.Recommendation) recommendationKey {
 }
 
 // NewSQLStore creates a recommendation repository.
-func NewSQLStore(db *storage.Database) *SQLStore { return &SQLStore{db: db} }
+func NewSQLStore(db storage.Database) *SQLStore { return &SQLStore{db: db} }
 
 // List filters recommendations in their persisted sequence.
 func (s *SQLStore) List(ctx context.Context, filter ListFilter) ([]model.Recommendation, error) {
-	dataset := goqu.Dialect("sqlite3").From("recommendations").Prepared(true).Select(
+	dataset := s.db.Dialect().From("recommendations").Prepared(true).Select(
 		"severity", "type",
 		goqu.I("stack").As(goqu.C("subject.stack")),
 		goqu.I("service").As(goqu.C("subject.service")),
@@ -66,7 +65,7 @@ func (s *SQLStore) UpdateStack(ctx context.Context, stack string, recommendation
 		for _, r := range previous {
 			byKey[keyOf(r)] = r
 		}
-		deleteQuery, deleteArgs, err := goqu.Dialect("sqlite3").Delete("recommendations").Prepared(true).
+		deleteQuery, deleteArgs, err := s.db.Dialect().Delete("recommendations").Prepared(true).
 			Where(goqu.Ex{"stack": stack}).ToSQL()
 		if err != nil {
 			return err
@@ -82,7 +81,7 @@ func (s *SQLStore) UpdateStack(ctx context.Context, stack string, recommendation
 			}
 			// A single composite UNIQUE(stack,service,source_file,type) constraint is the
 			// only non-rowid conflict source here, so an untargeted DO NOTHING is safe.
-			insertQuery, insertArgs, insertErr := goqu.Dialect("sqlite3").Insert("recommendations").Prepared(true).
+			insertQuery, insertArgs, insertErr := s.db.Dialect().Insert("recommendations").Prepared(true).
 				Rows(goqu.Record{
 					"severity": string(r.Severity), "type": string(r.Type), "stack": stack,
 					"service": r.Subject.Service, "source_file": r.Source.File,

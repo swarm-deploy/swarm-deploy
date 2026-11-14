@@ -6,13 +6,12 @@ import (
 	"time"
 
 	"github.com/doug-martin/goqu/v9"
-	_ "github.com/doug-martin/goqu/v9/dialect/sqlite3"
 )
 
 // AdvanceProjection accepts a strictly newer source in the caller's projection transaction.
 // Source IDs use UUIDv7 to preserve publication order within a millisecond.
 func AdvanceProjection(
-	ctx context.Context, db *Database, projection, resource string, at time.Time, id string,
+	ctx context.Context, db Database, projection, resource string, at time.Time, id string,
 ) (bool, error) {
 	if at.IsZero() {
 		return false, fmt.Errorf("projection occurrence time is required")
@@ -26,7 +25,7 @@ func AdvanceProjection(
 			"occurred_at":     at,
 			"source_event_id": id,
 		}
-		query, args, buildErr := goqu.Dialect("sqlite3").Insert("projection_versions").Prepared(true).
+		query, args, buildErr := db.Dialect().Insert("projection_versions").Prepared(true).
 			Rows(record).
 			OnConflict(goqu.DoNothing()).
 			ToSQL()
@@ -45,7 +44,7 @@ func AdvanceProjection(
 			accepted = true
 			return nil
 		}
-		query, args, buildErr = goqu.Dialect("sqlite3").Update("projection_versions").Prepared(true).
+		query, args, buildErr = db.Dialect().Update("projection_versions").Prepared(true).
 			Set(goqu.Record{"occurred_at": at, "source_event_id": id}).
 			Where(
 				goqu.Ex{"projection": projection, "resource": resource},

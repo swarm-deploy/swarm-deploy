@@ -14,6 +14,9 @@ func (g *graph) executeToolCall(
 	modelToolCall modelToolCall,
 	effectiveToolSet map[string]struct{},
 ) (string, error) {
+	if isMutatingTool(modelToolCall.Name) {
+		return "", errors.New("mutating tools require deterministic confirmation")
+	}
 	if _, ok := effectiveToolSet[modelToolCall.Name]; !ok {
 		return "", errors.New("tool is not allowed by the selected assistant capabilities")
 	}
@@ -33,6 +36,9 @@ func (g *graph) effectiveToolDefinitions(effectiveToolSet map[string]struct{}) [
 	definitions := g.tools.Definitions()
 	filtered := make([]routing.ToolDefinition, 0, len(definitions))
 	for _, definition := range definitions {
+		if isMutatingTool(string(definition.Name)) {
+			continue
+		}
 		if _, ok := effectiveToolSet[string(definition.Name)]; ok {
 			filtered = append(filtered, definition)
 		}

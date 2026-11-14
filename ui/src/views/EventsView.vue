@@ -1,13 +1,18 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
 import { fetchEventFilters, fetchEvents } from "../api/overview";
 import type { EventCategory, EventFilterOptions, EventFilterService, EventHistoryItem, EventSeverity } from "../api/types";
+import AppFilterPanel from "../components/common/AppFilterPanel.vue";
+import AppSelect from "../components/common/AppSelect.vue";
+import AppSearchFilter from "../components/common/AppSearchFilter.vue";
 import AppTable from "../components/common/AppTable.vue";
 import AppTableEmpty from "../components/common/AppTableEmpty.vue";
 import AppPagination from "../components/common/AppPagination.vue";
-import { eventTypeDescriptions, eventTypeMetadata, type EventTypeMetadata } from "../utils/eventMetadata";
+import SeverityIcon from "../components/common/SeverityIcon.vue";
+import SidebarIcon from "../components/layout/SidebarIcon.vue";
+import { eventTypeDescriptions, eventTypeMetadata } from "../utils/eventMetadata";
 import { formatDate } from "../utils/format";
 
 const severityOptions: EventSeverity[] = ["info", "warn", "error"];
@@ -39,34 +44,27 @@ const selectedService = ref(normalizeTextQuery(route.query.service_name));
 const sortKey = ref<SortKey>(normalizeSortQuery(route.query.sort));
 const sortDirection = ref<SortDirection>(normalizeSortDirectionQuery(route.query.order));
 const expandedKey = ref("");
-const filterPanel = ref<HTMLElement | null>(null);
-const stackFilter = ref<HTMLDetailsElement | null>(null);
+const stackFilter = ref<InstanceType<typeof AppSearchFilter> | null>(null);
 const serviceFilter = ref<HTMLDetailsElement | null>(null);
 const filterOptions = ref<EventFilterOptions>({ stacks: [], services: [] });
-const stackSearch = ref("");
 const serviceSearch = ref("");
-const mobileFiltersOpen = ref(false);
 
 let requestID = 0;
 
-const typeFilterOptions = computed<EventTypeMetadata[]>(() => {
+const typeFilterOptions = computed(() => {
   const options = eventTypeMetadata.map((metadata) => ({ ...metadata }));
   for (const type of selectedTypes.value) {
     if (!options.some((option) => option.type === type)) {
       options.push({ type, description: eventTypeDescriptions.get(type) ?? "Custom event type" });
     }
   }
-  return options;
+  return options.map((option) => ({ value: option.type, label: option.type, description: option.description }));
 });
 
 const selectedTypeSummary = computed(() => {
-  if (selectedTypes.value.length === 0) {
-    return ["All types"];
-  }
-  if (selectedTypes.value.length <= 2) {
-    return selectedTypes.value;
-  }
-  return [`${selectedTypes.value.length} types selected`];
+  if (selectedTypes.value.length === 0) return "All types";
+  if (selectedTypes.value.length <= 2) return selectedTypes.value.join(", ");
+  return `${selectedTypes.value.length} types selected`;
 });
 
 const activeFilterCount = computed(() => [
@@ -82,9 +80,8 @@ const stackFilterOptions = computed(() => {
   if (selectedStack.value && !options.includes(selectedStack.value)) {
     options.push(selectedStack.value);
   }
-  const search = stackSearch.value.trim().toLocaleLowerCase();
   return options.sort((left, right) => left.localeCompare(right))
-    .filter((stack) => !search || stack.toLocaleLowerCase().includes(search));
+    .map((stack) => ({ value: stack, label: stack }));
 });
 
 const serviceFilterOptions = computed(() => {
@@ -172,19 +169,14 @@ function toggleDetails(event: EventHistoryItem): void {
   expandedKey.value = expandedKey.value === key ? "" : key;
 }
 
-function toggleType(type: string): void {
-  selectedTypes.value = selectedTypes.value.includes(type)
-    ? selectedTypes.value.filter((selectedType) => selectedType !== type)
-    : [...selectedTypes.value, type];
-}
-
-function clearTypes(): void {
-  selectedTypes.value = [];
+function selectTypes(types: string[]): void {
+  selectedTypes.value = types;
 }
 
 function applyDetailFilter(key: string, value: string, event: EventHistoryItem): void {
   if (key === "stack_name") {
     selectStack(value);
+    stackFilter.value?.close();
   } else if (key === "service_name") {
     const stackName = event.details?.stack_name?.trim() ?? "";
     if (stackName) selectedStack.value = stackName;
@@ -204,8 +196,6 @@ function selectStack(stackName: string): void {
     if (!compatible) selectedService.value = "";
   }
   selectedStack.value = stackName;
-  stackSearch.value = "";
-  if (stackFilter.value) stackFilter.value.open = false;
 }
 
 function selectService(service?: EventFilterService): void {
@@ -217,16 +207,6 @@ function selectService(service?: EventFilterService): void {
   }
   serviceSearch.value = "";
   if (serviceFilter.value) serviceFilter.value.open = false;
-}
-
-function handleDocumentClick(event: MouseEvent): void {
-  const target = event.target;
-  if (!(target instanceof Node) || filterPanel.value?.contains(target)) {
-    return;
-  }
-  for (const filter of filterPanel.value?.querySelectorAll<HTMLDetailsElement>(".events-filter-dropdown[open]") ?? []) {
-    filter.open = false;
-  }
 }
 
 function changeSort(key: SortKey): void {
@@ -422,141 +402,99 @@ watch([sortKey, sortDirection], () => {
 });
 
 onMounted(() => {
-  document.addEventListener("click", handleDocumentClick);
   void loadFilterOptions();
   void loadEvents();
-});
-
-onBeforeUnmount(() => {
-  document.removeEventListener("click", handleDocumentClick);
 });
 </script>
 
 <template>
   <section class="services-page events-page">
-    <header class="services-header events-header">
-      <button
-        class="events-mobile-filter-toggle"
-        type="button"
-        :aria-expanded="mobileFiltersOpen"
-        aria-controls="events-filter-panel"
-        @click="mobileFiltersOpen = !mobileFiltersOpen"
-      >
-        Filters ({{ activeFilterCount }})
-      </button>
-      <div
-        id="events-filter-panel"
-        ref="filterPanel"
-        class="events-filter-bar"
-        :class="{ 'events-filter-bar--open': mobileFiltersOpen }"
-      >
-        <div class="events-filter-field">
-          <span>Type</span>
-          <details class="events-type-filter events-filter-dropdown">
-            <summary aria-label="Filter events by type">
-              <span class="events-type-filter-selection">
-                <span
-                  v-for="label in selectedTypeSummary"
-                  :key="label"
-                  class="events-type-chip"
-                  :class="{ 'events-type-chip--placeholder': selectedTypes.length === 0 }"
-                >
-                  {{ label }}
-                </span>
-              </span>
-              <span class="events-type-filter-chevron" aria-hidden="true">⌄</span>
-            </summary>
-            <div class="events-type-filter-menu">
-              <div class="events-type-filter-menu-header">
-                <strong>Event types</strong>
-                <button type="button" class="events-type-filter-clear" :disabled="selectedTypes.length === 0" @click="clearTypes">
-                  Clear
-                </button>
-              </div>
-              <label v-for="metadata in typeFilterOptions" :key="metadata.type" class="events-type-filter-option">
-                <input
-                  type="checkbox"
-                  :value="metadata.type"
-                  :checked="selectedTypes.includes(metadata.type)"
-                  @change="toggleType(metadata.type)"
-                />
-                <span class="events-type-filter-option-text">
-                  <span class="events-type-filter-option-name" :title="metadata.type">{{ metadata.type }}</span>
-                  <span class="events-type-filter-option-description">{{ metadata.description }}</span>
-                </span>
-              </label>
-            </div>
-          </details>
-        </div>
-
-        <label class="events-filter-field">
-          <span>Severity</span>
-          <select v-model="selectedSeverity" aria-label="Filter events by severity">
-            <option value="">All severities</option>
-            <option v-for="severity in severityOptions" :key="severity" :value="severity">{{ severityLabels[severity] }}</option>
-          </select>
-        </label>
-
-        <label class="events-filter-field">
-          <span>Category</span>
-          <select v-model="selectedCategory" aria-label="Filter events by category">
-            <option value="">All categories</option>
-            <option v-for="category in categoryOptions" :key="category" :value="category">
-              {{ category.charAt(0).toUpperCase() + category.slice(1) }}
-            </option>
-          </select>
-        </label>
-
-        <div class="events-filter-field">
-          <span>Stack</span>
-          <details ref="stackFilter" class="events-search-filter events-filter-dropdown">
-            <summary aria-label="Filter events by stack">
-              <span :class="{ 'events-filter-placeholder': !selectedStack }">{{ selectedStack || "All stacks" }}</span>
-              <span aria-hidden="true">⌄</span>
-            </summary>
-            <div class="events-search-filter-menu">
-              <input v-model="stackSearch" type="search" placeholder="Search stacks" aria-label="Search stacks" />
-              <button type="button" :class="{ selected: !selectedStack }" @click="selectStack('')">All stacks</button>
-              <button
-                v-for="stack in stackFilterOptions"
-                :key="stack"
-                type="button"
-                :class="{ selected: selectedStack === stack }"
-                @click="selectStack(stack)"
-              >
-                {{ stack }}
-              </button>
-              <p v-if="stackFilterOptions.length === 0" class="events-filter-empty">No matching stacks</p>
-            </div>
-          </details>
-        </div>
-
-        <div class="events-filter-field">
-          <span>Service</span>
-          <details ref="serviceFilter" class="events-search-filter events-filter-dropdown">
-            <summary aria-label="Filter events by service">
-              <span :class="{ 'events-filter-placeholder': !selectedService }">{{ selectedServiceLabel }}</span>
-              <span aria-hidden="true">⌄</span>
-            </summary>
-            <div class="events-search-filter-menu">
-              <input v-model="serviceSearch" type="search" placeholder="Search services" aria-label="Search services" />
-              <button type="button" :class="{ selected: !selectedService }" @click="selectService()">All services</button>
-              <button
-                v-for="service in serviceFilterOptions"
-                :key="`${service.stack_name}/${service.service_name}`"
-                type="button"
-                :class="{ selected: selectedService === service.service_name && (!selectedStack || selectedStack === service.stack_name) }"
-                @click="selectService(service)"
-              >
-                <span>{{ service.service_name }}</span>
-                <small v-if="!selectedStack && service.stack_name">{{ service.stack_name }}</small>
-              </button>
-              <p v-if="serviceFilterOptions.length === 0" class="events-filter-empty">No matching services</p>
-            </div>
-          </details>
-        </div>
+    <AppFilterPanel panel-id="events-filter-panel" :active-count="activeFilterCount" :columns="5">
+      <div class="events-filter-field">
+        <AppSelect
+          multiple
+          class="events-type-filter"
+          :model-value="selectedTypes"
+          :options="typeFilterOptions"
+          label="Filter events by type"
+          placeholder="All types"
+          heading="Event types"
+          :selection-label="selectedTypeSummary"
+          descriptive
+          @update:model-value="selectTypes"
+        >
+          <template #icon>
+            <svg class="events-filter-icon" viewBox="0 0 20 20" aria-hidden="true">
+              <path d="M3.5 5h13l-5 5.7v4.1l-3 1.5v-5.6L3.5 5Z" />
+            </svg>
+          </template>
+        </AppSelect>
       </div>
-    </header>
+
+      <label class="events-filter-field events-filter-field--select">
+        <SeverityIcon class="events-filter-icon" />
+        <select v-model="selectedSeverity" aria-label="Filter events by severity">
+          <option value="">All severities</option>
+          <option v-for="severity in severityOptions" :key="severity" :value="severity">{{ severityLabels[severity] }}</option>
+        </select>
+      </label>
+
+      <label class="events-filter-field events-filter-field--select">
+        <svg class="events-filter-icon" viewBox="0 0 20 20" aria-hidden="true">
+          <path d="M3.5 4.5v5.3l6.7 6.7 6.3-6.3-6.7-6.7H4.5a1 1 0 0 0-1 1Z" />
+          <circle cx="7" cy="7" r="1" />
+        </svg>
+        <select v-model="selectedCategory" aria-label="Filter events by category">
+          <option value="">All categories</option>
+          <option v-for="category in categoryOptions" :key="category" :value="category">
+            {{ category.charAt(0).toUpperCase() + category.slice(1) }}
+          </option>
+        </select>
+      </label>
+
+      <AppSearchFilter
+        ref="stackFilter"
+        :model-value="selectedStack"
+        :options="stackFilterOptions"
+        label="Filter events by stack"
+        placeholder="All stacks"
+        search-label="Search stacks"
+        empty-message="No matching stacks"
+        @update:model-value="selectStack"
+      >
+        <template #icon>
+          <SidebarIcon class="events-filter-icon" name="services" />
+        </template>
+      </AppSearchFilter>
+
+      <div class="events-filter-field">
+        <details ref="serviceFilter" class="events-search-filter events-filter-dropdown">
+          <summary aria-label="Filter events by service">
+            <svg class="events-filter-icon" viewBox="0 0 20 20" aria-hidden="true">
+              <path d="m10 2.8 6.5 3.6v7.2L10 17.2l-6.5-3.6V6.4L10 2.8Z" />
+              <path d="m3.8 6.5 6.2 3.4 6.2-3.4M10 9.9v7" />
+            </svg>
+            <span class="events-filter-selection" :class="{ 'events-filter-placeholder': !selectedService }">{{ selectedServiceLabel }}</span>
+            <span class="events-filter-chevron" aria-hidden="true">⌄</span>
+          </summary>
+          <div class="events-search-filter-menu">
+            <input v-model="serviceSearch" type="search" placeholder="Search services" aria-label="Search services" />
+            <button type="button" :class="{ selected: !selectedService }" @click="selectService()">All services</button>
+            <button
+              v-for="service in serviceFilterOptions"
+              :key="`${service.stack_name}/${service.service_name}`"
+              type="button"
+              :class="{ selected: selectedService === service.service_name && (!selectedStack || selectedStack === service.stack_name) }"
+              @click="selectService(service)"
+            >
+              <span>{{ service.service_name }}</span>
+              <small v-if="!selectedStack && service.stack_name">{{ service.stack_name }}</small>
+            </button>
+            <p v-if="serviceFilterOptions.length === 0" class="events-filter-empty">No matching services</p>
+          </div>
+        </details>
+      </div>
+    </AppFilterPanel>
 
     <AppTableEmpty v-if="loading && events.length === 0" message="Loading events..." />
 
@@ -629,205 +567,3 @@ onBeforeUnmount(() => {
     <AppPagination v-if="events.length > 0 || page > 0" class="events-pagination" label="Event pages" :page="page" :loading="loading" :has-next="Boolean(nextCursor)" @previous="previousPage" @next="nextPage" />
   </section>
 </template>
-
-<style scoped>
-.events-header {
-  display: block;
-}
-.events-mobile-filter-toggle {
-  display: none;
-}
-.events-filter-bar {
-  display: grid;
-  grid-template-columns: minmax(190px, 1.35fr) repeat(4, minmax(130px, 1fr));
-  gap: 0.65rem;
-  width: 100%;
-}
-.events-filter-field {
-  min-width: 0;
-}
-.events-filter-field > span {
-  display: block;
-  margin-bottom: 0.3rem;
-  color: var(--muted);
-  font-size: 0.75rem;
-  font-weight: 600;
-}
-.events-filter-field select,
-.events-filter-dropdown > summary {
-  box-sizing: border-box;
-  width: 100%;
-  height: 2.35rem;
-  border: 1px solid var(--border-default);
-  border-radius: 0.45rem;
-  background: var(--surface-elevated);
-  color: var(--text);
-  font: inherit;
-  font-size: 0.84rem;
-}
-.events-filter-field select {
-  padding: 0 0.65rem;
-}
-.events-filter-dropdown {
-  position: relative;
-  min-width: 0;
-}
-.events-filter-dropdown > summary {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem;
-  padding: 0 0.7rem;
-  cursor: pointer;
-  list-style: none;
-}
-.events-filter-dropdown > summary::-webkit-details-marker {
-  display: none;
-}
-.events-filter-placeholder {
-  color: var(--muted);
-}
-.events-type-filter-selection {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.events-type-chip + .events-type-chip::before {
-  content: ", ";
-}
-.events-type-filter-menu,
-.events-search-filter-menu {
-  position: absolute;
-  z-index: 30;
-  top: calc(100% + 0.35rem);
-  left: 0;
-  box-sizing: border-box;
-  width: max(100%, 260px);
-  max-width: calc(100vw - 2rem);
-  max-height: min(320px, calc(100dvh - 8rem));
-  overflow-x: hidden;
-  overflow-y: auto;
-  border: 1px solid var(--border-default);
-  border-radius: 0.5rem;
-  background: var(--surface-elevated);
-  box-shadow: var(--shadow-popover);
-  padding: 0.45rem;
-}
-.events-type-filter-menu-header,
-.events-type-filter-option,
-.events-search-filter-menu button {
-  display: flex;
-  align-items: center;
-}
-.events-type-filter-menu-header {
-  justify-content: space-between;
-  padding: 0.35rem 0.4rem 0.55rem;
-}
-.events-type-filter-clear {
-  border: 0;
-  background: transparent;
-  color: var(--accent-strong);
-}
-.events-type-filter-option {
-  align-items: flex-start;
-  gap: 0.55rem;
-  padding: 0.4rem;
-  border-radius: 0.35rem;
-}
-.events-type-filter-menu {
-  width: max(100%, 380px);
-}
-.events-type-filter-option input {
-  flex: 0 0 1rem;
-  width: 1rem;
-  min-width: 1rem;
-  height: 1rem;
-  margin: 0.15rem 0 0;
-  padding: 0;
-}
-.events-type-filter-option:hover,
-.events-search-filter-menu button:hover,
-.events-search-filter-menu button.selected {
-  background: var(--surface-hover-soft);
-}
-.events-type-filter-option-text {
-  display: grid;
-  gap: 0.15rem;
-  min-width: 0;
-}
-.events-type-filter-option-name {
-  overflow: hidden;
-  font-size: 0.82rem;
-  font-weight: 600;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.events-type-filter-option-description,
-.events-search-filter-menu small {
-  color: var(--muted);
-  font-size: 0.7rem;
-}
-.events-type-filter-option-description {
-  line-height: 1.3;
-  overflow-wrap: anywhere;
-}
-.events-search-filter-menu input {
-  box-sizing: border-box;
-  width: 100%;
-  margin-bottom: 0.35rem;
-  border: 1px solid var(--border-default);
-  border-radius: 0.35rem;
-  background: var(--surface);
-  color: var(--text);
-  padding: 0.5rem 0.6rem;
-  font: inherit;
-  font-size: 0.82rem;
-}
-.events-search-filter-menu button {
-  justify-content: space-between;
-  gap: 0.75rem;
-  width: 100%;
-  border: 0;
-  border-radius: 0.35rem;
-  background: transparent;
-  color: var(--text);
-  padding: 0.5rem 0.55rem;
-  text-align: left;
-  font: inherit;
-  font-size: 0.82rem;
-}
-.events-filter-empty {
-  margin: 0;
-  padding: 0.65rem 0.55rem;
-  color: var(--muted);
-  font-size: 0.78rem;
-}
-@media (max-width: 720px) {
-  .events-mobile-filter-toggle {
-    display: inline-flex;
-    align-items: center;
-    width: max-content;
-    min-height: 2.3rem;
-    border: 1px solid var(--border-default);
-    border-radius: 0.45rem;
-    background: var(--surface-elevated);
-    color: var(--text);
-    padding: 0.45rem 0.75rem;
-    font: inherit;
-    font-size: 0.84rem;
-  }
-  .events-filter-bar {
-    display: none;
-    grid-template-columns: 1fr;
-  }
-  .events-filter-bar--open {
-    display: grid;
-  }
-  .events-type-filter-menu,
-  .events-search-filter-menu {
-    width: 100%;
-    max-width: 100%;
-  }
-}
-</style>

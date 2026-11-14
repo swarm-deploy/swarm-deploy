@@ -76,12 +76,25 @@ jobs:
         run: |
           set -euo pipefail
           tag="${BRANCH//\//-}"
-          response=$(curl --silent --show-error --fail-with-body \
+          response_file="$(mktemp)"
+          trap 'rm -f "$response_file"' EXIT
+          auth_code=$(curl --silent --show-error --output "$response_file" --write-out '%{http_code}' \
             --header 'Content-Type: application/json' \
-            --data "$(jq -nc --arg username "$HUB_USER" --arg password "$HUB_TOKEN" '{username:$username,password:$password}')" \
-            https://hub.docker.com/v2/users/login/)
-          token=$(jq -er '.token' <<< "$response")
-          code=$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
-            -X DELETE -H "Authorization: JWT $token" \
-            "https://hub.docker.com/v2/repositories/swarmdeployorg/swarm-deploy/tags/$tag/")
-          [[ "$code" == 204 || "$code" == 404 ]] || exit 1
+            --data "$(jq -nc --arg identifier "$HUB_USER" --arg secret "$HUB_TOKEN" '{identifier:$identifier,secret:$secret}')" \
+            https://hub.docker.com/v2/auth/token)
+          if [[ "$auth_code" != 200 ]]; then
+            echo "::error::Docker Hub authentication failed (HTTP $auth_code)"
+            exit 1
+          fi
+          if ! token=$(jq -er '.access_token' "$response_file"); then
+            echo "::error::Docker Hub authentication response has no access_token"
+            exit 1
+          fi
+
+          code=$(curl --silent --show-error --output "$response_file" --write-out '%{http_code}' \
+            -X DELETE -H "Authorization: Bearer $token" \
+            "https://hub.docker.com/v2/namespaces/swarmdeployorg/repositories/swarm-deploy/tags/$tag")
+          if [[ "$code" != 204 && "$code" != 404 ]]; then
+            echo "::error::Failed to delete Docker Hub tag '$tag' (HTTP $code)"
+            exit 1
+          fi

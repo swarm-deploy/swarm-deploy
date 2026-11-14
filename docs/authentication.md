@@ -51,3 +51,5 @@ This setup can be used with forward-auth and identity-aware proxies that authent
 If neither `basic.htpasswdFile` nor `authProxy.loginHeader` is configured, the UI and API are served without authentication.
 
 For exposed or shared environments, configure one authentication method or place swarm-deploy behind another trusted access-control layer.
+
+The task details endpoint (`GET /api/v1/swarm/tasks/{taskID}`) exposes the environment captured in the inspected Docker task. Sensitive values are Base64-encoded for safe default presentation, but Base64 is not encryption and callers can recover the original values. Installations that serve the Web API without authentication must restrict access at the network or proxy layer.

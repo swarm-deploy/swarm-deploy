@@ -3,8 +3,11 @@ package assistant
 import (
 	_ "embed"
 	"fmt"
+	"strconv"
 	"strings"
 )
+
+const maxToolRoundsPlaceholder = "{{max_tool_rounds}}"
 
 //go:embed prompts/base.md
 var basePrompt string
@@ -31,7 +34,9 @@ var diagnosticsPrompt string
 var lookupsPrompt string
 
 func buildSystemPrompt(customPrompt, routePrompt string) string {
-	prompt := strings.TrimSpace(basePrompt)
+	prompt := strings.ReplaceAll(
+		strings.TrimSpace(basePrompt), maxToolRoundsPlaceholder, strconv.Itoa(maxToolIterations),
+	)
 	if routePrompt = strings.TrimSpace(routePrompt); routePrompt != "" {
 		prompt = fmt.Sprintf("%s\n\n%s", prompt, routePrompt)
 	}

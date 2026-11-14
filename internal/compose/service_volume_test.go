@@ -1,8 +1,10 @@
 package compose
 
 import (
+	"os"
 	"testing"
 
+	"github.com/docker/docker/api/types/mount"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.yaml.in/yaml/v3"
@@ -188,6 +190,29 @@ func TestServiceVolumesUnmarshalYAML(t *testing.T) {
 			require.NoError(t, err)
 
 			assert.Equal(t, test.Expected, got)
+		})
+	}
+}
+
+func TestServiceVolumesPreserveConversionOptions(t *testing.T) {
+	for _, tc := range []struct {
+		name, input string
+		check       func(*testing.T, *ServiceVolume)
+	}{
+		{"tmpfs mapping", "- type: tmpfs\n  target: /tmp\n  tmpfs: {size: 64m, mode: 0700}", func(t *testing.T, v *ServiceVolume) {
+			require.NotNil(t, v.Tmpfs)
+			assert.Equal(t, "64m", v.Tmpfs.Size)
+			assert.Equal(t, os.FileMode(0o700), v.Tmpfs.Mode)
+		}},
+		{"unknown short mode", "- data:/data:z", func(t *testing.T, v *ServiceVolume) { assert.Equal(t, []string{"z"}, v.UnsupportedModes) }},
+		{"nocopy", "- data:/data:nocopy", func(t *testing.T, v *ServiceVolume) { require.NotNil(t, v.Volume); assert.True(t, v.Volume.Nocopy) }},
+		{"consistency", "- /srv:/data:cached", func(t *testing.T, v *ServiceVolume) { assert.Equal(t, mount.ConsistencyCached, v.Consistency) }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var volumes ServiceVolumes
+			require.NoError(t, yaml.Unmarshal([]byte(tc.input), &volumes))
+			require.Len(t, volumes.Volumes, 1)
+			tc.check(t, volumes.Volumes[0])
 		})
 	}
 }

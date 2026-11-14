@@ -13,19 +13,19 @@ func TestApplyWebhookDefaults(t *testing.T) {
 
 	cfg.applyWebhookDefaults()
 
-	assert.Equal(t, defaultWebhookMaxBodyBytes, cfg.Spec.Sync.Webhook.MaxBodyBytes)
+	assert.Equal(t, defaultWebhookMaxBodyBytes, cfg.Spec.GitOps.Sync.Webhook.MaxBodyBytes)
 	assert.Equal(
 		t,
 		float64(defaultWebhookRateLimitRequestsPerSecond),
-		cfg.Spec.Sync.Webhook.RateLimit.RequestsPerSecond,
+		cfg.Spec.GitOps.Sync.Webhook.RateLimit.RequestsPerSecond,
 	)
-	assert.Equal(t, defaultWebhookRateLimitBurst, cfg.Spec.Sync.Webhook.RateLimit.Burst)
+	assert.Equal(t, defaultWebhookRateLimitBurst, cfg.Spec.GitOps.Sync.Webhook.RateLimit.Burst)
 }
 
 func TestValidateWebhookRequiresAuth(t *testing.T) {
 	cfg := &Config{
 		Spec: Spec{
-			Sync: SyncSpec{
+			GitOps: GitOpsSpec{Sync: SyncSpec{
 				Webhook: WebhookSpec{
 					Enabled:      true,
 					MaxBodyBytes: defaultWebhookMaxBodyBytes,
@@ -34,20 +34,20 @@ func TestValidateWebhookRequiresAuth(t *testing.T) {
 						Burst:             defaultWebhookRateLimitBurst,
 					},
 				},
-			},
+			}},
 		},
 	}
 
 	errs := cfg.validateWebhook()
 
 	require.Len(t, errs, 1)
-	assert.Contains(t, errs[0].Error(), "sync.webhook.auth must contain at least one authentication method")
+	assert.Contains(t, errs[0].Error(), "gitops.sync.webhook.auth must contain at least one authentication method")
 }
 
 func TestValidateWebhookAcceptsConfiguredAuthMethods(t *testing.T) {
 	cfg := &Config{
 		Spec: Spec{
-			Sync: SyncSpec{
+			GitOps: GitOpsSpec{Sync: SyncSpec{
 				Webhook: WebhookSpec{
 					Enabled:      true,
 					MaxBodyBytes: defaultWebhookMaxBodyBytes,
@@ -77,7 +77,7 @@ func TestValidateWebhookAcceptsConfiguredAuthMethods(t *testing.T) {
 						},
 					},
 				},
-			},
+			}},
 		},
 	}
 
@@ -87,7 +87,7 @@ func TestValidateWebhookAcceptsConfiguredAuthMethods(t *testing.T) {
 func TestValidateWebhookRequiresHeaderName(t *testing.T) {
 	cfg := &Config{
 		Spec: Spec{
-			Sync: SyncSpec{
+			GitOps: GitOpsSpec{Sync: SyncSpec{
 				Webhook: WebhookSpec{
 					Enabled:      true,
 					MaxBodyBytes: defaultWebhookMaxBodyBytes,
@@ -104,7 +104,7 @@ func TestValidateWebhookRequiresHeaderName(t *testing.T) {
 						},
 					},
 				},
-			},
+			}},
 		},
 	}
 

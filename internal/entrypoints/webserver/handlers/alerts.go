@@ -16,10 +16,15 @@ func (h *handler) ListAlerts(
 	ctx context.Context,
 	params generated.ListAlertsParams,
 ) (*generated.AlertsResponse, error) {
-	alerts, err := h.alerts.List(ctx, modelstore.ListFilter{
+	filter := modelstore.ListFilter{
 		Status: alertmodel.AlertStatus(params.Status.Or("")),
 		Limit:  int(params.Limit.Or(0)),
-	})
+	}
+	if stack, set := params.Stack.Get(); set {
+		filter.ResourceType = alertmodel.ResourceTypeStack
+		filter.ResourceID = stack
+	}
+	alerts, err := h.alerts.List(ctx, filter)
 	if err != nil {
 		return nil, fmt.Errorf("list alerts: %w", err)
 	}
@@ -59,6 +64,11 @@ func toGeneratedAlert(alert alertmodel.Alert) generated.Alert {
 	}
 	if alert.ErrorCode != "" {
 		result.ErrorCode = generated.NewOptString(alert.ErrorCode)
+	}
+	for _, finding := range alert.Findings {
+		result.Findings = append(result.Findings, generated.AlertFinding{
+			Code: string(finding.Code), Summary: finding.Summary, DetectedAt: finding.DetectedAt,
+		})
 	}
 	if alert.DeploymentID != "" {
 		result.DeploymentId = generated.NewOptString(alert.DeploymentID)

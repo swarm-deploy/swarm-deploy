@@ -346,3 +346,42 @@ secrets:
 		})
 	}
 }
+
+func TestFileLoaderValidatesServiceImages(t *testing.T) {
+	// Source loading never expands image references using the process environment.
+	t.Setenv("SD_TEST_IMAGE_TAG", "private-tag")
+	const path = "/stack/compose.yaml"
+	for _, tc := range []struct {
+		name, source, image, code, message string
+	}{
+		{name: "missing", source: "services: {app: {env_file: missing.env}}", code: IssueCodeRequired, message: "required"},
+		{name: "invalid", source: "services: {app: {image: ghcr.io/company/MyApp:v1.2}}",
+			code: IssueCodeInvalidValue, message: `invalid reference "ghcr.io/company/MyApp:v1.2"`},
+		{name: "special characters", source: `services: {app: {image: "bad\nimage\"\\path"}}`,
+			code: IssueCodeInvalidValue, message: `invalid reference "bad\nimage\"\\path"`},
+		{name: "literal interpolation expression", source: "services: {app: {image: 'nginx:${SD_TEST_IMAGE_TAG}'}}",
+			code: IssueCodeInvalidValue, message: `invalid reference "nginx:${SD_TEST_IMAGE_TAG}"`},
+		{name: "valid image from YAML merge", source: "x-image: &image {image: nginx:alpine}\nservices: {app: {<<: *image}}",
+			image: "nginx:alpine"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			file, err := loadFrom(map[string]string{path: tc.source})
+			if tc.code == "" {
+				require.NoError(t, err)
+				assert.Equal(t, path, file.Path)
+				require.Len(t, file.Compose.Services, 1)
+				assert.Equal(t, tc.image, file.Compose.Services[0].Image)
+				return
+			}
+
+			var validation *ValidateComposeError
+			require.ErrorAs(t, err, &validation)
+			assert.Equal(t, path, validation.FilePath)
+			assert.Equal(t, []ValidationIssue{{
+				ResourceType: "service", ResourceName: "app", Field: "image", Code: tc.code, Message: tc.message,
+			}}, validation.Issues)
+			assert.ErrorContains(t, err, tc.message)
+			assert.Equal(t, "services.app: image: "+tc.message, validation.FaultSummary())
+		})
+	}
+}

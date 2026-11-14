@@ -7,11 +7,13 @@ swarm-deploy can automatically inject Docker Swarm runtime metadata into every s
 Enable Downward injection in `swarm-deploy.yaml`:
 
 ```yaml
-containers:
-  downward: {}
+gitops:
+  injection:
+    downward:
+      enabled: true
 ```
 
-After it is enabled, swarm-deploy adds the following environment variables to services before deployment.
+The setting defaults to disabled. When enabled, swarm-deploy adds the following environment variables to services before deployment.
 
 | Environment variable | Injected value | Description |
 | --- | --- | --- |

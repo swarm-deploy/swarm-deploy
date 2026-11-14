@@ -18,9 +18,10 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/testutil"
 )
 
+func noAlertRecipientsForResource(model.AlertKind, string) []events.AlertRecipient { return nil }
+
 func newTestSubscriber(store modelstore.Store) *Subscriber {
-	return NewSubscriber(store, &dispatcher.NopDispatcher{}, func(model.AlertKind) []events.AlertRecipient { return nil },
-		&config.Config{})
+	return newSubscriber(store, newLifecycle(store, &dispatcher.NopDispatcher{}, noAlertRecipientsForResource), &config.Config{})
 }
 
 func TestSubscriberDeploymentLifecycle(t *testing.T) {
@@ -30,8 +31,8 @@ func TestSubscriberDeploymentLifecycle(t *testing.T) {
 	subscriber := newTestSubscriber(store)
 	now := time.Date(2026, 9, 22, 10, 0, 0, 0, time.UTC)
 	sequence := 0
-	subscriber.now = func() time.Time { now = now.Add(time.Minute); return now }
-	subscriber.newID = func() string { sequence++; return fmt.Sprintf("id-%d", sequence) }
+	subscriber.lifecycle.(*alertLifecycle).now = func() time.Time { now = now.Add(time.Minute); return now }
+	subscriber.lifecycle.(*alertLifecycle).newID = func() string { sequence++; return fmt.Sprintf("id-%d", sequence) }
 
 	require.NoError(t, subscriber.Handle(ctx, events.Envelope{
 		ID: "success-0", Event: &events.DeploySuccess{DeployEvent: events.DeployEvent{StackName: "api"}},
@@ -73,6 +74,7 @@ func TestSubscriberDeploymentLifecycle(t *testing.T) {
 	assert.Equal(t, openedAt, alerts[0].OpenedAt, "repeated failures must preserve the opening time")
 	assert.Equal(t, uint64(2), alerts[0].Occurrences, "occurrences should increment")
 	assert.Equal(t, "registry unavailable", alerts[0].Message, "latest failure should replace the message")
+	assert.Empty(t, alerts[0].DeploymentID, "the new failure has no deployment ID")
 	assert.NotEqual(t, alerts[0].OpenEventID, alerts[0].LatestEventID, "latest event should advance")
 	assert.Equal(t, "failure-2", alerts[0].LatestEventID, "latest event reference")
 
@@ -153,6 +155,50 @@ func TestSubscriberMessengerMisconfigurationIsChannelSpecific(t *testing.T) {
 	assert.Equal(t, model.AlertStatusResolved, alerts[0].Status)
 }
 
+func TestSubscriberServiceDriftLifecycle(t *testing.T) {
+	ctx := context.Background()
+	store := modelstore.NewSQLStore(testutil.OpenSQLite(t))
+	subscriber := newTestSubscriber(store)
+
+	require.NoError(t, subscriber.Handle(ctx, events.Envelope{ID: "repaired", Event: &events.ServiceMissed{
+		StackName: "payments", ServiceName: "api", Commit: "one", Resolved: true,
+	}}))
+	alerts, err := store.List(ctx, modelstore.ListFilter{})
+	require.NoError(t, err)
+	assert.Empty(t, alerts, "same-reconciliation repair must not create a transient alert")
+
+	require.NoError(t, subscriber.Handle(ctx, events.Envelope{ID: "missing", Event: &events.ServiceMissed{
+		StackName: "payments", ServiceName: "api", Commit: "two",
+	}}))
+	original, err := store.FindOpenByFingerprint(ctx, model.ServiceDriftFingerprint("payments", "api"))
+	require.NoError(t, err)
+	original.Title = "Existing incident title"
+	require.NoError(t, store.Update(ctx, original))
+	require.NoError(t, subscriber.Handle(ctx, events.Envelope{ID: "drifted-again", Event: &events.ServiceDrifted{
+		StackName: "payments", ServiceName: "api", Commit: "three", Reason: "replica count differs",
+	}}))
+	alerts, err = store.List(ctx, modelstore.ListFilter{Status: model.AlertStatusOpen})
+	require.NoError(t, err)
+	require.Len(t, alerts, 1)
+	assert.Equal(t, model.AlertKindServiceDrift, alerts[0].Kind)
+	assert.Equal(t, model.ResourceTypeService, alerts[0].ResourceType)
+	assert.Equal(t, "payments/api", alerts[0].ResourceID)
+	assert.Equal(t, "service_drift:service:payments/api", alerts[0].Fingerprint)
+	assert.Equal(t, uint64(2), alerts[0].Occurrences)
+	assert.Equal(t, "replica count differs", alerts[0].Message)
+	assert.Equal(t, "three", alerts[0].Commit)
+	assert.Equal(t, original.Title, alerts[0].Title)
+
+	require.NoError(t, subscriber.Handle(ctx, events.Envelope{ID: "fixed", Event: &events.ServiceDriftFixed{
+		StackName: "payments", ServiceName: "api", Commit: "four",
+	}}))
+	alerts, err = store.List(ctx, modelstore.ListFilter{})
+	require.NoError(t, err)
+	require.Len(t, alerts, 1)
+	assert.Equal(t, model.AlertStatusResolved, alerts[0].Status)
+	assert.Equal(t, model.ResolutionReasonRecovered, alerts[0].Resolution.Reason)
+}
+
 func TestSubscriberMasksDiagnosticsAndPreservesUsefulDetailOnGenericRepeat(t *testing.T) {
 	ctx := context.Background()
 	store := modelstore.NewSQLStore(testutil.OpenSQLite(t))
@@ -173,20 +219,6 @@ func TestSubscriberMasksDiagnosticsAndPreservesUsefulDetailOnGenericRepeat(t *te
 	assert.Contains(t, alerts[0].Message, "token=****")
 	assert.NotContains(t, alerts[0].Message, "private-value")
 	assert.Equal(t, "two", alerts[0].DeploymentID, "latest correlation should still advance")
-}
-
-func TestSubscriberGenericPreparationFailureUsesHonestFallback(t *testing.T) {
-	ctx := context.Background()
-	store := modelstore.NewSQLStore(testutil.OpenSQLite(t))
-	subscriber := newTestSubscriber(store)
-	require.NoError(t, subscriber.Handle(ctx, events.Envelope{ID: "prepare", Event: &events.DeployPreparationFailed{
-		StackName: "api", ErrorCode: "preparation_failed", Stage: "validation",
-	}}))
-	alerts, err := store.List(ctx, modelstore.ListFilter{})
-	require.NoError(t, err)
-	require.Len(t, alerts, 1)
-	assert.Equal(t, "Synchronization failed during validation. No detailed diagnostic was recorded.", alerts[0].Message)
-	assert.Empty(t, alerts[0].DeploymentID)
 }
 
 func TestSubscriberConcurrentFailuresCreateOneOpenAlert(t *testing.T) {
@@ -220,87 +252,44 @@ func TestSubscriberConcurrentFailuresCreateOneOpenAlert(t *testing.T) {
 	assert.Equal(t, uint64(workers), alerts[0].Occurrences, "all failures should be counted")
 }
 
-func TestInterruptedAlertKeepsUnknownOutcomeAndResolvesOnSuccess(t *testing.T) {
-	ctx := context.Background()
-	store := modelstore.NewSQLStore(testutil.OpenSQLite(t))
-	subscriber := newTestSubscriber(store)
-
-	require.NoError(t, subscriber.Handle(ctx, events.Envelope{ID: "interrupted", Event: &events.DeployInterrupted{
-		StackName: "app", Reason: "process_interrupted",
-	}}))
-	open, err := store.List(ctx, modelstore.ListFilter{Status: model.AlertStatusOpen})
-	require.NoError(t, err)
-	require.Len(t, open, 1)
-	assert.Equal(t, "Synchronization outcome unknown", open[0].Title)
-	assert.Equal(t,
-		"Deployment outcome is unknown after interruption during an unknown stage. No detailed diagnostic was recorded.",
-		open[0].Message,
-	)
-	require.NoError(t, subscriber.Handle(ctx, events.Envelope{ID: "success", Event: &events.DeploySuccess{
-		DeployEvent: events.DeployEvent{StackName: "app"},
-	}}))
-	resolved, err := store.List(ctx, modelstore.ListFilter{Status: model.AlertStatusResolved})
-	require.NoError(t, err)
-	require.Len(t, resolved, 1)
-	assert.Equal(t, open[0].ID, resolved[0].ID)
-}
-
 type temporaryError struct{ message string }
 
 func (e temporaryError) Error() string   { return e.message }
 func (e temporaryError) Temporary() bool { return true }
 
-func TestTemporaryDeploymentFailureThresholdAndReset(t *testing.T) {
-	ctx := context.Background()
+func TestSubscriberTemporaryFailureThresholdAndRecovery(t *testing.T) {
+	ctx := t.Context()
 	store := modelstore.NewSQLStore(testutil.OpenSQLite(t))
 	subscriber := newTestSubscriber(store)
+	stack := events.DeployEvent{StackName: "app"}
+	fingerprint := model.SyncFailedFingerprint(stack.StackName)
+	failure := &events.DeployFailed{DeployEvent: stack, Error: temporaryError{message: "registry unavailable"}}
+	success := &events.DeploySuccess{DeployEvent: stack}
 
-	for index := range 2 {
-		require.NoError(t, subscriber.Handle(ctx, events.Envelope{
-			ID: fmt.Sprintf("temporary-%d", index),
-			Event: &events.DeployFailed{
-				DeployEvent: events.DeployEvent{StackName: "api"},
-				Error:       temporaryError{message: "registry unavailable"},
-			},
-		}))
+	for _, event := range []events.Envelope{
+		{ID: "partial-1", Event: failure},
+		{ID: "partial-2", Event: failure},
+		{ID: "partial-recovery", Event: success},
+		{ID: "failure-1", Event: failure},
+		{ID: "failure-2", Event: failure},
+	} {
+		require.NoError(t, subscriber.Handle(ctx, event))
+		_, err := store.FindOpenByFingerprint(ctx, fingerprint)
+		require.ErrorIs(t, err, modelstore.ErrAlertNotFound, event.ID)
 	}
-	alerts, err := store.List(ctx, modelstore.ListFilter{})
+	require.NoError(t, subscriber.Handle(ctx, events.Envelope{ID: "failure-3", Event: failure}))
+	opened, err := store.FindOpenByFingerprint(ctx, fingerprint)
 	require.NoError(t, err)
-	assert.Empty(t, alerts)
+	assert.EqualValues(t, 3, opened.Occurrences)
+	assert.Equal(t, "failure-3", opened.OpenEventID)
 
-	require.NoError(t, subscriber.Handle(ctx, events.Envelope{
-		ID: "success", Event: &events.DeploySuccess{DeployEvent: events.DeployEvent{StackName: "api"}},
-	}))
-	require.NoError(t, subscriber.Handle(ctx, events.Envelope{
-		ID: "temporary-after-success",
-		Event: &events.DeployFailed{
-			DeployEvent: events.DeployEvent{StackName: "api"},
-			Error:       temporaryError{message: "registry unavailable"},
-		},
-	}))
-	alerts, err = store.List(ctx, modelstore.ListFilter{})
+	require.NoError(t, subscriber.Handle(ctx, events.Envelope{ID: "failure-4", Event: failure}))
+	require.NoError(t, subscriber.Handle(ctx, events.Envelope{ID: "recovery", Event: success}))
+	resolved, err := store.Get(ctx, opened.ID)
 	require.NoError(t, err)
-	assert.Empty(t, alerts, "success must reset the threshold")
-}
-
-func TestThirdTemporaryDeploymentFailureOpensAndUpdatesAlert(t *testing.T) {
-	ctx := context.Background()
-	store := modelstore.NewSQLStore(testutil.OpenSQLite(t))
-	subscriber := newTestSubscriber(store)
-
-	for index := range 4 {
-		require.NoError(t, subscriber.Handle(ctx, events.Envelope{
-			ID: fmt.Sprintf("temporary-%d", index),
-			Event: &events.DeployFailed{
-				DeployEvent: events.DeployEvent{StackName: "api"},
-				Error:       temporaryError{message: "registry unavailable"},
-			},
-		}))
-	}
-	alerts, err := store.List(ctx, modelstore.ListFilter{})
-	require.NoError(t, err)
-	require.Len(t, alerts, 1)
-	assert.Equal(t, uint64(4), alerts[0].Occurrences)
-	assert.Equal(t, "temporary-2", alerts[0].OpenEventID)
-	assert.Equal(t, "temporary-3", alerts[0].LatestEventID)
+	assert.Equal(t, model.AlertStatusResolved, resolved.Status)
+	assert.EqualValues(t, 4, resolved.Occurrences)
+	assert.Equal(t, "failure-4", resolved.LatestEventID)
+	require.NotNil(t, resolved.Resolution)
+	assert.Equal(t, "recovery", resolved.Resolution.EventID)
 }

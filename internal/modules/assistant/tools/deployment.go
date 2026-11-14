@@ -205,9 +205,11 @@ func parseDeploymentListFilter(request deploymentListRequest) (deploymentmodel.L
 		}
 		limit = *request.Limit
 	}
-	return deploymentmodel.ListFilter{
-		Stack: strings.TrimSpace(request.Stack), Status: status, Limit: limit, Cursor: strings.TrimSpace(request.Cursor),
-	}, nil
+	filter := deploymentmodel.ListFilter{Status: status, Limit: limit, Cursor: strings.TrimSpace(request.Cursor)}
+	if stack := strings.TrimSpace(request.Stack); stack != "" {
+		filter.Stacks = []string{stack}
+	}
+	return filter, nil
 }
 
 func parseDeploymentStatus(value string) (deploymentmodel.Status, error) {

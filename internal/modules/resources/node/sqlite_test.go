@@ -10,7 +10,7 @@ import (
 )
 
 func TestNodeStorePhysicalContentAndRoundTrip(t *testing.T) {
-	db, err := storage.Open(t.Context(), t.TempDir())
+	db, err := storage.OpenSQLite(t.Context(), t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	store := NewSQLStore(db)
@@ -67,7 +67,7 @@ func TestNodeStorePhysicalContentAndRoundTrip(t *testing.T) {
 }
 
 func TestNodeStoreReplaceRollsBackOnDuplicate(t *testing.T) {
-	db, err := storage.Open(t.Context(), t.TempDir())
+	db, err := storage.OpenSQLite(t.Context(), t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	store := NewSQLStore(db)

@@ -163,8 +163,10 @@ func TestReloadConcurrentReadsAreRaceFree(t *testing.T) {
 
 func newReloadConfig() *Config {
 	return &Config{Spec: Spec{
-		StacksSource:   StacksSourceSpec{File: "stacks.yaml"},
-		NetworksSource: NetworksSourceSpec{File: "networks.yaml"},
+		GitOps: GitOpsSpec{
+			Stacks:   StacksSourceSpec{File: "stacks.yaml"},
+			Networks: NetworksSourceSpec{File: "networks.yaml"},
+		},
 	}}
 }
 

@@ -11,6 +11,7 @@ const apiMocks = vi.hoisted(() => ({
   fetchServiceRealtime: vi.fn(),
   fetchServiceStatus: vi.fn(),
   fetchServices: vi.fn(),
+  fetchSwarmTask: vi.fn(),
   openTaskLogsStream: vi.fn(),
 }));
 
@@ -27,6 +28,7 @@ vi.mock("../api/overview", () => ({
 
 vi.mock("../api/services", () => ({
   fetchServices: apiMocks.fetchServices,
+  fetchSwarmTask: apiMocks.fetchSwarmTask,
 }));
 
 async function mountServiceView() {
@@ -113,6 +115,19 @@ describe("ServiceView", () => {
         error: "",
       }],
     });
+    apiMocks.fetchSwarmTask.mockResolvedValue({
+      id: "task-id",
+      service_id: "service-id",
+      node_id: "node-id",
+      slot: 1,
+      desired_state: "running",
+      current_state: "running",
+      created_at: "2026-10-04T18:00:00Z",
+      updated_at: "2026-10-04T18:01:00Z",
+      container_id: "container-id",
+      image: "registry.example.com/infra/api:latest",
+      environment: [],
+    });
   });
 
   describe("image copying", () => {
@@ -137,6 +152,7 @@ describe("ServiceView", () => {
       const button = wrapper.get('button[aria-label="Copy image reference"]');
 
       expect(button.element.parentElement?.textContent).toContain(image);
+      expect(button.classes()).toContain("service-image-copy-button");
       await button.trigger("click");
 
       expect(writeText).toHaveBeenCalledExactlyOnceWith(image);
@@ -225,20 +241,77 @@ describe("ServiceView", () => {
     const mobileTask = wrapper.get(".service-realtime-mobile-item");
 
     expect(mobileTask.text()).toContain("manager-1");
-    expect(mobileTask.text()).toContain("running");
+    expect(mobileTask.get(".app-status-badge").text()).toBe("Running");
+    expect(mobileTask.get(".app-status-badge").classes()).toContain("app-status-badge--success");
     expect(mobileTask.text()).toContain("Updated");
     expect(mobileTask.text()).not.toContain("Created");
     expect(mobileTask.find("dl").exists()).toBe(false);
-    expect(mobileTask.get(".service-realtime-mobile-logs").text()).toBe("Logs");
-    expect(mobileTask.find(".service-copy-task-id-button").exists()).toBe(false);
-    expect(wrapper.find(".service-realtime-desktop .service-copy-task-id-button").exists()).toBe(true);
+    const actions = mobileTask.findAll(".service-realtime-action-button");
+    expect(actions).toHaveLength(2);
+    expect(actions.every((button) => button.text() === "")).toBe(true);
+    expect(actions[0].attributes("aria-label")).toBe("Open details for task task-id");
+    expect(actions[1].attributes("aria-label")).toBe("Open logs for task task-id");
+    expect(mobileTask.find('button[aria-label^="Copy task ID"]').exists()).toBe(false);
+    const copyButton = wrapper.get('.service-realtime-desktop button[aria-label="Copy task ID task-id"]');
+    expect(copyButton.text()).toBe("");
+    expect(copyButton.attributes("title")).toBe("Copy task ID");
+  });
+
+  it("uses the stack services table presentation for realtime tasks", async () => {
+    const wrapper = await mountServiceView();
+    const realtimeCard = wrapper.get(".service-realtime-card");
+
+    expect(apiMocks.fetchServiceRealtime).toHaveBeenCalledWith("infra_api");
+
+    expect(realtimeCard.get(".service-panel-content").classes()).toContain("service-realtime-table-content");
+    expect(realtimeCard.get(".service-realtime-table").classes()).toContain("app-table--fixed");
+    expect(realtimeCard.get(".service-realtime-table").attributes("style")).toBeUndefined();
+    expect(realtimeCard.findAll(".service-realtime-table th").map((item) => item.text())).toEqual([
+      "ID",
+      "Node Name",
+      "Current State",
+      "Created At",
+      "Updated At",
+      "Error",
+      "Actions",
+    ]);
+    expect(realtimeCard.findAll(".service-realtime-desktop .service-realtime-action-button")).toHaveLength(2);
+    expect(realtimeCard.get(".service-realtime-table .app-status-badge").classes()).toContain("app-status-badge--success");
+    expect(realtimeCard.get(".service-realtime-table .app-status-badge").text()).toBe("Running");
+  });
+
+  it("opens task details from the icon action", async () => {
+    const wrapper = await mountServiceView();
+    const detailsButton = wrapper.get(".service-realtime-desktop .service-task-details-button");
+
+    expect(wrapper.find(".service-resources-card").exists()).toBe(true);
+    expect(wrapper.find(".service-deployments-card").exists()).toBe(true);
+    expect(detailsButton.text()).toBe("");
+    expect(detailsButton.attributes("title")).toBe("Task details");
+    await detailsButton.trigger("click");
+    await flushPromises();
+
+    expect(apiMocks.fetchSwarmTask).toHaveBeenCalledWith("task-id");
+    expect(wrapper.get(".realtime-task-panel").text()).toContain("Task details");
+    expect(wrapper.get(".realtime-task-panel").text()).toContain("Slot 1");
+    expect(wrapper.get(".service-details-side").classes()).toContain("service-details-side--task-details");
+    expect(wrapper.find(".service-resources-card").exists()).toBe(false);
+    expect(wrapper.find(".service-deployments-card").exists()).toBe(false);
+
+    await wrapper.get('.realtime-task-panel button[aria-label="Close task details"]').trigger("click");
+    expect(wrapper.find(".realtime-task-panel").exists()).toBe(false);
+    expect(wrapper.get(".service-details-side").classes()).not.toContain("service-details-side--task-details");
+    expect(wrapper.find(".service-resources-card").exists()).toBe(true);
+    expect(wrapper.find(".service-deployments-card").exists()).toBe(true);
   });
 
   it("parses and filters task logs through backend streams", async () => {
     const rawStream = new FakeEventSource();
+    const initialStream = new FakeEventSource();
     const parsedStream = new FakeEventSource();
     const filteredStream = new FakeEventSource();
     apiMocks.openTaskLogsStream
+      .mockReturnValueOnce(initialStream as unknown as EventSource)
       .mockReturnValueOnce(rawStream as unknown as EventSource)
       .mockReturnValueOnce(parsedStream as unknown as EventSource)
       .mockReturnValueOnce(filteredStream as unknown as EventSource);
@@ -246,13 +319,38 @@ describe("ServiceView", () => {
     const wrapper = await mountServiceView();
     await wrapper.get(".service-task-logs-button").trigger("click");
 
+    const logHeader = wrapper.get(".task-logs-modal-header");
+    expect(logHeader.get("#task-logs-title").text()).toBe("task-id");
+    expect(logHeader.find(".app-copy-button").exists()).toBe(false);
+
+    const wrap = wrapper.get('.task-log-message-column button[aria-label="Wrap lines"]');
+    expect(wrap.attributes("aria-pressed")).toBe("false");
+    expect(wrap.attributes("data-tooltip")).toBe("Wrap lines");
+    await wrap.trigger("click");
+    expect(wrap.attributes("aria-pressed")).toBe("true");
+    expect(wrap.attributes("data-tooltip")).toBe("Wrap lines");
+    expect(wrapper.get(".task-logs-table").classes()).toContain("task-logs-table--wrap");
+
+    expect(apiMocks.openTaskLogsStream).toHaveBeenLastCalledWith("task-id", {
+      follow: true,
+      tail: 200,
+      parse: true,
+      levels: ["TRACE", "DEBUG", "INFO", "WARN", "ERROR", "FATAL"],
+    });
+    const logMode = wrapper.get('button[aria-label="Parsed logs"]');
+    expect(logMode.attributes("aria-pressed")).toBe("true");
+    expect(logMode.attributes("data-tooltip")).toBe("Parsed");
+    await logMode.trigger("click");
+    expect(logMode.attributes("aria-pressed")).toBe("false");
+    expect(logMode.attributes("data-tooltip")).toBe("Raw");
+    expect(initialStream.closed).toBe(true);
     expect(apiMocks.openTaskLogsStream).toHaveBeenLastCalledWith("task-id", {
       follow: true,
       tail: 200,
       parse: false,
       levels: undefined,
     });
-    expect(wrapper.find(".task-log-level-filters").exists()).toBe(false);
+    expect(wrapper.find(".task-logs-level-select").exists()).toBe(false);
 
     rawStream.emit("log", {
       timestamp: "2026-10-19T18:00:00Z",
@@ -269,7 +367,7 @@ describe("ServiceView", () => {
       "raw line",
       "health check passed",
     ]);
-    expect(wrapper.findAll(".task-log-time")[1].text()).toBe("2026-10-19 18:00:00.123");
+    expect(wrapper.findAll(".task-log-time")[1].text()).toBe("18:00:00.123");
     expect(wrapper.find(".task-log-stream").exists()).toBe(false);
 
     const search = wrapper.get<HTMLInputElement>('.task-logs-search input[type="search"]');
@@ -279,7 +377,9 @@ describe("ServiceView", () => {
     expect(apiMocks.openTaskLogsStream).toHaveBeenCalledTimes(streamCallsBeforeSearch);
     await search.setValue("");
 
-    await wrapper.get(".task-logs-parse-toggle").trigger("click");
+    await logMode.trigger("click");
+    expect(logMode.attributes("aria-pressed")).toBe("true");
+    expect(logMode.attributes("data-tooltip")).toBe("Parsed");
     expect(rawStream.closed).toBe(true);
     expect(apiMocks.openTaskLogsStream).toHaveBeenLastCalledWith("task-id", {
       follow: true,
@@ -307,43 +407,49 @@ describe("ServiceView", () => {
     });
     await nextTick();
 
-    const filters = wrapper.findAll(".task-log-level-filter");
-    expect(filters).toHaveLength(6);
-    expect(filters.find((filter) => filter.text().startsWith("All"))?.text()).toBe("All3");
-    expect(filters.find((filter) => filter.text().startsWith("Info"))?.text()).toBe("Info2");
-    expect(filters.find((filter) => filter.text().startsWith("Error"))?.text()).toBe("Error1");
+    const levels = wrapper.get(".task-logs-level-select");
+    expect(levels.get(".app-select-selection").text()).toBe("All levels");
+    expect(levels.findAll(".app-select-option").map((option) => option.text())).toEqual([
+      "Error (1)", "Warn (0)", "Info (2)", "Debug (0)", "Other (0)",
+    ]);
     expect(wrapper.get(".task-log-level").text()).toBe("ERROR");
     expect(wrapper.get(".task-log-message").text()).toBe("request failed");
     expect(wrapper.find(".task-log-stream").exists()).toBe(false);
-    const firstDetails = wrapper.get(".task-log-details");
-    await firstDetails.get("summary").trigger("click");
-    expect(firstDetails.attributes("open")).toBeDefined();
-    expect(firstDetails.findAll(".task-log-attribute").map((attribute) => attribute.text())).toEqual([
-      "request_idreq-1",
-      'context{"tenant":"acme"}',
-    ]);
-    expect(firstDetails.get(".task-log-detail-section pre").text()).toContain("level=error");
-    expect(firstDetails.get(".task-log-copy").attributes("aria-label")).toBe("Copy raw log 1");
+    const firstLog = wrapper.get(".task-log-summary");
+    expect(firstLog.text()).not.toContain("req-1");
+    await firstLog.trigger("click");
+    expect(firstLog.attributes("aria-expanded")).toBe("true");
+    const details = wrapper.get(".task-log-detail-panel");
+    expect(details.get(".task-log-attributes").text()).toContain("request_idreq-1");
+    const detailModes = details.get('[role="tablist"]');
+    expect(detailModes.findAll('[role="tab"]').map((tab) => tab.text())).toEqual(["Fields", "JSON", "Raw"]);
+    expect(detailModes.get('[aria-selected="true"]').text()).toBe("Fields");
+    await detailModes.get("#task-log-fields-tab").trigger("keydown", { key: "ArrowRight" });
+    expect(details.get('[role="tabpanel"]').attributes("aria-labelledby")).toBe("task-log-json-tab");
+    expect(details.get("pre").text()).toContain('"tenant": "acme"');
+    await detailModes.get("#task-log-raw-tab").trigger("click");
+    expect(details.get("pre").text()).toContain("level=error");
 
+    expect(search.attributes("placeholder")).toBe("Search logs");
+    await search.setValue("level:error");
+    expect(wrapper.get(".task-logs-viewer").text()).toContain("No logs match your search.");
     await search.setValue("raw-only-token");
     expect(wrapper.findAll(".task-log-message").map((message) => message.text())).toEqual(["worker ready"]);
     await search.setValue("acme");
     expect(wrapper.findAll(".task-log-message").map((message) => message.text())).toEqual(["request failed"]);
     await search.setValue("");
 
-    const infoFilter = filters.find((filter) => filter.text().startsWith("Info"));
-    expect(infoFilter).toBeDefined();
-    await infoFilter!.trigger("click");
+    await levels.get<HTMLInputElement>('input[value="info"]').setValue(true);
     expect(parsedStream.closed).toBe(true);
     expect(apiMocks.openTaskLogsStream).toHaveBeenLastCalledWith("task-id", {
       follow: true,
       tail: 200,
       parse: true,
-      levels: ["TRACE", "DEBUG", "WARN", "ERROR", "FATAL"],
+      levels: ["INFO"],
     });
   });
 
-  it("shows compact deployment rows and opens details by ID", async () => {
+  it("reuses the recent deployment timeline and opens details by ID", async () => {
     apiMocks.fetchServiceDeployments.mockResolvedValue({ deployments: [
       { id: "deployment-1", created_at: "2026-10-10T10:00:00Z", status: "succeeded",
         image: "registry.example.com/api:v2", image_version: "v2", commit: "abc123456" },
@@ -360,26 +466,23 @@ describe("ServiceView", () => {
       name: "deployments",
       query: { stack_name: "infra", service_name: "api" },
     });
-    const rows = wrapper.findAll(".service-deployment-item");
+    expect(apiMocks.fetchServiceDeployments).toHaveBeenCalledWith("infra", "api", 4);
+    const rows = wrapper.findAll(".stack-deployment");
     expect(rows).toHaveLength(4);
-    expect(rows[0].text()).toContain("succeeded");
+    expect(rows[0].text()).toContain("Deploy completed");
     expect(rows.every((row) => row.text().includes("Image v2"))).toBe(true);
-    expect(rows[0].get(".service-deployment-image").attributes("title")).toBe("registry.example.com/api:v2");
     expect(rows[0].text()).not.toContain("infra/api");
-    expect(rows[0].get("time").attributes("title")).toBeTruthy();
-    expect(rows[0].get(".overview-deployment-result").classes()).toContain("overview-deployment-result--success");
-    expect(rows[1].get(".overview-deployment-result").classes()).toContain("overview-deployment-result--failed");
-    expect(rows[2].get(".overview-deployment-result").classes()).toContain("overview-deployment-result--running");
-    expect(rows[3].get(".overview-deployment-result").classes()).toContain("overview-deployment-result--interrupted");
+    expect(rows[0].classes()).toContain("stack-deployment--success");
+    expect(rows[1].classes()).toContain("stack-deployment--failed");
+    expect(rows[2].classes()).toContain("stack-deployment--running");
+    expect(rows[3].classes()).toContain("stack-deployment--unknown");
 
     const store = useOverviewStore();
     const openDeployment = vi.spyOn(store, "openDeploymentDetailsModal").mockResolvedValue(undefined);
     const openCommit = vi.spyOn(store, "openCommitDetailsModal").mockResolvedValue(undefined);
-    const detailsButton = rows[0].get(".overview-deployment-details");
-    expect(detailsButton.element.tagName).toBe("BUTTON");
-    await detailsButton.trigger("click");
+    await rows[0].trigger("click");
     expect(openDeployment).toHaveBeenCalledWith("deployment-1");
-    await rows[0].get(".overview-summary-sha-badge").trigger("click");
+    await rows[0].get(".stack-commit-button").trigger("click");
     expect(openCommit).toHaveBeenCalledWith("abc123456");
     expect(openDeployment).toHaveBeenCalledTimes(1);
   });

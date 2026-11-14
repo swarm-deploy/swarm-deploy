@@ -4,7 +4,6 @@ import (
 	"context"
 	"os"
 
-	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
@@ -34,7 +33,7 @@ func TraceOS() FileSystem {
 
 func (s *TraceableFileSystem) ReadFile(ctx context.Context, path string) ([]byte, error) {
 	ctx, span := s.tracer.Start(ctx, "fs.ReadFile", trace.WithAttributes(
-		attribute.String("file.path", path),
+		tracing.FilePath.String(path),
 	))
 	defer span.End()
 
@@ -52,9 +51,9 @@ func (s *TraceableFileSystem) ReadFile(ctx context.Context, path string) ([]byte
 
 func (s *TraceableFileSystem) WriteFile(ctx context.Context, path string, payload []byte, mode os.FileMode) error {
 	ctx, span := s.tracer.Start(ctx, "fs.WriteFile", trace.WithAttributes(
-		attribute.String("file.path", path),
-		attribute.String("file.mode", mode.String()),
-		attribute.Int("file.size", len(payload)),
+		tracing.FilePath.String(path),
+		tracing.FileMode.String(mode.String()),
+		tracing.FileSize.Int(len(payload)),
 	))
 	defer span.End()
 
@@ -72,8 +71,8 @@ func (s *TraceableFileSystem) WriteFile(ctx context.Context, path string, payloa
 
 func (s *TraceableFileSystem) CreateDirectory(ctx context.Context, path string, perm os.FileMode) error {
 	ctx, span := s.tracer.Start(ctx, "fs.CreateDirectory", trace.WithAttributes(
-		attribute.String("file.path", path),
-		attribute.String("file.mode", perm.String()),
+		tracing.FilePath.String(path),
+		tracing.FileMode.String(perm.String()),
 	))
 	defer span.End()
 
@@ -91,8 +90,8 @@ func (s *TraceableFileSystem) CreateDirectory(ctx context.Context, path string, 
 
 func (s *TraceableFileSystem) Rename(ctx context.Context, oldPath string, newPath string) error {
 	ctx, span := s.tracer.Start(ctx, "fs.Rename", trace.WithAttributes(
-		attribute.String("file.old_path", oldPath),
-		attribute.String("file.new_path", newPath),
+		tracing.FileOldPath.String(oldPath),
+		tracing.FileNewPath.String(newPath),
 	))
 	defer span.End()
 
@@ -110,7 +109,7 @@ func (s *TraceableFileSystem) Rename(ctx context.Context, oldPath string, newPat
 
 func (s *TraceableFileSystem) RemoveFile(ctx context.Context, path string) error {
 	ctx, span := s.tracer.Start(ctx, "fs.RemoveFile", trace.WithAttributes(
-		attribute.String("file.path", path),
+		tracing.FilePath.String(path),
 	))
 	defer span.End()
 

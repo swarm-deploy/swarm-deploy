@@ -31,6 +31,16 @@ export function deleteNodeLabel(nodeID: string, key: string): Promise<void> {
   });
 }
 
-export function fetchNetworks(): Promise<NetworksResponse> {
-  return apiRequest<NetworksResponse>("/api/v1/networks");
+export interface FetchNetworksOptions {
+  stacks?: string[];
+}
+
+export function fetchNetworks(options: FetchNetworksOptions = {}): Promise<NetworksResponse> {
+  const params = new URLSearchParams();
+  for (const stack of options.stacks ?? []) {
+    params.append("stack", stack);
+  }
+
+  const query = params.toString();
+  return apiRequest<NetworksResponse>(`/api/v1/networks${query ? `?${query}` : ""}`);
 }

@@ -2,113 +2,34 @@ package stackloop
 
 import (
 	"context"
-	"errors"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
-	"github.com/swarm-deploy/swarm-deploy/internal/deployer"
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement"
 	alertmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/model"
 	alertstore "github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/modelstore"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer"
 	deploymentmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/model"
 	deploymentstore "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/modelstore"
+	eventbus "github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	eventhistory "github.com/swarm-deploy/swarm-deploy/internal/modules/event/history"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/outbox"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackloop/policies"
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
-	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/model"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	"go.uber.org/mock/gomock"
 )
-
-func TestImagePolicyViolation(t *testing.T) {
-	digest := "nginx@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-	latestDigest := "nginx:latest@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-	tests := []struct {
-		name   string
-		policy config.ImagePolicySpec
-		image  string
-		want   string
-	}{
-		{name: "disabled allows malformed", image: "%%%"},
-		{name: "required allows tag", policy: imagePolicy(true, false, false), image: "nginx:1.27"},
-		{name: "required allows digest", policy: imagePolicy(true, false, false), image: digest},
-		{name: "required rejects untagged", policy: imagePolicy(true, false, false), image: "nginx",
-			want: imageViolationRequired},
-		{name: "no latest allows explicit version", policy: imagePolicy(false, true, false), image: "nginx:1.27"},
-		{name: "no latest allows digest", policy: imagePolicy(false, true, false), image: digest},
-		{name: "no latest rejects explicit latest", policy: imagePolicy(false, true, false), image: "nginx:latest",
-			want: imageViolationLatest},
-		{name: "no latest rejects explicit latest with digest", policy: imagePolicy(false, true, false),
-			image: latestDigest, want: imageViolationLatest},
-		{name: "no latest rejects implicit latest", policy: imagePolicy(false, true, false), image: "nginx",
-			want: imageViolationLatest},
-		{name: "only sha rejects tag", policy: imagePolicy(false, false, true), image: "nginx:1.27",
-			want: imageViolationOnlySHA},
-		{name: "only sha allows digest", policy: imagePolicy(false, false, true), image: digest},
-		{name: "enabled policy rejects malformed", policy: imagePolicy(true, false, false), image: "%%%",
-			want: imageViolationInvalid},
-	}
-	for _, testCase := range tests {
-		t.Run(testCase.name, func(t *testing.T) {
-			assert.Equal(t, testCase.want, imagePolicyViolation(testCase.policy, testCase.image))
-		})
-	}
-}
-
-func TestCheckImagePolicyValidatesInitJobs(t *testing.T) {
-	digest := "example/api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-	jobDigest := "example/migrate@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-	tests := []struct {
-		name   string
-		policy config.ImagePolicySpec
-		image  string
-		code   string
-	}{
-		{name: "required", policy: imagePolicy(true, false, false), image: "example/migrate",
-			code: imageViolationRequired},
-		{name: "no latest", policy: imagePolicy(false, true, false), image: "example/migrate:latest",
-			code: imageViolationLatest},
-		{name: "only sha", policy: imagePolicy(false, false, true), image: "example/migrate:1.2.3",
-			code: imageViolationOnlySHA},
-		{name: "no latest allows digest only", policy: imagePolicy(false, true, false), image: jobDigest},
-		{name: "disabled", image: "%%%"},
-	}
-	for _, testCase := range tests {
-		t.Run(testCase.name, func(t *testing.T) {
-			reconciler := &Reconciler{cfg: &config.Config{Spec: config.Spec{Sync: config.SyncSpec{
-				Policy: config.SyncPolicySpec{Image: testCase.policy},
-			}}}}
-			err := reconciler.checkImagePolicy(t.Context(), &pipelinePayload{Desired: &compose.File{
-				Path: "/repo/app.yaml",
-				Compose: compose.Compose{Services: compose.Services{{
-					Name: "api", Image: digest,
-					InitJobs: []compose.InitJob{{Name: "migrate", Image: testCase.image}},
-				}}},
-			}})
-			if testCase.code == "" {
-				require.NoError(t, err)
-				return
-			}
-
-			var validationErr *compose.ValidateComposeError
-			require.ErrorAs(t, err, &validationErr)
-			require.Len(t, validationErr.Issues, 1)
-			assert.Equal(t, "service", validationErr.Issues[0].ResourceType)
-			assert.Equal(t, "api", validationErr.Issues[0].ResourceName)
-			assert.Equal(t, `x-init-deploy-jobs["migrate"].image`, validationErr.Issues[0].Field)
-			assert.Equal(t, testCase.code, validationErr.Issues[0].Code)
-			assert.Contains(t, validationErr.Issues[0].Message, `init job "migrate"`)
-			assert.Contains(t, validationErr.Issues[0].Message, testCase.image)
-		})
-	}
-}
 
 func imagePolicy(required, noLatest, onlySHA bool) config.ImagePolicySpec {
 	return config.ImagePolicySpec{Tag: config.ImageTagPolicySpec{
@@ -116,64 +37,18 @@ func imagePolicy(required, noLatest, onlySHA bool) config.ImagePolicySpec {
 	}}
 }
 
-func TestCheckImagePolicyReturnsAllStructuredIssues(t *testing.T) {
-	reconciler := &Reconciler{cfg: &config.Config{Spec: config.Spec{Sync: config.SyncSpec{
-		Policy: config.SyncPolicySpec{Image: imagePolicy(false, true, false)},
-	}}}}
-	err := reconciler.checkImagePolicy(t.Context(), &pipelinePayload{Desired: &compose.File{
-		Path: "/repo/app.yaml",
-		Compose: compose.Compose{Services: compose.Services{
-			{Name: "api", Image: "nginx:latest", InitJobs: []compose.InitJob{
-				{Name: "migrate", Image: "example/migrate:latest"},
-			}},
-			{Name: "worker", Image: "registry.example/worker", InitJobs: []compose.InitJob{
-				{Name: "seed", Image: "example/seed"},
-			}},
-			{Name: "valid", Image: "registry.example/valid:1.2.3", InitJobs: []compose.InitJob{
-				{Name: "prepare", Image: "example/prepare:1.2.3"},
-			}},
-		}},
-	}})
-
-	var validationErr *compose.ValidateComposeError
-	require.ErrorAs(t, err, &validationErr)
-	assert.Equal(t, "/repo/app.yaml", validationErr.FilePath)
-	require.Len(t, validationErr.Issues, 4)
-	assert.Equal(t, compose.ValidationIssue{
-		ResourceType: "service", ResourceName: "api", Field: "image", Code: imageViolationLatest,
-		Message: `image "nginx:latest" must not use the latest tag`,
-	}, validationErr.Issues[0])
-	assert.Equal(t, compose.ValidationIssue{
-		ResourceType: "service", ResourceName: "api", Field: `x-init-deploy-jobs["migrate"].image`,
-		Code:    imageViolationLatest,
-		Message: `init job "migrate": image "example/migrate:latest" must not use the latest tag`,
-	}, validationErr.Issues[1])
-	assert.Equal(t, compose.ValidationIssue{
-		ResourceType: "service", ResourceName: "worker", Field: "image", Code: imageViolationLatest,
-		Message: `image "registry.example/worker" must not use the latest tag`,
-	}, validationErr.Issues[2])
-	assert.Equal(t, compose.ValidationIssue{
-		ResourceType: "service", ResourceName: "worker", Field: `x-init-deploy-jobs["seed"].image`,
-		Code:    imageViolationLatest,
-		Message: `init job "seed": image "example/seed" must not use the latest tag`,
-	}, validationErr.Issues[3])
-	assert.Contains(t, validationErr.Error(), `service "api": image:`)
-	assert.Contains(t, validationErr.Error(), `service "api": x-init-deploy-jobs["migrate"].image:`)
-	assert.Contains(t, validationErr.Error(), `service "worker": x-init-deploy-jobs["seed"].image:`)
-}
-
 func TestImagePolicyViolationLifecycle(t *testing.T) {
 	ctx := context.Background()
 	db, state := newSQLState(t)
-	bus := outbox.New(db)
+	bus := eventbus.NewOutboxDispatcher(outbox.New(db))
 	alerts := alertstore.NewSQLStore(db)
 	history, err := eventhistory.NewSQLStore(db, 10)
 	require.NoError(t, err)
 	cfg := &config.Config{Spec: config.Spec{
 		DataDir: filepath.Join(t.TempDir(), "data"),
-		Sync: config.SyncSpec{Policy: config.SyncPolicySpec{
+		GitOps: config.GitOpsSpec{Sync: config.SyncSpec{Policy: config.SyncPolicySpec{
 			Image: imagePolicy(false, true, false),
-		}},
+		}}},
 	}}
 	subscriber := alertmanagement.NewSQLSubscriber(alerts, bus,
 		func(alertmodel.AlertKind) []events.AlertRecipient { return nil }, cfg)
@@ -187,11 +62,11 @@ func TestImagePolicyViolationLifecycle(t *testing.T) {
 	stackDeployer := deployer.NewMockStackDeployer(ctrl)
 	serviceManager := swarm.NewMockServiceManager(ctrl)
 	repoDir := t.TempDir()
-	repository.EXPECT().WorkingDir().Return(repoDir).AnyTimes()
+	mockRepositoryFiles(repository, repoDir)
 	require.NoError(t, writeComposeFile(repoDir))
-	reconciler := New(cfg, repository, stackDeployer, &swarm.Swarm{
+	reconciler := newTestReconciler(cfg, repository, deployments.NewService(db, bus), stackDeployer, &swarm.Swarm{
 		Services: serviceManager, Configs: swarm.NewMockConfigManager(ctrl), Secrets: swarm.NewMockSecretManager(ctrl),
-	}, bus, &metrics.NopDeploys{}, state, fs.NewLocalFileSystem(), db)
+	}, bus, &metrics.NopDeploys{}, state, db)
 
 	err = reconciler.Reconcile(ctx, ReconciliationRequest{
 		Stack: config.StackSpec{Name: "app", ComposeFile: "app.yaml"}, Commit: "sha",
@@ -200,7 +75,7 @@ func TestImagePolicyViolationLifecycle(t *testing.T) {
 	var validationErr *compose.ValidateComposeError
 	require.ErrorAs(t, err, &validationErr)
 	require.Len(t, validationErr.Issues, 1)
-	assert.Equal(t, imageViolationLatest, validationErr.Issues[0].Code)
+	assert.Equal(t, policies.ImageViolationLatest, validationErr.Issues[0].Code)
 
 	drainOutbox(t, ctx, bus)
 	stored, err := alerts.List(ctx, alertstore.ListFilter{})
@@ -231,8 +106,8 @@ func TestImagePolicyViolationLifecycle(t *testing.T) {
 
 	require.NoError(t, os.WriteFile(filepath.Join(repoDir, "app.yaml"),
 		[]byte("services:\n  api:\n    image: nginx:1.27\n"), 0o600))
-	stackDeployer.EXPECT().DeployStack(gomock.Any(), "app", gomock.Any(), gomock.Any(), gomock.Any()).Return(deployer.Result{}, nil)
-	serviceManager.EXPECT().ListStackServices(gomock.Any(), "app").Return([]swarm.StackService{}, nil)
+	stackDeployer.EXPECT().DeployStack(gomock.Any(), gomock.Cond(func(req deployer.StackRequest) bool { return req.StackName == "app" })).Return(deployer.Result{}, nil)
+	serviceManager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "app"}).Return([]swarm.StackService{}, nil)
 	require.NoError(t, reconciler.Reconcile(ctx, ReconciliationRequest{
 		Stack: config.StackSpec{Name: "app", ComposeFile: "app.yaml"}, Commit: "fixed",
 	}))
@@ -253,51 +128,134 @@ func TestImagePolicyViolationLifecycle(t *testing.T) {
 	assert.Equal(t, events.TypeDeploySuccess, historyEntries[0].Type)
 }
 
-func TestImagePolicyDisabledPreservesDeployment(t *testing.T) {
+func TestComposeLoadValidationLifecycle(t *testing.T) {
+	ctx := t.Context()
 	db, state := newSQLState(t)
-	bus := outbox.New(db)
+	publications := outbox.New(db)
+	bus := eventbus.NewOutboxDispatcher(publications)
+	lastSync := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
+	previous := model.Stack{
+		LastCommit: "previous", SourceDigest: "previous-digest", LastDeployAt: lastSync, StateUpdatedAt: lastSync,
+		Status: model.StackStatus{Synced: 2},
+		Services: map[string]model.Service{
+			"swarm-deploy": {Image: "nginx:1.27", SyncStatus: model.SyncStatusSynced, SyncAt: lastSync},
+			"worker":       {Image: "busybox:1.37", SyncStatus: model.SyncStatusSynced, SyncAt: lastSync},
+		},
+	}
+	require.NoError(t, state.Update(ctx, func(runtime *model.Runtime) {
+		runtime.Stacks["app"] = previous
+		runtime.Stacks["other"] = previous
+	}))
+	alerts := alertstore.NewSQLStore(db)
+	cfg := &config.Config{Spec: config.Spec{DataDir: filepath.Join(t.TempDir(), "data")}}
+	subscriber := alertmanagement.NewSQLSubscriber(alerts, bus,
+		func(alertmodel.AlertKind) []events.AlertRecipient { return nil }, cfg)
+	require.NoError(t, bus.Subscribe(events.TypeNameDeployPreparationFailed, "alert-management", subscriber))
+	require.NoError(t, bus.Subscribe(events.TypeNameDeploySuccess, "alert-management", subscriber))
+
 	ctrl := gomock.NewController(t)
 	repository := gitx.NewMockRepository(ctrl)
 	stackDeployer := deployer.NewMockStackDeployer(ctrl)
 	serviceManager := swarm.NewMockServiceManager(ctrl)
 	repoDir := t.TempDir()
-	repository.EXPECT().WorkingDir().Return(repoDir).AnyTimes()
-	require.NoError(t, os.WriteFile(filepath.Join(repoDir, "app.yaml"), []byte(`services:
-  api:
+	mockRepositoryFiles(repository, repoDir)
+	path := filepath.Join(repoDir, "app.yaml")
+	require.NoError(t, os.WriteFile(path, []byte("services: {swarm-deploy: {image: ghcr.io/company/MyApp:v1.2}}"), 0o600))
+	const invalidImage = `image: invalid reference "ghcr.io/company/MyApp:v1.2"`
+	reconciler := newTestReconciler(cfg, repository, deployments.NewService(db, bus), stackDeployer, &swarm.Swarm{
+		Services: serviceManager, Configs: swarm.NewMockConfigManager(ctrl), Secrets: swarm.NewMockSecretManager(ctrl),
+	}, bus, &metrics.NopDeploys{}, state, db)
+	req := ReconciliationRequest{Stack: config.StackSpec{Name: "app", ComposeFile: "app.yaml"}, Commit: "invalid"}
+
+	err := reconciler.Reconcile(ctx, req)
+	var validation *compose.ValidateComposeError
+	require.ErrorAs(t, err, &validation)
+	assert.ErrorContains(t, err, "load compose")
+	assert.Equal(t, req.Stack.ComposeFile, validation.FilePath)
+	assert.ErrorContains(t, err, invalidImage)
+
+	runtime := readSQLState(t, state)
+	failed := runtime.Stacks["app"]
+	assert.Equal(t, model.StackStatus{OutOfSynced: 2}, failed.Status)
+	assert.Equal(t, req.Commit, failed.LastCommit)
+	assert.Equal(t, "preparation_failed", failed.LastError)
+	assert.True(t, failed.StateUpdatedAt.After(previous.StateUpdatedAt))
+	assert.Equal(t, previous.SourceDigest, failed.SourceDigest)
+	assert.Equal(t, previous.LastDeployAt, failed.LastDeployAt)
+	assert.Equal(t, previous.DriftedServices, failed.DriftedServices)
+	assert.Len(t, failed.Services, len(previous.Services))
+	for name, service := range previous.Services {
+		service.SyncStatus = model.SyncStatusOutOfSync
+		assert.Equal(t, service, failed.Services[name], name)
+	}
+	assert.Equal(t, previous, runtime.Stacks["other"])
+
+	published, err := publications.ListPublications(ctx, outbox.ListFilter{EventType: events.TypeNameDeployPreparationFailed})
+	require.NoError(t, err)
+	require.Len(t, published, 1)
+	failure, ok := published[0].Envelope.Event.(*events.DeployPreparationFailed)
+	require.True(t, ok)
+	assert.Empty(t, failure.Services)
+
+	attempts, err := deploymentstore.NewStore(db).List(ctx, deploymentmodel.ListFilter{})
+	require.NoError(t, err)
+	assert.Empty(t, attempts.Deployments)
+
+	drainOutbox(t, ctx, bus)
+	alert, err := alerts.FindOpenByFingerprint(ctx, alertmodel.SyncFailedFingerprint("app"))
+	require.NoError(t, err)
+	require.NotNil(t, alert)
+	assert.Equal(t, alertmodel.AlertKindSyncFailed, alert.Kind)
+	assert.Equal(t, "validation", alert.FailureStage)
+	assert.Contains(t, alert.Message, `validate compose file "app.yaml"`)
+	assert.Contains(t, alert.Message, invalidImage)
+	require.Len(t, alert.Findings, 1)
+	assert.Equal(t, faults.CodeInvalidDesiredState, alert.Findings[0].Code)
+	assert.Equal(t, "services.swarm-deploy: "+invalidImage, alert.Findings[0].Summary)
+
+	require.NoError(t, os.WriteFile(path, []byte(`services:
+  swarm-deploy:
     image: nginx:latest
+    env_file: app.env
     x-init-deploy-jobs:
       - name: migrate
         image: example/migrate:latest
+  worker:
+    image: busybox:1.37
 `), 0o600))
-	stackDeployer.EXPECT().DeployStack(gomock.Any(), "app", gomock.Any(), gomock.Any(), gomock.Any()).Return(deployer.Result{}, nil)
-	serviceManager.EXPECT().ListStackServices(gomock.Any(), "app").Return([]swarm.StackService{}, nil)
-
-	reconciler := New(&config.Config{Spec: config.Spec{DataDir: filepath.Join(t.TempDir(), "data")}}, repository,
-		stackDeployer, &swarm.Swarm{
-			Services: serviceManager, Configs: swarm.NewMockConfigManager(ctrl), Secrets: swarm.NewMockSecretManager(ctrl),
-		}, bus, &metrics.NopDeploys{}, state, fs.NewLocalFileSystem(), db)
-
-	require.NoError(t, reconciler.Reconcile(t.Context(), ReconciliationRequest{
-		Stack: config.StackSpec{Name: "app", ComposeFile: "app.yaml"}, Commit: "sha",
-	}))
-	deployments, err := deploymentstore.NewStore(db).List(t.Context(), deploymentmodel.ListFilter{})
+	require.NoError(t, os.WriteFile(filepath.Join(repoDir, "app.env"), []byte("MODE=production\n"), 0o600))
+	stackDeployer.EXPECT().DeployStack(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, request deployer.StackRequest) (deployer.Result, error) {
+			require.Len(t, request.Desired.Services, 2)
+			service := request.Desired.Services[0]
+			assert.Equal(t, "app", request.StackName)
+			assert.Equal(t, "nginx:latest", service.Image)
+			assert.Empty(t, service.EnvFiles)
+			assert.Equal(t, "production", service.Environment.Map["MODE"])
+			return deployer.Result{}, nil
+		},
+	)
+	serviceManager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "app"}).Return([]swarm.StackService{}, nil)
+	req.Commit = "fixed"
+	require.NoError(t, reconciler.Reconcile(ctx, req))
+	runtime = readSQLState(t, state)
+	recovered := runtime.Stacks["app"]
+	assert.Equal(t, model.StackStatus{Synced: 2}, recovered.Status)
+	assert.Equal(t, model.SyncStatus(model.SyncStatusSynced), recovered.ServiceSyncStatus("swarm-deploy"))
+	assert.Equal(t, model.SyncStatus(model.SyncStatusSynced), recovered.ServiceSyncStatus("worker"))
+	assert.Equal(t, previous, runtime.Stacks["other"])
+	drainOutbox(t, ctx, bus)
+	resolved, err := alerts.Get(ctx, alert.ID)
 	require.NoError(t, err)
-	require.Len(t, deployments.Deployments, 1)
-	assert.Equal(t, deploymentmodel.Succeeded, deployments.Deployments[0].Status)
+	assert.Equal(t, alertmodel.AlertStatusResolved, resolved.Status)
+
+	attempts, err = deploymentstore.NewStore(db).List(ctx, deploymentmodel.ListFilter{})
+	require.NoError(t, err)
+	require.Len(t, attempts.Deployments, 1)
+	assert.Equal(t, deploymentmodel.Succeeded, attempts.Deployments[0].Status)
 }
 
-func TestImagePolicyErrorsArePermanent(t *testing.T) {
-	err := (&Reconciler{cfg: &config.Config{Spec: config.Spec{Sync: config.SyncSpec{Policy: config.SyncPolicySpec{
-		Image: imagePolicy(false, true, false),
-	}}}}}).checkImagePolicy(context.Background(), &pipelinePayload{Desired: &compose.File{
-		Compose: compose.Compose{Services: compose.Services{{Name: "api", Image: "nginx:latest"}}},
-	}})
-	require.Error(t, err)
-	var temporary interface{ Temporary() bool }
-	assert.False(t, errors.As(err, &temporary))
-}
-
-func drainOutbox(t *testing.T, ctx context.Context, bus *outbox.Bus) {
+func drainOutbox(t *testing.T, ctx context.Context, bus *eventbus.OutboxDispatcher) {
 	t.Helper()
 	for {
 		processed, err := bus.ProcessNext(ctx)

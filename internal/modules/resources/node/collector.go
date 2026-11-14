@@ -22,7 +22,7 @@ const observedJoinTTL = 10 * time.Minute
 
 // Collector collects and persists swarm nodes snapshot.
 type Collector struct {
-	db             *storage.Database
+	db             storage.Database
 	inspector      swarm.NodeManager
 	store          *SQLStore
 	dispatcher     dispatcher.Dispatcher
@@ -37,7 +37,7 @@ func NewNodeCollector(
 	inspector swarm.NodeManager,
 	store *SQLStore,
 	eventDispatcher dispatcher.Dispatcher,
-	db *storage.Database,
+	db storage.Database,
 	subscription swarm.EventSubscription[swarm.NodeEvent],
 ) *Collector {
 	return &Collector{
@@ -69,6 +69,9 @@ func (c *Collector) watch(ctx context.Context, retryPending bool) error {
 	// A failed snapshot must be retried even if Docker sends no more events.
 	// A successful reconciliation clears the retry state to avoid needless polling.
 	reconcile := func(reason string) {
+		if ctx.Err() != nil {
+			return
+		}
 		retryPending = !c.reconcileWithWarning(ctx, reason)
 	}
 

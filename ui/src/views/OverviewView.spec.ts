@@ -1,16 +1,21 @@
 import { flushPromises, mount } from "@vue/test-utils";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { createMemoryHistory, createRouter } from "vue-router";
+import { ApiError } from "../api/client";
+import type { StackView, SyncInfo } from "../api/types";
 import OverviewView from "./OverviewView.vue";
-import { fetchDeployments, fetchEvents } from "../api/overview";
+import { fetchDeployments, fetchEvent, fetchEvents } from "../api/overview";
 
 const store = vi.hoisted(() => ({
-  syncInfo: null, services: [], stacks: [], loading: false, loadingError: "",
+  syncInfo: null as SyncInfo | null, services: [], stacks: [] as StackView[], loading: false, loadingError: "",
   loadOverview: vi.fn().mockResolvedValue(undefined),
+  syncPending: false, triggerManualSync: vi.fn().mockResolvedValue(undefined),
   openCommitDetailsModal: vi.fn(), openDeploymentDetailsModal: vi.fn(), openStackManifestModal: vi.fn(), openAlertDetailsModal: vi.fn(),
 }));
 vi.mock("../stores/overview", () => ({ useOverviewStore: () => store }));
 vi.mock("../api/overview", () => ({
   fetchDeployments: vi.fn(),
+  fetchEvent: vi.fn(),
   fetchEvents: vi.fn(),
   fetchAlerts: vi.fn().mockResolvedValue({ alerts: [] }),
   fetchRecommendations: vi.fn().mockResolvedValue({ recommendations: [] }),
@@ -59,6 +64,129 @@ describe("Latest deployments", () => {
     await wrapper.findAll(".overview-summary-sha-badge")[0].trigger("click");
     expect(store.openCommitDetailsModal).toHaveBeenCalledWith("abc123");
     expect(store.openDeploymentDetailsModal).toHaveBeenCalledTimes(1);
+    wrapper.unmount();
+  });
+});
+
+describe("Overview stack navigation", () => {
+  it("uses a full-card native link and keeps Compare and Commit independent", async () => {
+    store.stacks = [{ name: "app", compose_file: "app.yaml", status: { synced: 1, out_of_synced: 0 }, last_commit: "abcdef123" }];
+    vi.mocked(fetchDeployments).mockResolvedValue({ deployments: [] });
+    const router = createRouter({ history: createMemoryHistory(), routes: [
+      { path: "/overview", component: OverviewView },
+      { path: "/stacks/:stack", name: "stack-details", component: { template: "<div />" } },
+      { path: "/deployments", component: { template: "<div />" } },
+      { path: "/events", component: { template: "<div />" } },
+      { path: "/recommendations", component: { template: "<div />" } },
+    ] });
+    await router.push("/overview");
+    const wrapper = mount(OverviewView, { global: { plugins: [router] } });
+    await flushPromises();
+    const card = wrapper.get(".overview-stack-card");
+    const link = card.get("a.stack-card-link");
+    expect(link.attributes("href")).toBe("/stacks/app");
+    expect(link.attributes("tabindex")).not.toBe("-1");
+    await card.get(".overview-stack-card-action").trigger("click");
+    await card.get(".overview-stack-commit-badge").trigger("click");
+    await flushPromises();
+    expect(store.openStackManifestModal).toHaveBeenCalledWith("app");
+    expect(store.openCommitDetailsModal).toHaveBeenCalledWith("abcdef123");
+    expect(router.currentRoute.value.path).toBe("/overview");
+    await link.trigger("click");
+    await flushPromises();
+    expect(router.currentRoute.value.path).toBe("/stacks/app");
+    wrapper.unmount();
+    store.stacks = [];
+  });
+});
+
+describe("GitOps status bar", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    store.syncInfo = null;
+    store.stacks = [];
+    store.loadingError = "";
+    store.syncPending = false;
+    vi.mocked(fetchDeployments).mockResolvedValue({ deployments: [] });
+  });
+
+  it("renders present sections, opens webhook and commit details, and owns Sync now", async () => {
+    store.syncInfo = {
+      last_poll: { at: "2026-11-04T13:57:43Z", result: "no_change", error: "" },
+      last_webhook: {
+        event_id: "c0e8a2f1-1234-4567-890a-123456789abc",
+        at: "2026-11-04T13:42:07Z",
+        queued: true,
+      },
+      last_revision: "6b220e1234567890abcdef1234567890abcdef12",
+    };
+    vi.mocked(fetchEvent).mockResolvedValue({
+      id: "c0e8a2f1-1234-4567-890a-123456789abc",
+      type: "WebhookReceived",
+      severity: "info",
+      category: "sync",
+      created_at: "2026-11-04T13:42:07Z",
+      message: "Webhook received",
+      details: { queued: "true" },
+    });
+    const wrapper = mount(OverviewView, { global: { stubs: { RouterLink: { template: "<a><slot /></a>" } } } });
+    await flushPromises();
+
+    expect(wrapper.text()).toContain("Last poll:");
+    expect(wrapper.text()).toContain("Last webhook:");
+    expect(wrapper.text()).toContain("Last revision:");
+    expect(wrapper.findAll(".overview-sync-separator")).toHaveLength(2);
+    expect(wrapper.get(".overview-sync-indicator--success").text()).toBe("✓");
+    expect(wrapper.findAll(".overview-sync-label")).toHaveLength(3);
+    expect(wrapper.find(".overview-sync-panel strong").exists()).toBe(false);
+    expect(wrapper.get(".overview-sync-button").element.parentElement).toBe(wrapper.get(".overview-sync-row").element);
+    expect(wrapper.get(".overview-sync-button").element.parentElement).not.toBe(wrapper.get(".overview-sync-panel").element);
+
+    await wrapper.get(".overview-webhook-details").trigger("click");
+    expect(fetchEvent).toHaveBeenCalledWith("c0e8a2f1-1234-4567-890a-123456789abc");
+    await flushPromises();
+    expect(wrapper.get('[aria-label="Event metadata"]').text()).toContain("WebhookReceived");
+    expect(wrapper.get(".overview-event-details").text()).toContain("queued");
+    expect(wrapper.get(".overview-event-details").text()).toContain("true");
+
+    await wrapper.get(".overview-sync-commit-badge").trigger("click");
+    expect(store.openCommitDetailsModal).toHaveBeenCalledWith("6b220e1234567890abcdef1234567890abcdef12");
+    expect(wrapper.get(".overview-sync-commit-badge").find("svg").exists()).toBe(false);
+
+    await wrapper.get(".overview-sync-button").trigger("click");
+    expect(store.triggerManualSync).toHaveBeenCalledOnce();
+    wrapper.unmount();
+  });
+
+  it("shows empty present objects and hides absent sections with their separators", async () => {
+    store.syncInfo = { last_webhook: {} };
+    const wrapper = mount(OverviewView, { global: { stubs: { RouterLink: { template: "<a><slot /></a>" } } } });
+    await flushPromises();
+
+    expect(wrapper.text()).not.toContain("Last poll:");
+    expect(wrapper.get(".overview-sync-item").text()).toContain("Last webhook:");
+    expect(wrapper.get(".overview-sync-item").text()).toContain("—");
+    expect(wrapper.text()).not.toContain("Last revision:");
+    expect(wrapper.find(".overview-sync-separator").exists()).toBe(false);
+    wrapper.unmount();
+  });
+
+  it("explains a webhook event removed by retention", async () => {
+    store.syncInfo = {
+      last_webhook: {
+        event_id: "c0e8a2f1-1234-4567-890a-123456789abc",
+        at: "2026-11-04T13:42:07Z",
+        queued: false,
+      },
+    };
+    vi.mocked(fetchEvent).mockRejectedValue(new ApiError("event not found", 404));
+    const wrapper = mount(OverviewView, { global: { stubs: { RouterLink: { template: "<a><slot /></a>" } } } });
+    await flushPromises();
+
+    expect(wrapper.get(".overview-sync-indicator--warning").attributes("title")).toBe("Received but not queued");
+    await wrapper.get(".overview-webhook-details").trigger("click");
+    await flushPromises();
+    expect(wrapper.text()).toContain("removed by event history retention");
     wrapper.unmount();
   });
 });

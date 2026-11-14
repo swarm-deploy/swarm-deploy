@@ -5,7 +5,9 @@ import (
 	"context"
 	"database/sql"
 	"encoding/base64"
-	"encoding/json"
+	jsonv1 "encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"strconv"
@@ -13,7 +15,6 @@ import (
 	"time"
 
 	"github.com/doug-martin/goqu/v9"
-	_ "github.com/doug-martin/goqu/v9/dialect/sqlite3"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	deploymentmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/storage"
@@ -31,13 +32,11 @@ var ErrInvalidCursor = errors.New("invalid deployment cursor")
 // ErrLogsUnavailable means an Init Job execution exists but its Docker logs could not be collected.
 var ErrLogsUnavailable = errors.New("init job logs unavailable")
 
-var dialect = goqu.Dialect("sqlite3")
-
 // Store provides context-aware deployment and snapshot queries.
-type Store struct{ db *storage.Database }
+type Store struct{ db storage.Database }
 
 // NewStore creates a deployment repository on the application database.
-func NewStore(db *storage.Database) *Store { return &Store{db: db} }
+func NewStore(db storage.Database) *Store { return &Store{db: db} }
 
 // FilterOptions returns stack and service names represented by desired-state deployments.
 func (s *Store) FilterOptions(ctx context.Context) ([]string, []FilterService, error) {
@@ -74,6 +73,111 @@ type FilterService struct {
 	ServiceName string `db:"service_name"`
 }
 
+// ActivityInterval identifies the UTC bucket size used for deployment activity.
+type ActivityInterval string
+
+const (
+	activityDaysPerWeek = 7
+	// ActivityIntervalDaily groups deployment starts by UTC calendar day.
+	ActivityIntervalDaily ActivityInterval = "daily"
+	// ActivityIntervalWeekly groups deployment starts by Monday-based UTC calendar week.
+	ActivityIntervalWeekly ActivityInterval = "weekly"
+)
+
+// ActivityBucket contains final deployment status counts for one UTC period.
+type ActivityBucket struct {
+	// Start is the inclusive UTC bucket boundary.
+	Start time.Time
+	// Succeeded is the number of successful deployments.
+	Succeeded int
+	// Failed is the number of failed deployments that have not been superseded.
+	Failed int
+	// Running is the number of currently running deployments.
+	Running int
+	// Interrupted is the number of interrupted deployments that have not been superseded.
+	Interrupted int
+	// Superseded is the number of failed or interrupted deployments replaced by newer desired state.
+	Superseded int
+}
+
+// Activity returns chronological, zero-filled deployment status counts for [start, end).
+func (s *Store) Activity(
+	ctx context.Context,
+	stack string,
+	interval ActivityInterval,
+	start time.Time,
+	end time.Time,
+) ([]ActivityBucket, error) {
+	if interval != ActivityIntervalDaily && interval != ActivityIntervalWeekly {
+		return nil, fmt.Errorf("unsupported deployment activity interval %q", interval)
+	}
+	start, end = start.UTC(), end.UTC()
+	if !start.Before(end) {
+		return nil, fmt.Errorf("deployment activity start must be before end")
+	}
+
+	dayExpression := `date(deployments.started_at / 1000000000, 'unixepoch')`
+	if interval == ActivityIntervalWeekly {
+		dayExpression = `date(deployments.started_at / 1000000000, 'unixepoch', printf('-%d days',
+			(CAST(strftime('%w', deployments.started_at / 1000000000, 'unixepoch') AS INTEGER) + 6) % 7))`
+	}
+	query := `SELECT ` + dayExpression + ` AS bucket_date,
+		CASE WHEN ` + supersededPredicate + ` THEN 'superseded' ELSE deployments.status END AS status,
+		COUNT(*) AS count
+		FROM deployments
+		WHERE deployments.stack = ? AND deployments.started_at >= ? AND deployments.started_at < ?
+		GROUP BY bucket_date, status
+		ORDER BY bucket_date, status`
+	var rows []struct {
+		BucketDate string                 `db:"bucket_date"`
+		Status     deploymentmodel.Status `db:"status"`
+		Count      int                    `db:"count"`
+	}
+	if err := s.db.Select(ctx, &rows, query, stack, start.UnixNano(), end.UnixNano()); err != nil {
+		return nil, err
+	}
+
+	buckets := make([]ActivityBucket, 0)
+	byStart := map[time.Time]int{}
+	for bucketStart := start; bucketStart.Before(end); bucketStart = nextActivityBucket(bucketStart, interval) {
+		byStart[bucketStart] = len(buckets)
+		buckets = append(buckets, ActivityBucket{Start: bucketStart})
+	}
+	for _, row := range rows {
+		bucketStart, err := time.Parse("2006-01-02", row.BucketDate)
+		if err != nil {
+			return nil, fmt.Errorf("parse deployment activity bucket %q: %w", row.BucketDate, err)
+		}
+		index, found := byStart[bucketStart]
+		if !found {
+			return nil, fmt.Errorf("deployment activity bucket %s outside requested range", bucketStart)
+		}
+		bucket := &buckets[index]
+		switch row.Status {
+		case deploymentmodel.Succeeded:
+			bucket.Succeeded = row.Count
+		case deploymentmodel.Failed:
+			bucket.Failed = row.Count
+		case deploymentmodel.Running:
+			bucket.Running = row.Count
+		case deploymentmodel.Interrupted:
+			bucket.Interrupted = row.Count
+		case deploymentmodel.Superseded:
+			bucket.Superseded = row.Count
+		default:
+			return nil, fmt.Errorf("unsupported deployment activity status %q", row.Status)
+		}
+	}
+	return buckets, nil
+}
+
+func nextActivityBucket(start time.Time, interval ActivityInterval) time.Time {
+	if interval == ActivityIntervalWeekly {
+		return start.AddDate(0, 0, activityDaysPerWeek)
+	}
+	return start.AddDate(0, 0, 1)
+}
+
 var summaryColumns = []any{
 	"id", "stack", "commit", "status", "error_code", "phase", "started_at", "finished_at", "details_payload",
 	goqu.L(`(SELECT attempt.id FROM deployment_attempts AS attempt
@@ -93,15 +197,8 @@ const supersededPredicate = `deployments.status IN ('failed','interrupted') AND 
 
 // List returns a lightweight page without loading desired snapshots or change arrays.
 func (s *Store) List(ctx context.Context, filter deploymentmodel.ListFilter) (deploymentmodel.Page, error) {
-	dataset := dialect.From("deployments").Prepared(true).Select(summaryColumns...)
-	if filter.Stack != "" {
-		dataset = dataset.Where(goqu.Ex{"stack": filter.Stack})
-	}
-	if filter.Service != "" {
-		const serviceQuery = `EXISTS (SELECT 1 FROM json_each(deployments.desired_payload,
-			'$.definition.compose.services') AS svc WHERE json_extract(svc.value, '$.name') = ?)`
-		dataset = dataset.Where(goqu.L(serviceQuery, filter.Service))
-	}
+	dataset := s.db.Dialect().From("deployments").Prepared(true).Select(summaryColumns...)
+	dataset = filterDeploymentIdentities(dataset, filter)
 	if filter.Status != "" {
 		if filter.Status == deploymentmodel.Superseded {
 			dataset = dataset.Where(goqu.L(supersededPredicate))
@@ -157,6 +254,21 @@ func (s *Store) List(ctx context.Context, filter deploymentmodel.ListFilter) (de
 		page.Deployments = items[:limit]
 	}
 	return page, nil
+}
+
+func filterDeploymentIdentities(
+	dataset *goqu.SelectDataset,
+	filter deploymentmodel.ListFilter,
+) *goqu.SelectDataset {
+	if len(filter.Stacks) > 0 {
+		dataset = dataset.Where(goqu.Ex{"stack": filter.Stacks})
+	}
+	if len(filter.Services) > 0 {
+		serviceNames := goqu.L("json_extract(svc.value, '$.name')").In(filter.Services)
+		dataset = dataset.Where(goqu.L(`EXISTS (SELECT 1 FROM json_each(deployments.desired_payload,
+			'$.definition.compose.services') AS svc WHERE ?)`, serviceNames))
+	}
+	return dataset
 }
 
 // ListServiceDeployments returns only recent attempts and display fields for one service.
@@ -219,7 +331,12 @@ type summaryRow struct {
 }
 
 type deploymentDetails struct {
+	// UpdateGenerations retains only non-secret pre-update boundaries.
+	UpdateGenerations map[string]deploymentmodel.UpdateGeneration `json:"update_generations,omitempty"`
+	// UnresolvedServices retains verification obligations across desired-state deployments.
+	UnresolvedServices []string                          `json:"unresolved_services"`
 	ErrorDiagnostic    string                            `json:"error_diagnostic,omitempty"`
+	Retryable          bool                              `json:"retryable,omitzero"`
 	ApplyStatus        deploymentmodel.StageStatus       `json:"apply_status"`
 	VerificationStatus deploymentmodel.StageStatus       `json:"verification_status"`
 	CleanupStatus      deploymentmodel.StageStatus       `json:"cleanup_status"`
@@ -263,7 +380,9 @@ type attemptRow struct {
 
 func detailsFromDeployment(d deploymentmodel.Deployment) deploymentDetails {
 	return deploymentDetails{
-		ErrorDiagnostic: d.ErrorDiagnostic, ApplyStatus: d.ApplyStatus,
+		UnresolvedServices: persistedUnresolvedServices(d.Verification),
+		UpdateGenerations:  d.Verification.Generations,
+		ErrorDiagnostic:    d.ErrorDiagnostic, Retryable: d.Retryable, ApplyStatus: d.ApplyStatus,
 		VerificationStatus: d.VerificationStatus, CleanupStatus: d.CleanupStatus,
 		ActualStateStatus: d.ActualStateStatus, ObservedAt: d.ObservedAt,
 		ComparisonBasis: d.ComparisonBasis, ComparisonStatus: d.ComparisonStatus,
@@ -273,7 +392,8 @@ func detailsFromDeployment(d deploymentmodel.Deployment) deploymentDetails {
 }
 
 func marshalDeploymentPayloads(d deploymentmodel.Deployment) (string, string, error) {
-	details, err := json.Marshal(detailsFromDeployment(d))
+	details, err := json.Marshal(detailsFromDeployment(d),
+		json.FormatNilSliceAsNull(true), jsontext.AllowInvalidUTF8(true))
 	if err != nil {
 		return "", "", err
 	}
@@ -306,8 +426,12 @@ func (row deploymentRow) deployment() (deploymentmodel.Deployment, error) {
 	}
 	result := deploymentmodel.Deployment{
 		ID: row.ID, Stack: row.Stack, Commit: row.Commit, Status: projectedStatus(row.Status, row.IsSuperseded),
+		Verification: deploymentmodel.Verification{
+			Known: details.UnresolvedServices != nil, UnresolvedServices: details.UnresolvedServices,
+			Generations: details.UpdateGenerations,
+		},
 		StartedAt: row.StartedAt.UTC(), ErrorCode: row.ErrorCode,
-		ErrorDiagnostic: details.ErrorDiagnostic, Phase: row.Phase,
+		ErrorDiagnostic: details.ErrorDiagnostic, Retryable: details.Retryable, Phase: row.Phase,
 		ApplyStatus: details.ApplyStatus, VerificationStatus: details.VerificationStatus,
 		CleanupStatus: details.CleanupStatus, ActualStateStatus: details.ActualStateStatus,
 		ObservedAt: details.ObservedAt, ComparisonBasis: details.ComparisonBasis,
@@ -365,7 +489,7 @@ func (row attemptRow) attempt() (deploymentmodel.Attempt, error) {
 	result := deploymentmodel.Attempt{
 		ID: row.ID, DeploymentID: row.DeploymentID, Number: row.Number, Status: row.Status,
 		StartedAt: row.StartedAt.UTC(), ErrorCode: row.ErrorCode,
-		ErrorDiagnostic: details.ErrorDiagnostic, Phase: row.Phase,
+		ErrorDiagnostic: details.ErrorDiagnostic, Retryable: details.Retryable, Phase: row.Phase,
 		ApplyStatus: details.ApplyStatus, VerificationStatus: details.VerificationStatus,
 		CleanupStatus: details.CleanupStatus, ActualStateStatus: details.ActualStateStatus,
 		ObservedAt: details.ObservedAt,
@@ -415,7 +539,7 @@ func (s *Store) initJobs(
 }
 
 func (s *Store) attempts(ctx context.Context, deploymentID string) ([]deploymentmodel.Attempt, error) {
-	query, args, err := dialect.From("deployment_attempts").Prepared(true).
+	query, args, err := s.db.Dialect().From("deployment_attempts").Prepared(true).
 		Select("id", "deployment_id", "number", "status", "error_code", "phase",
 			"started_at", "finished_at", "details_payload").
 		Where(goqu.Ex{"deployment_id": deploymentID}).Order(goqu.I("number").Desc()).ToSQL()
@@ -439,7 +563,7 @@ func (s *Store) attempts(ctx context.Context, deploymentID string) ([]deployment
 
 // GetAttempt loads one persisted deployment attempt.
 func (s *Store) GetAttempt(ctx context.Context, id string) (deploymentmodel.Attempt, error) {
-	query, args, err := dialect.From("deployment_attempts").Prepared(true).
+	query, args, err := s.db.Dialect().From("deployment_attempts").Prepared(true).
 		Select("id", "deployment_id", "number", "status", "error_code", "phase",
 			"started_at", "finished_at", "details_payload").
 		Where(goqu.Ex{"id": id}).ToSQL()
@@ -455,7 +579,7 @@ func (s *Store) GetAttempt(ctx context.Context, id string) (deploymentmodel.Atte
 
 // RunningAttempts returns persisted running attempts, optionally restricted to one stack.
 func (s *Store) RunningAttempts(ctx context.Context, stack string) ([]deploymentmodel.Attempt, error) {
-	dataset := dialect.From(goqu.T("deployment_attempts").As("attempt")).Prepared(true).
+	dataset := s.db.Dialect().From(goqu.T("deployment_attempts").As("attempt")).Prepared(true).
 		Join(goqu.T("deployments").As("deployment"),
 			goqu.On(goqu.I("deployment.id").Eq(goqu.I("attempt.deployment_id")))).
 		Select(
@@ -510,7 +634,7 @@ func (s *Store) Get(ctx context.Context, id string) (deploymentmodel.Deployment,
 	var row deploymentRow
 	columns := append([]any{}, summaryColumns...)
 	columns = append(columns, "changes_payload")
-	query, args, err := dialect.From("deployments").Prepared(true).
+	query, args, err := s.db.Dialect().From("deployments").Prepared(true).
 		Select(columns...).
 		Where(goqu.Ex{"id": id}).ToSQL()
 	if err != nil {
@@ -546,7 +670,7 @@ func (s *Store) SaveInitJobExecution(ctx context.Context, execution deploymentmo
 	if execution.LogsAvailable {
 		logs = execution.Logs
 	}
-	query, args, err := dialect.Insert("deployment_init_jobs").Prepared(true).Rows(goqu.Record{
+	query, args, err := s.db.Dialect().Insert("deployment_init_jobs").Prepared(true).Rows(goqu.Record{
 		"attempt_id": execution.AttemptID, "ordinal": execution.Ordinal,
 		"service_name": execution.ServiceName, "job_name": execution.JobName, "status": execution.Status,
 		"started_at": execution.StartedAt.UTC(), "finished_at": execution.FinishedAt.UTC(),
@@ -588,7 +712,7 @@ func (s *Store) InitJobLogs(
 
 // Desired loads a deployment's safe desired definition for independent subscribers.
 func (s *Store) Desired(ctx context.Context, id string) (compose.File, error) {
-	query, args, err := dialect.From("deployments").Prepared(true).
+	query, args, err := s.db.Dialect().From("deployments").Prepared(true).
 		Select("desired_payload").Where(goqu.Ex{"id": id}).ToSQL()
 	if err != nil {
 		return compose.File{}, err
@@ -599,7 +723,7 @@ func (s *Store) Desired(ctx context.Context, id string) (compose.File, error) {
 
 // Baseline returns only the last successfully committed effective desired state.
 func (s *Store) Baseline(ctx context.Context, stack string) (deploymentmodel.Prepared, error) {
-	query, args, err := dialect.From(goqu.T("desired_snapshots").As("snapshot")).Prepared(true).
+	query, args, err := s.db.Dialect().From(goqu.T("desired_snapshots").As("snapshot")).Prepared(true).
 		Join(goqu.T("deployments").As("deployment"),
 			goqu.On(goqu.I("deployment.id").Eq(goqu.I("snapshot.deployment_id")))).
 		Select(goqu.I("deployment.desired_payload")).
@@ -617,14 +741,14 @@ func (s *Store) getPrepared(ctx context.Context, query string, args ...any) (dep
 		return deploymentmodel.Prepared{}, err
 	}
 	var desired deploymentmodel.Prepared
-	err := json.Unmarshal(payload, &desired)
+	err := json.Unmarshal(payload, &desired, jsonv1.DefaultOptionsV1())
 	return desired, err
 }
 
 // BaselineDeploymentID returns the deployment backing a stack's successful baseline.
 func (s *Store) BaselineDeploymentID(ctx context.Context, stack string) (string, error) {
 	var id string
-	query, args, err := dialect.From("desired_snapshots").Prepared(true).
+	query, args, err := s.db.Dialect().From("desired_snapshots").Prepared(true).
 		Select("deployment_id").Where(goqu.Ex{"stack": stack}).ToSQL()
 	if err != nil {
 		return "", err
@@ -639,7 +763,7 @@ func (s *Store) Latest(
 	stack string,
 ) (deploymentmodel.Deployment, deploymentmodel.Prepared, error) {
 	var id string
-	query, args, err := dialect.From("deployments").Prepared(true).Select("id").
+	query, args, err := s.db.Dialect().From("deployments").Prepared(true).Select("id").
 		Where(goqu.Ex{"stack": stack}).Order(goqu.I("rowid").Desc()).Limit(1).ToSQL()
 	if err != nil {
 		return deploymentmodel.Deployment{}, deploymentmodel.Prepared{}, err
@@ -657,7 +781,7 @@ func (s *Store) Latest(
 
 // LegacyRunning returns running deployments that predate persisted attempts.
 func (s *Store) LegacyRunning(ctx context.Context, stack string) ([]deploymentmodel.Deployment, error) {
-	dataset := dialect.From("deployments").Prepared(true).Select("id").
+	dataset := s.db.Dialect().From("deployments").Prepared(true).Select("id").
 		Where(
 			goqu.Ex{"status": deploymentmodel.Running},
 			goqu.L(`NOT EXISTS (SELECT 1 FROM deployment_attempts AS attempt
@@ -686,7 +810,7 @@ func (s *Store) LegacyRunning(ctx context.Context, stack string) ([]deploymentmo
 }
 
 func (s *Store) prepared(ctx context.Context, id string) (deploymentmodel.Prepared, error) {
-	query, args, err := dialect.From("deployments").Prepared(true).
+	query, args, err := s.db.Dialect().From("deployments").Prepared(true).
 		Select("desired_payload").Where(goqu.Ex{"id": id}).ToSQL()
 	if err != nil {
 		return deploymentmodel.Prepared{}, err
@@ -712,7 +836,7 @@ func (s *Store) CreateDeployment(
 	if d.StartedAt.IsZero() {
 		return fmt.Errorf("deployment start time is required")
 	}
-	safe, err := json.Marshal(desired)
+	safe, err := json.Marshal(desired, jsonv1.DefaultOptionsV1())
 	if err != nil {
 		return err
 	}
@@ -720,7 +844,7 @@ func (s *Store) CreateDeployment(
 	if err != nil {
 		return err
 	}
-	query, args, err := dialect.Insert("deployments").Prepared(true).Rows(goqu.Record{
+	query, args, err := s.db.Dialect().Insert("deployments").Prepared(true).Rows(goqu.Record{
 		"id": d.ID, "stack": d.Stack, "commit": d.Commit, "status": d.Status,
 		"error_code": d.ErrorCode, "phase": d.Phase, "started_at": d.StartedAt.UTC(),
 		"desired_payload": string(safe), "details_payload": details, "changes_payload": changes,
@@ -740,13 +864,14 @@ func (s *Store) StartAttempt(ctx context.Context, d deploymentmodel.Deployment, 
 		return err
 	}
 	d.ErrorDiagnostic, d.ApplyStatus = "", deploymentmodel.StageRunning
+	d.Retryable = false
 	d.VerificationStatus, d.CleanupStatus = deploymentmodel.StagePending, deploymentmodel.StagePending
 	d.ActualStateStatus, d.ObservedAt = deploymentmodel.ActualStateUnknown, nil
 	details, _, err := marshalDeploymentPayloads(d)
 	if err != nil {
 		return err
 	}
-	query, args, err := dialect.Update("deployments").Prepared(true).Set(goqu.Record{
+	query, args, err := s.db.Dialect().Update("deployments").Prepared(true).Set(goqu.Record{
 		"status": deploymentmodel.Running, "error_code": "", "phase": deploymentmodel.PhaseApply,
 		"finished_at": nil, "details_payload": details,
 	}).Where(
@@ -774,11 +899,11 @@ func (s *Store) insertAttemptRow(ctx context.Context, attempt deploymentmodel.At
 	details, err := json.Marshal(deploymentDetails{
 		ApplyStatus: attempt.ApplyStatus, VerificationStatus: attempt.VerificationStatus,
 		CleanupStatus: attempt.CleanupStatus, ActualStateStatus: attempt.ActualStateStatus,
-	})
+	}, json.FormatNilSliceAsNull(true), jsontext.AllowInvalidUTF8(true))
 	if err != nil {
 		return err
 	}
-	query, args, err := dialect.Insert("deployment_attempts").Prepared(true).Rows(goqu.Record{
+	query, args, err := s.db.Dialect().Insert("deployment_attempts").Prepared(true).Rows(goqu.Record{
 		"id": attempt.ID, "deployment_id": attempt.DeploymentID, "number": attempt.Number,
 		"status": attempt.Status, "error_code": attempt.ErrorCode, "phase": attempt.Phase,
 		"started_at": attempt.StartedAt.UTC(), "details_payload": string(details),
@@ -800,14 +925,14 @@ func (s *Store) FinishAttempt(
 		return fmt.Errorf("terminal attempt requires finish time")
 	}
 	attemptDetails, err := json.Marshal(deploymentDetails{
-		ErrorDiagnostic: attempt.ErrorDiagnostic, ApplyStatus: attempt.ApplyStatus,
+		ErrorDiagnostic: attempt.ErrorDiagnostic, Retryable: attempt.Retryable, ApplyStatus: attempt.ApplyStatus,
 		VerificationStatus: attempt.VerificationStatus, CleanupStatus: attempt.CleanupStatus,
 		ActualStateStatus: attempt.ActualStateStatus, ObservedAt: attempt.ObservedAt,
-	})
+	}, json.FormatNilSliceAsNull(true), jsontext.AllowInvalidUTF8(true))
 	if err != nil {
 		return err
 	}
-	query, args, err := dialect.Update("deployment_attempts").Prepared(true).Set(goqu.Record{
+	query, args, err := s.db.Dialect().Update("deployment_attempts").Prepared(true).Set(goqu.Record{
 		"status": attempt.Status, "error_code": attempt.ErrorCode, "phase": attempt.Phase,
 		"finished_at": attempt.FinishedAt.UTC(), "details_payload": string(attemptDetails),
 	}).Where(goqu.Ex{"id": attempt.ID, "deployment_id": d.ID, "status": deploymentmodel.Running}).ToSQL()
@@ -822,13 +947,14 @@ func (s *Store) FinishAttempt(
 		return err
 	}
 	d.ErrorDiagnostic, d.ApplyStatus = attempt.ErrorDiagnostic, attempt.ApplyStatus
+	d.Retryable = attempt.Retryable
 	d.VerificationStatus, d.CleanupStatus = attempt.VerificationStatus, attempt.CleanupStatus
 	d.ActualStateStatus, d.ObservedAt = attempt.ActualStateStatus, attempt.ObservedAt
 	details, _, err := marshalDeploymentPayloads(d)
 	if err != nil {
 		return err
 	}
-	query, args, err = dialect.Update("deployments").Prepared(true).Set(goqu.Record{
+	query, args, err = s.db.Dialect().Update("deployments").Prepared(true).Set(goqu.Record{
 		"status": attempt.Status, "error_code": attempt.ErrorCode, "phase": attempt.Phase,
 		"finished_at": attempt.FinishedAt.UTC(), "details_payload": details,
 	}).Where(
@@ -887,10 +1013,10 @@ func requireOneRunning(result sql.Result) error {
 
 // SaveBaseline records a successful deployment as the stack's current baseline.
 func (s *Store) SaveBaseline(ctx context.Context, id string) error {
-	source := dialect.From("deployments").Prepared(true).
+	source := s.db.Dialect().From("deployments").Prepared(true).
 		Select("stack", goqu.I("id").As("deployment_id")).
 		Where(goqu.Ex{"id": id, "status": "succeeded"})
-	query, args, err := dialect.Insert("desired_snapshots").Prepared(true).
+	query, args, err := s.db.Dialect().Insert("desired_snapshots").Prepared(true).
 		Cols("stack", "deployment_id").
 		FromQuery(source).
 		OnConflict(goqu.DoUpdate("stack", goqu.Record{
@@ -902,4 +1028,31 @@ func (s *Store) SaveBaseline(ctx context.Context, id string) error {
 	}
 	_, err = s.db.Exec(ctx, query, args...)
 	return err
+}
+
+// Keep the historical null/array wire format solely at the persistence boundary.
+func persistedUnresolvedServices(verification deploymentmodel.Verification) []string {
+	if !verification.Known {
+		return nil
+	}
+	return append([]string{}, verification.UnresolvedServices...)
+}
+
+// SaveVerification records obligations while the matching deployment attempt is running.
+func (s *Store) SaveVerification(ctx context.Context, d deploymentmodel.Deployment) error {
+	details, _, err := marshalDeploymentPayloads(d)
+	if err != nil {
+		return err
+	}
+	query, args, err := s.db.Dialect().Update("deployments").Prepared(true).Set(goqu.Record{
+		"details_payload": details,
+	}).Where(goqu.Ex{"id": d.ID, "status": deploymentmodel.Running}).ToSQL()
+	if err != nil {
+		return err
+	}
+	result, err := s.db.Exec(ctx, query, args...)
+	if err != nil {
+		return err
+	}
+	return requireOneRunning(result)
 }

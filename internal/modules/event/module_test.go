@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
+	eventbus "github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/history"
 	eventmetrics "github.com/swarm-deploy/swarm-deploy/internal/modules/event/metrics"
@@ -16,10 +17,10 @@ import (
 )
 
 func TestHistoryAndMetricsKeepIndependentPolicies(t *testing.T) {
-	db, err := storage.Open(t.Context(), t.TempDir())
+	db, err := storage.OpenSQLite(t.Context(), t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
-	bus := outbox.New(db)
+	bus := eventbus.NewOutboxDispatcher(outbox.New(db))
 	hist, err := history.NewSQLStore(db, 100)
 	require.NoError(t, err)
 	group := metrics.NewGroup(metrics.CreateGroupParams{Namespace: "test"})
@@ -30,6 +31,7 @@ func TestHistoryAndMetricsKeepIndependentPolicies(t *testing.T) {
 	for _, event := range []events.Event{
 		&events.NodeJoined{NodeID: "n1"}, &events.NodeDisconnected{NodeID: "n2"},
 		&events.ServicePruned{StackName: "stack", ServiceName: "old"}, &events.ConfigurationChanged{},
+		&events.ServiceRemovedFromDesired{StackName: "stack", ServiceName: "desired-old"},
 	} {
 		require.NoError(t, bus.Publish(t.Context(), event))
 	}

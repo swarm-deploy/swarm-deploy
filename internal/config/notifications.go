@@ -9,7 +9,7 @@ import (
 	"github.com/artarts36/specw"
 	alertmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
-	eventnotify "github.com/swarm-deploy/swarm-deploy/internal/modules/event/notify"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/notifications/eventnotify"
 	notificationtemplate "github.com/swarm-deploy/swarm-deploy/internal/modules/notifications/template"
 	"go.yaml.in/yaml/v3"
 )
@@ -23,6 +23,7 @@ const (
 	notificationAlertNameGitRepositoryUnavailable = "GitRepositoryUnavailable"
 	notificationAlertNameMessengerUnavailable     = "MessengerUnavailable"
 	notificationAlertNameMessengerMisconfigured   = "MessengerMisconfigured"
+	notificationAlertNameServiceDrift             = "ServiceDrift"
 )
 
 // NotificationSpec defines event subscriptions, alert routes and messenger destinations.
@@ -54,6 +55,8 @@ type AlertMessageSpec struct {
 	Action string `yaml:"action"`
 	// Message is a template rendered against the public alert payload.
 	Message string `yaml:"message"`
+	// Buttons are URL button templates for this lifecycle phase.
+	Buttons []notificationtemplate.ButtonSpec `yaml:"buttons,omitempty"`
 }
 
 const (
@@ -108,10 +111,10 @@ func (c NotificationSpec) AlertRecipients(kind string) []events.AlertRecipient {
 // AlertRecipientsFor returns alert routes after excluding the failing messenger destination.
 func (c NotificationSpec) AlertRecipientsFor(kind, resourceID string) []events.AlertRecipient {
 	recipients := c.AlertRecipients(kind)
-	switch alertmodel.AlertKind(kind) {
-	case alertmodel.AlertKindMessengerUnavailable:
+	switch kind {
+	case string(alertmodel.AlertKindMessengerUnavailable):
 		return nil
-	case alertmodel.AlertKindMessengerMisconfigured:
+	case string(alertmodel.AlertKindMessengerMisconfigured):
 		channelName, ok := strings.CutPrefix(resourceID, "telegram:")
 		if !ok {
 			return nil
@@ -130,9 +133,6 @@ func (c NotificationSpec) AlertRecipientsFor(kind, resourceID string) []events.A
 			}
 		}
 		return filtered
-	case alertmodel.AlertKindSyncFailed, alertmodel.AlertKindNodeDisconnected,
-		alertmodel.AlertKindGitRepositoryUnavailable:
-		return recipients
 	default:
 		return recipients
 	}
@@ -179,20 +179,6 @@ func (c TelegramAlertChannel) AlertResolvedAction() string {
 		return "reply"
 	}
 	return c.Resolved.Action
-}
-
-// UnmarshalYAML rejects the removed "on" key instead of silently disabling old rules.
-func (c *NotificationSpec) UnmarshalYAML(node *yaml.Node) error {
-	if node.Kind != yaml.MappingNode {
-		return fmt.Errorf("notifications must be a mapping")
-	}
-	for i := 0; i+1 < len(node.Content); i += 2 {
-		if node.Content[i].Value == "on" {
-			return fmt.Errorf("notifications.on is no longer supported; use notifications.events")
-		}
-	}
-	type raw NotificationSpec
-	return node.Decode((*raw)(c))
 }
 
 type NotificationEventRoutes struct {
@@ -253,6 +239,8 @@ func (names *NotificationChatNames) UnmarshalYAML(node *yaml.Node) error {
 type TelegramChannel struct {
 	Chats   NotificationChatNames `yaml:"chats"`
 	Message string                `yaml:"message"`
+	// Buttons are URL button templates rendered against the event payload.
+	Buttons []notificationtemplate.ButtonSpec `yaml:"buttons,omitempty"`
 }
 
 func (c TelegramChannel) ChatNames() []string {
@@ -335,6 +323,8 @@ func notificationAlertConfigKey(kind alertmodel.AlertKind) string {
 		return notificationAlertNameMessengerUnavailable
 	case alertmodel.AlertKindMessengerMisconfigured:
 		return notificationAlertNameMessengerMisconfigured
+	case alertmodel.AlertKindServiceDrift:
+		return notificationAlertNameServiceDrift
 	default:
 		return string(kind)
 	}
@@ -352,6 +342,8 @@ func notificationAlertKind(configKey string) alertmodel.AlertKind {
 		return alertmodel.AlertKindMessengerUnavailable
 	case notificationAlertNameMessengerMisconfigured:
 		return alertmodel.AlertKindMessengerMisconfigured
+	case notificationAlertNameServiceDrift:
+		return alertmodel.AlertKindServiceDrift
 	default:
 		return alertmodel.AlertKind(configKey)
 	}
@@ -361,7 +353,8 @@ func validNotificationAlertConfigKey(kind string) bool {
 	switch kind {
 	case notificationAlertNameDefault, notificationAlertNameSyncFailed,
 		notificationAlertNameNodeDisconnected, notificationAlertNameGitRepositoryUnavailable,
-		notificationAlertNameMessengerUnavailable, notificationAlertNameMessengerMisconfigured:
+		notificationAlertNameMessengerUnavailable, notificationAlertNameMessengerMisconfigured,
+		notificationAlertNameServiceDrift:
 		return true
 	default:
 		return false
@@ -433,19 +426,16 @@ func (c *NotificationSpec) validateAlertChannel(path, kind string, route Telegra
 		Title: "Alert", Message: "details", ResourceID: "resource", DeploymentID: "deployment-id",
 		OpenedAt: time.Now().UTC(),
 	}
-	if err := notificationtemplate.Validate(
-		route.AlertOpenedTemplate(string(notificationAlertKind(kind))),
-		payload,
-	); err != nil {
-		errs = append(errs, fmt.Errorf("%s.opened.message: invalid template: %w", path, err))
-	}
+	errs = append(errs, validateTelegramTemplates(
+		path+".opened", route.AlertOpenedTemplate(string(notificationAlertKind(kind))), route.Opened.Buttons, payload,
+	)...)
 	resolvedAt := time.Now().UTC()
 	payload.ResolvedAt = &resolvedAt
 	payload.Resolution = "Recovered"
 	payload.ResolutionReason = "recovered"
-	if err := notificationtemplate.Validate(route.AlertResolvedTemplate(), payload); err != nil {
-		errs = append(errs, fmt.Errorf("%s.resolved.message: invalid template: %w", path, err))
-	}
+	errs = append(errs, validateTelegramTemplates(
+		path+".resolved", route.AlertResolvedTemplate(), route.Resolved.Buttons, payload,
+	)...)
 	return errs
 }
 
@@ -462,7 +452,7 @@ func (c *NotificationSpec) validateTelegramEventRoutes(
 			))
 		}
 		errs = append(errs, c.validateChatNames(path, rule.Chats)...)
-		errs = append(errs, validateTelegramEventTemplate(eventTypeName, path, rule.Message)...)
+		errs = append(errs, validateTelegramEventTemplates(eventTypeName, path, rule)...)
 	}
 	return errs
 }
@@ -492,17 +482,37 @@ func (c *NotificationSpec) validateChatNames(path string, names NotificationChat
 	return errs
 }
 
-func validateTelegramEventTemplate(eventTypeName events.TypeName, path, message string) []error {
-	if strings.TrimSpace(message) == "" {
+func validateTelegramEventTemplates(eventTypeName events.TypeName, path string, rule TelegramChannel) []error {
+	message := strings.TrimSpace(rule.Message)
+	if message == "" && len(rule.Buttons) == 0 {
 		return nil
 	}
 	payloads, ok := eventnotify.ReferencePayloads(eventTypeName)
 	if !ok {
-		return []error{fmt.Errorf("%s.message: notification payload is not defined", path)}
+		field := "message"
+		if message == "" {
+			field = "buttons"
+		}
+		return []error{fmt.Errorf("%s.%s: notification payload is not defined", path, field)}
+	}
+	return validateTelegramTemplates(path, message, rule.Buttons, payloads...)
+}
+
+func validateTelegramTemplates(
+	path, message string, buttons []notificationtemplate.ButtonSpec, payloads ...any,
+) []error {
+	buttonTemplates, err := notificationtemplate.NewButtons(buttons)
+	if err != nil {
+		return []error{fmt.Errorf("%s.%w", path, err)}
 	}
 	for _, payload := range payloads {
-		if err := notificationtemplate.Validate(message, payload); err != nil {
-			return []error{fmt.Errorf("%s.message: invalid template: %w", path, err)}
+		if message != "" {
+			if err = notificationtemplate.Validate(message, payload); err != nil {
+				return []error{fmt.Errorf("%s.message: invalid template: %w", path, err)}
+			}
+		}
+		if err = buttonTemplates.Validate(payload); err != nil {
+			return []error{fmt.Errorf("%s.%w", path, err)}
 		}
 	}
 	return nil

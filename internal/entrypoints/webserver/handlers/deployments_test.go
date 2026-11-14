@@ -2,7 +2,7 @@ package handlers
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -13,20 +13,21 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments"
 	deploymentmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/model"
 	deploymentstore "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/modelstore"
+	eventbus "github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/outbox"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/deployment"
-	gitopsmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/storage"
 )
 
 func TestDeploymentAPIReadsAttemptsWithoutHistory(t *testing.T) {
 	ctx := context.Background()
-	db, err := storage.Open(ctx, t.TempDir())
+	db, err := storage.OpenSQLite(ctx, t.TempDir())
 	require.NoError(t, err)
 	defer db.Close()
-	svc := deployment.NewService(db, outbox.New(db))
+	publisher := eventbus.NewOutboxDispatcher(outbox.New(db))
+	svc := deployments.NewService(db, publisher)
 	replicas := uint64(3)
 	attempt, err := svc.StartIfChanged(ctx, "app", "sha", compose.File{Compose: compose.Compose{Services: compose.Services{{
 		Name: "api", Image: "image:1",
@@ -40,13 +41,11 @@ func TestDeploymentAPIReadsAttemptsWithoutHistory(t *testing.T) {
 	}, {
 		Name: "metrics", Image: "metrics:1", Deploy: compose.ServiceDeploy{Mode: "global"},
 	}, {
-		Name: "batch", Image: "batch:1", Deploy: compose.ServiceDeploy{Mode: "replicated-job", Extra: map[string]interface{}{
-			"max_concurrent": 2, "total_completions": 5,
-		}},
+		Name: "batch", Image: "batch:1", Deploy: compose.ServiceDeploy{Mode: "replicated-job"},
 	}}}}, true)
 	require.NoError(t, err)
 	h := &handler{deployments: deploymentstore.NewStore(db)}
-	response, err := h.ListDeployments(ctx, generated.ListDeploymentsParams{Stack: generated.NewOptString("app")})
+	response, err := h.ListDeployments(ctx, generated.ListDeploymentsParams{Stack: []string{"app"}})
 	require.NoError(t, err)
 	require.Len(t, response.Deployments, 1)
 	assert.Equal(t, generated.DeploymentStatusRunning, response.Deployments[0].Status)
@@ -66,8 +65,10 @@ func TestDeploymentAPIReadsAttemptsWithoutHistory(t *testing.T) {
 		Status: deploymentmodel.InitJobFailed, StartedAt: now, FinishedAt: now.Add(time.Second),
 		LogsAvailable: false,
 	}))
-	require.NoError(t, svc.FailApplyWithError(ctx, attempt.ID, gitopsmodel.Stack{}, "apply_failed",
-		errors.New("update service api: pull https://user:password@registry.example/image: image not found")))
+	require.NoError(t, svc.Complete(ctx, attempt.ID, deployments.Completion{
+		Outcome:    deployments.CompletionApplyFailed,
+		Diagnostic: errors.New("update service api: pull https://user:password@registry.example/image: image not found"),
+	}))
 	detail, err := h.GetDeployment(ctx, generated.GetDeploymentParams{ID: attempt.DeploymentID})
 	require.NoError(t, err)
 	require.Len(t, detail.Attempts, 1)
@@ -118,7 +119,7 @@ func TestDeploymentAPIReadsAttemptsWithoutHistory(t *testing.T) {
 		{Name: "api", Image: "image:1", Replicas: "3"},
 		{Name: "worker", Image: "worker:1", Replicas: "1"},
 		{Name: "metrics", Image: "metrics:1", Replicas: "Global"},
-		{Name: "batch", Image: "batch:1", Replicas: "Job: 2 concurrent, 5 total"},
+		{Name: "batch", Image: "batch:1", Replicas: "Replicated job"},
 	}, detail.Services)
 	for _, internalField := range []string{"\"path\"", "Map", "Args", "Extra"} {
 		assert.NotContains(t, string(encoded), internalField)
@@ -133,7 +134,7 @@ func TestDeploymentAPIReadsAttemptsWithoutHistory(t *testing.T) {
 	require.NoError(t, legacyDetail.Validate())
 	_, err = h.GetDeployment(ctx, generated.GetDeploymentParams{ID: "unknown"})
 	require.Error(t, err)
-	listed, err := h.ListDeployments(ctx, generated.ListDeploymentsParams{Stack: generated.NewOptString("app")})
+	listed, err := h.ListDeployments(ctx, generated.ListDeploymentsParams{Stack: []string{"app"}})
 	require.NoError(t, err)
 	require.Len(t, listed.Deployments, 1)
 	require.NoError(t, listed.Deployments[0].Validate())
@@ -153,9 +154,7 @@ func TestDeploymentServiceReplicas(t *testing.T) {
 		{name: "missing deploy", deploy: compose.ServiceDeploy{}, want: "1"},
 		{name: "global", deploy: compose.ServiceDeploy{Mode: "global"}, want: "Global"},
 		{name: "global job", deploy: compose.ServiceDeploy{Mode: "global-job"}, want: "Global job"},
-		{name: "replicated job", deploy: compose.ServiceDeploy{Mode: "replicated-job", Extra: map[string]interface{}{
-			"max_concurrent": float64(2), "total_completions": float64(5),
-		}}, want: "Job: 2 concurrent, 5 total"},
+		{name: "replicated job", deploy: compose.ServiceDeploy{Mode: "replicated-job"}, want: "Replicated job"},
 		{name: "incomplete job", deploy: compose.ServiceDeploy{Mode: "replicated-job"}, want: "Replicated job"},
 		{name: "unknown mode", deploy: compose.ServiceDeploy{Mode: "unknown"}, want: "—"},
 	} {
@@ -167,11 +166,11 @@ func TestDeploymentServiceReplicas(t *testing.T) {
 
 func TestDeploymentFiltersUsesAllRecordedStacks(t *testing.T) {
 	ctx := t.Context()
-	db, err := storage.Open(ctx, t.TempDir())
+	db, err := storage.OpenSQLite(ctx, t.TempDir())
 	require.NoError(t, err)
 	defer db.Close()
 	h := &handler{deployments: deploymentstore.NewStore(db)}
-	service := deployment.NewService(db, outbox.New(db))
+	creation := deployments.NewService(db, eventbus.NewOutboxDispatcher(outbox.New(db)))
 	for _, tc := range []struct {
 		stack   string
 		commit  string
@@ -180,7 +179,7 @@ func TestDeploymentFiltersUsesAllRecordedStacks(t *testing.T) {
 		{stack: "zeta", commit: "one", service: "api"},
 		{stack: "alpha", commit: "two", service: "worker"},
 	} {
-		_, err := service.StartIfChanged(ctx, tc.stack, tc.commit, compose.File{Compose: compose.Compose{
+		_, err := creation.StartIfChanged(ctx, tc.stack, tc.commit, compose.File{Compose: compose.Compose{
 			Services: compose.Services{{Name: tc.service, Image: "image:1"}},
 		}}, true)
 		require.NoError(t, err)
@@ -192,8 +191,16 @@ func TestDeploymentFiltersUsesAllRecordedStacks(t *testing.T) {
 		{StackName: "alpha", ServiceName: "worker"},
 		{StackName: "zeta", ServiceName: "api"},
 	}, filters.Services)
-	listed, err := h.ListDeployments(ctx, generated.ListDeploymentsParams{ServiceName: generated.NewOptString("worker")})
+	listed, err := h.ListDeployments(ctx, generated.ListDeploymentsParams{ServiceName: []string{"worker"}})
 	require.NoError(t, err)
 	require.Len(t, listed.Deployments, 1)
 	assert.Equal(t, "alpha", listed.Deployments[0].Stack)
+	listed, err = h.ListDeployments(ctx, generated.ListDeploymentsParams{
+		Stack: []string{"alpha", "zeta"}, ServiceName: []string{"worker", "api"},
+	})
+	require.NoError(t, err)
+	require.Len(t, listed.Deployments, 2)
+	assert.ElementsMatch(t, []string{"alpha", "zeta"}, []string{
+		listed.Deployments[0].Stack, listed.Deployments[1].Stack,
+	})
 }

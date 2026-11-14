@@ -198,13 +198,18 @@ func alertQuestion(alert alertmodel.Alert) string {
 			return fmt.Sprintf("Why is node %s unavailable?", resourceID)
 		}
 		return "Why is the node unavailable?"
-	default:
-		resourceType := singleLine(string(alert.ResourceType))
-		if resourceType != "" && resourceID != "" {
-			return fmt.Sprintf("What caused the alert for %s %s?", resourceType, resourceID)
+	case alertmodel.AlertKindServiceDrift:
+		if resourceID != "" {
+			return fmt.Sprintf("Why is service %s out of sync?", resourceID)
 		}
-		return "What caused this alert?"
+		return "Why is the service out of sync?"
+	case alertmodel.AlertKindMessengerUnavailable, alertmodel.AlertKindMessengerMisconfigured:
 	}
+	resourceType := singleLine(string(alert.ResourceType))
+	if resourceType != "" && resourceID != "" {
+		return fmt.Sprintf("What caused the alert for %s %s?", resourceType, resourceID)
+	}
+	return "What caused this alert?"
 }
 
 func appendAlertContext(lines []string, label, value string) []string {

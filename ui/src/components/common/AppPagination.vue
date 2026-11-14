@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import AppButton from "./AppButton.vue";
+
 defineProps<{
   page: number;
   loading: boolean;
@@ -11,9 +13,9 @@ defineEmits<{ previous: []; next: [] }>();
 
 <template>
   <nav class="app-pagination" :aria-label="label">
-    <button type="button" :disabled="loading || page === 0" @click="$emit('previous')">Previous</button>
+    <AppButton variant="secondary" compact :disabled="loading || page === 0" @click="$emit('previous')">Previous</AppButton>
     <span>Page {{ page + 1 }}</span>
-    <button type="button" :disabled="loading || !hasNext" @click="$emit('next')">Next</button>
+    <AppButton variant="secondary" compact :disabled="loading || !hasNext" @click="$emit('next')">Next</AppButton>
   </nav>
 </template>
 
@@ -25,28 +27,4 @@ defineEmits<{ previous: []; next: [] }>();
   margin-top: 12px;
 }
 
-.app-pagination button {
-  border: 1px solid var(--control-primary);
-  border-radius: 6px;
-  background: transparent;
-  color: var(--accent-strong);
-  font-weight: 600;
-  box-shadow: none;
-}
-
-.app-pagination button:hover:not(:disabled) {
-  border-color: var(--control-primary-hover);
-  background: var(--accent-muted);
-  filter: none;
-}
-
-.app-pagination button:focus-visible {
-  outline: 2px solid var(--accent-focus);
-  outline-offset: 2px;
-}
-
-.app-pagination button:disabled {
-  cursor: not-allowed;
-  opacity: 0.65;
-}
 </style>

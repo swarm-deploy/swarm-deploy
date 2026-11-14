@@ -17,7 +17,7 @@ swarm-deploy is a Swarm-native GitOps controller inspired by Argo CD. It keeps s
 - **Diff-based deployments**: a stack is deployed only when its effective desired-state digest changes, including referenced config, secret, and env files.
 - **Stack sync status** in the UI, including last sync result, Git revision, deployment status, and errors.
 - **Desired vs. live manifests** for each stack, so the Git definition can be compared with the current Swarm state.
-- **Drift detection** for desired services missing from the live cluster, with `OutOfSync` status and audit events.
+- **Drift detection and optional self-heal** for missing services and replica-count divergence, with sync status and audit events. See [drift detection](./docs/drift.md).
 - **Pruning** of orphaned managed services removed from Compose, with policy overrides at global, stack, and service level. See [prune policy](./docs/prune.md).
 - Optional **image policy** for requiring tags or digests and rejecting `latest`. See [image policy](./docs/image-policy.md).
 - [**Managed Docker networks**](./docs/networks.md) kept in Git and reconciled before stack deployment.
@@ -93,6 +93,9 @@ The UI and REST API are served by the same web server. The UI includes:
 - event and deployment information,
 - optional AI assistant.
 
+For frontend development without a running backend, use the
+[OpenAPI mock workflow](./ui/README.md#development-with-the-mock-api).
+
 ## Quick start
 
 Start with the [basic example](./example/01-basic) or generate a configuration with the [configuration wizard](https://swarm-deploy.github.io/swarm-deploy/docs/configurator/).
@@ -100,24 +103,30 @@ Start with the [basic example](./example/01-basic) or generate a configuration w
 A minimal configuration looks like this:
 
 ```yaml
-git:
-  repository: https://github.com/your-org/your-stacks-repo.git
-  branch: main
-  auth:
-    type: none
+gitops:
+  git:
+    repository: https://github.com/your-org/your-stacks-repo.git
+    branch: main
+    auth:
+      type: none
+    pull:
+      # Git polling interval.
+      interval: 30s
+      timeout: 2m # default; maximum duration of a Git pull
 
-sync:
-  mode: pull
-  pollInterval: 30s
-  interval: 1m
-  policy:
-    prune: true
+  sync:
+    mode: pull
+    interval: 1m
+    parallelism: 1 # default; increase explicitly for concurrent stack deployments
+    policy:
+      prune: true
+      selfHeal: true
 
-stacks:
-  file: ./stacks.yaml
+  stacks:
+    file: ./stacks.yaml
 
-networks:
-  file: ./networks.yaml
+  networks:
+    file: ./networks.yaml
 
 web:
   address: ":8080"
@@ -131,6 +140,10 @@ healthServer:
   healthz:
     path: /healthz
 ```
+
+`gitops.git.pull.interval` defaults to `30s` and controls Git polling. `gitops.sync.interval` defaults to `1m` and controls reconciliation against the local desired state. `gitops.git.pull.timeout` defaults to `2m` and bounds pull operations, including waiting for Git access. `gitops.sync.parallelism` defaults to `1`, running stacks one at a time; increase it explicitly to enable parallel stack reconciliation. Git sync runs dispatch operations asynchronously even when parallelism is `1`.
+
+The 0.15.0 runtime configuration uses module sections. Update older configurations before starting this version. The loader rejects unknown fields, including legacy paths. Stack and network definition files keep their existing formats.
 
 `web.basePath` defaults to `/`. A trailing slash is normalized, so `/infrastructure/swarm/` serves the UI at `/infrastructure/swarm/` and the API below `/infrastructure/swarm/api/`. Path segments must use URL-unreserved ASCII characters (letters, digits, `-`, `_`, `.`, `~`); percent-encoding and ServeMux wildcard syntax are not accepted. The configured value is authoritative; `X-Forwarded-Prefix` is not used. Health, metrics, and webhook endpoints keep their independently configured paths.
 
@@ -181,12 +194,22 @@ that predates the controller lock, first capture the deployment diagnostics and 
 [`docs/operations/sqlite.md`](./docs/operations/sqlite.md), then use a one-time `stop-first` update (or otherwise prove the
 old task has stopped) before returning to `start-first` for later releases.
 
+### Docker registry authentication
+
+If managed stacks use images from private registries, make Docker registry credentials available inside the
+swarm-deploy container. The recommended setup is to expose Docker `config.json` as a Docker Secret and set
+`DOCKER_CONFIG=/run/secrets`.
+
+See [Docker registry authentication](./docs/registry-authentication.md) for the recommended Compose configuration,
+supported alternatives, and security considerations.
+
 ## Documentation
 
 - [SQLite operations and backup](./docs/operations/sqlite.md)
 - [Reconciliation](./docs/reconciler.md)
 - [Webhooks](./docs/webhooks.md)
 - [Authentication](./docs/authentication.md)
+- [Docker Registry Authentication](./docs/registry-authentication.md)
 - [Managed Docker Networks](./docs/networks.md)
 - [Downward Metadata](./docs/downward.md)
 - [OpenTelemetry Tracing](./docs/tracing.md)

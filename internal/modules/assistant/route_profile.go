@@ -51,9 +51,3 @@ func routeProfile(route Route) (RouteProfile, bool) {
 	profile.Prompt = strings.TrimSpace(profile.Prompt)
 	return profile, true
 }
-
-func fallbackRouteProfile() RouteProfile {
-	return RouteProfile{
-		Prompt: strings.TrimSpace(generalPrompt),
-	}
-}

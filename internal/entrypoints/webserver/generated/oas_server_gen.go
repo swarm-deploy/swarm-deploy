@@ -17,6 +17,14 @@ type Handler interface {
 	//
 	// POST /api/v1/assistant/chat
 	AssistantChat(ctx context.Context, req *AssistantChatRequest) (*AssistantChatResponse, error)
+	// CreateExternalSecret implements createExternalSecret operation.
+	//
+	// POST /api/v1/secret-managers/{stack}/{service}/secrets
+	CreateExternalSecret(ctx context.Context, req *CreateExternalSecretRequest, params CreateExternalSecretParams) (*CreateExternalSecretResponse, error)
+	// CreateSecret implements createSecret operation.
+	//
+	// POST /api/v1/secrets
+	CreateSecret(ctx context.Context, req *CreateSecretRequest) (*CreateSecretResponse, error)
 	// DeleteNodeLabel implements deleteNodeLabel operation.
 	//
 	// DELETE /api/v1/nodes/{id}/labels/{key}
@@ -33,6 +41,10 @@ type Handler interface {
 	//
 	// GET /api/assistant/suggestions
 	GetAssistantSuggestions(ctx context.Context) (*AssistantSuggestionsResponse, error)
+	// GetConfig implements getConfig operation.
+	//
+	// GET /api/v1/config
+	GetConfig(ctx context.Context) (*UIConfigResponse, error)
 	// GetCurrentUser implements getCurrentUser operation.
 	//
 	// GET /api/v1/users/me
@@ -45,6 +57,10 @@ type Handler interface {
 	//
 	// GET /api/v1/deployments/filters
 	GetDeploymentFilters(ctx context.Context) (*DeploymentFilterOptions, error)
+	// GetEvent implements getEvent operation.
+	//
+	// GET /api/v1/events/{id}
+	GetEvent(ctx context.Context, params GetEventParams) (GetEventRes, error)
 	// GetEventFilters implements getEventFilters operation.
 	//
 	// GET /api/v1/events/filters
@@ -65,14 +81,28 @@ type Handler interface {
 	//
 	// GET /api/v1/stacks/{stack}/services/{service}
 	GetService(ctx context.Context, params GetServiceParams) (*ServiceStatusResponse, error)
-	// GetServiceRealtime implements getServiceRealtime operation.
+	// GetStackDeploymentActivity implements getStackDeploymentActivity operation.
 	//
-	// GET /api/v1/stacks/{stack}/services/{service}/realtime
-	GetServiceRealtime(ctx context.Context, params GetServiceRealtimeParams) (*ServiceRealtimeResponse, error)
+	// Aggregated deployment operations for a configured stack, grouped by UTC start time.
+	//
+	// GET /api/v1/stacks/{stack}/deployments/activity
+	GetStackDeploymentActivity(ctx context.Context, params GetStackDeploymentActivityParams) (*DeploymentActivityResponse, error)
 	// GetStackManifestos implements getStackManifestos operation.
 	//
 	// GET /api/v1/stacks/{stack}/manifestos
 	GetStackManifestos(ctx context.Context, params GetStackManifestosParams) (*StackManifestosResponse, error)
+	// GetStackResources implements getStackResources operation.
+	//
+	// Current Docker resources owned by a configured stack, selected by the exact
+	// com.docker.stack.namespace label. Unlabelled external resources are excluded.
+	// Returns metadata only, never secret values or config payloads.
+	//
+	// GET /api/v1/stacks/{stack}/resources
+	GetStackResources(ctx context.Context, params GetStackResourcesParams) (*StackResourcesResponse, error)
+	// GetSwarmTask implements getSwarmTask operation.
+	//
+	// GET /api/v1/swarm/tasks/{taskID}
+	GetSwarmTask(ctx context.Context, params GetSwarmTaskParams) (*SwarmTaskDetailsHeaders, error)
 	// ListAlerts implements listAlerts operation.
 	//
 	// GET /api/v1/alerts
@@ -81,6 +111,10 @@ type Handler interface {
 	//
 	// GET /api/v1/assistant/chats
 	ListAssistantChats(ctx context.Context) (*AssistantChatsResponse, error)
+	// ListDSNSuggestions implements listDSNSuggestions operation.
+	//
+	// GET /api/v1/secrets/suggestions/dsn
+	ListDSNSuggestions(ctx context.Context) (*DSNSuggestionsResponse, error)
 	// ListDeployments implements listDeployments operation.
 	//
 	// GET /api/v1/deployments
@@ -92,7 +126,7 @@ type Handler interface {
 	// ListNetworks implements listNetworks operation.
 	//
 	// GET /api/v1/networks
-	ListNetworks(ctx context.Context) (*NetworksResponse, error)
+	ListNetworks(ctx context.Context, params ListNetworksParams) (*NetworksResponse, error)
 	// ListNodes implements listNodes operation.
 	//
 	// GET /api/v1/nodes
@@ -121,6 +155,22 @@ type Handler interface {
 	//
 	// GET /api/v1/stacks
 	ListStacks(ctx context.Context) (*StacksResponse, error)
+	// ListSwarmServiceTasks implements listSwarmServiceTasks operation.
+	//
+	// GET /api/v1/swarm/services/{serviceIDOrName}/tasks
+	ListSwarmServiceTasks(ctx context.Context, params ListSwarmServiceTasksParams) (*ServiceRealtimeResponse, error)
+	// ListSwarmServices implements listSwarmServices operation.
+	//
+	// GET /api/v1/swarm/services
+	ListSwarmServices(ctx context.Context) (*SwarmServicesResponse, error)
+	// ScaleSwarmService implements scaleSwarmService operation.
+	//
+	// Updates live replicated services, including standalone services, without waiting for tasks. GitOps
+	// synchronization may overwrite this change. Invalid input or unsupported modes return 400, missing
+	// services return 404, concurrent updates return 409, and Docker errors return 500.
+	//
+	// PUT /api/v1/swarm/services/{serviceID}/replicas
+	ScaleSwarmService(ctx context.Context, req *ScaleSwarmServiceRequest, params ScaleSwarmServiceParams) error
 	// Search implements search operation.
 	//
 	// GET /api/v1/search

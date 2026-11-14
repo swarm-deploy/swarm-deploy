@@ -7,8 +7,8 @@ import (
 	"log/slog"
 
 	"github.com/doug-martin/goqu/v9"
-	_ "github.com/doug-martin/goqu/v9/dialect/sqlite3"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
+	deploymentstore "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/enrichment"
@@ -22,7 +22,8 @@ import (
 
 // Subscriber persists service metadata on DeploySuccess events.
 type Subscriber struct {
-	db               *storage.Database
+	db               storage.Database
+	deployments      *deploymentstore.Store
 	events           dispatcher.Dispatcher
 	store            modelstore.Store
 	inspector        swarm.ServiceManager
@@ -35,12 +36,13 @@ type Subscriber struct {
 // NewSubscriber creates a service metadata event subscriber.
 func NewSubscriber(
 	store modelstore.Store,
+	deployments *deploymentstore.Store,
 	swarmService *swarm.Swarm,
 	extractor *metadata.Extractor,
-	db *storage.Database,
+	db storage.Database,
 	publisher dispatcher.Dispatcher,
 ) *Subscriber {
-	return &Subscriber{db: db, events: publisher,
+	return &Subscriber{db: db, deployments: deployments, events: publisher,
 		store:            store,
 		inspector:        swarmService.Services,
 		images:           swarmService.Images,
@@ -60,9 +62,16 @@ func (s *Subscriber) Handle(ctx context.Context, event events.Envelope) error {
 	if !ok {
 		return nil
 	}
+	if deploySuccess.DeploymentID == "" {
+		return fmt.Errorf("deployment reference missing")
+	}
+	desired, err := s.deployments.Desired(ctx, deploySuccess.DeploymentID)
+	if err != nil {
+		return err
+	}
 
-	services := make([]model.Info, 0, len(deploySuccess.StackDefinition.Compose.Services))
-	for _, deployedService := range deploySuccess.StackDefinition.Compose.Services {
+	services := make([]model.Info, 0, len(desired.Compose.Services))
+	for _, deployedService := range desired.Compose.Services {
 		serviceRef := swarm.NewServiceReference(deploySuccess.StackName, deployedService.Name)
 
 		slog.DebugContext(ctx, "[service-store] inspecting service labels",
@@ -90,7 +99,7 @@ func (s *Subscriber) Handle(ctx context.Context, event events.Envelope) error {
 				ctx,
 				deploySuccess.StackName,
 				deployedService,
-				deploySuccess.StackDefinition.Compose.Configs,
+				desired.Compose.Configs,
 				status.ContainerConfigs,
 			)
 		}
@@ -153,7 +162,7 @@ func (s *Subscriber) persistProjection(
 		if !current {
 			return nil
 		}
-		query, args, err := goqu.Dialect("sqlite3").Insert("service_catalog_receipts").Prepared(true).
+		query, args, err := s.db.Dialect().Insert("service_catalog_receipts").Prepared(true).
 			Rows(goqu.Record{"source_event_id": sourceID}).
 			OnConflict(goqu.DoNothing()).
 			ToSQL()
@@ -183,9 +192,9 @@ func (s *Subscriber) currentDeployment(ctx context.Context, deploySuccess *event
 		return true, nil
 	}
 	var current bool
-	exists := goqu.Dialect("sqlite3").From("desired_snapshots").Prepared(true).Select(goqu.L("1")).
+	exists := s.db.Dialect().From("desired_snapshots").Prepared(true).Select(goqu.L("1")).
 		Where(goqu.Ex{"stack": deploySuccess.StackName, "deployment_id": deploySuccess.DeploymentID})
-	query, args, err := goqu.Dialect("sqlite3").From().Prepared(true).
+	query, args, err := s.db.Dialect().From().Prepared(true).
 		Select(goqu.L("EXISTS ?", exists)).ToSQL()
 	if err != nil {
 		return false, err

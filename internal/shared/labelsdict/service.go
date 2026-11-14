@@ -6,7 +6,11 @@ const (
 	ServiceManagedLabelKey   = "org.swarm-deploy.service.managed"
 	ServiceManagedLabelValue = "true"
 
-	ServiceSyncPolicyPruneLabelKey = "org.swarm-deploy.service.sync.policy.prune"
+	ServiceSyncPolicyReplicasManagedLabelKey = "org.swarm-deploy.service.sync.policy.replicasManaged"
+
+	ServiceSyncPolicyPruneLabelKey            = "org.swarm-deploy.service.sync.policy.prune"
+	ServiceSyncPolicySelfHealLabelKey         = "org.swarm-deploy.service.sync.policy.selfHeal"
+	ServiceSyncPolicySelfHealReplicasLabelKey = "org.swarm-deploy.service.sync.policy.selfHeal.replicas"
 
 	ServiceType        = "org.swarm-deploy.service.type"
 	ServiceDescription = "org.swarm-deploy.service.description"

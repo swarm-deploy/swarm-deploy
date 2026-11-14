@@ -25,7 +25,7 @@ func (r *secretManager) List(ctx context.Context, filter ListSecretsFilter) ([]S
 		Filters: buildSecretListFilters(filter),
 	})
 	if err != nil {
-		return nil, fmt.Errorf("list docker secrets: %w", err)
+		return nil, fmt.Errorf("list docker secrets: %w", classifyDockerError(err))
 	}
 
 	mapped := make([]Secret, len(secrets))
@@ -66,7 +66,10 @@ func (r *secretManager) Create(ctx context.Context, req CreateSecretRequest) (st
 
 	created, err := r.dockerClient.SecretCreate(ctx, spec)
 	if err != nil {
-		return "", fmt.Errorf("create docker secret %s: %w", req.Name, err)
+		if isConflictErr(err) {
+			return "", fmt.Errorf("create docker secret %s: %w: %w", req.Name, ErrSecretAlreadyExists, err)
+		}
+		return "", fmt.Errorf("create docker secret %s: %w", req.Name, classifyDockerError(err))
 	}
 
 	return created.ID, nil
@@ -75,7 +78,7 @@ func (r *secretManager) Create(ctx context.Context, req CreateSecretRequest) (st
 func (r *secretManager) UpdateLabels(ctx context.Context, secretID string, labels map[string]string) error {
 	secret, _, err := r.dockerClient.SecretInspectWithRaw(ctx, secretID)
 	if err != nil {
-		return fmt.Errorf("inspect secret for label update: %w", err)
+		return fmt.Errorf("inspect secret for label update: %w", classifyDockerError(err))
 	}
 	// Recheck the freshly inspected owner: labels may have changed since List.
 	owner := labels[stackNamespaceLabelKey]
@@ -84,14 +87,14 @@ func (r *secretManager) UpdateLabels(ctx context.Context, secretID string, label
 	}
 	secret.Spec.Labels = labels
 	if err = r.dockerClient.SecretUpdate(ctx, secret.ID, secret.Version, secret.Spec); err != nil {
-		return fmt.Errorf("update secret labels: %w", err)
+		return fmt.Errorf("update secret labels: %w", classifyDockerError(err))
 	}
 	return nil
 }
 
 func (r *secretManager) Remove(ctx context.Context, secretID string) error {
 	if err := r.dockerClient.SecretRemove(ctx, secretID); err != nil {
-		return fmt.Errorf("remove docker secret %s: %w", secretID, err)
+		return fmt.Errorf("remove docker secret %s: %w", secretID, classifyDockerError(err))
 	}
 
 	return nil
@@ -103,7 +106,7 @@ func (r *secretManager) ResolveReference(
 ) (*dockerswarm.SecretReference, error) {
 	secret, _, err := r.dockerClient.SecretInspectWithRaw(ctx, source)
 	if err != nil {
-		return nil, fmt.Errorf("inspect secret: %w", err)
+		return nil, fmt.Errorf("inspect secret: %w", classifyDockerError(err))
 	}
 
 	ref := &dockerswarm.SecretReference{

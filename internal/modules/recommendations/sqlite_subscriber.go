@@ -3,14 +3,14 @@ package recommendations
 import (
 	"context"
 
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/outbox"
 	"github.com/swarm-deploy/swarm-deploy/internal/storage"
 )
 
 type orderedSubscriber struct {
-	db   *storage.Database
-	next outbox.Subscriber
+	db   storage.Database
+	next dispatcher.Subscriber
 }
 
 func (s *orderedSubscriber) Handle(ctx context.Context, event events.Envelope) error {

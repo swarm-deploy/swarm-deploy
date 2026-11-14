@@ -14,7 +14,6 @@ import (
 	reflect "reflect"
 
 	events "github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
-	outbox "github.com/swarm-deploy/swarm-deploy/internal/modules/event/outbox"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -57,7 +56,7 @@ func (mr *MockDispatcherMockRecorder) Publish(ctx, event any) *gomock.Call {
 }
 
 // Subscribe mocks base method.
-func (m *MockDispatcher) Subscribe(eventType events.TypeName, id string, subscriber outbox.Subscriber) error {
+func (m *MockDispatcher) Subscribe(eventType events.TypeName, id string, subscriber Subscriber) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Subscribe", eventType, id, subscriber)
 	ret0, _ := ret[0].(error)

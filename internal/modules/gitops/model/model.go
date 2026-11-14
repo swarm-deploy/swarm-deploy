@@ -1,22 +1,29 @@
 package model
 
 import (
+	"maps"
 	"time"
 )
 
 type Service struct {
 	// Image is the deployed image reference for the service.
 	Image string `json:"image"`
+	// DesiredCommit is the Git revision of the latest desired state prepared for the service.
+	DesiredCommit string `json:"desired_commit,omitempty"`
 	// SyncStatus is the latest deployment status for the service.
 	SyncStatus SyncStatus `json:"sync_status"`
 
 	SyncError string `json:"sync_error"`
+	// SelfHealPending retains a remediation until execution-owned convergence is verified.
+	SelfHealPending bool `json:"self_heal_pending,omitzero"`
 
 	// SyncAt is the timestamp of the latest service deployment attempt.
 	SyncAt time.Time `json:"last_sync_at"`
 }
 
 type Stack struct {
+	// DriftedServices tracks verified drift episodes independently of deployment status.
+	DriftedServices map[string]bool `json:"drifted_services,omitempty"`
 	// SourceDigest is the digest of the source compose file used for deployment.
 	SourceDigest string `json:"source_digest"`
 	// LastCommit is the git commit hash that triggered the latest stack deployment.
@@ -27,6 +34,8 @@ type Stack struct {
 	LastError string `json:"last_error"`
 	// LastDeployAt is the timestamp of the latest stack deployment attempt.
 	LastDeployAt time.Time `json:"last_deploy_at"`
+	// StateUpdatedAt prevents delayed deployment events from overwriting newer reconciliation results.
+	StateUpdatedAt time.Time `json:"state_updated_at,omitempty"`
 	// Services stores per-service deployment state for the stack.
 	Services map[string]Service `json:"services"`
 }
@@ -63,7 +72,7 @@ type Runtime struct {
 	LastSyncResult string `json:"last_sync_result"`
 	// LastSyncError contains the latest Sync error message.
 	LastSyncError string `json:"last_sync_error"`
-	// GitRevision is the git revision observed during the latest Sync.
+	// GitRevision is the latest git revision dispatched to the stack queue. Failed Sync runs keep it.
 	GitRevision string `json:"git_revision"`
 	// Stacks stores deployment state keyed by stack name.
 	Stacks map[string]Stack `json:"stacks"`
@@ -87,6 +96,7 @@ func (r *Runtime) Clone() Runtime {
 
 	for stackName, stack := range r.Stacks {
 		stackCopy := stack
+		stackCopy.DriftedServices = maps.Clone(stack.DriftedServices)
 		stackCopy.Services = map[string]Service{}
 		for serviceName, service := range stack.Services {
 			stackCopy.Services[serviceName] = service

@@ -10,6 +10,8 @@ servers:
 paths:
   /api/assistant/suggestions:
     $ref: './assistant.yaml#/paths/~1api~1assistant~1suggestions'
+  /api/v1/config:
+    $ref: './config.yaml#/paths/~1api~1v1~1config'
   /api/v1/deployments:
     $ref: './deployments.yaml#/paths/~1api~1v1~1deployments'
   /api/v1/deployments/filters:
@@ -20,6 +22,10 @@ paths:
     $ref: './deployments.yaml#/paths/~1api~1v1~1deployments~1{id}~1attempts~1{attemptID}~1init-jobs~1{ordinal}~1logs'
   /api/v1/stacks:
     $ref: './gitops.yaml#/paths/~1api~1v1~1stacks'
+  /api/v1/stacks/{stack}/resources:
+    $ref: './gitops.yaml#/paths/~1api~1v1~1stacks~1{stack}~1resources'
+  /api/v1/stacks/{stack}/deployments/activity:
+    $ref: './deployments.yaml#/paths/~1api~1v1~1stacks~1{stack}~1deployments~1activity'
   /api/v1/stacks/{stack}/manifestos:
     $ref: './gitops.yaml#/paths/~1api~1v1~1stacks~1{stack}~1manifestos'
   /api/v1/git/commits/{commit}:
@@ -34,6 +40,8 @@ paths:
     $ref: './assistant.yaml#/paths/~1api~1v1~1assistant~1chats~1{conversationID}'
   /api/v1/events:
     $ref: './events.yaml#/paths/~1api~1v1~1events'
+  /api/v1/events/{id}:
+    $ref: './events.yaml#/paths/~1api~1v1~1events~1{id}'
   /api/v1/events/filters:
     $ref: './events.yaml#/paths/~1api~1v1~1events~1filters'
   /api/v1/alerts:
@@ -56,16 +64,26 @@ paths:
     $ref: './resources/networks.yaml#/paths/~1api~1v1~1networks'
   /api/v1/secrets:
     $ref: './resources/secrets.yaml#/paths/~1api~1v1~1secrets'
+  /api/v1/secrets/suggestions/dsn:
+    $ref: './resources/secrets.yaml#/paths/~1api~1v1~1secrets~1suggestions~1dsn'
   /api/v1/secrets/{name}:
     $ref: './resources/secrets.yaml#/paths/~1api~1v1~1secrets~1{name}'
   /api/v1/secret-managers:
     $ref: './resources/secret-managers.yaml#/paths/~1api~1v1~1secret-managers'
   /api/v1/secret-managers/{stack}/{service}/sync:
     $ref: './resources/secret-managers.yaml#/paths/~1api~1v1~1secret-managers~1{stack}~1{service}~1sync'
+  /api/v1/secret-managers/{stack}/{service}/secrets:
+    $ref: './resources/secret-managers.yaml#/paths/~1api~1v1~1secret-managers~1{stack}~1{service}~1secrets'
   /api/v1/stacks/{stack}/services/{service}:
     $ref: './resources/services.yaml#/paths/~1api~1v1~1stacks~1{stack}~1services~1{service}'
-  /api/v1/stacks/{stack}/services/{service}/realtime:
-    $ref: './resources/services.yaml#/paths/~1api~1v1~1stacks~1{stack}~1services~1{service}~1realtime'
+  /api/v1/swarm/services:
+    $ref: './resources/services.yaml#/paths/~1api~1v1~1swarm~1services'
+  /api/v1/swarm/services/{serviceID}/replicas:
+    $ref: './resources/services.yaml#/paths/~1api~1v1~1swarm~1services~1{serviceID}~1replicas'
+  /api/v1/swarm/services/{serviceIDOrName}/tasks:
+    $ref: './resources/services.yaml#/paths/~1api~1v1~1swarm~1services~1{serviceIDOrName}~1tasks'
+  /api/v1/swarm/tasks/{taskID}:
+    $ref: './resources/services.yaml#/paths/~1api~1v1~1swarm~1tasks~1{taskID}'
   /api/tasks/{taskID}/logs:
     $ref: './resources/services.yaml#/paths/~1api~1tasks~1{taskID}~1logs'
   /api/v1/stacks/{stack}/services/{service}/deployments:
@@ -156,10 +174,22 @@ components:
       $ref: './resources/nodes.yaml#/components/schemas/NodeLabelUpdateRequest'
     NetworkInfo:
       $ref: './resources/networks.yaml#/components/schemas/NetworkInfo'
+    DSNSuggestionsResponse:
+      $ref: './resources/secrets.yaml#/components/schemas/DSNSuggestionsResponse'
+    DSNSuggestion:
+      $ref: './resources/secrets.yaml#/components/schemas/DSNSuggestion'
     SecretsResponse:
       $ref: './resources/secrets.yaml#/components/schemas/SecretsResponse'
     SecretManagersResponse:
       $ref: './resources/secret-managers.yaml#/components/schemas/SecretManagersResponse'
+    CreateSecretRequest:
+      $ref: './resources/secrets.yaml#/components/schemas/CreateSecretRequest'
+    CreateSecretResponse:
+      $ref: './resources/secrets.yaml#/components/schemas/CreateSecretResponse'
+    CreateExternalSecretRequest:
+      $ref: './resources/secret-managers.yaml#/components/schemas/CreateExternalSecretRequest'
+    CreateExternalSecretResponse:
+      $ref: './resources/secret-managers.yaml#/components/schemas/CreateExternalSecretResponse'
     SecretManagerInfo:
       $ref: './resources/secret-managers.yaml#/components/schemas/SecretManagerInfo'
     SecretManagerProvider:
@@ -168,14 +198,22 @@ components:
       $ref: './resources/secret-managers.yaml#/components/schemas/SecretManagerProviderLinks'
     SecretManagerSyncResponse:
       $ref: './resources/secret-managers.yaml#/components/schemas/SecretManagerSyncResponse'
+    SynchronizedSecretIdentity:
+      $ref: './resources/secret-managers.yaml#/components/schemas/SynchronizedSecretIdentity'
     SecretInfo:
       $ref: './resources/secrets.yaml#/components/schemas/SecretInfo'
     SecretDetailsResponse:
       $ref: './resources/secrets.yaml#/components/schemas/SecretDetailsResponse'
+    SecretServiceUsage:
+      $ref: './resources/secrets.yaml#/components/schemas/SecretServiceUsage'
     SecretExternalInfo:
       $ref: './resources/secrets.yaml#/components/schemas/SecretExternalInfo'
     SyncInfo:
       $ref: './gitops.yaml#/components/schemas/SyncInfo'
+    LastPollStatus:
+      $ref: './gitops.yaml#/components/schemas/LastPollStatus'
+    LastWebhookStatus:
+      $ref: './gitops.yaml#/components/schemas/LastWebhookStatus'
     GitCommitDetailsResponse:
       $ref: './gitops.yaml#/components/schemas/GitCommitDetailsResponse'
     ServiceView:
@@ -196,6 +234,18 @@ components:
       $ref: './resources/services.yaml#/components/schemas/ServiceRealtimeTask'
     ServiceRealtimeResponse:
       $ref: './resources/services.yaml#/components/schemas/ServiceRealtimeResponse'
+    SwarmServiceReplicas:
+      $ref: './resources/services.yaml#/components/schemas/SwarmServiceReplicas'
+    SwarmService:
+      $ref: './resources/services.yaml#/components/schemas/SwarmService'
+    SwarmServicesResponse:
+      $ref: './resources/services.yaml#/components/schemas/SwarmServicesResponse'
+    EnvironmentVariable:
+      $ref: './resources/services.yaml#/components/schemas/EnvironmentVariable'
+    SwarmTaskResources:
+      $ref: './resources/services.yaml#/components/schemas/SwarmTaskResources'
+    SwarmTaskDetails:
+      $ref: './resources/services.yaml#/components/schemas/SwarmTaskDetails'
     ServiceDeploymentStatus:
       $ref: './resources/services.yaml#/components/schemas/ServiceDeploymentStatus'
     ServiceDeploymentResponse:

@@ -36,17 +36,17 @@ func (m *MockStackReconciler) EXPECT() *MockStackReconcilerMockRecorder {
 }
 
 // Cleanup mocks base method.
-func (m *MockStackReconciler) Cleanup(ctx context.Context, stack config.StackSpec) error {
+func (m *MockStackReconciler) Cleanup(ctx context.Context, stack config.StackSpec, commit string) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Cleanup", ctx, stack)
+	ret := m.ctrl.Call(m, "Cleanup", ctx, stack, commit)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // Cleanup indicates an expected call of Cleanup.
-func (mr *MockStackReconcilerMockRecorder) Cleanup(ctx, stack interface{}) *gomock.Call {
+func (mr *MockStackReconcilerMockRecorder) Cleanup(ctx, stack, commit interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Cleanup", reflect.TypeOf((*MockStackReconciler)(nil).Cleanup), ctx, stack)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Cleanup", reflect.TypeOf((*MockStackReconciler)(nil).Cleanup), ctx, stack, commit)
 }
 
 // Reconcile mocks base method.

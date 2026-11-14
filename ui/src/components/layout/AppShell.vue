@@ -23,10 +23,8 @@ const assistantStore = useAssistantStore();
 const currentUserStore = useCurrentUserStore();
 const uiStore = useUIStore();
 
-const isOverviewRoute = computed(() => route.path === "/overview");
 const currentUserLabel = computed(() => currentUserStore.displayName.trim() || "User");
 
-const syncDisabled = computed(() => !isOverviewRoute.value);
 const assistantPinnedActive = computed(
   () => assistantStore.enabled && uiStore.assistantDrawerOpen && uiStore.assistantPinned,
 );
@@ -57,13 +55,25 @@ watch(() => overviewStore.deploymentDetailsModalOpen, (open, wasOpen) => {
   void router.replace({ query });
 });
 
-async function handleSyncNow() {
-  if (!isOverviewRoute.value) {
-    return;
-  }
+const linkedAlertID = computed(() => {
+  const id = route.query.alert_id;
+  return route.name === "events" && route.query.tab !== "events" && typeof id === "string" ? id.trim() : "";
+});
 
-  await overviewStore.triggerManualSync();
-}
+watch(linkedAlertID, (id, previousID) => {
+  if (id) {
+    if (overviewStore.alertDetailsID !== id) void overviewStore.openAlertDetailsByID(id);
+  } else if (previousID && overviewStore.alertDetailsID === previousID) {
+    overviewStore.closeAlertDetailsModal();
+  }
+}, { immediate: true });
+
+watch(() => overviewStore.alertDetailsID, (id, previousID) => {
+  if (id || !previousID || previousID !== linkedAlertID.value) return;
+  const query = { ...route.query };
+  delete query.alert_id;
+  void router.replace({ query, hash: route.hash });
+});
 
 async function handleAssistantToggle() {
   if (!assistantStore.enabled) {
@@ -102,10 +112,7 @@ onMounted(() => {
       />
       <main class="shell-main">
         <TopBar
-          :sync-disabled="syncDisabled"
-          :sync-pending="overviewStore.syncPending"
           :assistant-enabled="assistantStore.enabled"
-          @sync-now="handleSyncNow"
           @toggle-assistant="handleAssistantToggle"
         />
         <div class="shell-view">
@@ -114,7 +121,7 @@ onMounted(() => {
       </main>
     </div>
     <ServiceStatusModal />
-    <AlertDetailsModal />
+    <AlertDetailsModal :linked="Boolean(linkedAlertID)" />
     <DeploymentDetailsModal />
     <CommitDetailsModal />
     <StackManifestModal />

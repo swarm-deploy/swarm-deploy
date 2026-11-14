@@ -2,10 +2,14 @@ package handlers
 
 import (
 	"context"
+	"fmt"
+	"strconv"
 	"strings"
-	"time"
 
+	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/history"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/model"
 )
 
@@ -14,7 +18,10 @@ func (h *handler) ListStacks(ctx context.Context) (*generated.StacksResponse, er
 	if err != nil {
 		return nil, err
 	}
-	syncInfo := lastSyncInfo(state)
+	syncInfo, err := h.gitOpsStatus(ctx, state)
+	if err != nil {
+		return nil, err
+	}
 
 	return &generated.StacksResponse{
 		Stacks: h.listStacks(state),
@@ -22,21 +29,39 @@ func (h *handler) ListStacks(ctx context.Context) (*generated.StacksResponse, er
 	}, nil
 }
 
-func lastSyncInfo(state model.Runtime) map[string]string {
-	info := map[string]string{
-		"last_poll_result": state.LastPollResult,
-		"last_poll_error":  strings.TrimSpace(state.LastPollError),
-		"last_sync_reason": state.LastSyncReason,
-		"last_sync_result": state.LastSyncResult,
-		"last_sync_error":  strings.TrimSpace(state.LastSyncError),
-		"git_revision":     state.GitRevision,
+func (h *handler) gitOpsStatus(ctx context.Context, state model.Runtime) (generated.SyncInfo, error) {
+	info := generated.SyncInfo{}
+	statusConfig := h.stackProvider.GitOpsStatusConfig()
+	if statusConfig.SyncMode == config.SyncModePull || statusConfig.SyncMode == config.SyncModeHybrid {
+		poll := generated.LastPollStatus{}
+		if !state.LastPollAt.IsZero() {
+			poll.At = generated.NewOptDateTime(state.LastPollAt)
+			poll.Result = generated.NewOptLastPollStatusResult(generated.LastPollStatusResult(state.LastPollResult))
+			poll.Error = generated.NewOptString(strings.TrimSpace(state.LastPollError))
+		}
+		info.LastPoll = generated.NewOptLastPollStatus(poll)
 	}
-	if !state.LastPollAt.IsZero() {
-		info["last_poll_at"] = state.LastPollAt.Format(time.RFC3339)
+	if statusConfig.WebhookEnabled {
+		webhook := generated.LastWebhookStatus{}
+		entries, err := h.history.ReadRecent(ctx, history.QueryOptions{
+			Types: []events.TypeName{events.TypeNameWebhookReceived}, Limit: 1,
+		})
+		if err != nil {
+			return generated.SyncInfo{}, fmt.Errorf("read latest webhook event: %w", err)
+		}
+		if len(entries) == 1 {
+			queued, parseErr := strconv.ParseBool(entries[0].Details["queued"])
+			if parseErr != nil {
+				return generated.SyncInfo{}, fmt.Errorf("read latest webhook queued value: %w", parseErr)
+			}
+			webhook.EventID = generated.NewOptString(entries[0].ID)
+			webhook.At = generated.NewOptDateTime(entries[0].CreatedAt)
+			webhook.Queued = generated.NewOptBool(queued)
+		}
+		info.LastWebhook = generated.NewOptLastWebhookStatus(webhook)
 	}
-	if !state.LastSyncAt.IsZero() {
-		info["last_sync_at"] = state.LastSyncAt.Format(time.RFC3339)
+	if revision := strings.TrimSpace(state.GitRevision); revision != "" {
+		info.LastRevision = generated.NewOptString(revision)
 	}
-
-	return info
+	return info, nil
 }

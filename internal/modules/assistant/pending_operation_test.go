@@ -2,7 +2,7 @@ package assistant
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"go.uber.org/mock/gomock"
 	"net/http"
 	"net/http/httptest"
@@ -23,7 +23,7 @@ func TestPendingOperationFullRestartSkipsMainGenerationAndConfirmationSkipsModel
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		requests++
 		w.Header().Set("Content-Type", "application/json")
-		require.NoError(t, json.NewEncoder(w).Encode(map[string]any{
+		require.NoError(t, json.MarshalWrite(w, map[string]any{
 			"choices": []map[string]any{{"message": map[string]any{"content": `{"route":"services","operation":{"type":"service_restart_trigger","target":"core/api"}}`}}},
 			"usage":   map[string]any{"prompt_tokens": 3, "completion_tokens": 1, "total_tokens": 4},
 		}))
@@ -219,6 +219,24 @@ func TestPendingOperationSetsReplicas(t *testing.T) {
 	assert.True(t, usage.IsZero())
 	assert.Contains(t, answer, "replicas set to 4")
 	assert.Equal(t, []string{serviceReplicasSetTool}, tools.calls)
+}
+
+func TestPendingOperationConfirmsDeploySync(t *testing.T) {
+	tools := &fakeTools{definitions: assistantTestToolDefinitions(), executeResult: `{"queued":true}`}
+	g := newPendingTestGraph(serviceStore(t, nil), tools)
+
+	answer, usage := g.startPendingOperation(context.Background(), "conversation", OperationIntent{
+		Type: OperationDeploySync,
+	})
+	assert.Equal(t, "Запустить синхронизацию GitOps?", answer)
+	assert.True(t, usage.IsZero())
+
+	handled, answer, usage, err := g.handlePendingOperation(context.Background(), "conversation", "да")
+	require.NoError(t, err)
+	assert.True(t, handled)
+	assert.True(t, usage.IsZero())
+	assert.Equal(t, "Synchronization request queued successfully.", answer)
+	assert.Equal(t, []string{deploySyncTriggerTool}, tools.calls)
 }
 
 func TestPendingOperationCollectsMissingServiceWithoutModels(t *testing.T) {

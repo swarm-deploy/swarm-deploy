@@ -1,12 +1,16 @@
 import { apiRequest, apiTextRequest } from "./client";
 import { withWebBasePath } from "../runtimeConfig";
 import type {
+  Alert,
   AlertsResponse,
   DeploymentsResponse,
+  DeploymentActivityInterval,
+  DeploymentActivityResponse,
   DeploymentFilterOptions,
   Deployment,
   AlertStatus,
   EventHistoryResponse,
+  EventHistoryItem,
   EventFilterOptions,
   GitCommitDetailsResponse,
   QueueResponse,
@@ -16,11 +20,13 @@ import type {
   ServiceStatusResponse,
   StackManifestosResponse,
   StacksResponse,
+  StackResourcesResponse,
   TaskLogLevel,
 } from "./types";
 
-export function fetchAlerts(options: { status?: AlertStatus; limit?: number } = {}): Promise<AlertsResponse> {
+export function fetchAlerts(options: { status?: AlertStatus; limit?: number; stack?: string } = {}): Promise<AlertsResponse> {
   const params = new URLSearchParams();
+  if (options.stack) params.set("stack", options.stack);
   if (options.status) {
     params.set("status", options.status);
   }
@@ -30,6 +36,10 @@ export function fetchAlerts(options: { status?: AlertStatus; limit?: number } = 
 
   const query = params.toString();
   return apiRequest<AlertsResponse>(`/api/v1/alerts${query ? `?${query}` : ""}`);
+}
+
+export function fetchAlert(id: string): Promise<Alert> {
+  return apiRequest<Alert>(`/api/v1/alerts/${encodeURIComponent(id)}`);
 }
 
 export interface FetchEventsOptions {
@@ -47,6 +57,20 @@ export interface FetchEventsOptions {
 
 export function fetchStacks(): Promise<StacksResponse> {
   return apiRequest<StacksResponse>("/api/v1/stacks");
+}
+
+export function fetchStackResources(stack: string): Promise<StackResourcesResponse> {
+  return apiRequest<StackResourcesResponse>(`/api/v1/stacks/${encodeURIComponent(stack)}/resources`);
+}
+
+export function fetchStackDeploymentActivity(
+  stack: string,
+  interval: DeploymentActivityInterval = "weekly",
+): Promise<DeploymentActivityResponse> {
+  const encodedStack = encodeURIComponent(stack);
+  return apiRequest<DeploymentActivityResponse>(
+    `/api/v1/stacks/${encodedStack}/deployments/activity?interval=${encodeURIComponent(interval)}`,
+  );
 }
 
 export function fetchGitCommit(commitHash: string): Promise<GitCommitDetailsResponse> {
@@ -97,6 +121,10 @@ export function fetchEvents(options: FetchEventsOptions = {}): Promise<EventHist
   return apiRequest<EventHistoryResponse>(`/api/v1/events${query ? `?${query}` : ""}`);
 }
 
+export function fetchEvent(id: string): Promise<EventHistoryItem> {
+  return apiRequest<EventHistoryItem>(`/api/v1/events/${encodeURIComponent(id)}`);
+}
+
 export function fetchEventFilters(): Promise<EventFilterOptions> {
   return apiRequest<EventFilterOptions>("/api/v1/events/filters");
 }
@@ -133,10 +161,9 @@ export function fetchServiceDeployments(
   );
 }
 
-export function fetchServiceRealtime(stackName: string, serviceName: string): Promise<ServiceRealtimeResponse> {
-  const encodedStack = encodeURIComponent(stackName);
-  const encodedService = encodeURIComponent(serviceName);
-  return apiRequest<ServiceRealtimeResponse>(`/api/v1/stacks/${encodedStack}/services/${encodedService}/realtime`);
+export function fetchServiceRealtime(serviceIDOrName: string): Promise<ServiceRealtimeResponse> {
+  const encodedService = encodeURIComponent(serviceIDOrName);
+  return apiRequest<ServiceRealtimeResponse>(`/api/v1/swarm/services/${encodedService}/tasks`);
 }
 
 export interface OpenTaskLogsOptions {
@@ -184,10 +211,17 @@ export function fetchDeploymentInitJobLogs(deploymentID: string, attemptID: stri
   );
 }
 
-export function fetchDeployments(options: { stack?: string; serviceName?: string; limit?: number; cursor?: string } = {}): Promise<DeploymentsResponse> {
+export function fetchDeployments(options: {
+  stack?: string | string[];
+  serviceName?: string | string[];
+  limit?: number;
+  cursor?: string;
+} = {}): Promise<DeploymentsResponse> {
   const params = new URLSearchParams();
-  if (options.stack) params.set("stack", options.stack);
-  if (options.serviceName) params.set("service_name", options.serviceName);
+  const stacks = Array.isArray(options.stack) ? options.stack : options.stack ? [options.stack] : [];
+  const services = Array.isArray(options.serviceName) ? options.serviceName : options.serviceName ? [options.serviceName] : [];
+  for (const stack of stacks) params.append("stack", stack);
+  for (const service of services) params.append("service_name", service);
   if (options.limit) params.set("limit", String(options.limit));
   if (options.cursor) params.set("cursor", options.cursor);
   return apiRequest<DeploymentsResponse>(`/api/v1/deployments?${params}`);

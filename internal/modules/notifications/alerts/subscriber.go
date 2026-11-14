@@ -51,7 +51,7 @@ func parseSubscriptionID(id string) (events.AlertRecipient, error) {
 
 // Register subscribes all configured and persisted physical destinations to both transitions.
 func Register(
-	ctx context.Context, bus dispatcher.Dispatcher, db *storage.Database, spec config.NotificationSpec,
+	ctx context.Context, bus dispatcher.Dispatcher, db storage.Database, spec config.NotificationSpec,
 ) error {
 	store := NewStore(db)
 	if err := store.PruneCompleted(ctx); err != nil {
@@ -76,19 +76,26 @@ func Register(
 	for _, recipient := range known {
 		recipients[recipient] = true
 	}
-	pending, err := store.PendingSubscriptions(ctx)
+	pending, err := outbox.New(db).ListDeliveries(ctx, outbox.ListDeliveriesFilter{
+		SubscriptionIDPrefix: "alert:telegram:",
+		Statuses: []outbox.DeliveryStatus{
+			outbox.DeliveryStatusPending,
+			outbox.DeliveryStatusProcessing,
+			outbox.DeliveryStatusFailed,
+		},
+	})
 	if err != nil {
 		return err
 	}
-	for _, id := range pending {
-		recipient, parseErr := parseSubscriptionID(id)
+	for _, delivery := range pending {
+		recipient, parseErr := parseSubscriptionID(delivery.SubscriptionID)
 		if parseErr != nil {
 			return fmt.Errorf("recover alert notification subscription: %w", parseErr)
 		}
 		recipients[recipient] = true
 	}
 	for recipient := range recipients {
-		handler := outbox.External(&Subscriber{store: store, spec: spec, recipient: recipient, now: time.Now})
+		handler := dispatcher.External(&Subscriber{store: store, spec: spec, recipient: recipient, now: time.Now})
 		id := SubscriptionID(recipient)
 		if err = bus.Subscribe(events.TypeNameAlertOpened, id, handler); err != nil {
 			return err
@@ -154,11 +161,15 @@ func (s *Subscriber) opened(ctx context.Context, alert events.AlertSnapshot) err
 		payload = defaultSyncFailedPayload(alert)
 		parseMode = telegramHTMLParseMode
 	}
-	notifier, err := s.notifier(rule.AlertOpenedTemplate(alert.Kind), parseMode)
+	notifier, err := s.notifier(notifiers.TelegramOptions{
+		Message: rule.AlertOpenedTemplate(alert.Kind), ParseMode: parseMode, Buttons: rule.Opened.Buttons,
+	})
 	if err != nil {
 		return err
 	}
-	receipt, err := notifier.Notify(ctx, notifiers.Message{Payload: payload, Action: notifiers.ActionSend})
+	receipt, err := notifier.Notify(ctx, notifiers.Message{
+		Payload: payload, ButtonPayload: alert, Action: notifiers.ActionSend,
+	})
 	if err != nil {
 		return err
 	}
@@ -185,16 +196,23 @@ func (s *Subscriber) resolved(ctx context.Context, event *events.AlertResolved) 
 		payload.ResourceID = html.EscapeString(alert.ResourceID)
 		parseMode = telegramHTMLParseMode
 	}
-	notifier, err := s.notifier(rule.AlertResolvedTemplate(alert.Kind), parseMode)
-	if err != nil {
-		return err
-	}
 	action := notifiers.ActionSend
 	if link.OpenedMessageID.Valid {
 		action = notifiers.Action(rule.AlertResolvedAction())
 	}
+	options := notifiers.TelegramOptions{
+		Message: rule.AlertResolvedTemplate(alert.Kind), ParseMode: parseMode, Buttons: rule.Resolved.Buttons,
+	}
+	if action == notifiers.ActionEdit && rule.Resolved.Buttons == nil {
+		options.Buttons = rule.Opened.Buttons
+		options.EditOnlyButtons = true
+	}
+	notifier, err := s.notifier(options)
+	if err != nil {
+		return err
+	}
 	receipt, err := notifier.Notify(ctx, notifiers.Message{
-		Payload: payload, Action: action, TargetMessageID: link.OpenedMessageID.Int64,
+		Payload: payload, ButtonPayload: alert, Action: action, TargetMessageID: link.OpenedMessageID.Int64,
 	})
 	if err != nil {
 		return err
@@ -263,17 +281,20 @@ func (s *Subscriber) rule(kind string) config.TelegramAlertChannel {
 	return config.TelegramAlertChannel{}
 }
 
-func (s *Subscriber) notifier(message, parseMode string) (notifiers.Notifier, error) {
+func (s *Subscriber) notifier(options notifiers.TelegramOptions) (notifiers.Notifier, error) {
 	telegram := s.spec.Messengers.Telegram
 	if s.spec.TelegramBotIdentity() != s.recipient.BotIdentity {
 		return nil, fmt.Errorf("telegram credentials unavailable for alert recipient")
 	}
-	return notifiers.NewTelegramNotifier(s.recipient.ChatID, string(telegram.BotToken.Content), s.recipient.ChatID,
-		// Alert lifecycle delivery does not emit messenger health events, preventing recursive incidents.
-		&dispatcher.NopDispatcher{},
-		notifiers.TelegramOptions{ChatThreadID: s.recipient.ThreadID, Message: message,
-			ParseMode: parseMode, Retries: telegram.Retries,
-			SOCKS5Address: telegram.Proxy.SOCKS5.Address.Value, APIBaseURL: s.apiBaseURL})
+	options.ChatThreadID = s.recipient.ThreadID
+	options.Retries = telegram.Retries
+	options.SOCKS5Address = telegram.Proxy.SOCKS5.Address.Value
+	options.APIBaseURL = s.apiBaseURL
+	return notifiers.NewTelegramNotifier(
+		s.recipient.ChatID, string(telegram.BotToken.Content), s.recipient.ChatID,
+		// Alert lifecycle delivery suppresses messenger health observations to avoid recursive incidents.
+		&dispatcher.NopDispatcher{}, options,
+	)
 }
 
 func defaultSyncFailedPayload(alert events.AlertSnapshot) events.AlertSnapshot {

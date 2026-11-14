@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	dockerregistry "github.com/docker/docker/api/types/registry"
 	"github.com/docker/docker/client"
 )
 
@@ -24,10 +25,10 @@ func (m *imageManager) Get(ctx context.Context, imageRef string) (Image, error) 
 	image, err := m.dockerClient.ImageInspect(ctx, imageRef)
 	if err != nil {
 		if isNotFoundErr(err) {
-			return Image{}, ErrImageNotFound
+			return Image{}, fmt.Errorf("%w: %w", ErrImageNotFound, err)
 		}
 
-		return Image{}, fmt.Errorf("inspect image %s: %w", imageRef, err)
+		return Image{}, fmt.Errorf("inspect image %s: %w", imageRef, classifyDockerError(err))
 	}
 
 	labels := map[string]string(nil)
@@ -40,4 +41,16 @@ func (m *imageManager) Get(ctx context.Context, imageRef string) (Image, error) 
 		Ref:    imageRef,
 		Labels: labels,
 	}, nil
+}
+
+// InspectDistribution returns registry distribution metadata through Docker Engine.
+func (m *imageManager) InspectDistribution(
+	ctx context.Context, imageRef, encodedRegistryAuth string,
+) (dockerregistry.DistributionInspect, error) {
+	result, err := m.dockerClient.DistributionInspect(ctx, imageRef, encodedRegistryAuth)
+	if err != nil {
+		return dockerregistry.DistributionInspect{}, classifyDockerError(err)
+	}
+
+	return result, nil
 }

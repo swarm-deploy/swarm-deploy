@@ -15,7 +15,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/tools/routing"
 )
 
-func TestTerminalServiceActionSuccessSkipsSecondGeneration(t *testing.T) {
+func TestFinalizeTerminalServiceActionResult(t *testing.T) {
 	testCases := []struct {
 		name           string
 		toolName       string
@@ -25,9 +25,10 @@ func TestTerminalServiceActionSuccessSkipsSecondGeneration(t *testing.T) {
 		{
 			name:       "restart",
 			toolName:   serviceRestartTriggerTool,
-			toolResult: `{"stack":"infra","service":"postgres","replicas":1}`,
+			toolResult: `{"stack":"infra","service":"postgres","replicas":1,"warning":"audit unavailable"}`,
 			answerContains: []string{
 				"restart completed successfully", `stack "infra"`, `service "postgres"`, "current replicas: 1",
+				"Warning: audit unavailable",
 			},
 		},
 		{
@@ -42,36 +43,12 @@ func TestTerminalServiceActionSuccessSkipsSecondGeneration(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			var chatCalls atomic.Int64
-			server := newTerminalTestServer(t, &chatCalls, []map[string]any{
-				modelFunctionToolCall("tool-1", testCase.toolName),
-			}, "unexpected second generation")
-			defer server.Close()
-
-			tools := &fakeTools{
-				definitions:   assistantTestToolDefinitions(),
-				executeResult: testCase.toolResult,
-			}
-			assistantService := newRoutingTestServiceWithHistory(
-				t, server.URL, serviceStore(t, nil), tools, nil, newSQLHistory(t),
-			)
-			response := assistantService.Chat(context.Background(), ChatRequest{Message: "Confirmed service action"})
-
-			require.Equal(t, StatusCompleted, response.Status)
-			assert.Equal(t, int64(2), chatCalls.Load(), "router and first generation should be the only model calls")
-			assert.Equal(t, []string{testCase.toolName}, tools.calls)
-			assert.NotEqual(t, testCase.toolResult, response.Answer, "raw JSON must not be returned")
-			for _, expected := range testCase.answerContains {
-				assert.Contains(t, response.Answer, expected)
-			}
-
-			chats, err := assistantService.ListChats(context.Background())
+			answer, err := finalizeTerminalToolResult(testCase.toolName, testCase.toolResult)
 			require.NoError(t, err)
-			require.Len(t, chats, 1)
-			require.NotNil(t, chats[0].Usage)
-			assert.Equal(t, int64(6), chats[0].Usage.InputTokens)
-			assert.Equal(t, int64(2), chats[0].Usage.OutputTokens)
-			assert.Equal(t, int64(8), chats[0].Usage.TotalTokens, "usage must contain router and first generation only")
+			assert.NotEqual(t, testCase.toolResult, answer, "raw JSON must not be returned")
+			for _, expected := range testCase.answerContains {
+				assert.Contains(t, answer, expected)
+			}
 		})
 	}
 }
@@ -98,6 +75,40 @@ func TestPromptInjectionReportIsTerminalAndSuppressesOperationalTools(t *testing
 	assert.Equal(t, promptInjectionRejectedResponse, response.Answer)
 	assert.Equal(t, int64(2), chatCalls.Load(), "router and first generation should be the only model calls")
 	assert.Equal(t, []string{assistantPromptInjectionReportTool}, tools.calls)
+}
+
+func TestMutatingToolCallsAreRejectedBeforeExecutor(t *testing.T) {
+	for _, toolName := range []string{serviceRestartTriggerTool, serviceReplicasSetTool, deploySyncTriggerTool} {
+		t.Run(toolName, func(t *testing.T) {
+			var chatCalls atomic.Int64
+			server := newTerminalTestServer(t, &chatCalls, []map[string]any{
+				modelFunctionToolCall("tool-1", toolName),
+			}, "mutation rejected")
+			defer server.Close()
+
+			tools := &fakeTools{definitions: assistantTestToolDefinitions()}
+			assistantService := newRoutingTestService(t, server.URL, serviceStore(t, nil), tools, nil)
+			response := assistantService.Chat(context.Background(), ChatRequest{Message: "Run operation"})
+
+			require.Equal(t, StatusCompleted, response.Status)
+			assert.Equal(t, "mutation rejected", response.Answer)
+			assert.Empty(t, tools.calls, "model-selected mutation must never reach the executor")
+			assert.Equal(t, int64(3), chatCalls.Load())
+		})
+	}
+}
+
+func TestMutatingToolsAreNotExposedToModel(t *testing.T) {
+	g := &graph{tools: &fakeTools{definitions: assistantTestToolDefinitions()}}
+	effective := map[string]struct{}{
+		serviceRestartTriggerTool: {}, serviceReplicasSetTool: {}, deploySyncTriggerTool: {}, "date": {},
+	}
+	definitions := g.effectiveToolDefinitions(effective)
+	names := make([]string, 0, len(definitions))
+	for _, definition := range definitions {
+		names = append(names, string(definition.Name))
+	}
+	assert.Equal(t, []string{"date"}, names)
 }
 
 func TestTerminalToolFallbacksToGeneration(t *testing.T) {
@@ -161,7 +172,7 @@ func TestTerminalToolFallbacksToGeneration(t *testing.T) {
 func TestTerminalToolResultInjectionIsGuardedBeforeFinalization(t *testing.T) {
 	var chatCalls atomic.Int64
 	server := newTerminalTestServer(t, &chatCalls, []map[string]any{
-		modelFunctionToolCall("tool-1", serviceRestartTriggerTool),
+		modelFunctionToolCall("tool-1", assistantPromptInjectionReportTool),
 	}, "must not be generated")
 	defer server.Close()
 
@@ -249,7 +260,7 @@ func TestFinalizeTerminalToolResultRejectsRawOrIncompletePayload(t *testing.T) {
 		toolName string
 		result   string
 	}{
-		{name: "unknown tool", toolName: "deploy_sync_trigger", result: `{}`},
+		{name: "unknown tool", toolName: "unknown", result: `{}`},
 		{name: "invalid json", toolName: serviceRestartTriggerTool, result: `invalid`},
 		{name: "missing stack", toolName: serviceRestartTriggerTool, result: `{"service":"api","replicas":1}`},
 		{name: "missing service", toolName: serviceReplicasSetTool, result: `{"stack":"core","replicas":1}`},

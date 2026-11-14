@@ -1,6 +1,7 @@
 package compose
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -38,4 +39,40 @@ func TestEnvironment_UnmarshalYAML(t *testing.T) {
 			assert.Equal(t, test.Expected, env)
 		})
 	}
+}
+
+func TestEnvironmentNullBareAndEmptyPreparation(t *testing.T) {
+	t.Setenv("ENV_AUDIT", "from-controller")
+	for _, syntax := range []string{"{ENV_AUDIT: null}", "{ENV_AUDIT: ''}"} {
+		t.Run(syntax, func(t *testing.T) {
+			loader := NewFileLoaderWithReader(func(context.Context, string) ([]byte, error) {
+				return []byte("services: {api: {image: alpine, environment: " + syntax + "}}"), nil
+			})
+			file, err := loader.Load(t.Context(), "compose.yaml")
+			require.NoError(t, err)
+			assert.Empty(t, file.Compose.Services[0].Environment.Map["ENV_AUDIT"])
+			rendered, err := file.MarshalYAML()
+			require.NoError(t, err)
+			t.Setenv("ENV_AUDIT", "changed")
+			snapshot, err := Parse(rendered)
+			require.NoError(t, err)
+			assert.Empty(t, snapshot.Services[0].Environment.Map["ENV_AUDIT"])
+		})
+	}
+	var env Environment
+	require.NoError(t, yaml.Unmarshal([]byte("{ENV_AUDIT: '', NULL_VALUE: null, TEXT: 'null'}"), &env))
+	assert.Empty(t, env.Map["ENV_AUDIT"], "explicit empty stays empty")
+	assert.Empty(t, env.Unset)
+	assert.Equal(t, "null", env.Map["TEXT"])
+	raw, err := yaml.Marshal(env)
+	require.NoError(t, err)
+	var again Environment
+	require.NoError(t, yaml.Unmarshal(raw, &again))
+	assert.Equal(t, env.Map, again.Map)
+	assert.Equal(t, env.Unset, again.Unset)
+}
+
+func TestEnvironmentDuplicateExplicitValueOverridesBareKey(t *testing.T) {
+	_, err := NewEnvironment([]string{"KEY", "KEY=explicit"})
+	require.Error(t, err)
 }

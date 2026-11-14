@@ -3,6 +3,7 @@ package swarm
 import (
 	"context"
 
+	dockernetwork "github.com/docker/docker/api/types/network"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/tracing"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
@@ -20,13 +21,15 @@ func traceNetworkManager(tracer trace.Tracer, networkManager NetworkManager) Net
 	}
 }
 
-func (t traceableNetworkManager) Get(ctx context.Context, name string) (Network, error) {
+func (t traceableNetworkManager) Get(
+	ctx context.Context, name string, options ...dockernetwork.InspectOptions,
+) (Network, error) {
 	ctx, span := t.tracer.Start(ctx, "swarm.GetNetwork", trace.WithAttributes(
 		tracing.ResourceNetworkName.String(name),
 	))
 	defer span.End()
 
-	network, err := t.networkManager.Get(ctx, name)
+	network, err := t.networkManager.Get(ctx, name, options...)
 	if err != nil {
 		tracing.FailSpan(span, err)
 		return Network{}, err
@@ -38,11 +41,13 @@ func (t traceableNetworkManager) Get(ctx context.Context, name string) (Network,
 	return network, nil
 }
 
-func (t traceableNetworkManager) List(ctx context.Context) ([]Network, error) {
-	ctx, span := t.tracer.Start(ctx, "swarm.ListNetworks")
+func (t traceableNetworkManager) List(ctx context.Context, filter ListNetworksFilter) ([]Network, error) {
+	ctx, span := t.tracer.Start(ctx, "swarm.ListNetworks", trace.WithAttributes(
+		tracing.ResourceStackName.StringSlice(filter.Stacks),
+	))
 	defer span.End()
 
-	networks, err := t.networkManager.List(ctx)
+	networks, err := t.networkManager.List(ctx, filter)
 	if err != nil {
 		tracing.FailSpan(span, err)
 		return nil, err

@@ -10,7 +10,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
@@ -32,14 +31,15 @@ func TestHandlerGetStackManifestos(t *testing.T) {
 		},
 	})
 
-	desiredManifest := []byte("services:\n  worker:\n    image: ghcr.io/swarm-deploy/payments-worker:v1.2.3\n  api:\n    image: ghcr.io/swarm-deploy/payments-api:v1.2.3\n")
+	desiredManifest := []byte("secrets:\n  unused:\n    file: missing.age\nservices:\n  worker:\n    image: ghcr.io/swarm-deploy/payments-worker:v1.2.3\n  api:\n    image: ghcr.io/swarm-deploy/payments-api:v1.2.3\n")
+	gitRepository.EXPECT().Head(gomock.Any()).Return("head-sha", nil)
 	gitRepository.EXPECT().
-		ReadFile(gomock.Any(), "stacks/payments.yaml").
+		ReadFile(gomock.Any(), "head-sha", "stacks/payments.yaml").
 		Return(desiredManifest, nil)
 
 	replicas := uint64(3)
 	serviceInspector.EXPECT().
-		ListStackServices(gomock.Any(), "payments").
+		ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "payments"}).
 		Return([]swarm.StackService{
 			{
 				Name:     "api",
@@ -61,7 +61,6 @@ func TestHandlerGetStackManifestos(t *testing.T) {
 		git:              gitRepository,
 		serviceInspector: serviceInspector,
 		networks:         networkManager,
-		composeLoader:    composeLoaderForTest(desiredManifest),
 	}
 
 	resp, err := h.GetStackManifestos(context.Background(), generated.GetStackManifestosParams{
@@ -114,8 +113,9 @@ func TestHandlerGetStackManifestos_GitReadError(t *testing.T) {
 		},
 	})
 
+	gitRepository.EXPECT().Head(gomock.Any()).Return("head-sha", nil)
 	gitRepository.EXPECT().
-		ReadFile(gomock.Any(), "stacks/payments.yaml").
+		ReadFile(gomock.Any(), "head-sha", "stacks/payments.yaml").
 		Return(nil, errors.New("read failed"))
 
 	h := &handler{
@@ -147,14 +147,14 @@ func TestHandlerGetStackManifestos_DesiredComposeLoadError(t *testing.T) {
 	})
 	invalidManifest := []byte("services: [")
 
+	gitRepository.EXPECT().Head(gomock.Any()).Return("head-sha", nil)
 	gitRepository.EXPECT().
-		ReadFile(gomock.Any(), "stacks/payments.yaml").
+		ReadFile(gomock.Any(), "head-sha", "stacks/payments.yaml").
 		Return(invalidManifest, nil)
 
 	h := &handler{
 		stackProvider: cfg,
 		git:           gitRepository,
-		composeLoader: composeLoaderForTest(invalidManifest),
 	}
 
 	_, err := h.GetStackManifestos(context.Background(), generated.GetStackManifestosParams{
@@ -168,7 +168,7 @@ func TestHandlerGetStackManifestos_DesiredComposeLoadError(t *testing.T) {
 	assert.Equal(t, "unable to get stack desired manifest", statusErr.Error())
 }
 
-func TestHandlerGetStackManifestos_ListStackServicesError(t *testing.T) {
+func TestHandlerGetStackManifestos_ListServicesError(t *testing.T) {
 	t.Parallel()
 
 	ctrl := gomock.NewController(t)
@@ -181,21 +181,19 @@ func TestHandlerGetStackManifestos_ListStackServicesError(t *testing.T) {
 		},
 	})
 
+	gitRepository.EXPECT().Head(gomock.Any()).Return("head-sha", nil)
 	gitRepository.EXPECT().
-		ReadFile(gomock.Any(), "stacks/payments.yaml").
+		ReadFile(gomock.Any(), "head-sha", "stacks/payments.yaml").
 		Return([]byte("services:\n  api:\n    image: ghcr.io/swarm-deploy/payments-api:v1.2.3\n"), nil)
 
 	serviceInspector.EXPECT().
-		ListStackServices(gomock.Any(), "payments").
+		ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "payments"}).
 		Return(nil, errors.New("swarm unavailable"))
 
 	h := &handler{
 		stackProvider:    cfg,
 		git:              gitRepository,
 		serviceInspector: serviceInspector,
-		composeLoader: composeLoaderForTest(
-			[]byte("services:\n  api:\n    image: ghcr.io/swarm-deploy/payments-api:v1.2.3\n"),
-		),
 	}
 
 	_, err := h.GetStackManifestos(context.Background(), generated.GetStackManifestosParams{
@@ -223,12 +221,13 @@ func TestHandlerGetStackManifestos_LiveManifestError(t *testing.T) {
 		},
 	})
 
+	gitRepository.EXPECT().Head(gomock.Any()).Return("head-sha", nil)
 	gitRepository.EXPECT().
-		ReadFile(gomock.Any(), "stacks/payments.yaml").
+		ReadFile(gomock.Any(), "head-sha", "stacks/payments.yaml").
 		Return([]byte("services:\n  api:\n    image: ghcr.io/swarm-deploy/payments-api:v1.2.3\n"), nil)
 
 	serviceInspector.EXPECT().
-		ListStackServices(gomock.Any(), "payments").
+		ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "payments"}).
 		Return([]swarm.StackService{
 			{
 				Name:  "api",
@@ -244,9 +243,6 @@ func TestHandlerGetStackManifestos_LiveManifestError(t *testing.T) {
 		git:              gitRepository,
 		serviceInspector: serviceInspector,
 		networks:         networkManager,
-		composeLoader: composeLoaderForTest(
-			[]byte("services:\n  api:\n    image: ghcr.io/swarm-deploy/payments-api:v1.2.3\n"),
-		),
 	}
 
 	_, err := h.GetStackManifestos(context.Background(), generated.GetStackManifestosParams{
@@ -260,12 +256,6 @@ func TestHandlerGetStackManifestos_LiveManifestError(t *testing.T) {
 	assert.Equal(t, "unable to get stack live manifest", statusErr.Error())
 }
 
-func composeLoaderForTest(manifest []byte) compose.FileLoader {
-	return compose.NewFileLoaderWithReader(func(context.Context, string) ([]byte, error) {
-		return manifest, nil
-	})
-}
-
 func newConfigWithStacks(t *testing.T, stacks []config.StackSpec) *config.Config {
 	t.Helper()
 	cfg := &config.Config{}
@@ -273,7 +263,7 @@ func newConfigWithStacks(t *testing.T, stacks []config.StackSpec) *config.Config
 		return cfg
 	}
 	dir := t.TempDir()
-	cfg.Spec.StacksSource.File = "stacks.yaml"
+	cfg.Spec.GitOps.Stacks.File = "stacks.yaml"
 	content := "stacks:\n"
 	for _, stack := range stacks {
 		content += "  - name: " + stack.Name + "\n"

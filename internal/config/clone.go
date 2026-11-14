@@ -7,6 +7,10 @@ func cloneStacks(stacks []StackSpec) []StackSpec {
 			prune := *stacks[i].Sync.Policy.Prune
 			cloned[i].Sync.Policy.Prune = &prune
 		}
+		if stacks[i].Sync.Policy.SelfHeal != nil {
+			selfHeal := *stacks[i].Sync.Policy.SelfHeal
+			cloned[i].Sync.Policy.SelfHeal = &selfHeal
+		}
 	}
 	return cloned
 }

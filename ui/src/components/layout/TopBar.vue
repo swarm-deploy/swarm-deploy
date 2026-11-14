@@ -1,19 +1,16 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
+import { useRouter } from "vue-router";
 
 import { fetchSearch } from "../../api/search";
 import type { SearchResult } from "../../api/types";
 import { useOverviewStore } from "../../stores/overview";
 import { useSecretDetailsStore } from "../../stores/secretDetails";
+import AppButton from "../common/AppButton.vue";
 
-defineProps<{
-  syncDisabled: boolean;
-  syncPending: boolean;
-  assistantEnabled: boolean;
-}>();
+defineProps<{ assistantEnabled: boolean }>();
 
 const emit = defineEmits<{
-  syncNow: [];
   toggleAssistant: [];
 }>();
 
@@ -22,6 +19,7 @@ const SEARCH_DEBOUNCE_MS = 300;
 
 const overviewStore = useOverviewStore();
 const secretDetailsStore = useSecretDetailsStore();
+const router = useRouter();
 
 const searchRootRef = ref<HTMLElement | null>(null);
 const searchQuery = ref("");
@@ -34,16 +32,17 @@ let debounceTimer: ReturnType<typeof setTimeout> | undefined;
 let searchRequestID = 0;
 
 const normalizedQuery = computed(() => searchQuery.value.trim());
-const visibleResults = computed(() => {
-  if (!searchOpen.value) {
-    return [];
-  }
-  return searchResults.value.filter((item) => item.kind === "service" || item.kind === "secret");
-});
-const serviceResults = computed(() => visibleResults.value.filter((item) => item.kind === "service"));
-const secretResults = computed(() => visibleResults.value.filter((item) => item.kind === "secret"));
+const serviceResults = computed(() => searchResults.value.filter((item) => item.kind === "service"));
+const secretResults = computed(() => searchResults.value.filter((item) => item.kind === "secret"));
+const stackResults = computed(() => searchResults.value.filter((item) => item.kind === "stack"));
 const showNoResults = computed(
-  () => searchOpen.value && !searchLoading.value && !searchError.value && visibleResults.value.length === 0,
+  () =>
+    searchOpen.value &&
+    !searchLoading.value &&
+    !searchError.value &&
+    serviceResults.value.length === 0 &&
+    secretResults.value.length === 0 &&
+    stackResults.value.length === 0,
 );
 function resetSearchState() {
   searchResults.value = [];
@@ -96,6 +95,16 @@ async function performSearch(query: string) {
       searchLoading.value = false;
     }
   }
+}
+
+async function selectStack(item: SearchResult) {
+  const stackName = item.stack?.trim() ?? item.label.trim();
+  if (!stackName) {
+    return;
+  }
+
+  closeSearch();
+  await router.push({ name: "stack-details", params: { stack: stackName } });
 }
 
 async function selectService(item: SearchResult) {
@@ -159,14 +168,26 @@ onUnmounted(() => {
       <input
         v-model="searchQuery"
         type="search"
-        placeholder="Search services and secrets"
-        aria-label="Search services and secrets"
+        placeholder="Search services, secrets, and stacks"
+        aria-label="Search services, secrets, and stacks"
         @focus="scheduleSearch"
       />
       <div v-if="searchOpen" class="topbar-search-dropdown">
         <p v-if="searchLoading" class="topbar-search-state">Searching...</p>
         <p v-else-if="searchError" class="topbar-search-state">Search failed: {{ searchError }}</p>
         <template v-else>
+          <div v-if="stackResults.length > 0" class="topbar-search-group">
+            <p class="topbar-search-group-title">Stacks</p>
+            <button
+              v-for="item in stackResults"
+              :key="`stack-${item.stack}-${item.match}`"
+              type="button"
+              class="topbar-search-item"
+              @click="selectStack(item)"
+            >
+              <span>{{ item.label }}</span>
+            </button>
+          </div>
           <div v-if="serviceResults.length > 0" class="topbar-search-group">
             <p class="topbar-search-group-title">Services</p>
             <button
@@ -198,17 +219,37 @@ onUnmounted(() => {
     </div>
 
     <div class="topbar-actions">
-      <button
-        type="button"
-        class="topbar-sync-button"
-        :disabled="syncDisabled || syncPending"
-        @click="emit('syncNow')"
+      <AppButton
+        variant="secondary"
+        class="topbar-assistant-button"
+        aria-label="Assistant"
+        :disabled="!assistantEnabled"
+        @click="emit('toggleAssistant')"
       >
-        {{ syncPending ? "Syncing..." : "Sync now" }}
-      </button>
-      <button type="button" class="button-ghost" :disabled="!assistantEnabled" @click="emit('toggleAssistant')">
-        Assistant
-      </button>
+        <span class="topbar-assistant-label">Assistant</span>
+        <span class="topbar-assistant-icon" title="Assistant" aria-hidden="true">
+          <svg
+            width="26"
+            height="26"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="url(#topbar-assistant-gradient)"
+            stroke-width="1.75"
+            stroke-linecap="round"
+          >
+            <defs>
+              <linearGradient id="topbar-assistant-gradient" x1="0%" y1="100%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#667FA6" />
+                <stop offset="100%" stop-color="#9079A5" />
+              </linearGradient>
+            </defs>
+            <rect x="4" y="7" width="16" height="13" rx="3" />
+            <path d="M12 7V3M9.5 15Q12 18 14.5 15" />
+            <circle cx="9" cy="12" r="1" fill="url(#topbar-assistant-gradient)" stroke="none" />
+            <circle cx="15" cy="12" r="1" fill="url(#topbar-assistant-gradient)" stroke="none" />
+          </svg>
+        </span>
+      </AppButton>
     </div>
   </header>
 </template>

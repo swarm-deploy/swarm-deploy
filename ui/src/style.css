@@ -143,9 +143,8 @@ body {
   justify-content: flex-end;
 }
 
-.topbar-actions button:disabled {
-  cursor: not-allowed;
-  opacity: 0.65;
+.topbar-assistant-icon {
+  display: none;
 }
 
 .topbar-sync-button {
@@ -172,10 +171,8 @@ body {
   filter: none;
 }
 
-.button-ghost {
-  border-color: var(--border-default);
-  color: var(--text);
-  background: var(--surface-control);
+:root:not([data-theme="light"]) .topbar-assistant-button {
+  background: transparent;
 }
 
 .sidebar {
@@ -237,6 +234,11 @@ body {
   font-weight: 700;
   line-height: 1.25;
   letter-spacing: -0.015em;
+}
+
+:root:not([data-theme="light"]) .sidebar-brand-mark,
+:root:not([data-theme="light"]) .sidebar-brand-name {
+  color: #3E79A9;
 }
 
 .sidebar-label {
@@ -508,12 +510,14 @@ body {
   width: 200px;
 }
 
-.sidebar.collapsed .sidebar-link::after {
+.app-tooltip {
+  position: relative;
+}
+
+:is(.sidebar.collapsed .sidebar-link, .app-tooltip)[data-tooltip]::after {
   content: attr(data-tooltip);
   position: absolute;
   z-index: 20;
-  top: 50%;
-  left: calc(100% + 10px);
   padding: 6px 9px;
   border: 1px solid var(--border-strong);
   border-radius: 6px;
@@ -526,14 +530,31 @@ body {
   white-space: nowrap;
   pointer-events: none;
   opacity: 0;
-  transform: translate(4px, -50%);
   transition: opacity 150ms ease, transform 150ms ease;
 }
 
-.sidebar.collapsed .sidebar-link:hover::after,
-.sidebar.collapsed .sidebar-link:focus-visible::after {
+:is(.sidebar.collapsed .sidebar-link, .app-tooltip)[data-tooltip]:is(:hover, :focus-visible)::after {
   opacity: 1;
+}
+
+.sidebar.collapsed .sidebar-link::after {
+  top: 50%;
+  left: calc(100% + 10px);
+  transform: translate(4px, -50%);
+}
+
+.sidebar.collapsed .sidebar-link:is(:hover, :focus-visible)::after {
   transform: translate(0, -50%);
+}
+
+.app-tooltip::after {
+  top: calc(100% + 4px);
+  left: 50%;
+  transform: translate(-50%, -4px);
+}
+
+.app-tooltip:is(:hover, :focus-visible)::after {
+  transform: translate(-50%, 0);
 }
 
 .shell-main {
@@ -552,6 +573,11 @@ body {
   display: grid;
   gap: 16px;
   align-content: start;
+}
+
+.shell-view:has(> .overview-summary-grid) {
+  container: overview / inline-size;
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .assistant-drawer-layer {
@@ -628,14 +654,6 @@ body {
     max-width: calc(100% - 32px);
   }
 
-  .app-root.assistant-pinned .overview-summary-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .app-root.assistant-pinned .overview-summary-panel:first-child {
-    grid-column: 1 / -1;
-  }
-
   .assistant-drawer-layer.open.pinned {
     pointer-events: none;
   }
@@ -659,21 +677,6 @@ body {
   .app-root.assistant-pinned .topbar-actions {
     justify-content: flex-start;
     flex-wrap: wrap;
-  }
-
-  .app-root.assistant-pinned .overview-summary-grid,
-  .app-root.assistant-pinned .stack-grid {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .app-root.assistant-pinned .overview-summary-panel:first-child {
-    grid-column: auto;
-  }
-
-  .app-root.assistant-pinned .overview-summary-row,
-  .app-root.assistant-pinned .overview-summary-row-copy,
-  .app-root.assistant-pinned .overview-summary-row-main {
-    min-width: 0;
   }
 }
 
@@ -813,21 +816,40 @@ body {
   .topbar-shell {
     position: static;
     height: auto;
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px;
     padding: 14px 18px;
   }
 
+  .topbar-search input {
+    display: block;
+  }
+
   .topbar-actions {
-    flex-wrap: wrap;
-    justify-content: flex-start;
+    align-self: stretch;
+    align-items: stretch;
+  }
+
+  .topbar-actions .app-button.topbar-assistant-button {
+    display: grid;
+    width: 38px;
+    padding: 0;
+    border-color: transparent;
+    background: transparent;
+  }
+
+  .topbar-assistant-label {
+    display: none;
+  }
+
+  .topbar-assistant-icon {
+    display: grid;
+    place-items: center;
+    color: var(--control-primary);
   }
 
   .shell-view {
     padding: 20px 16px;
-  }
-
-  .overview-summary-grid {
-    grid-template-columns: 1fr;
   }
 
   .events-header {
@@ -1433,3 +1455,6 @@ body {
     padding-right: 14px;
   }
 }
+
+.form-helper { display: flex; align-items: flex-start; gap: 8px; margin: 1px 2px 0; color: var(--muted); font-size: .76rem; line-height: 1.4; }
+.form-helper svg { flex: 0 0 auto; width: 17px; height: 17px; color: var(--muted); }

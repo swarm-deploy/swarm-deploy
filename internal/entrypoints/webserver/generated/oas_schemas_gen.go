@@ -15,16 +15,18 @@ type AddNodeLabelNoContent struct{}
 
 // Ref: #/components/schemas/Alert
 type Alert struct {
-	ID            string             `json:"id"`
-	Fingerprint   string             `json:"fingerprint"`
-	Kind          AlertKind          `json:"kind"`
-	ResourceType  AlertResourceType  `json:"resourceType"`
-	ResourceId    string             `json:"resourceId"`
-	Status        AlertStatus        `json:"status"`
-	Title         string             `json:"title"`
-	Message       string             `json:"message"`
-	FailureStage  OptString          `json:"failureStage"`
-	ErrorCode     OptString          `json:"errorCode"`
+	ID           string            `json:"id"`
+	Fingerprint  string            `json:"fingerprint"`
+	Kind         AlertKind         `json:"kind"`
+	ResourceType AlertResourceType `json:"resourceType"`
+	ResourceId   string            `json:"resourceId"`
+	Status       AlertStatus       `json:"status"`
+	Title        string            `json:"title"`
+	Message      string            `json:"message"`
+	FailureStage OptString         `json:"failureStage"`
+	ErrorCode    OptString         `json:"errorCode"`
+	// Distinct typed diagnostics in order of first detection.
+	Findings      []AlertFinding     `json:"findings"`
 	DeploymentId  OptString          `json:"deploymentId"`
 	Commit        OptString          `json:"commit"`
 	Occurrences   int64              `json:"occurrences"`
@@ -84,6 +86,11 @@ func (s *Alert) GetFailureStage() OptString {
 // GetErrorCode returns the value of ErrorCode.
 func (s *Alert) GetErrorCode() OptString {
 	return s.ErrorCode
+}
+
+// GetFindings returns the value of Findings.
+func (s *Alert) GetFindings() []AlertFinding {
+	return s.Findings
 }
 
 // GetDeploymentId returns the value of DeploymentId.
@@ -181,6 +188,11 @@ func (s *Alert) SetErrorCode(val OptString) {
 	s.ErrorCode = val
 }
 
+// SetFindings sets the value of Findings.
+func (s *Alert) SetFindings(val []AlertFinding) {
+	s.Findings = val
+}
+
 // SetDeploymentId sets the value of DeploymentId.
 func (s *Alert) SetDeploymentId(val OptString) {
 	s.DeploymentId = val
@@ -226,12 +238,50 @@ func (s *Alert) SetResolution(val OptAlertResolution) {
 	s.Resolution = val
 }
 
+// Ref: #/components/schemas/AlertFinding
+type AlertFinding struct {
+	Code       string    `json:"code"`
+	Summary    string    `json:"summary"`
+	DetectedAt time.Time `json:"detectedAt"`
+}
+
+// GetCode returns the value of Code.
+func (s *AlertFinding) GetCode() string {
+	return s.Code
+}
+
+// GetSummary returns the value of Summary.
+func (s *AlertFinding) GetSummary() string {
+	return s.Summary
+}
+
+// GetDetectedAt returns the value of DetectedAt.
+func (s *AlertFinding) GetDetectedAt() time.Time {
+	return s.DetectedAt
+}
+
+// SetCode sets the value of Code.
+func (s *AlertFinding) SetCode(val string) {
+	s.Code = val
+}
+
+// SetSummary sets the value of Summary.
+func (s *AlertFinding) SetSummary(val string) {
+	s.Summary = val
+}
+
+// SetDetectedAt sets the value of DetectedAt.
+func (s *AlertFinding) SetDetectedAt(val time.Time) {
+	s.DetectedAt = val
+}
+
 type AlertKind string
 
 const (
 	AlertKindSyncFailed               AlertKind = "sync_failed"
 	AlertKindNodeDisconnected         AlertKind = "node_disconnected"
 	AlertKindGitRepositoryUnavailable AlertKind = "git_repository_unavailable"
+	AlertKindServiceDrift             AlertKind = "service_drift"
 )
 
 // AllValues returns all AlertKind values.
@@ -240,6 +290,7 @@ func (AlertKind) AllValues() []AlertKind {
 		AlertKindSyncFailed,
 		AlertKindNodeDisconnected,
 		AlertKindGitRepositoryUnavailable,
+		AlertKindServiceDrift,
 	}
 }
 
@@ -251,6 +302,8 @@ func (s AlertKind) MarshalText() ([]byte, error) {
 	case AlertKindNodeDisconnected:
 		return []byte(s), nil
 	case AlertKindGitRepositoryUnavailable:
+		return []byte(s), nil
+	case AlertKindServiceDrift:
 		return []byte(s), nil
 	default:
 		return nil, errors.Errorf("invalid value: %q", s)
@@ -268,6 +321,9 @@ func (s *AlertKind) UnmarshalText(data []byte) error {
 		return nil
 	case AlertKindGitRepositoryUnavailable:
 		*s = AlertKindGitRepositoryUnavailable
+		return nil
+	case AlertKindServiceDrift:
+		*s = AlertKindServiceDrift
 		return nil
 	default:
 		return errors.Errorf("invalid value: %q", data)
@@ -358,6 +414,7 @@ const (
 	AlertResourceTypeStack      AlertResourceType = "stack"
 	AlertResourceTypeNode       AlertResourceType = "node"
 	AlertResourceTypeRepository AlertResourceType = "repository"
+	AlertResourceTypeService    AlertResourceType = "service"
 )
 
 // AllValues returns all AlertResourceType values.
@@ -366,6 +423,7 @@ func (AlertResourceType) AllValues() []AlertResourceType {
 		AlertResourceTypeStack,
 		AlertResourceTypeNode,
 		AlertResourceTypeRepository,
+		AlertResourceTypeService,
 	}
 }
 
@@ -377,6 +435,8 @@ func (s AlertResourceType) MarshalText() ([]byte, error) {
 	case AlertResourceTypeNode:
 		return []byte(s), nil
 	case AlertResourceTypeRepository:
+		return []byte(s), nil
+	case AlertResourceTypeService:
 		return []byte(s), nil
 	default:
 		return nil, errors.Errorf("invalid value: %q", s)
@@ -394,6 +454,9 @@ func (s *AlertResourceType) UnmarshalText(data []byte) error {
 		return nil
 	case AlertResourceTypeRepository:
 		*s = AlertResourceTypeRepository
+		return nil
+	case AlertResourceTypeService:
+		*s = AlertResourceTypeService
 		return nil
 	default:
 		return errors.Errorf("invalid value: %q", data)
@@ -966,6 +1029,144 @@ func (s *AssistantTokenUsage) SetTotalTokens(val int64) {
 	s.TotalTokens = val
 }
 
+// Ref: #/components/schemas/CreateExternalSecretRequest
+type CreateExternalSecretRequest struct {
+	Path        string    `json:"path"`
+	Key         OptString `json:"key"`
+	Value       string    `json:"value"`
+	Description OptString `json:"description"`
+}
+
+// GetPath returns the value of Path.
+func (s *CreateExternalSecretRequest) GetPath() string {
+	return s.Path
+}
+
+// GetKey returns the value of Key.
+func (s *CreateExternalSecretRequest) GetKey() OptString {
+	return s.Key
+}
+
+// GetValue returns the value of Value.
+func (s *CreateExternalSecretRequest) GetValue() string {
+	return s.Value
+}
+
+// GetDescription returns the value of Description.
+func (s *CreateExternalSecretRequest) GetDescription() OptString {
+	return s.Description
+}
+
+// SetPath sets the value of Path.
+func (s *CreateExternalSecretRequest) SetPath(val string) {
+	s.Path = val
+}
+
+// SetKey sets the value of Key.
+func (s *CreateExternalSecretRequest) SetKey(val OptString) {
+	s.Key = val
+}
+
+// SetValue sets the value of Value.
+func (s *CreateExternalSecretRequest) SetValue(val string) {
+	s.Value = val
+}
+
+// SetDescription sets the value of Description.
+func (s *CreateExternalSecretRequest) SetDescription(val OptString) {
+	s.Description = val
+}
+
+// Ref: #/components/schemas/CreateExternalSecretResponse
+type CreateExternalSecretResponse struct {
+	Path string `json:"path"`
+	// Optional direct HTTP(S) URL to the created provider secret.
+	ManagerURL OptString `json:"manager_url"`
+}
+
+// GetPath returns the value of Path.
+func (s *CreateExternalSecretResponse) GetPath() string {
+	return s.Path
+}
+
+// GetManagerURL returns the value of ManagerURL.
+func (s *CreateExternalSecretResponse) GetManagerURL() OptString {
+	return s.ManagerURL
+}
+
+// SetPath sets the value of Path.
+func (s *CreateExternalSecretResponse) SetPath(val string) {
+	s.Path = val
+}
+
+// SetManagerURL sets the value of ManagerURL.
+func (s *CreateExternalSecretResponse) SetManagerURL(val OptString) {
+	s.ManagerURL = val
+}
+
+// Ref: #/components/schemas/CreateSecretRequest
+type CreateSecretRequest struct {
+	Name        string    `json:"name"`
+	Value       string    `json:"value"`
+	Description OptString `json:"description"`
+}
+
+// GetName returns the value of Name.
+func (s *CreateSecretRequest) GetName() string {
+	return s.Name
+}
+
+// GetValue returns the value of Value.
+func (s *CreateSecretRequest) GetValue() string {
+	return s.Value
+}
+
+// GetDescription returns the value of Description.
+func (s *CreateSecretRequest) GetDescription() OptString {
+	return s.Description
+}
+
+// SetName sets the value of Name.
+func (s *CreateSecretRequest) SetName(val string) {
+	s.Name = val
+}
+
+// SetValue sets the value of Value.
+func (s *CreateSecretRequest) SetValue(val string) {
+	s.Value = val
+}
+
+// SetDescription sets the value of Description.
+func (s *CreateSecretRequest) SetDescription(val OptString) {
+	s.Description = val
+}
+
+// Ref: #/components/schemas/CreateSecretResponse
+type CreateSecretResponse struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+// GetID returns the value of ID.
+func (s *CreateSecretResponse) GetID() string {
+	return s.ID
+}
+
+// GetName returns the value of Name.
+func (s *CreateSecretResponse) GetName() string {
+	return s.Name
+}
+
+// SetID sets the value of ID.
+func (s *CreateSecretResponse) SetID(val string) {
+	s.ID = val
+}
+
+// SetName sets the value of Name.
+func (s *CreateSecretResponse) SetName(val string) {
+	s.Name = val
+}
+
 // Ref: #/components/schemas/CurrentUserResponse
 type CurrentUserResponse struct {
 	Name string `json:"name"`
@@ -979,6 +1180,113 @@ func (s *CurrentUserResponse) GetName() string {
 // SetName sets the value of Name.
 func (s *CurrentUserResponse) SetName(val string) {
 	s.Name = val
+}
+
+// Ref: #/components/schemas/DSNSuggestion
+type DSNSuggestion struct {
+	// Full Docker Swarm service name, usable as a DNS hostname on a shared overlay network.
+	ServiceName string                 `json:"service_name"`
+	Stack       string                 `json:"stack"`
+	Engine      NilDSNSuggestionEngine `json:"engine"`
+	// Suggested internal database port from supported server environment variables, or the engine
+	// default. Null for unknown engines. Published ports and command/config overrides are not inspected.
+	Port NilInt `json:"port"`
+}
+
+// GetServiceName returns the value of ServiceName.
+func (s *DSNSuggestion) GetServiceName() string {
+	return s.ServiceName
+}
+
+// GetStack returns the value of Stack.
+func (s *DSNSuggestion) GetStack() string {
+	return s.Stack
+}
+
+// GetEngine returns the value of Engine.
+func (s *DSNSuggestion) GetEngine() NilDSNSuggestionEngine {
+	return s.Engine
+}
+
+// GetPort returns the value of Port.
+func (s *DSNSuggestion) GetPort() NilInt {
+	return s.Port
+}
+
+// SetServiceName sets the value of ServiceName.
+func (s *DSNSuggestion) SetServiceName(val string) {
+	s.ServiceName = val
+}
+
+// SetStack sets the value of Stack.
+func (s *DSNSuggestion) SetStack(val string) {
+	s.Stack = val
+}
+
+// SetEngine sets the value of Engine.
+func (s *DSNSuggestion) SetEngine(val NilDSNSuggestionEngine) {
+	s.Engine = val
+}
+
+// SetPort sets the value of Port.
+func (s *DSNSuggestion) SetPort(val NilInt) {
+	s.Port = val
+}
+
+type DSNSuggestionEngine string
+
+const (
+	DSNSuggestionEnginePostgresql DSNSuggestionEngine = "postgresql"
+	DSNSuggestionEngineMysql      DSNSuggestionEngine = "mysql"
+)
+
+// AllValues returns all DSNSuggestionEngine values.
+func (DSNSuggestionEngine) AllValues() []DSNSuggestionEngine {
+	return []DSNSuggestionEngine{
+		DSNSuggestionEnginePostgresql,
+		DSNSuggestionEngineMysql,
+	}
+}
+
+// MarshalText implements encoding.TextMarshaler.
+func (s DSNSuggestionEngine) MarshalText() ([]byte, error) {
+	switch s {
+	case DSNSuggestionEnginePostgresql:
+		return []byte(s), nil
+	case DSNSuggestionEngineMysql:
+		return []byte(s), nil
+	default:
+		return nil, errors.Errorf("invalid value: %q", s)
+	}
+}
+
+// UnmarshalText implements encoding.TextUnmarshaler.
+func (s *DSNSuggestionEngine) UnmarshalText(data []byte) error {
+	switch DSNSuggestionEngine(data) {
+	case DSNSuggestionEnginePostgresql:
+		*s = DSNSuggestionEnginePostgresql
+		return nil
+	case DSNSuggestionEngineMysql:
+		*s = DSNSuggestionEngineMysql
+		return nil
+	default:
+		return errors.Errorf("invalid value: %q", data)
+	}
+}
+
+// Ref: #/components/schemas/DSNSuggestionsResponse
+type DSNSuggestionsResponse struct {
+	Suggestions []DSNSuggestion `json:"suggestions"`
+}
+
+// GetSuggestions returns the value of Suggestions.
+func (s *DSNSuggestionsResponse) GetSuggestions() []DSNSuggestion {
+	return s.Suggestions
+}
+
+// SetSuggestions sets the value of Suggestions.
+func (s *DSNSuggestionsResponse) SetSuggestions(val []DSNSuggestion) {
+	s.Suggestions = val
 }
 
 // DeleteNodeLabelNoContent is response for DeleteNodeLabel operation.
@@ -1289,6 +1597,133 @@ func (s *Deployment) SetChanges(val []DeploymentChange) {
 // SetAttempts sets the value of Attempts.
 func (s *Deployment) SetAttempts(val []DeploymentAttempt) {
 	s.Attempts = val
+}
+
+// Ref: #/components/schemas/DeploymentActivityBucket
+type DeploymentActivityBucket struct {
+	Start       time.Time `json:"start"`
+	Succeeded   int       `json:"succeeded"`
+	Failed      int       `json:"failed"`
+	Running     int       `json:"running"`
+	Interrupted int       `json:"interrupted"`
+	Superseded  int       `json:"superseded"`
+}
+
+// GetStart returns the value of Start.
+func (s *DeploymentActivityBucket) GetStart() time.Time {
+	return s.Start
+}
+
+// GetSucceeded returns the value of Succeeded.
+func (s *DeploymentActivityBucket) GetSucceeded() int {
+	return s.Succeeded
+}
+
+// GetFailed returns the value of Failed.
+func (s *DeploymentActivityBucket) GetFailed() int {
+	return s.Failed
+}
+
+// GetRunning returns the value of Running.
+func (s *DeploymentActivityBucket) GetRunning() int {
+	return s.Running
+}
+
+// GetInterrupted returns the value of Interrupted.
+func (s *DeploymentActivityBucket) GetInterrupted() int {
+	return s.Interrupted
+}
+
+// GetSuperseded returns the value of Superseded.
+func (s *DeploymentActivityBucket) GetSuperseded() int {
+	return s.Superseded
+}
+
+// SetStart sets the value of Start.
+func (s *DeploymentActivityBucket) SetStart(val time.Time) {
+	s.Start = val
+}
+
+// SetSucceeded sets the value of Succeeded.
+func (s *DeploymentActivityBucket) SetSucceeded(val int) {
+	s.Succeeded = val
+}
+
+// SetFailed sets the value of Failed.
+func (s *DeploymentActivityBucket) SetFailed(val int) {
+	s.Failed = val
+}
+
+// SetRunning sets the value of Running.
+func (s *DeploymentActivityBucket) SetRunning(val int) {
+	s.Running = val
+}
+
+// SetInterrupted sets the value of Interrupted.
+func (s *DeploymentActivityBucket) SetInterrupted(val int) {
+	s.Interrupted = val
+}
+
+// SetSuperseded sets the value of Superseded.
+func (s *DeploymentActivityBucket) SetSuperseded(val int) {
+	s.Superseded = val
+}
+
+// Ref: #/components/schemas/DeploymentActivityInterval
+type DeploymentActivityInterval string
+
+const (
+	DeploymentActivityIntervalDaily  DeploymentActivityInterval = "daily"
+	DeploymentActivityIntervalWeekly DeploymentActivityInterval = "weekly"
+)
+
+// AllValues returns all DeploymentActivityInterval values.
+func (DeploymentActivityInterval) AllValues() []DeploymentActivityInterval {
+	return []DeploymentActivityInterval{
+		DeploymentActivityIntervalDaily,
+		DeploymentActivityIntervalWeekly,
+	}
+}
+
+// MarshalText implements encoding.TextMarshaler.
+func (s DeploymentActivityInterval) MarshalText() ([]byte, error) {
+	switch s {
+	case DeploymentActivityIntervalDaily:
+		return []byte(s), nil
+	case DeploymentActivityIntervalWeekly:
+		return []byte(s), nil
+	default:
+		return nil, errors.Errorf("invalid value: %q", s)
+	}
+}
+
+// UnmarshalText implements encoding.TextUnmarshaler.
+func (s *DeploymentActivityInterval) UnmarshalText(data []byte) error {
+	switch DeploymentActivityInterval(data) {
+	case DeploymentActivityIntervalDaily:
+		*s = DeploymentActivityIntervalDaily
+		return nil
+	case DeploymentActivityIntervalWeekly:
+		*s = DeploymentActivityIntervalWeekly
+		return nil
+	default:
+		return errors.Errorf("invalid value: %q", data)
+	}
+}
+
+// Ref: #/components/schemas/DeploymentActivityResponse
+type DeploymentActivityResponse struct {
+	Buckets []DeploymentActivityBucket `json:"buckets"`
+}
+
+// GetBuckets returns the value of Buckets.
+func (s *DeploymentActivityResponse) GetBuckets() []DeploymentActivityBucket {
+	return s.Buckets
+}
+
+// SetBuckets sets the value of Buckets.
+func (s *DeploymentActivityResponse) SetBuckets(val []DeploymentActivityBucket) {
+	s.Buckets = val
 }
 
 // Ref: #/components/schemas/DeploymentActualStateStatus
@@ -2586,6 +3021,45 @@ func (s *DeploymentsResponse) SetNextCursor(val OptString) {
 	s.NextCursor = val
 }
 
+// Ref: #/components/schemas/EnvironmentVariable
+type EnvironmentVariable struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
+	// True when value contains the original environment value encoded using standard Base64. The value
+	// is encoded, not encrypted or irreversibly masked.
+	Encoded bool `json:"encoded"`
+}
+
+// GetName returns the value of Name.
+func (s *EnvironmentVariable) GetName() string {
+	return s.Name
+}
+
+// GetValue returns the value of Value.
+func (s *EnvironmentVariable) GetValue() string {
+	return s.Value
+}
+
+// GetEncoded returns the value of Encoded.
+func (s *EnvironmentVariable) GetEncoded() bool {
+	return s.Encoded
+}
+
+// SetName sets the value of Name.
+func (s *EnvironmentVariable) SetName(val string) {
+	s.Name = val
+}
+
+// SetValue sets the value of Value.
+func (s *EnvironmentVariable) SetValue(val string) {
+	s.Value = val
+}
+
+// SetEncoded sets the value of Encoded.
+func (s *EnvironmentVariable) SetEncoded(val bool) {
+	s.Encoded = val
+}
+
 // Ref: #/components/schemas/EventCategory
 type EventCategory string
 
@@ -2768,6 +3242,8 @@ func (s *EventHistoryItem) SetDetails(val OptEventHistoryItemDetails) {
 	s.Details = val
 }
 
+func (*EventHistoryItem) getEventRes() {}
+
 type EventHistoryItemDetails map[string]string
 
 func (s *EventHistoryItemDetails) init() EventHistoryItemDetails {
@@ -2897,6 +3373,11 @@ func (s *GetDeploymentInitJobLogsOKRawApplicationOctetStream) SetResponse(val *h
 }
 
 func (*GetDeploymentInitJobLogsOKRawApplicationOctetStream) getDeploymentInitJobLogsRes() {}
+
+// GetEventNotFound is response for GetEvent operation.
+type GetEventNotFound struct{}
+
+func (*GetEventNotFound) getEventRes() {}
 
 type GetTaskLogsOK struct {
 	Data io.Reader
@@ -3142,6 +3623,131 @@ func (s *GraphResponse) SetNodes(val []GraphNode) {
 	s.Nodes = val
 }
 
+// Latest Git polling attempt. Empty when polling is active but no attempt is recorded.
+// Ref: #/components/schemas/LastPollStatus
+type LastPollStatus struct {
+	At     OptDateTime             `json:"at"`
+	Result OptLastPollStatusResult `json:"result"`
+	// Sanitized diagnostic; empty when the attempt did not fail.
+	Error OptString `json:"error"`
+}
+
+// GetAt returns the value of At.
+func (s *LastPollStatus) GetAt() OptDateTime {
+	return s.At
+}
+
+// GetResult returns the value of Result.
+func (s *LastPollStatus) GetResult() OptLastPollStatusResult {
+	return s.Result
+}
+
+// GetError returns the value of Error.
+func (s *LastPollStatus) GetError() OptString {
+	return s.Error
+}
+
+// SetAt sets the value of At.
+func (s *LastPollStatus) SetAt(val OptDateTime) {
+	s.At = val
+}
+
+// SetResult sets the value of Result.
+func (s *LastPollStatus) SetResult(val OptLastPollStatusResult) {
+	s.Result = val
+}
+
+// SetError sets the value of Error.
+func (s *LastPollStatus) SetError(val OptString) {
+	s.Error = val
+}
+
+type LastPollStatusResult string
+
+const (
+	LastPollStatusResultUpdated  LastPollStatusResult = "updated"
+	LastPollStatusResultNoChange LastPollStatusResult = "no_change"
+	LastPollStatusResultError    LastPollStatusResult = "error"
+)
+
+// AllValues returns all LastPollStatusResult values.
+func (LastPollStatusResult) AllValues() []LastPollStatusResult {
+	return []LastPollStatusResult{
+		LastPollStatusResultUpdated,
+		LastPollStatusResultNoChange,
+		LastPollStatusResultError,
+	}
+}
+
+// MarshalText implements encoding.TextMarshaler.
+func (s LastPollStatusResult) MarshalText() ([]byte, error) {
+	switch s {
+	case LastPollStatusResultUpdated:
+		return []byte(s), nil
+	case LastPollStatusResultNoChange:
+		return []byte(s), nil
+	case LastPollStatusResultError:
+		return []byte(s), nil
+	default:
+		return nil, errors.Errorf("invalid value: %q", s)
+	}
+}
+
+// UnmarshalText implements encoding.TextUnmarshaler.
+func (s *LastPollStatusResult) UnmarshalText(data []byte) error {
+	switch LastPollStatusResult(data) {
+	case LastPollStatusResultUpdated:
+		*s = LastPollStatusResultUpdated
+		return nil
+	case LastPollStatusResultNoChange:
+		*s = LastPollStatusResultNoChange
+		return nil
+	case LastPollStatusResultError:
+		*s = LastPollStatusResultError
+		return nil
+	default:
+		return errors.Errorf("invalid value: %q", data)
+	}
+}
+
+// Latest retained WebhookReceived event. Empty when webhooks are enabled but none is retained.
+// Ref: #/components/schemas/LastWebhookStatus
+type LastWebhookStatus struct {
+	EventID OptString   `json:"event_id"`
+	At      OptDateTime `json:"at"`
+	Queued  OptBool     `json:"queued"`
+}
+
+// GetEventID returns the value of EventID.
+func (s *LastWebhookStatus) GetEventID() OptString {
+	return s.EventID
+}
+
+// GetAt returns the value of At.
+func (s *LastWebhookStatus) GetAt() OptDateTime {
+	return s.At
+}
+
+// GetQueued returns the value of Queued.
+func (s *LastWebhookStatus) GetQueued() OptBool {
+	return s.Queued
+}
+
+// SetEventID sets the value of EventID.
+func (s *LastWebhookStatus) SetEventID(val OptString) {
+	s.EventID = val
+}
+
+// SetAt sets the value of At.
+func (s *LastWebhookStatus) SetAt(val OptDateTime) {
+	s.At = val
+}
+
+// SetQueued sets the value of Queued.
+func (s *LastWebhookStatus) SetQueued(val OptBool) {
+	s.Queued = val
+}
+
 // Ref: #/components/schemas/NetworkInfo
 type NetworkInfo struct {
 	ID         string                `json:"id"`
@@ -3302,6 +3908,96 @@ func (s *NetworksResponse) GetNetworks() []NetworkInfo {
 // SetNetworks sets the value of Networks.
 func (s *NetworksResponse) SetNetworks(val []NetworkInfo) {
 	s.Networks = val
+}
+
+// NewNilDSNSuggestionEngine returns new NilDSNSuggestionEngine with value set to v.
+func NewNilDSNSuggestionEngine(v DSNSuggestionEngine) NilDSNSuggestionEngine {
+	return NilDSNSuggestionEngine{
+		Value: v,
+	}
+}
+
+// NilDSNSuggestionEngine is nullable DSNSuggestionEngine.
+type NilDSNSuggestionEngine struct {
+	Value DSNSuggestionEngine
+	Null  bool
+}
+
+// SetTo sets value to v.
+func (o *NilDSNSuggestionEngine) SetTo(v DSNSuggestionEngine) {
+	o.Null = false
+	o.Value = v
+}
+
+// IsNull returns true if value is Null.
+func (o NilDSNSuggestionEngine) IsNull() bool { return o.Null }
+
+// SetToNull sets value to null.
+func (o *NilDSNSuggestionEngine) SetToNull() {
+	o.Null = true
+	var v DSNSuggestionEngine
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o NilDSNSuggestionEngine) Get() (v DSNSuggestionEngine, ok bool) {
+	if o.Null {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o NilDSNSuggestionEngine) Or(d DSNSuggestionEngine) DSNSuggestionEngine {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewNilInt returns new NilInt with value set to v.
+func NewNilInt(v int) NilInt {
+	return NilInt{
+		Value: v,
+	}
+}
+
+// NilInt is nullable int.
+type NilInt struct {
+	Value int
+	Null  bool
+}
+
+// SetTo sets value to v.
+func (o *NilInt) SetTo(v int) {
+	o.Null = false
+	o.Value = v
+}
+
+// IsNull returns true if value is Null.
+func (o NilInt) IsNull() bool { return o.Null }
+
+// SetToNull sets value to null.
+func (o *NilInt) SetToNull() {
+	o.Null = true
+	var v int
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o NilInt) Get() (v int, ok bool) {
+	if o.Null {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o NilInt) Or(d int) int {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
 }
 
 // Ref: #/components/schemas/NodeInfo
@@ -3715,6 +4411,52 @@ func (o OptDateTime) Or(d time.Time) time.Time {
 	return d
 }
 
+// NewOptDeploymentActivityInterval returns new OptDeploymentActivityInterval with value set to v.
+func NewOptDeploymentActivityInterval(v DeploymentActivityInterval) OptDeploymentActivityInterval {
+	return OptDeploymentActivityInterval{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptDeploymentActivityInterval is optional DeploymentActivityInterval.
+type OptDeploymentActivityInterval struct {
+	Value DeploymentActivityInterval
+	Set   bool
+}
+
+// IsSet returns true if OptDeploymentActivityInterval was set.
+func (o OptDeploymentActivityInterval) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptDeploymentActivityInterval) Reset() {
+	var v DeploymentActivityInterval
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptDeploymentActivityInterval) SetTo(v DeploymentActivityInterval) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptDeploymentActivityInterval) Get() (v DeploymentActivityInterval, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptDeploymentActivityInterval) Or(d DeploymentActivityInterval) DeploymentActivityInterval {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
 // NewOptEventHistoryItemDetails returns new OptEventHistoryItemDetails with value set to v.
 func NewOptEventHistoryItemDetails(v EventHistoryItemDetails) OptEventHistoryItemDetails {
 	return OptEventHistoryItemDetails{
@@ -3847,6 +4589,144 @@ func (o OptInt64) Get() (v int64, ok bool) {
 
 // Or returns value if set, or given parameter if does not.
 func (o OptInt64) Or(d int64) int64 {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptLastPollStatus returns new OptLastPollStatus with value set to v.
+func NewOptLastPollStatus(v LastPollStatus) OptLastPollStatus {
+	return OptLastPollStatus{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptLastPollStatus is optional LastPollStatus.
+type OptLastPollStatus struct {
+	Value LastPollStatus
+	Set   bool
+}
+
+// IsSet returns true if OptLastPollStatus was set.
+func (o OptLastPollStatus) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptLastPollStatus) Reset() {
+	var v LastPollStatus
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptLastPollStatus) SetTo(v LastPollStatus) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptLastPollStatus) Get() (v LastPollStatus, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptLastPollStatus) Or(d LastPollStatus) LastPollStatus {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptLastPollStatusResult returns new OptLastPollStatusResult with value set to v.
+func NewOptLastPollStatusResult(v LastPollStatusResult) OptLastPollStatusResult {
+	return OptLastPollStatusResult{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptLastPollStatusResult is optional LastPollStatusResult.
+type OptLastPollStatusResult struct {
+	Value LastPollStatusResult
+	Set   bool
+}
+
+// IsSet returns true if OptLastPollStatusResult was set.
+func (o OptLastPollStatusResult) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptLastPollStatusResult) Reset() {
+	var v LastPollStatusResult
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptLastPollStatusResult) SetTo(v LastPollStatusResult) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptLastPollStatusResult) Get() (v LastPollStatusResult, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptLastPollStatusResult) Or(d LastPollStatusResult) LastPollStatusResult {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptLastWebhookStatus returns new OptLastWebhookStatus with value set to v.
+func NewOptLastWebhookStatus(v LastWebhookStatus) OptLastWebhookStatus {
+	return OptLastWebhookStatus{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptLastWebhookStatus is optional LastWebhookStatus.
+type OptLastWebhookStatus struct {
+	Value LastWebhookStatus
+	Set   bool
+}
+
+// IsSet returns true if OptLastWebhookStatus was set.
+func (o OptLastWebhookStatus) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptLastWebhookStatus) Reset() {
+	var v LastWebhookStatus
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptLastWebhookStatus) SetTo(v LastWebhookStatus) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptLastWebhookStatus) Get() (v LastWebhookStatus, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptLastWebhookStatus) Or(d LastWebhookStatus) LastWebhookStatus {
 	if v, ok := o.Get(); ok {
 		return v
 	}
@@ -4083,6 +4963,52 @@ func (o OptSecretExternalInfo) Or(d SecretExternalInfo) SecretExternalInfo {
 	return d
 }
 
+// NewOptSecretInfo returns new OptSecretInfo with value set to v.
+func NewOptSecretInfo(v SecretInfo) OptSecretInfo {
+	return OptSecretInfo{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptSecretInfo is optional SecretInfo.
+type OptSecretInfo struct {
+	Value SecretInfo
+	Set   bool
+}
+
+// IsSet returns true if OptSecretInfo was set.
+func (o OptSecretInfo) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptSecretInfo) Reset() {
+	var v SecretInfo
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptSecretInfo) SetTo(v SecretInfo) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptSecretInfo) Get() (v SecretInfo, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptSecretInfo) Or(d SecretInfo) SecretInfo {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
 // NewOptSecretManagerProvider returns new OptSecretManagerProvider with value set to v.
 func NewOptSecretManagerProvider(v SecretManagerProvider) OptSecretManagerProvider {
 	return OptSecretManagerProvider{
@@ -4313,6 +5239,98 @@ func (o OptString) Or(d string) string {
 	return d
 }
 
+// NewOptSwarmTaskResources returns new OptSwarmTaskResources with value set to v.
+func NewOptSwarmTaskResources(v SwarmTaskResources) OptSwarmTaskResources {
+	return OptSwarmTaskResources{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptSwarmTaskResources is optional SwarmTaskResources.
+type OptSwarmTaskResources struct {
+	Value SwarmTaskResources
+	Set   bool
+}
+
+// IsSet returns true if OptSwarmTaskResources was set.
+func (o OptSwarmTaskResources) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptSwarmTaskResources) Reset() {
+	var v SwarmTaskResources
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptSwarmTaskResources) SetTo(v SwarmTaskResources) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptSwarmTaskResources) Get() (v SwarmTaskResources, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptSwarmTaskResources) Or(d SwarmTaskResources) SwarmTaskResources {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptSynchronizedSecretIdentity returns new OptSynchronizedSecretIdentity with value set to v.
+func NewOptSynchronizedSecretIdentity(v SynchronizedSecretIdentity) OptSynchronizedSecretIdentity {
+	return OptSynchronizedSecretIdentity{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptSynchronizedSecretIdentity is optional SynchronizedSecretIdentity.
+type OptSynchronizedSecretIdentity struct {
+	Value SynchronizedSecretIdentity
+	Set   bool
+}
+
+// IsSet returns true if OptSynchronizedSecretIdentity was set.
+func (o OptSynchronizedSecretIdentity) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptSynchronizedSecretIdentity) Reset() {
+	var v SynchronizedSecretIdentity
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptSynchronizedSecretIdentity) SetTo(v SynchronizedSecretIdentity) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptSynchronizedSecretIdentity) Get() (v SynchronizedSecretIdentity, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptSynchronizedSecretIdentity) Or(d SynchronizedSecretIdentity) SynchronizedSecretIdentity {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
 // Ref: #/components/schemas/QueueResponse
 type QueueResponse struct {
 	Queued bool `json:"queued"`
@@ -4485,6 +5503,24 @@ func (s *RecommendationsResponse) GetRecommendations() []Recommendation {
 // SetRecommendations sets the value of Recommendations.
 func (s *RecommendationsResponse) SetRecommendations(val []Recommendation) {
 	s.Recommendations = val
+}
+
+// ScaleSwarmServiceNoContent is response for ScaleSwarmService operation.
+type ScaleSwarmServiceNoContent struct{}
+
+// Ref: #/components/schemas/ScaleSwarmServiceRequest
+type ScaleSwarmServiceRequest struct {
+	Replicas int64 `json:"replicas"`
+}
+
+// GetReplicas returns the value of Replicas.
+func (s *ScaleSwarmServiceRequest) GetReplicas() int64 {
+	return s.Replicas
+}
+
+// SetReplicas sets the value of Replicas.
+func (s *ScaleSwarmServiceRequest) SetReplicas(val int64) {
+	s.Replicas = val
 }
 
 // Ref: #/components/schemas/SearchResponse
@@ -4685,6 +5721,7 @@ type SecretDetailsResponse struct {
 	Driver    OptString                      `json:"driver"`
 	Labels    OptSecretDetailsResponseLabels `json:"labels"`
 	External  OptSecretExternalInfo          `json:"external"`
+	UsedBy    []SecretServiceUsage           `json:"used_by"`
 }
 
 // GetID returns the value of ID.
@@ -4727,6 +5764,11 @@ func (s *SecretDetailsResponse) GetExternal() OptSecretExternalInfo {
 	return s.External
 }
 
+// GetUsedBy returns the value of UsedBy.
+func (s *SecretDetailsResponse) GetUsedBy() []SecretServiceUsage {
+	return s.UsedBy
+}
+
 // SetID sets the value of ID.
 func (s *SecretDetailsResponse) SetID(val string) {
 	s.ID = val
@@ -4765,6 +5807,11 @@ func (s *SecretDetailsResponse) SetLabels(val OptSecretDetailsResponseLabels) {
 // SetExternal sets the value of External.
 func (s *SecretDetailsResponse) SetExternal(val OptSecretExternalInfo) {
 	s.External = val
+}
+
+// SetUsedBy sets the value of UsedBy.
+func (s *SecretDetailsResponse) SetUsedBy(val []SecretServiceUsage) {
+	s.UsedBy = val
 }
 
 type SecretDetailsResponseLabels map[string]string
@@ -4812,6 +5859,7 @@ type SecretInfo struct {
 	VersionID   int64                 `json:"version_id"`
 	CreatedAt   time.Time             `json:"created_at"`
 	External    OptSecretExternalInfo `json:"external"`
+	UsedBy      []SecretServiceUsage  `json:"used_by"`
 }
 
 // GetID returns the value of ID.
@@ -4844,6 +5892,11 @@ func (s *SecretInfo) GetExternal() OptSecretExternalInfo {
 	return s.External
 }
 
+// GetUsedBy returns the value of UsedBy.
+func (s *SecretInfo) GetUsedBy() []SecretServiceUsage {
+	return s.UsedBy
+}
+
 // SetID sets the value of ID.
 func (s *SecretInfo) SetID(val string) {
 	s.ID = val
@@ -4872,6 +5925,11 @@ func (s *SecretInfo) SetCreatedAt(val time.Time) {
 // SetExternal sets the value of External.
 func (s *SecretInfo) SetExternal(val OptSecretExternalInfo) {
 	s.External = val
+}
+
+// SetUsedBy sets the value of UsedBy.
+func (s *SecretInfo) SetUsedBy(val []SecretServiceUsage) {
+	s.UsedBy = val
 }
 
 // Ref: #/components/schemas/SecretManagerInfo
@@ -5042,10 +6100,11 @@ func (s *SecretManagerProviderLinks) SetManager(val OptString) {
 
 // Ref: #/components/schemas/SecretManagerSyncResponse
 type SecretManagerSyncResponse struct {
-	Created   int64 `json:"created"`
-	Updated   int64 `json:"updated"`
-	Removed   int64 `json:"removed"`
-	Unchanged int64 `json:"unchanged"`
+	Created   int64                         `json:"created"`
+	Updated   int64                         `json:"updated"`
+	Removed   int64                         `json:"removed"`
+	Unchanged int64                         `json:"unchanged"`
+	Secret    OptSynchronizedSecretIdentity `json:"secret"`
 }
 
 // GetCreated returns the value of Created.
@@ -5068,6 +6127,11 @@ func (s *SecretManagerSyncResponse) GetUnchanged() int64 {
 	return s.Unchanged
 }
 
+// GetSecret returns the value of Secret.
+func (s *SecretManagerSyncResponse) GetSecret() OptSynchronizedSecretIdentity {
+	return s.Secret
+}
+
 // SetCreated sets the value of Created.
 func (s *SecretManagerSyncResponse) SetCreated(val int64) {
 	s.Created = val
@@ -5088,6 +6152,11 @@ func (s *SecretManagerSyncResponse) SetUnchanged(val int64) {
 	s.Unchanged = val
 }
 
+// SetSecret sets the value of Secret.
+func (s *SecretManagerSyncResponse) SetSecret(val OptSynchronizedSecretIdentity) {
+	s.Secret = val
+}
+
 // Ref: #/components/schemas/SecretManagersResponse
 type SecretManagersResponse struct {
 	SecretManagers []SecretManagerInfo `json:"secret_managers"`
@@ -5101,6 +6170,43 @@ func (s *SecretManagersResponse) GetSecretManagers() []SecretManagerInfo {
 // SetSecretManagers sets the value of SecretManagers.
 func (s *SecretManagersResponse) SetSecretManagers(val []SecretManagerInfo) {
 	s.SecretManagers = val
+}
+
+// Ref: #/components/schemas/SecretServiceUsage
+type SecretServiceUsage struct {
+	Stack   string    `json:"stack"`
+	Service string    `json:"service"`
+	Target  OptString `json:"target"`
+}
+
+// GetStack returns the value of Stack.
+func (s *SecretServiceUsage) GetStack() string {
+	return s.Stack
+}
+
+// GetService returns the value of Service.
+func (s *SecretServiceUsage) GetService() string {
+	return s.Service
+}
+
+// GetTarget returns the value of Target.
+func (s *SecretServiceUsage) GetTarget() OptString {
+	return s.Target
+}
+
+// SetStack sets the value of Stack.
+func (s *SecretServiceUsage) SetStack(val string) {
+	s.Stack = val
+}
+
+// SetService sets the value of Service.
+func (s *SecretServiceUsage) SetService(val string) {
+	s.Service = val
+}
+
+// SetTarget sets the value of Target.
+func (s *SecretServiceUsage) SetTarget(val OptString) {
+	s.Target = val
 }
 
 // Ref: #/components/schemas/SecretsResponse
@@ -5539,17 +6645,26 @@ func (s *ServiceRealtimeResponse) SetTasks(val []ServiceRealtimeTask) {
 // Ref: #/components/schemas/ServiceRealtimeTask
 type ServiceRealtimeTask struct {
 	ID           string      `json:"id"`
+	Slot         int64       `json:"slot"`
 	Node         string      `json:"node"`
 	NodeName     OptString   `json:"node_name"`
+	DesiredState string      `json:"desired_state"`
 	CreatedAt    OptDateTime `json:"created_at"`
 	UpdatedAt    OptDateTime `json:"updated_at"`
 	CurrentState string      `json:"current_state"`
+	ContainerID  string      `json:"container_id"`
+	ExitCode     OptInt64    `json:"exit_code"`
 	Error        OptString   `json:"error"`
 }
 
 // GetID returns the value of ID.
 func (s *ServiceRealtimeTask) GetID() string {
 	return s.ID
+}
+
+// GetSlot returns the value of Slot.
+func (s *ServiceRealtimeTask) GetSlot() int64 {
+	return s.Slot
 }
 
 // GetNode returns the value of Node.
@@ -5560,6 +6675,11 @@ func (s *ServiceRealtimeTask) GetNode() string {
 // GetNodeName returns the value of NodeName.
 func (s *ServiceRealtimeTask) GetNodeName() OptString {
 	return s.NodeName
+}
+
+// GetDesiredState returns the value of DesiredState.
+func (s *ServiceRealtimeTask) GetDesiredState() string {
+	return s.DesiredState
 }
 
 // GetCreatedAt returns the value of CreatedAt.
@@ -5577,6 +6697,16 @@ func (s *ServiceRealtimeTask) GetCurrentState() string {
 	return s.CurrentState
 }
 
+// GetContainerID returns the value of ContainerID.
+func (s *ServiceRealtimeTask) GetContainerID() string {
+	return s.ContainerID
+}
+
+// GetExitCode returns the value of ExitCode.
+func (s *ServiceRealtimeTask) GetExitCode() OptInt64 {
+	return s.ExitCode
+}
+
 // GetError returns the value of Error.
 func (s *ServiceRealtimeTask) GetError() OptString {
 	return s.Error
@@ -5587,6 +6717,11 @@ func (s *ServiceRealtimeTask) SetID(val string) {
 	s.ID = val
 }
 
+// SetSlot sets the value of Slot.
+func (s *ServiceRealtimeTask) SetSlot(val int64) {
+	s.Slot = val
+}
+
 // SetNode sets the value of Node.
 func (s *ServiceRealtimeTask) SetNode(val string) {
 	s.Node = val
@@ -5595,6 +6730,11 @@ func (s *ServiceRealtimeTask) SetNode(val string) {
 // SetNodeName sets the value of NodeName.
 func (s *ServiceRealtimeTask) SetNodeName(val OptString) {
 	s.NodeName = val
+}
+
+// SetDesiredState sets the value of DesiredState.
+func (s *ServiceRealtimeTask) SetDesiredState(val string) {
+	s.DesiredState = val
 }
 
 // SetCreatedAt sets the value of CreatedAt.
@@ -5610,6 +6750,16 @@ func (s *ServiceRealtimeTask) SetUpdatedAt(val OptDateTime) {
 // SetCurrentState sets the value of CurrentState.
 func (s *ServiceRealtimeTask) SetCurrentState(val string) {
 	s.CurrentState = val
+}
+
+// SetContainerID sets the value of ContainerID.
+func (s *ServiceRealtimeTask) SetContainerID(val string) {
+	s.ContainerID = val
+}
+
+// SetExitCode sets the value of ExitCode.
+func (s *ServiceRealtimeTask) SetExitCode(val OptInt64) {
+	s.ExitCode = val
 }
 
 // SetError sets the value of Error.
@@ -5808,9 +6958,10 @@ func (s *ServiceSpecResponse) SetNetwork(val []ServiceSpecNetworkResponse) {
 
 // Ref: #/components/schemas/ServiceSpecSecretResponse
 type ServiceSpecSecretResponse struct {
-	SecretID   OptString `json:"secret_id"`
-	SecretName string    `json:"secret_name"`
-	Target     OptString `json:"target"`
+	SecretID   OptString     `json:"secret_id"`
+	SecretName string        `json:"secret_name"`
+	Target     OptString     `json:"target"`
+	Secret     OptSecretInfo `json:"secret"`
 }
 
 // GetSecretID returns the value of SecretID.
@@ -5828,6 +6979,11 @@ func (s *ServiceSpecSecretResponse) GetTarget() OptString {
 	return s.Target
 }
 
+// GetSecret returns the value of Secret.
+func (s *ServiceSpecSecretResponse) GetSecret() OptSecretInfo {
+	return s.Secret
+}
+
 // SetSecretID sets the value of SecretID.
 func (s *ServiceSpecSecretResponse) SetSecretID(val OptString) {
 	s.SecretID = val
@@ -5841,6 +6997,11 @@ func (s *ServiceSpecSecretResponse) SetSecretName(val string) {
 // SetTarget sets the value of Target.
 func (s *ServiceSpecSecretResponse) SetTarget(val OptString) {
 	s.Target = val
+}
+
+// SetSecret sets the value of Secret.
+func (s *ServiceSpecSecretResponse) SetSecret(val OptSecretInfo) {
+	s.Secret = val
 }
 
 // Ref: #/components/schemas/ServiceStatusResponse
@@ -5981,6 +7142,70 @@ func (s *StackManifestosResponse) SetLive(val string) {
 	s.Live = val
 }
 
+// Resource identity without values, configuration data or labels.
+// Ref: #/components/schemas/StackResourceInfo
+type StackResourceInfo struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+// GetID returns the value of ID.
+func (s *StackResourceInfo) GetID() string {
+	return s.ID
+}
+
+// GetName returns the value of Name.
+func (s *StackResourceInfo) GetName() string {
+	return s.Name
+}
+
+// SetID sets the value of ID.
+func (s *StackResourceInfo) SetID(val string) {
+	s.ID = val
+}
+
+// SetName sets the value of Name.
+func (s *StackResourceInfo) SetName(val string) {
+	s.Name = val
+}
+
+// Ref: #/components/schemas/StackResourcesResponse
+type StackResourcesResponse struct {
+	Networks []NetworkInfo       `json:"networks"`
+	Secrets  []StackResourceInfo `json:"secrets"`
+	Configs  []StackResourceInfo `json:"configs"`
+}
+
+// GetNetworks returns the value of Networks.
+func (s *StackResourcesResponse) GetNetworks() []NetworkInfo {
+	return s.Networks
+}
+
+// GetSecrets returns the value of Secrets.
+func (s *StackResourcesResponse) GetSecrets() []StackResourceInfo {
+	return s.Secrets
+}
+
+// GetConfigs returns the value of Configs.
+func (s *StackResourcesResponse) GetConfigs() []StackResourceInfo {
+	return s.Configs
+}
+
+// SetNetworks sets the value of Networks.
+func (s *StackResourcesResponse) SetNetworks(val []NetworkInfo) {
+	s.Networks = val
+}
+
+// SetSecrets sets the value of Secrets.
+func (s *StackResourcesResponse) SetSecrets(val []StackResourceInfo) {
+	s.Secrets = val
+}
+
+// SetConfigs sets the value of Configs.
+func (s *StackResourcesResponse) SetConfigs(val []StackResourceInfo) {
+	s.Configs = val
+}
+
 // Ref: #/components/schemas/StackStatus
 type StackStatus struct {
 	Synced      int64 `json:"synced"`
@@ -6114,10 +7339,504 @@ func (s *StacksResponse) SetSync(val SyncInfo) {
 	s.Sync = val
 }
 
-// Ref: #/components/schemas/SyncInfo
-type SyncInfo map[string]string
+// Ref: #/components/schemas/SwarmService
+type SwarmService struct {
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	FullName string `json:"full_name"`
+	// Docker stack namespace, or an empty string for standalone services.
+	Stack    string               `json:"stack"`
+	Image    string               `json:"image"`
+	Mode     string               `json:"mode"`
+	Replicas SwarmServiceReplicas `json:"replicas"`
+	// Configured ServiceSpec replica count, present only for replicated services.
+	ConfiguredReplicas OptInt64  `json:"configured_replicas"`
+	UpdatedAt          time.Time `json:"updated_at"`
+}
 
-func (s *SyncInfo) init() SyncInfo {
+// GetID returns the value of ID.
+func (s *SwarmService) GetID() string {
+	return s.ID
+}
+
+// GetName returns the value of Name.
+func (s *SwarmService) GetName() string {
+	return s.Name
+}
+
+// GetFullName returns the value of FullName.
+func (s *SwarmService) GetFullName() string {
+	return s.FullName
+}
+
+// GetStack returns the value of Stack.
+func (s *SwarmService) GetStack() string {
+	return s.Stack
+}
+
+// GetImage returns the value of Image.
+func (s *SwarmService) GetImage() string {
+	return s.Image
+}
+
+// GetMode returns the value of Mode.
+func (s *SwarmService) GetMode() string {
+	return s.Mode
+}
+
+// GetReplicas returns the value of Replicas.
+func (s *SwarmService) GetReplicas() SwarmServiceReplicas {
+	return s.Replicas
+}
+
+// GetConfiguredReplicas returns the value of ConfiguredReplicas.
+func (s *SwarmService) GetConfiguredReplicas() OptInt64 {
+	return s.ConfiguredReplicas
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *SwarmService) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// SetID sets the value of ID.
+func (s *SwarmService) SetID(val string) {
+	s.ID = val
+}
+
+// SetName sets the value of Name.
+func (s *SwarmService) SetName(val string) {
+	s.Name = val
+}
+
+// SetFullName sets the value of FullName.
+func (s *SwarmService) SetFullName(val string) {
+	s.FullName = val
+}
+
+// SetStack sets the value of Stack.
+func (s *SwarmService) SetStack(val string) {
+	s.Stack = val
+}
+
+// SetImage sets the value of Image.
+func (s *SwarmService) SetImage(val string) {
+	s.Image = val
+}
+
+// SetMode sets the value of Mode.
+func (s *SwarmService) SetMode(val string) {
+	s.Mode = val
+}
+
+// SetReplicas sets the value of Replicas.
+func (s *SwarmService) SetReplicas(val SwarmServiceReplicas) {
+	s.Replicas = val
+}
+
+// SetConfiguredReplicas sets the value of ConfiguredReplicas.
+func (s *SwarmService) SetConfiguredReplicas(val OptInt64) {
+	s.ConfiguredReplicas = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *SwarmService) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// Ref: #/components/schemas/SwarmServiceReplicas
+type SwarmServiceReplicas struct {
+	Running int64 `json:"running"`
+	Desired int64 `json:"desired"`
+}
+
+// GetRunning returns the value of Running.
+func (s *SwarmServiceReplicas) GetRunning() int64 {
+	return s.Running
+}
+
+// GetDesired returns the value of Desired.
+func (s *SwarmServiceReplicas) GetDesired() int64 {
+	return s.Desired
+}
+
+// SetRunning sets the value of Running.
+func (s *SwarmServiceReplicas) SetRunning(val int64) {
+	s.Running = val
+}
+
+// SetDesired sets the value of Desired.
+func (s *SwarmServiceReplicas) SetDesired(val int64) {
+	s.Desired = val
+}
+
+// Ref: #/components/schemas/SwarmServicesResponse
+type SwarmServicesResponse struct {
+	Services []SwarmService `json:"services"`
+}
+
+// GetServices returns the value of Services.
+func (s *SwarmServicesResponse) GetServices() []SwarmService {
+	return s.Services
+}
+
+// SetServices sets the value of Services.
+func (s *SwarmServicesResponse) SetServices(val []SwarmService) {
+	s.Services = val
+}
+
+// Ref: #/components/schemas/SwarmTaskDetails
+type SwarmTaskDetails struct {
+	ID           string    `json:"id"`
+	ServiceID    string    `json:"service_id"`
+	NodeID       string    `json:"node_id"`
+	Slot         int64     `json:"slot"`
+	DesiredState string    `json:"desired_state"`
+	CurrentState string    `json:"current_state"`
+	Error        OptString `json:"error"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
+	ContainerID  string    `json:"container_id"`
+	ExitCode     OptInt64  `json:"exit_code"`
+	Image        string    `json:"image"`
+	// Environment from the inspected task. Sensitive values remain recoverable through standard Base64
+	// encoding.
+	Environment  []EnvironmentVariable `json:"environment"`
+	Reservations OptSwarmTaskResources `json:"reservations"`
+	Limits       OptSwarmTaskResources `json:"limits"`
+}
+
+// GetID returns the value of ID.
+func (s *SwarmTaskDetails) GetID() string {
+	return s.ID
+}
+
+// GetServiceID returns the value of ServiceID.
+func (s *SwarmTaskDetails) GetServiceID() string {
+	return s.ServiceID
+}
+
+// GetNodeID returns the value of NodeID.
+func (s *SwarmTaskDetails) GetNodeID() string {
+	return s.NodeID
+}
+
+// GetSlot returns the value of Slot.
+func (s *SwarmTaskDetails) GetSlot() int64 {
+	return s.Slot
+}
+
+// GetDesiredState returns the value of DesiredState.
+func (s *SwarmTaskDetails) GetDesiredState() string {
+	return s.DesiredState
+}
+
+// GetCurrentState returns the value of CurrentState.
+func (s *SwarmTaskDetails) GetCurrentState() string {
+	return s.CurrentState
+}
+
+// GetError returns the value of Error.
+func (s *SwarmTaskDetails) GetError() OptString {
+	return s.Error
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *SwarmTaskDetails) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *SwarmTaskDetails) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// GetContainerID returns the value of ContainerID.
+func (s *SwarmTaskDetails) GetContainerID() string {
+	return s.ContainerID
+}
+
+// GetExitCode returns the value of ExitCode.
+func (s *SwarmTaskDetails) GetExitCode() OptInt64 {
+	return s.ExitCode
+}
+
+// GetImage returns the value of Image.
+func (s *SwarmTaskDetails) GetImage() string {
+	return s.Image
+}
+
+// GetEnvironment returns the value of Environment.
+func (s *SwarmTaskDetails) GetEnvironment() []EnvironmentVariable {
+	return s.Environment
+}
+
+// GetReservations returns the value of Reservations.
+func (s *SwarmTaskDetails) GetReservations() OptSwarmTaskResources {
+	return s.Reservations
+}
+
+// GetLimits returns the value of Limits.
+func (s *SwarmTaskDetails) GetLimits() OptSwarmTaskResources {
+	return s.Limits
+}
+
+// SetID sets the value of ID.
+func (s *SwarmTaskDetails) SetID(val string) {
+	s.ID = val
+}
+
+// SetServiceID sets the value of ServiceID.
+func (s *SwarmTaskDetails) SetServiceID(val string) {
+	s.ServiceID = val
+}
+
+// SetNodeID sets the value of NodeID.
+func (s *SwarmTaskDetails) SetNodeID(val string) {
+	s.NodeID = val
+}
+
+// SetSlot sets the value of Slot.
+func (s *SwarmTaskDetails) SetSlot(val int64) {
+	s.Slot = val
+}
+
+// SetDesiredState sets the value of DesiredState.
+func (s *SwarmTaskDetails) SetDesiredState(val string) {
+	s.DesiredState = val
+}
+
+// SetCurrentState sets the value of CurrentState.
+func (s *SwarmTaskDetails) SetCurrentState(val string) {
+	s.CurrentState = val
+}
+
+// SetError sets the value of Error.
+func (s *SwarmTaskDetails) SetError(val OptString) {
+	s.Error = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *SwarmTaskDetails) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *SwarmTaskDetails) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// SetContainerID sets the value of ContainerID.
+func (s *SwarmTaskDetails) SetContainerID(val string) {
+	s.ContainerID = val
+}
+
+// SetExitCode sets the value of ExitCode.
+func (s *SwarmTaskDetails) SetExitCode(val OptInt64) {
+	s.ExitCode = val
+}
+
+// SetImage sets the value of Image.
+func (s *SwarmTaskDetails) SetImage(val string) {
+	s.Image = val
+}
+
+// SetEnvironment sets the value of Environment.
+func (s *SwarmTaskDetails) SetEnvironment(val []EnvironmentVariable) {
+	s.Environment = val
+}
+
+// SetReservations sets the value of Reservations.
+func (s *SwarmTaskDetails) SetReservations(val OptSwarmTaskResources) {
+	s.Reservations = val
+}
+
+// SetLimits sets the value of Limits.
+func (s *SwarmTaskDetails) SetLimits(val OptSwarmTaskResources) {
+	s.Limits = val
+}
+
+// SwarmTaskDetailsHeaders wraps SwarmTaskDetails with response headers.
+type SwarmTaskDetailsHeaders struct {
+	CacheControl string
+	Response     SwarmTaskDetails
+}
+
+// GetCacheControl returns the value of CacheControl.
+func (s *SwarmTaskDetailsHeaders) GetCacheControl() string {
+	return s.CacheControl
+}
+
+// GetResponse returns the value of Response.
+func (s *SwarmTaskDetailsHeaders) GetResponse() SwarmTaskDetails {
+	return s.Response
+}
+
+// SetCacheControl sets the value of CacheControl.
+func (s *SwarmTaskDetailsHeaders) SetCacheControl(val string) {
+	s.CacheControl = val
+}
+
+// SetResponse sets the value of Response.
+func (s *SwarmTaskDetailsHeaders) SetResponse(val SwarmTaskDetails) {
+	s.Response = val
+}
+
+// Ref: #/components/schemas/SwarmTaskResources
+type SwarmTaskResources struct {
+	NanoCpus    int64 `json:"nano_cpus"`
+	MemoryBytes int64 `json:"memory_bytes"`
+}
+
+// GetNanoCpus returns the value of NanoCpus.
+func (s *SwarmTaskResources) GetNanoCpus() int64 {
+	return s.NanoCpus
+}
+
+// GetMemoryBytes returns the value of MemoryBytes.
+func (s *SwarmTaskResources) GetMemoryBytes() int64 {
+	return s.MemoryBytes
+}
+
+// SetNanoCpus sets the value of NanoCpus.
+func (s *SwarmTaskResources) SetNanoCpus(val int64) {
+	s.NanoCpus = val
+}
+
+// SetMemoryBytes sets the value of MemoryBytes.
+func (s *SwarmTaskResources) SetMemoryBytes(val int64) {
+	s.MemoryBytes = val
+}
+
+// GitOps input status. These values do not report stack deployment success.
+// Ref: #/components/schemas/SyncInfo
+type SyncInfo struct {
+	LastPoll    OptLastPollStatus    `json:"last_poll"`
+	LastWebhook OptLastWebhookStatus `json:"last_webhook"`
+	// Full Git revision most recently dispatched to the stack queue.
+	LastRevision OptString `json:"last_revision"`
+}
+
+// GetLastPoll returns the value of LastPoll.
+func (s *SyncInfo) GetLastPoll() OptLastPollStatus {
+	return s.LastPoll
+}
+
+// GetLastWebhook returns the value of LastWebhook.
+func (s *SyncInfo) GetLastWebhook() OptLastWebhookStatus {
+	return s.LastWebhook
+}
+
+// GetLastRevision returns the value of LastRevision.
+func (s *SyncInfo) GetLastRevision() OptString {
+	return s.LastRevision
+}
+
+// SetLastPoll sets the value of LastPoll.
+func (s *SyncInfo) SetLastPoll(val OptLastPollStatus) {
+	s.LastPoll = val
+}
+
+// SetLastWebhook sets the value of LastWebhook.
+func (s *SyncInfo) SetLastWebhook(val OptLastWebhookStatus) {
+	s.LastWebhook = val
+}
+
+// SetLastRevision sets the value of LastRevision.
+func (s *SyncInfo) SetLastRevision(val OptString) {
+	s.LastRevision = val
+}
+
+// Ref: #/components/schemas/SynchronizedSecretIdentity
+type SynchronizedSecretIdentity struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+// GetID returns the value of ID.
+func (s *SynchronizedSecretIdentity) GetID() string {
+	return s.ID
+}
+
+// GetName returns the value of Name.
+func (s *SynchronizedSecretIdentity) GetName() string {
+	return s.Name
+}
+
+// SetID sets the value of ID.
+func (s *SynchronizedSecretIdentity) SetID(val string) {
+	s.ID = val
+}
+
+// SetName sets the value of Name.
+func (s *SynchronizedSecretIdentity) SetName(val string) {
+	s.Name = val
+}
+
+// Ref: #/components/schemas/UIConfigResponse
+type UIConfigResponse struct {
+	Web UIConfigResponseWeb `json:"web"`
+}
+
+// GetWeb returns the value of Web.
+func (s *UIConfigResponse) GetWeb() UIConfigResponseWeb {
+	return s.Web
+}
+
+// SetWeb sets the value of Web.
+func (s *UIConfigResponse) SetWeb(val UIConfigResponseWeb) {
+	s.Web = val
+}
+
+type UIConfigResponseWeb struct {
+	UI UIConfigResponseWebUI `json:"ui"`
+}
+
+// GetUI returns the value of UI.
+func (s *UIConfigResponseWeb) GetUI() UIConfigResponseWebUI {
+	return s.UI
+}
+
+// SetUI sets the value of UI.
+func (s *UIConfigResponseWeb) SetUI(val UIConfigResponseWebUI) {
+	s.UI = val
+}
+
+type UIConfigResponseWebUI struct {
+	LogViewer UIConfigResponseWebUILogViewer `json:"logViewer"`
+}
+
+// GetLogViewer returns the value of LogViewer.
+func (s *UIConfigResponseWebUI) GetLogViewer() UIConfigResponseWebUILogViewer {
+	return s.LogViewer
+}
+
+// SetLogViewer sets the value of LogViewer.
+func (s *UIConfigResponseWebUI) SetLogViewer(val UIConfigResponseWebUILogViewer) {
+	s.LogViewer = val
+}
+
+type UIConfigResponseWebUILogViewer struct {
+	// Map of log field names to HTTP(S) URL templates. The UI replaces {value} with the URL-encoded
+	// field value.
+	LinkFields UIConfigResponseWebUILogViewerLinkFields `json:"linkFields"`
+}
+
+// GetLinkFields returns the value of LinkFields.
+func (s *UIConfigResponseWebUILogViewer) GetLinkFields() UIConfigResponseWebUILogViewerLinkFields {
+	return s.LinkFields
+}
+
+// SetLinkFields sets the value of LinkFields.
+func (s *UIConfigResponseWebUILogViewer) SetLinkFields(val UIConfigResponseWebUILogViewerLinkFields) {
+	s.LinkFields = val
+}
+
+// Map of log field names to HTTP(S) URL templates. The UI replaces {value} with the URL-encoded
+// field value.
+type UIConfigResponseWebUILogViewerLinkFields map[string]string
+
+func (s *UIConfigResponseWebUILogViewerLinkFields) init() UIConfigResponseWebUILogViewerLinkFields {
 	m := *s
 	if m == nil {
 		m = map[string]string{}

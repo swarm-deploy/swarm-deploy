@@ -4,14 +4,333 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	jsonv1 "encoding/json"
+	"encoding/json/v2"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
 	"github.com/docker/docker/api/types/container"
 	dockerswarm "github.com/docker/docker/api/types/swarm"
+	"github.com/docker/docker/client"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestServiceManagerListServices(t *testing.T) {
+	t.Parallel()
+
+	one := uint64(1)
+	zero := uint64(0)
+	updateStartedAt := time.Date(2026, time.October, 28, 10, 30, 0, 0, time.UTC)
+	updateCompletedAt := time.Date(2026, time.October, 28, 10, 45, 0, 0, time.UTC)
+	services := []dockerswarm.Service{
+		{
+			ID: "stacked",
+			Meta: dockerswarm.Meta{
+				CreatedAt: time.Date(2026, time.October, 28, 10, 0, 0, 0, time.UTC),
+				UpdatedAt: time.Date(2026, time.October, 28, 11, 0, 0, 0, time.UTC),
+			},
+			Spec: dockerswarm.ServiceSpec{
+				Annotations: dockerswarm.Annotations{
+					Name:   "infra_postgres",
+					Labels: map[string]string{stackNamespaceLabelKey: "infra"},
+				},
+				TaskTemplate: dockerswarm.TaskSpec{ContainerSpec: &dockerswarm.ContainerSpec{Image: "postgres:18"}},
+				Mode:         dockerswarm.ServiceMode{Replicated: &dockerswarm.ReplicatedService{Replicas: &one}},
+			},
+			ServiceStatus: &dockerswarm.ServiceStatus{RunningTasks: 1, DesiredTasks: 1},
+			UpdateStatus: &dockerswarm.UpdateStatus{
+				State:       dockerswarm.UpdateStateCompleted,
+				StartedAt:   &updateStartedAt,
+				CompletedAt: &updateCompletedAt,
+			},
+		},
+		{
+			ID: "standalone",
+			Spec: dockerswarm.ServiceSpec{
+				Annotations:  dockerswarm.Annotations{Name: "node-exporter"},
+				TaskTemplate: dockerswarm.TaskSpec{ContainerSpec: &dockerswarm.ContainerSpec{Image: "exporter:latest"}},
+				Mode:         dockerswarm.ServiceMode{Global: &dockerswarm.GlobalService{}},
+			},
+			ServiceStatus: &dockerswarm.ServiceStatus{RunningTasks: 2, DesiredTasks: 3},
+		},
+		{
+			ID: "zero",
+			Spec: dockerswarm.ServiceSpec{
+				Annotations: dockerswarm.Annotations{
+					Name:   "infra_paused",
+					Labels: map[string]string{stackNamespaceLabelKey: "infra"},
+				},
+				Mode: dockerswarm.ServiceMode{Replicated: &dockerswarm.ReplicatedService{Replicas: &zero}},
+			},
+			ServiceStatus: &dockerswarm.ServiceStatus{},
+		},
+		{
+			ID: "job",
+			Spec: dockerswarm.ServiceSpec{
+				Annotations: dockerswarm.Annotations{Name: "cleanup"},
+				Mode: dockerswarm.ServiceMode{ReplicatedJob: &dockerswarm.ReplicatedJob{
+					MaxConcurrent: &one,
+				}},
+			},
+		},
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		assert.Equal(t, "/v1.48/services", req.URL.Path)
+		assert.Equal(t, "true", req.URL.Query().Get("status"))
+		_, hasStackFilter := req.URL.Query()["filters"]
+		response := services
+		if hasStackFilter && req.URL.Query().Get("filters") != "{}" {
+			assert.JSONEq(t, `{"label":{"com.docker.stack.namespace=infra":true}}`, req.URL.Query().Get("filters"))
+			response = []dockerswarm.Service{services[0], services[2]}
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		require.NoError(t, json.MarshalWrite(w, response, jsonv1.DefaultOptionsV1()))
+	}))
+	t.Cleanup(server.Close)
+
+	manager := newServiceManager(newTestDockerClient(t, server))
+
+	all, err := manager.ListServices(t.Context(), ListServicesFilter{})
+	require.NoError(t, err)
+	require.Len(t, all, 4)
+	assert.Equal(t, "cleanup", all[0].Name)
+	assert.Equal(t, "replicated-job", all[0].Mode)
+	assert.Equal(t, uint64(0), all[0].RunningTasks, "missing status must map safely")
+	assert.Equal(t, uint64(0), *all[1].Replicas)
+	assert.Equal(t, uint64(0), all[1].RunningTasks)
+	assert.Equal(t, uint64(0), all[1].DesiredTasks, "0/0 replicas are valid")
+	assert.Equal(t, "postgres", all[2].Name)
+	assert.Equal(t, "infra", all[2].Stack)
+	assert.Equal(t, uint64(1), all[2].RunningTasks)
+	assert.Equal(t, uint64(1), all[2].DesiredTasks)
+	assert.Equal(t, time.Date(2026, time.October, 28, 11, 0, 0, 0, time.UTC), all[2].UpdatedAt)
+	require.NotNil(t, all[2].UpdateStatus)
+	assert.Equal(t, ServiceUpdateStateCompleted, all[2].UpdateStatus.State)
+	assert.Equal(t, "node-exporter", all[3].Name)
+	assert.Empty(t, all[3].Stack)
+	assert.Equal(t, "global", all[3].Mode)
+
+	stacked, err := manager.ListServices(t.Context(), ListServicesFilter{Stack: "infra"})
+	require.NoError(t, err)
+	require.Len(t, stacked, 2)
+	assert.Equal(t, []string{"infra_paused", "infra_postgres"}, []string{stacked[0].FullName, stacked[1].FullName})
+}
+
+func TestServiceManagerNativeApplyOperations(t *testing.T) {
+	t.Parallel()
+	requests := make([]string, 0, 3)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		requests = append(requests, req.Method+" "+req.URL.Path)
+		w.Header().Set("Content-Type", "application/json")
+		switch req.Method + " " + req.URL.Path {
+		case http.MethodGet + " /v1.48/services/demo_api":
+			require.NoError(t, json.MarshalWrite(w, dockerswarm.Service{
+				ID: "service-id", Meta: dockerswarm.Meta{Version: dockerswarm.Version{Index: 7}},
+				Spec: dockerswarm.ServiceSpec{Annotations: dockerswarm.Annotations{Name: "demo_api"}},
+			}))
+		case http.MethodPost + " /v1.48/services/create":
+			require.NoError(t, json.MarshalWrite(w, map[string]string{"ID": "created-id"}))
+		case http.MethodPost + " /v1.48/services/service-id/update":
+			assert.Equal(t, "7", req.URL.Query().Get("version"))
+			require.NoError(t, json.MarshalWrite(w, map[string]any{}))
+		default:
+			http.Error(w, `{"message":"unexpected request"}`, http.StatusInternalServerError)
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	manager := newServiceManager(newTestDockerClient(t, server))
+	service, err := manager.Inspect(t.Context(), "demo_api")
+	require.NoError(t, err)
+	assert.Equal(t, uint64(7), service.Version.Index)
+	createdID, err := manager.Create(t.Context(), dockerswarm.ServiceSpec{
+		Annotations: dockerswarm.Annotations{Name: "demo_api"},
+	}, dockerswarm.ServiceCreateOptions{QueryRegistry: true})
+	require.NoError(t, err)
+	assert.Equal(t, "created-id", createdID)
+	require.NoError(t, manager.Update(t.Context(), "service-id", dockerswarm.Version{Index: 7},
+		dockerswarm.ServiceSpec{Annotations: dockerswarm.Annotations{Name: "demo_api"}},
+		dockerswarm.ServiceUpdateOptions{RegistryAuthFrom: dockerswarm.RegistryAuthFromSpec, QueryRegistry: true}))
+	assert.Equal(t, []string{
+		"GET /v1.48/services/demo_api", "POST /v1.48/services/create", "POST /v1.48/services/service-id/update",
+	}, requests)
+}
+
+func TestServiceManagerMapsApplyConflicts(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, `{"message":"update out of sequence"}`, http.StatusConflict)
+	}))
+	t.Cleanup(server.Close)
+	manager := newServiceManager(newTestDockerClient(t, server))
+
+	_, err := manager.Create(t.Context(), dockerswarm.ServiceSpec{
+		Annotations: dockerswarm.Annotations{Name: "demo_api"},
+	}, dockerswarm.ServiceCreateOptions{})
+	assert.ErrorIs(t, err, ErrServiceConflict)
+	err = manager.Update(t.Context(), "service-id", dockerswarm.Version{Index: 7}, dockerswarm.ServiceSpec{
+		Annotations: dockerswarm.Annotations{Name: "demo_api"},
+	}, dockerswarm.ServiceUpdateOptions{})
+	assert.ErrorIs(t, err, ErrServiceConflict)
+}
+
+func TestServiceManagerListTasksByIDOrFullName(t *testing.T) {
+	t.Parallel()
+
+	for _, serviceIDOrName := range []string{"service-id", "infra_api"} {
+		t.Run(serviceIDOrName, func(t *testing.T) {
+			t.Parallel()
+
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+				assert.Equal(t, "/v1.48/tasks", req.URL.Path)
+				assert.JSONEq(t, `{"service":{"`+serviceIDOrName+`":true}}`, req.URL.Query().Get("filters"))
+				w.Header().Set("Content-Type", "application/json")
+				require.NoError(t, json.MarshalWrite(w, []dockerswarm.Task{
+					{
+						ID:           "task-running",
+						JobIteration: &dockerswarm.Version{Index: 7},
+						Slot:         3,
+						NodeID:       "node-1",
+						Spec: dockerswarm.TaskSpec{
+							ContainerSpec: &dockerswarm.ContainerSpec{Image: "alpine:3"},
+						},
+						DesiredState: dockerswarm.TaskStateRunning,
+						Status: dockerswarm.TaskStatus{
+							State:   dockerswarm.TaskStateRunning,
+							Message: "task running",
+							ContainerStatus: &dockerswarm.ContainerStatus{
+								ContainerID: "container-1",
+								ExitCode:    17,
+							},
+						},
+					},
+					{
+						ID:           "task-pending",
+						DesiredState: dockerswarm.TaskStateRunning,
+						Status:       dockerswarm.TaskStatus{State: dockerswarm.TaskStatePending},
+					},
+				}))
+			}))
+			t.Cleanup(server.Close)
+
+			manager := newServiceManager(newTestDockerClient(t, server))
+			tasks, err := manager.ListTasks(t.Context(), serviceIDOrName)
+			require.NoError(t, err)
+			require.Len(t, tasks, 2)
+			assert.Equal(t, 3, tasks[0].Slot)
+			assert.Equal(t, "task running", tasks[0].Message)
+			assert.Equal(t, &dockerswarm.Version{Index: 7}, tasks[0].JobIteration)
+			assert.Nil(t, tasks[1].JobIteration)
+			assert.Equal(t, TaskStateRunning, tasks[0].DesiredState)
+			assert.Equal(t, "container-1", tasks[0].ContainerID)
+			require.NotNil(t, tasks[0].ExitCode)
+			assert.Equal(t, 17, *tasks[0].ExitCode)
+			assert.Empty(t, tasks[1].ContainerID)
+			assert.Nil(t, tasks[1].ExitCode)
+			comparison := tasks[0].Spec.CompareServiceTemplate(dockerswarm.TaskSpec{
+				Runtime: dockerswarm.RuntimeContainer, ContainerSpec: &dockerswarm.ContainerSpec{Image: "alpine:3"},
+			})
+			assert.True(t, comparison.Equal())
+		})
+	}
+}
+
+func TestServiceManagerGetTask(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		assert.Equal(t, "/v1.48/tasks/task-1", req.URL.Path)
+		w.Header().Set("Content-Type", "application/json")
+		require.NoError(t, json.MarshalWrite(w, dockerswarm.Task{
+			ID:        "task-1",
+			ServiceID: "service-1",
+			NodeID:    "node-1",
+			Slot:      4,
+			Meta: dockerswarm.Meta{
+				CreatedAt: time.Date(2026, time.October, 28, 12, 0, 0, 0, time.UTC),
+				UpdatedAt: time.Date(2026, time.October, 28, 12, 1, 0, 0, time.UTC),
+			},
+			DesiredState: dockerswarm.TaskStateRunning,
+			Status: dockerswarm.TaskStatus{
+				State: dockerswarm.TaskStateRunning,
+				ContainerStatus: &dockerswarm.ContainerStatus{
+					ContainerID: "container-1",
+					ExitCode:    7,
+				},
+			},
+			Spec: dockerswarm.TaskSpec{
+				ContainerSpec: &dockerswarm.ContainerSpec{
+					Image: "api:v2",
+					Env:   []string{"APP_ENV=production", "VALUE=left=right"},
+				},
+				Resources: &dockerswarm.ResourceRequirements{
+					Reservations: &dockerswarm.Resources{NanoCPUs: 100, MemoryBytes: 200},
+					Limits:       &dockerswarm.Limit{NanoCPUs: 300, MemoryBytes: 400},
+				},
+			},
+		}))
+	}))
+	t.Cleanup(server.Close)
+
+	manager := newServiceManager(newTestDockerClient(t, server))
+	details, err := manager.GetTask(t.Context(), "task-1")
+	require.NoError(t, err)
+	assert.Equal(t, "service-1", details.ServiceID)
+	assert.Equal(t, "api:v2", details.Image)
+	assert.Equal(t, []string{"APP_ENV=production", "VALUE=left=right"}, details.Environment)
+	require.NotNil(t, details.ExitCode)
+	assert.Equal(t, 7, *details.ExitCode)
+	assert.Equal(t, &TaskResources{NanoCPUs: 100, MemoryBytes: 200}, details.Reservations)
+	assert.Equal(t, &TaskResources{NanoCPUs: 300, MemoryBytes: 400}, details.Limits)
+}
+
+func TestServiceManagerGetTaskWithoutContainerStatus(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		require.NoError(t, json.MarshalWrite(w, dockerswarm.Task{ID: "pending"}))
+	}))
+	t.Cleanup(server.Close)
+
+	manager := newServiceManager(newTestDockerClient(t, server))
+	details, err := manager.GetTask(t.Context(), "pending")
+	require.NoError(t, err)
+	assert.Empty(t, details.ContainerID)
+	assert.Nil(t, details.ExitCode)
+	assert.Empty(t, details.Environment)
+}
+
+func TestServiceManagerGetTaskNotFound(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, `{"message":"task not found"}`, http.StatusNotFound)
+	}))
+	t.Cleanup(server.Close)
+
+	manager := newServiceManager(newTestDockerClient(t, server))
+	_, err := manager.GetTask(t.Context(), "missing")
+	assert.ErrorIs(t, err, ErrTaskNotFound)
+}
+
+func newTestDockerClient(t *testing.T, server *httptest.Server) *client.Client {
+	t.Helper()
+
+	dockerClient, err := client.NewClientWithOpts(
+		client.WithHost(server.URL),
+		client.WithHTTPClient(server.Client()),
+		client.WithVersion("1.48"),
+	)
+	require.NoError(t, err)
+
+	return dockerClient
+}
 
 func TestDemultiplexDockerLogStreamReturnsRawOnPlainText(t *testing.T) {
 	raw := []byte("2026-04-18T12:00:00Z hello\n2026-04-18T12:00:01Z warning\n")

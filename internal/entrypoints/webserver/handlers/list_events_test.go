@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -237,6 +239,65 @@ func TestHandlerListEventsRejectsInvalidCursor(t *testing.T) {
 	params.Cursor.SetTo("not-a-cursor")
 	_, err := (&handler{history: store}).ListEvents(context.Background(), params)
 	require.Error(t, err)
+}
+
+func TestHandlerGetEventMatchesListPayload(t *testing.T) {
+	t.Parallel()
+	store := newHistoryStore(t)
+	id := "c0e8a2f1-1234-4567-890a-123456789abc"
+	at := time.Date(2026, time.November, 4, 13, 42, 7, 0, time.UTC)
+	require.NoError(t, store.Handle(t.Context(), events.Envelope{
+		ID: id, OccurredAt: at, PublicationSequence: 1,
+		Event: &events.WebhookReceived{Queued: true},
+	}))
+
+	h := &handler{history: store}
+	listed, err := h.ListEvents(t.Context(), generated.ListEventsParams{
+		Types: []string{string(events.TypeNameWebhookReceived)},
+	})
+	require.NoError(t, err)
+	require.Len(t, listed.Events, 1)
+
+	result, err := h.GetEvent(t.Context(), generated.GetEventParams{ID: id})
+	require.NoError(t, err)
+	item, ok := result.(*generated.EventHistoryItem)
+	require.True(t, ok)
+	assert.Equal(t, listed.Events[0], *item)
+	require.True(t, item.Details.IsSet())
+	assert.Equal(t, "true", item.Details.Value["queued"])
+}
+
+func TestHandlerGetEventNotFoundAndErrors(t *testing.T) {
+	t.Parallel()
+	store := newHistoryStore(t)
+	h := &handler{history: store}
+
+	_, err := h.GetEvent(t.Context(), generated.GetEventParams{
+		ID: "c0e8a2f1-1234-4567-890a-123456789abc",
+	})
+	var notFound *statusError
+	require.ErrorAs(t, err, &notFound)
+	assert.Equal(t, http.StatusNotFound, notFound.code)
+
+	canceled, cancel := context.WithCancel(t.Context())
+	cancel()
+	_, err = h.GetEvent(canceled, generated.GetEventParams{
+		ID: "d1f9b3a2-2345-4678-9012-23456789abcd",
+	})
+	require.Error(t, err)
+	assert.NotErrorIs(t, err, history.ErrNotFound)
+}
+
+func TestGetEventRejectsMalformedID(t *testing.T) {
+	t.Parallel()
+	h := &handler{history: newHistoryStore(t)}
+	server, err := generated.NewServer(h, h, generated.WithErrorHandler(HandleHTTPError))
+	require.NoError(t, err)
+
+	recorder := httptest.NewRecorder()
+	server.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/v1/events/not-a-uuid", nil))
+	assert.Equal(t, http.StatusBadRequest, recorder.Code)
+	assert.NotContains(t, recorder.Body.String(), "SELECT")
 }
 
 func newHistoryStore(t *testing.T) *history.SQLStore {

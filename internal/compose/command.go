@@ -1,9 +1,12 @@
 package compose
 
 import (
-	"encoding/json"
+	jsonv1 "encoding/json"
+	"encoding/json/v2"
 	"fmt"
+	"slices"
 
+	"github.com/google/shlex"
 	"go.yaml.in/yaml/v3"
 )
 
@@ -57,16 +60,30 @@ func (c Command) MarshalYAML() (interface{}, error) {
 // MarshalJSON preserves the scalar/list distinction because Compose gives
 // those forms different command execution semantics.
 func (c Command) MarshalJSON() ([]byte, error) {
-	return json.Marshal(commandJSON{Args: c.Args, IsList: c.isList})
+	return json.Marshal(commandJSON{Args: c.Args, IsList: c.isList}, jsonv1.DefaultOptionsV1())
 }
 
 // UnmarshalJSON restores the execution form in persisted desired snapshots.
 func (c *Command) UnmarshalJSON(data []byte) error {
 	var value commandJSON
-	if err := json.Unmarshal(data, &value); err != nil {
+	if err := json.Unmarshal(data, &value, jsonv1.DefaultOptionsV1()); err != nil {
 		return err
 	}
 	c.Args = value.Args
 	c.isList = value.IsList
 	return nil
+}
+
+// IsList reports whether the command uses exec/list syntax.
+func (c Command) IsList() bool { return c.isList }
+
+// Words returns the effective arguments without invoking a shell.
+func (c Command) Words() ([]string, error) {
+	if c.isList || len(c.Args) == 0 {
+		return slices.Clone(c.Args), nil
+	}
+	if len(c.Args) != 1 {
+		return nil, fmt.Errorf("invalid scalar command")
+	}
+	return shlex.Split(c.Args[0])
 }

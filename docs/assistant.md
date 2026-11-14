@@ -2,7 +2,7 @@
 
 The assistant helps with environment debugging using:
 
-- service metadata from `.swarm-deploy/services.json` (`service.store`) as RAG context
+- service metadata from the SQLite-backed service catalog (`service.store`) as RAG context
 - local tools for runtime actions and history inspection
 
 Assistant is available only when `assistant.enabled: true`.
@@ -66,7 +66,7 @@ While a run is in progress, responses may include an `activity` array with safe 
 
 ## Chat history
 
-Completed user/assistant turns are persisted under `.swarm-deploy/assistant/chats/` with one JSON file per conversation. Assistant turns may also contain an optional `activity` array with the safe execution trace shown by the UI. Chat list metadata is kept in `index.json`, loaded once at startup, and served from memory so listing chats does not scan or decode conversation files. The UI creates chats lazily on the first message, derives the title from the first user message, and can reopen older chats. When an older chat is continued after the in-memory cache expired or the process restarted, recent turns are restored from persisted history into the context cache.
+Completed user/assistant turns are persisted in the `assistant_chats` and `assistant_turns` tables of `<dataDir>/swarm-deploy.sqlite`. Assistant turns may also contain an optional `activity` array with the safe execution trace shown by the UI. The chat list reads metadata from SQLite without loading full message histories. The UI creates chats lazily on the first message, derives the title from the first user message, and can reopen older chats. When an older chat is continued after the in-memory context cache expires or the process restarts, recent turns are restored from the persisted SQLite history.
 
 ## Built-in tools
 
@@ -102,7 +102,7 @@ Completed user/assistant turns are persisted under `.swarm-deploy/assistant/chat
 - `git_commit_list` - returns latest git commits from repository history (`limit` optional, default 10)
 - `self_metrics_list` - returns structured snapshot of internal Prometheus metrics (`swarm_deploy_*`)
 
-`history_event_list` is the user-facing event timeline and is not the source of truth for every deployment failure. `alert_list`/`alert_get` expose operational incident lifecycle, while `deployment_list`/`deployment_get` expose desired states and their persisted execution Attempts. A `succeeded` deployment means its latest Attempt completed; it does not guarantee healthy services or verified desired/live convergence.
+`history_event_list` is the user-facing event timeline and is not the source of truth for every deployment failure. `alert_list`/`alert_get` expose operational incident lifecycle, while `deployment_list`/`deployment_get` expose desired states and their persisted execution Attempts. A `succeeded` deployment means its latest Attempt completed its applicable pipeline, including convergence verification for services that require it. It is not a continuous health guarantee: an unchanged no-op does not recheck task health, externally managed replicated services can use specification-only verification, and services may fail after deployment completion. See [native deployment verification](native-deployment-compatibility.md#convergence-failures-and-retries) and [external replica ownership](drift.md#replica-ownership-during-deployments).
 
 Alerts correlate to the desired state through `deployment_id`; lifecycle events additionally carry `attempt_id`. The preferred minimal lookup is `alert_list` -> `deployment_get` -> final answer because the compact list result already includes `deployment_id`. Use `alert_get` only when its additional incident details are needed. Follow the correlation only when `deployment_id` is non-empty. A preparation failure can create an alert without creating a Deployment or Attempt; the assistant reports that condition instead of inventing one.
 

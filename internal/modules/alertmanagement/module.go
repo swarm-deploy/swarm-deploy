@@ -17,15 +17,14 @@ import (
 type Module struct {
 	// Store persists and queries alerts.
 	Store *modelstore.SQLStore
-	// Subscriber consumes deployment lifecycle events.
+	// Subscriber consumes source events for the alert projection.
 	Subscriber *SQLSubscriber
 }
 
 // Container supplies dependencies required by Alert Management.
 type Container interface {
 	// GetStorage returns the shared database.
-	GetStorage() *storage.Database
-	// GetFileSystem returns the application filesystem abstraction.
+	GetStorage() storage.Database
 	// GetEventModule returns the event dispatcher module.
 	GetEventModule() *event.Module
 	// GetConfigStore returns the shared runtime configuration store.
@@ -36,7 +35,7 @@ type Container interface {
 func InitModule(ctx context.Context, cfg *config.Config, container Container) (*Module, error) {
 	store := modelstore.NewSQLStore(container.GetStorage())
 	dispatcher := container.GetEventModule().Dispatcher
-	subscriber := NewSQLSubscriberWithResources(store, dispatcher,
+	subscriber := newSQLSubscriberWithResources(store, dispatcher,
 		func(kind model.AlertKind, resourceID string) []events.AlertRecipient {
 			return cfg.Spec.Notifications.AlertRecipientsFor(string(kind), resourceID)
 		}, container.GetConfigStore())
@@ -49,6 +48,8 @@ func InitModule(ctx context.Context, cfg *config.Config, container Container) (*
 		events.TypeNameGitPullFailed, events.TypeNameGitPullSucceeded,
 		events.TypeNameMessengerUnavailable, events.TypeNameMessengerAvailable,
 		events.TypeNameMessengerMisconfigured, events.TypeNameMessengerDeliverySucceeded,
+		events.TypeNameServiceMissed, events.TypeNameServiceDrifted, events.TypeNameServiceDriftFixed,
+		events.TypeNameServiceRemovedFromDesired,
 	}, "alert-management", subscriber); err != nil {
 		return nil, err
 	}

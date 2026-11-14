@@ -2,7 +2,6 @@ import { createRouter, createWebHistory } from "vue-router";
 
 import { getWebBasePath } from "../runtimeConfig";
 
-import ServicesView from "../views/ApplicationsView.vue";
 import DeploymentsView from "../views/DeploymentsView.vue";
 import ClusterView from "../views/ClusterView.vue";
 import EventsView from "../views/EventsAlertsView.vue";
@@ -10,12 +9,15 @@ import GraphView from "../views/GraphView.vue";
 import NetworksView from "../views/NetworksView.vue";
 import OverviewView from "../views/OverviewView.vue";
 import RecommendationsView from "../views/RecommendationsView.vue";
+import RealtimeView from "../views/RealtimeView.vue";
 import SecretsView from "../views/SecretsView.vue";
+import StackView from "../views/StackView.vue";
 import ServiceView from "../views/ServiceView.vue";
 
 export const router = createRouter({
   history: createWebHistory(getWebBasePath()),
   routes: [
+    { path: "/stacks/:stack", name: "stack-details", component: StackView },
     { path: "/deployments", name: "deployments", component: DeploymentsView },
     {
       path: "/",
@@ -27,9 +29,9 @@ export const router = createRouter({
       component: OverviewView,
     },
     {
-      path: "/services",
-      name: "services",
-      component: ServicesView,
+      path: "/realtime",
+      name: "realtime",
+      component: RealtimeView,
     },
     {
       path: "/graph",

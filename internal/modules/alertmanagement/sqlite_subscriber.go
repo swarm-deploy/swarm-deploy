@@ -11,29 +11,30 @@ import (
 
 // SQLSubscriber joins source deduplication and the alert lifecycle in one transaction.
 type SQLSubscriber struct {
-	// Subscriber implements the alert lifecycle using the shared repository.
+	// Subscriber evaluates source events and applies their alert actions.
 	*Subscriber
 	store *modelstore.SQLStore
 }
 
 // NewSQLSubscriber constructs the durable alert projection.
-func NewSQLSubscriber(store *modelstore.SQLStore, publisher interface {
-	Publish(context.Context, events.Event) error
-},
+func NewSQLSubscriber(
+	store *modelstore.SQLStore,
+	publisher Publisher,
 	recipients func(model.AlertKind) []events.AlertRecipient,
 	stacks config.StackProvider,
 ) *SQLSubscriber {
-	return &SQLSubscriber{Subscriber: NewSubscriber(store, publisher, recipients, stacks), store: store}
+	return newSQLSubscriberWithResources(store, publisher,
+		func(kind model.AlertKind, _ string) []events.AlertRecipient { return recipients(kind) }, stacks)
 }
 
-// NewSQLSubscriberWithResources constructs a durable projection with resource-aware notification routing.
-func NewSQLSubscriberWithResources(store *modelstore.SQLStore, publisher interface {
-	Publish(context.Context, events.Event) error
-},
+func newSQLSubscriberWithResources(
+	store *modelstore.SQLStore,
+	publisher Publisher,
 	recipients func(model.AlertKind, string) []events.AlertRecipient,
 	stacks config.StackProvider,
 ) *SQLSubscriber {
-	return &SQLSubscriber{Subscriber: NewSubscriberWithResources(store, publisher, recipients, stacks), store: store}
+	lifecycle := newLifecycle(store, publisher, recipients)
+	return &SQLSubscriber{Subscriber: newSubscriber(store, lifecycle, stacks), store: store}
 }
 
 // Handle applies each source publication once, even across retry and restart.
@@ -69,6 +70,14 @@ func (s *SQLSubscriber) Handle(ctx context.Context, event events.Envelope) error
 		resource = model.MessengerFingerprint(model.AlertKindMessengerMisconfigured, e.ResourceID)
 	case *events.MessengerDeliverySucceeded:
 		resource = model.MessengerFingerprint(model.AlertKindMessengerMisconfigured, e.ResourceID)
+	case *events.ServiceMissed:
+		resource = "service:" + e.StackName + "/" + e.ServiceName
+	case *events.ServiceDrifted:
+		resource = "service:" + e.StackName + "/" + e.ServiceName
+	case *events.ServiceDriftFixed:
+		resource = "service:" + e.StackName + "/" + e.ServiceName
+	case *events.ServiceRemovedFromDesired:
+		resource = "service:" + e.StackName + "/" + e.ServiceName
 	default:
 		return nil
 	}

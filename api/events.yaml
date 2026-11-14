@@ -91,6 +91,27 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/EventFilterOptions'
+  /api/v1/events/{id}:
+    get:
+      operationId: getEvent
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            minLength: 36
+            maxLength: 36
+            pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+      responses:
+        '200':
+          description: One retained event-history item.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventHistoryItem'
+        '404':
+          description: Event is unknown or has been removed by history retention.
   /api/v1/alerts:
     get:
       operationId: listAlerts
@@ -108,6 +129,13 @@ paths:
             format: int32
             minimum: 1
             maximum: 1000
+        - in: query
+          name: stack
+          description: Only alerts with resourceType=stack and resourceId exactly equal to this stack name.
+          required: false
+          schema:
+            type: string
+            minLength: 1
       responses:
         '200':
           description: Persisted alerts matching the requested lifecycle state.
@@ -184,6 +212,17 @@ components:
           type: string
         eventId:
           type: string
+    AlertFinding:
+      type: object
+      required: [code, summary, detectedAt]
+      properties:
+        code:
+          type: string
+        summary:
+          type: string
+        detectedAt:
+          type: string
+          format: date-time
     Alert:
       type: object
       required: [id, fingerprint, kind, resourceType, resourceId, status, title, message, occurrences, openedAt, updatedAt, openEventId, latestEventId]
@@ -194,10 +233,10 @@ components:
           type: string
         kind:
           type: string
-          enum: [sync_failed, node_disconnected, git_repository_unavailable]
+          enum: [sync_failed, node_disconnected, git_repository_unavailable, service_drift]
         resourceType:
           type: string
-          enum: [stack, node, repository]
+          enum: [stack, node, repository, service]
         resourceId:
           type: string
         status:
@@ -210,6 +249,11 @@ components:
           type: string
         errorCode:
           type: string
+        findings:
+          type: array
+          description: Distinct typed diagnostics in order of first detection.
+          items:
+            $ref: '#/components/schemas/AlertFinding'
         deploymentId:
           type: string
         commit:

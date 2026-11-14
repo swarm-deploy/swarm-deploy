@@ -10,9 +10,9 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/storage"
 )
 
-func newStore(t *testing.T) (*SQLStore, *storage.Database) {
+func newStore(t *testing.T) (*SQLStore, storage.Database) {
 	t.Helper()
-	db, err := storage.Open(t.Context(), t.TempDir())
+	db, err := storage.OpenSQLite(t.Context(), t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	return NewSQLStore(db), db
@@ -39,8 +39,13 @@ func TestSecretsRoundTripAndPhysicalPayload(t *testing.T) {
 	got, err := store.GetByName(t.Context(), "b")
 	require.NoError(t, err)
 	assert.Equal(t, full, got)
+	got, err = store.GetByID(t.Context(), "id-b")
+	require.NoError(t, err)
+	assert.Equal(t, full, got)
 
 	_, err = store.GetByName(t.Context(), "missing")
+	assert.ErrorIs(t, err, ErrSecretNotFound)
+	_, err = store.GetByID(t.Context(), "missing")
 	assert.ErrorIs(t, err, ErrSecretNotFound)
 
 	var row struct {

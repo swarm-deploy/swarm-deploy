@@ -148,6 +148,23 @@ func TestToGeneratedServiceInfo(t *testing.T) {
 			expectedTitle:  "Secret Manager",
 		},
 		{
+			name: "returns self-heal failure details as out of sync",
+			serviceInfo: servicemodel.Info{
+				Name:     "api",
+				Stack:    "payments",
+				Metadata: metadata.Metadata{Type: serviceType.Application},
+			},
+			runtime: model.Runtime{Stacks: map[string]model.Stack{
+				"payments": {Services: map[string]model.Service{
+					"api": {SyncStatus: model.SyncStatusOutOfSync, SyncError: "Self Heal Failed"},
+				}},
+			}},
+			expectedStatus: "OutOfSync",
+			expectedError:  "Self Heal Failed",
+			expectedType:   generated.ServiceInfoTypeApplication,
+			expectedTitle:  "Application",
+		},
+		{
 			name: "returns MCP type and title",
 			serviceInfo: servicemodel.Info{
 				Name:     "postgres-mcp",

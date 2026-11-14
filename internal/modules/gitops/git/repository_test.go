@@ -1,11 +1,13 @@
 package git
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/pem"
 	"errors"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -468,6 +470,163 @@ func TestLazyProxyInitializesRepositoryLazily(t *testing.T) {
 
 	_, err = proxy.Pull(t.Context())
 	require.NoError(t, err, "pull lazy proxy repository")
+}
+
+func TestLazyProxyInitialCloneRespectsPullTimeout(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		call func(*LazyProxy, context.Context) error
+	}{
+		{"pull", func(proxy *LazyProxy, ctx context.Context) error {
+			_, err := proxy.Pull(ctx)
+			return err
+		}},
+		{"head", func(proxy *LazyProxy, ctx context.Context) error {
+			_, err := proxy.Head(ctx)
+			return err
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			started := make(chan struct{}, 1)
+			server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, request *http.Request) {
+				select {
+				case started <- struct{}{}:
+				default:
+				}
+				<-request.Context().Done()
+			}))
+			defer server.Close()
+
+			proxy := NewLazyProxy(config.GitSpec{
+				Repository: server.URL + "/team/app.git", Branch: "main",
+				Pull: config.GitPullSpec{Timeout: specw.Duration{Value: 200 * time.Millisecond}},
+			}, filepath.Join(t.TempDir(), "clone"))
+			ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+			defer cancel()
+			begin := time.Now()
+			err := tc.call(proxy, ctx)
+			require.Error(t, err)
+			category, diagnostic := PullFailure(err)
+			assert.Equal(t, FailureNetwork, category)
+			assert.Equal(t, "Git repository connection timed out", diagnostic)
+			assert.Less(t, time.Since(begin), 800*time.Millisecond, "the clone must use the pull timeout, not the caller deadline")
+			select {
+			case <-started:
+			default:
+				t.Fatal("the clone never reached the stalled Git server")
+			}
+		})
+	}
+}
+
+func TestLazyProxyInitialCloneReturnsWhileSSHHandshakeIsStalled(t *testing.T) {
+	listener, err := net.Listen("tcp4", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer listener.Close()
+	connected := make(chan struct{}, 2)
+	closed := make(chan struct{}, 2)
+	go func() {
+		for range 2 {
+			conn, acceptErr := listener.Accept()
+			if acceptErr != nil {
+				return
+			}
+			connected <- struct{}{}
+			// An SSH client that enforces a socket deadline closes this
+			// connection when the handshake cannot complete.
+			go func() {
+				defer conn.Close()
+				_, _ = io.Copy(io.Discard, conn)
+				closed <- struct{}{}
+			}()
+		}
+	}()
+
+	proxy := NewLazyProxy(config.GitSpec{
+		Repository: "ssh://git@" + listener.Addr().String() + "/team/app.git", Branch: "main",
+		Pull: config.GitPullSpec{Timeout: specw.Duration{Value: 500 * time.Millisecond}},
+		Auth: config.GitAuthSpec{
+			Type: config.GitAuthTypeSSH,
+			SSH: config.GitSSHAuthSpec{
+				PrivateKeyPath: writePrivateKeyFile(t, t.TempDir()), InsecureIgnoreHostKey: true,
+			},
+		},
+	}, filepath.Join(t.TempDir(), "clone"))
+
+	for attempt := range 2 {
+		result := make(chan error, 1)
+		go func() {
+			_, headErr := proxy.Head(t.Context())
+			result <- headErr
+		}()
+		select {
+		case <-connected:
+		case <-time.After(2 * time.Second):
+			t.Fatalf("attempt %d did not connect to the SSH server", attempt+1)
+		}
+		select {
+		case err = <-result:
+			category, diagnostic := PullFailure(err)
+			assert.Equal(t, FailureNetwork, category)
+			assert.Equal(t, "Git repository connection timed out", diagnostic)
+		case <-time.After(2 * time.Second):
+			t.Fatalf("attempt %d waited for the stalled SSH handshake", attempt+1)
+		}
+		select {
+		case <-closed:
+		case <-time.After(2 * time.Second):
+			t.Fatalf("attempt %d did not close its timed-out SSH socket", attempt+1)
+		}
+	}
+}
+
+func TestLazyProxyPullDeadlineWhileWaitingForInitialClone(t *testing.T) {
+	requests := make(chan struct{}, 2)
+	server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, request *http.Request) {
+		select {
+		case requests <- struct{}{}:
+		default:
+		}
+		<-request.Context().Done()
+	}))
+	defer server.Close()
+
+	proxy := NewLazyProxy(config.GitSpec{
+		Repository: server.URL + "/team/app.git", Branch: "main",
+		Pull: config.GitPullSpec{Timeout: specw.Duration{Value: 3 * time.Second}},
+	}, filepath.Join(t.TempDir(), "clone"))
+	cloneCtx, cancelClone := context.WithCancel(t.Context())
+	defer cancelClone()
+	cloneResult := make(chan error, 1)
+	go func() {
+		_, err := proxy.Head(cloneCtx)
+		cloneResult <- err
+	}()
+	select {
+	case <-requests:
+	case <-time.After(2 * time.Second):
+		t.Fatal("initial clone did not reach the Git server")
+	}
+
+	pullCtx, cancelPull := context.WithTimeout(t.Context(), 100*time.Millisecond)
+	defer cancelPull()
+	_, err := proxy.Pull(pullCtx)
+	require.Error(t, err)
+	category, diagnostic := PullFailure(err)
+	assert.Equal(t, FailureOther, category)
+	assert.Equal(t, repositoryLockTimeoutDiagnostic, diagnostic)
+	select {
+	case <-cloneResult:
+		t.Fatal("Pull waited for the initial clone to finish")
+	default:
+	}
+	select {
+	case <-requests:
+		t.Fatal("Pull started a second clone")
+	default:
+	}
+	cancelClone()
+	require.Error(t, <-cloneResult)
 }
 
 func TestGoGitRepositoryShowReturnsCommitMetadataAndFileDiff(t *testing.T) {

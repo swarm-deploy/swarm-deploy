@@ -16,14 +16,16 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/configstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/modelstore"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments"
 	deploymentstore "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/codec"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
+	eventbus "github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/outbox"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/deployment"
-	gitopsmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/model"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
 	"github.com/swarm-deploy/swarm-deploy/internal/storage"
+	"go.uber.org/mock/gomock"
 )
 
 func newTestSQLSubscriber(store *modelstore.SQLStore) *SQLSubscriber {
@@ -33,7 +35,7 @@ func newTestSQLSubscriber(store *modelstore.SQLStore) *SQLSubscriber {
 
 func TestSQLSubscriberIdempotenceAndRollback(t *testing.T) {
 	ctx := context.Background()
-	db, err := storage.Open(ctx, t.TempDir())
+	db, err := storage.OpenSQLite(ctx, t.TempDir())
 	require.NoError(t, err)
 	defer db.Close()
 	repo := modelstore.NewSQLStore(db)
@@ -52,6 +54,7 @@ func TestSQLSubscriberIdempotenceAndRollback(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, alerts, 1)
 	assert.EqualValues(t, 1, alerts[0].Occurrences)
+	assert.Nil(t, alerts[0].Findings)
 	event.ID = "failed-2"
 	event.OccurredAt = at.Add(time.Second)
 	require.NoError(t, subscriber.Handle(ctx, event))
@@ -68,9 +71,66 @@ func TestSQLSubscriberIdempotenceAndRollback(t *testing.T) {
 	require.Len(t, alerts, 1)
 	assert.Equal(t, model.AlertStatusResolved, alerts[0].Status)
 }
+
+func TestSQLSubscriberAccumulatesTypedFindingsUntilResolution(t *testing.T) {
+	ctx := t.Context()
+	_, repo := openAlertStore(t)
+	subscriber := newTestSQLSubscriber(repo)
+	start := time.Date(2026, time.November, 7, 10, 0, 0, 0, time.UTC)
+	stack := events.DeployEvent{StackName: "app"}
+	imageMissing := func(taskID, image string) *events.DeployFailed {
+		summary := "No such image: " + image
+		diagnostic := "service failed to converge: task " + taskID + " rejected: " + summary + "\nTask logs unavailable"
+		return &events.DeployFailed{DeployEvent: stack, ErrorCode: "convergence_failed",
+			Error: faults.NewSafeError(diagnostic, false, faults.CodeImageNotFound, summary)}
+	}
+
+	wantFindings := []model.Finding{
+		{Code: faults.CodeImageNotFound, Summary: "No such image: api:1", DetectedAt: start},
+		{Code: faults.CodeImageNotFound, Summary: "No such image: api:2", DetectedAt: start.Add(3 * time.Minute)},
+		{Code: faults.CodeImageNotFound, Summary: "", DetectedAt: start.Add(4 * time.Minute)},
+	}
+	now := start
+	subscriber.lifecycle.(*alertLifecycle).now = func() time.Time { return now }
+	var alertID string
+	for i, step := range []struct {
+		event events.Event
+		count int
+	}{
+		{event: imageMissing("task-1", "api:1"), count: 1},
+		{event: imageMissing("task-2", "api:1"), count: 1},
+		{event: &events.DeployFailed{DeployEvent: stack, ErrorCode: "apply_failed",
+			Error: errors.New("external network edge does not exist")}, count: 1},
+		{event: imageMissing("task-3", "api:2"), count: 2},
+		{event: &events.DeployPreparationFailed{StackName: "app", ErrorCode: "preparation_failed",
+			Error: faults.NewSafeError("preparation diagnostic", false, faults.CodeImageNotFound, "")}, count: 3},
+		{event: &events.DeploySuccess{DeployEvent: stack}, count: 3},
+	} {
+		now = start.Add(time.Duration(i) * time.Minute)
+		require.NoError(t, subscriber.Handle(ctx, events.Envelope{
+			ID: fmt.Sprintf("event-%d", i), OccurredAt: now, Event: step.event,
+		}))
+		alerts, err := repo.List(ctx, modelstore.ListFilter{})
+		require.NoError(t, err)
+		require.Len(t, alerts, 1)
+		if i == 0 {
+			alertID = alerts[0].ID
+		}
+		if failure, ok := step.event.(*events.DeployFailed); ok {
+			assert.Equal(t, failure.Error.Error(), alerts[0].Message)
+		}
+		assert.Equal(t, alertID, alerts[0].ID)
+		assert.Equal(t, wantFindings[:step.count], alerts[0].Findings)
+	}
+	alert, err := repo.Get(ctx, alertID)
+	require.NoError(t, err)
+	assert.Equal(t, model.AlertStatusResolved, alert.Status)
+	assert.Equal(t, wantFindings, alert.Findings)
+}
+
 func TestNodeAlertRecoveryIgnoresDelayedFailure(t *testing.T) {
 	ctx := context.Background()
-	db, err := storage.Open(ctx, t.TempDir())
+	db, err := storage.OpenSQLite(ctx, t.TempDir())
 	require.NoError(t, err)
 	defer db.Close()
 	repo := modelstore.NewSQLStore(db)
@@ -88,13 +148,46 @@ func TestNodeAlertRecoveryIgnoresDelayedFailure(t *testing.T) {
 	assert.Equal(t, model.ResourceTypeNode, alerts[0].ResourceType)
 	assert.Equal(t, model.AlertStatusResolved, alerts[0].Status)
 	assert.EqualValues(t, 1, alerts[0].Occurrences)
+	var streaks int
+	require.NoError(t, db.Get(ctx, &streaks, "SELECT count(*) FROM alert_failure_streaks"))
+	assert.Zero(t, streaks)
+}
+
+func TestServiceDriftAlertRecoveryIgnoresRetriesAndDelayedDetection(t *testing.T) {
+	ctx := context.Background()
+	db, err := storage.OpenSQLite(ctx, t.TempDir())
+	require.NoError(t, err)
+	defer db.Close()
+	repo := modelstore.NewSQLStore(db)
+	subscriber := newTestSQLSubscriber(repo)
+	at := time.Now().UTC()
+	drifted := events.Envelope{ID: "001", OccurredAt: at, Event: &events.ServiceDrifted{
+		StackName: "payments", ServiceName: "api", Commit: "one", Reason: "replicas differ",
+	}}
+	fixed := events.Envelope{ID: "003", OccurredAt: at.Add(time.Second), Event: &events.ServiceDriftFixed{
+		StackName: "payments", ServiceName: "api", Commit: "two",
+	}}
+	delayed := events.Envelope{ID: "002", OccurredAt: at.Add(time.Millisecond), Event: &events.ServiceMissed{
+		StackName: "payments", ServiceName: "api", Commit: "old",
+	}}
+	for _, event := range []events.Envelope{drifted, drifted, fixed, delayed} {
+		require.NoError(t, subscriber.Handle(ctx, event))
+	}
+	alerts, err := repo.List(ctx, modelstore.ListFilter{})
+	require.NoError(t, err)
+	require.Len(t, alerts, 1)
+	assert.Equal(t, model.AlertStatusResolved, alerts[0].Status)
+	assert.Equal(t, uint64(1), alerts[0].Occurrences)
+	var streaks int
+	require.NoError(t, db.Get(ctx, &streaks, "SELECT count(*) FROM alert_failure_streaks"))
+	assert.Zero(t, streaks)
 }
 
 func TestMessengerRecoverySurvivesRestartAndIgnoresDelayedFailure(t *testing.T) {
 	ctx := t.Context()
 	dir := t.TempDir()
 	at := time.Now().UTC()
-	db, err := storage.Open(ctx, dir)
+	db, err := storage.OpenSQLite(ctx, dir)
 	require.NoError(t, err)
 	subscriber := newTestSQLSubscriber(modelstore.NewSQLStore(db))
 	failure := events.Envelope{ID: "001", OccurredAt: at, Event: &events.MessengerUnavailable{
@@ -103,7 +196,7 @@ func TestMessengerRecoverySurvivesRestartAndIgnoresDelayedFailure(t *testing.T) 
 	require.NoError(t, subscriber.Handle(ctx, failure))
 	require.NoError(t, db.Close())
 
-	db, err = storage.Open(ctx, dir)
+	db, err = storage.OpenSQLite(ctx, dir)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	repo := modelstore.NewSQLStore(db)
@@ -120,7 +213,7 @@ func TestMessengerRecoverySurvivesRestartAndIgnoresDelayedFailure(t *testing.T) 
 
 func TestPreparationAndInterruptedFailuresShareDeploymentAlertLifecycle(t *testing.T) {
 	ctx := context.Background()
-	db, err := storage.Open(ctx, t.TempDir())
+	db, err := storage.OpenSQLite(ctx, t.TempDir())
 	require.NoError(t, err)
 	defer db.Close()
 	repo := modelstore.NewSQLStore(db)
@@ -140,6 +233,7 @@ func TestPreparationAndInterruptedFailuresShareDeploymentAlertLifecycle(t *testi
 	assert.Equal(t, model.AlertStatusOpen, alerts[0].Status)
 	assert.Equal(t, model.AlertKindSyncFailed, alerts[0].Kind)
 	assert.Equal(t, "sync_failed:stack:app", alerts[0].Fingerprint)
+	assert.Equal(t, "Synchronization outcome unknown", alerts[0].Title)
 	require.NoError(t, subscriber.Handle(ctx, events.Envelope{
 		ID: "success", OccurredAt: at.Add(3 * time.Second),
 		Event: &events.DeploySuccess{DeployEvent: events.DeployEvent{StackName: "app"}},
@@ -149,9 +243,33 @@ func TestPreparationAndInterruptedFailuresShareDeploymentAlertLifecycle(t *testi
 	assert.Equal(t, model.AlertStatusResolved, alerts[0].Status)
 }
 
+func TestInterruptedAlertKeepsUnknownOutcomeAndResolvesOnSuccess(t *testing.T) {
+	ctx := t.Context()
+	_, store := openAlertStore(t)
+	subscriber := newTestSQLSubscriber(store)
+	at := time.Now().UTC()
+	require.NoError(t, subscriber.Handle(ctx, events.Envelope{
+		ID: "interrupted", OccurredAt: at,
+		Event: &events.DeployInterrupted{StackName: "app", Reason: "process_interrupted"},
+	}))
+	opened, err := store.FindOpenByFingerprint(ctx, model.SyncFailedFingerprint("app"))
+	require.NoError(t, err)
+	assert.Equal(t, "Synchronization outcome unknown", opened.Title)
+	assert.Equal(t, "Deployment outcome is unknown after interruption during an unknown stage. No detailed diagnostic was recorded.",
+		opened.Message)
+
+	require.NoError(t, subscriber.Handle(ctx, events.Envelope{
+		ID: "success", OccurredAt: at.Add(time.Second),
+		Event: &events.DeploySuccess{DeployEvent: events.DeployEvent{StackName: "app"}},
+	}))
+	resolved, err := store.Get(ctx, opened.ID)
+	require.NoError(t, err)
+	assert.Equal(t, model.AlertStatusResolved, resolved.Status)
+}
+
 func TestConfigurationChangedResolvesRemovedStackIdempotently(t *testing.T) {
 	ctx := context.Background()
-	db, err := storage.Open(ctx, t.TempDir())
+	db, err := storage.OpenSQLite(ctx, t.TempDir())
 	require.NoError(t, err)
 	defer db.Close()
 	repo := modelstore.NewSQLStore(db)
@@ -161,7 +279,7 @@ stacks:
   - name: kept
     composeFile: kept.yaml
 `), 0o600))
-	cfg := &config.Config{Spec: config.Spec{StacksSource: config.StacksSourceSpec{File: "stacks.yaml"}}}
+	cfg := &config.Config{Spec: config.Spec{GitOps: config.GitOpsSpec{Stacks: config.StacksSourceSpec{File: "stacks.yaml"}}}}
 	_, err = cfg.Reload(dir)
 	require.NoError(t, err)
 	subscriber := NewSQLSubscriber(repo, &dispatcher.NopDispatcher{},
@@ -173,6 +291,12 @@ stacks:
 			ID: stack, OccurredAt: at.Add(time.Duration(index) * time.Second),
 			Event: &events.DeployFailed{DeployEvent: events.DeployEvent{StackName: stack}, Error: assert.AnError},
 		}))
+		require.NoError(t, subscriber.Handle(ctx, events.Envelope{
+			ID: "service-" + stack, OccurredAt: at.Add(time.Duration(index) * time.Second),
+			Event: &events.ServiceDrifted{
+				StackName: stack, ServiceName: "api", Reason: "service is missing",
+			},
+		}))
 	}
 	configurationChanged := events.Envelope{
 		ID: "configuration", OccurredAt: at.Add(2 * time.Second), Event: &events.ConfigurationChanged{},
@@ -183,7 +307,7 @@ stacks:
 
 	alerts, err := repo.List(ctx, modelstore.ListFilter{})
 	require.NoError(t, err)
-	require.Len(t, alerts, 2)
+	require.Len(t, alerts, 4)
 	byResource := map[string]model.Alert{}
 	for _, alert := range alerts {
 		byResource[alert.ResourceID] = alert
@@ -193,6 +317,65 @@ stacks:
 	assert.Equal(t, model.ResolutionReasonResourceRemoved, byResource["removed"].Resolution.Reason)
 	assert.Equal(t, "configuration", byResource["removed"].Resolution.EventID)
 	assert.Equal(t, model.AlertStatusOpen, byResource["kept"].Status)
+	assert.Equal(t, model.AlertStatusResolved, byResource["removed/api"].Status)
+	require.NotNil(t, byResource["removed/api"].Resolution)
+	assert.Equal(t, model.ResolutionReasonResourceRemoved, byResource["removed/api"].Resolution.Reason)
+	assert.Equal(t, model.AlertStatusOpen, byResource["kept/api"].Status)
+}
+
+func TestServiceRemovedFromDesiredResolvesOnlyMatchingDriftAndOrdersDelayedEvents(t *testing.T) {
+	db, err := storage.OpenSQLite(t.Context(), t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	bus := eventbus.NewOutboxDispatcher(outbox.New(db))
+	repo := modelstore.NewSQLStore(db)
+	subscriber := NewSQLSubscriber(repo, bus, noAlertRecipients, &config.Config{})
+	require.NoError(t, bus.Subscribe(events.TypeNameAlertResolved, "resolved-signal", subscriber))
+	at := time.Now().UTC()
+
+	for index, serviceName := range []string{"removed", "kept"} {
+		require.NoError(t, subscriber.Handle(t.Context(), events.Envelope{
+			ID: "drift-" + serviceName, OccurredAt: at.Add(time.Duration(index) * time.Millisecond),
+			Event: &events.ServiceDrifted{
+				StackName: "app", ServiceName: serviceName, Commit: "old", Reason: "replicas differ",
+			},
+		}))
+	}
+	require.NoError(t, subscriber.Handle(t.Context(), events.Envelope{
+		ID: "sync-failed", OccurredAt: at,
+		Event: &events.DeployFailed{DeployEvent: events.DeployEvent{StackName: "app"}, Error: assert.AnError},
+	}))
+
+	removed := events.Envelope{
+		ID: "removed", OccurredAt: at.Add(2 * time.Second),
+		Event: &events.ServiceRemovedFromDesired{StackName: "app", ServiceName: "removed", Commit: "new"},
+	}
+	require.NoError(t, subscriber.Handle(t.Context(), removed))
+	require.NoError(t, subscriber.Handle(t.Context(), removed), "repeated delivery must be idempotent")
+	require.NoError(t, subscriber.Handle(t.Context(), events.Envelope{
+		ID: "delayed-missed", OccurredAt: at.Add(time.Second),
+		Event: &events.ServiceMissed{StackName: "app", ServiceName: "removed", Commit: "old"},
+	}), "an older delayed event must be acknowledged without reopening the alert")
+	require.NoError(t, subscriber.Handle(t.Context(), events.Envelope{
+		ID: "missing-alert", OccurredAt: at.Add(3 * time.Second),
+		Event: &events.ServiceRemovedFromDesired{StackName: "app", ServiceName: "unknown", Commit: "new"},
+	}))
+
+	alerts, err := repo.List(t.Context(), modelstore.ListFilter{})
+	require.NoError(t, err)
+	require.Len(t, alerts, 3)
+	byResource := make(map[string]model.Alert, len(alerts))
+	for _, alert := range alerts {
+		byResource[alert.ResourceID] = alert
+	}
+	resolved := byResource["app/removed"]
+	assert.Equal(t, model.AlertStatusResolved, resolved.Status)
+	require.NotNil(t, resolved.Resolution)
+	assert.Equal(t, model.ResolutionReasonResourceRemoved, resolved.Resolution.Reason)
+	assert.Equal(t, "removed", resolved.Resolution.EventID)
+	assert.Equal(t, model.AlertStatusOpen, byResource["app/kept"].Status)
+	assert.Equal(t, model.AlertStatusOpen, byResource["app"].Status, "SyncFailed must remain unaffected")
+	assert.Equal(t, 1, alertSignalCount(t, db, "AlertResolved"))
 }
 
 func TestTemporaryFailureCounterSurvivesRestartAndDuplicateDelivery(t *testing.T) {
@@ -208,7 +391,7 @@ func TestTemporaryFailureCounterSurvivesRestartAndDuplicateDelivery(t *testing.T
 		}},
 	}
 
-	db, err := storage.Open(ctx, dir)
+	db, err := storage.OpenSQLite(ctx, dir)
 	require.NoError(t, err)
 	subscriber := newTestSQLSubscriber(modelstore.NewSQLStore(db))
 	for _, event := range eventsBeforeRestart {
@@ -217,7 +400,7 @@ func TestTemporaryFailureCounterSurvivesRestartAndDuplicateDelivery(t *testing.T
 	}
 	require.NoError(t, db.Close())
 
-	db, err = storage.Open(ctx, dir)
+	db, err = storage.OpenSQLite(ctx, dir)
 	require.NoError(t, err)
 	defer db.Close()
 	repo := modelstore.NewSQLStore(db)
@@ -237,7 +420,7 @@ func TestTemporaryFailureCounterSurvivesRestartAndDuplicateDelivery(t *testing.T
 
 func TestGitRepositoryAuthenticationFailureOpensAndRecoveryResolvesAlert(t *testing.T) {
 	ctx := context.Background()
-	db, err := storage.Open(ctx, t.TempDir())
+	db, err := storage.OpenSQLite(ctx, t.TempDir())
 	require.NoError(t, err)
 	defer db.Close()
 	repo := modelstore.NewSQLStore(db)
@@ -274,7 +457,7 @@ func TestGitRepositoryAuthenticationFailureOpensAndRecoveryResolvesAlert(t *test
 
 func TestGitRepositoryChangeResolvesPreviousAsRemovedAndOrdersDelayedRecovery(t *testing.T) {
 	ctx := t.Context()
-	db, err := storage.Open(ctx, t.TempDir())
+	db, err := storage.OpenSQLite(ctx, t.TempDir())
 	require.NoError(t, err)
 	defer db.Close()
 	repo := modelstore.NewSQLStore(db)
@@ -332,7 +515,7 @@ func TestGitRepositoryChangeResolvesPreviousAsRemovedAndOrdersDelayedRecovery(t 
 
 func TestGitRepositoryChangeBypassesUnreadyStackConfiguration(t *testing.T) {
 	ctx := t.Context()
-	db, err := storage.Open(ctx, t.TempDir())
+	db, err := storage.OpenSQLite(ctx, t.TempDir())
 	require.NoError(t, err)
 	defer db.Close()
 	repo := modelstore.NewSQLStore(db)
@@ -377,7 +560,7 @@ func TestGitRepositoryNetworkThresholdSurvivesRestartAndDeduplicatesDelivery(t *
 	ctx := context.Background()
 	dir := t.TempDir()
 	at := time.Now().UTC()
-	db, err := storage.Open(ctx, dir)
+	db, err := storage.OpenSQLite(ctx, dir)
 	require.NoError(t, err)
 	subscriber := newTestSQLSubscriber(modelstore.NewSQLStore(db))
 	for index := range 2 {
@@ -396,7 +579,7 @@ func TestGitRepositoryNetworkThresholdSurvivesRestartAndDeduplicatesDelivery(t *
 	}), "configuration changes must not reset repository failure streaks")
 	require.NoError(t, db.Close())
 
-	db, err = storage.Open(ctx, dir)
+	db, err = storage.OpenSQLite(ctx, dir)
 	require.NoError(t, err)
 	defer db.Close()
 	repo := modelstore.NewSQLStore(db)
@@ -455,7 +638,7 @@ func TestGitRepositoryNetworkThresholdSurvivesRestartAndDeduplicatesDelivery(t *
 
 func TestGitRepositoryRecoveryIgnoresDelayedFailureAndResetsCounter(t *testing.T) {
 	ctx := context.Background()
-	db, err := storage.Open(ctx, t.TempDir())
+	db, err := storage.OpenSQLite(ctx, t.TempDir())
 	require.NoError(t, err)
 	defer db.Close()
 	repo := modelstore.NewSQLStore(db)
@@ -488,7 +671,7 @@ func TestGitRepositoryRecoveryIgnoresDelayedFailureAndResetsCounter(t *testing.T
 
 func TestGitNetworkDiagnosticReachesAlertAfterDurableCodec(t *testing.T) {
 	ctx := t.Context()
-	db, err := storage.Open(ctx, t.TempDir())
+	db, err := storage.OpenSQLite(ctx, t.TempDir())
 	require.NoError(t, err)
 	defer db.Close()
 	store := modelstore.NewSQLStore(db)
@@ -522,9 +705,9 @@ func TestDeploymentCompletionOutboxPreservesAlertThresholds(t *testing.T) {
 			t.Run(fmt.Sprintf("%s/temporary=%t", phase, temporary), func(t *testing.T) {
 				ctx := context.Background()
 				dir := t.TempDir()
-				db, err := storage.Open(ctx, dir)
+				db, err := storage.OpenSQLite(ctx, dir)
 				require.NoError(t, err)
-				bus := outbox.New(db)
+				bus := eventbus.NewOutboxDispatcher(outbox.New(db))
 				repo := modelstore.NewSQLStore(db)
 				subscriber := newTestSQLSubscriber(repo)
 				typ := events.TypeNameDeployFailed
@@ -534,10 +717,10 @@ func TestDeploymentCompletionOutboxPreservesAlertThresholds(t *testing.T) {
 				require.NoError(t, bus.Subscribe(typ, "alerts", subscriber))
 				var deploymentID string
 				for i := range 3 {
-					service := deployment.NewService(db, bus)
+					service := deployments.NewService(db, bus)
 					attempt, startErr := service.StartIfChanged(ctx, "app", fmt.Sprint(i), compose.File{
 						Compose: compose.Compose{Services: compose.Services{{Name: "api", Image: "api:1"}}},
-					}, true)
+					}, true, deployments.StartOptions{ManualRetry: true})
 					require.NoError(t, startErr)
 					if i == 0 {
 						deploymentID = attempt.DeploymentID
@@ -551,11 +734,18 @@ func TestDeploymentCompletionOutboxPreservesAlertThresholds(t *testing.T) {
 					}
 					switch phase {
 					case "apply":
-						err = service.FailApplyWithError(ctx, attempt.ID, gitopsmodel.Stack{}, "apply_failed", cause)
+						err = service.Complete(ctx, attempt.ID, deployments.Completion{
+							Outcome: deployments.CompletionApplyFailed, Diagnostic: cause,
+						})
 					case "verification":
-						err = service.InterruptVerificationWithError(ctx, attempt.ID, gitopsmodel.Stack{}, cause)
+						err = service.Complete(ctx, attempt.ID, deployments.Completion{
+							Outcome: deployments.CompletionVerificationInterrupted, Diagnostic: cause,
+						})
 					case "cleanup":
-						err = service.FailCleanupWithError(ctx, attempt.ID, gitopsmodel.Stack{}, "prune_failed", time.Now(), cause)
+						observedAt := time.Now()
+						err = service.Complete(ctx, attempt.ID, deployments.Completion{
+							Outcome: deployments.CompletionCleanupFailed, Diagnostic: cause, ObservedAt: &observedAt,
+						})
 					}
 					require.NoError(t, err)
 					stored, readErr := deploymentstore.NewStore(db).Get(ctx, attempt.DeploymentID)
@@ -568,9 +758,9 @@ func TestDeploymentCompletionOutboxPreservesAlertThresholds(t *testing.T) {
 					assert.Contains(t, payload, fmt.Sprintf(`"temporary":%t`, temporary))
 					// Reopen before delivery: the subscriber must consume the persisted classification.
 					require.NoError(t, db.Close())
-					db, err = storage.Open(ctx, dir)
+					db, err = storage.OpenSQLite(ctx, dir)
 					require.NoError(t, err)
-					bus = outbox.New(db)
+					bus = eventbus.NewOutboxDispatcher(outbox.New(db))
 					repo = modelstore.NewSQLStore(db)
 					subscriber = newTestSQLSubscriber(repo)
 					require.NoError(t, bus.Subscribe(typ, "alerts", subscriber))
@@ -591,4 +781,107 @@ func TestDeploymentCompletionOutboxPreservesAlertThresholds(t *testing.T) {
 			})
 		}
 	}
+}
+
+func TestConvergenceFailureSkippedTicksDoNotIncreaseOccurrencesAndRecoveryResolves(t *testing.T) {
+	ctx := t.Context()
+	dir := t.TempDir()
+	db, err := storage.OpenSQLite(ctx, dir)
+	require.NoError(t, err)
+	bus := eventbus.NewOutboxDispatcher(outbox.New(db))
+	repo := modelstore.NewSQLStore(db)
+	subscriber := newTestSQLSubscriber(repo)
+	for _, typ := range []events.TypeName{events.TypeNameDeployFailed, events.TypeNameDeploySuccess} {
+		require.NoError(t, bus.Subscribe(typ, "alerts", subscriber))
+	}
+	desired := compose.File{Compose: compose.Compose{Services: compose.Services{{Name: "api", Image: "api:1"}}}}
+	lifecycle := deployments.NewService(db, bus)
+	attempt, err := lifecycle.StartIfChanged(ctx, "app", "first", desired, true)
+	require.NoError(t, err)
+	for number := 1; number <= 2; number++ {
+		require.NoError(t, lifecycle.Complete(ctx, attempt.ID, deployments.Completion{Outcome: deployments.CompletionConvergenceFailed, Diagnostic: errors.New("service api paused; task failed-task exit_code=1")}))
+		processed, err := bus.ProcessNext(ctx)
+		require.NoError(t, err)
+		require.True(t, processed)
+		for range 10 {
+			skipped, err := lifecycle.StartIfChanged(ctx, "app", "tick", desired, true)
+			require.NoError(t, err)
+			assert.Nil(t, skipped)
+			processed, err := bus.ProcessNext(ctx)
+			require.NoError(t, err)
+			assert.False(t, processed)
+		}
+		alerts, err := repo.List(ctx, modelstore.ListFilter{})
+		require.NoError(t, err)
+		require.Len(t, alerts, 1)
+		assert.EqualValues(t, number, alerts[0].Occurrences)
+		assert.Equal(t, "Synchronization failed", alerts[0].Title)
+		assert.Equal(t, "convergence_failed", alerts[0].ErrorCode)
+		assert.Equal(t, "verification", alerts[0].FailureStage)
+		// Reopen storage before the explicit retry. Neither suppression nor alert
+		// correlation can depend on a process-local counter.
+		require.NoError(t, db.Close())
+		db, err = storage.OpenSQLite(ctx, dir)
+		require.NoError(t, err)
+		bus = eventbus.NewOutboxDispatcher(outbox.New(db))
+		repo = modelstore.NewSQLStore(db)
+		subscriber = newTestSQLSubscriber(repo)
+		for _, typ := range []events.TypeName{events.TypeNameDeployFailed, events.TypeNameDeploySuccess} {
+			require.NoError(t, bus.Subscribe(typ, "alerts", subscriber))
+		}
+		lifecycle = deployments.NewService(db, bus)
+		attempt, err = lifecycle.StartIfChanged(ctx, "app", "manual", desired, false, deployments.StartOptions{ManualRetry: true})
+		require.NoError(t, err)
+		require.NotNil(t, attempt)
+	}
+	require.NoError(t, lifecycle.Complete(ctx, attempt.ID, deployments.Completion{Outcome: deployments.CompletionSucceeded}))
+	processed, err := bus.ProcessNext(ctx)
+	require.NoError(t, err)
+	require.True(t, processed)
+	alerts, err := repo.List(ctx, modelstore.ListFilter{})
+	require.NoError(t, err)
+	require.Len(t, alerts, 1)
+	assert.Equal(t, model.AlertStatusResolved, alerts[0].Status)
+	assert.EqualValues(t, 2, alerts[0].Occurrences)
+	require.NoError(t, db.Close())
+}
+
+func TestSQLSubscriberRollsBackAllConfigurationActionsOnPublicationFailure(t *testing.T) {
+	ctx := t.Context()
+	db, store := openAlertStore(t)
+	cfg := &config.Config{}
+	for _, stack := range []string{"first", "second"} {
+		seedOpenStackAlert(t, store, cfg, stack)
+	}
+	partial := model.SyncFailedFingerprint("partial")
+	_, err := store.IncrementFailureStreak(ctx, partial)
+	require.NoError(t, err)
+
+	bus := dispatcher.NewOutboxDispatcher(outbox.New(db))
+	publisher := dispatcher.NewMockDispatcher(gomock.NewController(t))
+	gomock.InOrder(
+		publisher.EXPECT().Publish(gomock.Any(), gomock.Any()).DoAndReturn(bus.Publish),
+		publisher.EXPECT().Publish(gomock.Any(), gomock.Any()).Return(assert.AnError),
+	)
+	subscriber := NewSQLSubscriber(store, publisher, noAlertRecipients, cfg)
+	require.NoError(t, bus.Subscribe(events.TypeNameAlertResolved, "test-alert-resolved", subscriber))
+	event := events.Envelope{ID: "remove-stacks", OccurredAt: time.Now(), Event: &events.ConfigurationChanged{}}
+
+	require.ErrorIs(t, subscriber.Handle(ctx, event), assert.AnError)
+	assert.Equal(t, 0, alertSignalCount(t, db, "AlertResolved"))
+	assertAlertStatus(t, store, "first", model.AlertStatusOpen)
+	assertAlertStatus(t, store, "second", model.AlertStatusOpen)
+	var streaks int
+	require.NoError(t, db.Get(ctx, &streaks, "SELECT count(*) FROM alert_failure_streaks"))
+	assert.Equal(t, 3, streaks)
+
+	// The same envelope must still be eligible after the failed transaction.
+	retry := NewSQLSubscriber(store, bus, noAlertRecipients, cfg)
+	require.NoError(t, retry.Handle(ctx, event))
+	require.NoError(t, retry.Handle(ctx, event))
+	assert.Equal(t, 2, alertSignalCount(t, db, "AlertResolved"))
+	assertAlertStatus(t, store, "first", model.AlertStatusResolved)
+	assertAlertStatus(t, store, "second", model.AlertStatusResolved)
+	require.NoError(t, db.Get(ctx, &streaks, "SELECT count(*) FROM alert_failure_streaks"))
+	assert.Zero(t, streaks)
 }

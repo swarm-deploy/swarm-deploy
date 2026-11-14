@@ -14,7 +14,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/configstore"
-	"github.com/swarm-deploy/swarm-deploy/internal/deployer"
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/healthserver"
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/sd"
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webhookserver"
@@ -22,11 +21,13 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/logx"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops"
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/notifications"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/recommendations"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources"
 	"github.com/swarm-deploy/swarm-deploy/internal/security"
@@ -50,7 +51,8 @@ var modules = []module{
 	{
 		Name: "event",
 		Initialize: func(ctx context.Context, cfg *config.Config, cnt *container) error {
-			mod, err := event.InitModule(ctx, cfg, cnt)
+			enrichUser := cfg.Spec.Web.Security.Authentication.Strategy() != config.AuthenticationStrategyNone
+			mod, err := event.InitModule(cfg.Spec.Event.History.Capacity, enrichUser, cnt)
 			cnt.Event = mod
 			if err != nil {
 				return err
@@ -60,10 +62,24 @@ var modules = []module{
 		},
 	},
 	{
+		Name: "notifications",
+		Initialize: func(ctx context.Context, cfg *config.Config, cnt *container) error {
+			return notifications.InitModule(ctx, cfg.Spec.Notifications, cnt.Event.Dispatcher, cnt.GetStorage())
+		},
+	},
+	{
 		Name: "alert-management",
 		Initialize: func(ctx context.Context, cfg *config.Config, cnt *container) error {
 			mod, err := alertmanagement.InitModule(ctx, cfg, cnt)
 			cnt.AlertManagement = mod
+			return err
+		},
+	},
+	{
+		Name: "deployments",
+		Initialize: func(ctx context.Context, cfg *config.Config, cnt *container) error {
+			mod, err := deployments.InitModule(ctx, cfg, cnt)
+			cnt.Deployments = mod
 			return err
 		},
 	},
@@ -116,10 +132,10 @@ func main() {
 		os.Exit(1)
 	}
 
-	logHandler := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: cfg.Spec.Log.Level.Level()})
+	logHandler := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: cfg.Spec.System.Log.Level.Level()})
 	slog.SetDefault(slog.New(slogx.NewChain(logHandler, loggingMiddlewares()...)))
 
-	tracerProvider, err := sd.InitTracerProvider(ctx, cfg.Spec.Tracing, buildinfo.Info{
+	tracerProvider, err := sd.InitTracerProvider(ctx, cfg.Spec.System.Tracing, buildinfo.Info{
 		Version: Version,
 		Date:    BuildDate,
 	})
@@ -152,7 +168,7 @@ func main() {
 
 	metricsGroup.BuildInfo.Set(Version, BuildDate)
 
-	db, err := storage.Open(ctx, cfg.Spec.DataDir)
+	db, err := storage.OpenSQLite(ctx, cfg.Spec.DataDir)
 	if err != nil {
 		slog.ErrorContext(ctx, "failed to open database", slog.Any("err", err))
 		os.Exit(1)
@@ -169,17 +185,9 @@ func main() {
 		os.Exit(1)
 	}
 
-	cnt.Swarm = swarm.NewSwarm(dockerClient, cfg.Spec.Swarm.Command)
+	cnt.Swarm = swarm.NewSwarm(dockerClient)
+	cnt.DockerClient = dockerClient
 	cnt.TaskLogs = logparser.NewService(cnt.Swarm.Services)
-	cnt.Deployer = deployer.NewDeployer(
-		cfg.Spec.Swarm.InitJobPollEvery.Value,
-		cfg.Spec.Swarm.InitJobMaxDuration.Value,
-		dockerClient,
-		cnt.GetSwarm(),
-		metricsGroup.Deploys,
-		deployer.NewSecretResolver(cnt.GetFileSystem(),
-			deployer.NewAgeDecoder(cfg.Spec.SecretRotation.Age.IdentityFile.Content), deployer.PlaintextDecoder{}),
-	)
 
 	for _, mod := range modules {
 		slog.InfoContext(ctx, "[main] initializing module", slog.Any("module", mod.Name))
@@ -198,10 +206,10 @@ func main() {
 	}
 
 	webApplication, err := webserver.NewApplication(
-		cfg.Spec.Web.Address,
-		cfg.Spec.Web.BasePath,
+		cfg.Spec.Web,
 		cnt.ConfigStore,
 		cnt.GitOps,
+		cnt.Deployments,
 		cnt.Swarm,
 		cnt.Event,
 		cnt.Resources,
@@ -209,7 +217,6 @@ func main() {
 		cnt.AlertManagement.Store,
 		cnt.Assistant.Service,
 		cnt.TaskLogs,
-		cfg.Spec.Web.Security.Authentication,
 	)
 	if err != nil {
 		slog.ErrorContext(ctx, "failed to init web server", slog.Any("err", err))
@@ -259,8 +266,10 @@ func main() {
 		},
 	}
 
-	if cfg.Spec.Sync.Webhook.Enabled {
-		webhookApplication, werr := webhookserver.NewApplication(cfg.Spec.Sync.Webhook.Address, cfg, cnt.GitOps.Controller)
+	if cfg.Spec.GitOps.Sync.Webhook.Enabled {
+		webhookApplication, werr := webhookserver.NewApplication(
+			cfg.Spec.GitOps.Sync.Webhook.Address, cfg, cnt.GitOps.Controller,
+		)
 		if werr != nil {
 			slog.ErrorContext(ctx, "failed to create webhook application", slog.Any("err", werr))
 			os.Exit(1)
@@ -275,14 +284,14 @@ func main() {
 		slog.String("web.address", cfg.Spec.Web.Address),
 		slog.String("web.basePath", cfg.Spec.Web.BasePath),
 		slog.String("web.security", cfg.Spec.Web.Security.Authentication.Strategy()),
-		slog.String("webhook.address", cfg.Spec.Sync.Webhook.Address),
-		slog.Bool("webhook.enabled", cfg.Spec.Sync.Webhook.Enabled),
+		slog.String("webhook.address", cfg.Spec.GitOps.Sync.Webhook.Address),
+		slog.Bool("webhook.enabled", cfg.Spec.GitOps.Sync.Webhook.Enabled),
 		slog.String("healthServer.address", cfg.Spec.HealthServer.Address),
 		slog.String("healthz.path", cfg.Spec.HealthServer.Healthz.Path),
 		slog.String("metrics.path", cfg.Spec.HealthServer.Metrics.Path),
-		slog.String("mode", cfg.Spec.Sync.Mode),
-		slog.String("repo", repositoryLogValue(cfg.Spec.Git.Repository)),
-		slog.String("log.level", cfg.Spec.Log.Level.String()),
+		slog.String("mode", cfg.Spec.GitOps.Sync.Mode),
+		slog.String("repo", repositoryLogValue(cfg.Spec.GitOps.Git.Repository)),
+		slog.String("log.level", cfg.Spec.System.Log.Level.String()),
 		slog.Bool("assistant.enabled", cfg.Spec.Assistant.Enabled),
 	)
 	err = runner.Run()
@@ -334,16 +343,20 @@ type module struct {
 
 type container struct {
 	// Storage owns the shared database and transactor.
-	Storage         *storage.Database
+	Storage storage.Database
+	// DockerClient is the shared Docker API client.
+	DockerClient *client.Client
+
 	FileSystem      fs.FileSystem
 	Metrics         *metrics.Group
 	Swarm           *swarm.Swarm
 	TaskLogs        *logparser.Service
 	EventDispatcher dispatcher.Dispatcher
-	Deployer        deployer.StackDeployer
 	ConfigStore     *configstore.ConfigStore
 
-	Event           *event.Module
+	Event *event.Module
+	// Deployments owns deployment execution infrastructure.
+	Deployments     *deployments.Module
 	Resources       *resources.Module
 	GitOps          *gitops.Module
 	Recommendations *recommendations.Module
@@ -352,7 +365,10 @@ type container struct {
 }
 
 // GetStorage returns the shared application database.
-func (c *container) GetStorage() *storage.Database { return c.Storage }
+func (c *container) GetStorage() storage.Database { return c.Storage }
+
+// GetDockerClient returns the shared Docker API client.
+func (c *container) GetDockerClient() *client.Client { return c.DockerClient }
 
 func (c *container) GetFileSystem() fs.FileSystem {
 	return c.FileSystem
@@ -382,6 +398,11 @@ func (c *container) GetResourcesModule() *resources.Module {
 	return c.Resources
 }
 
+// GetDeploymentsModule returns the initialized Deployments module.
+func (c *container) GetDeploymentsModule() *deployments.Module {
+	return c.Deployments
+}
+
 func (c *container) GetGitOpsModule() *gitops.Module {
 	return c.GitOps
 }
@@ -393,8 +414,4 @@ func (c *container) GetRecommendationsModule() *recommendations.Module {
 // GetAlertManagementModule returns the initialized Alert Management module.
 func (c *container) GetAlertManagementModule() *alertmanagement.Module {
 	return c.AlertManagement
-}
-
-func (c *container) GetDeployer() deployer.StackDeployer {
-	return c.Deployer
 }

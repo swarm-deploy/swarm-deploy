@@ -104,13 +104,13 @@ describe("EventsView", () => {
     const { wrapper } = await mountView("/events?types=DeploySuccess&types=SyncManualStarted");
 
     const checkedTypes = wrapper
-      .findAll(".events-type-filter-option input")
+      .findAll(".events-type-filter .app-select-option input")
       .filter((input) => (input.element as HTMLInputElement).checked)
       .map((input) => input.element.getAttribute("value") ?? input.element.parentElement?.textContent?.trim());
 
     expect(checkedTypes).toHaveLength(2);
-    expect(wrapper.find(".events-type-filter-selection").text()).toContain("DeploySuccess");
-    expect(wrapper.find(".events-type-filter-selection").text()).toContain("SyncManualStarted");
+    expect(wrapper.find(".events-type-filter .app-select-selection").text()).toContain("DeploySuccess");
+    expect(wrapper.find(".events-type-filter .app-select-selection").text()).toContain("SyncManualStarted");
     expect(fetchEvents).toHaveBeenLastCalledWith({
       types: ["DeploySuccess", "SyncManualStarted"],
       severities: [],
@@ -124,8 +124,8 @@ describe("EventsView", () => {
     const { wrapper, router } = await mountView();
 
     const option = wrapper
-      .findAll(".events-type-filter-option")
-      .find((item) => item.find(".events-type-filter-option-name").text() === "DeploySuccess");
+      .findAll(".events-type-filter .app-select-option")
+      .find((item) => item.find(".app-select-option-label").text() === "DeploySuccess");
     expect(option).toBeDefined();
 
     await option!.find("input").setValue(true);
@@ -134,8 +134,8 @@ describe("EventsView", () => {
     expect(router.currentRoute.value.query.types).toEqual(["DeploySuccess"]);
 
     const secondOption = wrapper
-      .findAll(".events-type-filter-option")
-      .find((item) => item.find(".events-type-filter-option-name").text() === "SyncManualStarted");
+      .findAll(".events-type-filter .app-select-option")
+      .find((item) => item.find(".app-select-option-label").text() === "SyncManualStarted");
     await secondOption!.find("input").setValue(true);
     await flushPromises();
 
@@ -146,8 +146,8 @@ describe("EventsView", () => {
   it("offers WebhookReceived in the type filter", async () => {
     const { wrapper } = await mountView();
     const option = wrapper
-      .findAll(".events-type-filter-option")
-      .find((item) => item.find(".events-type-filter-option-name").text() === "WebhookReceived");
+      .findAll(".events-type-filter .app-select-option")
+      .find((item) => item.find(".app-select-option-label").text() === "WebhookReceived");
     expect(option).toBeDefined();
     await option!.find("input").setValue(true);
     await flushPromises();
@@ -162,10 +162,10 @@ describe("EventsView", () => {
 
   it("shows concise descriptions for all event type filter options", async () => {
     const { wrapper } = await mountView();
-    const options = wrapper.findAll(".events-type-filter-option");
+    const options = wrapper.findAll(".events-type-filter .app-select-option");
 
     expect(options).toHaveLength(15);
-    expect(options.map((option) => option.find(".events-type-filter-option-name").text())).toEqual([
+    expect(options.map((option) => option.find(".app-select-option-label").text())).toEqual([
       "DeploySuccess",
       "SendNotificationFailed",
       "SyncManualStarted",
@@ -182,9 +182,9 @@ describe("EventsView", () => {
       "UserAuthenticated",
       "AssistantPromptInjectionDetected",
     ]);
-    expect(options.map((option) => option.find(".events-type-filter-option-description").text()))
+    expect(options.map((option) => option.find("small").text()))
       .not.toContain("");
-    expect(wrapper.find(".events-type-filter-menu").text()).toContain("Deployment completed successfully");
+    expect(wrapper.find(".events-type-filter .app-select-menu").text()).toContain("Deployment completed successfully");
   });
 
   it("shows only user-facing severity choices while keeping alert events visible by default", async () => {
@@ -207,6 +207,21 @@ describe("EventsView", () => {
     ]);
     expect(wrapper.find(".events-table").text()).toContain("Node disconnected");
     expect(wrapper.find(".event-severity").text()).toBe("Alert");
+  });
+
+  it("renders the five icon-led filters in the expected order", async () => {
+    const { wrapper } = await mountView();
+    const controls = wrapper.findAll(".events-filter-bar summary, .events-filter-bar select");
+
+    expect(controls.map((control) => control.attributes("aria-label"))).toEqual([
+      "Filter events by type",
+      "Filter events by severity",
+      "Filter events by category",
+      "Filter events by stack",
+      "Filter events by service",
+    ]);
+    expect(wrapper.findAll(".events-filter-bar .events-filter-icon")).toHaveLength(5);
+    expect(wrapper.findAll(".events-filter-field > span")).toHaveLength(0);
   });
 
   it("closes the type filter when clicking outside", async () => {

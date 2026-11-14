@@ -2,7 +2,7 @@ package modelstore
 
 import (
 	"database/sql"
-	"encoding/json"
+	"encoding/json/v2"
 	"strings"
 	"testing"
 	"time"
@@ -200,7 +200,7 @@ func TestAlertIndexesOrderingCoverage(t *testing.T) {
 	}
 }
 
-func explainQueryPlan(t *testing.T, db *storage.Database, query string) string {
+func explainQueryPlan(t *testing.T, db storage.Database, query string) string {
 	t.Helper()
 	var rows []struct {
 		ID     int    `db:"id"`
@@ -217,7 +217,7 @@ func explainQueryPlan(t *testing.T, db *storage.Database, query string) string {
 	return plan.String()
 }
 
-func assertIndexedFields(t *testing.T, db *storage.Database, alert model.Alert) {
+func assertIndexedFields(t *testing.T, db storage.Database, alert model.Alert) {
 	t.Helper()
 	var row struct {
 		Kind         model.AlertKind    `db:"kind"`

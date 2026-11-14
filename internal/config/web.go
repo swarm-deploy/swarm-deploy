@@ -9,6 +9,18 @@ type WebSpec struct {
 	BasePath string `yaml:"basePath"`
 	// Security contains UI and API access settings.
 	Security SecuritySpec `yaml:"security"`
+	// UI contains settings exposed to the web UI.
+	UI WebUISpec `yaml:"ui"`
+}
+
+type WebUISpec struct {
+	// LogViewer contains settings for the task log viewer.
+	LogViewer LogViewerSpec `yaml:"logViewer"`
+}
+
+type LogViewerSpec struct {
+	// LinkFields maps log field names to URL templates.
+	LinkFields map[string]string `yaml:"linkFields"`
 }
 
 type SecuritySpec struct {

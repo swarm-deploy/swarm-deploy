@@ -1,8 +1,11 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
 
+import AppModal from "../components/common/AppModal.vue";
 import { addNodeLabel, deleteNodeLabel, fetchNodes, updateNodeLabel } from "../api/cluster";
 import type { NodeInfo } from "../api/types";
+import AppButton from "../components/common/AppButton.vue";
+import AppCard from "../components/common/AppCard.vue";
 import { formatBytes, formatNanoCPU } from "../utils/format";
 
 interface LabelEntry {
@@ -257,7 +260,7 @@ onMounted(() => {
     </div>
 
     <div v-else class="node-list">
-      <article v-for="node in nodes" :key="node.id" class="node-card">
+      <AppCard v-for="node in nodes" :key="node.id" class="node-card">
         <div class="node-main-row">
           <div class="node-title-group">
             <span class="node-status-dot" :class="statusClass(node.status || '')" aria-hidden="true"></span>
@@ -317,52 +320,52 @@ onMounted(() => {
             </div>
           </div>
         </div>
-      </article>
+      </AppCard>
     </div>
 
-    <div v-if="labelDialog" class="modal">
-      <div class="modal-overlay" @click="closeLabelDialog"></div>
-      <div class="modal-card node-label-dialog" role="dialog" aria-modal="true" aria-labelledby="node-label-title">
-        <div class="modal-header">
-          <h2 id="node-label-title">
-            {{ labelDialog.mode === "add" ? "Add label" : "Edit label" }}
-          </h2>
-          <button class="modal-close" type="button" aria-label="Close modal" :disabled="labelDialog.saving" @click="closeLabelDialog">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><path d="m7 7 10 10M17 7 7 17" /></svg>
-          </button>
+    <AppModal
+      :open="Boolean(labelDialog)"
+      labelledby="node-label-title"
+      card-class="node-label-dialog"
+      v-if="labelDialog"
+      :close-disabled="labelDialog.saving"
+      @close="closeLabelDialog"
+    >
+      <template #title>
+        <h2 id="node-label-title">
+          {{ labelDialog.mode === "add" ? "Add label" : "Edit label" }}
+        </h2>
+      </template>
+
+      <form class="modal-body node-label-form" @submit.prevent="submitLabelDialog">
+        <label>
+          <span>Key</span>
+          <input v-model="labelDialog.key" type="text" :readonly="labelDialog.mode === 'edit'" :disabled="labelDialog.saving" />
+        </label>
+
+        <label>
+          <span>Value</span>
+          <input v-model="labelDialog.value" type="text" :disabled="labelDialog.saving" />
+        </label>
+
+        <p v-if="labelDialog.error" class="meta node-label-error">{{ labelDialog.error }}</p>
+
+        <div class="node-label-dialog-actions">
+          <AppButton
+            v-if="labelDialog.mode === 'edit'"
+            variant="danger"
+            :disabled="labelDialog.saving"
+            @click="removeCurrentLabel"
+          >
+            Remove
+          </AppButton>
+          <span class="node-label-dialog-spacer"></span>
+          <AppButton variant="secondary" :disabled="labelDialog.saving" @click="closeLabelDialog">Cancel</AppButton>
+          <AppButton type="submit" :disabled="labelDialog.saving">
+            {{ labelDialog.saving ? "Saving..." : labelDialog.mode === "add" ? "Add" : "Save" }}
+          </AppButton>
         </div>
-
-        <form class="modal-body node-label-form" @submit.prevent="submitLabelDialog">
-          <label>
-            <span>Key</span>
-            <input v-model="labelDialog.key" type="text" :readonly="labelDialog.mode === 'edit'" :disabled="labelDialog.saving" />
-          </label>
-
-          <label>
-            <span>Value</span>
-            <input v-model="labelDialog.value" type="text" :disabled="labelDialog.saving" />
-          </label>
-
-          <p v-if="labelDialog.error" class="meta node-label-error">{{ labelDialog.error }}</p>
-
-          <div class="node-label-dialog-actions">
-            <button
-              v-if="labelDialog.mode === 'edit'"
-              type="button"
-              class="button-danger"
-              :disabled="labelDialog.saving"
-              @click="removeCurrentLabel"
-            >
-              Remove
-            </button>
-            <span class="node-label-dialog-spacer"></span>
-            <button type="button" class="button-ghost" :disabled="labelDialog.saving" @click="closeLabelDialog">Cancel</button>
-            <button type="submit" :disabled="labelDialog.saving">
-              {{ labelDialog.saving ? "Saving..." : labelDialog.mode === "add" ? "Add" : "Save" }}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
+      </form>
+    </AppModal>
   </section>
 </template>

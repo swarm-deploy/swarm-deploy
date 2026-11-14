@@ -13,7 +13,7 @@ import (
 )
 
 func TestSQLChatUsageDistinguishesMissingAndZero(t *testing.T) {
-	db, err := storage.Open(t.Context(), t.TempDir())
+	db, err := storage.OpenSQLite(t.Context(), t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	repo := NewSQLHistoryStorage(db)
@@ -50,7 +50,7 @@ func TestSQLChatUsageDistinguishesMissingAndZero(t *testing.T) {
 func TestSQLChatTransactionsAndRestart(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
-	db, err := storage.Open(ctx, dir)
+	db, err := storage.OpenSQLite(ctx, dir)
 	require.NoError(t, err)
 	repo := NewSQLHistoryStorage(db)
 	for _, id := range []string{"", "  "} {
@@ -65,7 +65,7 @@ func TestSQLChatTransactionsAndRestart(t *testing.T) {
 		return assert.AnError
 	}), assert.AnError)
 	require.NoError(t, db.Close())
-	db, err = storage.Open(ctx, dir)
+	db, err = storage.OpenSQLite(ctx, dir)
 	require.NoError(t, err)
 	defer db.Close()
 	repo = NewSQLHistoryStorage(db)
@@ -90,7 +90,7 @@ func TestSQLChatTransactionsAndRestart(t *testing.T) {
 
 func TestSQLChatConcurrentAppends(t *testing.T) {
 	ctx := context.Background()
-	db, err := storage.Open(ctx, t.TempDir())
+	db, err := storage.OpenSQLite(ctx, t.TempDir())
 	require.NoError(t, err)
 	defer db.Close()
 	repo := NewSQLHistoryStorage(db)

@@ -4,13 +4,14 @@ Image policy rules reject a stack before deployment when a service or an `x-init
 They are optional and live under the synchronization policy:
 
 ```yaml
-sync:
-  policy:
-    image:
-      tag:
-        required: true
-        no_latest: true
-        only_sha: false
+gitops:
+  sync:
+    policy:
+      image:
+        tag:
+          required: true
+          no_latest: true
+          only_sha: false
 ```
 
 - `required` requires an explicit tag or digest.

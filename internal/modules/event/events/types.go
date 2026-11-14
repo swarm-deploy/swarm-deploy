@@ -1,7 +1,7 @@
 package events
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"strings"
 	"time"
 )
@@ -46,6 +46,8 @@ const (
 	TypeNameNodeConnected                    TypeName = "NodeConnected"
 	TypeNameNodeDisconnected                 TypeName = "NodeDisconnected"
 	TypeNameServiceMissed                    TypeName = "ServiceMissed"
+	TypeNameServiceDrifted                   TypeName = "ServiceDrifted"
+	TypeNameServiceDriftFixed                TypeName = "ServiceDriftFixed"
 	TypeNameServiceReplicasIncreased         TypeName = "ServiceReplicasIncreased"
 	TypeNameServiceReplicasDecreased         TypeName = "ServiceReplicasDecreased"
 	TypeNameServiceRestarted                 TypeName = "ServiceRestarted"
@@ -53,6 +55,8 @@ const (
 	TypeNameNetworkCreated                   TypeName = "NetworkCreated"
 	TypeNameUserAuthenticated                TypeName = "UserAuthenticated"
 	TypeNameAssistantPromptInjectionDetected TypeName = "AssistantPromptInjectionDetected"
+	// TypeNameServiceRemovedFromDesired is an internal accepted desired-state transition.
+	TypeNameServiceRemovedFromDesired TypeName = "ServiceRemovedFromDesired"
 )
 
 const (
@@ -195,6 +199,17 @@ var (
 		category: CategorySync,
 		window:   serviceDedupWindow,
 	}
+	TypeServiceDrifted = Type{
+		name: TypeNameServiceDrifted, isPublic: true, severity: SeverityWarn, category: CategorySync,
+		window: serviceDedupWindow,
+	}
+	TypeServiceDriftFixed = Type{
+		name: TypeNameServiceDriftFixed, isPublic: true, severity: SeverityInfo, category: CategorySync,
+		window: serviceDedupWindow,
+	}
+	TypeServiceRemovedFromDesired = Type{
+		name: TypeNameServiceRemovedFromDesired, severity: SeverityInfo, category: CategorySync,
+	}
 	TypeServiceReplicasIncreased = Type{
 		name:     TypeNameServiceReplicasIncreased,
 		isPublic: true,
@@ -268,6 +283,9 @@ var (
 		TypeNodeConnected,
 		TypeNodeDisconnected,
 		TypeServiceMissed,
+		TypeServiceDrifted,
+		TypeServiceDriftFixed,
+		TypeServiceRemovedFromDesired,
 		TypeServiceReplicasIncreased,
 		TypeServiceReplicasDecreased,
 		TypeServiceRestarted,

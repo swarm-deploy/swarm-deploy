@@ -2,16 +2,28 @@ package handlers
 
 import (
 	"context"
+	"errors"
 	"math"
+	"net/http"
 
 	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant"
 )
 
+const assistantChatRequestMaxBytes = 64 * 1024
+
 func (h *handler) AssistantChat(
 	ctx context.Context,
 	req *generated.AssistantChatRequest,
 ) (*generated.AssistantChatResponse, error) {
+	requestSize := len(req.ConversationID.Value) + len(req.RequestID.Value) + len(req.Message.Value)
+	if requestSize > assistantChatRequestMaxBytes {
+		return nil, withStatusError(
+			http.StatusRequestEntityTooLarge,
+			errors.New("assistant request is too large"),
+		)
+	}
+
 	request := assistant.ChatRequest{
 		ConversationID: req.ConversationID.Value,
 		RequestID:      req.RequestID.Value,

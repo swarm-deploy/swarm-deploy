@@ -54,6 +54,10 @@ func isJobService(service compose.Service) bool {
 		return true
 	}
 
+	return isSwarmCronjobService(service)
+}
+
+func isSwarmCronjobService(service compose.Service) bool {
 	enabled, err := strconv.ParseBool(strings.TrimSpace(service.Deploy.Labels.Map[swarmCronjobEnableLabel]))
 	return err == nil && enabled
 }

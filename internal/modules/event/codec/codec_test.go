@@ -2,6 +2,7 @@ package codec
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -10,6 +11,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
+	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 
 type classifiedError struct {
@@ -24,7 +26,6 @@ func TestSensitiveFieldsAreNeverPersisted(t *testing.T) {
 	const secret = "super-private-token"
 	service := compose.Service{Name: "api", Image: "nginx:stable",
 		Environment: compose.Environment{Map: map[string]string{"TOKEN": secret}},
-		Extra:       map[string]any{"password": secret},
 	}
 	for _, event := range []events.Event{
 		&events.DeploySuccess{DeployEvent: events.DeployEvent{Services: []compose.Service{service}}},
@@ -49,16 +50,6 @@ func TestSensitiveFieldsAreNeverPersisted(t *testing.T) {
 	}
 }
 
-func TestDeploymentLifecycleCodecRejectsUnboundedDiagnostics(t *testing.T) {
-	for _, event := range []events.Event{
-		&events.DeployPreparationFailed{StackName: "stack", ErrorCode: "raw secret"},
-		&events.DeployInterrupted{StackName: "stack", Reason: "raw secret"},
-	} {
-		_, err := Encode(event)
-		require.Error(t, err)
-	}
-}
-
 func TestVersionAndPayloadValidation(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
@@ -69,6 +60,7 @@ func TestVersionAndPayloadValidation(t *testing.T) {
 		{"future version", events.TypeNameNodeJoined, 2, `{}`},
 		{"unknown type", "unknown", 1, `{}`},
 		{"unknown field", events.TypeNameNodeJoined, 1, `{"password":"secret"}`},
+		{"duplicate field", events.TypeNameNodeJoined, 1, `{"id":"one","id":"two"}`},
 		{"trailing data", events.TypeNameNodeJoined, 1, `{} {}`},
 		{"null payload", events.TypeNameNodeJoined, 1, `null`},
 	} {
@@ -84,6 +76,32 @@ func TestConfigurationChangedCodecHasNoDomainPayload(t *testing.T) {
 	require.NoError(t, err)
 	assert.IsType(t, &events.ConfigurationChanged{}, decoded)
 	assert.Empty(t, decoded.Details())
+}
+
+func TestServiceDriftEventsRoundTrip(t *testing.T) {
+	for _, original := range []events.Event{
+		&events.ServiceMissed{StackName: "app", ServiceName: "api", Commit: "abc", Resolved: true},
+		&events.ServiceDrifted{
+			StackName: "app", ServiceName: "api", Commit: "abc", Reason: "replicas differ", Resolved: true,
+		},
+		&events.ServiceDriftFixed{StackName: "app", ServiceName: "api", Commit: "abc"},
+		&events.ServiceRemovedFromDesired{StackName: "app", ServiceName: "worker", Commit: "abc"},
+	} {
+		t.Run(original.Type().String(), func(t *testing.T) {
+			payload, err := Encode(original)
+			require.NoError(t, err)
+			decoded, err := Decode(original.Type().Name(), Version, payload)
+			require.NoError(t, err)
+			assert.Equal(t, original, decoded)
+		})
+	}
+}
+
+func TestServiceMissedCodecDecodesLegacyPayloadAsUnresolved(t *testing.T) {
+	decoded, err := Decode(events.TypeNameServiceMissed, Version,
+		[]byte(`{"stack":"app","name":"api","commit":"abc"}`))
+	require.NoError(t, err)
+	assert.Equal(t, &events.ServiceMissed{StackName: "app", ServiceName: "api", Commit: "abc"}, decoded)
 }
 
 func TestConfigurationChangedCodecCarriesSafeRepositoryTransition(t *testing.T) {
@@ -173,19 +191,24 @@ func TestGitPullCodecRejectsUnsafePayloads(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestDeploymentFailureCategorySurvivesCodec(t *testing.T) {
-	for _, code := range []string{"policy_rejected", "init_failed", "apply_failed", "prune_failed"} {
-		event := &events.DeployFailed{DeployEvent: events.DeployEvent{StackName: "app"}, Error: errors.New(code)}
-		payload, err := Encode(event)
-		require.NoError(t, err)
-		assert.Contains(t, string(payload), code)
-		decoded, err := Decode(events.TypeNameDeployFailed, Version, payload)
-		require.NoError(t, err)
-		assert.Equal(t, code, decoded.(*events.DeployFailed).Error.Error())
+func TestDeploymentLifecycleCodesSurviveCodec(t *testing.T) {
+	for _, code := range []string{"", "init_failed", "future_code"} {
+		for _, event := range []events.Event{
+			&events.DeployFailed{ErrorCode: code, Error: errors.New("apply_failed")},
+			&events.DeployPreparationFailed{ErrorCode: code},
+			&events.DeployInterrupted{Reason: code},
+		} {
+			t.Run(event.Type().String()+"/code="+code, func(t *testing.T) {
+				payload, err := Encode(event)
+				require.NoError(t, err)
+				assert.Contains(t, string(payload), `"code":"`+code+`"`)
+
+				decoded, err := Decode(event.Type().Name(), Version, payload)
+				require.NoError(t, err)
+				assert.Equal(t, code, decoded.Details()[events.AttributeErrorCode])
+			})
+		}
 	}
-	payload, err := Encode(&events.DeployFailed{Error: errors.New("secret diagnostic")})
-	require.NoError(t, err)
-	assert.NotContains(t, string(payload), "secret diagnostic")
 }
 
 func TestDeploymentFailureDiagnosticIsActionableAndMasked(t *testing.T) {
@@ -193,7 +216,8 @@ func TestDeploymentFailureDiagnosticIsActionableAndMasked(t *testing.T) {
 		DeployEvent: events.DeployEvent{DeploymentID: "deployment", AttemptID: "attempt-2", StackName: "app", Commit: "sha"},
 		ErrorCode:   "apply_failed",
 		Stage:       "apply",
-		Error:       errors.New("update service api: pull https://user:password@registry.example/image token=private-value: image not found"),
+		Error: fmt.Errorf("update service api: pull https://user:password@registry.example/image: %w (token=private-value)",
+			swarm.ErrImageNotFound),
 	}
 	payload, err := Encode(event)
 	require.NoError(t, err)
@@ -206,10 +230,120 @@ func TestDeploymentFailureDiagnosticIsActionableAndMasked(t *testing.T) {
 	assert.Equal(t, "attempt-2", failure.AttemptID)
 	assert.Equal(t, "apply", failure.Stage)
 	assert.Equal(t, "apply_failed", failure.ErrorCode)
-	require.Error(t, failure.Error)
+	var coded faults.Coded
+	require.ErrorAs(t, failure.Error, &coded)
+	assert.Equal(t, faults.CodeImageNotFound, coded.FaultCode())
+	assert.Equal(t, "image not found", coded.FaultSummary())
+	assert.NotErrorIs(t, failure.Error, swarm.ErrImageNotFound)
 	assert.Contains(t, failure.Error.Error(), "update service api")
 	assert.Contains(t, failure.Error.Error(), "image not found")
 	assert.Contains(t, failure.Error.Error(), "****")
+}
+
+func TestPreparationFailureFaultDetailsSurviveCodec(t *testing.T) {
+	event := &events.DeployPreparationFailed{
+		StackName: "app", ErrorCode: "preparation_failed",
+		Error: faults.NewSafeError("prepare app: image not found", true, faults.CodeImageNotFound, "No such image: app:1"),
+	}
+	payload, err := Encode(event)
+	require.NoError(t, err)
+	assert.Contains(t, string(payload), `"fault_code":"image_not_found"`)
+	assert.Contains(t, string(payload), `"fault_summary":"No such image: app:1"`)
+	decoded, err := Decode(events.TypeNameDeployPreparationFailed, Version, payload)
+	require.NoError(t, err)
+	failure := decoded.(*events.DeployPreparationFailed)
+	var coded faults.Coded
+	require.ErrorAs(t, failure.Error, &coded)
+	assert.Equal(t, faults.CodeImageNotFound, coded.FaultCode())
+	assert.Equal(t, "No such image: app:1", coded.FaultSummary())
+	assert.True(t, failure.Error.(faults.Error).Temporary())
+	assert.Equal(t, event.ErrorCode, failure.ErrorCode)
+	require.EqualError(t, failure.Error, event.Error.Error())
+}
+
+func TestAbsentFaultCodesAreOmitted(t *testing.T) {
+	for _, diagnostic := range []error{
+		swarm.ErrNetworkNotFound,
+		faults.NewSafeError("unclassified failure", false, "", "unused summary"),
+	} {
+		payload, err := Encode(&events.DeployFailed{ErrorCode: "apply_failed", Error: diagnostic})
+		require.NoError(t, err)
+		assert.NotContains(t, string(payload), "fault_code")
+		assert.NotContains(t, string(payload), "fault_summary")
+		event, err := Decode(events.TypeNameDeployFailed, Version, payload)
+		require.NoError(t, err)
+		var coded faults.Coded
+		assert.NotErrorAs(t, event.(*events.DeployFailed).Error, &coded)
+	}
+}
+
+func TestFaultCodesAndSanitizedSummariesSurviveCodec(t *testing.T) {
+	for _, code := range []faults.Code{
+		faults.CodeImageNotFound, faults.CodeNoSuitableNode, faults.CodeImagePullDenied, faults.CodeMountFailed,
+		"future_docker_fault",
+	} {
+		t.Run(string(code), func(t *testing.T) {
+			const diagnostic = "deploy app: Docker failure token=private-value"
+			const summary = "Docker failure password=private-value"
+			cause := faults.NewSafeError(diagnostic, true, code, summary)
+			for _, event := range []events.Event{
+				&events.DeployFailed{ErrorCode: "convergence_failed", Error: cause},
+				&events.DeployPreparationFailed{ErrorCode: "preparation_failed", Error: cause},
+				&events.DeployInterrupted{Reason: "verification_unknown", Error: cause},
+			} {
+				payload, err := Encode(event)
+				require.NoError(t, err)
+				assert.NotContains(t, string(payload), "private-value")
+				decoded, err := Decode(event.Type().Name(), Version, payload)
+				require.NoError(t, err)
+				failure := deploymentFailureError(decoded)
+				var coded faults.Coded
+				require.ErrorAs(t, failure, &coded)
+				assert.Equal(t, code, coded.FaultCode())
+				assert.Equal(t, "Docker failure password=****", coded.FaultSummary())
+				assert.EqualError(t, failure, "deploy app: Docker failure token=****")
+				var temporary faults.Error
+				require.ErrorAs(t, failure, &temporary)
+				assert.True(t, temporary.Temporary())
+			}
+		})
+	}
+}
+
+func TestFutureFaultSummaryIsSanitizedOnDecode(t *testing.T) {
+	payload := []byte(`{"stack":"app","code":"apply_failed","diagnostic":"deployment context","fault_code":"future_docker_fault","fault_summary":"registry token=private-value"}`)
+	event, err := Decode(events.TypeNameDeployFailed, Version, payload)
+	require.NoError(t, err)
+	var coded faults.Coded
+	require.ErrorAs(t, event.(*events.DeployFailed).Error, &coded)
+	assert.Equal(t, faults.Code("future_docker_fault"), coded.FaultCode())
+	assert.Equal(t, "registry token=****", coded.FaultSummary())
+}
+
+func TestLegacyDeploymentFailurePayloadHasNoFaultCode(t *testing.T) {
+	payload := []byte(`{"stack":"app","code":"apply_failed","diagnostic":"image not found","temporary":true}`)
+	event, err := Decode(events.TypeNameDeployFailed, Version, payload)
+	require.NoError(t, err)
+	failure := event.(*events.DeployFailed)
+	assert.Equal(t, "apply_failed", failure.ErrorCode)
+	assert.EqualError(t, failure.Error, "image not found")
+	var classified faults.Error
+	require.ErrorAs(t, failure.Error, &classified)
+	assert.True(t, classified.Temporary())
+	var coded faults.Coded
+	assert.NotErrorAs(t, failure.Error, &coded)
+}
+
+func TestLegacyDeploymentFailurePayloadWithFaultCodeHasNoSummary(t *testing.T) {
+	payload := []byte(`{"stack":"app","code":"apply_failed","diagnostic":"deployment context","fault_code":"image_not_found"}`)
+	event, err := Decode(events.TypeNameDeployFailed, Version, payload)
+	require.NoError(t, err)
+	failure := event.(*events.DeployFailed)
+	require.EqualError(t, failure.Error, "deployment context")
+	var coded faults.Coded
+	require.ErrorAs(t, failure.Error, &coded)
+	assert.Equal(t, faults.CodeImageNotFound, coded.FaultCode())
+	assert.Empty(t, coded.FaultSummary())
 }
 
 func TestDeploymentFailureTemporaryClassificationSurvivesCodec(t *testing.T) {

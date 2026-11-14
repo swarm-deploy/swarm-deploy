@@ -1,13 +1,15 @@
 export interface SyncInfo {
-  last_poll_at?: string;
-  last_poll_result?: string;
-  last_poll_error?: string;
-  last_sync_at?: string;
-  last_sync_reason?: string;
-  last_sync_result?: string;
-  git_revision?: string;
-  last_sync_error?: string;
-  [key: string]: string | undefined;
+  last_poll?: {
+    at?: string;
+    result?: "updated" | "no_change" | "error";
+    error?: string;
+  };
+  last_webhook?: {
+    event_id?: string;
+    at?: string;
+    queued?: boolean;
+  };
+  last_revision?: string;
 }
 
 export interface StackStatus {
@@ -79,6 +81,56 @@ export interface ServicesResponse {
   services: ServiceInfo[];
 }
 
+export interface SwarmServiceReplicas {
+  running: number;
+  desired: number;
+}
+
+export interface SwarmService {
+  id: string;
+  name: string;
+  full_name: string;
+  stack: string;
+  image: string;
+  mode: string;
+  replicas: SwarmServiceReplicas;
+  configured_replicas?: number;
+  updated_at: string;
+}
+
+export interface SwarmServicesResponse {
+  services: SwarmService[];
+}
+
+export interface EnvironmentVariable {
+  name: string;
+  value: string;
+  encoded: boolean;
+}
+
+export interface SwarmTaskResources {
+  nano_cpus: number;
+  memory_bytes: number;
+}
+
+export interface SwarmTaskDetails {
+  id: string;
+  service_id: string;
+  node_id: string;
+  slot: number;
+  desired_state: string;
+  current_state: string;
+  error?: string;
+  created_at: string;
+  updated_at: string;
+  container_id: string;
+  exit_code?: number;
+  image: string;
+  environment: EnvironmentVariable[];
+  reservations?: SwarmTaskResources;
+  limits?: SwarmTaskResources;
+}
+
 export type GraphNodeKind = ServiceType;
 
 export interface GraphNode {
@@ -136,17 +188,24 @@ export interface AlertResolution {
   eventId: string;
 }
 
+export interface AlertFinding {
+  code: string;
+  summary: string;
+  detectedAt: string;
+}
+
 export interface Alert {
   id: string;
   fingerprint: string;
-  kind: "sync_failed" | "node_disconnected" | "git_repository_unavailable";
-  resourceType: "stack" | "node" | "repository";
+  kind: "sync_failed" | "node_disconnected" | "git_repository_unavailable" | "service_drift";
+  resourceType: "stack" | "node" | "repository" | "service";
   resourceId: string;
   status: AlertStatus;
   title: string;
   message: string;
   failureStage?: string;
   errorCode?: string;
+  findings?: AlertFinding[];
   deploymentId?: string;
   commit?: string;
   occurrences: number;
@@ -198,6 +257,7 @@ export interface ServiceSpecSecretResponse {
   secret_id?: string;
   secret_name: string;
   target?: string;
+  secret?: SecretInfo;
 }
 
 export interface ServiceSpecNetworkResponse {
@@ -238,11 +298,15 @@ export interface ServiceStatusResponse {
 
 export interface ServiceRealtimeTask {
   id: string;
+  slot: number;
   node: string;
   node_name?: string;
+  desired_state: string;
   created_at?: string;
   updated_at?: string;
   current_state: string;
+  container_id: string;
+  exit_code?: number;
   error?: string;
 }
 
@@ -337,10 +401,22 @@ export interface SecretInfo {
   version_id: number;
   created_at: string;
   external?: SecretExternalInfo;
+  used_by?: SecretServiceUsage[];
 }
 
 export interface SecretsResponse {
   secrets: SecretInfo[];
+}
+
+export interface CreateSecretRequest {
+  name: string;
+  value: string;
+  description?: string;
+}
+
+export interface CreateSecretResponse {
+  id: string;
+  name: string;
 }
 
 export interface SecretManagerProvider {
@@ -375,6 +451,24 @@ export interface SecretManagerSyncResponse {
   updated: number;
   removed: number;
   unchanged: number;
+  secret?: SynchronizedSecretIdentity;
+}
+
+export interface SynchronizedSecretIdentity {
+  id: string;
+  name: string;
+}
+
+export interface CreateExternalSecretRequest {
+  path: string;
+  value: string;
+  key?: string;
+  description?: string;
+}
+
+export interface CreateExternalSecretResponse {
+  path: string;
+  manager_url?: string;
 }
 
 export interface SecretDetailsResponse {
@@ -386,6 +480,13 @@ export interface SecretDetailsResponse {
   driver?: string;
   labels?: Record<string, string>;
   external?: SecretExternalInfo;
+  used_by?: SecretServiceUsage[];
+}
+
+export interface SecretServiceUsage {
+  stack: string;
+  service: string;
+  target?: string;
 }
 
 export type SearchResultKind = "service" | "secret" | "stack";
@@ -550,7 +651,41 @@ export interface DeploymentsResponse {
   deployments: DeploymentSummary[];
   next_cursor?: string;
 }
+export type DeploymentActivityInterval = "daily" | "weekly";
+export interface DeploymentActivityBucket {
+  start: string;
+  succeeded: number;
+  failed: number;
+  running: number;
+  interrupted: number;
+  superseded: number;
+}
+export interface DeploymentActivityResponse {
+  buckets: DeploymentActivityBucket[];
+}
 export interface DeploymentFilterOptions {
   stacks: string[];
   services: Array<{ stack_name: string; service_name: string }>;
+}
+
+export interface StackResourceInfo {
+  id: string;
+  name: string;
+}
+
+export interface StackResourcesResponse {
+  networks: NetworkInfo[];
+  secrets: StackResourceInfo[];
+  configs: StackResourceInfo[];
+}
+
+export interface DSNSuggestion {
+  service_name: string;
+  stack: string;
+  engine: "postgresql" | "mysql" | null;
+  port: number | null;
+}
+
+export interface DSNSuggestionsResponse {
+  suggestions: DSNSuggestion[];
 }

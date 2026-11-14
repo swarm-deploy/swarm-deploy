@@ -2,7 +2,8 @@ package webserver
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"html"
 	"io/fs"
@@ -19,6 +20,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/middlewares"
 	alertstore "github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops"
 	recommendationstore "github.com/swarm-deploy/swarm-deploy/internal/modules/recommendations/modelstore"
@@ -91,7 +93,7 @@ func injectRuntimeConfig(indexBytes []byte, basePath string) []byte {
 
 	runtimeConfig, err := json.Marshal(struct {
 		BasePath string `json:"basePath"`
-	}{BasePath: basePath})
+	}{BasePath: basePath}, jsontext.EscapeForHTML(true), jsontext.EscapeForJS(true))
 	if err != nil {
 		panic(fmt.Errorf("encode UI runtime config: %w", err))
 	}
@@ -163,10 +165,10 @@ func routeFinderWithBasePath(basePath string, findRoute middlewares.RouteFinder)
 }
 
 func NewApplication(
-	address string,
-	basePath string,
+	webConfig config.WebSpec,
 	stackProvider config.StackProvider,
 	gitopsModule *gitops.Module,
+	deploymentsModule *deployments.Module,
 	swarmService *swarm.Swarm,
 	eventModule *event.Module,
 	resourcesModule *resources.Module,
@@ -174,9 +176,9 @@ func NewApplication(
 	alerts alertstore.Store,
 	assistantService assistant.Assistant,
 	taskLogs *logparser.Service,
-	authCfg config.AuthenticationSpec,
 ) (*Application, error) {
 	h := handlers.New(
+		webConfig.UI,
 		stackProvider,
 		gitopsModule.Store,
 		gitopsModule.Controller,
@@ -190,8 +192,9 @@ func NewApplication(
 		recommendations,
 		alerts,
 		assistantService,
-		gitopsModule.Deployments,
+		deploymentsModule.Store,
 		taskLogs,
+		eventModule.Dispatcher,
 	)
 
 	apiHandler, err := generated.NewServer(h, h, generated.WithErrorHandler(handlers.HandleHTTPError))
@@ -199,15 +202,15 @@ func NewApplication(
 		return nil, fmt.Errorf("build ogen api server: %w", err)
 	}
 
-	handler := buildRouter(basePath, apiHandler, ui.FS)
-	auth, err := authenticator.Create(authCfg)
+	handler := buildRouter(webConfig.BasePath, apiHandler, ui.FS)
+	auth, err := authenticator.Create(webConfig.Security.Authentication)
 	if err != nil {
 		return nil, fmt.Errorf("build authenticator: %w", err)
 	}
 
 	handler = middlewares.NewLog(
-		middlewares.Authorize(handler, auth, eventModule.Dispatcher, basePath),
-		routeFinderWithBasePath(basePath, apiHandler.FindRoute),
+		middlewares.Authorize(handler, auth, eventModule.Dispatcher, webConfig.BasePath),
+		routeFinderWithBasePath(webConfig.BasePath, apiHandler.FindRoute),
 	)
 
 	if tracing.Enabled() {
@@ -218,7 +221,7 @@ func NewApplication(
 
 	return &Application{
 		server: &http.Server{
-			Addr:              address,
+			Addr:              webConfig.Address,
 			Handler:           handler,
 			ReadHeaderTimeout: readHeaderTimeout,
 		},

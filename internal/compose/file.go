@@ -10,8 +10,10 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/dotenv"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/labelsdict"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/tracing"
 	"go.yaml.in/yaml/v3"
 )
@@ -85,34 +87,61 @@ func (l *fileLoader) Load(ctx context.Context, path string) (*File, error) {
 		return nil, &ParseComposeError{FilePath: path, Err: err}
 	}
 
+	interpolated, err := interpolateSyntax(&syntax)
+	if err != nil {
+		return nil, &ValidateComposeError{FilePath: path, Issues: decodeIssues(err)}
+	}
+	ignored, validateErr := validateComposeSyntax(&syntax)
+	if validateErr != nil {
+		if interpolated {
+			validateErr = fmt.Errorf("unsupported Compose option after interpolation")
+		}
+		return nil, &ValidateComposeError{FilePath: path, Issues: decodeIssues(validateErr), Err: validateErr}
+	}
 	schema := Compose{}
 	if err = syntax.Decode(&schema); err != nil {
+		if interpolated {
+			err = fmt.Errorf("invalid Compose value after interpolation")
+		}
 		return nil, &ValidateComposeError{FilePath: path, Issues: decodeIssues(err), Err: err}
 	}
-
-	if issues := l.linkServices(&schema, filepath.Dir(path)); len(issues) > 0 {
+	setIgnoredOptions(&schema, ignored)
+	baseDir := composeBaseDir(path)
+	if issues := l.linkServices(&schema, baseDir); len(issues) > 0 {
+		if interpolated {
+			for i := range issues {
+				issues[i].Message = "invalid Compose value after interpolation"
+			}
+		}
 		return nil, &ValidateComposeError{FilePath: path, Issues: issues}
 	}
 
-	if err = l.loadEnvFiles(ctx, filepath.Dir(path), schema.Services); err != nil {
+	if err = ValidateEffective(schema, path); err != nil {
+		return nil, err
+	}
+
+	if err = l.loadEnvFiles(ctx, baseDir, schema.Services); err != nil {
+		err = interpolationSafeError(err, interpolated, "invalid or unreadable env_file")
 		return nil, fmt.Errorf("load env files: %w", err)
 	}
 
 	configFiles, err := loadObjectFiles(
-		ctx, l.fileReader, filepath.Dir(path), "configs", schema.Configs,
+		ctx, l.fileReader, baseDir, "configs", schema.Configs,
 		func(config *Config) (string, bool) { return config.File, config.External },
 		setConfigData,
 	)
 	if err != nil {
+		err = interpolationSafeError(err, interpolated, "invalid or unreadable config file")
 		return nil, fmt.Errorf("load config files: %w", err)
 	}
 
 	secretFiles, err := loadObjectFiles(
-		ctx, l.fileReader, filepath.Dir(path), "secrets", schema.Secrets,
+		ctx, l.fileReader, baseDir, "secrets", schema.Secrets,
 		func(secret *Secret) (string, bool) { return secret.File, secret.External },
-		nil,
+		setSecretData,
 	)
 	if err != nil {
+		err = interpolationSafeError(err, interpolated, "invalid or unreadable secret file")
 		return nil, fmt.Errorf("load secret files: %w", err)
 	}
 
@@ -145,15 +174,17 @@ func setConfigData(config *Config, content []byte) {
 	copy(config.Data, content)
 }
 
+func setSecretData(secret *Secret, content []byte) {
+	secret.Data = make([]byte, len(content))
+	copy(secret.Data, content)
+}
+
 func (l *fileLoader) loadEnvFiles(ctx context.Context, baseDir string, services Services) error {
 	for serviceIndex := range services {
 		service := &services[serviceIndex]
 		for envFileIndex := range service.EnvFiles {
 			envFile := &service.EnvFiles[envFileIndex]
-			path := envFile.Path
-			if !filepath.IsAbs(path) {
-				path = filepath.Join(baseDir, path)
-			}
+			path := resolveResourceFilePath(baseDir, envFile.Path)
 
 			content, err := l.fileReader(ctx, path)
 			if err != nil {
@@ -198,6 +229,26 @@ func (*fileLoader) linkServices(compose *Compose, baseDir string) []ValidationIs
 	for ind, service := range compose.Services {
 		resolveNetworkAliases(service.Networks, compose.Networks)
 
+		for _, label := range []string{
+			labelsdict.ServiceSyncPolicySelfHealLabelKey,
+			labelsdict.ServiceSyncPolicySelfHealReplicasLabelKey,
+			labelsdict.ServiceSyncPolicyReplicasManagedLabelKey,
+		} {
+			_, _, err := service.booleanPolicy(label)
+			if label == labelsdict.ServiceSyncPolicyReplicasManagedLabelKey {
+				_, _, err = service.ReplicasManagedPolicy()
+			}
+			if err != nil {
+				issues = append(issues, ValidationIssue{
+					ResourceType: validationResourceService,
+					ResourceName: service.Name,
+					Field:        "deploy.labels." + label,
+					Code:         IssueCodeInvalidValue,
+					Message:      err.Error(),
+				})
+			}
+		}
+
 		for configIndex := range service.Configs {
 			ref := &service.Configs[configIndex]
 			shared, ok := compose.Configs[ref.Source]
@@ -213,7 +264,7 @@ func (*fileLoader) linkServices(compose *Compose, baseDir string) []ValidationIs
 
 		initJobs, jobIssues := normalizeInitJobs(service.InitJobs, compose.Networks)
 		for _, issue := range jobIssues {
-			issue.ResourceType = "service"
+			issue.ResourceType = validationResourceService
 			issue.ResourceName = service.Name
 			issues = append(issues, issue)
 		}
@@ -312,12 +363,29 @@ func computeObjectFilesDigest[T any, Objects ~map[string]*T](
 	}
 }
 
+// composeBaseDir preserves parent components for symlink-aware file resolution.
+func composeBaseDir(path string) string {
+	baseDir, _ := filepath.Split(path)
+	if baseDir == "" {
+		return "."
+	}
+	if baseDir == string(filepath.Separator) {
+		return baseDir
+	}
+	return strings.TrimSuffix(baseDir, string(filepath.Separator))
+}
+
 func resolveResourceFilePath(baseDir string, path string) string {
-	if filepath.IsAbs(path) {
+	if filepath.IsAbs(path) || filepath.VolumeName(path) != "" {
 		return path
 	}
-
-	return filepath.Join(baseDir, path)
+	// Keep parent components until the reader resolves preceding symlinks.
+	path = strings.TrimPrefix(path, "./")
+	path = strings.TrimLeft(path, string(filepath.Separator))
+	if baseDir == "." {
+		return path
+	}
+	return baseDir + string(filepath.Separator) + path
 }
 
 func computeEnvFilesDigest(hasher hash.Hash, services Services) {

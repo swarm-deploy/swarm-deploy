@@ -196,7 +196,7 @@ func TestCollectorRunPreservesNodeEventSemantics(t *testing.T) {
 			inspector := swarm.NewMockNodeManager(ctrl)
 			dispatcherMock := dispatcher.NewMockDispatcher(ctrl)
 
-			db, err := storage.Open(context.Background(), t.TempDir())
+			db, err := storage.OpenSQLite(context.Background(), t.TempDir())
 			require.NoError(t, err)
 			t.Cleanup(func() { require.NoError(t, db.Close()) })
 			store := NewSQLStore(db)
@@ -347,7 +347,7 @@ func newCollectorWithSubscriptionForTest(
 	inspector := swarm.NewMockNodeManager(ctrl)
 	dispatcherMock := dispatcher.NewMockDispatcher(ctrl)
 
-	db, err := storage.Open(context.Background(), t.TempDir())
+	db, err := storage.OpenSQLite(context.Background(), t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	store := NewSQLStore(db)
@@ -361,7 +361,6 @@ func newCollectorWithSubscriptionForTest(
 	})
 	return collector, inspector, dispatcherMock, store, eventsCh, resyncCh
 }
-
 
 func TestCollectorRunRetriesFailedResyncWithoutNewDockerEvents(t *testing.T) {
 	collector, inspector, publisher, store, _, resyncCh := newCollectorWithSubscriptionForTest(t, []swarm.Node{{
@@ -443,7 +442,6 @@ func TestCollectorReconcileHandlesQueuedCreateBeforeSnapshot(t *testing.T) {
 	assert.Equal(t, []swarm.Node{node}, readNodes(t, store))
 }
 
-
 func TestCollectorResyncRetainsJoinDuringSnapshot(t *testing.T) {
 	collector, inspector, publisher, store, _, _ := newCollectorWithSubscriptionForTest(t, nil)
 	node := swarm.Node{ID: "new", Hostname: "worker", Status: "ready", ManagerStatus: swarm.NodeManagerStatusWorker}
@@ -466,8 +464,8 @@ func TestCollectorResyncRetainsJoinDuringSnapshot(t *testing.T) {
 
 func TestCreationFactJoinCandidateTTL(t *testing.T) {
 	for _, test := range []struct {
-		name string
-		age  time.Duration
+		name       string
+		age        time.Duration
 		wantJoined bool
 	}{
 		{name: "recent", age: observedJoinTTL / 2, wantJoined: true},
@@ -524,6 +522,7 @@ func TestCollectorRunRetriesFailedNodeEventWithoutFurtherEvents(t *testing.T) {
 	}).Return(nil).Times(1)
 
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	done := make(chan error, 1)
 	go func() { done <- collector.Run(ctx) }()
 	requireSignal(t, initial)
@@ -533,7 +532,12 @@ func TestCollectorRunRetriesFailedNodeEventWithoutFurtherEvents(t *testing.T) {
 		return err == nil && len(nodes) == 1 && nodes[0].ID == "new"
 	}, time.Second, time.Millisecond)
 	cancel()
-	require.NoError(t, <-done)
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+	case <-time.After(time.Second):
+		require.FailNow(t, "timed out waiting for collector shutdown")
+	}
 }
 
 func lastNonNil(lists [][]swarm.Node) []swarm.Node {

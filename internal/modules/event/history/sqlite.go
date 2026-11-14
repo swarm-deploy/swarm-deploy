@@ -2,12 +2,13 @@ package history
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/doug-martin/goqu/v9"
-	_ "github.com/doug-martin/goqu/v9/dialect/sqlite3"
 	"github.com/doug-martin/goqu/v9/exp"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/codec"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
@@ -16,10 +17,15 @@ import (
 
 const legacySyncFailedEventType = "SyncFailed"
 
+// ErrNotFound means that an event is not present in retained public history.
+var ErrNotFound = errors.New("event history item not found")
+
 // Repository provides context-aware history reads.
 type Repository interface {
 	// List returns retained history in publication order.
 	Read(context.Context) ([]Entry, error)
+	// Get returns one retained public event by its persisted ID.
+	Get(context.Context, string) (Entry, error)
 	// FilterOptions returns distinct stack and service values from retained history.
 	FilterOptions(context.Context) (FilterOptions, error)
 	// ReadRecent filters by SQL and returns the latest matching publication sequence oldest first.
@@ -46,12 +52,12 @@ type FilterService struct {
 
 // SQLStore persists the user-visible projection, independently of the outbox.
 type SQLStore struct {
-	db       *storage.Database
+	db       storage.Database
 	capacity int
 }
 
 // NewSQLStore creates a history repository sharing the application's transactor.
-func NewSQLStore(db *storage.Database, capacity int) (*SQLStore, error) {
+func NewSQLStore(db storage.Database, capacity int) (*SQLStore, error) {
 	if capacity <= 0 {
 		return nil, fmt.Errorf("event history capacity must be positive")
 	}
@@ -64,7 +70,7 @@ func (s *SQLStore) Name() string { return "event-history" }
 // Handle materializes selected user facts; failure signals remain alert inputs.
 func (s *SQLStore) Handle(ctx context.Context, e events.Envelope) error {
 	switch e.Event.Type() {
-	case events.TypeConfigurationChanged, events.TypeServiceCatalogUpdated,
+	case events.TypeConfigurationChanged, events.TypeServiceRemovedFromDesired, events.TypeServiceCatalogUpdated,
 		events.TypeNodeDisconnected, events.TypeDeployFailed,
 		events.TypeDeployPreparationFailed, events.TypeDeployInterrupted:
 		return nil
@@ -86,11 +92,11 @@ func (s *SQLStore) Handle(ctx context.Context, e events.Envelope) error {
 			return insertErr
 		}
 		limit := uint(s.capacity) // #nosec G115 -- NewSQLStore accepts only positive int capacities.
-		retained := goqu.Dialect("sqlite3").From("event_history").Prepared(true).
+		retained := s.db.Dialect().From("event_history").Prepared(true).
 			Select("publication_sequence").
 			Order(goqu.I("publication_sequence").Desc()).
 			Limit(limit)
-		query, args, buildErr := goqu.Dialect("sqlite3").Delete("event_history").Prepared(true).
+		query, args, buildErr := s.db.Dialect().Delete("event_history").Prepared(true).
 			Where(goqu.C("publication_sequence").NotIn(retained)).
 			ToSQL()
 		if buildErr != nil {
@@ -104,7 +110,7 @@ func (s *SQLStore) Handle(ctx context.Context, e events.Envelope) error {
 func (s *SQLStore) insert(ctx context.Context, entry Entry, publicationSequence int64) error {
 	var details any
 	if len(entry.Details) > 0 {
-		payload, err := json.Marshal(entry.Details)
+		payload, err := json.Marshal(entry.Details, jsontext.AllowInvalidUTF8(true))
 		if err != nil {
 			return err
 		}
@@ -120,10 +126,25 @@ func (s *SQLStore) insert(ctx context.Context, entry Entry, publicationSequence 
 
 // List returns the retained publication sequence, in publication order.
 func (s *SQLStore) Read(ctx context.Context) ([]Entry, error) {
-	dataset := goqu.Dialect("sqlite3").From("event_history").Prepared(true).Select(historyColumns...).
+	dataset := s.db.Dialect().From("event_history").Prepared(true).Select(historyColumns...).
 		Where(publicHistoryFilter()).
 		Order(goqu.I("publication_sequence").Asc())
 	return s.queryEntriesDataset(ctx, dataset)
+}
+
+// Get returns one retained public event by its persisted ID.
+func (s *SQLStore) Get(ctx context.Context, id string) (Entry, error) {
+	dataset := s.db.Dialect().From("event_history").Prepared(true).Select(historyColumns...).
+		Where(publicHistoryFilter(), goqu.C("id").Eq(id)).
+		Limit(1)
+	entries, err := s.queryEntriesDataset(ctx, dataset)
+	if err != nil {
+		return Entry{}, err
+	}
+	if len(entries) == 0 {
+		return Entry{}, ErrNotFound
+	}
+	return entries[0], nil
 }
 
 // FilterOptions returns sorted, deduplicated resources directly from retained history.
@@ -168,7 +189,7 @@ func (s *SQLStore) QueryPage(ctx context.Context, options QueryOptions) (Page, e
 	if err != nil {
 		return Page{}, err
 	}
-	dataset := goqu.Dialect("sqlite3").From("event_history").Prepared(true).Select(historyColumns...).
+	dataset := s.db.Dialect().From("event_history").Prepared(true).Select(historyColumns...).
 		Where(historyFilters(options)...)
 	if options.Cursor != "" {
 		dataset = dataset.Where(historyCursorExpression(cursor))
@@ -188,7 +209,7 @@ func (s *SQLStore) QueryPage(ctx context.Context, options QueryOptions) (Page, e
 
 // ReadRecent preserves publication order while performing filters in SQLite.
 func (s *SQLStore) ReadRecent(ctx context.Context, options QueryOptions) ([]Entry, error) {
-	dialect := goqu.Dialect("sqlite3")
+	dialect := s.db.Dialect()
 	recentColumns := append([]any{"publication_sequence"}, historyColumns...)
 	recent := dialect.From("event_history").Prepared(true).Select(recentColumns...).
 		Where(historyFilters(options)...)

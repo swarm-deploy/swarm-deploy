@@ -7,10 +7,18 @@ This file supplements the repository-level `AGENTS.md`.
 The Deployments module owns:
 
 - Deployment and Attempt domain models.
+- Deployment and Attempt creation, completion, retries, and supersession.
+- Terminal transition validation, completion diagnostics, and completion domain events.
 - Desired-state snapshots and change comparison.
 - SQLite persistence for deployments and attempts.
 - Successful deployment baselines.
 - Deployment history queries.
+- Stack and service deployment execution.
+- Native Docker API deployment execution, Init Jobs, and resource reconciliation.
+- Synchronous execution orchestration and error classification.
+- Post-apply live-state observation and deployment-specific pruning.
+- Startup recovery of interrupted Attempts.
+- Deployment secret resolution and execution tracing.
 
 ## Boundaries
 
@@ -18,12 +26,16 @@ The module MUST NOT:
 
 - Depend on GitOps.
 - Perform Git synchronization.
-- Execute Docker operations.
-- Implement reconciliation or drift detection.
-- Orchestrate deployment lifecycle transitions.
+- Implement GitOps reconciliation or drift detection.
+- Invoke Docker CLI or call Docker SDK client methods directly. All Docker API interaction goes through `internal/swarm`.
+- Construct final application service specs outside `deployer/converter`; `deployer/networks` reconciles networks and
+  `deployer/services` applies converter-produced specs.
 - Introduce its own transaction infrastructure.
 
-Deployment lifecycle orchestration currently remains in GitOps.
+Deployments decides and persists terminal Attempt outcomes, owns interrupted-execution recovery, and publishes
+completion events transactionally. GitOps prepares effective desired state, submits synchronous execution requests,
+and maintains its runtime projection by consuming deployment events. Deployments never updates consumer projections
+through callbacks.
 
 ## Persistence Rules
 

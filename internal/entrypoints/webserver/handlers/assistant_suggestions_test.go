@@ -3,7 +3,7 @@ package handlers
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -16,10 +16,10 @@ import (
 	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
 	alertmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/model"
 	alertstore "github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/modelstore"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments"
 	deploymentstore "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/modelstore"
+	eventbus "github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/outbox"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/deployment"
-	gitopsmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/storage"
 	"github.com/swarm-deploy/swarm-deploy/internal/testutil"
 )
@@ -233,22 +233,27 @@ func assistantCompose(serviceName string) compose.File {
 
 func createSuccessfulDeployment(
 	t *testing.T,
-	db *storage.Database,
+	db storage.Database,
 	stack string,
 	file compose.File,
 	commit string,
 ) {
 	t.Helper()
-	service := deployment.NewService(db, outbox.New(db))
-	attempt, err := service.StartIfChanged(t.Context(), stack, commit, file, true)
+	publisher := eventbus.NewOutboxDispatcher(outbox.New(db))
+	service := deployments.NewService(db, publisher)
+	attempt, err := service.StartIfChanged(
+		t.Context(), stack, commit, file, true,
+	)
 	require.NoError(t, err)
 	require.NotNil(t, attempt)
-	require.NoError(t, service.Succeed(t.Context(), attempt.ID, gitopsmodel.Stack{}))
+	require.NoError(t, service.Complete(t.Context(), attempt.ID, deployments.Completion{
+		Outcome: deployments.CompletionSucceeded,
+	}))
 }
 
-func openSuggestionDatabase(t *testing.T) *storage.Database {
+func openSuggestionDatabase(t *testing.T) storage.Database {
 	t.Helper()
-	db, err := storage.Open(context.Background(), t.TempDir())
+	db, err := storage.OpenSQLite(context.Background(), t.TempDir())
 	require.NoError(t, err)
 	return db
 }

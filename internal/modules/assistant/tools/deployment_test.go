@@ -1,7 +1,7 @@
 package tools
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"testing"
 
@@ -9,37 +9,49 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/tools/routing"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments"
 	deploymentmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/model"
 	deploymentstore "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/deployment"
-	gitopsmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/testutil"
 )
 
 func TestDeploymentToolsListFilterPaginationAndSafeDetail(t *testing.T) {
 	db := testutil.OpenSQLite(t)
-	service := deployment.NewService(db, &dispatcher.NopDispatcher{})
+	publisher := &dispatcher.NopDispatcher{}
+	service := deployments.NewService(db, publisher)
 	store := deploymentstore.NewStore(db)
 	failedIDs := make([]string, 0, 3)
 	for index, stack := range []string{"api", "other", "api", "api"} {
 		file := deploymentToolCompose(index)
-		attempt, err := service.StartIfChanged(t.Context(), stack, string(rune('a'+index)), file, true)
+		attempt, err := service.StartIfChanged(
+			t.Context(), stack, string(rune('a'+index)), file, true,
+		)
 		require.NoError(t, err)
 		if index == 1 {
-			require.NoError(t, service.Succeed(t.Context(), attempt.ID, gitopsmodel.Stack{}))
+			require.NoError(t, service.Complete(t.Context(), attempt.ID, deployments.Completion{
+				Outcome: deployments.CompletionSucceeded,
+			}))
 			continue
 		}
 		failedIDs = append(failedIDs, attempt.DeploymentID)
-		require.NoError(t, service.FailApplyWithError(t.Context(), attempt.ID, gitopsmodel.Stack{},
-			"apply_failed", errors.New("registry request failed: token=private-value")))
+		require.NoError(t, service.Complete(t.Context(), attempt.ID, deployments.Completion{
+			Outcome:    deployments.CompletionApplyFailed,
+			Diagnostic: errors.New("registry request failed: token=private-value"),
+		}))
 	}
-	running, err := service.StartIfChanged(t.Context(), "running", "running", deploymentToolCompose(10), true)
+	running, err := service.StartIfChanged(
+		t.Context(), "running", "running", deploymentToolCompose(10), true,
+	)
 	require.NoError(t, err)
 	require.NotNil(t, running)
-	interrupted, err := service.StartIfChanged(t.Context(), "interrupted", "interrupted", deploymentToolCompose(11), true)
+	interrupted, err := service.StartIfChanged(
+		t.Context(), "interrupted", "interrupted", deploymentToolCompose(11), true,
+	)
 	require.NoError(t, err)
-	require.NoError(t, service.InterruptStack(t.Context(), "interrupted"))
+	require.NoError(t, service.Complete(t.Context(), interrupted.ID, deployments.Completion{
+		Outcome: deployments.CompletionProcessInterrupted,
+	}))
 	require.NotNil(t, interrupted)
 
 	list := NewDeploymentList(store)

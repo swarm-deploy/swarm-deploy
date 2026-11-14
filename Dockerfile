@@ -16,7 +16,7 @@ COPY ui/public ./public
 COPY ui/src ./src
 RUN APP_VERSION="${APP_VERSION}" BUILD_TIME="${BUILD_TIME}" npm run build
 
-FROM --platform=$BUILDPLATFORM golang:1.26.3-alpine AS builder
+FROM --platform=$BUILDPLATFORM golang:1.27.4-alpine AS builder
 
 WORKDIR /src
 
@@ -40,7 +40,7 @@ FROM alpine:3.21.7
 ARG APP_VERSION="dev"
 ARG BUILD_TIME
 
-RUN apk add --no-cache ca-certificates docker-cli tzdata
+RUN apk add --no-cache ca-certificates tzdata
 
 WORKDIR /etc/swarm-deploy
 

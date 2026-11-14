@@ -3,6 +3,8 @@ package compose
 import (
 	"fmt"
 	"strings"
+
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
 )
 
 // ReadComposeError means a compose file could not be read.
@@ -45,6 +47,8 @@ const (
 	IssueCodeInvalidValue = "invalid_value"
 )
 
+const validationResourceService = "service"
+
 // ValidationIssue describes a single compose validation problem.
 type ValidationIssue struct {
 	// ResourceType is the type of the invalid resource (service, network, ...).
@@ -69,16 +73,52 @@ type ValidateComposeError struct {
 	Err error
 }
 
+var _ faults.Coded = (*ValidateComposeError)(nil)
+
 func (e *ValidateComposeError) Error() string {
+	formatIssue := ValidationIssue.String
+	if e.FilePath == "" {
+		formatIssue = ValidationIssue.pathString
+	}
 	msgs := make([]string, 0, len(e.Issues))
 	for _, issue := range e.Issues {
-		msgs = append(msgs, issue.String())
+		msgs = append(msgs, formatIssue(issue))
 	}
-	return fmt.Sprintf("validate compose file %q: %s", e.FilePath, strings.Join(msgs, "; "))
+	detail := strings.Join(msgs, "; ")
+	if e.FilePath == "" {
+		return detail
+	}
+	return fmt.Sprintf("validate compose file %q: %s", e.FilePath, detail)
+}
+
+// FaultCode identifies a Compose validation failure.
+func (*ValidateComposeError) FaultCode() faults.Code { return faults.CodeInvalidDesiredState }
+
+// FaultSummary describes one representative issue and counts any additional issues.
+func (e *ValidateComposeError) FaultSummary() string {
+	if len(e.Issues) == 0 {
+		return "invalid Compose configuration"
+	}
+	summary := e.Issues[0].pathString()
+	for _, issue := range e.Issues[1:] {
+		summary = min(summary, issue.pathString())
+	}
+	if len(e.Issues) > 1 {
+		summary += fmt.Sprintf(" (+%d more)", len(e.Issues)-1)
+	}
+	return summary
 }
 
 // Unwrap returns the underlying decoding error, if any.
 func (e *ValidateComposeError) Unwrap() error { return e.Err }
+
+func (i ValidationIssue) pathString() string {
+	if i.ResourceType == validationResourceService && i.ResourceName != "" {
+		i.ResourceType = "services." + i.ResourceName
+		i.ResourceName = ""
+	}
+	return i.String()
+}
 
 // String formats the issue omitting empty attributes.
 func (i ValidationIssue) String() string {

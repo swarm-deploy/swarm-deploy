@@ -35,6 +35,14 @@ type Invoker interface {
 	//
 	// POST /api/v1/assistant/chat
 	AssistantChat(ctx context.Context, request *AssistantChatRequest) (*AssistantChatResponse, error)
+	// CreateExternalSecret invokes createExternalSecret operation.
+	//
+	// POST /api/v1/secret-managers/{stack}/{service}/secrets
+	CreateExternalSecret(ctx context.Context, request *CreateExternalSecretRequest, params CreateExternalSecretParams) (*CreateExternalSecretResponse, error)
+	// CreateSecret invokes createSecret operation.
+	//
+	// POST /api/v1/secrets
+	CreateSecret(ctx context.Context, request *CreateSecretRequest) (*CreateSecretResponse, error)
 	// DeleteNodeLabel invokes deleteNodeLabel operation.
 	//
 	// DELETE /api/v1/nodes/{id}/labels/{key}
@@ -51,6 +59,10 @@ type Invoker interface {
 	//
 	// GET /api/assistant/suggestions
 	GetAssistantSuggestions(ctx context.Context) (*AssistantSuggestionsResponse, error)
+	// GetConfig invokes getConfig operation.
+	//
+	// GET /api/v1/config
+	GetConfig(ctx context.Context) (*UIConfigResponse, error)
 	// GetCurrentUser invokes getCurrentUser operation.
 	//
 	// GET /api/v1/users/me
@@ -67,6 +79,10 @@ type Invoker interface {
 	//
 	// GET /api/v1/deployments/{id}/attempts/{attemptID}/init-jobs/{ordinal}/logs
 	GetDeploymentInitJobLogs(ctx context.Context, params GetDeploymentInitJobLogsParams) (GetDeploymentInitJobLogsRes, error)
+	// GetEvent invokes getEvent operation.
+	//
+	// GET /api/v1/events/{id}
+	GetEvent(ctx context.Context, params GetEventParams) (GetEventRes, error)
 	// GetEventFilters invokes getEventFilters operation.
 	//
 	// GET /api/v1/events/filters
@@ -87,14 +103,28 @@ type Invoker interface {
 	//
 	// GET /api/v1/stacks/{stack}/services/{service}
 	GetService(ctx context.Context, params GetServiceParams) (*ServiceStatusResponse, error)
-	// GetServiceRealtime invokes getServiceRealtime operation.
+	// GetStackDeploymentActivity invokes getStackDeploymentActivity operation.
 	//
-	// GET /api/v1/stacks/{stack}/services/{service}/realtime
-	GetServiceRealtime(ctx context.Context, params GetServiceRealtimeParams) (*ServiceRealtimeResponse, error)
+	// Aggregated deployment operations for a configured stack, grouped by UTC start time.
+	//
+	// GET /api/v1/stacks/{stack}/deployments/activity
+	GetStackDeploymentActivity(ctx context.Context, params GetStackDeploymentActivityParams) (*DeploymentActivityResponse, error)
 	// GetStackManifestos invokes getStackManifestos operation.
 	//
 	// GET /api/v1/stacks/{stack}/manifestos
 	GetStackManifestos(ctx context.Context, params GetStackManifestosParams) (*StackManifestosResponse, error)
+	// GetStackResources invokes getStackResources operation.
+	//
+	// Current Docker resources owned by a configured stack, selected by the exact
+	// com.docker.stack.namespace label. Unlabelled external resources are excluded.
+	// Returns metadata only, never secret values or config payloads.
+	//
+	// GET /api/v1/stacks/{stack}/resources
+	GetStackResources(ctx context.Context, params GetStackResourcesParams) (*StackResourcesResponse, error)
+	// GetSwarmTask invokes getSwarmTask operation.
+	//
+	// GET /api/v1/swarm/tasks/{taskID}
+	GetSwarmTask(ctx context.Context, params GetSwarmTaskParams) (*SwarmTaskDetailsHeaders, error)
 	// GetTaskLogs invokes getTaskLogs operation.
 	//
 	// GET /api/tasks/{taskID}/logs
@@ -107,6 +137,10 @@ type Invoker interface {
 	//
 	// GET /api/v1/assistant/chats
 	ListAssistantChats(ctx context.Context) (*AssistantChatsResponse, error)
+	// ListDSNSuggestions invokes listDSNSuggestions operation.
+	//
+	// GET /api/v1/secrets/suggestions/dsn
+	ListDSNSuggestions(ctx context.Context) (*DSNSuggestionsResponse, error)
 	// ListDeployments invokes listDeployments operation.
 	//
 	// GET /api/v1/deployments
@@ -118,7 +152,7 @@ type Invoker interface {
 	// ListNetworks invokes listNetworks operation.
 	//
 	// GET /api/v1/networks
-	ListNetworks(ctx context.Context) (*NetworksResponse, error)
+	ListNetworks(ctx context.Context, params ListNetworksParams) (*NetworksResponse, error)
 	// ListNodes invokes listNodes operation.
 	//
 	// GET /api/v1/nodes
@@ -147,6 +181,22 @@ type Invoker interface {
 	//
 	// GET /api/v1/stacks
 	ListStacks(ctx context.Context) (*StacksResponse, error)
+	// ListSwarmServiceTasks invokes listSwarmServiceTasks operation.
+	//
+	// GET /api/v1/swarm/services/{serviceIDOrName}/tasks
+	ListSwarmServiceTasks(ctx context.Context, params ListSwarmServiceTasksParams) (*ServiceRealtimeResponse, error)
+	// ListSwarmServices invokes listSwarmServices operation.
+	//
+	// GET /api/v1/swarm/services
+	ListSwarmServices(ctx context.Context) (*SwarmServicesResponse, error)
+	// ScaleSwarmService invokes scaleSwarmService operation.
+	//
+	// Updates live replicated services, including standalone services, without waiting for tasks. GitOps
+	// synchronization may overwrite this change. Invalid input or unsupported modes return 400, missing
+	// services return 404, concurrent updates return 409, and Docker errors return 500.
+	//
+	// PUT /api/v1/swarm/services/{serviceID}/replicas
+	ScaleSwarmService(ctx context.Context, request *ScaleSwarmServiceRequest, params ScaleSwarmServiceParams) error
 	// Search invokes search operation.
 	//
 	// GET /api/v1/search
@@ -366,6 +416,194 @@ func (c *Client) sendAssistantChat(ctx context.Context, request *AssistantChatRe
 
 	stage = "DecodeResponse"
 	result, err := decodeAssistantChatResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// CreateExternalSecret invokes createExternalSecret operation.
+//
+// POST /api/v1/secret-managers/{stack}/{service}/secrets
+func (c *Client) CreateExternalSecret(ctx context.Context, request *CreateExternalSecretRequest, params CreateExternalSecretParams) (*CreateExternalSecretResponse, error) {
+	res, err := c.sendCreateExternalSecret(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendCreateExternalSecret(ctx context.Context, request *CreateExternalSecretRequest, params CreateExternalSecretParams) (res *CreateExternalSecretResponse, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("createExternalSecret"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/api/v1/secret-managers/{stack}/{service}/secrets"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, CreateExternalSecretOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [5]string
+	pathParts[0] = "/api/v1/secret-managers/"
+	{
+		// Encode "stack" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "stack",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.StringToString(params.Stack))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = "/"
+	{
+		// Encode "service" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "service",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.StringToString(params.Service))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[3] = encoded
+	}
+	pathParts[4] = "/secrets"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeCreateExternalSecretRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer body.Close()
+
+	stage = "DecodeResponse"
+	result, err := decodeCreateExternalSecretResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// CreateSecret invokes createSecret operation.
+//
+// POST /api/v1/secrets
+func (c *Client) CreateSecret(ctx context.Context, request *CreateSecretRequest) (*CreateSecretResponse, error) {
+	res, err := c.sendCreateSecret(ctx, request)
+	return res, err
+}
+
+func (c *Client) sendCreateSecret(ctx context.Context, request *CreateSecretRequest) (res *CreateSecretResponse, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("createSecret"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/api/v1/secrets"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, CreateSecretOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/api/v1/secrets"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeCreateSecretRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer body.Close()
+
+	stage = "DecodeResponse"
+	result, err := decodeCreateSecretResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -734,6 +972,78 @@ func (c *Client) sendGetAssistantSuggestions(ctx context.Context) (res *Assistan
 	return result, nil
 }
 
+// GetConfig invokes getConfig operation.
+//
+// GET /api/v1/config
+func (c *Client) GetConfig(ctx context.Context) (*UIConfigResponse, error) {
+	res, err := c.sendGetConfig(ctx)
+	return res, err
+}
+
+func (c *Client) sendGetConfig(ctx context.Context) (res *UIConfigResponse, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getConfig"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/api/v1/config"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetConfigOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/api/v1/config"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer body.Close()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetConfigResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // GetCurrentUser invokes getCurrentUser operation.
 //
 // GET /api/v1/users/me
@@ -1088,6 +1398,96 @@ func (c *Client) sendGetDeploymentInitJobLogs(ctx context.Context, params GetDep
 
 	stage = "DecodeResponse"
 	result, err := decodeGetDeploymentInitJobLogsResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetEvent invokes getEvent operation.
+//
+// GET /api/v1/events/{id}
+func (c *Client) GetEvent(ctx context.Context, params GetEventParams) (GetEventRes, error) {
+	res, err := c.sendGetEvent(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetEvent(ctx context.Context, params GetEventParams) (res GetEventRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getEvent"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/api/v1/events/{id}"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetEventOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [2]string
+	pathParts[0] = "/api/v1/events/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.StringToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer body.Close()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetEventResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -1528,19 +1928,21 @@ func (c *Client) sendGetService(ctx context.Context, params GetServiceParams) (r
 	return result, nil
 }
 
-// GetServiceRealtime invokes getServiceRealtime operation.
+// GetStackDeploymentActivity invokes getStackDeploymentActivity operation.
 //
-// GET /api/v1/stacks/{stack}/services/{service}/realtime
-func (c *Client) GetServiceRealtime(ctx context.Context, params GetServiceRealtimeParams) (*ServiceRealtimeResponse, error) {
-	res, err := c.sendGetServiceRealtime(ctx, params)
+// Aggregated deployment operations for a configured stack, grouped by UTC start time.
+//
+// GET /api/v1/stacks/{stack}/deployments/activity
+func (c *Client) GetStackDeploymentActivity(ctx context.Context, params GetStackDeploymentActivityParams) (*DeploymentActivityResponse, error) {
+	res, err := c.sendGetStackDeploymentActivity(ctx, params)
 	return res, err
 }
 
-func (c *Client) sendGetServiceRealtime(ctx context.Context, params GetServiceRealtimeParams) (res *ServiceRealtimeResponse, err error) {
+func (c *Client) sendGetStackDeploymentActivity(ctx context.Context, params GetStackDeploymentActivityParams) (res *DeploymentActivityResponse, err error) {
 	otelAttrs := []attribute.KeyValue{
-		otelogen.OperationID("getServiceRealtime"),
+		otelogen.OperationID("getStackDeploymentActivity"),
 		semconv.HTTPRequestMethodKey.String("GET"),
-		semconv.URLTemplateKey.String("/api/v1/stacks/{stack}/services/{service}/realtime"),
+		semconv.URLTemplateKey.String("/api/v1/stacks/{stack}/deployments/activity"),
 	}
 	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
 
@@ -1556,7 +1958,7 @@ func (c *Client) sendGetServiceRealtime(ctx context.Context, params GetServiceRe
 	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
 
 	// Start a span for this request.
-	ctx, span := c.cfg.Tracer.Start(ctx, GetServiceRealtimeOperation,
+	ctx, span := c.cfg.Tracer.Start(ctx, GetStackDeploymentActivityOperation,
 		trace.WithAttributes(otelAttrs...),
 		clientSpanKind,
 	)
@@ -1573,7 +1975,7 @@ func (c *Client) sendGetServiceRealtime(ctx context.Context, params GetServiceRe
 
 	stage = "BuildURL"
 	u := uri.Clone(c.requestURL(ctx))
-	var pathParts [5]string
+	var pathParts [3]string
 	pathParts[0] = "/api/v1/stacks/"
 	{
 		// Encode "stack" parameter.
@@ -1593,27 +1995,29 @@ func (c *Client) sendGetServiceRealtime(ctx context.Context, params GetServiceRe
 		}
 		pathParts[1] = encoded
 	}
-	pathParts[2] = "/services/"
-	{
-		// Encode "service" parameter.
-		e := uri.NewPathEncoder(uri.PathEncoderConfig{
-			Param:   "service",
-			Style:   uri.PathStyleSimple,
-			Explode: false,
-		})
-		if err := func() error {
-			return e.EncodeValue(conv.StringToString(params.Service))
-		}(); err != nil {
-			return res, errors.Wrap(err, "encode path")
-		}
-		encoded, err := e.Result()
-		if err != nil {
-			return res, errors.Wrap(err, "encode path")
-		}
-		pathParts[3] = encoded
-	}
-	pathParts[4] = "/realtime"
+	pathParts[2] = "/deployments/activity"
 	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "interval" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "interval",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Interval.Get(); ok {
+				return e.EncodeValue(conv.StringToString(string(val)))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
 
 	stage = "EncodeRequest"
 	r, err := ht.NewRequest(ctx, "GET", u)
@@ -1630,7 +2034,7 @@ func (c *Client) sendGetServiceRealtime(ctx context.Context, params GetServiceRe
 	defer body.Close()
 
 	stage = "DecodeResponse"
-	result, err := decodeGetServiceRealtimeResponse(resp)
+	result, err := decodeGetStackDeploymentActivityResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -1722,6 +2126,191 @@ func (c *Client) sendGetStackManifestos(ctx context.Context, params GetStackMani
 
 	stage = "DecodeResponse"
 	result, err := decodeGetStackManifestosResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetStackResources invokes getStackResources operation.
+//
+// Current Docker resources owned by a configured stack, selected by the exact
+// com.docker.stack.namespace label. Unlabelled external resources are excluded.
+// Returns metadata only, never secret values or config payloads.
+//
+// GET /api/v1/stacks/{stack}/resources
+func (c *Client) GetStackResources(ctx context.Context, params GetStackResourcesParams) (*StackResourcesResponse, error) {
+	res, err := c.sendGetStackResources(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetStackResources(ctx context.Context, params GetStackResourcesParams) (res *StackResourcesResponse, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getStackResources"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/api/v1/stacks/{stack}/resources"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetStackResourcesOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/api/v1/stacks/"
+	{
+		// Encode "stack" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "stack",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.StringToString(params.Stack))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = "/resources"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer body.Close()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetStackResourcesResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetSwarmTask invokes getSwarmTask operation.
+//
+// GET /api/v1/swarm/tasks/{taskID}
+func (c *Client) GetSwarmTask(ctx context.Context, params GetSwarmTaskParams) (*SwarmTaskDetailsHeaders, error) {
+	res, err := c.sendGetSwarmTask(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetSwarmTask(ctx context.Context, params GetSwarmTaskParams) (res *SwarmTaskDetailsHeaders, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getSwarmTask"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/api/v1/swarm/tasks/{taskID}"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetSwarmTaskOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [2]string
+	pathParts[0] = "/api/v1/swarm/tasks/"
+	{
+		// Encode "taskID" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "taskID",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.StringToString(params.TaskID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer body.Close()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetSwarmTaskResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -2018,6 +2607,23 @@ func (c *Client) sendListAlerts(ctx context.Context, params ListAlertsParams) (r
 			return res, errors.Wrap(err, "encode query")
 		}
 	}
+	{
+		// Encode "stack" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "stack",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Stack.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
 	u.RawQuery = q.Values().Encode()
 
 	stage = "EncodeRequest"
@@ -2115,6 +2721,78 @@ func (c *Client) sendListAssistantChats(ctx context.Context) (res *AssistantChat
 	return result, nil
 }
 
+// ListDSNSuggestions invokes listDSNSuggestions operation.
+//
+// GET /api/v1/secrets/suggestions/dsn
+func (c *Client) ListDSNSuggestions(ctx context.Context) (*DSNSuggestionsResponse, error) {
+	res, err := c.sendListDSNSuggestions(ctx)
+	return res, err
+}
+
+func (c *Client) sendListDSNSuggestions(ctx context.Context) (res *DSNSuggestionsResponse, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listDSNSuggestions"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/api/v1/secrets/suggestions/dsn"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListDSNSuggestionsOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/api/v1/secrets/suggestions/dsn"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer body.Close()
+
+	stage = "DecodeResponse"
+	result, err := decodeListDSNSuggestionsResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // ListDeployments invokes listDeployments operation.
 //
 // GET /api/v1/deployments
@@ -2175,8 +2853,17 @@ func (c *Client) sendListDeployments(ctx context.Context, params ListDeployments
 		}
 
 		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
-			if val, ok := params.Stack.Get(); ok {
-				return e.EncodeValue(conv.StringToString(val))
+			if params.Stack != nil {
+				return e.EncodeArray(func(e uri.Encoder) error {
+					for i, item := range params.Stack {
+						if err := func() error {
+							return e.EncodeValue(conv.StringToString(item))
+						}(); err != nil {
+							return errors.Wrapf(err, "[%d]", i)
+						}
+					}
+					return nil
+				})
 			}
 			return nil
 		}); err != nil {
@@ -2192,8 +2879,17 @@ func (c *Client) sendListDeployments(ctx context.Context, params ListDeployments
 		}
 
 		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
-			if val, ok := params.ServiceName.Get(); ok {
-				return e.EncodeValue(conv.StringToString(val))
+			if params.ServiceName != nil {
+				return e.EncodeArray(func(e uri.Encoder) error {
+					for i, item := range params.ServiceName {
+						if err := func() error {
+							return e.EncodeValue(conv.StringToString(item))
+						}(); err != nil {
+							return errors.Wrapf(err, "[%d]", i)
+						}
+					}
+					return nil
+				})
 			}
 			return nil
 		}); err != nil {
@@ -2553,12 +3249,12 @@ func (c *Client) sendListEvents(ctx context.Context, params ListEventsParams) (r
 // ListNetworks invokes listNetworks operation.
 //
 // GET /api/v1/networks
-func (c *Client) ListNetworks(ctx context.Context) (*NetworksResponse, error) {
-	res, err := c.sendListNetworks(ctx)
+func (c *Client) ListNetworks(ctx context.Context, params ListNetworksParams) (*NetworksResponse, error) {
+	res, err := c.sendListNetworks(ctx, params)
 	return res, err
 }
 
-func (c *Client) sendListNetworks(ctx context.Context) (res *NetworksResponse, err error) {
+func (c *Client) sendListNetworks(ctx context.Context, params ListNetworksParams) (res *NetworksResponse, err error) {
 	otelAttrs := []attribute.KeyValue{
 		otelogen.OperationID("listNetworks"),
 		semconv.HTTPRequestMethodKey.String("GET"),
@@ -2598,6 +3294,36 @@ func (c *Client) sendListNetworks(ctx context.Context) (res *NetworksResponse, e
 	var pathParts [1]string
 	pathParts[0] = "/api/v1/networks"
 	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "stack" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "stack",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if params.Stack != nil {
+				return e.EncodeArray(func(e uri.Encoder) error {
+					for i, item := range params.Stack {
+						if err := func() error {
+							return e.EncodeValue(conv.StringToString(item))
+						}(); err != nil {
+							return errors.Wrapf(err, "[%d]", i)
+						}
+					}
+					return nil
+				})
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
 
 	stage = "EncodeRequest"
 	r, err := ht.NewRequest(ctx, "GET", u)
@@ -3223,6 +3949,267 @@ func (c *Client) sendListStacks(ctx context.Context) (res *StacksResponse, err e
 	return result, nil
 }
 
+// ListSwarmServiceTasks invokes listSwarmServiceTasks operation.
+//
+// GET /api/v1/swarm/services/{serviceIDOrName}/tasks
+func (c *Client) ListSwarmServiceTasks(ctx context.Context, params ListSwarmServiceTasksParams) (*ServiceRealtimeResponse, error) {
+	res, err := c.sendListSwarmServiceTasks(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListSwarmServiceTasks(ctx context.Context, params ListSwarmServiceTasksParams) (res *ServiceRealtimeResponse, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listSwarmServiceTasks"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/api/v1/swarm/services/{serviceIDOrName}/tasks"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListSwarmServiceTasksOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/api/v1/swarm/services/"
+	{
+		// Encode "serviceIDOrName" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "serviceIDOrName",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.StringToString(params.ServiceIDOrName))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = "/tasks"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer body.Close()
+
+	stage = "DecodeResponse"
+	result, err := decodeListSwarmServiceTasksResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// ListSwarmServices invokes listSwarmServices operation.
+//
+// GET /api/v1/swarm/services
+func (c *Client) ListSwarmServices(ctx context.Context) (*SwarmServicesResponse, error) {
+	res, err := c.sendListSwarmServices(ctx)
+	return res, err
+}
+
+func (c *Client) sendListSwarmServices(ctx context.Context) (res *SwarmServicesResponse, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listSwarmServices"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/api/v1/swarm/services"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListSwarmServicesOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/api/v1/swarm/services"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer body.Close()
+
+	stage = "DecodeResponse"
+	result, err := decodeListSwarmServicesResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// ScaleSwarmService invokes scaleSwarmService operation.
+//
+// Updates live replicated services, including standalone services, without waiting for tasks. GitOps
+// synchronization may overwrite this change. Invalid input or unsupported modes return 400, missing
+// services return 404, concurrent updates return 409, and Docker errors return 500.
+//
+// PUT /api/v1/swarm/services/{serviceID}/replicas
+func (c *Client) ScaleSwarmService(ctx context.Context, request *ScaleSwarmServiceRequest, params ScaleSwarmServiceParams) error {
+	_, err := c.sendScaleSwarmService(ctx, request, params)
+	return err
+}
+
+func (c *Client) sendScaleSwarmService(ctx context.Context, request *ScaleSwarmServiceRequest, params ScaleSwarmServiceParams) (res *ScaleSwarmServiceNoContent, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("scaleSwarmService"),
+		semconv.HTTPRequestMethodKey.String("PUT"),
+		semconv.URLTemplateKey.String("/api/v1/swarm/services/{serviceID}/replicas"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ScaleSwarmServiceOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/api/v1/swarm/services/"
+	{
+		// Encode "serviceID" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "serviceID",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.StringToString(params.ServiceID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = "/replicas"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "PUT", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeScaleSwarmServiceRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer body.Close()
+
+	stage = "DecodeResponse"
+	result, err := decodeScaleSwarmServiceResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // Search invokes search operation.
 //
 // GET /api/v1/search
@@ -3399,6 +4386,44 @@ func (c *Client) sendSyncSecretManager(ctx context.Context, params SyncSecretMan
 	}
 	pathParts[4] = "/sync"
 	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "created_path" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "created_path",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.CreatedPath.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "created_key" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "created_key",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.CreatedKey.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
 
 	stage = "EncodeRequest"
 	r, err := ht.NewRequest(ctx, "POST", u)

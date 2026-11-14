@@ -29,6 +29,20 @@ func (UnimplementedHandler) AssistantChat(ctx context.Context, req *AssistantCha
 	return r, ht.ErrNotImplemented
 }
 
+// CreateExternalSecret implements createExternalSecret operation.
+//
+// POST /api/v1/secret-managers/{stack}/{service}/secrets
+func (UnimplementedHandler) CreateExternalSecret(ctx context.Context, req *CreateExternalSecretRequest, params CreateExternalSecretParams) (r *CreateExternalSecretResponse, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// CreateSecret implements createSecret operation.
+//
+// POST /api/v1/secrets
+func (UnimplementedHandler) CreateSecret(ctx context.Context, req *CreateSecretRequest) (r *CreateSecretResponse, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // DeleteNodeLabel implements deleteNodeLabel operation.
 //
 // DELETE /api/v1/nodes/{id}/labels/{key}
@@ -54,6 +68,13 @@ func (UnimplementedHandler) GetAssistantChat(ctx context.Context, params GetAssi
 //
 // GET /api/assistant/suggestions
 func (UnimplementedHandler) GetAssistantSuggestions(ctx context.Context) (r *AssistantSuggestionsResponse, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// GetConfig implements getConfig operation.
+//
+// GET /api/v1/config
+func (UnimplementedHandler) GetConfig(ctx context.Context) (r *UIConfigResponse, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -83,6 +104,13 @@ func (UnimplementedHandler) GetDeploymentFilters(ctx context.Context) (r *Deploy
 // GET /api/v1/deployments/{id}/attempts/{attemptID}/init-jobs/{ordinal}/logs
 func (UnimplementedHandler) GetDeploymentInitJobLogs(ctx context.Context, params GetDeploymentInitJobLogsParams, w http.ResponseWriter) error {
 	return ht.ErrNotImplemented
+}
+
+// GetEvent implements getEvent operation.
+//
+// GET /api/v1/events/{id}
+func (UnimplementedHandler) GetEvent(ctx context.Context, params GetEventParams) (r GetEventRes, _ error) {
+	return r, ht.ErrNotImplemented
 }
 
 // GetEventFilters implements getEventFilters operation.
@@ -120,10 +148,12 @@ func (UnimplementedHandler) GetService(ctx context.Context, params GetServicePar
 	return r, ht.ErrNotImplemented
 }
 
-// GetServiceRealtime implements getServiceRealtime operation.
+// GetStackDeploymentActivity implements getStackDeploymentActivity operation.
 //
-// GET /api/v1/stacks/{stack}/services/{service}/realtime
-func (UnimplementedHandler) GetServiceRealtime(ctx context.Context, params GetServiceRealtimeParams) (r *ServiceRealtimeResponse, _ error) {
+// Aggregated deployment operations for a configured stack, grouped by UTC start time.
+//
+// GET /api/v1/stacks/{stack}/deployments/activity
+func (UnimplementedHandler) GetStackDeploymentActivity(ctx context.Context, params GetStackDeploymentActivityParams) (r *DeploymentActivityResponse, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -131,6 +161,24 @@ func (UnimplementedHandler) GetServiceRealtime(ctx context.Context, params GetSe
 //
 // GET /api/v1/stacks/{stack}/manifestos
 func (UnimplementedHandler) GetStackManifestos(ctx context.Context, params GetStackManifestosParams) (r *StackManifestosResponse, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// GetStackResources implements getStackResources operation.
+//
+// Current Docker resources owned by a configured stack, selected by the exact
+// com.docker.stack.namespace label. Unlabelled external resources are excluded.
+// Returns metadata only, never secret values or config payloads.
+//
+// GET /api/v1/stacks/{stack}/resources
+func (UnimplementedHandler) GetStackResources(ctx context.Context, params GetStackResourcesParams) (r *StackResourcesResponse, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// GetSwarmTask implements getSwarmTask operation.
+//
+// GET /api/v1/swarm/tasks/{taskID}
+func (UnimplementedHandler) GetSwarmTask(ctx context.Context, params GetSwarmTaskParams) (r *SwarmTaskDetailsHeaders, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -155,6 +203,13 @@ func (UnimplementedHandler) ListAssistantChats(ctx context.Context) (r *Assistan
 	return r, ht.ErrNotImplemented
 }
 
+// ListDSNSuggestions implements listDSNSuggestions operation.
+//
+// GET /api/v1/secrets/suggestions/dsn
+func (UnimplementedHandler) ListDSNSuggestions(ctx context.Context) (r *DSNSuggestionsResponse, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // ListDeployments implements listDeployments operation.
 //
 // GET /api/v1/deployments
@@ -172,7 +227,7 @@ func (UnimplementedHandler) ListEvents(ctx context.Context, params ListEventsPar
 // ListNetworks implements listNetworks operation.
 //
 // GET /api/v1/networks
-func (UnimplementedHandler) ListNetworks(ctx context.Context) (r *NetworksResponse, _ error) {
+func (UnimplementedHandler) ListNetworks(ctx context.Context, params ListNetworksParams) (r *NetworksResponse, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -223,6 +278,31 @@ func (UnimplementedHandler) ListServices(ctx context.Context) (r *ServicesRespon
 // GET /api/v1/stacks
 func (UnimplementedHandler) ListStacks(ctx context.Context) (r *StacksResponse, _ error) {
 	return r, ht.ErrNotImplemented
+}
+
+// ListSwarmServiceTasks implements listSwarmServiceTasks operation.
+//
+// GET /api/v1/swarm/services/{serviceIDOrName}/tasks
+func (UnimplementedHandler) ListSwarmServiceTasks(ctx context.Context, params ListSwarmServiceTasksParams) (r *ServiceRealtimeResponse, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// ListSwarmServices implements listSwarmServices operation.
+//
+// GET /api/v1/swarm/services
+func (UnimplementedHandler) ListSwarmServices(ctx context.Context) (r *SwarmServicesResponse, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// ScaleSwarmService implements scaleSwarmService operation.
+//
+// Updates live replicated services, including standalone services, without waiting for tasks. GitOps
+// synchronization may overwrite this change. Invalid input or unsupported modes return 400, missing
+// services return 404, concurrent updates return 409, and Docker errors return 500.
+//
+// PUT /api/v1/swarm/services/{serviceID}/replicas
+func (UnimplementedHandler) ScaleSwarmService(ctx context.Context, req *ScaleSwarmServiceRequest, params ScaleSwarmServiceParams) error {
+	return ht.ErrNotImplemented
 }
 
 // Search implements search operation.

@@ -11,6 +11,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/conversation"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/tools"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/recommendations"
@@ -29,7 +30,7 @@ type Module struct {
 // Container supplies dependencies required by the assistant module.
 type Container interface {
 	// GetStorage returns the shared database.
-	GetStorage() *storage.Database
+	GetStorage() storage.Database
 	GetMetrics() *metrics.Group
 	GetSwarm() *swarm.Swarm
 	// GetTaskLogs returns the shared task log parsing and filtering service.
@@ -38,6 +39,8 @@ type Container interface {
 	// GetConfigStore returns the shared runtime configuration store.
 	GetConfigStore() *configstore.ConfigStore
 	GetResourcesModule() *resources.Module
+	// GetDeploymentsModule returns deployment persistence and execution infrastructure.
+	GetDeploymentsModule() *deployments.Module
 	GetGitOpsModule() *gitops.Module
 	GetRecommendationsModule() *recommendations.Module
 	// GetAlertManagementModule returns the initialized Alert Management module.
@@ -55,10 +58,8 @@ func InitModule(_ context.Context, cfg *config.Config, cnt Container) (*Module, 
 		return nil, fmt.Errorf("resolve assistant temperature: %w", err)
 	}
 
-	imageVersionResolver, err := registry.NewImageVersionResolver()
-	if err != nil {
-		return nil, fmt.Errorf("build image version resolver: %w", err)
-	}
+	swarmManagers := cnt.GetSwarm()
+	imageVersionResolver := registry.NewImageVersionResolver(swarmManagers.Images)
 
 	hostingProviders, err := githosting.NewProviderManager(cfg.Spec.Hostings)
 	if err != nil {
@@ -72,9 +73,10 @@ func InitModule(_ context.Context, cfg *config.Config, cnt Container) (*Module, 
 	toolExecutor := tools.NewExecutor(
 		resourcesModule,
 		gitopsModule,
+		cnt.GetDeploymentsModule().Store,
 		cnt.GetAlertManagementModule(),
 		eventModule,
-		cnt.GetSwarm(),
+		swarmManagers,
 		cnt.GetTaskLogs(),
 		cnt.GetRecommendationsModule().Store,
 		imageVersionResolver,

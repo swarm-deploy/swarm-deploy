@@ -5,9 +5,22 @@ globs: ["**/*.go"]
 apply: by file patterns
 ---
 
+## Docker API Boundary
+
+- **All new Docker Engine / Docker Swarm API operations MUST go through `internal/swarm`.** Other packages must use the managers exposed by `internal/swarm`; they must not call Docker SDK client methods directly or introduce parallel Docker API clients/adapters.
+- If an operation is missing, extend the appropriate `internal/swarm` manager interface and implementation, including mocks and tests where relevant.
+- Docker SDK **data types** (for example, `dockerswarm.ServiceSpec`, `mount.Mount`, and Docker network options) may be used directly by other packages. Do not introduce wrapper DTOs that merely duplicate these complex SDK types.
+- Existing direct Docker API calls outside `internal/swarm` do not require unrelated refactoring in every task, but must not be copied or expanded. Migrate them when working on the corresponding integration or in an explicitly scoped refactor.
+
 # Comments
 - Each interface method must have a comment.
 - Each structure exported field must have a comment.
+
+# Database and SQL
+- Build SQL queries in Go using `github.com/doug-martin/goqu/v9` (goqu). Use the appropriate dialect, `Prepared(true)`, and bound arguments for dynamic values. Do not build queries by concatenating or formatting SQL strings.
+- Follow the **Model Repository** pattern: keep domain models separate from persistence, and encapsulate database reads and writes in repositories. Follow existing module conventions (`model` for models, `modelstore` for repositories where applicable).
+- Application services, controllers, and HTTP handlers must access persistence through repository methods rather than constructing or executing SQL directly.
+- Reuse existing repository contracts and `internal/storage` transaction abstractions. Use `goqu.L` only for SQL expressions the builder cannot express, without interpolating dynamic values. Raw SQL migration files are exempt.
 
 # Go Logging Rules
 
@@ -49,3 +62,7 @@ apply: by file patterns
 ## Tracing
 
 - To record an error in a span, use `tracing.FailSpan`
+
+- Define application-owned OpenTelemetry span and span-event attribute keys centrally in `internal/shared/tracing/keys.go` using `attribute.Key`.
+- Use the shared `tracing` keys when recording attributes; do not introduce inline string literals for application-owned attribute keys or duplicate existing keys locally.
+- Preserve semantic value types (for example, record counts and durations as numeric attributes instead of strings).
