@@ -51,11 +51,12 @@ func (a *ServiceCapabilitiesAnalyzer) analyze(service compose.Service) []model.R
 	hasHighRisk := false
 	hasMediumRisk := false
 
-	for _, capability := range service.CapAdd {
+	for _, capability := range service.Capabilities.CapAdd {
 		normalized := strings.ToUpper(strings.TrimSpace(capability))
 		if normalized == "ALL" {
 			hasAll = true
 		}
+		normalized = strings.TrimPrefix(normalized, "CAP_")
 		if _, ok := highRiskCapabilities[normalized]; ok {
 			hasHighRisk = true
 		}

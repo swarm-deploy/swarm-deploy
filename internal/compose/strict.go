@@ -3,6 +3,7 @@ package compose
 import (
 	"fmt"
 	"reflect"
+	"slices"
 	"strings"
 
 	"go.yaml.in/yaml/v3"
@@ -154,11 +155,18 @@ func checkComposeMerge(node *yaml.Node, typ reflect.Type, path string, ignored *
 func composeFieldType(typ reflect.Type, key string) (reflect.Type, bool) {
 	for i := 0; i < typ.NumField(); i++ {
 		field := typ.Field(i)
-		if !field.IsExported() {
+		if !field.IsExported() && !field.Anonymous {
 			continue
 		}
-		name := strings.Split(field.Tag.Get("yaml"), ",")[0]
+		tag := strings.Split(field.Tag.Get("yaml"), ",")
+		name := tag[0]
 		if name == "-" {
+			continue
+		}
+		if field.Type.Kind() == reflect.Struct && slices.Contains(tag[1:], "inline") {
+			if nested, ok := composeFieldType(field.Type, key); ok {
+				return nested, true
+			}
 			continue
 		}
 		if name == "" {
