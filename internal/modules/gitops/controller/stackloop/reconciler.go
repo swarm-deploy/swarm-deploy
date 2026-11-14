@@ -142,6 +142,10 @@ func (r *Reconciler) Reconcile(
 		return wrapReconcileError(stage, desiredState.Compose.Services, errors.Join(err, persistErr))
 	}
 
+	if err = r.recordDesiredServices(ctx, req, prepared); err != nil {
+		return wrapReconcileError("record desired service state", prepared.Compose.Services, err)
+	}
+
 	pl := &pipelinePayload{
 		Stack:            req.Stack,
 		Commit:           req.Commit,
@@ -189,6 +193,28 @@ func (r *Reconciler) currentStackState(ctx context.Context, stackName string) (m
 	}
 	stack, ok := currentState.Stack(stackName)
 	return stack, ok, nil
+}
+
+func (r *Reconciler) recordDesiredServices(ctx context.Context, req ReconciliationRequest, prepared *compose.File) error {
+	digests, err := compose.DesiredServiceDigests(prepared)
+	if err != nil {
+		return err
+	}
+	return r.stateStore.Update(ctx, func(runtime *model.Runtime) {
+		stack := runtime.Stacks[req.Stack.Name]
+		if stack.Services == nil {
+			stack.Services = make(map[string]model.Service, len(digests))
+		}
+		for name, digest := range digests {
+			service := stack.Services[name]
+			if service.DesiredDigest != digest || service.DesiredCommit == "" {
+				service.DesiredDigest = digest
+				service.DesiredCommit = req.Commit
+				stack.Services[name] = service
+			}
+		}
+		runtime.Stacks[req.Stack.Name] = stack
+	})
 }
 
 func (r *Reconciler) processResult(
@@ -291,11 +317,11 @@ func (r *Reconciler) recordFailure(
 				}
 			}
 			for _, service := range services {
-				previous := state.Services[service.Name]
-				state.Services[service.Name] = model.Service{
-					Image: service.Image, SyncStatus: model.SyncStatusOutOfSync, SyncAt: time.Now(),
-					SelfHealPending: previous.SelfHealPending, SyncError: previous.SyncError,
-				}
+				current := state.Services[service.Name]
+				current.Image = service.Image
+				current.SyncStatus = model.SyncStatusOutOfSync
+				current.SyncAt = time.Now()
+				state.Services[service.Name] = current
 			}
 			state.Status = model.NewStackStatus(state.Services)
 			runtime.Stacks[stackName] = state
@@ -336,7 +362,7 @@ func (r *Reconciler) recordPipelineFailure(
 		}
 		failed.Status = model.NewStackStatus(failed.Services)
 		persistErr = r.stateStore.Update(ctx, func(runtime *model.Runtime) {
-			runtime.Stacks[req.Stack.Name] = failed
+			storeStackResult(runtime, req.Stack.Name, failed)
 		})
 	}
 	return wrapReconcileError(pipeErr.StepName, services, errors.Join(pipeErr, persistErr))
@@ -360,12 +386,25 @@ func (r *Reconciler) persistResult(
 ) error {
 	return r.db.WithinTransaction(ctx, func(ctx context.Context) error {
 		if err := r.stateStore.Update(ctx, func(state *model.Runtime) {
-			state.Stacks[req.Stack.Name] = result
+			storeStackResult(state, req.Stack.Name, result)
 		}); err != nil {
 			return err
 		}
 		return r.publishDriftEvents(ctx, req, prevState, payload)
 	})
+}
+
+func storeStackResult(runtime *model.Runtime, name string, result model.Stack) {
+	// Deployment outcomes replace sync state. Desired revisions were saved before
+	// execution and belong to the current runtime snapshot.
+	current := runtime.Stacks[name]
+	for serviceName, service := range result.Services {
+		desired := current.Services[serviceName]
+		service.DesiredDigest = desired.DesiredDigest
+		service.DesiredCommit = desired.DesiredCommit
+		result.Services[serviceName] = service
+	}
+	runtime.Stacks[name] = result
 }
 
 func (r *Reconciler) publishDriftEvents(
