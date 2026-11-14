@@ -50,7 +50,8 @@ still rejected by Docker. `RESET` is discarded, `ALL` replaces the rest
 of its list, and a capability present in both `cap_add` and `cap_drop` is only added.
 Conversion restores the `CAP_` prefix expected by the Docker API. Definitions that
 spelled capabilities differently (for example `net_admin` or `CAP_NET_ADMIN`) get a
-new effective digest once, which starts a Deployment that applies no changes.
+new effective digest once. That starts a Deployment which leaves ServiceSpecs
+unchanged but, like every stack Deployment, runs the stack's Init Jobs.
 
 Scalar commands are tokenized with the `google/shlex` package; they do not implicitly invoke a shell. Exec-form arguments retain their
 boundaries. Scalar healthcheck tests become `CMD-SHELL` tests.
@@ -87,6 +88,17 @@ changing its behavior for existing consumers.
 Init Jobs are excluded from application service conversion. Their declared
 networks are included and undefined dependencies are rejected. InitJobRunner
 owns the temporary services and job lifecycle.
+
+The effective digest compares Init Job config and secret references the way
+InitJobRunner applies them, not with application service defaults. A config
+without a target is attached without a file, so its UID, GID and mode are
+ignored; a short-form config keeps the parser's `/run/secrets/<alias>` target.
+Secret targets resolve to `/run/secrets/<source>` when empty and under
+`/run/secrets/` when relative. Earlier releases compared Init Job configs with
+application defaults (`/<alias>`), and they also ignored user environment
+variables, labels and resource names that matched internal model fields such as
+`Keys`, `env_file` or `Map`. Stacks with such definitions get a new effective
+digest once after upgrading, which starts one Deployment that runs their Init Jobs.
 
 Map-derived collections and service/network results have deterministic ordering.
 Conversion never mutates its input or shares mutable input maps, slices or

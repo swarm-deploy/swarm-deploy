@@ -13,14 +13,26 @@ import (
 )
 
 const (
-	canonicalConfigsField = "configs"
-	canonicalSecretsField = "secrets"
+	// ConfigsField is the Compose and snapshot key of config references and definitions.
+	ConfigsField = "configs"
+	// SecretsField is the Compose and snapshot key of secret references and definitions.
+	SecretsField = "secrets"
+
+	// dockerSecretsDir is where Docker mounts secrets whose target is relative or empty.
+	dockerSecretsDir = "/run/secrets/"
 )
 
 // Canonicalize returns deterministic JSON for an effective Compose definition.
-// It normalizes equivalent execution syntax without mutating desired.
+// It normalizes equivalent command, entrypoint and healthcheck syntax, capabilities,
+// insignificant list ordering and Docker defaults of object references without
+// mutating desired.
+//
+// The output feeds effective desired-state digests stored in existing deployment
+// baselines. Any change to it changes those digests and starts one Deployment per
+// affected stack on the next sync, which also runs every Init Job of the stack.
+// Keep the output stable and update the persisted-digest tests deliberately.
 func Canonicalize(desired Compose) ([]byte, error) {
-	normalized, err := canonicalizeExecutionSyntax(desired)
+	normalized, err := canonicalizeServiceSyntax(desired)
 	if err != nil {
 		return nil, err
 	}
@@ -40,7 +52,10 @@ func Canonicalize(desired Compose) ([]byte, error) {
 	return canonical, nil
 }
 
-func canonicalizeExecutionSyntax(desired Compose) (Compose, error) {
+// canonicalizeServiceSyntax normalizes typed service fields whose equivalent
+// spellings differ in JSON: execution syntax and capabilities. Capabilities are
+// already canonical after decoding; services built in code are used as given.
+func canonicalizeServiceSyntax(desired Compose) (Compose, error) {
 	desired.Services = slices.Clone(desired.Services)
 	for i := range desired.Services {
 		service := &desired.Services[i]
@@ -96,8 +111,10 @@ func normalizeServiceTree(service map[string]any) {
 	normalizeVolumeTree(service["volumes"])
 	normalizeNetworkTree(service["networks"])
 	normalizeSortedWrapperList(service["ports"], "Ports")
-	normalizeObjectRefs(service, canonicalSecretsField, false)
-	normalizeObjectRefs(service, canonicalConfigsField, false)
+	normalizeObjectRefs(service, SecretsField, false)
+	normalizeObjectRefs(service, ConfigsField, false)
+	// NormalizeCapabilities sorts plain strings. Re-sort as JSON like earlier releases:
+	// names with spaces or escaped characters order differently, and their digests must hold.
 	sortJSONList(service, "cap_add")
 	sortJSONList(service, "cap_drop")
 
@@ -109,8 +126,8 @@ func normalizeServiceTree(service map[string]any) {
 		}
 		normalizeEnvironmentTree(job["environment"])
 		normalizeNetworkTree(job["networks"])
-		normalizeObjectRefs(job, canonicalSecretsField, true)
-		normalizeObjectRefs(job, canonicalConfigsField, true)
+		normalizeObjectRefs(job, SecretsField, true)
+		normalizeObjectRefs(job, ConfigsField, true)
 	}
 }
 
@@ -162,29 +179,34 @@ func normalizeServiceObjectRef(ref map[string]any, key string) {
 	source, _ := ref["source"].(string)
 	target, _ := ref["target"].(string)
 	short, _ := ref["short_form"].(bool)
-	if key == canonicalConfigsField && (short || target == "") {
+	if key == ConfigsField && (short || target == "") {
 		target = "/" + source
-	} else if key == canonicalSecretsField {
+	} else if key == SecretsField {
 		if target == "" || short {
 			target = source
 		}
-		if !strings.HasPrefix(target, "/") {
-			target = "/run/secrets/" + target
-		}
+		target = secretTarget(target)
 	}
 	ref["target"] = target
 	delete(ref, "short_form")
 	normalizeObjectOwnership(ref)
 }
 
+// normalizeInitJobObjectRef mirrors InitJobRunner: short-form references keep the
+// parsed target, an empty secret target uses the source name, and a config without
+// a target is attached without a file.
 func normalizeInitJobObjectRef(ref map[string]any, key string) {
+	source, _ := ref["source"].(string)
 	target, _ := ref["target"].(string)
-	if key == canonicalSecretsField && target == "" {
-		target = "/run/secrets/" + fmt.Sprint(ref["source"])
+	if key == SecretsField {
+		if target == "" {
+			target = source
+		}
+		target = secretTarget(target)
 	}
 	ref["target"] = target
 	delete(ref, "short_form")
-	if key == canonicalConfigsField && target == "" {
+	if key == ConfigsField && target == "" {
 		delete(ref, "target")
 		delete(ref, "uid")
 		delete(ref, "gid")
@@ -192,6 +214,14 @@ func normalizeInitJobObjectRef(ref map[string]any, key string) {
 		return
 	}
 	normalizeObjectOwnership(ref)
+}
+
+// secretTarget returns the absolute path where Docker mounts a secret target.
+func secretTarget(target string) string {
+	if strings.HasPrefix(target, "/") {
+		return target
+	}
+	return dockerSecretsDir + target
 }
 
 func normalizeObjectOwnership(ref map[string]any) {

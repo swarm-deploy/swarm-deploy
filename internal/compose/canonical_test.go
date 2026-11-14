@@ -2,6 +2,7 @@ package compose
 
 import (
 	"encoding/json/v2"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -49,6 +50,28 @@ func TestCanonicalizeEquivalentCompose(t *testing.T) {
     cap_drop: [CAP_SYS_ADMIN]
 `,
 		},
+		{
+			name: "init job secret targets",
+			before: `services:
+  api:
+    image: alpine
+    x-init-deploy-jobs:
+      - name: prepare
+        image: alpine
+        secrets: [token, {source: key}, {source: cert, target: tls.crt}]
+`,
+			after: `services:
+  api:
+    image: alpine
+    x-init-deploy-jobs:
+      - name: prepare
+        image: alpine
+        secrets:
+          - {source: token, target: /run/secrets/token}
+          - {source: key, target: /run/secrets/key, uid: "0", gid: "0"}
+          - {source: cert, target: /run/secrets/tls.crt}
+`,
+		},
 	}
 
 	for _, testCase := range tests {
@@ -56,6 +79,84 @@ func TestCanonicalizeEquivalentCompose(t *testing.T) {
 			before := mustCanonicalCompose(t, testCase.before)
 			after := mustCanonicalCompose(t, testCase.after)
 			assert.Equal(t, before, after)
+		})
+	}
+}
+
+func TestCanonicalizeNormalizesProgrammaticCapabilities(t *testing.T) {
+	parsed, err := Parse([]byte(`services:
+  api: {image: alpine, cap_add: [NET_ADMIN], cap_drop: [SYS_ADMIN]}
+`))
+	require.NoError(t, err)
+	programmatic := *parsed
+	programmatic.Services = slices.Clone(parsed.Services)
+	programmatic.Services[0].CapAdd = Capabilities{"net_admin", "CAP_NET_ADMIN", "RESET"}
+	programmatic.Services[0].CapDrop = Capabilities{"sys_admin", "net_admin"}
+
+	expected, err := Canonicalize(*parsed)
+	require.NoError(t, err)
+	actual, err := Canonicalize(programmatic)
+	require.NoError(t, err)
+
+	assert.Equal(t, expected, actual)
+	assert.Equal(t, Capabilities{"net_admin", "CAP_NET_ADMIN", "RESET"}, programmatic.Services[0].CapAdd)
+	assert.Equal(t, Capabilities{"sys_admin", "net_admin"}, programmatic.Services[0].CapDrop)
+}
+
+// TestCanonicalizeInitJobObjectReferences pins the canonical form of Init Job references.
+// It follows InitJobRunner: a config without a target is attached without a file, and
+// a short-form config keeps the secret-style target assigned by the parser.
+func TestCanonicalizeInitJobObjectReferences(t *testing.T) {
+	tests := []struct {
+		name     string
+		field    string
+		refs     string
+		expected []any
+	}{
+		{
+			name:     "config without target",
+			field:    ConfigsField,
+			refs:     `[{source: app, uid: "1000", gid: "1000"}]`,
+			expected: []any{map[string]any{"source": "app"}},
+		},
+		{
+			name:     "config with target and default ownership",
+			field:    ConfigsField,
+			refs:     `[{source: app, target: /app, uid: "0", gid: "0"}]`,
+			expected: []any{map[string]any{"source": "app", "target": "/app"}},
+		},
+		{
+			name:     "short-form config",
+			field:    ConfigsField,
+			refs:     `[app]`,
+			expected: []any{map[string]any{"source": "app", "target": "/run/secrets/app"}},
+		},
+		{
+			name:  "secrets",
+			field: SecretsField,
+			refs:  `[token, {source: cert, target: tls.crt, uid: "1000"}]`,
+			expected: []any{
+				map[string]any{"source": "cert", "target": "/run/secrets/tls.crt", "uid": "1000"},
+				map[string]any{"source": "token", "target": "/run/secrets/token"},
+			},
+		},
+	}
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			canonical := mustCanonicalCompose(t, `services:
+  api:
+    image: alpine
+    x-init-deploy-jobs:
+      - name: prepare
+        image: alpine
+        `+testCase.field+`: `+testCase.refs+`
+`)
+			var tree map[string]any
+			require.NoError(t, json.Unmarshal(canonical, &tree))
+			service := tree["services"].([]any)[0].(map[string]any)
+			job := service["init_jobs"].([]any)[0].(map[string]any)
+			assert.Equal(t, testCase.expected, job[testCase.field])
 		})
 	}
 }

@@ -230,10 +230,10 @@ func publicChange(path string) Change {
 		case "services":
 			change.ResourceType, change.ResourceName = "service", parts[1]
 			change.Field = publicField(parts[2:])
-		case configsField:
+		case compose.ConfigsField:
 			change.ResourceType, change.ResourceName = "config", parts[1]
 			change.Field = publicField(parts[2:])
-		case secretsField:
+		case compose.SecretsField:
 			change.ResourceType, change.ResourceName = "secret", parts[1]
 			change.Field = publicField(parts[2:])
 		case "networks":
@@ -243,7 +243,7 @@ func publicChange(path string) Change {
 			change.ResourceType, change.ResourceName = "volume", parts[1]
 			change.Field = publicField(parts[2:])
 		case "resources":
-			if len(parts) >= contentPathParts && (parts[1] == configsField || parts[1] == secretsField) {
+			if len(parts) >= contentPathParts && (parts[1] == compose.ConfigsField || parts[1] == compose.SecretsField) {
 				change.ResourceType = strings.TrimSuffix(parts[1], "s")
 				change.ResourceName = parts[2]
 				change.Field = "content"

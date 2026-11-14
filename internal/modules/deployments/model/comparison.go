@@ -6,11 +6,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 )
 
-const (
-	ignoredOptionPathParts = 4
-	configsField           = "configs"
-	secretsField           = "secrets"
-)
+const ignoredOptionPathParts = 4
 
 func ignoredComparisonPath(path string) bool {
 	parts := strings.Split(path, "/")
@@ -21,8 +17,11 @@ func ignoredComparisonPath(path string) bool {
 			return true
 		}
 	}
-	if last > 1 && parts[last] == "short_form" && (parts[last-2] == secretsField || parts[last-2] == configsField) {
-		return true
+	if last > 1 && parts[last] == "short_form" {
+		switch parts[last-2] {
+		case compose.SecretsField, compose.ConfigsField:
+			return true
+		}
 	}
 	return len(parts) >= ignoredOptionPathParts && parts[0] == "services" && parts[2] == "Extra" &&
 		compose.IsSwarmIgnoredOption(parts[3])
