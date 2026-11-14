@@ -19,7 +19,7 @@ import (
 )
 
 func newTestSubscriber(store modelstore.Store) *Subscriber {
-	return NewSubscriber(store, newLifecycle(store, &dispatcher.NopDispatcher{}, noAlertRecipients), &config.Config{})
+	return newSubscriber(store, newLifecycle(store, &dispatcher.NopDispatcher{}, noAlertRecipients), &config.Config{})
 }
 
 func TestSubscriberDeploymentLifecycle(t *testing.T) {
@@ -199,3 +199,40 @@ type temporaryError struct{ message string }
 
 func (e temporaryError) Error() string   { return e.message }
 func (e temporaryError) Temporary() bool { return true }
+
+func TestSubscriberTemporaryFailureThresholdAndRecovery(t *testing.T) {
+	ctx := t.Context()
+	store := modelstore.NewSQLStore(testutil.OpenSQLite(t))
+	subscriber := newTestSubscriber(store)
+	stack := events.DeployEvent{StackName: "app"}
+	fingerprint := model.SyncFailedFingerprint(stack.StackName)
+	failure := &events.DeployFailed{DeployEvent: stack, Error: temporaryError{message: "registry unavailable"}}
+	success := &events.DeploySuccess{DeployEvent: stack}
+
+	for _, event := range []events.Envelope{
+		{ID: "partial-1", Event: failure},
+		{ID: "partial-2", Event: failure},
+		{ID: "partial-recovery", Event: success},
+		{ID: "failure-1", Event: failure},
+		{ID: "failure-2", Event: failure},
+	} {
+		require.NoError(t, subscriber.Handle(ctx, event))
+		_, err := store.FindOpenByFingerprint(ctx, fingerprint)
+		require.ErrorIs(t, err, modelstore.ErrAlertNotFound, event.ID)
+	}
+	require.NoError(t, subscriber.Handle(ctx, events.Envelope{ID: "failure-3", Event: failure}))
+	opened, err := store.FindOpenByFingerprint(ctx, fingerprint)
+	require.NoError(t, err)
+	assert.EqualValues(t, 3, opened.Occurrences)
+	assert.Equal(t, "failure-3", opened.OpenEventID)
+
+	require.NoError(t, subscriber.Handle(ctx, events.Envelope{ID: "failure-4", Event: failure}))
+	require.NoError(t, subscriber.Handle(ctx, events.Envelope{ID: "recovery", Event: success}))
+	resolved, err := store.Get(ctx, opened.ID)
+	require.NoError(t, err)
+	assert.Equal(t, model.AlertStatusResolved, resolved.Status)
+	assert.EqualValues(t, 4, resolved.Occurrences)
+	assert.Equal(t, "failure-4", resolved.LatestEventID)
+	require.NotNil(t, resolved.Resolution)
+	assert.Equal(t, "recovery", resolved.Resolution.EventID)
+}

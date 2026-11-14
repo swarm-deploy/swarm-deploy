@@ -44,9 +44,7 @@ func (e *ConfigurationEvaluator) Evaluate(ctx context.Context, event events.Enve
 	if err != nil {
 		return nil, fmt.Errorf("list open alerts for configuration reconciliation: %w", err)
 	}
-	actions := []model.AlertAction{{
-		Kind: model.ResetFailureStreaksExcept, KeepFailureStreaks: desiredFingerprints,
-	}}
+	actions := []model.AlertAction{model.NewResetFailureStreaksExceptAction(desiredFingerprints)}
 	for _, alert := range alerts {
 		stackName, relevant := alertStackName(alert)
 		if !relevant {
@@ -59,7 +57,9 @@ func (e *ConfigurationEvaluator) Evaluate(ctx context.Context, event events.Enve
 		if alert.Kind == model.AlertKindServiceDrift {
 			message = "Service removed with stack from desired configuration"
 		}
-		actions = append(actions, resolve(alert.Fingerprint, event.ID, model.ResolutionReasonResourceRemoved, message))
+		actions = append(actions, model.NewResolveAction(
+			alert.Fingerprint, event.ID, model.ResolutionReasonResourceRemoved, message,
+		))
 	}
 	return actions, nil
 }

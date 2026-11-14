@@ -31,20 +31,3 @@ func alertForFailure(ctx context.Context, store modelstore.Store, candidate mode
 	}
 	return alert, nil
 }
-
-func resetFailureStreak(fingerprint string) model.AlertAction {
-	return model.AlertAction{
-		Kind:  model.ResetFailureStreak,
-		Alert: model.Alert{Fingerprint: fingerprint},
-	}
-}
-
-func resolve(fingerprint, eventID string, reason model.ResolutionReason, message string) model.AlertAction {
-	return model.AlertAction{
-		Kind: model.Resolve,
-		Alert: model.Alert{
-			Fingerprint: fingerprint,
-			Resolution:  &model.AlertResolution{Reason: reason, Message: message, EventID: eventID},
-		},
-	}
-}

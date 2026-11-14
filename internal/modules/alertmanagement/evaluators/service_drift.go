@@ -28,10 +28,10 @@ func (e *ServiceDriftEvaluator) Evaluate(ctx context.Context, event events.Envel
 		return e.serviceDrift(ctx, event.ID, source.StackName, source.ServiceName, source.Commit, source.Reason,
 			source.Resolved)
 	case *events.ServiceDriftFixed:
-		return []model.AlertAction{resolve(model.ServiceDriftFingerprint(source.StackName, source.ServiceName),
+		return []model.AlertAction{model.NewResolveAction(model.ServiceDriftFingerprint(source.StackName, source.ServiceName),
 			event.ID, model.ResolutionReasonRecovered, "Service drift resolved")}, nil
 	case *events.ServiceRemovedFromDesired:
-		return []model.AlertAction{resolve(model.ServiceDriftFingerprint(source.StackName, source.ServiceName),
+		return []model.AlertAction{model.NewResolveAction(model.ServiceDriftFingerprint(source.StackName, source.ServiceName),
 			event.ID, model.ResolutionReasonResourceRemoved, "Service removed from desired configuration")}, nil
 	default:
 		return nil, nil
@@ -53,5 +53,5 @@ func (e *ServiceDriftEvaluator) serviceDrift(
 		return nil, err
 	}
 	alert.Message, alert.Commit, alert.LatestEventID = reason, commit, eventID
-	return []model.AlertAction{{Kind: model.RecordFailure, Alert: alert, OpenAfter: openImmediately}}, nil
+	return []model.AlertAction{model.NewRecordFailureAction(alert, openImmediately, false)}, nil
 }

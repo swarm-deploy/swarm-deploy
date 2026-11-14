@@ -148,6 +148,7 @@ func TestPreparationAndInterruptedFailuresShareDeploymentAlertLifecycle(t *testi
 	assert.Equal(t, model.AlertStatusOpen, alerts[0].Status)
 	assert.Equal(t, model.AlertKindSyncFailed, alerts[0].Kind)
 	assert.Equal(t, "sync_failed:stack:app", alerts[0].Fingerprint)
+	assert.Equal(t, "Synchronization outcome unknown", alerts[0].Title)
 	require.NoError(t, subscriber.Handle(ctx, events.Envelope{
 		ID: "success", OccurredAt: at.Add(3 * time.Second),
 		Event: &events.DeploySuccess{DeployEvent: events.DeployEvent{StackName: "app"}},
@@ -155,6 +156,30 @@ func TestPreparationAndInterruptedFailuresShareDeploymentAlertLifecycle(t *testi
 	alerts, err = repo.List(ctx, modelstore.ListFilter{})
 	require.NoError(t, err)
 	assert.Equal(t, model.AlertStatusResolved, alerts[0].Status)
+}
+
+func TestInterruptedAlertKeepsUnknownOutcomeAndResolvesOnSuccess(t *testing.T) {
+	ctx := t.Context()
+	_, store := openAlertStore(t)
+	subscriber := newTestSQLSubscriber(store)
+	at := time.Now().UTC()
+	require.NoError(t, subscriber.Handle(ctx, events.Envelope{
+		ID: "interrupted", OccurredAt: at,
+		Event: &events.DeployInterrupted{StackName: "app", Reason: "process_interrupted"},
+	}))
+	opened, err := store.FindOpenByFingerprint(ctx, model.SyncFailedFingerprint("app"))
+	require.NoError(t, err)
+	assert.Equal(t, "Synchronization outcome unknown", opened.Title)
+	assert.Equal(t, "Deployment outcome is unknown after interruption during an unknown stage. No detailed diagnostic was recorded.",
+		opened.Message)
+
+	require.NoError(t, subscriber.Handle(ctx, events.Envelope{
+		ID: "success", OccurredAt: at.Add(time.Second),
+		Event: &events.DeploySuccess{DeployEvent: events.DeployEvent{StackName: "app"}},
+	}))
+	resolved, err := store.Get(ctx, opened.ID)
+	require.NoError(t, err)
+	assert.Equal(t, model.AlertStatusResolved, resolved.Status)
 }
 
 func TestConfigurationChangedResolvesRemovedStackIdempotently(t *testing.T) {

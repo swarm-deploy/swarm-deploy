@@ -32,7 +32,7 @@ func TestSyncEvaluatorKeepsThresholdAcrossTemporaryFailures(t *testing.T) {
 		actions, err := evaluator.Evaluate(t.Context(), events.Envelope{ID: id, Event: event})
 		require.NoError(t, err)
 		require.Len(t, actions, 1)
-		assert.Equal(t, model.RecordFailure, actions[0].Kind)
+		assert.Equal(t, model.AlertActionRecordFailure, actions[0].Kind)
 		assert.EqualValues(t, 3, actions[0].OpenAfter)
 		assert.True(t, actions[0].TrackFailureStreak)
 		assert.Equal(t, model.SyncFailedFingerprint("app"), actions[0].Alert.Fingerprint)

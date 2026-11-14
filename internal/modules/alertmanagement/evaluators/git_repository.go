@@ -35,14 +35,12 @@ func (e *GitRepositoryEvaluator) Evaluate(ctx context.Context, event events.Enve
 			return nil, err
 		}
 		alert.Message, alert.ErrorCode, alert.LatestEventID = source.Description, string(source.Category), event.ID
-		return []model.AlertAction{{
-			Kind: model.RecordFailure, Alert: alert, OpenAfter: openAfter, TrackFailureStreak: true,
-		}}, nil
+		return []model.AlertAction{model.NewRecordFailureAction(alert, openAfter, true)}, nil
 	case *events.GitPullSucceeded:
 		fingerprint := model.GitRepositoryUnavailableFingerprint(source.Repository)
 		return []model.AlertAction{
-			resetFailureStreak(fingerprint),
-			resolve(fingerprint, event.ID, model.ResolutionReasonRecovered, "Git repository access recovered"),
+			model.NewResetFailureStreakAction(fingerprint),
+			model.NewResolveAction(fingerprint, event.ID, model.ResolutionReasonRecovered, "Git repository access recovered"),
 		}, nil
 	case *events.ConfigurationChanged:
 		if source.PreviousRepository == "" {
@@ -50,8 +48,9 @@ func (e *GitRepositoryEvaluator) Evaluate(ctx context.Context, event events.Enve
 		}
 		fingerprint := model.GitRepositoryUnavailableFingerprint(source.PreviousRepository)
 		return []model.AlertAction{
-			resetFailureStreak(fingerprint),
-			resolve(fingerprint, event.ID, model.ResolutionReasonResourceRemoved, "Git repository removed from configuration"),
+			model.NewResetFailureStreakAction(fingerprint),
+			model.NewResolveAction(fingerprint, event.ID,
+				model.ResolutionReasonResourceRemoved, "Git repository removed from configuration"),
 		}, nil
 	default:
 		return nil, nil

@@ -31,9 +31,9 @@ func (e *NodeEvaluator) Evaluate(ctx context.Context, event events.Envelope) ([]
 			return nil, err
 		}
 		alert.LatestEventID = event.ID
-		return []model.AlertAction{{Kind: model.RecordFailure, Alert: alert, OpenAfter: openImmediately}}, nil
+		return []model.AlertAction{model.NewRecordFailureAction(alert, openImmediately, false)}, nil
 	case *events.NodeConnected:
-		return []model.AlertAction{resolve(model.NodeDisconnectedFingerprint(source.NodeID),
+		return []model.AlertAction{model.NewResolveAction(model.NodeDisconnectedFingerprint(source.NodeID),
 			event.ID, model.ResolutionReasonRecovered, "Swarm node reconnected")}, nil
 	default:
 		return nil, nil

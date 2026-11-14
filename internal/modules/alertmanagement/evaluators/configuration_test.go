@@ -44,14 +44,9 @@ stacks:
 	actions, err := evaluator.Evaluate(ctx, events.Envelope{ID: "configuration", Event: &events.ConfigurationChanged{}})
 	require.NoError(t, err)
 	assert.Equal(t, []model.AlertAction{
-		{Kind: model.ResetFailureStreaksExcept, KeepFailureStreaks: []string{model.SyncFailedFingerprint("kept")}},
-		{Kind: model.Resolve, Alert: model.Alert{
-			Fingerprint: removed.Fingerprint,
-			Resolution: &model.AlertResolution{
-				Reason: model.ResolutionReasonResourceRemoved, Message: "Stack removed from desired configuration",
-				EventID: "configuration",
-			},
-		}},
+		model.NewResetFailureStreaksExceptAction([]string{model.SyncFailedFingerprint("kept")}),
+		model.NewResolveAction(removed.Fingerprint, "configuration",
+			model.ResolutionReasonResourceRemoved, "Stack removed from desired configuration"),
 	}, actions)
 	stillOpen, err := store.FindOpenByFingerprint(ctx, removed.Fingerprint)
 	require.NoError(t, err)

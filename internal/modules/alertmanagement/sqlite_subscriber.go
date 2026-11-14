@@ -24,7 +24,7 @@ func NewSQLSubscriber(
 	stacks config.StackProvider,
 ) *SQLSubscriber {
 	lifecycle := newLifecycle(store, publisher, recipients)
-	return &SQLSubscriber{Subscriber: NewSubscriber(store, lifecycle, stacks), store: store}
+	return &SQLSubscriber{Subscriber: newSubscriber(store, lifecycle, stacks), store: store}
 }
 
 // Handle applies each source publication once, even across retry and restart.

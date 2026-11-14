@@ -21,8 +21,7 @@ type Subscriber struct {
 	lifecycle     Lifecycle
 }
 
-// NewSubscriber wires alert evaluation and lifecycle application.
-func NewSubscriber(store modelstore.Store, lifecycle Lifecycle, stacks config.StackProvider) *Subscriber {
+func newSubscriber(store modelstore.Store, lifecycle Lifecycle, stacks config.StackProvider) *Subscriber {
 	return &Subscriber{
 		sync:          evaluators.NewSyncEvaluator(store, stacks),
 		gitRepository: evaluators.NewGitRepositoryEvaluator(store),

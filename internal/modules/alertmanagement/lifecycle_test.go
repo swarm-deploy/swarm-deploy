@@ -23,36 +23,33 @@ func TestLifecycleFailureThresholdAndPartialReset(t *testing.T) {
 		"test-alert-transitions", newTestSQLSubscriber(store)))
 	lifecycle := newLifecycle(store, bus, noAlertRecipients)
 	fingerprint := model.SyncFailedFingerprint("app")
-	failure := model.AlertAction{
-		Kind: model.RecordFailure, OpenAfter: 3, TrackFailureStreak: true,
-		Alert: model.Alert{Fingerprint: fingerprint, Kind: model.AlertKindSyncFailed,
-			ResourceType: model.ResourceTypeStack, ResourceID: "app"},
+	alert := model.Alert{
+		Fingerprint: fingerprint, Kind: model.AlertKindSyncFailed, ResourceType: model.ResourceTypeStack, ResourceID: "app",
 	}
-	for range 2 {
-		require.NoError(t, lifecycle.Apply(ctx, []model.AlertAction{failure}))
+	for i := range 2 {
+		alert.LatestEventID = fmt.Sprintf("partial-failure-%d", i+1)
+		require.NoError(t, lifecycle.Apply(ctx, []model.AlertAction{model.NewRecordFailureAction(alert, 3, true)}))
 	}
 	_, err := store.FindOpenByFingerprint(ctx, fingerprint)
 	require.ErrorIs(t, err, modelstore.ErrAlertNotFound)
 
 	// A recovery clears a partial streak even when there is no incident to resolve.
 	require.NoError(t, lifecycle.Apply(ctx, []model.AlertAction{
-		{Kind: model.ResetFailureStreak, Alert: model.Alert{Fingerprint: fingerprint}},
-		{Kind: model.Resolve, Alert: model.Alert{
-			Fingerprint: fingerprint, Resolution: &model.AlertResolution{Reason: model.ResolutionReasonRecovered},
-		}},
+		model.NewResetFailureStreakAction(fingerprint),
+		model.NewResolveAction(fingerprint, "partial-recovery", model.ResolutionReasonRecovered, "recovered"),
 	}))
 	assert.Zero(t, alertSignalCount(t, db, "AlertResolved"))
 
 	for i := range 3 {
-		failure.Alert.LatestEventID = fmt.Sprintf("failure-%d", i+1)
-		require.NoError(t, lifecycle.Apply(ctx, []model.AlertAction{failure}))
+		alert.LatestEventID = fmt.Sprintf("failure-%d", i+1)
+		require.NoError(t, lifecycle.Apply(ctx, []model.AlertAction{model.NewRecordFailureAction(alert, 3, true)}))
 		if i < 2 {
 			_, findErr := store.FindOpenByFingerprint(ctx, fingerprint)
 			require.ErrorIs(t, findErr, modelstore.ErrAlertNotFound)
 			assert.Zero(t, alertSignalCount(t, db, "AlertOpened"))
 		}
 	}
-	alert, err := store.FindOpenByFingerprint(ctx, fingerprint)
+	alert, err = store.FindOpenByFingerprint(ctx, fingerprint)
 	require.NoError(t, err)
 	assert.EqualValues(t, 3, alert.Occurrences)
 	assert.Equal(t, "failure-3", alert.OpenEventID)
@@ -70,24 +67,20 @@ func TestLifecycleUpdatesOpenIncidentAndAccumulatesDistinctFindings(t *testing.T
 	now := start
 	lifecycle.now = func() time.Time { return now }
 	fingerprint := model.SyncFailedFingerprint("app")
-	failure := model.AlertAction{Kind: model.RecordFailure, OpenAfter: 1, TrackFailureStreak: true,
-		Alert: model.Alert{
-			Fingerprint: fingerprint, Kind: model.AlertKindSyncFailed, ResourceType: model.ResourceTypeStack, ResourceID: "app",
-			Message: "useful detail", LatestEventID: "failure",
-		},
-		Findings: []model.Finding{{Code: faults.CodeImageNotFound, Summary: "No such image: api:1"}},
-	}
+	initialFinding := model.Finding{Code: faults.CodeImageNotFound, Summary: "No such image: api:1"}
+	failure := model.NewRecordFailureAction(model.Alert{
+		Fingerprint: fingerprint, Kind: model.AlertKindSyncFailed, ResourceType: model.ResourceTypeStack, ResourceID: "app",
+		Message: "useful detail", LatestEventID: "failure",
+	}, 1, true, initialFinding)
 	require.NoError(t, lifecycle.Apply(ctx, []model.AlertAction{failure}))
 	opened, err := store.FindOpenByFingerprint(ctx, fingerprint)
 	require.NoError(t, err)
 	assert.EqualValues(t, 1, opened.Occurrences)
 
 	now = start.Add(time.Minute)
-	failure.OpenAfter = 3
-	failure.Alert = opened
-	failure.Alert.DeploymentID = "new-deployment"
-	failure.Alert.LatestEventID = "repeat"
-	failure.Findings = append(failure.Findings,
+	repeat := opened
+	repeat.DeploymentID, repeat.LatestEventID = "new-deployment", "repeat"
+	failure = model.NewRecordFailureAction(repeat, 3, true, initialFinding,
 		model.Finding{Code: faults.CodeImageNotFound, Summary: "No such image: api:2"},
 		model.Finding{Code: faults.CodeImageNotFound},
 	)
@@ -111,9 +104,9 @@ func TestLifecycleUpdatesOpenIncidentAndAccumulatesDistinctFindings(t *testing.T
 
 	now = start.Add(2 * time.Minute)
 	resolution := model.AlertResolution{Reason: model.ResolutionReasonRecovered, Message: "recovered", EventID: "success"}
-	require.NoError(t, lifecycle.Apply(ctx, []model.AlertAction{{
-		Kind: model.Resolve, Alert: model.Alert{Fingerprint: fingerprint, Resolution: &resolution},
-	}}))
+	require.NoError(t, lifecycle.Apply(ctx, []model.AlertAction{
+		model.NewResolveAction(fingerprint, resolution.EventID, resolution.Reason, resolution.Message),
+	}))
 	resolved, err := store.Get(ctx, opened.ID)
 	require.NoError(t, err)
 	assert.Equal(t, model.AlertStatusResolved, resolved.Status)
@@ -132,12 +125,41 @@ func TestLifecycleSkipsStreaksForNodeAndDrift(t *testing.T) {
 		{Fingerprint: model.ServiceDriftFingerprint("app", "api"), Kind: model.AlertKindServiceDrift,
 			ResourceType: model.ResourceTypeService, ResourceID: "app/api", LatestEventID: "drift"},
 	} {
-		require.NoError(t, lifecycle.Apply(t.Context(), []model.AlertAction{{
-			Kind: model.RecordFailure, OpenAfter: 1, Alert: alert,
-		}}))
+		require.NoError(t, lifecycle.Apply(t.Context(), []model.AlertAction{model.NewRecordFailureAction(alert, 1, false)}))
 		opened, err := store.FindOpenByFingerprint(t.Context(), alert.Fingerprint)
 		require.NoError(t, err)
 		assert.EqualValues(t, 1, opened.Occurrences)
+	}
+	var streaks int
+	require.NoError(t, db.Get(t.Context(), &streaks, "SELECT count(*) FROM alert_failure_streaks"))
+	assert.Zero(t, streaks)
+}
+
+func TestLifecycleRejectsInvalidActions(t *testing.T) {
+	db, store := openAlertStore(t)
+	lifecycle := newLifecycle(store, &dispatcher.NopDispatcher{}, noAlertRecipients)
+	fingerprint := model.SyncFailedFingerprint("app")
+	for _, tc := range []struct {
+		name   string
+		action model.AlertAction
+		err    string
+	}{
+		{"threshold without streak", model.NewRecordFailureAction(
+			model.Alert{Fingerprint: fingerprint, LatestEventID: "failure"}, 3, false,
+		), "requires tracking the failure streak"},
+		{"failure without event ID", model.NewRecordFailureAction(
+			model.Alert{Fingerprint: fingerprint}, 1, true,
+		), "missing failure event ID"},
+		{"resolve without resolution", model.AlertAction{
+			Kind: model.AlertActionResolve, Alert: model.Alert{Fingerprint: fingerprint},
+		}, "missing resolution for alert"},
+		{"resolve without event ID", model.NewResolveAction(
+			fingerprint, "", model.ResolutionReasonRecovered, "recovered",
+		), "missing resolution event ID"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			require.ErrorContains(t, lifecycle.Apply(t.Context(), []model.AlertAction{tc.action}), tc.err)
+		})
 	}
 	var streaks int
 	require.NoError(t, db.Get(t.Context(), &streaks, "SELECT count(*) FROM alert_failure_streaks"))

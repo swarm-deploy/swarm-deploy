@@ -47,13 +47,20 @@ func (l *alertLifecycle) Apply(ctx context.Context, actions []model.AlertAction)
 
 func (l *alertLifecycle) apply(ctx context.Context, action model.AlertAction, now time.Time) error {
 	switch action.Kind {
-	case model.RecordFailure:
+	case model.AlertActionRecordFailure:
+		if action.Alert.LatestEventID == "" {
+			return fmt.Errorf("missing failure event ID for alert %q", action.Alert.Fingerprint)
+		}
+		if action.OpenAfter > 1 && !action.TrackFailureStreak {
+			return fmt.Errorf("opening threshold %d requires tracking the failure streak for alert %q",
+				action.OpenAfter, action.Alert.Fingerprint)
+		}
 		return l.recordFailure(ctx, action, now)
-	case model.Resolve:
+	case model.AlertActionResolve:
 		return l.resolve(ctx, action.Alert, now)
-	case model.ResetFailureStreak:
+	case model.AlertActionResetFailureStreak:
 		return l.store.ResetFailureStreak(ctx, action.Alert.Fingerprint)
-	case model.ResetFailureStreaksExcept:
+	case model.AlertActionResetFailureStreaksExcept:
 		return l.store.ResetFailureStreaksExcept(ctx, action.KeepFailureStreaks)
 	default:
 		return fmt.Errorf("unknown alert action %q", action.Kind)
@@ -75,7 +82,6 @@ func (l *alertLifecycle) recordFailure(ctx context.Context, action model.AlertAc
 	}
 
 	alert.UpdatedAt = now
-	alert.LatestEventID = l.eventReferenceID(alert.Kind, alert.LatestEventID)
 	appendFindings(&alert, action.Findings, now)
 	if alert.ID != "" {
 		alert.Occurrences++
@@ -111,6 +117,12 @@ func appendFindings(alert *model.Alert, findings []model.Finding, now time.Time)
 }
 
 func (l *alertLifecycle) resolve(ctx context.Context, incoming model.Alert, now time.Time) error {
+	if incoming.Resolution == nil {
+		return fmt.Errorf("missing resolution for alert %q", incoming.Fingerprint)
+	}
+	if incoming.Resolution.EventID == "" {
+		return fmt.Errorf("missing resolution event ID for alert %q", incoming.Fingerprint)
+	}
 	alert, err := l.store.FindOpenByFingerprint(ctx, incoming.Fingerprint)
 	if errors.Is(err, modelstore.ErrAlertNotFound) {
 		return nil
@@ -118,25 +130,13 @@ func (l *alertLifecycle) resolve(ctx context.Context, incoming model.Alert, now 
 	if err != nil {
 		return fmt.Errorf("find open alert %q: %w", incoming.Fingerprint, err)
 	}
-	if incoming.Resolution == nil {
-		return fmt.Errorf("missing resolution for alert %q", incoming.Fingerprint)
-	}
-	resolution := *incoming.Resolution
-	resolution.EventID = l.eventReferenceID(alert.Kind, resolution.EventID)
 	alert.Status = model.AlertStatusResolved
 	alert.UpdatedAt, alert.ResolvedAt = now, &now
-	alert.Resolution = &resolution
+	alert.Resolution = incoming.Resolution
 	if err = l.store.Update(ctx, alert); err != nil {
 		return fmt.Errorf("resolve alert %q: %w", alert.Fingerprint, err)
 	}
 	return l.publisher.Publish(ctx, &events.AlertResolved{
 		Alert: alertSnapshot(alert), Recipients: l.recipients(alert.Kind),
 	})
-}
-
-func (l *alertLifecycle) eventReferenceID(kind model.AlertKind, eventID string) string {
-	if eventID == "" && kind != model.AlertKindNodeDisconnected {
-		return l.newID()
-	}
-	return eventID
 }

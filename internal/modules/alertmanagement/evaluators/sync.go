@@ -13,7 +13,11 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
 )
 
-const interruptedTitle = "Synchronization outcome unknown"
+const (
+	syncFailureDiagnostic = "Synchronization failed during %s. No detailed diagnostic was recorded."
+	interruptedDiagnostic = "Deployment outcome is unknown after interruption during %s. " +
+		"No detailed diagnostic was recorded."
+)
 
 // SyncEvaluator evaluates failures and recoveries of stack synchronization.
 type SyncEvaluator struct {
@@ -40,23 +44,24 @@ func (e *SyncEvaluator) Evaluate(ctx context.Context, event events.Envelope) ([]
 			ResourceID: source.StackName, Title: "Synchronization failed",
 			FailureStage: source.Stage, ErrorCode: source.ErrorCode, DeploymentID: source.DeploymentID,
 			Commit: source.Commit, LatestEventID: event.ID,
-		}, source.Error, diagnostic)
+		}, source.Error, diagnostic, syncFailureDiagnostic)
 	case *events.DeployPreparationFailed:
 		return e.failure(ctx, model.Alert{
 			ResourceID: source.StackName, Title: "Synchronization failed",
 			FailureStage: source.Stage, ErrorCode: source.ErrorCode, Commit: source.Commit, LatestEventID: event.ID,
-		}, source.Error, source.Error)
+		}, source.Error, source.Error, syncFailureDiagnostic)
 	case *events.DeployInterrupted:
 		return e.failure(ctx, model.Alert{
-			ResourceID: source.StackName, Title: interruptedTitle,
+			ResourceID: source.StackName, Title: "Synchronization outcome unknown",
 			FailureStage: source.Stage, ErrorCode: source.Reason, DeploymentID: source.DeploymentID,
 			Commit: source.Commit, LatestEventID: event.ID,
-		}, source.Error, source.Error)
+		}, source.Error, source.Error, interruptedDiagnostic)
 	case *events.DeploySuccess:
 		fingerprint := model.SyncFailedFingerprint(source.StackName)
 		return []model.AlertAction{
-			resetFailureStreak(fingerprint),
-			resolve(fingerprint, event.ID, model.ResolutionReasonRecovered, "Synchronization completed successfully"),
+			model.NewResetFailureStreakAction(fingerprint),
+			model.NewResolveAction(fingerprint, event.ID,
+				model.ResolutionReasonRecovered, "Synchronization completed successfully"),
 		}, nil
 	default:
 		return nil, nil
@@ -64,11 +69,11 @@ func (e *SyncEvaluator) Evaluate(ctx context.Context, event events.Envelope) ([]
 }
 
 func (e *SyncEvaluator) failure(
-	ctx context.Context, incoming model.Alert, cause, diagnostic error,
+	ctx context.Context, incoming model.Alert, cause, diagnostic error, fallbackFormat string,
 ) ([]model.AlertAction, error) {
 	incoming.Fingerprint = model.SyncFailedFingerprint(incoming.ResourceID)
 	if e.stackRemoved(incoming.ResourceID) {
-		return []model.AlertAction{resetFailureStreak(incoming.Fingerprint)}, nil
+		return []model.AlertAction{model.NewResetFailureStreakAction(incoming.Fingerprint)}, nil
 	}
 
 	incoming.Kind = model.AlertKindSyncFailed
@@ -82,7 +87,11 @@ func (e *SyncEvaluator) failure(
 	if message := faults.SafeDiagnostic(diagnostic); message != "" && message != incoming.ErrorCode {
 		alert.Message = message
 	} else if alert.Message == "" {
-		alert.Message = missingDiagnosticMessage(incoming.Title, incoming.FailureStage)
+		stage := incoming.FailureStage
+		if stage == "" {
+			stage = "an unknown stage"
+		}
+		alert.Message = fmt.Sprintf(fallbackFormat, stage)
 	}
 
 	openAfter := openImmediately
@@ -90,22 +99,7 @@ func (e *SyncEvaluator) failure(
 	if errors.As(cause, &classified) && classified.Temporary() {
 		openAfter = temporaryFailureThreshold
 	}
-	return []model.AlertAction{{
-		Kind: model.RecordFailure, Alert: alert, OpenAfter: openAfter, TrackFailureStreak: true,
-		Findings: failureFindings(cause),
-	}}, nil
-}
-
-func missingDiagnosticMessage(title, stage string) string {
-	if stage == "" {
-		stage = "an unknown stage"
-	}
-	if title == interruptedTitle {
-		return fmt.Sprintf(
-			"Deployment outcome is unknown after interruption during %s. No detailed diagnostic was recorded.", stage,
-		)
-	}
-	return fmt.Sprintf("Synchronization failed during %s. No detailed diagnostic was recorded.", stage)
+	return []model.AlertAction{model.NewRecordFailureAction(alert, openAfter, true, failureFindings(cause)...)}, nil
 }
 
 func failureFindings(cause error) []model.Finding {
