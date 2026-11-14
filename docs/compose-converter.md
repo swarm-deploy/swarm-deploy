@@ -42,6 +42,16 @@ config/secret files, logging, replicated/global service and job modes, replicas,
 placement, CPU/memory limits and reservations, discrete generic reservations,
 PID limits, restart policies, and update and rollback policies.
 
+Capabilities are normalized when Compose is parsed and when persisted deployment
+snapshots are read, so older deployments are displayed in the same form: names are trimmed, upper-cased
+and ordinary names (`A-Z`, `0-9`, `_`) are stored without the `CAP_` prefix; any other
+value keeps the exact name Docker receives, so typos such as `CAP_CAP_SYS_ADMIN` are
+still rejected by Docker. `RESET` is discarded, `ALL` replaces the rest
+of its list, and a capability present in both `cap_add` and `cap_drop` is only added.
+Conversion restores the `CAP_` prefix expected by the Docker API. Definitions that
+spelled capabilities differently (for example `net_admin` or `CAP_NET_ADMIN`) get a
+new effective digest once, which starts a Deployment that applies no changes.
+
 Scalar commands are tokenized with the `google/shlex` package; they do not implicitly invoke a shell. Exec-form arguments retain their
 boundaries. Scalar healthcheck tests become `CMD-SHELL` tests.
 

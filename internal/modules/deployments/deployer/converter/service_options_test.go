@@ -5,6 +5,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/resources"
 )
 
@@ -37,6 +38,37 @@ func TestExtraHostsIPv6(t *testing.T) {
 				[]NetworkSpec{{Alias: "default", ID: "net"}}, resources.Resolved{})
 			require.NoError(t, err)
 			assert.Equal(t, []string{tc.want}, spec.TaskTemplate.ContainerSpec.Hosts)
+		})
+	}
+}
+
+func TestCapabilitiesUseDockerNames(t *testing.T) {
+	for _, tc := range []struct {
+		name              string
+		add, drop         []string
+		wantAdd, wantDrop []string
+	}{
+		{name: "empty"},
+		{name: "canonical compose names", add: []string{"NET_ADMIN", "SYS_PTRACE"},
+			wantAdd: []string{"CAP_NET_ADMIN", "CAP_SYS_PTRACE"}},
+		{name: "unparsed source names", add: []string{"cap_net_admin", "RESET"}, drop: []string{"net_admin", "mknod"},
+			wantAdd: []string{"CAP_NET_ADMIN"}, wantDrop: []string{"CAP_MKNOD"}},
+		{name: "all keeps its name", drop: []string{"all"}, wantDrop: []string{"ALL"}},
+		{name: "fully cancelled drop is nil", add: []string{"NET_ADMIN"}, drop: []string{"NET_ADMIN"},
+			wantAdd: []string{"CAP_NET_ADMIN"}},
+		{name: "typos stay invalid for docker", add: []string{"CAP_CAP_SYS_ADMIN", "cap_ sys_admin"},
+			wantAdd: []string{"CAP_ SYS_ADMIN", "CAP_CAP_SYS_ADMIN"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			add, drop := capabilities(tc.add, tc.drop)
+			assert.Equal(t, tc.wantAdd, add)
+			assert.Equal(t, tc.wantDrop, drop)
+
+			// Parsed Compose is already normalized; converting it again must not change the result.
+			parsedAdd, parsedDrop := compose.NormalizeCapabilities(tc.add, tc.drop)
+			add, drop = capabilities(parsedAdd, parsedDrop)
+			assert.Equal(t, tc.wantAdd, add)
+			assert.Equal(t, tc.wantDrop, drop)
 		})
 	}
 }
