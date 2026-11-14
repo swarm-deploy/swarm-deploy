@@ -110,6 +110,52 @@ func TestBuildInitServiceSpecUsesResolvedResourceIDs(t *testing.T) {
 	assert.Equal(t, "0", container.Secrets[0].File.GID)
 }
 
+func TestBuildInitServiceSpecMountsObjectReferencesWithInitJobDefaults(t *testing.T) {
+	parsed, err := compose.Parse([]byte(`services:
+  api:
+    image: alpine
+    secrets: [token, {source: cert, target: tls.crt}]
+    configs: [app, {source: plain, uid: "1000"}, {source: base, target: /etc/base.conf, mode: 0440}]
+    x-init-deploy-jobs:
+      - image: migrator
+        secrets: [{source: token, target: /run/secrets/token}, {source: cert, target: /run/secrets/tls.crt}, key]
+        configs: [{source: app, target: /run/secrets/app}]
+`))
+	require.NoError(t, err)
+	service := parsed.Services[0]
+	resolvedResources := func(names ...string) map[string]resources.ResolvedResource {
+		result := map[string]resources.ResolvedResource{}
+		for _, name := range names {
+			result[name] = resources.ResolvedResource{ID: name + "-id", Name: "demo_" + name}
+		}
+		return result
+	}
+	runner := &InitJobRunner{swarmService: &swarmclient.Swarm{}}
+
+	spec, err := runner.buildInitServiceSpec(context.Background(), InitJobSpec{
+		StackName: "demo", ServiceName: "api", Job: service.InitJobs[0],
+		ServiceSecrets: service.Secrets, ServiceConfigs: service.Configs,
+		ResolvedSecrets: resolvedResources("token", "cert", "key"),
+		ResolvedConfigs: resolvedResources("app", "plain", "base"),
+	}, "migrate")
+	require.NoError(t, err)
+
+	secret := func(name, target string) *swarm.SecretReference {
+		return &swarm.SecretReference{SecretID: name + "-id", SecretName: "demo_" + name,
+			File: &swarm.SecretReferenceFileTarget{Name: target, UID: "0", GID: "0", Mode: compose.DefaultObjectFileMode}}
+	}
+	assert.Equal(t, []*swarm.SecretReference{
+		secret("token", "/run/secrets/token"), secret("cert", "/run/secrets/tls.crt"), secret("key", "/run/secrets/key"),
+	}, spec.TaskTemplate.ContainerSpec.Secrets, "equivalent targets are mounted once")
+	assert.Equal(t, []*swarm.ConfigReference{
+		{ConfigID: "app-id", ConfigName: "demo_app", File: &swarm.ConfigReferenceFileTarget{
+			Name: "/run/secrets/app", UID: "0", GID: "0", Mode: compose.DefaultObjectFileMode}},
+		{ConfigID: "plain-id", ConfigName: "demo_plain"},
+		{ConfigID: "base-id", ConfigName: "demo_base", File: &swarm.ConfigReferenceFileTarget{
+			Name: "/etc/base.conf", UID: "0", GID: "0", Mode: 0o440}},
+	}, spec.TaskTemplate.ContainerSpec.Configs, "a short-form config keeps its parsed target; a config without target has no file")
+}
+
 func TestInitJobRunnerCollectsLogsWithoutChangingOutcomeAndCleansUp(t *testing.T) {
 	largeOutput := append(bytes.Repeat([]byte("x"), initJobLogLimit), []byte("last")...)
 	for _, testCase := range []struct {

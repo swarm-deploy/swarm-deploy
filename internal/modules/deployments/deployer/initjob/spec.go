@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
@@ -82,7 +81,11 @@ func (r *InitJobRunner) addInitJobObjects(
 	spec Spec,
 	containerSpec *dockerswarm.ContainerSpec,
 ) error {
-	for _, secret := range mergeObjectRefs(spec.ServiceSecrets, spec.Job.Secrets) {
+	// Service references are mounted with Init Job defaults; resolve them before
+	// deduplication so equivalent spellings of one file are attached once.
+	secrets := mergeObjectRefs(resolveObjectRefs(spec.ServiceSecrets, compose.ObjectRef.InitJobSecret),
+		resolveObjectRefs(spec.Job.Secrets, compose.ObjectRef.InitJobSecret))
+	for _, secret := range secrets {
 		ref := resolvedSecretReference(secret, spec.ResolvedSecrets)
 		if ref == nil {
 			var err error
@@ -93,7 +96,9 @@ func (r *InitJobRunner) addInitJobObjects(
 		}
 		containerSpec.Secrets = append(containerSpec.Secrets, ref)
 	}
-	for _, cfg := range mergeObjectRefs(spec.ServiceConfigs, spec.Job.Configs) {
+	configs := mergeObjectRefs(resolveObjectRefs(spec.ServiceConfigs, compose.ObjectRef.InitJobConfig),
+		resolveObjectRefs(spec.Job.Configs, compose.ObjectRef.InitJobConfig))
+	for _, cfg := range configs {
 		ref := resolvedConfigReference(cfg, spec.ResolvedConfigs)
 		if ref == nil {
 			var err error
@@ -117,6 +122,18 @@ func networkAliases(networks *compose.ServiceNetworks) []string {
 	return networks.GetNames()
 }
 
+// resolveObjectRefs resolves references with compose.ObjectRef.InitJobSecret or InitJobConfig.
+func resolveObjectRefs(
+	refs []compose.ObjectRef, resolve func(compose.ObjectRef) compose.ObjectRef,
+) []compose.ObjectRef {
+	result := make([]compose.ObjectRef, len(refs))
+	for i, ref := range refs {
+		result[i] = resolve(ref)
+	}
+	return result
+}
+
+// resolvedSecretReference mounts a secret resolved with compose.ObjectRef.InitJobSecret.
 func resolvedSecretReference(
 	object compose.ObjectRef,
 	resolved map[string]resources.ResolvedResource,
@@ -125,15 +142,12 @@ func resolvedSecretReference(
 	if !ok {
 		return nil
 	}
-	target := object.Target
-	if target == "" {
-		target = "/run/secrets/" + object.Source
-	}
-	uid, gid := objectOwner(object)
+	uid, gid, mode := object.FileOwnership()
 	return &dockerswarm.SecretReference{SecretID: resource.ID, SecretName: resource.Name,
-		File: &dockerswarm.SecretReferenceFileTarget{Name: target, UID: uid, GID: gid, Mode: objectMode(object.Mode)}}
+		File: &dockerswarm.SecretReferenceFileTarget{Name: object.Target, UID: uid, GID: gid, Mode: mode}}
 }
 
+// resolvedConfigReference mounts a config resolved with compose.ObjectRef.InitJobConfig.
 func resolvedConfigReference(
 	object compose.ObjectRef,
 	resolved map[string]resources.ResolvedResource,
@@ -144,30 +158,10 @@ func resolvedConfigReference(
 	}
 	ref := &dockerswarm.ConfigReference{ConfigID: resource.ID, ConfigName: resource.Name}
 	if object.Target != "" {
-		uid, gid := objectOwner(object)
-		ref.File = &dockerswarm.ConfigReferenceFileTarget{
-			Name: object.Target, UID: uid, GID: gid, Mode: objectMode(object.Mode),
-		}
+		uid, gid, mode := object.FileOwnership()
+		ref.File = &dockerswarm.ConfigReferenceFileTarget{Name: object.Target, UID: uid, GID: gid, Mode: mode}
 	}
 	return ref
-}
-
-func objectMode(mode *os.FileMode) os.FileMode {
-	if mode == nil {
-		return initJobObjectFileMode
-	}
-	return *mode
-}
-
-func objectOwner(object compose.ObjectRef) (string, string) {
-	uid, gid := object.Uid, object.Gid
-	if uid == "" {
-		uid = "0"
-	}
-	if gid == "" {
-		gid = "0"
-	}
-	return uid, gid
 }
 
 func (r *InitJobRunner) resolveNetworkTarget(ctx context.Context, stackName, network string) (string, error) {
