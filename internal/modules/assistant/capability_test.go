@@ -11,6 +11,7 @@ func TestOperationalToolCapabilitiesAndDefaultRoutes(t *testing.T) {
 	serviceRuntimeProfile, ok := capabilityProfile(CapabilityServiceRuntime)
 	require.True(t, ok)
 	assert.Contains(t, serviceRuntimeProfile.Tools, "service_task_list")
+	assert.Contains(t, serviceRuntimeProfile.Tools, "service_health_get")
 
 	deploymentProfile, ok := capabilityProfile(CapabilityDeploymentHistory)
 	require.True(t, ok)

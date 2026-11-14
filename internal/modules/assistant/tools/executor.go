@@ -71,6 +71,9 @@ func NewExecutor(
 		NewListServiceTasks(swarmService.Services),
 		NewGetTaskLogs(taskLogs),
 		NewGetServiceSpec(swarmService.Services),
+		NewServiceHealthGet(
+			swarmService.Services, resourcesModule.NodeStore, alertModule.Store, gitopsModule.Deployments,
+		),
 		NewDNSNameResolve(),
 		NewPingWebRoutes(resourcesModule.ServiceStore),
 		NewGetDependencyGraph(resourcesModule.ServiceStore),

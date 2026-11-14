@@ -92,6 +92,17 @@ Completed user/assistant turns are persisted in the `assistant_chats` and `assis
   - requires `stack_name` and `service_name`; `limit` defaults to `20` and is capped at `100`; use `next_offset` as `offset` to access older tasks
   - each task contains `id`, `node`, `state`, `error`, `created_at`, and `updated_at`; terminal states such as `failed`, `rejected`, and `shutdown` are retained
   - use the returned task `id` with `service_task_logs_get`
+- `service_health_get` - returns a deterministic health snapshot of one stack service and is the entry point for service diagnostics
+  - requires `stack_name` and `service_name`
+  - `status` is `healthy`, `degraded`, `failing`, or `unknown`; it is derived from the most severe flag and is `unknown` whenever live Swarm state could not be read
+  - `flags` contain `code`, `severity` (`critical`, `warning`, `info`), `phase` (`transient` or `active`), optional `reason`, `since`, tool-computed `since_ago`, `expected_ready_by`, `evidence`, and `refs` (`task_id`, `deployment_id`, `alert_id`) for follow-up tools
+  - flag codes: `no_running_tasks`, `replicas_below_desired`, `no_eligible_nodes`, `scaled_to_zero`, `restart_loop`, `update_rollback_completed`, `update_paused`, `update_in_progress`, `last_deploy_failed`, `deploy_in_progress`, `convergence_unverified`, `drift_detected`, `open_alert`, and `service_not_found`
+  - task deficit reasons reuse `faults` codes when Docker reported a typed cause (`no_suitable_node`, `image_not_found`, `image_pull_denied`, `mount_failed`, `image_extraction_failed`) and otherwise use `node_unavailable`, `healthcheck_failing`, `crash_loop`, `task_failed`, `starting`, `no_tasks`, or `unknown`
+  - relevance follows the current service revision instead of a time window: only open alerts, only the latest deployment containing the service (plus the last succeeded one when the latest failed or was interrupted), and only failures of tasks created from the current task template; the one recency check is `restart_loop`, which requires a failure within the last 10 minutes
+  - stack-level alerts are included when their `deployment_id` belongs to a deployment containing the service (`linked: true`), or when they have no deployment, such as preparation failures (`linked: false`)
+  - a startup grace period of `max(UpdateConfig.Monitor, Healthcheck.StartPeriod, 30s)` starts at the latest service update; within it, flags without hard failure evidence have `phase: transient` and at most `warning` severity
+  - running tasks on nodes that are not `ready` are not counted as running; `sources` reports `ok`, `unavailable`, or `skipped` for `swarm`, `nodes`, `alerts`, and `deployments`, and an unavailable optional source does not fail the call
+  - text fields are bounded and remain untrusted data
 - `service_task_logs_get` - returns bounded logs for a Docker task, with optional shared JSON/logfmt parsing, normalized level filters, and time bounds
 - `service_replicas_set` - updates desired replicas count for a specific stack service
 - `service_restart_trigger` - restarts service by scaling replicas to `0` and restoring previous count

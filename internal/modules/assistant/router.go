@@ -177,7 +177,7 @@ Routes:
 - lookups: focused DNS, registry, external release, date/time, or application metrics lookup
 Capabilities:
 - service_context: retrieve service.store metadata with service name, stack, image, description, type, and web routes
-- service_runtime: read-only service logs, specs, web-route ping, or dependencies
+- service_runtime: read-only service health snapshot (tasks, open alerts, latest deployment), logs, specs, web-route ping, or dependencies
 - service_operations: mutating service restart or replica changes
 - cluster: nodes, Docker networks, plugins, and secrets
 - deployment_history: desired-state deployments with nested attempts, user-facing event history, recommendations, git history, and commit diffs
