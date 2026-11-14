@@ -120,8 +120,9 @@ Path: `internal/modules/alertmanagement`.
 
 ### Dependencies and Interactions
 
-- `module.go` registers Event subscribers. `subscriber.go` uses alert repository contracts, a publisher, and `config.StackProvider`; wiring supplies ConfigStore and notification recipient configuration.
-- `sqlite_subscriber.go` orders/deduplicates projections through `modelstore.SQLStore`. `AlertOpened`/`AlertResolved` snapshots feed Notifications; API and assistant query the alert store.
+- `module.go` registers the Event subscription. `SQLSubscriber` orders and deduplicates source events through the alert store's `ConsumeLatest`.
+- `Subscriber` routes each accepted event to an evaluator and applies its ordered actions through `Lifecycle` in the same transaction. Evaluators own domain rules and can read configuration and the alert store.
+- `Lifecycle` uses `modelstore.Store` to maintain streaks, occurrences, incident state, and Findings. It selects recipients and publishes `AlertOpened` and `AlertResolved` snapshots for Notifications. The API and Assistant query the same alert store.
 
 ### Architectural Invariants
 

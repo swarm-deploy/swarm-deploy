@@ -11,19 +11,20 @@ import (
 
 // SQLSubscriber joins source deduplication and the alert lifecycle in one transaction.
 type SQLSubscriber struct {
-	// Subscriber implements the alert lifecycle using the shared repository.
+	// Subscriber evaluates source events and applies their alert actions.
 	*Subscriber
 	store *modelstore.SQLStore
 }
 
 // NewSQLSubscriber constructs the durable alert projection.
-func NewSQLSubscriber(store *modelstore.SQLStore, publisher interface {
-	Publish(context.Context, events.Event) error
-},
+func NewSQLSubscriber(
+	store *modelstore.SQLStore,
+	publisher Publisher,
 	recipients func(model.AlertKind) []events.AlertRecipient,
 	stacks config.StackProvider,
 ) *SQLSubscriber {
-	return &SQLSubscriber{Subscriber: NewSubscriber(store, publisher, recipients, stacks), store: store}
+	lifecycle := newLifecycle(store, publisher, recipients)
+	return &SQLSubscriber{Subscriber: newSubscriber(store, lifecycle, stacks), store: store}
 }
 
 // Handle applies each source publication once, even across retry and restart.

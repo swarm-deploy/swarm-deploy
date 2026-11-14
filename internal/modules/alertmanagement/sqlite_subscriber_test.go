@@ -25,7 +25,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/outbox"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
 	"github.com/swarm-deploy/swarm-deploy/internal/storage"
-	"github.com/swarm-deploy/swarm-deploy/internal/testutil"
+	"go.uber.org/mock/gomock"
 )
 
 func newTestSQLSubscriber(store *modelstore.SQLStore) *SQLSubscriber {
@@ -71,9 +71,10 @@ func TestSQLSubscriberIdempotenceAndRollback(t *testing.T) {
 	require.Len(t, alerts, 1)
 	assert.Equal(t, model.AlertStatusResolved, alerts[0].Status)
 }
+
 func TestSQLSubscriberAccumulatesTypedFindingsUntilResolution(t *testing.T) {
 	ctx := t.Context()
-	repo := modelstore.NewSQLStore(testutil.OpenSQLite(t))
+	_, repo := openAlertStore(t)
 	subscriber := newTestSQLSubscriber(repo)
 	start := time.Date(2026, time.November, 7, 10, 0, 0, 0, time.UTC)
 	stack := events.DeployEvent{StackName: "app"}
@@ -89,6 +90,8 @@ func TestSQLSubscriberAccumulatesTypedFindingsUntilResolution(t *testing.T) {
 		{Code: faults.CodeImageNotFound, Summary: "No such image: api:2", DetectedAt: start.Add(3 * time.Minute)},
 		{Code: faults.CodeImageNotFound, Summary: "", DetectedAt: start.Add(4 * time.Minute)},
 	}
+	now := start
+	subscriber.lifecycle.(*alertLifecycle).now = func() time.Time { return now }
 	var alertID string
 	for i, step := range []struct {
 		event events.Event
@@ -103,8 +106,7 @@ func TestSQLSubscriberAccumulatesTypedFindingsUntilResolution(t *testing.T) {
 			Error: faults.NewSafeError("preparation diagnostic", false, faults.CodeImageNotFound, "")}, count: 3},
 		{event: &events.DeploySuccess{DeployEvent: stack}, count: 3},
 	} {
-		now := start.Add(time.Duration(i) * time.Minute)
-		subscriber.now = func() time.Time { return now }
+		now = start.Add(time.Duration(i) * time.Minute)
 		require.NoError(t, subscriber.Handle(ctx, events.Envelope{
 			ID: fmt.Sprintf("event-%d", i), OccurredAt: now, Event: step.event,
 		}))
@@ -146,6 +148,9 @@ func TestNodeAlertRecoveryIgnoresDelayedFailure(t *testing.T) {
 	assert.Equal(t, model.ResourceTypeNode, alerts[0].ResourceType)
 	assert.Equal(t, model.AlertStatusResolved, alerts[0].Status)
 	assert.EqualValues(t, 1, alerts[0].Occurrences)
+	var streaks int
+	require.NoError(t, db.Get(ctx, &streaks, "SELECT count(*) FROM alert_failure_streaks"))
+	assert.Zero(t, streaks)
 }
 
 func TestServiceDriftAlertRecoveryIgnoresRetriesAndDelayedDetection(t *testing.T) {
@@ -173,6 +178,9 @@ func TestServiceDriftAlertRecoveryIgnoresRetriesAndDelayedDetection(t *testing.T
 	require.Len(t, alerts, 1)
 	assert.Equal(t, model.AlertStatusResolved, alerts[0].Status)
 	assert.Equal(t, uint64(1), alerts[0].Occurrences)
+	var streaks int
+	require.NoError(t, db.Get(ctx, &streaks, "SELECT count(*) FROM alert_failure_streaks"))
+	assert.Zero(t, streaks)
 }
 
 func TestPreparationAndInterruptedFailuresShareDeploymentAlertLifecycle(t *testing.T) {
@@ -197,6 +205,7 @@ func TestPreparationAndInterruptedFailuresShareDeploymentAlertLifecycle(t *testi
 	assert.Equal(t, model.AlertStatusOpen, alerts[0].Status)
 	assert.Equal(t, model.AlertKindSyncFailed, alerts[0].Kind)
 	assert.Equal(t, "sync_failed:stack:app", alerts[0].Fingerprint)
+	assert.Equal(t, "Synchronization outcome unknown", alerts[0].Title)
 	require.NoError(t, subscriber.Handle(ctx, events.Envelope{
 		ID: "success", OccurredAt: at.Add(3 * time.Second),
 		Event: &events.DeploySuccess{DeployEvent: events.DeployEvent{StackName: "app"}},
@@ -204,6 +213,30 @@ func TestPreparationAndInterruptedFailuresShareDeploymentAlertLifecycle(t *testi
 	alerts, err = repo.List(ctx, modelstore.ListFilter{})
 	require.NoError(t, err)
 	assert.Equal(t, model.AlertStatusResolved, alerts[0].Status)
+}
+
+func TestInterruptedAlertKeepsUnknownOutcomeAndResolvesOnSuccess(t *testing.T) {
+	ctx := t.Context()
+	_, store := openAlertStore(t)
+	subscriber := newTestSQLSubscriber(store)
+	at := time.Now().UTC()
+	require.NoError(t, subscriber.Handle(ctx, events.Envelope{
+		ID: "interrupted", OccurredAt: at,
+		Event: &events.DeployInterrupted{StackName: "app", Reason: "process_interrupted"},
+	}))
+	opened, err := store.FindOpenByFingerprint(ctx, model.SyncFailedFingerprint("app"))
+	require.NoError(t, err)
+	assert.Equal(t, "Synchronization outcome unknown", opened.Title)
+	assert.Equal(t, "Deployment outcome is unknown after interruption during an unknown stage. No detailed diagnostic was recorded.",
+		opened.Message)
+
+	require.NoError(t, subscriber.Handle(ctx, events.Envelope{
+		ID: "success", OccurredAt: at.Add(time.Second),
+		Event: &events.DeploySuccess{DeployEvent: events.DeployEvent{StackName: "app"}},
+	}))
+	resolved, err := store.Get(ctx, opened.ID)
+	require.NoError(t, err)
+	assert.Equal(t, model.AlertStatusResolved, resolved.Status)
 }
 
 func TestConfigurationChangedResolvesRemovedStackIdempotently(t *testing.T) {
@@ -783,4 +816,44 @@ func TestConvergenceFailureSkippedTicksDoNotIncreaseOccurrencesAndRecoveryResolv
 	assert.Equal(t, model.AlertStatusResolved, alerts[0].Status)
 	assert.EqualValues(t, 2, alerts[0].Occurrences)
 	require.NoError(t, db.Close())
+}
+
+func TestSQLSubscriberRollsBackAllConfigurationActionsOnPublicationFailure(t *testing.T) {
+	ctx := t.Context()
+	db, store := openAlertStore(t)
+	cfg := &config.Config{}
+	for _, stack := range []string{"first", "second"} {
+		seedOpenStackAlert(t, store, cfg, stack)
+	}
+	partial := model.SyncFailedFingerprint("partial")
+	_, err := store.IncrementFailureStreak(ctx, partial)
+	require.NoError(t, err)
+
+	bus := dispatcher.NewOutboxDispatcher(outbox.New(db))
+	publisher := dispatcher.NewMockDispatcher(gomock.NewController(t))
+	gomock.InOrder(
+		publisher.EXPECT().Publish(gomock.Any(), gomock.Any()).DoAndReturn(bus.Publish),
+		publisher.EXPECT().Publish(gomock.Any(), gomock.Any()).Return(assert.AnError),
+	)
+	subscriber := NewSQLSubscriber(store, publisher, noAlertRecipients, cfg)
+	require.NoError(t, bus.Subscribe(events.TypeNameAlertResolved, "test-alert-resolved", subscriber))
+	event := events.Envelope{ID: "remove-stacks", OccurredAt: time.Now(), Event: &events.ConfigurationChanged{}}
+
+	require.ErrorIs(t, subscriber.Handle(ctx, event), assert.AnError)
+	assert.Equal(t, 0, alertSignalCount(t, db, "AlertResolved"))
+	assertAlertStatus(t, store, "first", model.AlertStatusOpen)
+	assertAlertStatus(t, store, "second", model.AlertStatusOpen)
+	var streaks int
+	require.NoError(t, db.Get(ctx, &streaks, "SELECT count(*) FROM alert_failure_streaks"))
+	assert.Equal(t, 3, streaks)
+
+	// The same envelope must still be eligible after the failed transaction.
+	retry := NewSQLSubscriber(store, bus, noAlertRecipients, cfg)
+	require.NoError(t, retry.Handle(ctx, event))
+	require.NoError(t, retry.Handle(ctx, event))
+	assert.Equal(t, 2, alertSignalCount(t, db, "AlertResolved"))
+	assertAlertStatus(t, store, "first", model.AlertStatusResolved)
+	assertAlertStatus(t, store, "second", model.AlertStatusResolved)
+	require.NoError(t, db.Get(ctx, &streaks, "SELECT count(*) FROM alert_failure_streaks"))
+	assert.Zero(t, streaks)
 }
