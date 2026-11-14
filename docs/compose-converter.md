@@ -91,9 +91,9 @@ are `/<alias>`; short-form and target-less secrets use the alias, which Docker
 mounts under its secret directory. These rules and Docker's defaults are defined
 once on `compose.ObjectRef` (`ServiceConfig`, `ServiceSecret`, `InitJobConfig`,
 `InitJobSecret`, `FileOwnership`) and shared by conversion, InitJobRunner and the
-effective digest. Service references keep their source syntax after loading,
-including across JSON serialization, because Init Jobs also mount the service's
-references and resolve short-form and target-less configs differently.
+effective digest. References are resolved while Compose is loaded, so the short
+form is only Compose syntax: loaded definitions and snapshots contain explicit
+targets.
 
 Init Jobs are excluded from application service conversion. Their declared
 networks are included and undefined dependencies are rejected. InitJobRunner
@@ -104,9 +104,18 @@ way InitJobRunner applies them, not with application service defaults. A config
 without a target is attached without a file, so its UID, GID and mode are
 ignored; a short-form config keeps the parser's `/run/secrets/<alias>` target.
 Secret targets resolve to `/run/secrets/<source>` when empty and under
-`/run/secrets/` when relative. InitJobRunner resolves the service references it
-mounts in a job with the same rules before removing duplicates, so equivalent
-spellings of one file are attached once. Earlier releases compared Init Job configs with
+`/run/secrets/` when relative.
+
+Init Jobs also mount the config and secret references of their service. These
+inherited references are mounted where the service mounts them: a short-form or
+target-less service config at `/<alias>` with the service's UID, GID and mode.
+Earlier releases applied the Init Job rules to them, mounting a short-form service
+config at `/run/secrets/<alias>` and a target-less one without a file. Inherited
+and job references are resolved before duplicates are removed, so equivalent
+spellings of one file are attached once. The effective digest contains only the
+Init Job's own references, so this change does not start Deployments.
+
+Earlier releases compared Init Job configs with
 application defaults (`/<alias>`), and they also ignored user environment
 variables, labels and resource names that matched internal model fields such as
 `Keys`, `env_file` or `Map`. Stacks with such definitions get a new effective
@@ -116,7 +125,10 @@ The effective digest (`compose.Canonicalize`) applies the same typed normalizati
 to definitions built in code and sorts order-insensitive lists (ports, mounts,
 networks, config and secret references, capabilities) by their JSON encoding with
 sorted keys; Init Jobs keep their order. Parser metadata, such as the source order
-of environment variables or the indexes of mounts and networks, is not serialized.
+of environment variables, the indexes of mounts and networks, or the form of a
+command already converted to exec form, is not serialized. The digest keeps the
+command encoding of earlier releases (`{"Args": [...], "IsList": true}`) so
+existing baselines stay valid; deployment snapshots use the current encoding.
 
 Map-derived collections and service/network results have deterministic ordering.
 Conversion never mutates its input or shares mutable input maps, slices or
