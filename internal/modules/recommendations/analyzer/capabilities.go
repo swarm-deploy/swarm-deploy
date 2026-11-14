@@ -56,6 +56,7 @@ func (a *ServiceCapabilitiesAnalyzer) analyze(service compose.Service) []model.R
 		if normalized == "ALL" {
 			hasAll = true
 		}
+		normalized = strings.TrimPrefix(normalized, "CAP_")
 		if _, ok := highRiskCapabilities[normalized]; ok {
 			hasHighRisk = true
 		}

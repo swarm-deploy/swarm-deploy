@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"maps"
 	"slices"
-	"strings"
 
 	dockerswarm "github.com/docker/docker/api/types/swarm"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
@@ -35,7 +34,7 @@ func convertService(
 	if err != nil {
 		return spec, fmt.Errorf("entrypoint: invalid quoting")
 	}
-	container.CapabilityAdd, container.CapabilityDrop = capabilities(service.CapAdd, service.CapDrop)
+	container.CapabilityAdd, container.CapabilityDrop = compose.NormalizeCapabilities(service.CapAdd, service.CapDrop)
 	for _, key := range sortedKeys(service.Environment.Map) {
 		value := key + "=" + service.Environment.Map[key]
 		if slices.Contains(service.Environment.Unset, key) {
@@ -80,31 +79,6 @@ func convertService(
 
 func commandWords(command compose.Command) ([]string, error) {
 	return command.Words()
-}
-
-func capabilities(add, drop []string) ([]string, []string) {
-	added, dropped := normalizeCapabilities(add), normalizeCapabilities(drop)
-	dropped = slices.DeleteFunc(dropped, func(value string) bool { return slices.Contains(added, value) })
-	return added, dropped
-}
-
-func normalizeCapabilities(values []string) []string {
-	var result []string
-	for _, value := range values {
-		value = strings.ToUpper(strings.TrimSpace(value))
-		if value == "RESET" {
-			continue
-		}
-		if value == "ALL" {
-			return []string{"ALL"}
-		}
-		if !strings.HasPrefix(value, "CAP_") {
-			value = "CAP_" + value
-		}
-		result = append(result, value)
-	}
-	slices.Sort(result)
-	return slices.Compact(result)
 }
 
 func endpoint(service compose.Service) (*dockerswarm.EndpointSpec, error) {
