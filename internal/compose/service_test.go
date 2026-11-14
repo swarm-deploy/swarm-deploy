@@ -102,3 +102,40 @@ func TestServicesRejectInvalidQuotingOnDecode(t *testing.T) {
 		})
 	}
 }
+
+func TestParserMetadataIsNotSerialized(t *testing.T) {
+	t.Parallel()
+
+	environment, err := NewEnvironment([]string{"Keys=user", "B=2"})
+	require.NoError(t, err)
+	volume := &ServiceVolume{Type: ServiceVolumeTypeVolume, Source: "data", Target: "/data"}
+	tests := []struct {
+		name     string
+		value    any
+		expected string
+	}{
+		{name: "environment", value: *environment, expected: `{"Map":{"B":"2","Keys":"user"}}`},
+		{
+			name:  "volumes",
+			value: ServiceVolumes{Volumes: []*ServiceVolume{volume}, Map: map[string]*ServiceVolume{"/data": volume}},
+			expected: `{"Volumes":[{"Type":"volume","Source":"data","Target":"/data","Consistency":"",` +
+				`"ReadOnly":false,"Bind":null,"Volume":null,"Tmpfs":null}]}`,
+		},
+		{
+			name:     "networks",
+			value:    NewServiceNetworks(&ServiceNetwork{Alias: "backend", ResolvedName: "stack_backend"}),
+			expected: `{"List":[{"Alias":"backend","ResolvedName":"stack_backend"}]}`,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			payload, err := json.Marshal(tc.value, jsonv1.DefaultOptionsV1())
+
+			require.NoError(t, err)
+			assert.JSONEq(t, tc.expected, string(payload))
+		})
+	}
+}
