@@ -112,7 +112,8 @@ func TestProjectionSuccessRestoresServicesAndSourceDigest(t *testing.T) {
 		state.Stacks["app"] = gitopsmodel.Stack{
 			LastError: "apply_failed",
 			Services: map[string]gitopsmodel.Service{"api": {
-				Image: "api:1", SyncStatus: gitopsmodel.SyncStatusOutOfSync, SyncError: "apply_failed",
+				Image: "api:1", DesiredDigest: "desired-digest", DesiredCommit: "desired-commit",
+				SyncStatus: gitopsmodel.SyncStatusOutOfSync, SyncError: "apply_failed",
 			}},
 		}
 	}))
@@ -128,4 +129,34 @@ func TestProjectionSuccessRestoresServicesAndSourceDigest(t *testing.T) {
 	assert.Empty(t, stack.LastError)
 	assert.Equal(t, gitopsmodel.SyncStatus(gitopsmodel.SyncStatusSynced), stack.Services["api"].SyncStatus)
 	assert.Empty(t, stack.Services["api"].SyncError)
+	assert.Equal(t, "desired-digest", stack.Services["api"].DesiredDigest)
+	assert.Equal(t, "desired-commit", stack.Services["api"].DesiredCommit)
+}
+
+func TestProjectRuntimePreservesDesiredRevisionForEveryOutcome(t *testing.T) {
+	tests := []struct {
+		name      string
+		status    deploymentmodel.Status
+		errorCode string
+	}{
+		{name: "succeeded", status: deploymentmodel.Succeeded},
+		{name: "failed", status: deploymentmodel.Failed, errorCode: "apply_failed"},
+		{name: "interrupted", status: deploymentmodel.Interrupted, errorCode: "interrupted"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			runtime := &gitopsmodel.Runtime{Stacks: map[string]gitopsmodel.Stack{
+				"app": {Services: map[string]gitopsmodel.Service{
+					"api": {DesiredDigest: "desired-digest", DesiredCommit: "desired-commit"},
+				}},
+			}}
+			attempt := deploymentmodel.Attempt{StartedAt: time.Now().UTC()}
+			projectRuntime(runtime, deploymentmodel.Deployment{Stack: "app", Commit: "deployment-commit"},
+				attempt, deploymentmodel.Prepared{Definition: projectionDesired("api:1")}, test.status, test.errorCode)
+
+			service := runtime.Stacks["app"].Services["api"]
+			assert.Equal(t, "desired-digest", service.DesiredDigest)
+			assert.Equal(t, "desired-commit", service.DesiredCommit)
+		})
+	}
 }

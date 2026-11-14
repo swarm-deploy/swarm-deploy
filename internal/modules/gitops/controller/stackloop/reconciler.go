@@ -142,6 +142,10 @@ func (r *Reconciler) Reconcile(
 		return wrapReconcileError(stage, desiredState.Compose.Services, errors.Join(err, persistErr))
 	}
 
+	if err = r.recordPreparedDesired(ctx, req, prepared); err != nil {
+		return err
+	}
+
 	pl := &pipelinePayload{
 		Stack:            req.Stack,
 		Commit:           req.Commit,
@@ -189,6 +193,40 @@ func (r *Reconciler) currentStackState(ctx context.Context, stackName string) (m
 	}
 	stack, ok := currentState.Stack(stackName)
 	return stack, ok, nil
+}
+
+func (r *Reconciler) recordPreparedDesired(ctx context.Context, req ReconciliationRequest, prepared *compose.File) error {
+	digests, err := prepared.DesiredServiceDigests()
+	if err != nil {
+		return wrapReconcileError("digest desired service state", prepared.Compose.Services, err)
+	}
+	if err = r.persistDesiredServices(ctx, req.Stack.Name, req.Commit, digests); err != nil {
+		return wrapReconcileError("persist desired service state", prepared.Compose.Services, err)
+	}
+	return nil
+}
+
+func (r *Reconciler) persistDesiredServices(
+	ctx context.Context, stackName, commit string, digests map[string]string,
+) error {
+	if len(digests) == 0 {
+		return nil
+	}
+	return r.stateStore.Update(ctx, func(runtime *model.Runtime) {
+		stack := runtime.Stacks[stackName]
+		if stack.Services == nil {
+			stack.Services = make(map[string]model.Service, len(digests))
+		}
+		for name, digest := range digests {
+			service := stack.Services[name]
+			if service.DesiredDigest != digest || service.DesiredCommit == "" {
+				service.DesiredDigest = digest
+				service.DesiredCommit = commit
+				stack.Services[name] = service
+			}
+		}
+		runtime.Stacks[stackName] = stack
+	})
 }
 
 func (r *Reconciler) processResult(
@@ -293,7 +331,8 @@ func (r *Reconciler) recordFailure(
 			for _, service := range services {
 				previous := state.Services[service.Name]
 				state.Services[service.Name] = model.Service{
-					Image: service.Image, SyncStatus: model.SyncStatusOutOfSync, SyncAt: time.Now(),
+					Image: service.Image, DesiredDigest: previous.DesiredDigest, DesiredCommit: previous.DesiredCommit,
+					SyncStatus: model.SyncStatusOutOfSync, SyncAt: time.Now(),
 					SelfHealPending: previous.SelfHealPending, SyncError: previous.SyncError,
 				}
 			}
@@ -336,7 +375,7 @@ func (r *Reconciler) recordPipelineFailure(
 		}
 		failed.Status = model.NewStackStatus(failed.Services)
 		persistErr = r.stateStore.Update(ctx, func(runtime *model.Runtime) {
-			runtime.Stacks[req.Stack.Name] = failed
+			replaceStackResult(runtime, req.Stack.Name, failed)
 		})
 	}
 	return wrapReconcileError(pipeErr.StepName, services, errors.Join(pipeErr, persistErr))
@@ -360,12 +399,23 @@ func (r *Reconciler) persistResult(
 ) error {
 	return r.db.WithinTransaction(ctx, func(ctx context.Context) error {
 		if err := r.stateStore.Update(ctx, func(state *model.Runtime) {
-			state.Stacks[req.Stack.Name] = result
+			replaceStackResult(state, req.Stack.Name, result)
 		}); err != nil {
 			return err
 		}
 		return r.publishDriftEvents(ctx, req, prevState, payload)
 	})
+}
+
+// Stack results replace rollout state while desired revisions belong to preparation.
+func replaceStackResult(runtime *model.Runtime, stackName string, result model.Stack) {
+	current := runtime.Stacks[stackName]
+	for name, service := range result.Services {
+		desired := current.Services[name]
+		service.DesiredDigest, service.DesiredCommit = desired.DesiredDigest, desired.DesiredCommit
+		result.Services[name] = service
+	}
+	runtime.Stacks[stackName] = result
 }
 
 func (r *Reconciler) publishDriftEvents(
