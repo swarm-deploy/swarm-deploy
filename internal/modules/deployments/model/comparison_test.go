@@ -1,6 +1,9 @@
 package model
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	jsonv1 "encoding/json"
 	"encoding/json/v2"
 	"strings"
 	"testing"
@@ -116,20 +119,48 @@ volumes: {data: {}}
 	assert.Equal(t, "352941afe43fced7b8cc82626ecddd629436b76778cb824fceff57b0fc370b80", prepared.Digest)
 }
 
-// TestPreparePreservesPersistedDigests pins desired-state digests computed before
-// Compose normalization moved onto typed methods. A changed digest starts one
-// Deployment per affected stack, which also runs every Init Job of the stack.
+// TestPreparePreservesPersistedDigests pins desired-state digests and snapshot
+// fields computed before Compose normalization moved onto typed methods. A changed
+// digest starts one Deployment per affected stack, which also runs every Init Job
+// of the stack. Changed fields show spurious changes against persisted baselines.
 func TestPreparePreservesPersistedDigests(t *testing.T) {
-	expected := map[string]string{
-		"service object references":                         "004df134462da6f5f3aff343203e9e4d97c4236dc329790f6f9a13837e9a92f5",
-		"init job object references":                        "9bad51ebc932bbca74b93d9921f6020290554e24e276caf04ba6a0573c0f7806",
-		"execution syntax":                                  "bdb1f473f291452616f95ef0ce30028c540a83cfe0eada471303319625962ebb",
-		"capabilities":                                      "fa7286269c7a89a513997b3bddc5f1ccdee5c84334510838c23062005b1275b5",
-		"service ordering":                                  "4d5d867999d52fa965c857f60b31fb1246cc6dfe2939dc5e5d82e61f80ea85b4",
-		"programmatic model":                                "5c7b14fb9e5da2a42d89ccf08db4ca37a3599e87b9b730efdb0f1bfd373dfc85",
-		"programmatic zero values":                          "e7c28d8d81369991bbc40b18b104eaa3ca37bbc1edcf5788c2b682b32ea04f10",
-		"loaded mounts, ports and networks":                 "7ffdfdf3f8ad39f8fc8bdfbee05d576f2e9aaddc45bc72a752c119b208ad703d",
-		"environment and labels named like parser metadata": "4c184ab6ae19f23b0fbdbfde1028bc6d428882c3bbd45cc7fb072cc04ffbfe98",
+	expected := map[string]struct{ digest, fields string }{
+		"service object references": {
+			"004df134462da6f5f3aff343203e9e4d97c4236dc329790f6f9a13837e9a92f5",
+			"751e41b7de55924cfd32deca894938504e0674aba12338034683953e2bf268b0",
+		},
+		"init job object references": {
+			"9bad51ebc932bbca74b93d9921f6020290554e24e276caf04ba6a0573c0f7806",
+			"ede6f5c7956b35178b74a28dca2ed1447844ff4263f9b32976abeb607b7aa50b",
+		},
+		"execution syntax": {
+			"bdb1f473f291452616f95ef0ce30028c540a83cfe0eada471303319625962ebb",
+			"8865ed85f400a719411808907ee476779a623052142bc915e9837881c4ec5a15",
+		},
+		"environment and labels named like parser metadata": {
+			"4c184ab6ae19f23b0fbdbfde1028bc6d428882c3bbd45cc7fb072cc04ffbfe98",
+			"9b8e8ad0204532df2fdd652d599cb7a40ac137b4d126d7be8f09354745ec87cd",
+		},
+		"capabilities": {
+			"fa7286269c7a89a513997b3bddc5f1ccdee5c84334510838c23062005b1275b5",
+			"8db26ba189bf68667a31eace2722649d9eba247471e4204e67ff5b55baef3f63",
+		},
+		"service ordering": {
+			"4d5d867999d52fa965c857f60b31fb1246cc6dfe2939dc5e5d82e61f80ea85b4",
+			"d40f142de6f16f228fe98d7ab5e96b7a5152bd6babc6f57a637bc6f5ae4bece8",
+		},
+		"loaded mounts, ports and networks": {
+			"7ffdfdf3f8ad39f8fc8bdfbee05d576f2e9aaddc45bc72a752c119b208ad703d",
+			"f295c05f8ffbf23198ce59739573261a719ad46ea878520479993555f291b0cc",
+		},
+		"programmatic model": {
+			"5c7b14fb9e5da2a42d89ccf08db4ca37a3599e87b9b730efdb0f1bfd373dfc85",
+			"012ab859ba21b09781956988b1a3ef9a2de40e6d641bdcc7639ea7a07f275935",
+		},
+		"programmatic zero values": {
+			"e7c28d8d81369991bbc40b18b104eaa3ca37bbc1edcf5788c2b682b32ea04f10",
+			"ebcecf58608d0177d2b4d1ce991a3239947961879e5d349e9a95a9986ea6fe5d",
+		},
 	}
 	fixtures := composetest.CanonicalFixtures()
 	require.Len(t, expected, len(fixtures))
@@ -141,7 +172,14 @@ func TestPreparePreservesPersistedDigests(t *testing.T) {
 			prepared, err := Prepare(file)
 			require.NoError(t, err)
 
-			assert.Equal(t, expected[fixture.Name], prepared.Digest)
+			assert.Equal(t, expected[fixture.Name].digest, prepared.Digest)
+			fields, err := json.Marshal(struct {
+				F, P map[string]string
+				R    map[string]bool
+			}{prepared.Fields, prepared.Fingerprints, prepared.Redacted}, jsonv1.DefaultOptionsV1())
+			require.NoError(t, err)
+			sum := sha256.Sum256(fields)
+			assert.Equal(t, expected[fixture.Name].fields, hex.EncodeToString(sum[:]))
 		})
 	}
 }
