@@ -33,7 +33,7 @@ func (o *controllerOwnership) acquire(ctx context.Context) (*ownershipHandle, er
 	if err != nil {
 		return nil, err
 	}
-	fd := int(file.Fd()) //nolint:gosec // Unix file descriptors are int values exposed as uintptr by os.File.
+	fd := int(file.Fd())
 	for {
 		err = unix.Flock(fd, unix.LOCK_EX|unix.LOCK_NB)
 		switch {
@@ -57,7 +57,7 @@ func (o *controllerOwnership) acquire(ctx context.Context) (*ownershipHandle, er
 }
 
 func (h *ownershipHandle) release() error {
-	fd := int(h.file.Fd()) //nolint:gosec // Unix file descriptors are int values exposed as uintptr by os.File.
+	fd := int(h.file.Fd())
 	unlockErr := unix.Flock(fd, unix.LOCK_UN)
 	closeErr := h.file.Close()
 	return errors.Join(unlockErr, closeErr)

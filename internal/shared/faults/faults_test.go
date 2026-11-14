@@ -80,7 +80,7 @@ func TestSafeLoggerMasksErrorAttributes(t *testing.T) {
 }
 
 type codedTestError struct {
-	*net.DNSError
+	net.DNSError
 	summary string
 }
 
@@ -90,7 +90,7 @@ func (e *codedTestError) FaultSummary() string { return e.summary }
 
 func TestSafeErrorPreservesFaultDetailsWithoutRetainingCause(t *testing.T) {
 	original := &codedTestError{
-		DNSError: &net.DNSError{Err: "token=private-value", IsTemporary: true},
+		DNSError: net.DNSError{Err: "token=private-value", IsTemporary: true},
 		summary:  "No such image: app:1 token=summary-secret " + strings.Repeat("x", maxDiagnosticLength),
 	}
 	safe := SafeError(fmt.Errorf("lookup: %w", original))
