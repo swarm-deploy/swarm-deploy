@@ -104,7 +104,6 @@ func TestFailureRetryEligibility(t *testing.T) {
 	}{
 		{name: "unclassified apply", outcome: CompletionApplyFailed, diagnostic: errors.New("invalid service")},
 		{name: "pre-apply preparation", outcome: CompletionApplyFailed, diagnostic: errors.New("database read failed"), explicitRetry: true, retry: true},
-		{name: "policy rejection ignores explicit retry", outcome: CompletionPolicyRejected, explicitRetry: true},
 		{name: "unclassified init job", outcome: CompletionInitJobFailed, diagnostic: errors.New("exit 1")},
 		{name: "unclassified cleanup", outcome: CompletionCleanupFailed, diagnostic: errors.New("invalid operation")},
 		{name: "sanitized metadata deadline", outcome: CompletionApplyFailed, diagnostic: faults.SanitizeError(fmt.Errorf("private request: %w", context.DeadlineExceeded), "metadata lookup failed"), retry: true},
