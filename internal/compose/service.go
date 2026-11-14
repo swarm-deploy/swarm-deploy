@@ -178,21 +178,55 @@ func (s *Services) UnmarshalYAML(n *yaml.Node) error {
 		services = append(services, srv)
 	}
 
-	normalizeServiceCapabilities(services)
+	if err := normalizeServices(services); err != nil {
+		return err
+	}
 	*s = services
 
 	return nil
 }
 
 // UnmarshalJSON restores services persisted in desired-state snapshots.
-// Capabilities are normalized because snapshots may predate their normalization.
+// They are normalized like decoded YAML because snapshots may predate it.
 func (s *Services) UnmarshalJSON(data []byte) error {
 	var services []Service
 	if err := json.Unmarshal(data, &services, jsonv1.DefaultOptionsV1()); err != nil {
 		return err
 	}
-	normalizeServiceCapabilities(services)
+	if err := normalizeServices(services); err != nil {
+		return err
+	}
 	*s = services
+	return nil
+}
+
+// normalizeServices replaces equivalent spellings whose difference carries no
+// meaning for Docker, so conversion, digests, diffs and history agree on one form:
+// commands and healthcheck tests use exec form, capabilities are canonical, and
+// Init Job config and secret references are resolved.
+//
+// Service config and secret references keep their source form: Init Jobs also
+// mount them, with different defaults than the service (see ObjectRef).
+// List order is kept because mount order is part of the deployed ServiceSpec.
+func normalizeServices(services []Service) error {
+	for i := range services {
+		service := &services[i]
+		var err error
+		if service.Command, err = service.Command.Exec(); err != nil {
+			return fmt.Errorf("services.%s.command: %w", service.Name, err)
+		}
+		if service.Entrypoint, err = service.Entrypoint.Exec(); err != nil {
+			return fmt.Errorf("services.%s.entrypoint: %w", service.Name, err)
+		}
+		if service.Healthcheck != nil {
+			health := service.Healthcheck.Canonical()
+			service.Healthcheck = &health
+		}
+		service.CapAdd, service.CapDrop = NormalizeCapabilities(service.CapAdd, service.CapDrop)
+		for j := range service.InitJobs {
+			service.InitJobs[j].resolveObjectRefs()
+		}
+	}
 	return nil
 }
 

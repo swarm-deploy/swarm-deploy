@@ -38,10 +38,10 @@ func (c Capabilities) DockerNames() []string {
 
 // NormalizeCapabilities returns canonical cap_add and cap_drop lists.
 //
-// Unlike most of this package, which preserves source syntax, capabilities are
-// canonicalized while decoding, both from Compose YAML and from persisted JSON
-// snapshots: their spelling carries no meaning for Docker, and conversion, snapshot
-// digests, diffs, deployment history and recommendations must agree on one form.
+// Like command and healthcheck syntax, capabilities are canonicalized while decoding,
+// both from Compose YAML and from persisted JSON snapshots (see normalizeServices):
+// their spelling carries no meaning for Docker, and conversion, snapshot digests,
+// diffs, deployment history and recommendations must agree on one form.
 // Canonical names are upper-case without the CAP_ prefix, as in the Compose
 // documentation, so ordinarily written definitions keep their effective digest.
 //
@@ -111,10 +111,4 @@ func normalizeCapabilityList(values Capabilities) Capabilities {
 	}
 	slices.Sort(result)
 	return slices.Compact(result)
-}
-
-func normalizeServiceCapabilities(services []Service) {
-	for i := range services {
-		services[i].CapAdd, services[i].CapDrop = NormalizeCapabilities(services[i].CapAdd, services[i].CapDrop)
-	}
 }

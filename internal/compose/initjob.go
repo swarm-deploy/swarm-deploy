@@ -66,6 +66,23 @@ func (j *InitJob) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// resolveObjectRefs resolves config and secret references as Init Jobs mount them.
+func (j *InitJob) resolveObjectRefs() {
+	j.Secrets = mapObjectRefs(j.Secrets, ObjectRef.InitJobSecret)
+	j.Configs = mapObjectRefs(j.Configs, ObjectRef.InitJobConfig)
+}
+
+func mapObjectRefs(refs []ObjectRef, resolve func(ObjectRef) ObjectRef) []ObjectRef {
+	if refs == nil {
+		return nil
+	}
+	result := make([]ObjectRef, len(refs))
+	for i, ref := range refs {
+		result[i] = resolve(ref)
+	}
+	return result
+}
+
 func normalizeInitJobs(jobs []InitJob, networks map[string]Network) ([]InitJob, []ValidationIssue) {
 	var issues []ValidationIssue
 	for i := range jobs {
