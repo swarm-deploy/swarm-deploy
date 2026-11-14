@@ -195,7 +195,9 @@ func (r *Reconciler) currentStackState(ctx context.Context, stackName string) (m
 	return stack, ok, nil
 }
 
-func (r *Reconciler) recordPreparedDesired(ctx context.Context, req ReconciliationRequest, prepared *compose.File) error {
+func (r *Reconciler) recordPreparedDesired(
+	ctx context.Context, req ReconciliationRequest, prepared *compose.File,
+) error {
 	digests, err := prepared.DesiredServiceDigests()
 	if err != nil {
 		return wrapReconcileError("digest desired service state", prepared.Compose.Services, err)
