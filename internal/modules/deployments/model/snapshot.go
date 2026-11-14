@@ -4,7 +4,8 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
+	jsonv1 "encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"maps"
 	"sort"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/artarts36/envmasker"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/utils"
 )
 
 const (
@@ -38,14 +40,13 @@ func Prepare(file compose.File) (Prepared, error) {
 	if err != nil {
 		return Prepared{}, err
 	}
-	payload, err := json.Marshal(comparison)
+	// The serialized form feeds digests stored in existing deployment baselines.
+	payload, err := json.Marshal(comparison, jsonv1.DefaultOptionsV1())
 	if err != nil {
 		return Prepared{}, fmt.Errorf("encode effective desired state: %w", err)
 	}
 	var tree map[string]any
-	decoder := json.NewDecoder(bytes.NewReader(payload))
-	decoder.UseNumber()
-	if err = decoder.Decode(&tree); err != nil {
+	if err = json.Unmarshal(payload, &tree, utils.PreserveJSONNumbers()); err != nil {
 		return Prepared{}, err
 	}
 	normalize(tree)
@@ -62,19 +63,19 @@ func Prepare(file compose.File) (Prepared, error) {
 		// Resources includes referenced file-content digests.
 		Resources map[string]string `json:"Resources"`
 	}{tree, resourceDigests}
-	canonical, err := json.Marshal(identity)
+	canonical, err := json.Marshal(identity, jsonv1.DefaultOptionsV1())
 	if err != nil {
 		return Prepared{}, err
 	}
 	result := Prepared{Digest: fingerprint(canonical), Fields: map[string]string{},
 		Fingerprints: map[string]string{}, Redacted: map[string]bool{}}
 	result.sanitize(tree, "", "")
-	safe, err := json.Marshal(tree)
+	safe, err := json.Marshal(tree, jsonv1.DefaultOptionsV1())
 	if err != nil {
 		return Prepared{}, err
 	}
 	result.Definition = compose.File{Path: file.Path, Digest: file.Digest, ResourceDigests: resourceDigests}
-	if err = json.Unmarshal(safe, &result.Definition.Compose); err != nil {
+	if err = json.Unmarshal(safe, &result.Definition.Compose, jsonv1.DefaultOptionsV1()); err != nil {
 		return Prepared{}, err
 	}
 	for name, digest := range resourceDigests {
@@ -110,8 +111,8 @@ func normalize(value any) {
 		for _, listKey := range []string{"Ports", "Volumes", "List", "cap_add", "cap_drop", secretsField, configsField} {
 			if list, ok := node[listKey].([]any); ok {
 				sort.SliceStable(list, func(i, j int) bool {
-					left, _ := json.Marshal(list[i])
-					right, _ := json.Marshal(list[j])
+					left, _ := json.Marshal(list[i], jsonv1.DefaultOptionsV1())
+					right, _ := json.Marshal(list[j], jsonv1.DefaultOptionsV1())
 					return bytes.Compare(left, right) < 0
 				})
 			}

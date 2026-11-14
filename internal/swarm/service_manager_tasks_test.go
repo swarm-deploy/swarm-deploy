@@ -1,7 +1,7 @@
 package swarm
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -58,7 +58,7 @@ func TestServiceManagerTerminalGlobalTaskNodes(t *testing.T) {
 						task.JobIteration = &dockerswarm.Version{Index: 1}
 					}
 					// Multiple historical attempts share one node snapshot.
-					require.NoError(t, json.NewEncoder(w).Encode([]dockerswarm.Task{task, task}))
+					require.NoError(t, json.MarshalWrite(w, []dockerswarm.Task{task, task}))
 				case "/v1.48/nodes":
 					lookups++
 					if tc.nodeError {
@@ -76,7 +76,7 @@ func TestServiceManagerTerminalGlobalTaskNodes(t *testing.T) {
 							Status: dockerswarm.NodeStatus{Addr: "10.0.0.10", State: tc.nodeState},
 						}}
 					}
-					require.NoError(t, json.NewEncoder(w).Encode(nodes))
+					require.NoError(t, json.MarshalWrite(w, nodes))
 				default:
 					t.Errorf("unexpected Docker API request: %s", req.URL.Path)
 					http.NotFound(w, req)

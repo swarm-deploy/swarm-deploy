@@ -2,7 +2,7 @@ package node
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 
 	"github.com/doug-martin/goqu/v9"
 	"github.com/swarm-deploy/swarm-deploy/internal/storage"
@@ -114,7 +114,7 @@ func (s *SQLStore) ReplaceSnapshot(ctx context.Context, nodes []swarm.Node) erro
 				CPUNano:       node.CPUNano,
 				MemoryBytes:   node.MemoryBytes,
 				Labels:        node.Labels,
-			})
+			}, json.FormatNilMapAsNull(true))
 			if marshalErr != nil {
 				return marshalErr
 			}

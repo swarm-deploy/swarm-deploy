@@ -2,7 +2,7 @@ package logparser
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"reflect"
 	"time"

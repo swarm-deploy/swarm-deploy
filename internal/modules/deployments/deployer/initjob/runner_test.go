@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -284,7 +284,7 @@ func newInitJobDockerServer(
 			_, _ = w.Write([]byte(`{"ID":"service-id"}`))
 		case req.Method == http.MethodGet && strings.HasSuffix(req.URL.Path, "/tasks"):
 			w.Header().Set("Content-Type", "application/json")
-			err := json.NewEncoder(w).Encode([]swarm.Task{{
+			err := json.MarshalWrite(w, []swarm.Task{{
 				ID: "task-id", Meta: swarm.Meta{UpdatedAt: time.Now()}, Status: swarm.TaskStatus{State: state, Err: taskError},
 			}})
 			require.NoError(t, err)

@@ -2,7 +2,7 @@ package alerts
 
 import (
 	"database/sql"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"html"
 	"net/http"
@@ -67,7 +67,7 @@ func TestAlertTelegramButtons(t *testing.T) {
 			requests := make(chan request, 3)
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				body := request{Path: r.URL.Path}
-				if assert.NoError(t, json.NewDecoder(r.Body).Decode(&body)) {
+				if assert.NoError(t, json.UnmarshalRead(r.Body, &body)) {
 					requests <- body
 				}
 				if tt.invalidEdit && strings.HasSuffix(r.URL.Path, "/editMessageText") {
@@ -201,7 +201,7 @@ func TestSyncFailedAlertRendering(t *testing.T) {
 				ParseMode string `json:"parse_mode"`
 			}
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				require.NoError(t, json.NewDecoder(r.Body).Decode(&request))
+				require.NoError(t, json.UnmarshalRead(r.Body, &request))
 				_, _ = w.Write([]byte(`{"ok":true,"result":{"message_id":42}}`))
 			}))
 			defer server.Close()
@@ -232,7 +232,7 @@ func TestSyncFailedDefaultAlertTruncatesLongError(t *testing.T) {
 		ParseMode string `json:"parse_mode"`
 	}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.NoError(t, json.NewDecoder(r.Body).Decode(&request))
+		require.NoError(t, json.UnmarshalRead(r.Body, &request))
 		_, _ = w.Write([]byte(`{"ok":true,"result":{"message_id":42}}`))
 	}))
 	defer server.Close()
@@ -331,7 +331,7 @@ func TestAlertIndependentDeliveryOrderingAndRestart(t *testing.T) {
 				MessageID int64 `json:"message_id"`
 			} `json:"reply_parameters"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		if err := json.UnmarshalRead(r.Body, &body); err != nil {
 			t.Errorf("decode Telegram request: %v", err)
 			return
 		}
@@ -470,7 +470,7 @@ func TestAlertResolutionUsesOriginalPhysicalChatAfterRouteChange(t *testing.T) {
 		var body struct {
 			ChatID string `json:"chat_id"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		if err := json.UnmarshalRead(r.Body, &body); err != nil {
 			t.Errorf("decode Telegram request: %v", err)
 			return
 		}
@@ -624,7 +624,7 @@ func TestGitAlertDefaultTelegramHTMLAndCustomTemplates(t *testing.T) {
 			var received []request
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				var req request
-				require.NoError(t, json.NewDecoder(r.Body).Decode(&req))
+				require.NoError(t, json.UnmarshalRead(r.Body, &req))
 				received = append(received, req)
 				_, _ = w.Write([]byte(`{"ok":true,"result":{"message_id":42}}`))
 			}))

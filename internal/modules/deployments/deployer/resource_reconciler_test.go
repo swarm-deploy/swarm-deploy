@@ -2,7 +2,7 @@ package deployer
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -82,17 +82,17 @@ func TestDeployStackReconcilesResourcesBeforeInitJobs(t *testing.T) {
 				path := dockerAPIPath(req.URL.Path)
 				switch {
 				case req.Method == http.MethodGet && path == tt.listPath:
-					_ = json.NewEncoder(w).Encode([]any{})
+					_ = json.MarshalWrite(w, []any{})
 				case req.Method == http.MethodPost && path == tt.createPath:
 					events = append(events, tt.name+"-create")
 					var spec struct {
 						Name string
 						Data []byte
 					}
-					handlerErr = json.NewDecoder(req.Body).Decode(&spec)
+					handlerErr = json.UnmarshalRead(req.Body, &spec)
 					createdName = spec.Name
 					createdData = spec.Data
-					_ = json.NewEncoder(w).Encode(map[string]string{"ID": tt.resourceID})
+					_ = json.MarshalWrite(w, map[string]string{"ID": tt.resourceID})
 				default:
 					http.Error(w, `{"message":"unexpected request"}`, http.StatusInternalServerError)
 				}
@@ -143,7 +143,7 @@ func TestResourceReconcilerReusesExistingResource(t *testing.T) {
 		path := dockerAPIPath(req.URL.Path)
 		switch {
 		case req.Method == http.MethodGet && path == "/configs":
-			_ = json.NewEncoder(w).Encode([]dockerswarm.Config{{
+			_ = json.MarshalWrite(w, []dockerswarm.Config{{
 				ID:   "existing-id",
 				Spec: dockerswarm.ConfigSpec{Annotations: dockerswarm.Annotations{Name: "demo_app-config"}},
 			}})
@@ -180,16 +180,16 @@ func TestResourceReconcilerUsesRotatedNameOnce(t *testing.T) {
 		path := dockerAPIPath(req.URL.Path)
 		switch {
 		case req.Method == http.MethodGet && path == "/configs" && !created:
-			_ = json.NewEncoder(w).Encode([]any{})
+			_ = json.MarshalWrite(w, []any{})
 		case req.Method == http.MethodGet && path == "/configs":
-			_ = json.NewEncoder(w).Encode([]dockerswarm.Config{{
+			_ = json.MarshalWrite(w, []dockerswarm.Config{{
 				ID:   "rotated-id",
 				Spec: dockerswarm.ConfigSpec{Annotations: dockerswarm.Annotations{Name: rotatedName}},
 			}})
 		case req.Method == http.MethodPost && path == "/configs/create":
 			createCalls++
 			created = true
-			_ = json.NewEncoder(w).Encode(map[string]string{"ID": "rotated-id"})
+			_ = json.MarshalWrite(w, map[string]string{"ID": "rotated-id"})
 		default:
 			http.Error(w, `{"message":"unexpected request"}`, http.StatusInternalServerError)
 		}
@@ -220,9 +220,9 @@ func TestDeployStackInitJobFailureDoesNotDeleteResources(t *testing.T) {
 		path := dockerAPIPath(req.URL.Path)
 		switch {
 		case req.Method == http.MethodGet && path == "/configs":
-			_ = json.NewEncoder(w).Encode([]any{})
+			_ = json.MarshalWrite(w, []any{})
 		case req.Method == http.MethodPost && path == "/configs/create":
-			_ = json.NewEncoder(w).Encode(map[string]string{"ID": "new-id"})
+			_ = json.MarshalWrite(w, map[string]string{"ID": "new-id"})
 		case req.Method == http.MethodDelete:
 			deleteCalls++
 		default:
@@ -271,13 +271,13 @@ func TestResourceReconcilerListsMultipleResourcesInBulk(t *testing.T) {
 		switch {
 		case req.Method == http.MethodGet && path == "/configs":
 			configListCalls++
-			_ = json.NewEncoder(w).Encode([]dockerswarm.Config{
+			_ = json.MarshalWrite(w, []dockerswarm.Config{
 				{ID: "config-a-id", Spec: dockerswarm.ConfigSpec{Annotations: dockerswarm.Annotations{Name: "demo_config-a"}}},
 				{ID: "config-b-id", Spec: dockerswarm.ConfigSpec{Annotations: dockerswarm.Annotations{Name: "demo_config-b"}}},
 			})
 		case req.Method == http.MethodGet && path == "/secrets":
 			secretListCalls++
-			_ = json.NewEncoder(w).Encode([]dockerswarm.Secret{
+			_ = json.MarshalWrite(w, []dockerswarm.Secret{
 				{ID: "secret-a-id", Spec: dockerswarm.SecretSpec{Annotations: dockerswarm.Annotations{Name: "demo_secret-a", Labels: map[string]string{"com.docker.stack.namespace": "demo"}}}},
 				{ID: "secret-b-id", Spec: dockerswarm.SecretSpec{Annotations: dockerswarm.Annotations{Name: "demo_secret-b", Labels: map[string]string{"com.docker.stack.namespace": "demo"}}}},
 			})
@@ -325,17 +325,17 @@ func TestResourceReconcilerPreservesComposeResourceOptions(t *testing.T) {
 		path := dockerAPIPath(req.URL.Path)
 		switch {
 		case req.Method == http.MethodGet && (path == "/configs" || path == "/secrets"):
-			_ = json.NewEncoder(w).Encode([]any{})
+			_ = json.MarshalWrite(w, []any{})
 		case req.Method == http.MethodPost && path == "/configs/create":
-			if decodeErr := json.NewDecoder(req.Body).Decode(&createdConfig); handlerErr == nil {
+			if decodeErr := json.UnmarshalRead(req.Body, &createdConfig); handlerErr == nil {
 				handlerErr = decodeErr
 			}
-			_ = json.NewEncoder(w).Encode(map[string]string{"ID": "config-id"})
+			_ = json.MarshalWrite(w, map[string]string{"ID": "config-id"})
 		case req.Method == http.MethodPost && path == "/secrets/create":
-			if decodeErr := json.NewDecoder(req.Body).Decode(&createdSecret); handlerErr == nil {
+			if decodeErr := json.UnmarshalRead(req.Body, &createdSecret); handlerErr == nil {
 				handlerErr = decodeErr
 			}
-			_ = json.NewEncoder(w).Encode(map[string]string{"ID": "secret-id"})
+			_ = json.MarshalWrite(w, map[string]string{"ID": "secret-id"})
 		default:
 			http.Error(w, `{"message":"unexpected request"}`, http.StatusInternalServerError)
 		}
@@ -413,7 +413,7 @@ func TestResourceReconcilerDoesNotCreateMissingExternalResource(t *testing.T) {
 				path := dockerAPIPath(req.URL.Path)
 				switch {
 				case req.Method == http.MethodGet && path == tt.listPath:
-					_ = json.NewEncoder(w).Encode([]any{})
+					_ = json.MarshalWrite(w, []any{})
 				case req.Method == http.MethodPost:
 					createCalls++
 					http.Error(w, `{"message":"external resource must not be created"}`, http.StatusInternalServerError)

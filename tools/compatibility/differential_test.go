@@ -2,7 +2,8 @@ package compatibility
 
 import (
 	"context"
-	"encoding/json"
+	jsonv1 "encoding/json"
+	"encoding/json/v2"
 	"testing"
 
 	cliconvert "github.com/docker/cli/cli/compose/convert"
@@ -84,12 +85,13 @@ func TestDockerCLIDifferential(t *testing.T) {
 			// CLI always emits empty optional objects; normalize Docker defaults and
 			// compare effective API values instead of nil versus empty collections.
 			expected.TaskTemplate.Networks = actual.TaskTemplate.Networks
-			assert.Equal(t, canonicalDifferential(expected), canonicalDifferential(actual))
+			assert.Equal(t, canonicalDifferential(t, expected), canonicalDifferential(t, actual))
 		})
 	}
 }
 
-func canonicalDifferential(spec dockerswarm.ServiceSpec) any {
+func canonicalDifferential(t *testing.T, spec dockerswarm.ServiceSpec) any {
+	t.Helper()
 	// Differences that don't change the API meaning are collapsed here, without
 	// applying native image normalization or copying any converted service fields.
 	if spec.TaskTemplate.Resources == nil {
@@ -101,13 +103,15 @@ func canonicalDifferential(spec dockerswarm.ServiceSpec) any {
 	if spec.TaskTemplate.ContainerSpec.Privileges == nil {
 		spec.TaskTemplate.ContainerSpec.Privileges = &dockerswarm.Privileges{}
 	}
-	return canonicalJSON(spec)
+	return canonicalJSON(t, spec)
 }
 
-func canonicalJSON(value any) any {
-	raw, _ := json.Marshal(value)
+func canonicalJSON(t *testing.T, value any) any {
+	t.Helper()
+	raw, err := json.Marshal(value, jsonv1.DefaultOptionsV1())
+	require.NoError(t, err)
 	var result any
-	_ = json.Unmarshal(raw, &result)
+	require.NoError(t, json.Unmarshal(raw, &result))
 	return result
 }
 

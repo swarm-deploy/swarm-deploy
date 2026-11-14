@@ -3,7 +3,8 @@ package notifiers
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	jsonv1 "encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"strings"
@@ -65,7 +66,7 @@ func (*CustomWebhookNotifier) Kind() string {
 }
 
 func (n *CustomWebhookNotifier) Notify(ctx context.Context, event Message) (Receipt, error) {
-	body, err := json.Marshal(event)
+	body, err := json.Marshal(event, jsonv1.DefaultOptionsV1())
 	if err != nil {
 		return Receipt{}, fmt.Errorf("marshal payload: %w", err)
 	}

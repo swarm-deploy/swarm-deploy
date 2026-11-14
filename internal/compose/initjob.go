@@ -1,7 +1,8 @@
 package compose
 
 import (
-	"encoding/json"
+	jsonv1 "encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"time"
 
@@ -48,13 +49,13 @@ func (j InitJob) MarshalJSON() ([]byte, error) {
 		Name: j.Name, Image: j.Image, Entrypoint: j.Entrypoint, Command: j.Command,
 		Environment: j.Environment, Networks: j.Networks, Secrets: j.Secrets, Configs: j.Configs,
 		Timeout: int64(j.Timeout.Value),
-	})
+	}, jsonv1.DefaultOptionsV1())
 }
 
 // UnmarshalJSON restores an init job persisted in a desired-state snapshot.
 func (j *InitJob) UnmarshalJSON(data []byte) error {
 	var value initJobJSON
-	if err := json.Unmarshal(data, &value); err != nil {
+	if err := json.Unmarshal(data, &value, jsonv1.DefaultOptionsV1()); err != nil {
 		return err
 	}
 	j.Name, j.Image = value.Name, value.Image

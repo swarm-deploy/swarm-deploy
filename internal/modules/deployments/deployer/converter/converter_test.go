@@ -2,7 +2,8 @@ package converter
 
 import (
 	"context"
-	"encoding/json"
+	jsonv1 "encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"os"
 	"path/filepath"
@@ -304,7 +305,7 @@ func TestConvertCompleteStack(t *testing.T) {
 	assert.Equal(t, mount.TypeVolume, container.Mounts[2].Type)
 	assert.Equal(t, mount.PropagationRSlave, container.Mounts[3].BindOptions.Propagation)
 	assert.Equal(t, &mount.TmpfsOptions{SizeBytes: 64 * 1024 * 1024, Mode: 0o700}, container.Mounts[4].TmpfsOptions)
-	payload, err := json.Marshal(result)
+	payload, err := json.Marshal(result, jsonv1.DefaultOptionsV1())
 	require.NoError(t, err)
 	assert.NotContains(t, string(payload), "config-payload")
 }
@@ -548,7 +549,7 @@ secrets: {token: {}}
 	before, err := converter.Convert(context.Background(), "demo", desired)
 	require.NoError(t, err)
 
-	payload, err := json.Marshal(desired)
+	payload, err := json.Marshal(desired, jsonv1.DefaultOptionsV1())
 	require.NoError(t, err)
 	var restored compose.Compose
 	require.NoError(t, json.Unmarshal(payload, &restored))
