@@ -263,3 +263,37 @@ func mustCanonicalCompose(t *testing.T, raw string) []byte {
 	require.NoError(t, err)
 	return canonical
 }
+
+func TestCanonicalizeDoesNotModifyInput(t *testing.T) {
+	const raw = `services:
+  worker:
+    image: alpine
+    ports: ["9000:9000", "8000:8000"]
+    volumes: [data:/data, cache:/cache]
+    networks: [frontend, backend]
+    cap_add: [sys_time, net_admin]
+    x-init-deploy-jobs:
+      - name: prepare
+        image: alpine
+        networks: [frontend, backend]
+        secrets: [two, one]
+  api:
+    image: alpine
+    secrets: [{source: token, target: token, uid: "0"}, cert]
+    configs: [{source: app}, {source: base, mode: 0444}]
+`
+	load := func() Compose {
+		parsed, err := Parse([]byte(raw))
+		require.NoError(t, err)
+		parsed.Services[0].Command = Command{Args: []string{"sleep 10"}}
+		parsed.Services[0].Healthcheck = &ServiceHealth{Test: Command{Args: []string{"true"}}}
+		parsed.Services[0].CapDrop = Capabilities{"chown"}
+		return *parsed
+	}
+	desired, expected := load(), load()
+
+	_, err := Canonicalize(desired)
+
+	require.NoError(t, err)
+	assert.Equal(t, expected, desired)
+}

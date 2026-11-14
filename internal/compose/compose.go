@@ -6,6 +6,13 @@ import (
 	"go.yaml.in/yaml/v3"
 )
 
+const (
+	// ConfigsField is the Compose and snapshot key of config references and definitions.
+	ConfigsField = "configs"
+	// SecretsField is the Compose and snapshot key of secret references and definitions.
+	SecretsField = "secrets"
+)
+
 type Compose struct {
 	Services Services           `yaml:"services" json:"services"`
 	Networks map[string]Network `yaml:"networks,omitempty" json:"networks"`
