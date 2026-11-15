@@ -409,11 +409,43 @@ describe("Realtime service scaling", () => {
     expect(modal.findAll(".realtime-scale-summary dt").map((item) => item.text())).toEqual(["Service", "Stack", "Current scale"]);
     expect(modal.findAll(".realtime-scale-summary dd").map((item) => item.text())).toEqual(["api", "infra", "4"]);
     expect(modal.text()).not.toContain("Enter a non-negative whole number.");
-    expect(modal.text()).toContain("Manual scaling may be overwritten by the next GitOps synchronization.");
     expect(wrapper.get<HTMLInputElement>("#realtime-scale-replicas").element.value).toBe("4");
     expect(modal.get('button[type="submit"]').attributes("disabled")).toBeDefined();
     await modal.get('[aria-label="Close scaling modal"]').trigger("click");
     expect(wrapper.find('[role="dialog"]').exists()).toBe(false);
+    wrapper.unmount();
+  });
+
+  it("shows the GitOps scaling warning only in the Pause Sync tooltip", async () => {
+    const wrapper = await mountView();
+    await wrapper.get('[aria-label="Scale api"]').trigger("click");
+    await flushPromises();
+    const modal = wrapper.get('[role="dialog"]');
+    const row = modal.get(".realtime-scale-pause-row");
+    const help = row.get('[aria-label="About Pause Sync"]');
+    const tooltip = '[role="tooltip"]';
+    const warning = "Manual scaling may be overwritten by the next GitOps synchronization.";
+
+    expect(row.get("label").text()).toBe("Pause sync");
+    expect(modal.text()).not.toContain(warning);
+    const trigger = row.get(".realtime-scale-pause-help");
+    await trigger.trigger("pointerenter", { pointerType: "mouse" });
+    expect(modal.get(tooltip).text()).toBe(warning);
+    expect(help.attributes("aria-describedby")).toBe(modal.get(tooltip).attributes("id"));
+    await trigger.trigger("pointerleave", { pointerType: "mouse" });
+    expect(modal.find(tooltip).exists()).toBe(false);
+
+    await help.trigger("click");
+    expect(modal.get(tooltip).text()).toBe(warning);
+    expect(row.get<HTMLInputElement>('input[type="checkbox"]').element.checked).toBe(false);
+    await modal.get("#realtime-scale-replicas").trigger("pointerdown");
+    expect(modal.find(tooltip).exists()).toBe(false);
+
+    await help.trigger("click");
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+    await wrapper.vm.$nextTick();
+    expect(modal.find(tooltip).exists()).toBe(false);
+    expect(wrapper.find('[role="dialog"]').exists()).toBe(true);
     wrapper.unmount();
   });
 

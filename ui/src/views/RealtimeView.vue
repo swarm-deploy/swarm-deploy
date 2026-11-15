@@ -89,6 +89,7 @@ const scaleInputElement = ref<HTMLInputElement | null>(null);
 const scalePauseLoading = ref(false);
 const scalePauseManaged = ref(false);
 const scalePauseChecked = ref(false);
+const scalePauseHelp = ref<"hover" | "pinned" | null>(null);
 const scalePauseDuration = ref("1");
 const scalePauseState = ref<ServiceSyncPauseResponse | null>(null);
 const scalePausePersisted = ref(false);
@@ -119,6 +120,24 @@ function pauseUntil(expiresAt: string | null | undefined): string {
   return expiresAt ? formatDate(expiresAt) : "No expiration";
 }
 
+function showScalePauseHelp(event: PointerEvent): void {
+  if (event.pointerType === "mouse" && !scalePauseHelp.value) scalePauseHelp.value = "hover";
+}
+
+function hideScalePauseHelp(event: PointerEvent): void {
+  if (event.pointerType === "mouse" && scalePauseHelp.value === "hover") scalePauseHelp.value = null;
+}
+
+function dismissScalePauseHelp(event: PointerEvent): void {
+  if (!(event.target as Element | null)?.closest(".realtime-scale-pause-help")) scalePauseHelp.value = null;
+}
+
+function onScaleEscape(event: KeyboardEvent): void {
+  if (!scalePauseHelp.value) return;
+  event.preventDefault();
+  scalePauseHelp.value = null;
+}
+
 async function openScale(service: SwarmService): Promise<void> {
   const request = ++scalePauseRequest;
   scalingService.value = service;
@@ -127,6 +146,7 @@ async function openScale(service: SwarmService): Promise<void> {
   scalePauseLoading.value = Boolean(service.stack && service.name);
   scalePauseManaged.value = false;
   scalePauseChecked.value = false;
+  scalePauseHelp.value = null;
   scalePauseDuration.value = "1";
   scalePauseState.value = null;
   scalePausePersisted.value = false;
@@ -169,6 +189,7 @@ function stepScale(delta: number): void {
 async function submitScale(): Promise<void> {
   if (!scalingService.value || !canScale.value) return;
   const serviceID = scalingService.value.id;
+  scalePauseHelp.value = null;
   scalePending.value = true;
   scaleError.value = "";
   try {
@@ -670,8 +691,11 @@ onUnmounted(() => {
       as="form"
       :busy="scalePending"
       :close-disabled="scalePending"
+      :close-on-escape="!scalePauseHelp"
       close-label="Close scaling modal"
       initial-focus="#realtime-scale-replicas"
+      @pointerdown="dismissScalePauseHelp"
+      @escape="onScaleEscape"
       @submit.prevent="submitScale"
       @close="closeScale"
     >
@@ -693,11 +717,9 @@ onUnmounted(() => {
           <input id="realtime-scale-replicas" ref="scaleInputElement" v-model.number="scaleInput" type="number" min="0" step="1" :max="Number.MAX_SAFE_INTEGER" required :disabled="scalePending" :aria-invalid="!validScaleInput" />
           <AppButton variant="secondary" compact aria-label="Increase replicas" :disabled="scalePending || scaleInput === Number.MAX_SAFE_INTEGER" @click="stepScale(1)">+</AppButton>
         </div>
-        <p class="form-helper" role="note">
+        <p v-if="scalePauseLoading || scalePauseState?.effective_paused || scalePauseChecked" class="form-helper" role="note">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 11v6m0-10h.01" /></svg>
           <span v-if="scalePauseLoading">Checking GitOps Pause Sync state...</span>
-          <span v-else-if="!scalePauseManaged">Manual scaling may be overwritten by the next GitOps synchronization.</span>
-          <span v-else-if="!scalePauseState?.effective_paused && !scalePauseChecked">Manual scaling may be overwritten by the next GitOps synchronization.</span>
           <span v-else-if="scalePauseState?.effective_paused">Pause Sync is active. Scaling starts immediately.</span>
           <span v-else>Pause Sync will be enabled first. Scaling starts immediately afterward.</span>
         </p>
@@ -708,10 +730,27 @@ onUnmounted(() => {
             <span v-if="scalePauseState.service_pause">Service pause until: {{ pauseUntil(scalePauseState.service_pause.expires_at) }}</span>
           </div>
           <template v-else>
-            <label class="realtime-scale-pause-toggle">
-              <input v-model="scalePauseChecked" type="checkbox" :disabled="scalePending || scalePausePersisted" />
-              <span>Pause sync</span>
-            </label>
+            <div class="realtime-scale-pause-row">
+              <label class="realtime-scale-pause-toggle">
+                <input v-model="scalePauseChecked" type="checkbox" :disabled="scalePending || scalePausePersisted" />
+                <span>Pause sync</span>
+              </label>
+              <div class="realtime-scale-pause-help" @pointerenter="showScalePauseHelp" @pointerleave="hideScalePauseHelp">
+                <button
+                  type="button"
+                  class="realtime-scale-pause-help-button"
+                  aria-label="About Pause Sync"
+                  :aria-expanded="Boolean(scalePauseHelp)"
+                  :aria-describedby="scalePauseHelp ? 'realtime-scale-pause-tooltip' : undefined"
+                  @click="scalePauseHelp = scalePauseHelp === 'pinned' ? null : 'pinned'"
+                >
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M9.5 9.5a2.5 2.5 0 0 1 5 0c0 1.5-2.5 2-2.5 3.5m0 3h.01" /></svg>
+                </button>
+                <div v-if="scalePauseHelp" id="realtime-scale-pause-tooltip" class="realtime-scale-pause-tooltip" role="tooltip">
+                  Manual scaling may be overwritten by the next GitOps synchronization.
+                </div>
+              </div>
+            </div>
             <div v-if="scalePauseChecked" class="realtime-scale-pause-duration">
               <span>Pause duration</span>
               <AppSelect v-model="scalePauseDuration" :options="scalePauseDurationOptions" label="Pause duration" />
@@ -746,7 +785,28 @@ onUnmounted(() => {
 .realtime-scale-summary dd { margin: 0; overflow-wrap: anywhere; }
 .realtime-scale-pause-state { display: grid; gap: 4px; padding: 10px; border: 1px solid var(--line); border-radius: 6px; font-size: .8rem; }
 .realtime-scale-pause-state span { color: var(--muted); }
+.realtime-scale-pause-row { position: relative; display: flex; align-items: center; gap: 8px; }
 .realtime-scale-pause-toggle { display: flex; align-items: center; gap: 8px; font-size: .84rem; }
+.realtime-scale-pause-help { display: flex; }
+.realtime-scale-pause-help-button { display: inline-grid; place-items: center; width: 25px; height: 25px; padding: 2px; border: 0; border-radius: 50%; background: transparent; color: var(--muted); cursor: help; }
+.realtime-scale-pause-help-button svg { width: 20px; height: 20px; }
+.realtime-scale-pause-help-button:hover, .realtime-scale-pause-help-button[aria-expanded="true"] { color: var(--text); transform: none; filter: none; }
+.realtime-scale-pause-help-button:focus-visible { outline: 2px solid var(--control-primary); outline-offset: 2px; }
+.realtime-scale-pause-tooltip {
+  position: absolute;
+  z-index: 10;
+  bottom: 100%;
+  left: 0;
+  width: min(315px, 100%);
+  padding: 11px 13px;
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+  background: var(--surface-elevated);
+  box-shadow: var(--shadow-popover);
+  color: var(--text);
+  font-size: .82rem;
+  line-height: 1.5;
+}
 .realtime-scale-pause-duration { display: grid; gap: 6px; font-size: .8rem; }
 .realtime-scale-input { display: flex; align-items: stretch; min-width: 0; height: 32px; overflow: hidden; border: 1px solid var(--border-default); border-radius: 6px; background: var(--surface-input); }
 .realtime-scale-input:focus-within { border-color: var(--accent-border); outline: 2px solid var(--accent-focus); outline-offset: 1px; }
