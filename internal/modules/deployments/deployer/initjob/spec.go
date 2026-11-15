@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path"
 	"strings"
 	"time"
 
@@ -229,25 +230,33 @@ func uniqueStrings(values []string) []string {
 	return out
 }
 
-func mergeObjectRefs(a, b []compose.ObjectRef) []compose.ObjectRef {
-	seen := map[string]struct{}{}
-	out := make([]compose.ObjectRef, 0, len(a)+len(b))
-	appendOne := func(ref compose.ObjectRef) {
-		key := ref.Source + "|" + ref.Target
-		if ref.Source == "" {
-			return
+func mergeObjectRefs(inherited, job []compose.ObjectRef) []compose.ObjectRef {
+	type mountKey struct {
+		source string
+		target string
+	}
+	seen := map[mountKey]struct{}{}
+	unique := func(refs []compose.ObjectRef) []compose.ObjectRef {
+		out := make([]compose.ObjectRef, 0, len(refs))
+		for _, ref := range refs {
+			if ref.Source == "" {
+				continue
+			}
+			target := ref.Target
+			if !path.IsAbs(target) {
+				// Secret targets are already absolute. Docker mounts relative configs under /.
+				target = path.Join("/", target)
+			}
+			key := mountKey{source: ref.Source, target: target}
+			if _, exists := seen[key]; exists {
+				continue
+			}
+			seen[key] = struct{}{}
+			out = append(out, ref)
 		}
-		if _, ok := seen[key]; ok {
-			return
-		}
-		seen[key] = struct{}{}
-		out = append(out, ref)
+		return out
 	}
-	for _, ref := range a {
-		appendOne(ref)
-	}
-	for _, ref := range b {
-		appendOne(ref)
-	}
-	return out
+	// Keep job references on a match and pass them after the remaining inherited mounts.
+	jobRefs := unique(job)
+	return append(unique(inherited), jobRefs...)
 }
