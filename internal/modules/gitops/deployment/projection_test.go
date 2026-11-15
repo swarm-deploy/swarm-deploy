@@ -112,7 +112,7 @@ func TestProjectionSuccessRestoresServicesAndSourceDigest(t *testing.T) {
 		state.Stacks["app"] = gitopsmodel.Stack{
 			LastError: "apply_failed",
 			Services: map[string]gitopsmodel.Service{"api": {
-				Image: "api:1", DesiredCommit: "desired-commit",
+				Image: "api:1", DesiredDigest: "desired-digest", DesiredCommit: "desired-commit",
 				SyncStatus: gitopsmodel.SyncStatusOutOfSync, SyncError: "apply_failed",
 			}},
 		}
@@ -129,10 +129,11 @@ func TestProjectionSuccessRestoresServicesAndSourceDigest(t *testing.T) {
 	assert.Empty(t, stack.LastError)
 	assert.Equal(t, gitopsmodel.SyncStatus(gitopsmodel.SyncStatusSynced), stack.Services["api"].SyncStatus)
 	assert.Empty(t, stack.Services["api"].SyncError)
-	assert.Equal(t, "commit", stack.Services["api"].DesiredCommit)
+	assert.Equal(t, "desired-digest", stack.Services["api"].DesiredDigest)
+	assert.Equal(t, "desired-commit", stack.Services["api"].DesiredCommit)
 }
 
-func TestProjectRuntimeRecordsDesiredRevisionForEveryOutcome(t *testing.T) {
+func TestProjectRuntimePreservesDesiredRevisionForEveryOutcome(t *testing.T) {
 	tests := []struct {
 		name      string
 		status    deploymentmodel.Status
@@ -146,7 +147,7 @@ func TestProjectRuntimeRecordsDesiredRevisionForEveryOutcome(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			runtime := &gitopsmodel.Runtime{Stacks: map[string]gitopsmodel.Stack{
 				"app": {Services: map[string]gitopsmodel.Service{
-					"api": {DesiredCommit: "desired-commit"},
+					"api": {DesiredDigest: "desired-digest", DesiredCommit: "desired-commit"},
 				}},
 			}}
 			attempt := deploymentmodel.Attempt{StartedAt: time.Now().UTC()}
@@ -154,7 +155,8 @@ func TestProjectRuntimeRecordsDesiredRevisionForEveryOutcome(t *testing.T) {
 				attempt, deploymentmodel.Prepared{Definition: projectionDesired("api:1")}, test.status, test.errorCode)
 
 			service := runtime.Stacks["app"].Services["api"]
-			assert.Equal(t, "deployment-commit", service.DesiredCommit)
+			assert.Equal(t, "desired-digest", service.DesiredDigest)
+			assert.Equal(t, "desired-commit", service.DesiredCommit)
 		})
 	}
 }

@@ -95,7 +95,6 @@ func projectRuntime(
 	for _, service := range desired.Definition.Compose.Services {
 		current := state.Services[service.Name]
 		current.Image = service.Image
-		current.DesiredCommit = deployment.Commit
 		current.SyncAt = projectionTime(attempt)
 		current.SyncError = errorCode
 		current.SyncStatus = gitopsmodel.SyncStatusOutOfSync

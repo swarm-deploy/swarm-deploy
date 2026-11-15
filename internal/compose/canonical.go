@@ -66,7 +66,7 @@ func digestOptions() json.Options {
 func CanonicalCompose(desired Compose) (Compose, error) {
 	desired.Services = slices.Clone(desired.Services)
 	for i := range desired.Services {
-		if err := canonicalizeService(&desired.Services[i]); err != nil {
+		if err := canonicalizeService(&desired.Services[i], false); err != nil {
 			return desired, err
 		}
 	}
@@ -76,7 +76,7 @@ func CanonicalCompose(desired Compose) (Compose, error) {
 	return desired, nil
 }
 
-func canonicalizeService(service *Service) error {
+func canonicalizeService(service *Service, preserveMountOrder bool) error {
 	if err := service.normalizeCommands(); err != nil {
 		return err
 	}
@@ -90,7 +90,6 @@ func canonicalizeService(service *Service) error {
 	service.Secrets = mapObjectRefs(service.Secrets, canonicalServiceSecret)
 	service.Configs = mapObjectRefs(service.Configs, ObjectRef.ServiceConfig)
 	service.Ports.Ports = slices.Clone(service.Ports.Ports)
-	service.Volumes.Volumes = slices.Clone(service.Volumes.Volumes)
 	service.Networks = cloneNetworkList(service.Networks)
 	// Init Jobs run in the specified order, so only their contents are normalized.
 	service.InitJobs = slices.Clone(service.InitJobs)
@@ -101,8 +100,10 @@ func canonicalizeService(service *Service) error {
 		}
 		job.resolveObjectRefs()
 		job.Networks = cloneNetworkList(job.Networks)
-		err := errors.Join(sortByCanonicalJSON(job.Networks.list()),
-			sortByCanonicalJSON(job.Secrets), sortByCanonicalJSON(job.Configs))
+		err := sortByCanonicalJSON(job.Networks.list())
+		if !preserveMountOrder {
+			err = errors.Join(err, sortByCanonicalJSON(job.Secrets), sortByCanonicalJSON(job.Configs))
+		}
 		if err != nil {
 			return fmt.Errorf("services.%s.init_jobs[%d]: %w", service.Name, i, err)
 		}
@@ -110,11 +111,16 @@ func canonicalizeService(service *Service) error {
 	// TODO(0.16.0): Drop the extra JSON sort for CapAdd and CapDrop. It preserves
 	// the old digest order for escaped names. NormalizeCapabilities already sorts them.
 	err := errors.Join(
-		sortByCanonicalJSON(service.Ports.Ports), sortByCanonicalJSON(service.Volumes.Volumes),
-		sortByCanonicalJSON(service.Networks.list()), sortByCanonicalJSON(service.Secrets),
-		sortByCanonicalJSON(service.Configs), sortByCanonicalJSON(service.CapAdd),
+		sortByCanonicalJSON(service.Ports.Ports),
+		sortByCanonicalJSON(service.Networks.list()),
+		sortByCanonicalJSON(service.CapAdd),
 		sortByCanonicalJSON(service.CapDrop),
 	)
+	if !preserveMountOrder {
+		service.Volumes.Volumes = slices.Clone(service.Volumes.Volumes)
+		err = errors.Join(err, sortByCanonicalJSON(service.Volumes.Volumes),
+			sortByCanonicalJSON(service.Secrets), sortByCanonicalJSON(service.Configs))
+	}
 	if err != nil {
 		return fmt.Errorf("services.%s: %w", service.Name, err)
 	}

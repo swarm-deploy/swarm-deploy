@@ -21,7 +21,7 @@ func TestSQLRuntimeRollbackAndRestart(t *testing.T) {
 		s.GitRevision = "baseline"
 		s.Stacks["app"] = model.Stack{Services: map[string]model.Service{
 			"api": {
-				DesiredCommit: "desired-commit", SelfHealPending: true,
+				DesiredDigest: "desired-digest", DesiredCommit: "desired-commit", SelfHealPending: true,
 				SyncStatus: model.SyncStatusOutOfSync, SyncError: "Self Heal Convergence Failed",
 			},
 		}}
@@ -39,10 +39,11 @@ func TestSQLRuntimeRollbackAndRestart(t *testing.T) {
 	assert.Equal(t, "baseline", state.GitRevision)
 	assert.True(t, state.Stacks["app"].Services["api"].SelfHealPending)
 	assert.Equal(t, "Self Heal Convergence Failed", state.Stacks["app"].Services["api"].SyncError)
+	assert.Equal(t, "desired-digest", state.Stacks["app"].Services["api"].DesiredDigest)
 	assert.Equal(t, "desired-commit", state.Stacks["app"].Services["api"].DesiredCommit)
 }
 
-func TestSQLRuntimeReadsLegacyServiceStateWithoutDesiredCommit(t *testing.T) {
+func TestSQLRuntimeReadsLegacyServiceStateWithoutDesiredFields(t *testing.T) {
 	db, err := storage.OpenSQLite(t.Context(), t.TempDir())
 	require.NoError(t, err)
 	defer db.Close()
@@ -52,6 +53,7 @@ func TestSQLRuntimeReadsLegacyServiceStateWithoutDesiredCommit(t *testing.T) {
 
 	state, err := NewSQLStore(db).Read(t.Context())
 	require.NoError(t, err)
+	assert.Empty(t, state.Stacks["app"].Services["api"].DesiredDigest)
 	assert.Empty(t, state.Stacks["app"].Services["api"].DesiredCommit)
 }
 

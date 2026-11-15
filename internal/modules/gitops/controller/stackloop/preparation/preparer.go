@@ -164,6 +164,18 @@ func (p *Preparer) attachPipeline(provider trace.TracerProvider) {
 			return compose.ValidateEffective(payload.desired.Compose, payload.desired.Path)
 		},
 	})
+
+	p.pipeline.Add(pipe.Step[*preparationPayload]{
+		Name: "calculate service digests",
+		Run: func(_ context.Context, payload *preparationPayload) error {
+			digests, err := compose.ServiceDigests(payload.desired)
+			if err != nil {
+				return err
+			}
+			payload.desired.ServiceDigests = digests
+			return nil
+		},
+	})
 }
 
 func checkImagePolicy(ctx context.Context, policy config.ImagePolicySpec, desired *compose.File) error {

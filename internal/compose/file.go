@@ -28,6 +28,8 @@ type File struct {
 	Digest string `json:"digest"`
 	// ResourceDigests fingerprints referenced config/secret file contents without storing them.
 	ResourceDigests map[string]string `json:"resource_digests,omitempty"`
+	// ServiceDigests holds per-service fingerprints populated after GitOps preparation.
+	ServiceDigests map[string]string `json:"-"`
 }
 
 // FileLoader loads compose files.
@@ -155,7 +157,6 @@ func (l *fileLoader) Load(ctx context.Context, path string) (*File, error) {
 	}
 
 	file.Digest = computeDigest(*file, raw, configFiles, secretFiles)
-
 	return file, nil
 }
 
