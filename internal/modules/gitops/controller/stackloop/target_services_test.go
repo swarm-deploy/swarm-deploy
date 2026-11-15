@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	pipe "github.com/artarts36/gopipe"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
@@ -15,7 +14,6 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer"
-	deploymentmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackloop/preparation"
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
@@ -156,26 +154,26 @@ func TestReconcileAdoptsLegacyDeploymentReceiptWithoutRedeploy(t *testing.T) {
 	assert.Equal(t, model.SyncStatus(model.SyncStatusSynced), api.SyncStatus)
 }
 
-func TestPipelineFailureForgetsConfirmedPrunedServices(t *testing.T) {
-	for _, attempt := range []*deploymentmodel.Attempt{nil, {TargetServices: []string{}}} {
-		db, store := newSQLState(t)
-		applied := model.Service{
-			DesiredDigest: "digest", AppliedDigest: "digest", AppliedCommit: "one", SyncStatus: model.SyncStatusSynced,
-		}
-		require.NoError(t, store.Update(t.Context(), func(runtime *model.Runtime) {
-			runtime.Stacks["app"] = model.Stack{Services: map[string]model.Service{"api": applied, "worker": applied}}
-		}))
-		previous := readSQLState(t, store).Stacks["app"]
-		reconciler := &Reconciler{db: db, stateStore: store, event: &dispatcher.NopDispatcher{}}
-		payload := &pipelinePayload{Desired: &compose.File{}, Attempt: attempt, PrunedServices: []string{"api"}}
-
-		err := reconciler.recordPipelineFailure(t.Context(),
-			ReconciliationRequest{Stack: config.StackSpec{Name: "app"}, Commit: "two"}, previous, payload,
-			&pipe.StepError{StepName: "prune orphaned services", Err: assert.AnError})
-		require.Error(t, err)
-
-		services := readSQLState(t, store).Stacks["app"].Services
-		assert.NotContains(t, services, "api", "a removed service must be deployed again when restored")
-		assert.Equal(t, "digest", services["worker"].AppliedDigest, "a service still running keeps its revision")
+func TestRemovedServiceIsRedeployedAfterInterruptedReconciliation(t *testing.T) {
+	db, store := newSQLState(t)
+	applied := model.Service{
+		DesiredDigest: "digest", AppliedDigest: "digest", AppliedCommit: "one", SyncStatus: model.SyncStatusSynced,
 	}
+	require.NoError(t, store.Update(t.Context(), func(runtime *model.Runtime) {
+		runtime.Stacks["app"] = model.Stack{Services: map[string]model.Service{"api": applied, "worker": applied}}
+	}))
+	reconciler := &Reconciler{db: db, stateStore: store}
+
+	// worker leaves Compose; the process stops after pruning, before the result is recorded.
+	_, err := reconciler.persistDesiredServices(t.Context(), "app", "two", map[string]string{"api": "digest"})
+	require.NoError(t, err)
+	assert.NotContains(t, readSQLState(t, store).Stacks["app"].Services, "worker")
+
+	// Restoring worker with its previous configuration selects it for deployment.
+	_, err = reconciler.persistDesiredServices(t.Context(), "app", "three",
+		map[string]string{"api": "digest", "worker": "digest"})
+	require.NoError(t, err)
+	restored := &compose.File{Compose: compose.Compose{Services: compose.Services{{Name: "api"}, {Name: "worker"}}}}
+	targets, _ := targetServices(restored, readSQLState(t, store).Stacks["app"])
+	assert.Equal(t, []string{"worker"}, targets)
 }

@@ -120,7 +120,7 @@ func (r *Reconciler) Reconcile(
 ) error {
 	desiredState, err := r.preparer.Load(ctx, req.Stack, req.Commit)
 	if err != nil {
-		persistErr := r.recordFailure(ctx, req.Stack.Name, req.Commit, nil, nil, err)
+		persistErr := r.recordFailure(ctx, req.Stack.Name, req.Commit, nil, err)
 
 		return wrapReconcileError("load compose", nil, errors.Join(err, persistErr))
 	}
@@ -134,7 +134,7 @@ func (r *Reconciler) Reconcile(
 		Stack: req.Stack, Desired: desiredState,
 	})
 	if err != nil {
-		persistErr := r.recordFailure(ctx, req.Stack.Name, req.Commit, desiredState, nil, err)
+		persistErr := r.recordFailure(ctx, req.Stack.Name, req.Commit, desiredState, err)
 		stage := "prepare compose"
 		if stepErr, ok := errors.AsType[*pipe.StepError](err); ok {
 			stage = stepErr.StepName
@@ -241,6 +241,19 @@ func (r *Reconciler) persistDesiredServices(
 			stack.Services[name] = service
 			services[name] = service
 		}
+		// A service leaves desired state before it can be pruned. Dropping its applied
+		// revision in the same durable update means that restoring it deploys it again,
+		// even when the process stops after pruning and before the result is recorded.
+		removed := false
+		for name := range stack.Services {
+			if _, desired := digests[name]; !desired {
+				delete(stack.Services, name)
+				removed = true
+			}
+		}
+		if removed {
+			stack.Status = model.NewStackStatus(stack.Services)
+		}
 		runtime.Stacks[stackName] = stack
 	})
 	return services, err
@@ -319,7 +332,7 @@ func hasRemediationAttempt(remediations map[string]serviceRemediation) bool {
 }
 
 func (r *Reconciler) recordFailure(
-	ctx context.Context, stackName, commit string, desired *compose.File, pruned []string, cause error,
+	ctx context.Context, stackName, commit string, desired *compose.File, cause error,
 ) error {
 	var services []compose.Service
 	if desired != nil {
@@ -350,7 +363,6 @@ func (r *Reconciler) recordFailure(
 					SelfHealPending: previous.SelfHealPending, SyncError: previous.SyncError,
 				}
 			}
-			forgetPrunedServices(state.Services, pruned)
 			state.Status = model.NewStackStatus(state.Services)
 			runtime.Stacks[stackName] = state
 		}); err != nil {
@@ -369,7 +381,7 @@ func (r *Reconciler) recordPipelineFailure(
 	services := pl.Desired.Compose.Services
 	var persistErr error
 	if pl.Attempt == nil {
-		persistErr = r.recordFailure(ctx, req.Stack.Name, req.Commit, pl.Desired, pl.PrunedServices, pipeErr)
+		persistErr = r.recordFailure(ctx, req.Stack.Name, req.Commit, pl.Desired, pipeErr)
 	} else {
 		// Deployments has already classified and committed the terminal Attempt.
 		// GitOps keeps the reconciliation error observable and lets the durable
@@ -395,7 +407,6 @@ func (r *Reconciler) recordPipelineFailure(
 				SyncStatus:   model.SyncStatusOutOfSync, SyncAt: time.Now(),
 			}
 		}
-		forgetPrunedServices(failed.Services, pl.PrunedServices)
 		failed.Status = model.NewStackStatus(failed.Services)
 		persistErr = r.stateStore.Update(ctx, func(runtime *model.Runtime) {
 			runtime.Stacks[req.Stack.Name] = failed

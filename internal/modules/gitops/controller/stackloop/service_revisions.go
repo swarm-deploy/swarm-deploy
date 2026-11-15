@@ -20,15 +20,6 @@ func targetServices(desired *compose.File, previous model.Stack) ([]string, map[
 	return names, commits
 }
 
-// forgetPrunedServices drops runtime state of services confirmed removed from Swarm,
-// even when cleanup of other services failed. A service restored later in Compose
-// has no applied revision and is deployed again.
-func forgetPrunedServices(services map[string]model.Service, pruned []string) {
-	for _, name := range pruned {
-		delete(services, name)
-	}
-}
-
 func serviceExecutionState(
 	service compose.Service, previous model.Service, payload *pipelinePayload, now time.Time,
 ) model.Service {

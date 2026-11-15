@@ -42,9 +42,16 @@ secrets or configs, including those of its Init Jobs, cannot be confirmed this w
 It stays unconfirmed in the snapshot and is deployed once; other services are not
 executed again. A successful Attempt confirms the services it applied.
 
-When cleanup fails after some orphaned services were removed, GitOps drops the
-runtime state of the removed services, so restoring one of them in Compose deploys
-it again.
+A service that leaves desired state loses its applied revision in the same durable
+update that records the new desired revisions, before it can be pruned. Restoring it
+in Compose deploys it again, even when cleanup failed or the process stopped after
+pruning and before the result was recorded. A service kept running because pruning
+is disabled is redeployed as well when restored.
+
+A service's deployment history lists only Attempts that executed it: Attempts
+targeting it, historical whole-stack Attempts, and deployments recorded before
+Attempts were persisted. Each entry reports that Attempt's outcome and the
+service's source commit.
 
 Deployments persists the explicit target list and each target's digest and source
 commit on the Attempt before execution. An empty list selects no services. A nil list,

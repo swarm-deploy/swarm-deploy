@@ -282,34 +282,75 @@ func (s *Store) ListServiceDeployments(
 	if limit < 1 || limit > 100 {
 		limit = 5
 	}
+	// A service's history contains only Attempts that executed it: historical
+	// whole-stack Attempts with null targets, or Attempts listing the service.
+	// Deployments recorded before Attempts were persisted count as whole-stack.
 	const query = `
 		SELECT d.id, d."commit", d.status,
-			CASE WHEN d.status IN ('failed','interrupted') AND EXISTS (
+			EXISTS (
 				SELECT 1 FROM deployments AS newer
 				WHERE newer.stack = d.stack AND newer.rowid > d.rowid
-			) THEN 1 ELSE 0 END AS is_superseded,
+			) AS has_newer,
 			d.started_at,
-			json_extract(svc.value, '$.image') AS image
-		FROM deployments AS d,
-			json_each(d.desired_payload, '$.definition.compose.services') AS svc
-		WHERE d.stack = ? AND json_extract(svc.value, '$.name') = ?
+			json_extract(svc.value, '$.image') AS image,
+			attempt.id AS attempt_id, attempt.status AS attempt_status,
+			attempt.details_payload AS attempt_details,
+			(SELECT latest.id FROM deployment_attempts AS latest
+				WHERE latest.deployment_id = d.id ORDER BY latest.number DESC LIMIT 1) AS latest_attempt_id
+		FROM deployments AS d
+			JOIN json_each(d.desired_payload, '$.definition.compose.services') AS svc
+				ON json_extract(svc.value, '$.name') = ?
+			LEFT JOIN deployment_attempts AS attempt ON attempt.id = (
+				SELECT included.id FROM deployment_attempts AS included
+				WHERE included.deployment_id = d.id AND (
+					COALESCE(json_type(included.details_payload, '$.target_services'), 'null') = 'null'
+					OR EXISTS (
+						SELECT 1 FROM json_each(included.details_payload, '$.target_services') AS target
+						WHERE target.value = ?
+					)
+				)
+				ORDER BY included.number DESC LIMIT 1
+			)
+		WHERE d.stack = ? AND (attempt.id IS NOT NULL OR NOT EXISTS (
+			SELECT 1 FROM deployment_attempts AS persisted WHERE persisted.deployment_id = d.id
+		))
 		ORDER BY d.started_at DESC, d.id ASC
 		LIMIT ?`
 	var rows []struct {
-		ID           string                 `db:"id"`
-		Commit       string                 `db:"commit"`
-		Status       deploymentmodel.Status `db:"status"`
-		IsSuperseded bool                   `db:"is_superseded"`
-		StartedAt    time.Time              `db:"started_at"`
-		Image        string                 `db:"image"`
+		ID              string                 `db:"id"`
+		Commit          string                 `db:"commit"`
+		Status          deploymentmodel.Status `db:"status"`
+		HasNewer        bool                   `db:"has_newer"`
+		StartedAt       time.Time              `db:"started_at"`
+		Image           string                 `db:"image"`
+		AttemptID       sql.NullString         `db:"attempt_id"`
+		AttemptStatus   sql.NullString         `db:"attempt_status"`
+		AttemptDetails  []byte                 `db:"attempt_details"`
+		LatestAttemptID sql.NullString         `db:"latest_attempt_id"`
 	}
-	if err := s.db.Select(ctx, &rows, query, stack, service, limit); err != nil {
+	if err := s.db.Select(ctx, &rows, query, service, service, stack, limit); err != nil {
 		return nil, err
 	}
 	items := make([]deploymentmodel.ServiceDeployment, 0, len(rows))
 	for _, row := range rows {
+		status, commit := row.Status, row.Commit
+		// An earlier Attempt reports its own outcome; the latest one reports the
+		// deployment status, which also reflects supersession.
+		if row.AttemptID.Valid && row.AttemptID.String != row.LatestAttemptID.String {
+			status = deploymentmodel.Status(row.AttemptStatus.String)
+		}
+		if len(row.AttemptDetails) > 0 {
+			var details deploymentDetails
+			if err := json.Unmarshal(row.AttemptDetails, &details); err != nil {
+				return nil, err
+			}
+			if revision := details.ServiceRevisions[service]; revision.Commit != "" {
+				commit = revision.Commit
+			}
+		}
+		superseded := row.HasNewer && (status == deploymentmodel.Failed || status == deploymentmodel.Interrupted)
 		items = append(items, deploymentmodel.ServiceDeployment{
-			ID: row.ID, Commit: row.Commit, Status: projectedStatus(row.Status, row.IsSuperseded),
+			ID: row.ID, Commit: commit, Status: projectedStatus(status, superseded),
 			StartedAt: row.StartedAt.UTC(), Image: row.Image,
 		})
 	}

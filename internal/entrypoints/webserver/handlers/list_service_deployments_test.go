@@ -72,6 +72,63 @@ func TestListServiceDeploymentsReadsDeploymentStore(t *testing.T) {
 	assert.Equal(t, "v1", response.Deployments[2].ImageVersion)
 }
 
+func TestListServiceDeploymentsFollowsAttemptTargets(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	db, err := storage.OpenSQLite(ctx, t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	svc := deployments.NewService(db, eventbus.NewOutboxDispatcher(outbox.New(db)))
+	h := &handler{deployments: deploymentstore.NewStore(db)}
+	file := func(worker string) compose.File {
+		return compose.File{Compose: compose.Compose{Services: compose.Services{
+			{Name: "api", Image: "api:v1"}, {Name: "worker", Image: worker},
+		}}}
+	}
+	history := func(service string) []generated.ServiceDeployment {
+		response, listErr := h.ListServiceDeployments(ctx, generated.ListServiceDeploymentsParams{Stack: "app", Service: service})
+		require.NoError(t, listErr)
+		return response.Deployments
+	}
+
+	// Historical whole-stack Attempt: null targets include every service.
+	initial, err := svc.StartIfChanged(ctx, "app", "sha-1", file("worker:v1"), true)
+	require.NoError(t, err)
+	require.NoError(t, svc.Complete(ctx, initial.ID, deployments.Completion{Outcome: deployments.CompletionSucceeded}))
+	_, err = db.Exec(ctx, "UPDATE deployment_attempts SET details_payload = json_remove(details_payload, '$.target_services', '$.service_revisions')")
+	require.NoError(t, err)
+
+	// A failed update of worker only.
+	failed, err := svc.StartIfChanged(ctx, "app", "sha-2", file("worker:v2"), true,
+		deployments.StartOptions{TargetServices: []string{"worker"}, ServiceCommits: map[string]string{"worker": "worker-commit"}})
+	require.NoError(t, err)
+	require.NoError(t, svc.Complete(ctx, failed.ID, deployments.Completion{Outcome: deployments.CompletionApplyFailed}))
+
+	api := history("api")
+	require.Len(t, api, 1, "the unchanged api did not take part in the worker update")
+	assert.Equal(t, initial.DeploymentID, api[0].ID)
+	assert.Equal(t, generated.ServiceDeploymentStatusSucceeded, api[0].Status)
+	worker := history("worker")
+	require.Len(t, worker, 2)
+	assert.Equal(t, failed.DeploymentID, worker[0].ID)
+	assert.Equal(t, generated.ServiceDeploymentStatusFailed, worker[0].Status)
+	assert.Equal(t, "worker-commit", worker[0].Commit.Value)
+
+	// A later Attempt of the same desired state for api keeps the earlier failed worker Attempt.
+	retry, err := svc.StartIfChanged(ctx, "app", "sha-2", file("worker:v2"), false,
+		deployments.StartOptions{TargetServices: []string{"api"}, ManualRetry: true})
+	require.NoError(t, err)
+	require.NotNil(t, retry)
+	require.NoError(t, svc.Complete(ctx, retry.ID, deployments.Completion{Outcome: deployments.CompletionSucceeded}))
+	assert.Equal(t, generated.ServiceDeploymentStatusFailed, history("worker")[0].Status)
+	assert.Equal(t, generated.ServiceDeploymentStatusSucceeded, history("api")[0].Status)
+
+	// Deployments recorded before Attempts were persisted remain whole-stack.
+	_, err = db.Exec(ctx, "DELETE FROM deployment_attempts WHERE deployment_id = ?", initial.DeploymentID)
+	require.NoError(t, err)
+	assert.Len(t, history("api"), 2)
+}
+
 func TestListServiceDeploymentsWithoutAttemptsIsEmpty(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
