@@ -85,7 +85,7 @@ func TestListServiceDeploymentsFollowsAttemptTargets(t *testing.T) {
 			{Name: "api", Image: "api:v1"}, {Name: "worker", Image: worker},
 		}}}
 	}
-	history := func(service string) []generated.ServiceDeployment {
+	history := func(service string) []generated.ServiceDeploymentResponse {
 		response, listErr := h.ListServiceDeployments(ctx, generated.ListServiceDeploymentsParams{Stack: "app", Service: service})
 		require.NoError(t, listErr)
 		return response.Deployments
