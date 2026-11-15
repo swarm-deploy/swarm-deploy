@@ -2,12 +2,14 @@ package stackloop
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
 	"testing"
 
+	pipe "github.com/artarts36/gopipe"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
@@ -157,6 +159,63 @@ func TestReconcileRevertAfterPersistingDesiredCreatesNewDeployment(t *testing.T)
 	after, err := store.Get(t.Context(), original.ID)
 	require.NoError(t, err)
 	assert.Equal(t, original, after)
+}
+
+func TestReconcilePreservesAppliedRevisionWhenDriftAnalysisFails(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	repository := gitx.NewMockRepository(ctrl)
+	manager := swarm.NewMockServiceManager(ctrl)
+	executor := deployer.NewMockStackDeployer(ctrl)
+	db, runtime := newSQLState(t)
+	store := deploymentstore.NewStore(db)
+	dir := t.TempDir()
+	mockRepositoryFiles(repository, dir)
+	cfg := &config.Config{Spec: config.Spec{DataDir: t.TempDir()}}
+	bus := &dispatcher.NopDispatcher{}
+	reconciler := newTestReconciler(cfg, repository, deployments.NewService(db, bus), executor,
+		&swarm.Swarm{Services: manager}, bus, &metrics.NopDeploys{}, runtime, db)
+	req := ReconciliationRequest{Stack: config.StackSpec{Name: "app", ComposeFile: "app.yaml"}, Commit: "one"}
+	writeManifest := func(image string) {
+		t.Helper()
+		manifest := fmt.Sprintf("services:\n  api:\n    image: %s\n", image)
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "app.yaml"), []byte(manifest), 0600))
+	}
+	executor.EXPECT().DeployStack(gomock.Any(), gomock.Any()).Return(deployer.Result{}, nil).Times(2)
+	manager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "app"}).
+		Return([]swarm.StackService{{Name: "api"}}, nil).Times(3)
+	writeManifest("api:1")
+	require.NoError(t, reconciler.Reconcile(t.Context(), req))
+	previous := readSQLState(t, runtime).Stacks["app"].Services["api"].AppliedDigest
+	require.NotEmpty(t, previous)
+
+	writeManifest("api:2")
+	req.Commit, req.IsManual = "two", true
+	driftErr := errors.New("drift analysis unavailable")
+	reconciler.pipeline = pipe.NewPipeline[*pipelinePayload]()
+	reconciler.pipeline.Add(pipe.Step[*pipelinePayload]{Name: "execute deployment", Run: reconciler.executeDeployment})
+	reconciler.pipeline.Add(pipe.Step[*pipelinePayload]{
+		Name: "analyze drift",
+		Run:  func(context.Context, *pipelinePayload) error { return driftErr },
+	})
+	require.ErrorIs(t, reconciler.Reconcile(t.Context(), req), driftErr)
+	stack := readSQLState(t, runtime).Stacks["app"]
+	api := stack.Services["api"]
+	assert.NotEqual(t, previous, api.AppliedDigest)
+	assert.Equal(t, api.DesiredDigest, api.AppliedDigest)
+	assert.Equal(t, "two", api.AppliedCommit)
+	assert.False(t, api.ApplyPending)
+	assert.Equal(t, "analyze drift: drift analysis unavailable", stack.LastError)
+	completed, _, err := store.Latest(t.Context(), "app")
+	require.NoError(t, err)
+	assert.Equal(t, deploymentmodel.Succeeded, completed.Status)
+
+	reconciler.attachPipeline()
+	req.IsManual = false
+	executor.EXPECT().RefreshRegistryAuth(gomock.Any(), gomock.Any()).Return(nil)
+	require.NoError(t, reconciler.Reconcile(t.Context(), req))
+	latest, _, err := store.Latest(t.Context(), "app")
+	require.NoError(t, err)
+	assert.Equal(t, completed, latest)
 }
 
 func TestReconcileAdoptsLegacyDeploymentReceiptWithoutRedeploy(t *testing.T) {

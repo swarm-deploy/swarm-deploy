@@ -32,11 +32,12 @@ type pipelinePayload struct {
 
 	Desired *compose.File
 
-	LiveServices   []swarm.StackService
-	ObservedAt     time.Time
-	PrunedServices []string
-	ExecutionError string
-	RetryDeferred  bool
+	LiveServices       []swarm.StackService
+	ObservedAt         time.Time
+	PrunedServices     []string
+	ExecutionError     string
+	ExecutionSucceeded bool
+	RetryDeferred      bool
 	// RegistryAuthError is reported after ordinary reconciliation without changing deployment lifecycle.
 	RegistryAuthError error
 	// ProtectedServices cannot be remediated automatically while retry is deferred.
@@ -111,6 +112,7 @@ func (r *Reconciler) executeDeployment(ctx context.Context, payload *pipelinePay
 	payload.ObservedAt = result.ObservedAt
 	payload.PrunedServices = result.PrunedServices
 	payload.ExecutionError = result.ErrorCode
+	payload.ExecutionSucceeded = err == nil && result.Attempt != nil && result.Status == deploymentmodel.Succeeded
 	payload.RetryDeferred = result.RetryDeferred
 	payload.ProtectedServices = result.UnresolvedServices
 	if errors.Is(err, deployments.ErrRegistryAuthRefresh) {

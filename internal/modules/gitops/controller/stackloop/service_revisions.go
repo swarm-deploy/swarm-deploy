@@ -41,3 +41,18 @@ func serviceExecutionState(
 	}
 	return state
 }
+
+func projectAppliedRevisionsAfterFailure(stack *model.Stack, payload *pipelinePayload) {
+	for _, service := range payload.Desired.Compose.Services {
+		if _, ok := payload.AppliedRevisions[service.Name]; !ok {
+			continue
+		}
+		previous := stack.Services[service.Name]
+		state := serviceExecutionState(service, previous, payload, stack.StateUpdatedAt)
+		if !payload.Attempt.Targets(service.Name) && (state.SelfHealPending || stack.DriftedServices[service.Name]) {
+			// A receipt cannot clear drift without a new observation or execution.
+			state.SyncStatus, state.SyncError = previous.SyncStatus, previous.SyncError
+		}
+		stack.Services[service.Name] = state
+	}
+}

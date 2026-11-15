@@ -376,39 +376,36 @@ func (r *Reconciler) recordPipelineFailure(
 	ctx context.Context, req ReconciliationRequest, prev model.Stack, pl *pipelinePayload, pipeErr *pipe.StepError,
 ) error {
 	services := pl.Desired.Compose.Services
-	var persistErr error
 	if pl.Attempt == nil {
-		persistErr = r.recordFailure(ctx, req.Stack.Name, req.Commit, pl.Desired, pipeErr)
+		persistErr := r.recordFailure(ctx, req.Stack.Name, req.Commit, pl.Desired, pipeErr)
+		return wrapReconcileError(pipeErr.StepName, services, errors.Join(pipeErr, persistErr))
+	}
+	// This write supersedes older completion events. Preserve receipts and the
+	// stack's deployment time if a later reconciliation step failed.
+	failed := prev
+	failed.LastCommit = req.Commit
+	failed.StateUpdatedAt = time.Now().UTC()
+	if pl.ExecutionSucceeded {
+		failed.LastError = faults.SafeDiagnostic(pipeErr)
+		failed.LastDeployAt = failed.StateUpdatedAt
+		projectAppliedRevisionsAfterFailure(&failed, pl)
 	} else {
-		// Deployments has already classified and committed the terminal Attempt.
-		// GitOps keeps the reconciliation error observable and lets the durable
-		// completion event update its runtime projection.
-		failed := prev
-		failed.LastCommit, failed.LastError = req.Commit, pl.ExecutionError
-		failed.StateUpdatedAt = time.Now().UTC()
+		failed.LastError = pl.ExecutionError
 		if failed.LastError == "" {
 			failed.LastError = events.DeployErrorCodeApplyFailed
 		}
-		if failed.Services == nil {
-			failed.Services = map[string]model.Service{}
+		for _, service := range pl.Attempt.Services(*pl.Desired) {
+			state := failed.Services[service.Name]
+			state.Image = service.Image
+			state.SyncStatus, state.SyncAt = model.SyncStatusOutOfSync, failed.StateUpdatedAt
+			state.SelfHealPending, state.SyncError = false, ""
+			failed.Services[service.Name] = state
 		}
-		for _, service := range services {
-			if !pl.Attempt.Targets(service.Name) {
-				continue
-			}
-			previous := failed.Services[service.Name]
-			failed.Services[service.Name] = model.Service{
-				Image: service.Image, DesiredDigest: previous.DesiredDigest, DesiredCommit: previous.DesiredCommit,
-				AppliedDigest: previous.AppliedDigest, AppliedCommit: previous.AppliedCommit,
-				ApplyPending: previous.ApplyPending,
-				SyncStatus:   model.SyncStatusOutOfSync, SyncAt: time.Now(),
-			}
-		}
-		failed.Status = model.NewStackStatus(failed.Services)
-		persistErr = r.stateStore.Update(ctx, func(runtime *model.Runtime) {
-			runtime.Stacks[req.Stack.Name] = failed
-		})
 	}
+	failed.Status = model.NewStackStatus(failed.Services)
+	persistErr := r.stateStore.Update(ctx, func(runtime *model.Runtime) {
+		runtime.Stacks[req.Stack.Name] = failed
+	})
 	return wrapReconcileError(pipeErr.StepName, services, errors.Join(pipeErr, persistErr))
 }
 
