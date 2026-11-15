@@ -197,14 +197,16 @@ func TestReconcilePreservesAppliedRevisionWhenDriftAnalysisFails(t *testing.T) {
 		Name: "analyze drift",
 		Run:  func(context.Context, *pipelinePayload) error { return driftErr },
 	})
-	require.ErrorIs(t, reconciler.Reconcile(t.Context(), req), driftErr)
+	reconcileErr := reconciler.Reconcile(t.Context(), req)
+	require.ErrorIs(t, reconcileErr, driftErr)
+	require.ErrorContains(t, reconcileErr, "analyze drift: drift analysis unavailable")
 	stack := readSQLState(t, runtime).Stacks["app"]
 	api := stack.Services["api"]
 	assert.NotEqual(t, previous, api.AppliedDigest)
 	assert.Equal(t, api.DesiredDigest, api.AppliedDigest)
 	assert.Equal(t, "two", api.AppliedCommit)
 	assert.False(t, api.ApplyPending)
-	assert.Equal(t, "analyze drift: drift analysis unavailable", stack.LastError)
+	assert.Equal(t, "analyze_drift_failed", stack.LastError)
 	completed, _, err := store.Latest(t.Context(), "app")
 	require.NoError(t, err)
 	assert.Equal(t, deploymentmodel.Succeeded, completed.Status)

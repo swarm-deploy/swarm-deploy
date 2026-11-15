@@ -39,7 +39,7 @@ type Stack struct {
 	LastCommit string `json:"last_commit"`
 	// Status contains aggregated deployment counters for stack services.
 	Status StackStatus `json:"status"`
-	// LastError contains the latest deployment error message for the stack.
+	// LastError contains the latest reconciliation error code for the stack.
 	LastError string `json:"last_error"`
 	// LastDeployAt is the timestamp of the latest stack deployment attempt.
 	LastDeployAt time.Time `json:"last_deploy_at"`
