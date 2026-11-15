@@ -122,14 +122,18 @@ func (s *Service) startPrepared(
 	if latestDesired.Digest == desired.Digest && latestDesired.ServiceDigests == nil {
 		// Snapshots recorded before per-service digests describe the same effective
 		// state. Adopting the current digests keeps an upgrade from redeploying it.
-		if err = s.store.AdoptServiceDigests(ctx, latest.ID, desired.ServiceDigests); err != nil {
+		// The whole-stack digest omits mount order, so services with ordered mounts
+		// stay unconfirmed and are deployed once.
+		unconfirmed := slices.Clone(desired.OrderedMountServices)
+		if err = s.store.AdoptServiceDigests(ctx, latest.ID, desired.ServiceDigests, unconfirmed); err != nil {
 			return nil, err
 		}
 		latestDesired.ServiceDigests = maps.Clone(desired.ServiceDigests)
+		latestDesired.UnconfirmedServices = unconfirmed
 	}
 	// Service digests also capture order-sensitive mounts omitted by the whole-stack digest.
 	if latestDesired.Digest == desired.Digest && maps.Equal(latestDesired.ServiceDigests, desired.ServiceDigests) {
-		return s.startExisting(ctx, latest, desired, commit, options)
+		return s.startExisting(ctx, latest, latestDesired, desired, commit, options)
 	}
 	removedServices := desiredServiceRemovals(latestDesired.Definition, desired.Definition)
 	if err = s.supersedePrevious(ctx, latest); err != nil {
@@ -178,6 +182,7 @@ func desiredServiceRemovals(previous, current compose.File) []string {
 func (s *Service) startExisting(
 	ctx context.Context,
 	latest deploymentmodel.Deployment,
+	snapshot deploymentmodel.Prepared,
 	desired deploymentmodel.Prepared,
 	commit string,
 	options StartOptions,
@@ -186,9 +191,16 @@ func (s *Service) startExisting(
 	case deploymentmodel.Running:
 		return nil, nil //nolint:nilnil // An active attempt owns execution.
 	case deploymentmodel.Succeeded:
-		if targetsApplied(latest, desired, options.TargetServices) {
-			return nil, nil //nolint:nilnil // Delivery lag must not repeat a successful execution.
+		// Delivery lag must not repeat a successful execution of any target.
+		options.TargetServices = unappliedTargets(latest, snapshot, options.TargetServices)
+		if len(options.TargetServices) == 0 {
+			return nil, nil //nolint:nilnil // Every target already has a receipt.
 		}
+		withHistory, err := s.persistHistoricalSuccess(ctx, latest)
+		if err != nil {
+			return nil, err
+		}
+		latest = withHistory
 	case deploymentmodel.Failed, deploymentmodel.Interrupted:
 		if !options.ManualRetry && !s.automaticRetryAllowed(latest) {
 			return nil, nil //nolint:nilnil // Preserve failure classification and retry backoff.
@@ -245,6 +257,30 @@ func (s *Service) runningAttempt(
 		return deploymentmodel.Attempt{}, err
 	}
 	return attempt, nil
+}
+
+// persistHistoricalSuccess materializes the whole-stack success of a Deployment recorded
+// before Attempts were persisted, so it remains a receipt once later Attempts exist.
+func (s *Service) persistHistoricalSuccess(
+	ctx context.Context, deployment deploymentmodel.Deployment,
+) (deploymentmodel.Deployment, error) {
+	if len(deployment.Attempts) > 0 || deployment.Status != deploymentmodel.Succeeded {
+		return deployment, nil
+	}
+	attempt := newAttempt(deployment.ID, 1, deployment.StartedAt)
+	finishedAt := deployment.StartedAt.UTC()
+	if deployment.FinishedAt != nil {
+		finishedAt = deployment.FinishedAt.UTC()
+	}
+	attempt.Status, attempt.FinishedAt = deploymentmodel.Succeeded, &finishedAt
+	attempt.Phase = deploymentmodel.PhaseCompleted
+	attempt.ApplyStatus, attempt.VerificationStatus = deploymentmodel.StageSucceeded, deploymentmodel.StageSucceeded
+	attempt.CleanupStatus = deploymentmodel.StageSucceeded
+	if err := s.store.InsertLegacyAttempt(ctx, attempt); err != nil {
+		return deployment, err
+	}
+	deployment.Attempts, deployment.AttemptCount = []deploymentmodel.Attempt{attempt}, 1
+	return deployment, nil
 }
 
 func (s *Service) createDeployment(

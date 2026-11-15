@@ -79,6 +79,11 @@ func Prepare(file compose.File) (Prepared, error) {
 		ServiceDigests: maps.Clone(serviceDigests), Digest: fingerprint(identityPayload), Fields: map[string]string{},
 		Fingerprints: map[string]string{}, Redacted: map[string]bool{},
 	}
+	for _, service := range file.Compose.Services {
+		if service.HasOrderedMounts() {
+			result.OrderedMountServices = append(result.OrderedMountServices, service.Name)
+		}
+	}
 	result.sanitize(tree, "", "", "")
 	safe, err := json.Marshal(tree, jsonv1.DefaultOptionsV1())
 	if err != nil {

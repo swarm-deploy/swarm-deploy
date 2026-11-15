@@ -350,3 +350,24 @@ func TestCanonicalizeDoesNotModifyInput(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, expected, desired)
 }
+
+func TestServiceHasOrderedMounts(t *testing.T) {
+	two := []ObjectRef{{Source: "a"}, {Source: "b"}}
+	for name, tc := range map[string]struct {
+		service Service
+		ordered bool
+	}{
+		"no mounts":         {service: Service{}},
+		"single of each":    {service: Service{Secrets: two[:1], Configs: two[:1], Volumes: ServiceVolumes{Volumes: []*ServiceVolume{{}}}}},
+		"two secrets":       {service: Service{Secrets: two}, ordered: true},
+		"two configs":       {service: Service{Configs: two}, ordered: true},
+		"two volumes":       {service: Service{Volumes: ServiceVolumes{Volumes: []*ServiceVolume{{}, {}}}}, ordered: true},
+		"init job secrets":  {service: Service{InitJobs: []InitJob{{Secrets: two}}}, ordered: true},
+		"init job configs":  {service: Service{InitJobs: []InitJob{{Configs: two}}}, ordered: true},
+		"single init mount": {service: Service{InitJobs: []InitJob{{Secrets: two[:1], Configs: two[:1]}}}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			assert.Equal(t, tc.ordered, tc.service.HasOrderedMounts())
+		})
+	}
+}

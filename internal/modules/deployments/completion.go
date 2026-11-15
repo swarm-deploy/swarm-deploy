@@ -129,6 +129,9 @@ func (s *Service) complete(
 		return err
 	}
 	if state.status == deploymentmodel.Succeeded {
+		if err = s.store.ConfirmServices(ctx, deployment.ID, attempt.Services(desired).Names()); err != nil {
+			return err
+		}
 		complete, baselineErr := s.coversDesired(ctx, deployment, attempt, desired)
 		if baselineErr != nil {
 			return baselineErr

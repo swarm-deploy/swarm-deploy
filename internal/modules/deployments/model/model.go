@@ -352,6 +352,12 @@ type Page struct {
 type Prepared struct {
 	// ServiceDigests identifies unmasked service state, including referenced resources.
 	ServiceDigests map[string]string `json:"service_digests,omitempty"`
+	// UnconfirmedServices lists services whose adopted digest a historical snapshot
+	// cannot confirm: the whole-stack digest omits their mount order.
+	UnconfirmedServices []string `json:"unconfirmed_services,omitempty"`
+	// OrderedMountServices lists services with order-sensitive mounts. It is derived
+	// in memory for adopting historical snapshots and is never persisted.
+	OrderedMountServices []string `json:"-"`
 	// Definition retains supported effective Compose values after masking.
 	Definition compose.File `json:"definition"`
 	// Digest identifies the unmasked effective state without retaining plaintext.

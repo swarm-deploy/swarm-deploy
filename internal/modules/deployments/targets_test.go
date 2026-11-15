@@ -171,6 +171,42 @@ func TestLegacySnapshotAdoptsServiceDigestsWithoutRedeploy(t *testing.T) {
 	}
 }
 
+func TestLegacySnapshotDeploysServicesWithUnconfirmedMountOrder(t *testing.T) {
+	db, lifecycle, _ := openService(t)
+	store := deploymentstore.NewStore(db)
+	desired := desiredServices("api", "worker")
+	desired.Compose.Secrets = compose.Secrets{"a": {External: true}, "b": {External: true}}
+	desired.Compose.Services[0].Secrets = []compose.ObjectRef{{Source: "a"}, {Source: "b"}}
+	first, err := lifecycle.StartIfChanged(t.Context(), "app", "one", desired, true, StartOptions{})
+	require.NoError(t, err)
+	require.NoError(t, lifecycle.Complete(t.Context(), first.ID, Completion{Outcome: CompletionSucceeded}))
+	_, err = db.Exec(t.Context(), "UPDATE deployments SET desired_payload = json_remove(desired_payload, '$.service_digests')")
+	require.NoError(t, err)
+	_, err = db.Exec(t.Context(), "DELETE FROM deployment_attempts")
+	require.NoError(t, err)
+
+	// Reordered before the first run of the new version: the whole-stack digest is unchanged.
+	desired.Compose.Services[0].Secrets = []compose.ObjectRef{{Source: "b"}, {Source: "a"}}
+	next, err := lifecycle.StartIfChanged(t.Context(), "app", "upgrade", desired, false,
+		StartOptions{TargetServices: []string{"api", "worker"}})
+	require.NoError(t, err)
+	require.NotNil(t, next, "the applied mount order of api is unknown")
+	assert.Equal(t, first.DeploymentID, next.DeploymentID)
+	assert.Equal(t, []string{"api"}, next.TargetServices, "worker is confirmed by the historical snapshot")
+	require.NoError(t, lifecycle.Complete(t.Context(), next.ID, Completion{Outcome: CompletionSucceeded}))
+
+	snapshot, err := store.Snapshot(t.Context(), first.DeploymentID)
+	require.NoError(t, err)
+	assert.Empty(t, snapshot.UnconfirmedServices)
+	baselineID, err := store.BaselineDeploymentID(t.Context(), "app")
+	require.NoError(t, err)
+	assert.Equal(t, first.DeploymentID, baselineID)
+	again, err := lifecycle.StartIfChanged(t.Context(), "app", "upgrade", desired, false,
+		StartOptions{TargetServices: []string{"api", "worker"}})
+	require.NoError(t, err)
+	assert.Nil(t, again)
+}
+
 func TestLegacySnapshotWithChangedEffectiveStateRedeploys(t *testing.T) {
 	db, lifecycle, _ := openService(t)
 	desired := desiredServices("api")
@@ -201,7 +237,7 @@ func TestNilTargetScopeIncludesUnappliedServices(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, next, "a nil scope must not skip the unapplied worker")
 	assert.Equal(t, first.DeploymentID, next.DeploymentID)
-	assert.Nil(t, next.TargetServices)
+	assert.Equal(t, []string{"worker"}, next.TargetServices, "applied targets are not executed again")
 	require.NoError(t, lifecycle.Complete(t.Context(), next.ID, Completion{Outcome: CompletionSucceeded}))
 
 	again, err := lifecycle.StartIfChanged(t.Context(), "app", "one", desired, false, StartOptions{})

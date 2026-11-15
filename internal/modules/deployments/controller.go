@@ -228,6 +228,12 @@ func (c *Controller) execute(ctx context.Context, req ExecuteRequest) (ExecuteRe
 	if err = c.complete(ctx, req.Stack.Name, attempt.ID, completion); err != nil {
 		return result, err
 	}
+	// Earlier Attempts of the same desired state may hold receipts of targets this
+	// Attempt skipped as already applied.
+	latest, snapshot, latestErr := c.lifecycle.store.Latest(ctx, req.Stack.Name)
+	if latestErr == nil && latest.ID == attempt.DeploymentID {
+		result.AppliedRevisions = appliedRevisions(receipts(latest), snapshot, latest.Commit)
+	}
 	c.record(req, *attempt, "success")
 	return result, nil
 }

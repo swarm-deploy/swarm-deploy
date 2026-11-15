@@ -37,6 +37,10 @@ effective digest matches the prepared state, the snapshot adopts the current ser
 digests and its historical whole-stack Attempt counts as the receipt, with the
 deployment commit as each service's applied commit. A matching source alone is not
 enough: a changed prepared state, such as newly injected variables, is deployed.
+The whole-stack digest omits mount order, so a service with two or more volumes,
+secrets or configs, including those of its Init Jobs, cannot be confirmed this way.
+It stays unconfirmed in the snapshot and is deployed once; other services are not
+executed again. A successful Attempt confirms the services it applied.
 
 When cleanup fails after some orphaned services were removed, GitOps drops the
 runtime state of the removed services, so restoring one of them in Compose deploys

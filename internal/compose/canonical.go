@@ -127,6 +127,21 @@ func canonicalizeService(service *Service, preserveMountOrder bool) error {
 	return nil
 }
 
+// HasOrderedMounts reports whether the service mounts two or more volumes, secrets
+// or configs, including those of its Init Jobs. Their order is applied to Swarm,
+// but CanonicalCompose sorts it out of the whole-stack digest.
+func (s Service) HasOrderedMounts() bool {
+	if len(s.Volumes.Volumes) > 1 || len(s.Secrets) > 1 || len(s.Configs) > 1 {
+		return true
+	}
+	for _, job := range s.InitJobs {
+		if len(job.Secrets) > 1 || len(job.Configs) > 1 {
+			return true
+		}
+	}
+	return false
+}
+
 // canonicalServiceSecret identifies a service secret by the path Docker mounts:
 // a relative target is equivalent to its absolute form under /run/secrets/.
 func canonicalServiceSecret(ref ObjectRef) ObjectRef {

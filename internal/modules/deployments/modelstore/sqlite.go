@@ -10,6 +10,7 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -747,17 +748,50 @@ func (s *Store) Baseline(ctx context.Context, stack string) (deploymentmodel.Pre
 }
 
 // AdoptServiceDigests backfills service digests into a snapshot recorded before they
-// were tracked. Callers adopt only digests of the same effective whole-stack state.
-func (s *Store) AdoptServiceDigests(ctx context.Context, id string, digests map[string]string) error {
-	payload, err := json.Marshal(digests)
+// were tracked. Callers adopt only digests of the same effective whole-stack state and
+// list services whose digest the historical snapshot cannot confirm.
+func (s *Store) AdoptServiceDigests(
+	ctx context.Context, id string, digests map[string]string, unconfirmed []string,
+) error {
+	digestsPayload, err := json.Marshal(digests)
+	if err != nil {
+		return err
+	}
+	unconfirmedPayload, err := json.Marshal(unconfirmed, json.FormatNilSliceAsNull(true))
 	if err != nil {
 		return err
 	}
 	const query = `UPDATE deployments
-		SET desired_payload = json_set(desired_payload, '$.service_digests', json(?))
+		SET desired_payload = json_set(desired_payload,
+			'$.service_digests', json(?), '$.unconfirmed_services', json(?))
 		WHERE id = ? AND json_extract(desired_payload, '$.service_digests') IS NULL`
+	_, err = s.db.Exec(ctx, query, string(digestsPayload), string(unconfirmedPayload), id)
+	return err
+}
+
+// ConfirmServices removes services applied by a successful Attempt from the
+// snapshot's unconfirmed services.
+func (s *Store) ConfirmServices(ctx context.Context, id string, applied []string) error {
+	snapshot, err := s.prepared(ctx, id)
+	if err != nil || len(snapshot.UnconfirmedServices) == 0 {
+		return err
+	}
+	remaining := slices.DeleteFunc(slices.Clone(snapshot.UnconfirmedServices), func(name string) bool {
+		return slices.Contains(applied, name)
+	})
+	payload, err := json.Marshal(remaining)
+	if err != nil {
+		return err
+	}
+	const query = `UPDATE deployments
+		SET desired_payload = json_set(desired_payload, '$.unconfirmed_services', json(?)) WHERE id = ?`
 	_, err = s.db.Exec(ctx, query, string(payload), id)
 	return err
+}
+
+// Snapshot returns the prepared desired state of one deployment.
+func (s *Store) Snapshot(ctx context.Context, id string) (deploymentmodel.Prepared, error) {
+	return s.prepared(ctx, id)
 }
 
 func (s *Store) getPrepared(ctx context.Context, query string, args ...any) (deploymentmodel.Prepared, error) {
@@ -932,11 +966,15 @@ func (s *Store) insertAttemptRow(ctx context.Context, attempt deploymentmodel.At
 	if err != nil {
 		return err
 	}
-	query, args, err := s.db.Dialect().Insert("deployment_attempts").Prepared(true).Rows(goqu.Record{
+	record := goqu.Record{
 		"id": attempt.ID, "deployment_id": attempt.DeploymentID, "number": attempt.Number,
 		"status": attempt.Status, "error_code": attempt.ErrorCode, "phase": attempt.Phase,
 		"started_at": attempt.StartedAt.UTC(), "details_payload": string(details),
-	}).ToSQL()
+	}
+	if attempt.FinishedAt != nil {
+		record["finished_at"] = attempt.FinishedAt.UTC()
+	}
+	query, args, err := s.db.Dialect().Insert("deployment_attempts").Prepared(true).Rows(record).ToSQL()
 	if err != nil {
 		return err
 	}
