@@ -30,6 +30,17 @@ for each service. The digest includes the prepared service specification, Init J
 and referenced resource content. A changed Git commit or source formatting alone
 does not select an unchanged service. A service without applied metadata is selected.
 
+Services outside `TargetServices` keep their live configuration across unrelated
+Git commits. Manual changes from `docker service update` persist until self-heal
+reapplies the service or its effective desired specification changes. Self-heal
+repairs [the drift that swarm-deploy detects](./drift.md). Moving an image tag such
+as `:latest` in the registry does not select the service on a later, unrelated commit.
+
+GitOps has no force redeploy for an unchanged service. To redeploy it through
+GitOps, commit a change to its effective specification, for example a new immutable
+image tag or digest. Manual Sync uses the same target selection and can retry a
+failed Deployment.
+
 A service that leaves desired state loses its applied revision in the same durable
 update that records the new desired revisions, before it can be pruned. Restoring it
 in Compose deploys it again, even when cleanup failed or the process stopped after
