@@ -28,6 +28,15 @@
 - Use lowercase types and concise English imperative descriptions.
 - Examples: `feat: add notifications`, `fix: correct tracing keys`, `docs: update architecture`.
 
+## Ambiguities and Maintainer Approval
+
+**Agents MUST discuss and resolve all ambiguities with the maintainer before starting implementation, not only architectural questions.**
+
+- Clarify unclear or conflicting requirements, scope, expected behavior, acceptance criteria, and implementation constraints before making changes.
+- State the ambiguity, reasonable options, and relevant trade-offs; obtain an explicit maintainer decision instead of guessing, silently choosing an interpretation, or expanding scope.
+- If an ambiguity emerges during implementation, pause the affected work and seek clarification before proceeding.
+- Routine local implementation details that are unambiguous and preserve established behavior and architecture do not require separate approval.
+
 ## Architecture Decisions
 
 **Agents MUST NOT make architectural decisions without explicit maintainer approval.**
