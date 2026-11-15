@@ -178,9 +178,7 @@ func (s *Services) UnmarshalYAML(n *yaml.Node) error {
 		services = append(services, srv)
 	}
 
-	if err := normalizeServices(services); err != nil {
-		return err
-	}
+	normalizeServices(services)
 	*s = services
 
 	return nil
@@ -193,31 +191,44 @@ func (s *Services) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &services, jsonv1.DefaultOptionsV1()); err != nil {
 		return err
 	}
-	if err := normalizeServices(services); err != nil {
+	if err := normalizeServiceCommands(services); err != nil {
 		return err
 	}
+	normalizeServices(services)
 	*s = services
 	return nil
 }
 
+func normalizeServiceCommands(services []Service) error {
+	for i := range services {
+		if err := services[i].normalizeCommands(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Service) normalizeCommands() error {
+	var err error
+	if s.Command, err = s.Command.Exec(); err != nil {
+		return fmt.Errorf("services.%s.command: %w", s.Name, err)
+	}
+	if s.Entrypoint, err = s.Entrypoint.Exec(); err != nil {
+		return fmt.Errorf("services.%s.entrypoint: %w", s.Name, err)
+	}
+	return nil
+}
+
 // normalizeServices replaces equivalent spellings whose difference carries no
-// meaning for Docker, so conversion, digests, diffs and history agree on one form:
-// commands and healthcheck tests use exec form, capabilities are canonical, and
+// meaning for Docker. Healthcheck tests use exec form, capabilities are canonical, and
 // config and secret references are resolved with the rules of the service or
 // Init Job that declares them. Init Jobs mount the references they inherit from
 // their service as the service does.
 //
 // List order is kept because mount order is part of the deployed ServiceSpec.
-func normalizeServices(services []Service) error {
+func normalizeServices(services []Service) {
 	for i := range services {
 		service := &services[i]
-		var err error
-		if service.Command, err = service.Command.Exec(); err != nil {
-			return fmt.Errorf("services.%s.command: %w", service.Name, err)
-		}
-		if service.Entrypoint, err = service.Entrypoint.Exec(); err != nil {
-			return fmt.Errorf("services.%s.entrypoint: %w", service.Name, err)
-		}
 		if service.Healthcheck != nil {
 			health := service.Healthcheck.Canonical()
 			service.Healthcheck = &health
@@ -229,7 +240,6 @@ func normalizeServices(services []Service) error {
 			service.InitJobs[j].resolveObjectRefs()
 		}
 	}
-	return nil
 }
 
 func (s Services) MarshalYAML() (interface{}, error) {

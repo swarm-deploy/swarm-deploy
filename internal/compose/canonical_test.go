@@ -1,13 +1,68 @@
 package compose
 
 import (
+	"context"
 	"encoding/json/v2"
+	"fmt"
 	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestInitJobMountOwnershipValidation(t *testing.T) {
+	tests := []struct {
+		name, mounts, wantError string
+	}{
+		{
+			name:      "conflicting config owners",
+			mounts:    `configs: [{source: settings, target: settings, uid: "1000"}, {source: settings, target: /settings, uid: "2000"}]`,
+			wantError: "configs[1]: conflicting uid, gid or mode",
+		},
+		{
+			name:      "conflicting secret modes",
+			mounts:    `secrets: [{source: token, target: /run/secrets/key, mode: 0400}, {source: token, target: key}]`,
+			wantError: "secrets[1]: conflicting uid, gid or mode",
+		},
+		{
+			name:   "equivalent defaults",
+			mounts: `configs: [settings, {source: settings, target: settings, uid: "0", gid: "0", mode: 0444}]`,
+		},
+		{
+			name:   "different paths",
+			mounts: `secrets: [{source: token, target: first, gid: "1000"}, {source: token, target: /run/secrets/second, gid: "2000"}]`,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			raw := fmt.Appendf(nil, `services:
+  api:
+    image: alpine
+    x-init-deploy-jobs:
+      - image: alpine
+        %s
+`, tc.mounts)
+			loader := NewFileLoaderWithReader(func(context.Context, string) ([]byte, error) {
+				return raw, nil
+			})
+			_, loadErr := loader.Load(t.Context(), "compose.yaml")
+
+			parsed, err := Parse(raw)
+			require.NoError(t, err)
+			_, digestErr := Canonicalize(*parsed)
+
+			if tc.wantError == "" {
+				require.NoError(t, loadErr)
+				require.NoError(t, digestErr)
+				return
+			}
+			require.ErrorContains(t, loadErr, tc.wantError)
+			require.ErrorContains(t, digestErr, tc.wantError)
+		})
+	}
+}
 
 func TestCanonicalizeEquivalentCompose(t *testing.T) {
 	tests := []struct {

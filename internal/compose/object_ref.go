@@ -3,6 +3,7 @@ package compose
 import (
 	"fmt"
 	"os"
+	"path"
 	"strings"
 
 	"go.yaml.in/yaml/v3"
@@ -115,6 +116,15 @@ func (r ObjectRef) InitJobSecret() ObjectRef {
 	}
 	r.Target = SecretPath(r.Target)
 	return r.resolved()
+}
+
+// MountPath returns the mount path of a resolved reference. Init Job secret
+// targets are already absolute, and Docker mounts relative configs under /.
+func (r ObjectRef) MountPath() string {
+	if path.IsAbs(r.Target) {
+		return r.Target
+	}
+	return path.Join("/", r.Target)
 }
 
 // FileOwnership returns the uid, gid and mode of the mounted file with Docker defaults applied.

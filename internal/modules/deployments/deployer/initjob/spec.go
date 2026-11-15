@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"path"
 	"strings"
 	"time"
 
@@ -82,6 +81,9 @@ func (r *InitJobRunner) addInitJobObjects(
 	spec Spec,
 	containerSpec *dockerswarm.ContainerSpec,
 ) error {
+	if err := spec.Job.ValidateObjectRefs(); err != nil {
+		return err
+	}
 	// Resolve mount targets before deduplication so equivalent spellings of one
 	// file are attached once.
 	secrets := mergeObjectRefs(resolveObjectRefs(spec.ServiceSecrets, inheritedSecret),
@@ -242,12 +244,7 @@ func mergeObjectRefs(inherited, job []compose.ObjectRef) []compose.ObjectRef {
 			if ref.Source == "" {
 				continue
 			}
-			target := ref.Target
-			if !path.IsAbs(target) {
-				// Secret targets are already absolute. Docker mounts relative configs under /.
-				target = path.Join("/", target)
-			}
-			key := mountKey{source: ref.Source, target: target}
+			key := mountKey{source: ref.Source, target: ref.MountPath()}
 			if _, exists := seen[key]; exists {
 				continue
 			}

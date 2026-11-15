@@ -75,12 +75,8 @@ func CanonicalCompose(desired Compose) (Compose, error) {
 }
 
 func canonicalizeService(service *Service) error {
-	var err error
-	if service.Command, err = service.Command.Exec(); err != nil {
-		return fmt.Errorf("services.%s.command: %w", service.Name, err)
-	}
-	if service.Entrypoint, err = service.Entrypoint.Exec(); err != nil {
-		return fmt.Errorf("services.%s.entrypoint: %w", service.Name, err)
+	if err := service.normalizeCommands(); err != nil {
+		return err
 	}
 	if service.Healthcheck != nil {
 		health := service.Healthcheck.Canonical()
@@ -98,9 +94,12 @@ func canonicalizeService(service *Service) error {
 	service.InitJobs = slices.Clone(service.InitJobs)
 	for i := range service.InitJobs {
 		job := &service.InitJobs[i]
+		if err := job.ValidateObjectRefs(); err != nil {
+			return fmt.Errorf("services.%s.x-init-deploy-jobs[%d].%w", service.Name, i, err)
+		}
 		job.resolveObjectRefs()
 		job.Networks = cloneNetworkList(job.Networks)
-		err = errors.Join(sortByCanonicalJSON(job.Networks.list()),
+		err := errors.Join(sortByCanonicalJSON(job.Networks.list()),
 			sortByCanonicalJSON(job.Secrets), sortByCanonicalJSON(job.Configs))
 		if err != nil {
 			return fmt.Errorf("services.%s.init_jobs[%d]: %w", service.Name, i, err)
@@ -109,7 +108,7 @@ func canonicalizeService(service *Service) error {
 	// NormalizeCapabilities sorts plain strings. They are sorted again as JSON like
 	// earlier releases: names with escaped characters order differently, and their
 	// digests must hold.
-	err = errors.Join(
+	err := errors.Join(
 		sortByCanonicalJSON(service.Ports.Ports), sortByCanonicalJSON(service.Volumes.Volumes),
 		sortByCanonicalJSON(service.Networks.list()), sortByCanonicalJSON(service.Secrets),
 		sortByCanonicalJSON(service.Configs), sortByCanonicalJSON(service.CapAdd),

@@ -72,6 +72,40 @@ func (j *InitJob) resolveObjectRefs() {
 	j.Configs = mapObjectRefs(j.Configs, ObjectRef.ServiceConfig)
 }
 
+// ValidateObjectRefs checks that declarations for the same source and path
+// agree on file ownership and permissions within the job.
+func (j InitJob) ValidateObjectRefs() error {
+	if err := validateMountOwnership("configs", j.Configs, ObjectRef.ServiceConfig); err != nil {
+		return err
+	}
+	return validateMountOwnership("secrets", j.Secrets, ObjectRef.InitJobSecret)
+}
+
+func validateMountOwnership(field string, refs []ObjectRef, resolve func(ObjectRef) ObjectRef) error {
+	if len(refs) <= 1 {
+		return nil
+	}
+	type mount struct{ source, target string }
+	seen := make(map[mount]int, len(refs))
+	for i, ref := range refs {
+		if ref.Source == "" {
+			continue
+		}
+		resolved := resolve(ref)
+		key := mount{source: resolved.Source, target: resolved.MountPath()}
+		if previous, exists := seen[key]; exists {
+			uid, gid, mode := ref.FileOwnership()
+			previousUID, previousGID, previousMode := refs[previous].FileOwnership()
+			if uid != previousUID || gid != previousGID || mode != previousMode {
+				return fmt.Errorf("%s[%d]: conflicting uid, gid or mode for the same mount as entry %d", field, i, previous)
+			}
+			continue
+		}
+		seen[key] = i
+	}
+	return nil
+}
+
 func mapObjectRefs(refs []ObjectRef, resolve func(ObjectRef) ObjectRef) []ObjectRef {
 	if refs == nil {
 		return nil

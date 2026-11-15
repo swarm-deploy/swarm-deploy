@@ -110,7 +110,8 @@ Init Job secret targets resolve to `/run/secrets/<source>` when empty and under
 `/run/secrets/` when relative. Each source is attached once per mount path.
 For example, config targets `app` and `/app` refer to the same file. When a job
 and its service declare the same source at the same path, the job's UID, GID
-and mode apply.
+and mode apply. Duplicate declarations within a job must agree on UID, GID
+and mode. Compose validation rejects conflicting declarations.
 
 Earlier releases ignored user environment variables, labels and resource names
 that matched internal model fields such as `Keys`, `env_file` or `Map`. Stacks
