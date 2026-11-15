@@ -103,6 +103,7 @@ func TestComparisonDoesNotMutateParserMetadata(t *testing.T) {
 	assert.JSONEq(t, string(before), string(after))
 }
 
+// TODO(0.16.0): Remove this compatibility check once the digest encoding changes.
 func TestPreparePreservesExistingDigestForUnaffectedCompose(t *testing.T) {
 	parsed, err := compose.Parse([]byte(`services:
   api:
@@ -122,6 +123,7 @@ volumes: {data: {}}
 // TestPreparePinsDesiredStateDigests pins desired-state digests and snapshot
 // fields. Fixtures with Init Job configs use the same default target as
 // service configs. The other fixtures retain their persisted formats.
+// TODO(0.16.0): Refresh the expected digests after changing the digest encoding.
 func TestPreparePinsDesiredStateDigests(t *testing.T) {
 	expected := map[string]struct{ digest, fields string }{
 		"service object references": {
@@ -250,6 +252,7 @@ func TestPreparedSnapshotDecodesLegacyComposeMetadata(t *testing.T) {
 	assert.Empty(t, Compare(prepared, prepared))
 }
 
+// TODO(0.16.0): Remove this compatibility check once the digest encoding changes.
 func TestDesiredDigestMatchesPersistedBaseline(t *testing.T) {
 	prepared := prepareComparisonFixture(t, "    command: [echo, '<hello>']\n"+
 		"    labels: {zebra: last, alpha: first}\n"+

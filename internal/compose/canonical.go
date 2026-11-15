@@ -31,7 +31,8 @@ func Canonicalize(desired Compose) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("encode effective Compose: %w", err)
 	}
-	// Re-encoding a generic value sorts object keys. Numbers keep their literal form.
+	// TODO(0.16.0): Revisit this re-encoding when switching to the snapshot format
+	// for the digest. It preserves the old object key order and number literals.
 	var tree map[string]any
 	if err = json.Unmarshal(payload, &tree, utils.PreserveJSONNumbers()); err != nil {
 		return nil, fmt.Errorf("decode effective Compose: %w", err)
@@ -45,6 +46,7 @@ func Canonicalize(desired Compose) ([]byte, error) {
 
 // digestOptions encode Command as releases before typed normalization did, with
 // an explicit form flag, because this encoding feeds persisted digests.
+// TODO(0.16.0): Remove this override and use the snapshot command encoding.
 func digestOptions() json.Options {
 	type legacyCommand struct {
 		Args   []string `json:"Args"`
@@ -105,9 +107,8 @@ func canonicalizeService(service *Service) error {
 			return fmt.Errorf("services.%s.init_jobs[%d]: %w", service.Name, i, err)
 		}
 	}
-	// NormalizeCapabilities sorts plain strings. They are sorted again as JSON like
-	// earlier releases: names with escaped characters order differently, and their
-	// digests must hold.
+	// TODO(0.16.0): Drop the extra JSON sort for CapAdd and CapDrop. It preserves
+	// the old digest order for escaped names. NormalizeCapabilities already sorts them.
 	err := errors.Join(
 		sortByCanonicalJSON(service.Ports.Ports), sortByCanonicalJSON(service.Volumes.Volumes),
 		sortByCanonicalJSON(service.Networks.list()), sortByCanonicalJSON(service.Secrets),
@@ -150,6 +151,8 @@ func (s *ServiceNetworks) list() []*ServiceNetwork {
 // elements with object keys sorted, the order of persisted desired-state digests.
 // Struct fields encode in declaration order, so plain encodings would order
 // elements differently.
+// TODO(0.16.0): Keep order-insensitive lists sorted, but stop reproducing the old
+// JSON key order in their sort keys.
 func sortByCanonicalJSON[T any](values []T) error {
 	type keyed struct {
 		key   []byte

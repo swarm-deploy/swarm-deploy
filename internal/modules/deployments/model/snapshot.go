@@ -39,8 +39,8 @@ func Prepare(file compose.File) (Prepared, error) {
 	if err != nil {
 		return Prepared{}, err
 	}
-	// The digest keeps the encoding of persisted baselines; the snapshot uses the
-	// current encoding of the same normalized definition.
+	// TODO(0.16.0): Use the current snapshot encoding for the digest before redaction
+	// and remove the separate serialization for compatibility with persisted digests.
 	digestCompose, err := compose.Canonicalize(canonical)
 	if err != nil {
 		return Prepared{}, err
