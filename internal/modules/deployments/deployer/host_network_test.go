@@ -94,7 +94,7 @@ networks:
 				if single {
 					result, err = d.DeployService(t.Context(), ServiceRequest{StackName: "demo", ServiceName: "job", Desired: *desired})
 				} else {
-					result, err = d.DeployStack(t.Context(), StackRequest{StackName: "demo", Desired: *desired})
+					result, err = d.DeployStack(t.Context(), StackRequest{StackName: "demo", Desired: *desired, TargetServices: (*desired).Services.Names()})
 				}
 				require.NoError(t, err, "deploy attempt %d", attempt)
 				assert.True(t, result.Verification.Known)

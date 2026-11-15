@@ -19,6 +19,9 @@ import (
 )
 
 type pipelinePayload struct {
+	TargetServices   []string
+	ServiceCommits   map[string]string
+	AppliedRevisions map[string]deploymentmodel.ServiceRevision
 	// Attempt is persisted before any external apply.
 	Attempt          *deploymentmodel.Attempt
 	Stack            config.StackSpec
@@ -98,10 +101,12 @@ func (r *Reconciler) attachPipeline() {
 
 func (r *Reconciler) executeDeployment(ctx context.Context, payload *pipelinePayload) error {
 	result, err := r.executor.Execute(ctx, deployments.ExecuteRequest{
+		TargetServices: payload.TargetServices, ServiceCommits: payload.ServiceCommits,
 		Stack: payload.Stack, Commit: payload.Commit, Desired: *payload.Desired,
 		SourceChanged: payload.IsNewDigest, ManualRetry: payload.IsManualSync,
 	})
 	payload.Attempt = result.Attempt
+	payload.AppliedRevisions = result.AppliedRevisions
 	payload.LiveServices = result.LiveServices
 	payload.ObservedAt = result.ObservedAt
 	payload.PrunedServices = result.PrunedServices

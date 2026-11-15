@@ -26,6 +26,14 @@ const (
 // Source formatting, checkout paths and env-file ordering are not effective state.
 // The caller must populate env files and apply transformations before calling it.
 func Prepare(file compose.File) (Prepared, error) {
+	serviceDigests := file.ServiceDigests
+	if serviceDigests == nil {
+		var err error
+		serviceDigests, err = compose.ServiceDigests(&file)
+		if err != nil {
+			return Prepared{}, err
+		}
+	}
 	resourceDigests := maps.Clone(file.ResourceDigests)
 	if resourceDigests == nil {
 		resourceDigests = map[string]string{}
@@ -67,8 +75,10 @@ func Prepare(file compose.File) (Prepared, error) {
 	if err = json.Unmarshal(snapshot, &tree, utils.PreserveJSONNumbers()); err != nil {
 		return Prepared{}, err
 	}
-	result := Prepared{Digest: fingerprint(identityPayload), Fields: map[string]string{},
-		Fingerprints: map[string]string{}, Redacted: map[string]bool{}}
+	result := Prepared{
+		ServiceDigests: maps.Clone(serviceDigests), Digest: fingerprint(identityPayload), Fields: map[string]string{},
+		Fingerprints: map[string]string{}, Redacted: map[string]bool{},
+	}
 	result.sanitize(tree, "", "", "")
 	safe, err := json.Marshal(tree, jsonv1.DefaultOptionsV1())
 	if err != nil {

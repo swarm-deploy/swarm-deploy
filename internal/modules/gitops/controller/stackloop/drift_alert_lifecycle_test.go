@@ -95,6 +95,7 @@ func TestReconcileDriftRecoveryPersistsAndDeliversEvents(t *testing.T) {
 				}}
 			}))
 			mockRepositoryFiles(repository, dir)
+			seedAppliedDesired(t, newTestReconciler(cfg, repository, deployments.NewService(db, publisher), stackDeployer, &swarm.Swarm{Services: manager}, publisher, &metrics.NopDeploys{}, store, db), config.StackSpec{Name: "app", ComposeFile: "app.yaml"})
 			// Recreate the reconciler and lifecycle controller on every tick. The clock
 			// stays before the automatic retry deadline to exercise persisted backoff.
 			clock := time.Now().UTC()

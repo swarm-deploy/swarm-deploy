@@ -14,7 +14,7 @@ The current pipeline is:
 4. [Inject Downward metadata when enabled](./downward.md).
 5. Add the swarm-deploy managed label.
 6. [Rotate configs and secrets when enabled](./secrets-rotation.md).
-7. Submit the effective in-memory desired state to Deployments when the source digest changed or the desired state was mutated. Deployments validates desired state, reconciles networks, reconciles configs/secrets, converts Compose to Docker API specs, runs Init Jobs, captures the service baseline, applies services through the Docker API, and waits for convergence.
+7. Compare each effective service digest with its last successfully applied digest. Submit the full desired state and explicit `TargetServices` to Deployments. Deployments validates and applies only selected services and their dependencies, runs their Init Jobs, and waits for their convergence.
 8. Load live Swarm state.
 9. [Prune managed orphaned services when applicable](./prune.md).
 10. [Analyze drift](./drift.md).
@@ -22,6 +22,30 @@ The current pipeline is:
 12. Reload stack services once and verify every attempted repair against actual Swarm state.
 
 Some steps are conditional. For example, the image policy step is absent when every image rule is disabled, and environment population runs only when at least one desired service declares `env_file`.
+
+## Service revisions and targeted execution
+
+GitOps stores `DesiredDigest` / `DesiredCommit` and `AppliedDigest` / `AppliedCommit`
+for each service. The digest includes the prepared service specification, Init Jobs,
+and referenced resource content. A changed Git commit or source formatting alone
+does not select an unchanged service. Missing applied metadata selects the service,
+so installations upgrading from older runtime records perform one initial deployment.
+
+Deployments persists the explicit target list and each target's digest and source
+commit on the Attempt before execution. Empty targets select no services; historical
+Attempts without this field retain their original whole-stack meaning. Success
+advances only the selected services' applied revisions. Failure preserves their
+previous applied revisions. `ApplyPending` is persisted with a newly observed desired
+transition and cleared by confirmed success. It keeps a revert to the last successful
+digest eligible for deployment after a failed or interrupted apply may have changed
+Swarm. Event replay uses the Attempt's captured revision rather
+than the latest mutable GitOps desired state.
+
+The same overall desired state can have a later Attempt for services not covered by
+an earlier success. Failure classification, manual retries and automatic backoff
+remain owned by Deployments. Pruning uses the full desired service list, independently
+of targets. A partial success advances the full-stack comparison baseline only when
+all desired services are covered by successful Attempts or the previous baseline.
 
 ## Sync runs and the stack queue
 

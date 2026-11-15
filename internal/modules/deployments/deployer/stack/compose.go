@@ -1,11 +1,40 @@
-// Package stack projects Compose definitions for single-service remediation.
+// Package stack projects Compose definitions for targeted execution.
 package stack
 
 import (
 	"fmt"
+	"maps"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 )
+
+// TargetServicesCompose selects services and their dependencies, including Init Jobs.
+// An empty target list produces an empty execution scope.
+func TargetServicesCompose(desired compose.Compose, names []string) (compose.Compose, error) {
+	selected := desired
+	selected.Services = compose.Services{}
+	selected.Networks = make(map[string]compose.Network)
+	selected.Configs = make(compose.Configs)
+	selected.Secrets = make(compose.Secrets)
+	selected.Volumes = make(compose.Volumes)
+	seen := make(map[string]bool, len(names))
+	for _, name := range names {
+		if seen[name] {
+			continue
+		}
+		part, err := SingleServiceCompose(desired, name)
+		if err != nil {
+			return compose.Compose{}, err
+		}
+		seen[name] = true
+		selected.Services = append(selected.Services, part.Services...)
+		maps.Copy(selected.Networks, part.Networks)
+		maps.Copy(selected.Configs, part.Configs)
+		maps.Copy(selected.Secrets, part.Secrets)
+		maps.Copy(selected.Volumes, part.Volumes)
+	}
+	return selected, nil
+}
 
 // SingleServiceCompose selects a service and only its referenced top-level objects.
 func SingleServiceCompose(desired compose.Compose, serviceName string) (compose.Compose, error) {
@@ -16,10 +45,15 @@ func SingleServiceCompose(desired compose.Compose, serviceName string) (compose.
 
 		desired.Services = compose.Services{service}
 		desired.Networks = selectNetworks(desired.Networks, service)
-		desired.Secrets = selectObjects(desired.Secrets, service.Secrets)
-		configRefs := service.Configs
+		secretRefs := append([]compose.ObjectRef{}, service.Secrets...)
+		configRefs := append([]compose.ObjectRef{}, service.Configs...)
+		for _, job := range service.InitJobs {
+			secretRefs = append(secretRefs, job.Secrets...)
+			configRefs = append(configRefs, job.Configs...)
+		}
+		desired.Secrets = selectObjects(desired.Secrets, secretRefs)
 		if service.CredentialSpec != nil && service.CredentialSpec.Config != "" {
-			configRefs = append(append([]compose.ObjectRef{}, configRefs...),
+			configRefs = append(configRefs,
 				compose.ObjectRef{Source: service.CredentialSpec.Config})
 		}
 		desired.Configs = selectObjects(desired.Configs, configRefs)

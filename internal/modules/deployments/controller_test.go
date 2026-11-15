@@ -248,7 +248,7 @@ func TestControllerExecuteRetriesAndSupersedesThroughCanonicalLifecycle(t *testi
 	assert.Equal(t, failed.Attempt.DeploymentID, retry.Attempt.DeploymentID)
 	assert.Equal(t, 2, retry.Attempt.Number)
 
-	running, err := lifecycle.StartIfChanged(t.Context(), "other", "one", desiredServices("api"), true)
+	running, err := lifecycle.StartIfChanged(t.Context(), "other", "one", desiredServices("api"), true, StartOptions{TargetServices: desiredServices("api").Compose.Services.Names()})
 	require.NoError(t, err)
 	require.NotNil(t, running)
 	req := executionRequest("worker:1")
@@ -271,7 +271,7 @@ func TestControllerExecuteRetriesAndSupersedesThroughCanonicalLifecycle(t *testi
 
 func TestControllerRecoveryInterruptsRunningAttemptsIdempotently(t *testing.T) {
 	db, lifecycle, _ := openService(t)
-	attempt, err := lifecycle.StartIfChanged(t.Context(), "app", "commit", desiredServices("api"), true)
+	attempt, err := lifecycle.StartIfChanged(t.Context(), "app", "commit", desiredServices("api"), true, StartOptions{TargetServices: desiredServices("api").Compose.Services.Names()})
 	require.NoError(t, err)
 	controller := NewController(lifecycle, nil, nil, nil, &metrics.NopDeploys{})
 
@@ -286,7 +286,7 @@ func TestControllerRecoveryInterruptsRunningAttemptsIdempotently(t *testing.T) {
 
 func TestControllerPersistsInitJobsWithDetachedBoundedContexts(t *testing.T) {
 	db, lifecycle, _ := openService(t)
-	attempt, err := lifecycle.StartIfChanged(t.Context(), "app", "commit", desiredServices("api"), true)
+	attempt, err := lifecycle.StartIfChanged(t.Context(), "app", "commit", desiredServices("api"), true, StartOptions{TargetServices: desiredServices("api").Compose.Services.Names()})
 	require.NoError(t, err)
 	controller := NewController(lifecycle, nil, nil, nil, &metrics.NopDeploys{})
 	ctx, cancel := context.WithCancel(t.Context())
@@ -320,7 +320,7 @@ func executionRequest(image string) ExecuteRequest {
 		Desired: compose.File{Path: "app.yaml", Digest: image, Compose: compose.Compose{
 			Services: compose.Services{{Name: "api", Image: image}},
 		}},
-		SourceChanged: true,
+		SourceChanged: true, TargetServices: []string{"api"},
 	}
 }
 
@@ -332,7 +332,7 @@ func TestSuccessfulUnchangedDeploymentMaintenanceDoesNotChangeLifecycle(t *testi
 	controller := NewController(lifecycle, stackDeployer, manager,
 		pruner.NewServicePruner(manager, bus, config.SyncPolicySpec{}), &metrics.NopDeploys{})
 	req := executionRequest("api:1")
-	attempt, err := lifecycle.StartIfChanged(t.Context(), req.Stack.Name, req.Commit, req.Desired, true)
+	attempt, err := lifecycle.StartIfChanged(t.Context(), req.Stack.Name, req.Commit, req.Desired, true, StartOptions{TargetServices: req.Desired.Compose.Services.Names()})
 	require.NoError(t, err)
 	require.NoError(t, lifecycle.Complete(t.Context(), attempt.ID, Completion{Outcome: CompletionSucceeded}))
 	store := deploymentstore.NewStore(db)
@@ -510,4 +510,24 @@ func TestControllerExecuteCompletesStackOptionsFailure(t *testing.T) {
 			assert.NotNil(t, failed.FinishedAt)
 		})
 	}
+}
+
+func TestEmptyTargetsPruneAgainstFullDesired(t *testing.T) {
+	db, lifecycle, bus := openService(t)
+	services := swarm.NewMockServiceManager(gomock.NewController(t))
+	services.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "app"}).Return([]swarm.StackService{
+		{ID: "api-id", Name: "api", Labels: map[string]string{labelsdict.ServiceManagedLabelKey: labelsdict.ServiceManagedLabelValue}},
+		{ID: "old-id", Name: "old", Labels: map[string]string{labelsdict.ServiceManagedLabelKey: labelsdict.ServiceManagedLabelValue}},
+	}, nil)
+	services.EXPECT().Remove(gomock.Any(), "old-id").Return(nil)
+	controller := NewController(lifecycle, &deployer.Deployer{}, services, pruner.NewServicePruner(services, bus, config.SyncPolicySpec{Prune: true}), &metrics.NopDeploys{})
+	req := executionRequest("api:1")
+	req.TargetServices = []string{}
+	result, err := controller.Execute(t.Context(), req)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"old"}, result.PrunedServices)
+	assert.Empty(t, result.AppliedRevisions)
+	attempt, err := deploymentstore.NewStore(db).GetAttempt(t.Context(), result.Attempt.ID)
+	require.NoError(t, err)
+	assert.False(t, attempt.Targets("api"))
 }

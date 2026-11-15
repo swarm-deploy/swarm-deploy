@@ -91,6 +91,8 @@ type StackOptions struct {
 
 // StackRequest contains the effective stack and resource-resolution inputs.
 type StackRequest struct {
+	// TargetServices lists services to apply; an empty list performs no service mutations.
+	TargetServices []string
 	// StackName identifies the Docker stack namespace.
 	StackName string
 	// SourceComposePath is the original Compose path used to resolve resource files.

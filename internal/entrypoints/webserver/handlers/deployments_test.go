@@ -42,7 +42,14 @@ func TestDeploymentAPIReadsAttemptsWithoutHistory(t *testing.T) {
 		Name: "metrics", Image: "metrics:1", Deploy: compose.ServiceDeploy{Mode: "global"},
 	}, {
 		Name: "batch", Image: "batch:1", Deploy: compose.ServiceDeploy{Mode: "replicated-job"},
-	}}}}, true)
+	}}}}, true, deployments.StartOptions{TargetServices: []string{"api",
+
+		"worker",
+
+		"metrics",
+
+		"batch"}},
+	)
 	require.NoError(t, err)
 	h := &handler{deployments: deploymentstore.NewStore(db)}
 	response, err := h.ListDeployments(ctx, generated.ListDeploymentsParams{Stack: []string{"app"}})
@@ -181,7 +188,8 @@ func TestDeploymentFiltersUsesAllRecordedStacks(t *testing.T) {
 	} {
 		_, err := creation.StartIfChanged(ctx, tc.stack, tc.commit, compose.File{Compose: compose.Compose{
 			Services: compose.Services{{Name: tc.service, Image: "image:1"}},
-		}}, true)
+		}}, true, deployments.StartOptions{TargetServices: []string{tc.service}},
+		)
 		require.NoError(t, err)
 	}
 	filters, err := h.GetDeploymentFilters(ctx)

@@ -30,7 +30,7 @@ func TestListServiceDeploymentsReadsDeploymentStore(t *testing.T) {
 		return compose.File{Compose: compose.Compose{Services: services}}
 	}
 	start := func(stack, commit string, services ...compose.Service) *deploymentmodel.Attempt {
-		attempt, startErr := svc.StartIfChanged(ctx, stack, commit, file(services...), true)
+		attempt, startErr := svc.StartIfChanged(ctx, stack, commit, file(services...), true, deployments.StartOptions{TargetServices: file(services...).Compose.Services.Names()})
 		require.NoError(t, startErr)
 		require.NotNil(t, attempt)
 		return attempt

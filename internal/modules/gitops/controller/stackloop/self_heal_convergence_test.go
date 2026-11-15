@@ -82,6 +82,9 @@ func TestSelfHealFailureRemainsPendingUntilVerifiedRecovery(t *testing.T) {
 			// Recreate the controller each tick; recovery must come from persisted state.
 			reconciler := newTestReconciler(cfg, repository, deployments.NewService(db, publisher), stackDeployer,
 				&swarm.Swarm{Services: manager}, publisher, group.Deploys, store, db)
+			if stage.initial {
+				seedAppliedDesired(t, reconciler, config.StackSpec{Name: "app", ComposeFile: "app.yaml"})
+			}
 			err = reconciler.Reconcile(t.Context(), ReconciliationRequest{
 				Stack: config.StackSpec{Name: "app", ComposeFile: "app.yaml"}, Commit: "same",
 			})

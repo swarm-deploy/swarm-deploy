@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"sort"
 	"time"
@@ -57,6 +58,10 @@ const retryBackoffMultiplier = 2
 type StartOptions struct {
 	// ManualRetry bypasses failure classification and automatic retry backoff.
 	ManualRetry bool
+	// TargetServices lists services authorized for this attempt; empty selects no services.
+	TargetServices []string
+	// ServiceCommits retains the source revision of each selected service.
+	ServiceCommits map[string]string
 }
 
 // StartIfChanged creates an attempt before the caller begins external apply.
@@ -74,11 +79,20 @@ func (s *Service) StartIfChanged(
 	if err != nil {
 		return nil, err
 	}
+	var option StartOptions
+	if len(options) > 0 {
+		option = options[0]
+	}
+	option.TargetServices = normalizedServiceNames(option.TargetServices)
+	for _, name := range option.TargetServices {
+		if _, exists := desired.ServiceDigests[name]; !exists {
+			return nil, fmt.Errorf("target service %q is absent from desired state", name)
+		}
+	}
 	var result *deploymentmodel.Attempt
 	err = s.db.WithinTransaction(ctx, func(ctx context.Context) error {
 		var startErr error
-		manualRetry := len(options) > 0 && options[0].ManualRetry
-		result, startErr = s.startPrepared(ctx, stack, commit, desired, sourceChanged, manualRetry)
+		result, startErr = s.startPrepared(ctx, stack, commit, desired, sourceChanged, option)
 		return startErr
 	})
 	if err != nil {
@@ -92,20 +106,22 @@ func (s *Service) startPrepared(
 	stack string,
 	commit string,
 	desired deploymentmodel.Prepared,
-	sourceChanged, manualRetry bool,
+	sourceChanged bool, options StartOptions,
 ) (*deploymentmodel.Attempt, error) {
 	latest, latestDesired, err := s.store.Latest(ctx, stack)
 	if errors.Is(err, deploymentstore.ErrNotFound) {
-		if !sourceChanged {
+		if !sourceChanged && len(options.TargetServices) == 0 {
 			return nil, nil //nolint:nilnil // Nil attempt explicitly means no deployment execution.
 		}
-		return s.createDeployment(ctx, stack, commit, desired)
+		return s.createDeployment(ctx, stack, commit, desired, options)
 	}
 	if err != nil {
 		return nil, err
 	}
-	if latestDesired.Digest == desired.Digest {
-		return s.startExisting(ctx, latest, manualRetry)
+	// Service digests also capture order-sensitive mounts omitted by the legacy
+	// whole-stack digest. Missing historical metadata needs a fresh snapshot.
+	if latestDesired.Digest == desired.Digest && maps.Equal(latestDesired.ServiceDigests, desired.ServiceDigests) {
+		return s.startExisting(ctx, latest, desired, commit, options)
 	}
 	removedServices := desiredServiceRemovals(latestDesired.Definition, desired.Definition)
 	if err = s.supersedePrevious(ctx, latest); err != nil {
@@ -119,7 +135,7 @@ func (s *Service) startPrepared(
 			return nil, err
 		}
 	}
-	attempt, err := s.createDeployment(ctx, stack, commit, desired, deploymentmodel.Verification{
+	attempt, err := s.createDeployment(ctx, stack, commit, desired, options, deploymentmodel.Verification{
 		Known: true, UnresolvedServices: unresolvedServices(latest, desired.Definition),
 		Generations: unresolvedGenerations(latest.Verification, unresolvedServices(latest, desired.Definition)),
 	})
@@ -154,25 +170,32 @@ func desiredServiceRemovals(previous, current compose.File) []string {
 func (s *Service) startExisting(
 	ctx context.Context,
 	latest deploymentmodel.Deployment,
-	manualRetry bool,
+	desired deploymentmodel.Prepared,
+	commit string,
+	options StartOptions,
 ) (*deploymentmodel.Attempt, error) {
 	switch latest.Status {
-	case deploymentmodel.Succeeded, deploymentmodel.Running:
-		return nil, nil //nolint:nilnil // Nil attempt explicitly means no deployment execution.
+	case deploymentmodel.Running:
+		return nil, nil //nolint:nilnil // An active attempt owns execution.
+	case deploymentmodel.Succeeded:
+		if targetsApplied(latest.Attempts, desired, options.TargetServices) {
+			return nil, nil //nolint:nilnil // Delivery lag must not repeat a successful execution.
+		}
 	case deploymentmodel.Failed, deploymentmodel.Interrupted:
-		if !manualRetry && !s.automaticRetryAllowed(latest) {
-			return nil, nil //nolint:nilnil // A suppressed retry does not execute or publish completion events.
+		if !options.ManualRetry && !s.automaticRetryAllowed(latest) {
+			return nil, nil //nolint:nilnil // Preserve failure classification and retry backoff.
 		}
-		attempt := newAttempt(latest.ID, latest.AttemptCount+1, s.now())
-		if err := s.store.StartAttempt(ctx, latest, attempt); err != nil {
-			return nil, err
-		}
-		return &attempt, nil
 	case deploymentmodel.Superseded:
 		return nil, ErrInconsistentDeployment
 	default:
 		return nil, fmt.Errorf("unsupported deployment status %q", latest.Status)
 	}
+	attempt := newAttempt(latest.ID, latest.AttemptCount+1, s.now())
+	setAttemptTargets(&attempt, desired, commit, options)
+	if err := s.store.StartAttempt(ctx, latest, attempt); err != nil {
+		return nil, err
+	}
+	return &attempt, nil
 }
 
 // automaticRetryAllowed relies only on persisted details and caps delay without
@@ -221,9 +244,10 @@ func (s *Service) createDeployment(
 	stack string,
 	commit string,
 	desired deploymentmodel.Prepared,
+	options StartOptions,
 	unresolved ...deploymentmodel.Verification,
 ) (*deploymentmodel.Attempt, error) {
-	d, attempt, err := s.newDeployment(ctx, stack, commit, desired)
+	d, attempt, err := s.newDeployment(ctx, stack, commit, desired, options)
 	if err != nil {
 		return nil, err
 	}
@@ -241,6 +265,7 @@ func (s *Service) newDeployment(
 	stack string,
 	commit string,
 	desired deploymentmodel.Prepared,
+	options StartOptions,
 ) (deploymentmodel.Deployment, deploymentmodel.Attempt, error) {
 	basis, basisKind, basisID, err := s.comparisonBasis(ctx, stack)
 	if err != nil {
@@ -250,6 +275,7 @@ func (s *Service) newDeployment(
 	summary, resources := deploymentmodel.Summarize(changes)
 	id := uuid.NewString()
 	attempt := newAttempt(id, 1, s.now())
+	setAttemptTargets(&attempt, desired, commit, options)
 	d := deploymentmodel.Deployment{
 		ID: id, Stack: stack, Commit: commit, Status: deploymentmodel.Running, StartedAt: attempt.StartedAt,
 		Phase:              deploymentmodel.PhaseApply,

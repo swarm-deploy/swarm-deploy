@@ -110,33 +110,33 @@ func (s *Service) complete(
 	attempt.Phase, attempt.ApplyStatus = state.phase, state.apply
 	attempt.VerificationStatus, attempt.CleanupStatus = state.verification, state.cleanup
 	attempt.ActualStateStatus, attempt.ObservedAt = state.actual, state.observedAt
-	if state.status == deploymentmodel.Succeeded {
-		deployment.Verification = deploymentmodel.Verification{Known: true}
-	} else {
-		stateInheritedServices := deployment.Verification.UnresolvedServices
-		unresolved := state.rolloutVerification.UnresolvedServices
-		if !state.rolloutVerification.Known {
-			unresolved = desiredServiceNames(desired)
+	unresolved := slices.DeleteFunc(slices.Clone(deployment.Verification.UnresolvedServices), func(name string) bool {
+		return attempt.Targets(name) &&
+			(state.status == deploymentmodel.Succeeded || state.phase != deploymentmodel.PhaseApply)
+	})
+	if state.status != deploymentmodel.Succeeded {
+		if state.rolloutVerification.Known {
+			unresolved = append(unresolved, state.rolloutVerification.UnresolvedServices...)
+		} else {
+			unresolved = append(unresolved, attempt.Services(desired).Names()...)
 		}
-		deployment.Verification.Known = true
-		deployment.Verification.UnresolvedServices = slices.Clone(unresolved)
-		if state.phase == deploymentmodel.PhaseApply {
-			deployment.Verification.UnresolvedServices = append(
-				deployment.Verification.UnresolvedServices, stateInheritedServices...,
-			)
-		}
-		slices.Sort(deployment.Verification.UnresolvedServices)
-		deployment.Verification.UnresolvedServices = slices.Compact(deployment.Verification.UnresolvedServices)
-		deployment.Verification.Generations = unresolvedGenerations(
-			deployment.Verification, deployment.Verification.UnresolvedServices,
-		)
 	}
+	slices.Sort(unresolved)
+	deployment.Verification.Known = true
+	deployment.Verification.UnresolvedServices = slices.Compact(unresolved)
+	deployment.Verification.Generations = unresolvedGenerations(deployment.Verification, unresolved)
 	if err = s.store.FinishAttempt(ctx, deployment, attempt); err != nil {
 		return err
 	}
 	if state.status == deploymentmodel.Succeeded {
-		if err = s.store.SaveBaseline(ctx, deployment.ID); err != nil {
-			return err
+		complete, baselineErr := s.coversDesired(ctx, deployment, attempt, desired)
+		if baselineErr != nil {
+			return baselineErr
+		}
+		if complete {
+			if err = s.store.SaveBaseline(ctx, deployment.ID); err != nil {
+				return err
+			}
 		}
 	}
 	return s.publishCompletion(ctx, deployment, attempt, desired, state)
@@ -246,7 +246,7 @@ func (s *Service) publishCompletion(
 ) error {
 	meta := events.DeployEvent{
 		DeploymentID: deployment.ID, AttemptID: attempt.ID, StackName: deployment.Stack, Commit: deployment.Commit,
-		Services: desired.Compose.Services, StackDefinition: desired,
+		Services: attempt.Services(desired), StackDefinition: desired,
 	}
 	switch state.status {
 	case deploymentmodel.Succeeded:
@@ -258,7 +258,7 @@ func (s *Service) publishCompletion(
 	case deploymentmodel.Interrupted:
 		return s.events.Publish(ctx, &events.DeployInterrupted{
 			DeploymentID: deployment.ID, AttemptID: attempt.ID, StackName: deployment.Stack,
-			Commit: deployment.Commit, Services: desired.Compose.Services, Error: state.diagnostic,
+			Commit: deployment.Commit, Services: attempt.Services(desired), Error: state.diagnostic,
 			Reason: state.errorCode, Stage: state.eventStage,
 		})
 	case deploymentmodel.Running, deploymentmodel.Superseded:

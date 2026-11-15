@@ -331,6 +331,10 @@ type summaryRow struct {
 }
 
 type deploymentDetails struct {
+	// TargetServices is null only for historical whole-stack attempts.
+	TargetServices []string `json:"target_services"`
+	// ServiceRevisions is immutable source metadata captured before execution.
+	ServiceRevisions map[string]deploymentmodel.ServiceRevision `json:"service_revisions,omitempty"`
 	// UpdateGenerations retains only non-secret pre-update boundaries.
 	UpdateGenerations map[string]deploymentmodel.UpdateGeneration `json:"update_generations,omitempty"`
 	// UnresolvedServices retains verification obligations across desired-state deployments.
@@ -492,7 +496,7 @@ func (row attemptRow) attempt() (deploymentmodel.Attempt, error) {
 		ErrorDiagnostic: details.ErrorDiagnostic, Retryable: details.Retryable, Phase: row.Phase,
 		ApplyStatus: details.ApplyStatus, VerificationStatus: details.VerificationStatus,
 		CleanupStatus: details.CleanupStatus, ActualStateStatus: details.ActualStateStatus,
-		ObservedAt: details.ObservedAt,
+		ObservedAt: details.ObservedAt, TargetServices: details.TargetServices, ServiceRevisions: details.ServiceRevisions,
 	}
 	if row.FinishedAt.Valid {
 		finished := row.FinishedAt.Time.UTC()
@@ -718,6 +722,7 @@ func (s *Store) Desired(ctx context.Context, id string) (compose.File, error) {
 		return compose.File{}, err
 	}
 	desired, err := s.getPrepared(ctx, query, args...)
+	desired.Definition.ServiceDigests = desired.ServiceDigests
 	return desired.Definition, notFound(err)
 }
 
@@ -875,7 +880,10 @@ func (s *Store) StartAttempt(ctx context.Context, d deploymentmodel.Deployment, 
 		"status": deploymentmodel.Running, "error_code": "", "phase": deploymentmodel.PhaseApply,
 		"finished_at": nil, "details_payload": details,
 	}).Where(
-		goqu.Ex{"id": d.ID, "status": []deploymentmodel.Status{deploymentmodel.Failed, deploymentmodel.Interrupted}},
+		goqu.Ex{
+			"id":     d.ID,
+			"status": []deploymentmodel.Status{deploymentmodel.Succeeded, deploymentmodel.Failed, deploymentmodel.Interrupted},
+		},
 	).ToSQL()
 	if err != nil {
 		return err
@@ -897,6 +905,7 @@ func (s *Store) insertAttemptRow(ctx context.Context, attempt deploymentmodel.At
 		return fmt.Errorf("attempt start time is required")
 	}
 	details, err := json.Marshal(deploymentDetails{
+		TargetServices: attempt.TargetServices, ServiceRevisions: attempt.ServiceRevisions,
 		ApplyStatus: attempt.ApplyStatus, VerificationStatus: attempt.VerificationStatus,
 		CleanupStatus: attempt.CleanupStatus, ActualStateStatus: attempt.ActualStateStatus,
 	}, json.FormatNilSliceAsNull(true), jsontext.AllowInvalidUTF8(true))
@@ -925,6 +934,7 @@ func (s *Store) FinishAttempt(
 		return fmt.Errorf("terminal attempt requires finish time")
 	}
 	attemptDetails, err := json.Marshal(deploymentDetails{
+		TargetServices: attempt.TargetServices, ServiceRevisions: attempt.ServiceRevisions,
 		ErrorDiagnostic: attempt.ErrorDiagnostic, Retryable: attempt.Retryable, ApplyStatus: attempt.ApplyStatus,
 		VerificationStatus: attempt.VerificationStatus, CleanupStatus: attempt.CleanupStatus,
 		ActualStateStatus: attempt.ActualStateStatus, ObservedAt: attempt.ObservedAt,
@@ -982,7 +992,10 @@ func (s *Store) SynchronizeRunningAttempt(
 			error_code = (SELECT error_code FROM deployments WHERE id = deployment_attempts.deployment_id),
 			phase = (SELECT phase FROM deployments WHERE id = deployment_attempts.deployment_id),
 			finished_at = (SELECT finished_at FROM deployments WHERE id = deployment_attempts.deployment_id),
-			details_payload = (SELECT details_payload FROM deployments WHERE id = deployment_attempts.deployment_id)
+			details_payload = json_set(
+				(SELECT details_payload FROM deployments WHERE id = deployment_attempts.deployment_id),
+				'$.target_services', json_extract(deployment_attempts.details_payload, '$.target_services'),
+				'$.service_revisions', json_extract(deployment_attempts.details_payload, '$.service_revisions'))
 		WHERE id = ? AND deployment_id = ? AND status = 'running'
 			AND EXISTS (
 				SELECT 1 FROM deployments

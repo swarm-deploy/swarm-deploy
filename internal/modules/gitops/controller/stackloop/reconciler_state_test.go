@@ -453,6 +453,7 @@ func TestReconcileReadsPreviousDigestFromStateStore(t *testing.T) {
 	)
 	reconciler.preparer = preparation.New(reconciler.cfg, repository, reconciler.composeRotator)
 	reconciler.attachPipeline()
+	seedAppliedDesired(t, reconciler, config.StackSpec{Name: "app", ComposeFile: "app.yaml"})
 
 	reconcileErr := reconciler.Reconcile(context.Background(), ReconciliationRequest{
 		Stack: config.StackSpec{
@@ -1008,6 +1009,7 @@ func TestReconcilePrunesServicesWithoutNewDeployment(t *testing.T) {
 			)
 			reconciler.preparer = preparation.New(reconciler.cfg, repository, reconciler.composeRotator)
 			reconciler.attachPipeline()
+			seedAppliedDesired(t, reconciler, config.StackSpec{Name: "app", ComposeFile: "app.yaml"})
 
 			reconcileErr := reconciler.Reconcile(context.Background(), ReconciliationRequest{
 				Stack: config.StackSpec{
@@ -1106,6 +1108,7 @@ func TestReconcileServiceMissedEventOnDrift(t *testing.T) {
 			)
 			reconciler.preparer = preparation.New(reconciler.cfg, repository, reconciler.composeRotator)
 			reconciler.attachPipeline()
+			seedAppliedDesired(t, reconciler, config.StackSpec{Name: "app", ComposeFile: "app.yaml"})
 
 			reconcileErr := reconciler.Reconcile(context.Background(), ReconciliationRequest{
 				Stack: config.StackSpec{
@@ -1247,6 +1250,7 @@ func TestReconcileSelfHealsMissingService(t *testing.T) {
 			)
 			reconciler.preparer = preparation.New(reconciler.cfg, repository, reconciler.composeRotator)
 			reconciler.attachPipeline()
+			seedAppliedDesired(t, reconciler, config.StackSpec{Name: "app", ComposeFile: "app.yaml"})
 
 			err = reconciler.Reconcile(context.Background(), ReconciliationRequest{
 				Stack: config.StackSpec{Name: "app", ComposeFile: "app.yaml"}, Commit: "current",
@@ -1348,6 +1352,7 @@ func TestReconcileSelfHealsReplicaDriftAfterVerification(t *testing.T) {
 	)
 	reconciler.preparer = preparation.New(reconciler.cfg, repository, reconciler.composeRotator)
 	reconciler.attachPipeline()
+	seedAppliedDesired(t, reconciler, config.StackSpec{Name: "app", ComposeFile: "app.yaml"})
 
 	require.NoError(t, reconciler.Reconcile(context.Background(), ReconciliationRequest{
 		Stack: config.StackSpec{Name: "app", ComposeFile: "app.yaml"}, Commit: "current",

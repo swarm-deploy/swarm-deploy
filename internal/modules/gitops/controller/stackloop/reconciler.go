@@ -157,6 +157,7 @@ func (r *Reconciler) Reconcile(
 		Desired:          prepared,
 		PendingSelfHeal:  map[string]bool{},
 	}
+	pl.TargetServices, pl.ServiceCommits = targetServices(prepared, prev)
 	for name, service := range prev.Services {
 		if service.SelfHealPending {
 			pl.PendingSelfHeal[name] = true
@@ -236,6 +237,7 @@ func (r *Reconciler) persistDesiredServices(
 				service.DesiredCommit = commit
 			}
 			service.DesiredDigest = digest
+			service.ApplyPending = service.ApplyPending || service.AppliedDigest != digest
 			stack.Services[name] = service
 			services[name] = service
 		}
@@ -255,15 +257,7 @@ func (r *Reconciler) processResult(
 
 	serviceStates := make(map[string]model.Service, len(desired.Compose.Services))
 	for _, service := range desired.Compose.Services {
-		previous := prevState.Services[service.Name]
-		state := model.Service{
-			Image:           service.Image,
-			DesiredDigest:   previous.DesiredDigest,
-			DesiredCommit:   previous.DesiredCommit,
-			SyncStatus:      model.SyncStatusSynced,
-			SyncAt:          now,
-			SelfHealPending: payload.Attempt == nil && payload.PendingSelfHeal[service.Name],
-		}
+		state := serviceExecutionState(service, prevState.Services[service.Name], payload, now)
 		if state.SelfHealPending {
 			state.SyncStatus = model.SyncStatusOutOfSync
 			state.SyncError = prevState.Services[service.Name].SyncError
@@ -350,7 +344,9 @@ func (r *Reconciler) recordFailure(
 				previous := state.Services[service.Name]
 				state.Services[service.Name] = model.Service{
 					Image: service.Image, DesiredDigest: previous.DesiredDigest, DesiredCommit: previous.DesiredCommit,
-					SyncStatus: model.SyncStatusOutOfSync, SyncAt: time.Now(),
+					AppliedDigest: previous.AppliedDigest, AppliedCommit: previous.AppliedCommit,
+					ApplyPending: previous.ApplyPending,
+					SyncStatus:   model.SyncStatusOutOfSync, SyncAt: time.Now(),
 					SelfHealPending: previous.SelfHealPending, SyncError: previous.SyncError,
 				}
 			}
@@ -387,10 +383,15 @@ func (r *Reconciler) recordPipelineFailure(
 			failed.Services = map[string]model.Service{}
 		}
 		for _, service := range services {
+			if !pl.Attempt.Targets(service.Name) {
+				continue
+			}
 			previous := failed.Services[service.Name]
 			failed.Services[service.Name] = model.Service{
 				Image: service.Image, DesiredDigest: previous.DesiredDigest, DesiredCommit: previous.DesiredCommit,
-				SyncStatus: model.SyncStatusOutOfSync, SyncAt: time.Now(),
+				AppliedDigest: previous.AppliedDigest, AppliedCommit: previous.AppliedCommit,
+				ApplyPending: previous.ApplyPending,
+				SyncStatus:   model.SyncStatusOutOfSync, SyncAt: time.Now(),
 			}
 		}
 		failed.Status = model.NewStackStatus(failed.Services)

@@ -13,6 +13,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/initjob"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/networks"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/services"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/stack"
 	waiterpkg "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/waiter"
 	deploymentmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/registry"
@@ -118,9 +119,16 @@ func (d *Deployer) RefreshRegistryAuth(ctx context.Context, request StackRequest
 
 // DeployStack runs the full stack deployment pipeline.
 func (d *Deployer) DeployStack(ctx context.Context, request StackRequest) (Result, error) {
+	desired, err := stack.TargetServicesCompose(request.Desired, request.TargetServices)
+	if err != nil {
+		return Result{}, err
+	}
+	if len(desired.Services) == 0 {
+		return Result{Verification: deploymentmodel.Verification{Known: true}}, nil
+	}
 	d.attachPipelines()
 	payload := &deployStackPayload{
-		stackName: request.StackName, sourceComposePath: request.SourceComposePath, desired: request.Desired,
+		stackName: request.StackName, sourceComposePath: request.SourceComposePath, desired: desired,
 		result:             Result{Verification: deploymentmodel.Verification{Known: true}},
 		retryFailedUpdates: request.Options.RetryFailedUpdates,
 		unresolvedServices: request.Options.UnresolvedServices,
@@ -133,7 +141,7 @@ func (d *Deployer) DeployStack(ctx context.Context, request StackRequest) (Resul
 	)
 	defer span.End()
 
-	err := d.deployStackPipe.Run(ctx, payload)
+	err = d.deployStackPipe.Run(ctx, payload)
 	if err != nil {
 		tracing.FailSpan(span, err)
 	} else {

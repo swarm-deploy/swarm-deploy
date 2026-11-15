@@ -123,7 +123,7 @@ func TestSingleServiceComposeIncludesInitJobNetworks(t *testing.T) {
 		{
 			name: "job network alongside explicit service network",
 			service: compose.Service{
-				Name: "api",
+				Name:     "api",
 				Networks: compose.NewServiceNetworks(&compose.ServiceNetwork{Alias: "backend"}),
 				InitJobs: []compose.InitJob{{
 					Name: "prepare", Networks: compose.NewServiceNetworks(&compose.ServiceNetwork{Alias: "jobs"}),
@@ -134,7 +134,7 @@ func TestSingleServiceComposeIncludesInitJobNetworks(t *testing.T) {
 		{
 			name: "job reuses service network",
 			service: compose.Service{
-				Name: "api",
+				Name:     "api",
 				Networks: compose.NewServiceNetworks(&compose.ServiceNetwork{Alias: "backend"}),
 				InitJobs: []compose.InitJob{{
 					Name: "prepare", Networks: compose.NewServiceNetworks(&compose.ServiceNetwork{Alias: "backend"}),
@@ -156,4 +156,24 @@ func TestSingleServiceComposeIncludesInitJobNetworks(t *testing.T) {
 			assert.Equal(t, tt.want, selected.Networks)
 		})
 	}
+}
+
+func TestTargetServicesComposeIncludesJobDependencies(t *testing.T) {
+	desired := compose.Compose{
+		Services: compose.Services{
+			{Name: "api", InitJobs: []compose.InitJob{{Name: "migrate", Secrets: []compose.ObjectRef{{Source: "job-secret"}}, Configs: []compose.ObjectRef{{Source: "job-config"}}}}},
+			{Name: "worker", Secrets: []compose.ObjectRef{{Source: "worker-secret"}}},
+		},
+		Secrets: compose.Secrets{"job-secret": {}, "worker-secret": {}},
+		Configs: compose.Configs{"job-config": {}, "unrelated": {}},
+	}
+	selected, err := TargetServicesCompose(desired, []string{"api"})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"api"}, selected.Services.Names())
+	assert.Equal(t, compose.Secrets{"job-secret": desired.Secrets["job-secret"]}, selected.Secrets)
+	assert.Equal(t, compose.Configs{"job-config": desired.Configs["job-config"]}, selected.Configs)
+	assert.Len(t, desired.Services, 2)
+	assert.Len(t, desired.Secrets, 2, "selection does not mutate full desired")
+	_, err = TargetServicesCompose(desired, []string{"missing"})
+	require.ErrorContains(t, err, "not found")
 }

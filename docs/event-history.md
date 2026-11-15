@@ -53,6 +53,10 @@ not public event names and are not available under `notifications.events`.
 Known terminal service convergence failures publish internal `DeployFailed` with
 `error_code=convergence_failed` and `stage=verification`; observation failures and
 verification interruptions publish `DeployInterrupted` with `verification_unknown`.
+Deployment completion events describe the persisted Attempt. Their `Services` list
+contains only its execution targets; GitOps updates applied revisions only for those
+services. `DeploySuccess` means those targets completed successfully. Pruning still
+uses the full desired stack. No new event types are introduced for targeted execution.
 Retry-deferred scheduler cycles publish neither event and do not increase alert
 occurrences. These remain internal facts, excluded from Event History.
 Deployment failures, node disconnections, and unresolved service drift feed Alert Management.
