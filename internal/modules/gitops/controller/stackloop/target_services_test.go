@@ -126,7 +126,7 @@ func TestReconcileAdoptsLegacySynchronizedServicesWithoutRedeploy(t *testing.T) 
 		}}
 	}))
 	// DeployStack is not expected: an upgrade must not redeploy a synchronized stack.
-	executor.EXPECT().RefreshRegistryAuth(gomock.Any(), gomock.Any()).Return(nil)
+	executor.EXPECT().RefreshRegistryAuth(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	manager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "app"}).
 		Return([]swarm.StackService{{Name: "api"}}, nil)
 
