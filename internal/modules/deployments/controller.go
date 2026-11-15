@@ -223,22 +223,37 @@ func (c *Controller) execute(ctx context.Context, req ExecuteRequest) (ExecuteRe
 		return result, errors.Join(cleanupErr, completeErr)
 	}
 
+	return c.succeed(ctx, req, *attempt, result)
+}
+
+// succeed completes a successful Attempt and reports the receipts of its desired state.
+func (c *Controller) succeed(
+	ctx context.Context, req ExecuteRequest, attempt deploymentmodel.Attempt, result ExecuteResult,
+) (ExecuteResult, error) {
 	completion := Completion{Outcome: CompletionSucceeded, ObservedAt: &result.ObservedAt}
 	result.Status, result.AppliedRevisions = deploymentmodel.Succeeded, attempt.ServiceRevisions
-	if err = c.complete(ctx, req.Stack.Name, attempt.ID, completion); err != nil {
+	if err := c.complete(ctx, req.Stack.Name, attempt.ID, completion); err != nil {
 		return result, err
 	}
-	// Earlier Attempts of the same desired state may hold receipts of targets this
-	// Attempt skipped as already applied.
-	latest, snapshot, latestErr := c.lifecycle.store.Latest(ctx, req.Stack.Name)
-	if latestErr == nil && latest.ID == attempt.DeploymentID {
-		result.AppliedRevisions = appliedRevisions(receipts(latest), snapshot, latest.Commit)
-	}
-	c.record(req, *attempt, "success")
+	c.record(req, attempt, "success")
+	result.AppliedRevisions = c.successRevisions(ctx, req.Stack.Name, attempt)
 	return result, nil
 }
 
 // executionError rejects late success without replacing an earlier, classified stage failure.
+// successRevisions returns the receipts of a successful Attempt's desired state.
+// Earlier Attempts of the same state may hold receipts of targets this Attempt
+// skipped as already applied.
+func (c *Controller) successRevisions(
+	ctx context.Context, stack string, attempt deploymentmodel.Attempt,
+) map[string]deploymentmodel.ServiceRevision {
+	latest, snapshot, err := c.lifecycle.store.Latest(ctx, stack)
+	if err != nil || latest.ID != attempt.DeploymentID {
+		return attempt.ServiceRevisions
+	}
+	return appliedRevisions(receipts(latest), snapshot, latest.Commit)
+}
+
 func executionError(ctx context.Context, err error) error {
 	if err != nil {
 		return err

@@ -129,20 +129,26 @@ func (s *Service) complete(
 		return err
 	}
 	if state.status == deploymentmodel.Succeeded {
-		if err = s.store.ConfirmServices(ctx, deployment.ID, attempt.Services(desired).Names()); err != nil {
+		if err = s.recordSuccess(ctx, deployment, attempt, desired); err != nil {
 			return err
-		}
-		complete, baselineErr := s.coversDesired(ctx, deployment, attempt, desired)
-		if baselineErr != nil {
-			return baselineErr
-		}
-		if complete {
-			if err = s.store.SaveBaseline(ctx, deployment.ID); err != nil {
-				return err
-			}
 		}
 	}
 	return s.publishCompletion(ctx, deployment, attempt, desired, state)
+}
+
+// recordSuccess confirms the applied services and advances the baseline once
+// every desired service is covered.
+func (s *Service) recordSuccess(
+	ctx context.Context, deployment deploymentmodel.Deployment, attempt deploymentmodel.Attempt, desired compose.File,
+) error {
+	if err := s.store.ConfirmServices(ctx, deployment.ID, attempt.Services(desired).Names()); err != nil {
+		return err
+	}
+	complete, err := s.coversDesired(ctx, deployment, attempt, desired)
+	if err != nil || !complete {
+		return err
+	}
+	return s.store.SaveBaseline(ctx, deployment.ID)
 }
 
 func (completion Completion) state() (completionState, error) {
