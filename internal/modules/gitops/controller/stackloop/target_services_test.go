@@ -102,3 +102,68 @@ func TestReconcileTargetsUnappliedServiceRevisions(t *testing.T) {
 		})
 	}
 }
+
+func TestReconcileAdoptsLegacySynchronizedServicesWithoutRedeploy(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	repository := gitx.NewMockRepository(ctrl)
+	manager := swarm.NewMockServiceManager(ctrl)
+	executor := deployer.NewMockStackDeployer(ctrl)
+	db, store := newSQLState(t)
+	dir := t.TempDir()
+	mockRepositoryFiles(repository, dir)
+	cfg := &config.Config{Spec: config.Spec{DataDir: t.TempDir()}}
+	bus := &dispatcher.NopDispatcher{}
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "app.yaml"), []byte("services:\n  api:\n    image: api:1\n"), 0600))
+	stack := config.StackSpec{Name: "app", ComposeFile: "app.yaml"}
+	reconciler := newTestReconciler(cfg, repository, deployments.NewService(db, bus), executor,
+		&swarm.Swarm{Services: manager}, bus, &metrics.NopDeploys{}, store, db)
+	desired, err := reconciler.preparer.Load(t.Context(), stack, "legacy")
+	require.NoError(t, err)
+	// Runtime state written before applied revisions were tracked.
+	require.NoError(t, store.Update(t.Context(), func(runtime *model.Runtime) {
+		runtime.Stacks["app"] = model.Stack{SourceDigest: desired.Digest, LastCommit: "legacy", Services: map[string]model.Service{
+			"api": {Image: "api:1", SyncStatus: model.SyncStatusSynced},
+		}}
+	}))
+	// DeployStack is not expected: an upgrade must not redeploy a synchronized stack.
+	executor.EXPECT().RefreshRegistryAuth(gomock.Any(), gomock.Any()).Return(nil)
+	manager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "app"}).
+		Return([]swarm.StackService{{Name: "api"}}, nil)
+
+	require.NoError(t, reconciler.Reconcile(t.Context(), ReconciliationRequest{Stack: stack, Commit: "legacy"}))
+
+	api := readSQLState(t, store).Stacks["app"].Services["api"]
+	assert.Equal(t, "legacy", api.AppliedCommit, "the stack's last commit becomes the service commit")
+	assert.Equal(t, "legacy", api.DesiredCommit)
+	assert.NotEmpty(t, api.AppliedDigest)
+	assert.Equal(t, api.DesiredDigest, api.AppliedDigest)
+	assert.False(t, api.ApplyPending)
+	assert.Equal(t, model.SyncStatus(model.SyncStatusSynced), api.SyncStatus)
+}
+
+func TestAdoptLegacyAppliedRequiresKnownSynchronizedRevision(t *testing.T) {
+	synced := model.Service{SyncStatus: model.SyncStatusSynced}
+	stack := model.Stack{SourceDigest: "source", LastCommit: "legacy"}
+	for _, tc := range []struct {
+		name    string
+		stack   model.Stack
+		service model.Service
+		source  string
+		applied string
+	}{
+		{name: "unchanged source", stack: stack, service: synced, source: "source", applied: "digest"},
+		{name: "tracked desired digest", stack: stack, service: model.Service{SyncStatus: model.SyncStatusSynced, DesiredDigest: "old"}, source: "changed", applied: "old"},
+		{name: "changed source", stack: stack, service: synced, source: "changed"},
+		{name: "not synchronized", stack: stack, service: model.Service{SyncStatus: model.SyncStatusOutOfSync}, source: "source"},
+		{name: "pending apply", stack: stack, service: model.Service{SyncStatus: model.SyncStatusSynced, ApplyPending: true}, source: "source"},
+		{name: "no previous sync", stack: model.Stack{SourceDigest: "source"}, service: synced, source: "source"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			adopted := adoptLegacyApplied(tc.stack, tc.service, tc.source, "digest")
+			assert.Equal(t, tc.applied, adopted.AppliedDigest)
+			if tc.applied != "" {
+				assert.Equal(t, "legacy", adopted.AppliedCommit)
+			}
+		})
+	}
+}

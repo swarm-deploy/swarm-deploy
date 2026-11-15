@@ -52,7 +52,8 @@ type ServicePruner interface {
 
 // ExecuteRequest contains the effective desired state and execution inputs prepared by GitOps.
 type ExecuteRequest struct {
-	// TargetServices lists services to apply; nil and empty both select no services.
+	// TargetServices lists services to apply. Nil selects every desired service;
+	// an empty list selects none while still pruning against the full desired state.
 	TargetServices []string
 	// ServiceCommits identifies the source commit of each target service.
 	ServiceCommits map[string]string
@@ -165,7 +166,7 @@ func (c *Controller) execute(ctx context.Context, req ExecuteRequest) (ExecuteRe
 		completion := Completion{Outcome: CompletionApplyFailed, Diagnostic: err, Retryable: true}
 		result.Status, result.ErrorCode = deploymentmodel.Failed, completion.ErrorCode()
 		completeErr := c.complete(ctx, req.Stack.Name, attempt.ID, completion)
-		c.record(req, "failed")
+		c.record(req, *attempt, "failed")
 		return result, errors.Join(err, completeErr)
 	}
 	deployResult, deployErr := c.deployer.DeployStack(ctx, deployer.StackRequest{
@@ -187,7 +188,7 @@ func (c *Controller) execute(ctx context.Context, req ExecuteRequest) (ExecuteRe
 		completion.Verification = deployResult.Verification
 		result.Status, result.ErrorCode = completionStatus(completion), completion.ErrorCode()
 		completeErr := c.complete(ctx, req.Stack.Name, attempt.ID, completion)
-		c.record(req, "failed")
+		c.record(req, *attempt, "failed")
 		return result, errors.Join(deployErr, completeErr)
 	}
 
@@ -200,7 +201,7 @@ func (c *Controller) execute(ctx context.Context, req ExecuteRequest) (ExecuteRe
 		}
 		result.Status, result.ErrorCode = deploymentmodel.Interrupted, completion.ErrorCode()
 		completeErr := c.complete(ctx, req.Stack.Name, attempt.ID, completion)
-		c.record(req, "failed")
+		c.record(req, *attempt, "failed")
 		return result, errors.Join(observeErr, completeErr)
 	}
 	result.LiveServices = live
@@ -218,7 +219,7 @@ func (c *Controller) execute(ctx context.Context, req ExecuteRequest) (ExecuteRe
 		}
 		result.Status, result.ErrorCode = deploymentmodel.Failed, completion.ErrorCode()
 		completeErr := c.complete(ctx, req.Stack.Name, attempt.ID, completion)
-		c.record(req, "failed")
+		c.record(req, *attempt, "failed")
 		return result, errors.Join(cleanupErr, completeErr)
 	}
 
@@ -227,7 +228,7 @@ func (c *Controller) execute(ctx context.Context, req ExecuteRequest) (ExecuteRe
 	if err = c.complete(ctx, req.Stack.Name, attempt.ID, completion); err != nil {
 		return result, err
 	}
-	c.record(req, "success")
+	c.record(req, *attempt, "success")
 	return result, nil
 }
 
@@ -357,11 +358,9 @@ func (c *Controller) persistInitJobs(ctx context.Context, attemptID string, resu
 	}
 }
 
-func (c *Controller) record(req ExecuteRequest, status string) {
-	for _, service := range req.Desired.Compose.Services {
-		if !slices.Contains(req.TargetServices, service.Name) {
-			continue
-		}
+// record reports metrics for the services the persisted Attempt actually executed.
+func (c *Controller) record(req ExecuteRequest, attempt deploymentmodel.Attempt, status string) {
+	for _, service := range attempt.Services(req.Desired) {
 		c.metrics.RecordDeploy(req.Stack.Name, service.Name, status)
 	}
 }
@@ -410,7 +409,7 @@ func (c *Controller) stackOptions(
 		return deployer.StackOptions{}, nil
 	}
 	return deployer.StackOptions{
-		RetryFailedUpdates: attempt.Number > 1,
+		RetryFailedUpdates: retriesFailedAttempt(current, attempt),
 		UnresolvedServices: slices.DeleteFunc(slices.Clone(current.Verification.UnresolvedServices), func(name string) bool {
 			return !attempt.Targets(name)
 		}),

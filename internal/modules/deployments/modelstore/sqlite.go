@@ -732,12 +732,32 @@ func (s *Store) Baseline(ctx context.Context, stack string) (deploymentmodel.Pre
 		Join(goqu.T("deployments").As("deployment"),
 			goqu.On(goqu.I("deployment.id").Eq(goqu.I("snapshot.deployment_id")))).
 		Select(goqu.I("deployment.desired_payload")).
-		Where(goqu.Ex{"snapshot.stack": stack, "deployment.status": deploymentmodel.Succeeded}).ToSQL()
+		// A later targeted Attempt of the same desired state may fail without
+		// invalidating the success that established this baseline.
+		Where(goqu.Ex{"snapshot.stack": stack}, goqu.Or(
+			goqu.I("deployment.status").Eq(deploymentmodel.Succeeded),
+			goqu.L(`EXISTS (SELECT 1 FROM deployment_attempts AS attempt
+				WHERE attempt.deployment_id = deployment.id AND attempt.status = ?)`, deploymentmodel.Succeeded),
+		)).ToSQL()
 	if err != nil {
 		return deploymentmodel.Prepared{}, err
 	}
 	desired, err := s.getPrepared(ctx, query, args...)
 	return desired, notFound(err)
+}
+
+// AdoptServiceDigests backfills service digests into a snapshot recorded before they
+// were tracked. Callers adopt only digests of the same effective whole-stack state.
+func (s *Store) AdoptServiceDigests(ctx context.Context, id string, digests map[string]string) error {
+	payload, err := json.Marshal(digests)
+	if err != nil {
+		return err
+	}
+	const query = `UPDATE deployments
+		SET desired_payload = json_set(desired_payload, '$.service_digests', json(?))
+		WHERE id = ? AND json_extract(desired_payload, '$.service_digests') IS NULL`
+	_, err = s.db.Exec(ctx, query, string(payload), id)
+	return err
 }
 
 func (s *Store) getPrepared(ctx context.Context, query string, args ...any) (deploymentmodel.Prepared, error) {

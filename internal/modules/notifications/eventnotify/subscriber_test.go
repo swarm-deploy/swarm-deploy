@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/notifications/notifiers"
 	"go.uber.org/mock/gomock"
@@ -19,13 +20,23 @@ func TestSubscriberReturnsDeliveryFailureWithoutPublishing(t *testing.T) {
 	}{{"success", nil}, {"retry", errors.New("unavailable")}} {
 		t.Run(tc.name, func(t *testing.T) {
 			notifier := notifiers.NewMockNotifier(gomock.NewController(t))
-			event := &events.DeploySuccess{}
+			event := &events.DeploySuccess{DeployEvent: events.DeployEvent{
+				Services: []compose.Service{{Name: "api", Image: "api:1"}},
+			}}
 			notifier.EXPECT().Notify(gomock.Any(), notifiers.Message{Payload: DeploymentPayload{
 				ID: "source", Type: "DeploySuccess", Status: StatusSuccess,
+				Services:   []DeploymentService{{Name: "api", Image: "api:1"}},
 				OccurredAt: time.Time{}.UTC(),
 			}}).Return(notifiers.Receipt{}, tc.err)
 			err := NewSubscriber(notifier).Handle(context.Background(), events.Envelope{ID: "source", Event: event})
 			require.ErrorIs(t, err, tc.err)
 		})
 	}
+}
+
+func TestSubscriberSkipsDeploySuccessWithoutServices(t *testing.T) {
+	// No Notify expectation: an Attempt without targets has nothing to announce.
+	notifier := notifiers.NewMockNotifier(gomock.NewController(t))
+	err := NewSubscriber(notifier).Handle(context.Background(), events.Envelope{ID: "source", Event: &events.DeploySuccess{}})
+	require.NoError(t, err)
 }

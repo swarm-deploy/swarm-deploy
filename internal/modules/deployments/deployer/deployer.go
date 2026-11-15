@@ -119,12 +119,16 @@ func (d *Deployer) RefreshRegistryAuth(ctx context.Context, request StackRequest
 
 // DeployStack runs the full stack deployment pipeline.
 func (d *Deployer) DeployStack(ctx context.Context, request StackRequest) (Result, error) {
-	desired, err := stack.TargetServicesCompose(request.Desired, request.TargetServices)
-	if err != nil {
-		return Result{}, err
-	}
-	if len(desired.Services) == 0 {
-		return Result{Verification: deploymentmodel.Verification{Known: true}}, nil
+	desired := request.Desired
+	if request.TargetServices != nil {
+		var err error
+		desired, err = stack.TargetServicesCompose(request.Desired, request.TargetServices)
+		if err != nil {
+			return Result{}, err
+		}
+		if len(desired.Services) == 0 {
+			return Result{Verification: deploymentmodel.Verification{Known: true}}, nil
+		}
 	}
 	d.attachPipelines()
 	payload := &deployStackPayload{
@@ -141,7 +145,7 @@ func (d *Deployer) DeployStack(ctx context.Context, request StackRequest) (Resul
 	)
 	defer span.End()
 
-	err = d.deployStackPipe.Run(ctx, payload)
+	err := d.deployStackPipe.Run(ctx, payload)
 	if err != nil {
 		tracing.FailSpan(span, err)
 	} else {

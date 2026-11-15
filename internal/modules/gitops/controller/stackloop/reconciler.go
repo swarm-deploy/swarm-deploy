@@ -144,7 +144,7 @@ func (r *Reconciler) Reconcile(
 	// Persist the prepared revision before execution so an interruption cannot
 	// lose the commit that introduced it. Completion events only project the
 	// deployment outcome and do not reconstruct desired revisions.
-	if err = r.recordPreparedDesired(ctx, req, prepared, &prev); err != nil {
+	if err = r.recordPreparedDesired(ctx, req, prepared, desiredState.Digest, &prev); err != nil {
 		return err
 	}
 
@@ -202,10 +202,11 @@ func (r *Reconciler) recordPreparedDesired(
 	ctx context.Context,
 	req ReconciliationRequest,
 	prepared *compose.File,
+	sourceDigest string,
 	previous *model.Stack,
 ) error {
 	desiredServices, err := r.persistDesiredServices(
-		ctx, req.Stack.Name, req.Commit, prepared.ServiceDigests,
+		ctx, req.Stack.Name, req.Commit, sourceDigest, prepared.ServiceDigests,
 	)
 	if err != nil {
 		return wrapReconcileError("persist desired service state", prepared.Compose.Services, err)
@@ -223,6 +224,7 @@ func (r *Reconciler) persistDesiredServices(
 	ctx context.Context,
 	stackName string,
 	commit string,
+	sourceDigest string,
 	digests map[string]string,
 ) (map[string]model.Service, error) {
 	services := make(map[string]model.Service, len(digests))
@@ -232,7 +234,7 @@ func (r *Reconciler) persistDesiredServices(
 			stack.Services = map[string]model.Service{}
 		}
 		for name, digest := range digests {
-			service := stack.Services[name]
+			service := adoptLegacyApplied(stack, stack.Services[name], sourceDigest, digest)
 			if service.DesiredDigest != digest || service.DesiredCommit == "" {
 				service.DesiredCommit = commit
 			}

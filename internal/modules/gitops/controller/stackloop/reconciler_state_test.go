@@ -195,7 +195,7 @@ func TestPersistDesiredServicesTracksChangesPerService(t *testing.T) {
 	}))
 	reconciler := &Reconciler{stateStore: store}
 
-	services, err := reconciler.persistDesiredServices(t.Context(), "app", "commit-1", map[string]string{
+	services, err := reconciler.persistDesiredServices(t.Context(), "app", "commit-1", "", map[string]string{
 		"api": "digest-a", "worker": "digest-worker",
 	})
 	require.NoError(t, err)
@@ -203,14 +203,14 @@ func TestPersistDesiredServicesTracksChangesPerService(t *testing.T) {
 	assert.Equal(t, "commit-1", services["worker"].DesiredCommit)
 	assert.Equal(t, model.SyncStatus(model.SyncStatusSynced), services["api"].SyncStatus)
 
-	services, err = reconciler.persistDesiredServices(t.Context(), "app", "commit-2", map[string]string{
+	services, err = reconciler.persistDesiredServices(t.Context(), "app", "commit-2", "", map[string]string{
 		"api": "digest-b", "worker": "digest-worker",
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "commit-2", services["api"].DesiredCommit)
 	assert.Equal(t, "commit-1", services["worker"].DesiredCommit, "unchanged service must retain its commit")
 
-	services, err = reconciler.persistDesiredServices(t.Context(), "app", "commit-3", map[string]string{
+	services, err = reconciler.persistDesiredServices(t.Context(), "app", "commit-3", "", map[string]string{
 		"api": "digest-a", "worker": "digest-worker",
 	})
 	require.NoError(t, err)

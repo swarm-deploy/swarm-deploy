@@ -14,7 +14,7 @@ The current pipeline is:
 4. [Inject Downward metadata when enabled](./downward.md).
 5. Add the swarm-deploy managed label.
 6. [Rotate configs and secrets when enabled](./secrets-rotation.md).
-7. Compare each effective service digest with its last successfully applied digest. Submit the full desired state and explicit `TargetServices` to Deployments. Deployments validates and applies only selected services and their dependencies, runs their Init Jobs, and waits for their convergence.
+7. Compare each effective service digest with its last successfully applied digest. Submit the full desired state and explicit `TargetServices` to Deployments. Deployments validates and applies only selected services and the networks, configs, secrets and volumes they reference, runs their Init Jobs in declared Compose order, and waits for their convergence.
 8. Load live Swarm state.
 9. [Prune managed orphaned services when applicable](./prune.md).
 10. [Analyze drift](./drift.md).
@@ -28,12 +28,19 @@ Some steps are conditional. For example, the image policy step is absent when ev
 GitOps stores `DesiredDigest` / `DesiredCommit` and `AppliedDigest` / `AppliedCommit`
 for each service. The digest includes the prepared service specification, Init Jobs,
 and referenced resource content. A changed Git commit or source formatting alone
-does not select an unchanged service. Missing applied metadata selects the service,
-so installations upgrading from older runtime records perform one initial deployment.
+does not select an unchanged service. Missing applied metadata selects a new service.
+
+Runtime records written before applied revisions were tracked do not trigger a
+redeployment. A service that was `Synced` is treated as applied at the stack's last
+commit: its applied digest is the previously tracked desired digest, or the current
+digest when the source digest is unchanged. When the source changed together with
+the upgrade, the synchronized revision is unknown and the service is deployed.
+Deployment snapshots without per-service digests adopt the current digests when their
+whole-stack digest matches, so the existing successful deployment remains current.
 
 Deployments persists the explicit target list and each target's digest and source
-commit on the Attempt before execution. Empty targets select no services; historical
-Attempts without this field retain their original whole-stack meaning. Success
+commit on the Attempt before execution. An empty list selects no services. A nil list,
+including historical Attempts without this field, selects the whole stack. Success
 advances only the selected services' applied revisions. Failure preserves their
 previous applied revisions. `ApplyPending` is persisted with a newly observed desired
 transition and cleared by confirmed success. It keeps a revert to the last successful
@@ -42,8 +49,10 @@ Swarm. Event replay uses the Attempt's captured revision rather
 than the latest mutable GitOps desired state.
 
 The same overall desired state can have a later Attempt for services not covered by
-an earlier success. Failure classification, manual retries and automatic backoff
-remain owned by Deployments. Pruning uses the full desired service list, independently
+an earlier success. Such an Attempt is not a retry: it does not restart failed Swarm
+updates, a failure does not hide the earlier successful baseline, and automatic
+backoff counts only consecutive failed or interrupted Attempts. Failure
+classification, manual retries and automatic backoff remain owned by Deployments. Pruning uses the full desired service list, independently
 of targets. A partial success advances the full-stack comparison baseline only when
 all desired services are covered by successful Attempts or the previous baseline.
 

@@ -38,12 +38,11 @@ func TestDeployStackExecutesOnlyTargets(t *testing.T) {
 }
 
 func TestDeployStackEmptyTargetsHasNoExternalEffects(t *testing.T) {
-	for _, names := range [][]string{nil, {}} {
-		// No dependencies are wired: any external pipeline activity would panic.
-		d := &Deployer{}
-		result, err := d.DeployStack(t.Context(), StackRequest{Desired: minimalCompose("api"), TargetServices: names})
-		require.NoError(t, err)
-		assert.True(t, result.Verification.Known)
-		assert.Empty(t, result.InitJobs)
-	}
+	// No dependencies are wired: any external pipeline activity would panic.
+	// Nil is not used here: it selects the whole desired stack.
+	d := &Deployer{}
+	result, err := d.DeployStack(t.Context(), StackRequest{Desired: minimalCompose("api"), TargetServices: []string{}})
+	require.NoError(t, err)
+	assert.True(t, result.Verification.Known)
+	assert.Empty(t, result.InitJobs)
 }

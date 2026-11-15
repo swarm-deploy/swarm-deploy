@@ -10,7 +10,11 @@ import (
 	deploymentstore "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/modelstore"
 )
 
+// normalizedServiceNames keeps nil distinct from an empty scope.
 func normalizedServiceNames(names []string) []string {
+	if names == nil {
+		return nil
+	}
 	result := append([]string{}, names...)
 	slices.Sort(result)
 	return slices.Compact(result)
@@ -46,8 +50,12 @@ func setAttemptTargets(
 	attempt *deploymentmodel.Attempt, desired deploymentmodel.Prepared, commit string, options StartOptions,
 ) {
 	attempt.TargetServices = slices.Clone(options.TargetServices)
-	attempt.ServiceRevisions = make(map[string]deploymentmodel.ServiceRevision, len(options.TargetServices))
-	for _, name := range options.TargetServices {
+	names := options.TargetServices
+	if names == nil {
+		names = desired.Definition.Compose.Services.Names()
+	}
+	attempt.ServiceRevisions = make(map[string]deploymentmodel.ServiceRevision, len(names))
+	for _, name := range names {
 		serviceCommit := options.ServiceCommits[name]
 		if serviceCommit == "" {
 			serviceCommit = commit
@@ -86,4 +94,35 @@ func appliedRevisions(
 		}
 	}
 	return revisions
+}
+
+// consecutiveFailures counts the newest failed or interrupted Attempts. A targeted
+// Attempt can follow a success of the same desired state, so success resets backoff.
+func consecutiveFailures(deployment deploymentmodel.Deployment) int {
+	if len(deployment.Attempts) == 0 {
+		return deployment.AttemptCount
+	}
+	count := 0
+	for _, attempt := range deployment.Attempts {
+		if !failedAttempt(attempt) {
+			break
+		}
+		count++
+	}
+	return count
+}
+
+// retriesFailedAttempt reports whether an Attempt follows a failed or interrupted one
+// rather than a success that left other targets of the same desired state unapplied.
+func retriesFailedAttempt(deployment deploymentmodel.Deployment, attempt deploymentmodel.Attempt) bool {
+	for _, previous := range deployment.Attempts {
+		if previous.Number < attempt.Number {
+			return failedAttempt(previous)
+		}
+	}
+	return attempt.Number > 1
+}
+
+func failedAttempt(attempt deploymentmodel.Attempt) bool {
+	return attempt.Status == deploymentmodel.Failed || attempt.Status == deploymentmodel.Interrupted
 }

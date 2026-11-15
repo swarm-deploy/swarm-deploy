@@ -58,7 +58,8 @@ const retryBackoffMultiplier = 2
 type StartOptions struct {
 	// ManualRetry bypasses failure classification and automatic retry backoff.
 	ManualRetry bool
-	// TargetServices lists services authorized for this attempt; empty selects no services.
+	// TargetServices lists services authorized for this attempt. Nil selects every desired
+	// service, matching historical whole-stack Attempts; an empty list selects none.
 	TargetServices []string
 	// ServiceCommits retains the source revision of each selected service.
 	ServiceCommits map[string]string
@@ -118,8 +119,15 @@ func (s *Service) startPrepared(
 	if err != nil {
 		return nil, err
 	}
-	// Service digests also capture order-sensitive mounts omitted by the legacy
-	// whole-stack digest. Missing historical metadata needs a fresh snapshot.
+	if latestDesired.Digest == desired.Digest && latestDesired.ServiceDigests == nil {
+		// Snapshots recorded before per-service digests describe the same effective
+		// state. Adopting the current digests keeps an upgrade from redeploying it.
+		if err = s.store.AdoptServiceDigests(ctx, latest.ID, desired.ServiceDigests); err != nil {
+			return nil, err
+		}
+		latestDesired.ServiceDigests = maps.Clone(desired.ServiceDigests)
+	}
+	// Service digests also capture order-sensitive mounts omitted by the whole-stack digest.
 	if latestDesired.Digest == desired.Digest && maps.Equal(latestDesired.ServiceDigests, desired.ServiceDigests) {
 		return s.startExisting(ctx, latest, desired, commit, options)
 	}
@@ -205,7 +213,7 @@ func (s *Service) automaticRetryAllowed(latest deploymentmodel.Deployment) bool 
 		return false
 	}
 	delay := automaticRetryDelay
-	for attempt := 1; attempt < latest.AttemptCount && delay < maximumRetryDelay; attempt++ {
+	for attempt := 1; attempt < consecutiveFailures(latest) && delay < maximumRetryDelay; attempt++ {
 		delay = min(delay*retryBackoffMultiplier, maximumRetryDelay)
 	}
 	return !s.now().Before(latest.FinishedAt.Add(delay))
