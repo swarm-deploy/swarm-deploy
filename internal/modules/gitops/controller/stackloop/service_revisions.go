@@ -1,16 +1,20 @@
 package stackloop
 
 import (
+	"slices"
 	"time"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/model"
 )
 
-func targetServices(desired *compose.File, previous model.Stack) ([]string, map[string]string) {
+func targetServices(desired *compose.File, previous model.Stack, preserved []string) ([]string, map[string]string) {
 	names := make([]string, 0, len(desired.Compose.Services))
 	commits := make(map[string]string)
 	for _, service := range desired.Compose.Services {
+		if slices.Contains(preserved, service.Name) {
+			continue
+		}
 		state := previous.Services[service.Name]
 		if state.ApplyPending || state.AppliedDigest == "" || state.DesiredDigest != state.AppliedDigest {
 			names = append(names, service.Name)
@@ -44,6 +48,9 @@ func serviceExecutionState(
 
 func projectAppliedRevisionsAfterFailure(stack *model.Stack, payload *pipelinePayload) {
 	for _, service := range payload.Desired.Compose.Services {
+		if slices.Contains(payload.PreservedServices, service.Name) {
+			continue
+		}
 		if _, ok := payload.AppliedRevisions[service.Name]; !ok {
 			continue
 		}

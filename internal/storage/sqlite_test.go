@@ -248,6 +248,8 @@ func TestDeploymentAttemptMigrationIsForwardOnly(t *testing.T) {
 	_, err := provider.Up(t.Context())
 	require.NoError(t, err)
 	_, err = provider.Down(t.Context())
+	require.NoError(t, err, "the Pause Sync policy migration is reversible")
+	_, err = provider.Down(t.Context())
 	require.NoError(t, err, "the derived deployment service index is reversible")
 	_, err = provider.Down(t.Context())
 	require.NoError(t, err, "the Init Job table migration is reversible")
@@ -394,7 +396,7 @@ func TestFreshDatabaseEnforcesForeignKeysAndChecks(t *testing.T) {
 	var appliedVersions int
 	require.NoError(t, db.Get(t.Context(), &appliedVersions,
 		"SELECT count(*) FROM goose_db_version WHERE version_id > 0 AND is_applied = 1"))
-	assert.Equal(t, 5, appliedVersions)
+	assert.Equal(t, 6, appliedVersions)
 }
 
 func TestRestartAndRollback(t *testing.T) {

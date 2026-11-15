@@ -62,6 +62,7 @@ func setAttemptTargets(
 	attempt *deploymentmodel.Attempt, desired deploymentmodel.Prepared, commit string, options StartOptions,
 ) {
 	attempt.TargetServices = slices.Clone(options.TargetServices)
+	attempt.SkippedServices = slices.Clone(options.SkippedServices)
 	names := options.TargetServices
 	if names == nil {
 		names = desired.Definition.Compose.Services.Names()

@@ -9,6 +9,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackloop/preparation"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/modelstore"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/syncpause"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/tracing"
 	"github.com/swarm-deploy/swarm-deploy/internal/storage"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
@@ -45,6 +46,7 @@ func NewStackReconciler(
 	preparer *preparation.Preparer,
 	rotator *Rotator,
 	db storage.Database,
+	pauseServices ...*syncpause.Service,
 ) StackReconciler {
 	reconciler := New(
 		cfg,
@@ -53,7 +55,7 @@ func NewStackReconciler(
 		eventDispatcher,
 		deployMetrics,
 		stateStore,
-		preparer, rotator, db,
+		preparer, rotator, db, pauseServices...,
 	)
 
 	tp, tracingEnabled := tracing.GetTracerProvider()

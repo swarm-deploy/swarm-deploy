@@ -67,6 +67,8 @@ type ExecuteRequest struct {
 	ManualRetry bool
 	// SourceChanged reports whether GitOps observed a new source digest.
 	SourceChanged bool
+	// PreservedServices are retained during pruning and registry authentication refresh.
+	PreservedServices []string
 }
 
 // ExecuteServiceRequest contains one drift-remediation execution.
@@ -151,6 +153,7 @@ func (c *Controller) execute(ctx context.Context, req ExecuteRequest) (ExecuteRe
 	attempt, err := c.lifecycle.StartIfChanged(
 		ctx, req.Stack.Name, req.Commit, req.Desired, req.SourceChanged, StartOptions{
 			ManualRetry: req.ManualRetry, TargetServices: req.TargetServices, ServiceCommits: req.ServiceCommits,
+			SkippedServices: req.PreservedServices,
 		},
 	)
 	result := ExecuteResult{Attempt: attempt}
@@ -209,6 +212,7 @@ func (c *Controller) execute(ctx context.Context, req ExecuteRequest) (ExecuteRe
 
 	pruned, cleanupErr := c.pruner.Prune(ctx, pruner.PruneServicesRequest{
 		Stack: req.Stack, Commit: req.Commit, Desired: req.Desired.Compose.Services, Live: live,
+		PreservedServices: req.PreservedServices,
 	})
 	result.PrunedServices = pruned
 	cleanupErr = executionError(ctx, cleanupErr)
@@ -285,6 +289,7 @@ func (c *Controller) unchangedResult(ctx context.Context, req ExecuteRequest) (E
 	if latest.Status == deploymentmodel.Succeeded {
 		err = c.deployer.RefreshRegistryAuth(ctx, deployer.StackRequest{
 			StackName: req.Stack.Name, SourceComposePath: req.Desired.Path, Desired: req.Desired.Compose,
+			PreservedServices: req.PreservedServices,
 		})
 		if err != nil {
 			return result, fmt.Errorf("%w: %w", ErrRegistryAuthRefresh, err)

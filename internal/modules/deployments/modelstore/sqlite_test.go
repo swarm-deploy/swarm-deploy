@@ -28,6 +28,7 @@ func TestDeploymentPersistenceAndSuccessfulBaseline(t *testing.T) {
 		StartedAt: startedAt, Phase: deploymentmodel.PhaseApply, ApplyStatus: deploymentmodel.StageRunning,
 		VerificationStatus: deploymentmodel.StagePending, CleanupStatus: deploymentmodel.StagePending,
 		ActualStateStatus: deploymentmodel.ActualStateUnknown,
+		SkippedServices:   []string{"api"},
 	}
 	deployment := deploymentmodel.Deployment{
 		ID: "deployment-1", Stack: "app", Commit: "commit-1", Status: deploymentmodel.Running,
@@ -43,6 +44,7 @@ func TestDeploymentPersistenceAndSuccessfulBaseline(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, stored.Attempts, 1)
 	assert.Equal(t, attempt, stored.Attempts[0])
+	assert.Equal(t, []string{"api"}, stored.SkippedServices)
 	assert.Equal(t, deploymentmodel.Running, stored.Status)
 
 	finishedAt := startedAt.Add(time.Minute)

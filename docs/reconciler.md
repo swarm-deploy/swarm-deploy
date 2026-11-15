@@ -94,6 +94,29 @@ The history can show consecutive Deployments with the same commit. This happens
 when services lack confirmed application, for example after this migration or when
 reconciliation resumes after a failure or a GitOps runtime reset.
 
+## Pause Sync policy
+
+GitOps owns persistent Pause Sync policy at two independent scopes: one direct pause for a stack and direct
+pauses for individual services. A service is effectively paused when either record is active. Removing a
+stack pause never removes service pauses, and removing a service pause while its stack is paused does not
+make that service effectively unpaused. Pause is separate from the existing `Synced` and `OutOfSync` status.
+
+Pause records contain only their GitOps target and an optional absolute expiration. They do not copy service
+specifications or runtime state. Expired records are removed transactionally with their expiration events at
+the beginning of the next ordinary GitOps sync; no expiration scheduler or worker runs between syncs. An
+operation already running when a pause is created is not canceled.
+
+For each reconciliation, GitOps excludes paused services from `TargetServices`, drift analysis,
+and self-heal. Unpaused services with unapplied revisions continue to deploy. Deployments receives the
+preserved names for pruning and registry authentication refresh. GitOps also preserves those services
+when pruning without an Attempt. This keeps a paused live service running after it is removed from Git
+until its effective pause is removed. A revision observed during a pause remains eligible for deployment
+on the next reconciliation after the pause ends.
+
+Each Deployment and Attempt records the service names intentionally skipped for that execution. Effective
+pause state and paused counts are calculated from active pause records and GitOps-managed services rather
+than persisted as a second policy projection.
+
 ## Sync runs and the stack queue
 
 A sync run (startup, Git poll with a new revision, webhook, manual sync or the periodic `gitops.sync.interval`) does

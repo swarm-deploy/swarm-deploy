@@ -9,8 +9,16 @@ const apiMocks = vi.hoisted(() => ({
   fetchSwarmTask: vi.fn(),
   scaleSwarmService: vi.fn(),
 }));
+const pauseMocks = vi.hoisted(() => ({
+  getServiceSyncPause: vi.fn(),
+  setServiceSyncPause: vi.fn(),
+}));
 
 vi.mock("../api/services", () => apiMocks);
+vi.mock("../api/syncPauses", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../api/syncPauses")>()),
+  ...pauseMocks,
+}));
 vi.mock("../components/services/TaskLogsModal.vue", () => ({ default: { template: "<div />" } }));
 
 const services = [
@@ -55,6 +63,12 @@ describe("RealtimeView", () => {
     apiMocks.fetchSwarmServiceTasks.mockResolvedValue({ tasks });
     apiMocks.scaleSwarmService.mockResolvedValue(undefined);
     apiMocks.fetchSwarmTask.mockImplementation(async (id: string) => taskDetails(id));
+    pauseMocks.getServiceSyncPause.mockResolvedValue({ effective_paused: false });
+    pauseMocks.setServiceSyncPause.mockResolvedValue({
+      effective_paused: true,
+      effective_source: "service",
+      service_pause: { scope: "service", stack: "infra", service: "api", expires_at: null },
+    });
   });
 
   afterEach(() => {
@@ -347,6 +361,12 @@ describe("Realtime service scaling", () => {
     apiMocks.fetchSwarmServiceTasks.mockResolvedValue({ tasks });
     apiMocks.fetchSwarmTask.mockImplementation(async (id: string) => taskDetails(id));
     apiMocks.scaleSwarmService.mockResolvedValue(undefined);
+    pauseMocks.getServiceSyncPause.mockResolvedValue({ effective_paused: false });
+    pauseMocks.setServiceSyncPause.mockResolvedValue({
+      effective_paused: true,
+      effective_source: "service",
+      service_pause: { scope: "service", stack: "infra", service: "api", expires_at: null },
+    });
   });
 
   afterEach(() => {
@@ -389,11 +409,43 @@ describe("Realtime service scaling", () => {
     expect(modal.findAll(".realtime-scale-summary dt").map((item) => item.text())).toEqual(["Service", "Stack", "Current scale"]);
     expect(modal.findAll(".realtime-scale-summary dd").map((item) => item.text())).toEqual(["api", "infra", "4"]);
     expect(modal.text()).not.toContain("Enter a non-negative whole number.");
-    expect(modal.text()).toContain("Manual scaling may be overwritten by the next GitOps synchronization.");
     expect(wrapper.get<HTMLInputElement>("#realtime-scale-replicas").element.value).toBe("4");
     expect(modal.get('button[type="submit"]').attributes("disabled")).toBeDefined();
     await modal.get('[aria-label="Close scaling modal"]').trigger("click");
     expect(wrapper.find('[role="dialog"]').exists()).toBe(false);
+    wrapper.unmount();
+  });
+
+  it("shows the GitOps scaling warning only in the Pause Sync tooltip", async () => {
+    const wrapper = await mountView();
+    await wrapper.get('[aria-label="Scale api"]').trigger("click");
+    await flushPromises();
+    const modal = wrapper.get('[role="dialog"]');
+    const row = modal.get(".realtime-scale-pause-row");
+    const help = row.get('[aria-label="About Pause Sync"]');
+    const tooltip = '[role="tooltip"]';
+    const warning = "Manual scaling may be overwritten by the next GitOps synchronization.";
+
+    expect(row.get("label").text()).toBe("Pause sync");
+    expect(modal.text()).not.toContain(warning);
+    const trigger = row.get(".realtime-scale-pause-help");
+    await trigger.trigger("pointerenter", { pointerType: "mouse" });
+    expect(modal.get(tooltip).text()).toBe(warning);
+    expect(help.attributes("aria-describedby")).toBe(modal.get(tooltip).attributes("id"));
+    await trigger.trigger("pointerleave", { pointerType: "mouse" });
+    expect(modal.find(tooltip).exists()).toBe(false);
+
+    await help.trigger("click");
+    expect(modal.get(tooltip).text()).toBe(warning);
+    expect(row.get<HTMLInputElement>('input[type="checkbox"]').element.checked).toBe(false);
+    await modal.get("#realtime-scale-replicas").trigger("pointerdown");
+    expect(modal.find(tooltip).exists()).toBe(false);
+
+    await help.trigger("click");
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+    await wrapper.vm.$nextTick();
+    expect(modal.find(tooltip).exists()).toBe(false);
+    expect(wrapper.find('[role="dialog"]').exists()).toBe(true);
     wrapper.unmount();
   });
 
@@ -462,6 +514,76 @@ describe("Realtime service scaling", () => {
     expect(wrapper.get('[role="dialog"] [role="alert"]').text()).toContain("service changed");
     expect(wrapper.get('button[type="submit"]').attributes("disabled")).toBeUndefined();
     expect(apiMocks.fetchSwarmServices).toHaveBeenCalledTimes(1);
+    wrapper.unmount();
+  });
+
+  it("persists Pause Sync before scaling", async () => {
+    const order: string[] = [];
+    pauseMocks.setServiceSyncPause.mockImplementation(async () => {
+      order.push("pause");
+      return {
+        effective_paused: true,
+        effective_source: "service",
+        service_pause: { scope: "service", stack: "infra", service: "api", expires_at: null },
+      };
+    });
+    apiMocks.scaleSwarmService.mockImplementation(async () => { order.push("scale"); });
+    const wrapper = await mountView();
+    await wrapper.get('[aria-label="Scale api"]').trigger("click");
+    await flushPromises();
+    await wrapper.get('.realtime-scale-pause-toggle input[type="checkbox"]').setValue(true);
+    await wrapper.get("#realtime-scale-replicas").setValue("5");
+    await wrapper.get("form").trigger("submit");
+    await flushPromises();
+
+    expect(order).toEqual(["pause", "scale"]);
+    expect(apiMocks.scaleSwarmService).toHaveBeenCalledWith("one", 5);
+    wrapper.unmount();
+  });
+
+  it("ignores a stale Pause Sync lookup after switching services", async () => {
+    let resolveAPI!: (value: { effective_paused: boolean; effective_source: string }) => void;
+    let resolveWorker!: (value: { effective_paused: boolean; effective_source: string }) => void;
+    pauseMocks.getServiceSyncPause.mockImplementation((_stack: string, service: string) => new Promise((resolve) => {
+      if (service === "api") resolveAPI = resolve;
+      else resolveWorker = resolve;
+    }));
+    const wrapper = await mountView();
+
+    await wrapper.get('[aria-label="Scale api"]').trigger("click");
+    await wrapper.get('[aria-label="Close scaling modal"]').trigger("click");
+    await wrapper.get('[aria-label="Scale worker"]').trigger("click");
+    resolveWorker({ effective_paused: true, effective_source: "stack" });
+    await flushPromises();
+    expect(wrapper.get('[role="dialog"]').text()).toContain("worker");
+    expect(wrapper.get('[role="dialog"]').text()).toContain("Sync paused by: Stack");
+
+    resolveAPI({ effective_paused: true, effective_source: "service" });
+    await flushPromises();
+    expect(wrapper.get('[role="dialog"]').text()).toContain("Sync paused by: Stack");
+    expect(wrapper.get('[role="dialog"]').text()).not.toContain("Sync paused by: Service");
+    wrapper.unmount();
+  });
+
+  it("keeps a successful pause when scaling fails and retries only scaling", async () => {
+    apiMocks.scaleSwarmService.mockRejectedValueOnce(new Error("manager unavailable")).mockResolvedValueOnce(undefined);
+    const wrapper = await mountView();
+    await wrapper.get('[aria-label="Scale api"]').trigger("click");
+    await flushPromises();
+    await wrapper.get('.realtime-scale-pause-toggle input[type="checkbox"]').setValue(true);
+    await wrapper.get("#realtime-scale-replicas").setValue("5");
+    await wrapper.get("form").trigger("submit");
+    await flushPromises();
+
+    expect(wrapper.get('[role="dialog"] [role="alert"]').text()).toContain("Sync is paused, but scaling failed");
+    expect(wrapper.get('[role="dialog"]').text()).toContain("Retry will only retry scaling");
+    expect(pauseMocks.setServiceSyncPause).toHaveBeenCalledTimes(1);
+
+    await wrapper.get("form").trigger("submit");
+    await flushPromises();
+    expect(pauseMocks.setServiceSyncPause).toHaveBeenCalledTimes(1);
+    expect(apiMocks.scaleSwarmService).toHaveBeenCalledTimes(2);
+    expect(wrapper.find('[role="dialog"]').exists()).toBe(false);
     wrapper.unmount();
   });
 

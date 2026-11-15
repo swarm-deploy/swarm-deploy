@@ -26,6 +26,7 @@ import (
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/modelstore"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/syncpause"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/tracing"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/codes"
@@ -83,6 +84,7 @@ type Runner struct {
 	puller            *gitpull.Puller
 	stacks            *stackqueue.Queue
 	tracer            trace.Tracer
+	pauseService      *syncpause.Service
 
 	dispatchMu   sync.Mutex
 	lastDispatch *dispatch
@@ -98,13 +100,18 @@ func New(
 	networkReconciler *networkloop.Coordinator,
 	puller *gitpull.Puller,
 	stacks *stackqueue.Queue,
+	pauseServices ...*syncpause.Service,
 ) *Runner {
-	return &Runner{
+	runner := &Runner{
 		configStore: configStore, git: git, metrics: metricGroup, event: eventDispatcher,
 		stateStore: stateStore, networkReconciler: networkReconciler,
 		stackPlanner: stackplan.NewPlanner(git), puller: puller, stacks: stacks,
 		tracer: otel.Tracer("github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller"),
 	}
+	if len(pauseServices) > 0 {
+		runner.pauseService = pauseServices[0]
+	}
+	return runner
 }
 
 // Poll checks Git and runs reconciliation only when the revision changed.
@@ -137,6 +144,7 @@ func (r *Runner) Run(ctx context.Context, task Task) {
 	r.run(ctx, task, nil)
 }
 
+//nolint:funlen // The ordered sync transaction remains linear so pause expiration precedes every ordinary stage.
 func (r *Runner) run(ctx context.Context, task Task, gitResult *gitx.PullResult) {
 	if task.SpanContext.IsValid() {
 		ctx = trace.ContextWithSpanContext(ctx, task.SpanContext)
@@ -146,6 +154,9 @@ func (r *Runner) run(ctx context.Context, task Task, gitResult *gitx.PullResult)
 	))
 	defer span.End()
 	startedAt := time.Now()
+	if !r.expirePauses(ctx, span, task.Reason, startedAt) {
+		return
+	}
 
 	if err := r.publishManualSync(ctx, task); err != nil {
 		tracing.FailSpan(span, err)
@@ -227,6 +238,19 @@ func (r *Runner) run(ctx context.Context, task Task, gitResult *gitx.PullResult)
 		tracing.FailSpan(span, persistErr)
 	}
 	r.metrics.Sync.RecordSyncRun(string(task.Reason), result, time.Since(startedAt))
+}
+
+func (r *Runner) expirePauses(ctx context.Context, span trace.Span, reason TriggerReason, startedAt time.Time) bool {
+	if r.pauseService == nil {
+		return true
+	}
+	if _, err := r.pauseService.Expire(ctx); err != nil {
+		tracing.FailSpan(span, err)
+		slog.ErrorContext(ctx, "expire sync pauses", "err", err)
+		r.metrics.Sync.RecordSyncRun(string(reason), syncRunResultError, time.Since(startedAt))
+		return false
+	}
+	return true
 }
 
 func (r *Runner) invalidateDispatch() {

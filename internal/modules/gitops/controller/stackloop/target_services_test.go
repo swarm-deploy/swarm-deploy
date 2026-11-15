@@ -29,6 +29,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackloop/preparation"
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/model"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/syncpause"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/labelsdict"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	"go.uber.org/mock/gomock"
@@ -117,6 +118,64 @@ func TestReconcileTargetsUnappliedServiceRevisions(t *testing.T) {
 	}
 }
 
+func TestReconcileAppliesPendingRevisionAfterServiceResumes(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	repository := gitx.NewMockRepository(ctrl)
+	manager := swarm.NewMockServiceManager(ctrl)
+	executor := deployer.NewMockStackDeployer(ctrl)
+	db, runtime := newSQLState(t)
+	deploymentsStore := deploymentstore.NewStore(db)
+	dir := t.TempDir()
+	mockRepositoryFiles(repository, dir)
+	cfg := &config.Config{Spec: config.Spec{DataDir: t.TempDir()}}
+	bus := &dispatcher.NopDispatcher{}
+	reconciler := newTestReconciler(cfg, repository, deployments.NewService(db, bus), executor,
+		&swarm.Swarm{Services: manager}, bus, &metrics.NopDeploys{}, runtime, db)
+	pauses := syncpause.NewService(db, runtime, syncpause.NewMockStackProvider(ctrl), bus)
+	reconciler.pauseService = pauses
+
+	for _, step := range []struct {
+		commit, tag      string
+		targets, skipped []string
+		apiAppliedCommit string
+	}{
+		{commit: "initial", tag: "1", targets: []string{"api", "worker"}, apiAppliedCommit: "initial"},
+		{commit: "paused", tag: "2", targets: []string{"worker"}, skipped: []string{"api"}, apiAppliedCommit: "initial"},
+		{commit: "resumed", tag: "2", targets: []string{"api"}, apiAppliedCommit: "paused"},
+	} {
+		t.Run(step.commit, func(t *testing.T) {
+			switch step.commit {
+			case "paused":
+				_, err := pauses.SetService(t.Context(), "app", "api", nil)
+				require.NoError(t, err)
+			case "resumed":
+				_, err := pauses.ResumeService(t.Context(), "app", "api")
+				require.NoError(t, err)
+			}
+
+			manifest := fmt.Sprintf("services:\n  api:\n    image: api:%s\n  worker:\n    image: worker:%s\n", step.tag, step.tag)
+			require.NoError(t, os.WriteFile(filepath.Join(dir, "app.yaml"), []byte(manifest), 0600))
+			executor.EXPECT().DeployStack(gomock.Any(), gomock.Cond(func(req deployer.StackRequest) bool {
+				return slices.Equal(step.targets, req.TargetServices)
+			})).Return(deployer.Result{}, nil)
+			manager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "app"}).
+				Return([]swarm.StackService{{Name: "api"}, {Name: "worker"}}, nil)
+			require.NoError(t, reconciler.Reconcile(t.Context(), ReconciliationRequest{
+				Stack: config.StackSpec{Name: "app", ComposeFile: "app.yaml"}, Commit: step.commit,
+			}))
+
+			latest, _, err := deploymentsStore.Latest(t.Context(), "app")
+			require.NoError(t, err)
+			require.Len(t, latest.Attempts, 1)
+			assert.Equal(t, step.targets, latest.Attempts[0].TargetServices)
+			assert.Equal(t, step.skipped, latest.Attempts[0].SkippedServices)
+			api := readSQLState(t, runtime).Stacks["app"].Services["api"]
+			assert.Equal(t, step.apiAppliedCommit, api.AppliedCommit)
+			assert.Equal(t, step.commit == "paused", api.ApplyPending)
+		})
+	}
+}
+
 func TestReconcileRevertAfterPersistingDesiredCreatesNewDeployment(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	repository := gitx.NewMockRepository(ctrl)
@@ -152,7 +211,7 @@ func TestReconcileRevertAfterPersistingDesiredCreatesNewDeployment(t *testing.T)
 	state := readSQLState(t, runtime).Stacks["app"]
 	_, err = reconciler.persistDesiredServices(t.Context(), "app", "interrupted", map[string]string{
 		"api": state.Services["api"].DesiredDigest, "worker": "changed-worker-digest",
-	})
+	}, nil)
 	require.NoError(t, err)
 
 	reconcile("reverted", "api:2", []string{"worker"})
@@ -381,16 +440,16 @@ func TestRemovedServiceIsRedeployedAfterInterruptedReconciliation(t *testing.T) 
 	reconciler := &Reconciler{db: db, stateStore: store}
 
 	// worker leaves Compose; the process stops after pruning, before the result is recorded.
-	_, err := reconciler.persistDesiredServices(t.Context(), "app", "two", map[string]string{"api": "digest"})
+	_, err := reconciler.persistDesiredServices(t.Context(), "app", "two", map[string]string{"api": "digest"}, nil)
 	require.NoError(t, err)
 	assert.NotContains(t, readSQLState(t, store).Stacks["app"].Services, "worker")
 
 	// Restoring worker with its previous configuration selects it for deployment.
 	_, err = reconciler.persistDesiredServices(t.Context(), "app", "three",
-		map[string]string{"api": "digest", "worker": "digest"})
+		map[string]string{"api": "digest", "worker": "digest"}, nil)
 	require.NoError(t, err)
 	restored := &compose.File{Compose: compose.Compose{Services: compose.Services{{Name: "api"}, {Name: "worker"}}}}
-	targets, _ := targetServices(restored, readSQLState(t, store).Stacks["app"])
+	targets, _ := targetServices(restored, readSQLState(t, store).Stacks["app"], nil)
 	assert.Equal(t, []string{"worker"}, targets)
 }
 

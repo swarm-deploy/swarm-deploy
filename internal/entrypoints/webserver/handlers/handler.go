@@ -11,6 +11,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller"
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/modelstore"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/syncpause"
 	recommendationstore "github.com/swarm-deploy/swarm-deploy/internal/modules/recommendations/modelstore"
 	swarmnode "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/node"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/secretmanager"
@@ -27,6 +28,7 @@ type handler struct {
 	uiConfig         config.WebUISpec
 	stackProvider    config.StackProvider
 	stateStore       modelstore.ReadStore
+	syncPauses       *syncpause.Service
 	control          *controller.Controller
 	serviceInspector swarm.ServiceManager
 	eventDispatcher  dispatcher.Dispatcher
@@ -54,6 +56,7 @@ func New(
 	uiConfig config.WebUISpec,
 	stackProvider config.StackProvider,
 	stateStore modelstore.ReadStore,
+	syncPauses *syncpause.Service,
 	control *controller.Controller,
 	gitRepository gitx.Repository,
 	swarmService *swarm.Swarm,
@@ -73,6 +76,7 @@ func New(
 		uiConfig:         uiConfig,
 		stackProvider:    stackProvider,
 		stateStore:       stateStore,
+		syncPauses:       syncPauses,
 		control:          control,
 		serviceInspector: swarmService.Services,
 		taskLogs:         taskLogs,
