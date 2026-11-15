@@ -43,6 +43,10 @@ Review in the following order:
 - Dependencies introduced in the wrong layer.
 - Responsibilities assigned to inappropriate components.
 - Duplication of existing functionality.
+- Compliance with `.cursor/rules/architecture.md` and applicable scoped rules:
+  module ownership, dependency direction, and established contracts/invariants.
+- Architectural decisions introduced without explicit maintainer approval.
+- Expansion of documented known issues into new code paths.
 
 ### Complexity
 
@@ -132,17 +136,76 @@ For every finding provide:
 
 Separate confirmed defects from optional improvements.
 
-Always include a short **Solution assessment**: systematic solution,
-appropriate local fix, workaround, or overengineering.
-Explain the assessment using the root cause, component ownership, and
-proportional complexity. If the PR contains independent solutions,
-assess them separately when a single classification would be misleading.
 An assessment alone is not a defect; report a finding only when there
 is a concrete, actionable issue.
 
-If no actionable findings exist, explicitly state that.
+## 5. Report format
 
-## 5. Review boundaries
+Use these five sections in this order for every PR review.
+Keep the report concise and evidence-based.
+
+### 1. Verdict
+
+- **Status:** `Changes required` if any P1/P2 findings remain;
+  otherwise `No blocking findings`.
+- Summarize the outcome in one or two sentences.
+- P1/P2 findings are blocking; P3 findings and optional improvements
+  are non-blocking.
+- Do not imply that unexecuted or unavailable checks have passed.
+
+### 2. Findings
+
+- List actionable findings by severity (P1, then P2, then P3).
+- For each finding, include a short title, a direct file/line link,
+  the problem, a realistic triggering scenario, its consequence,
+  and the smallest recommended fix.
+- Separate confirmed defects from unverified risks and optional improvements.
+- If none exist, explicitly write `No actionable findings.`
+
+### 3. Architecture compliance
+
+Always include this section, even when no violations are found.
+
+- **Status:** `Compliant`, `Violations found`, or `Not fully verified`.
+- Name the relevant boundaries actually checked: module responsibilities,
+  dependency direction, component ownership, and architectural contracts
+  or invariants from `.cursor/rules/architecture.md` and applicable rules.
+- Check whether the PR introduces architectural decisions without the
+  explicit maintainer approval required by `AGENTS.md`.
+- For violations, link both the changed code and the violated rule;
+  explain the impact and also report each actionable violation in Findings.
+- For example, new Docker Engine API operations must go through
+  `internal/swarm` rather than calling the Docker SDK directly.
+- Do not present existing documented known issues as newly introduced
+  defects unless the PR introduces or expands the violation.
+- If a boundary is ambiguous or could not be checked, state that
+  explicitly rather than inventing a rule or claiming compliance.
+- When compliant, briefly list the boundaries checked; do not claim
+  that unrelated parts of the architecture were verified.
+
+### 4. Solution assessment
+
+- Classify the solution as **Systematic solution**, **Appropriate local fix**,
+  **Workaround**, or **Overengineering**.
+- Justify the classification using root cause, component ownership,
+  and proportional complexity.
+- Assess independent solutions separately when one classification
+  would be misleading.
+- A classification alone is not a finding; only report concrete,
+  actionable problems as findings.
+
+### 5. Validation
+
+- State which tests and checks were actually run and their results.
+- Identify important missing coverage, edge cases, and regressions
+  in integration or end-to-end coverage.
+- Explicitly state which checks were not run or could not be run and why.
+
+Do not repeat the PR description, pad empty sections, invent findings,
+or duplicate the same issue across sections. Summarize architecture
+violations in Architecture compliance and detail them in Findings.
+
+## 6. Review boundaries
 
 - Do not modify code during a review.
 - Do not open or update a PR without explicit approval.
