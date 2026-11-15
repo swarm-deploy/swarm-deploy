@@ -54,9 +54,8 @@ func (s *Store) FilterOptions(ctx context.Context) ([]string, []FilterService, e
 	}
 	var services []FilterService
 	if err := s.db.Select(ctx, &services, `SELECT DISTINCT d.stack AS stack_name,
-		json_extract(svc.value, '$.name') AS service_name
-		FROM deployments AS d, json_each(d.desired_payload, '$.definition.compose.services') AS svc
-		WHERE json_extract(svc.value, '$.name') <> ''
+		executed.service_name AS service_name
+		FROM deployment_services AS executed JOIN deployments AS d ON d.id = executed.deployment_id
 		ORDER BY stack_name, service_name`); err != nil {
 		return nil, nil, err
 	}
@@ -265,9 +264,10 @@ func filterDeploymentIdentities(
 		dataset = dataset.Where(goqu.Ex{"stack": filter.Stacks})
 	}
 	if len(filter.Services) > 0 {
-		serviceNames := goqu.L("json_extract(svc.value, '$.name')").In(filter.Services)
-		dataset = dataset.Where(goqu.L(`EXISTS (SELECT 1 FROM json_each(deployments.desired_payload,
-			'$.definition.compose.services') AS svc WHERE ?)`, serviceNames))
+		// Only deployments with an Attempt that executed one of the services.
+		serviceNames := goqu.I("executed.service_name").In(filter.Services)
+		dataset = dataset.Where(goqu.L(`EXISTS (SELECT 1 FROM deployment_services AS executed
+			WHERE executed.deployment_id = deployments.id AND ?)`, serviceNames))
 	}
 	return dataset
 }
@@ -282,9 +282,8 @@ func (s *Store) ListServiceDeployments(
 	if limit < 1 || limit > 100 {
 		limit = 5
 	}
-	// A service's history contains only Attempts that executed it: historical
-	// whole-stack Attempts with null targets, or Attempts listing the service.
-	// Deployments recorded before Attempts were persisted count as whole-stack.
+	// A service's history contains only deployments with an Attempt that executed
+	// it, as indexed in deployment_services. The latest such Attempt decides the entry.
 	const query = `
 		SELECT d.id, d."commit", d.status,
 			EXISTS (
@@ -292,28 +291,24 @@ func (s *Store) ListServiceDeployments(
 				WHERE newer.stack = d.stack AND newer.rowid > d.rowid
 			) AS has_newer,
 			d.started_at,
-			json_extract(svc.value, '$.image') AS image,
+			COALESCE((SELECT json_extract(svc.value, '$.image')
+				FROM json_each(d.desired_payload, '$.definition.compose.services') AS svc
+				WHERE json_extract(svc.value, '$.name') = ?), '') AS image,
 			attempt.id AS attempt_id, attempt.status AS attempt_status,
 			attempt.details_payload AS attempt_details,
 			(SELECT latest.id FROM deployment_attempts AS latest
 				WHERE latest.deployment_id = d.id ORDER BY latest.number DESC LIMIT 1) AS latest_attempt_id
 		FROM deployments AS d
-			JOIN json_each(d.desired_payload, '$.definition.compose.services') AS svc
-				ON json_extract(svc.value, '$.name') = ?
 			LEFT JOIN deployment_attempts AS attempt ON attempt.id = (
-				SELECT included.id FROM deployment_attempts AS included
-				WHERE included.deployment_id = d.id AND (
-					COALESCE(json_type(included.details_payload, '$.target_services'), 'null') = 'null'
-					OR EXISTS (
-						SELECT 1 FROM json_each(included.details_payload, '$.target_services') AS target
-						WHERE target.value = ?
-					)
-				)
+				SELECT executed.attempt_id FROM deployment_services AS executed
+					JOIN deployment_attempts AS included ON included.id = executed.attempt_id
+				WHERE executed.deployment_id = d.id AND executed.service_name = ?
 				ORDER BY included.number DESC LIMIT 1
 			)
-		WHERE d.stack = ? AND (attempt.id IS NOT NULL OR NOT EXISTS (
-			SELECT 1 FROM deployment_attempts AS persisted WHERE persisted.deployment_id = d.id
-		))
+		WHERE d.stack = ? AND EXISTS (
+			SELECT 1 FROM deployment_services AS executed
+			WHERE executed.deployment_id = d.id AND executed.service_name = ?
+		)
 		ORDER BY d.started_at DESC, d.id ASC
 		LIMIT ?`
 	var rows []struct {
@@ -328,7 +323,7 @@ func (s *Store) ListServiceDeployments(
 		AttemptDetails  []byte                 `db:"attempt_details"`
 		LatestAttemptID sql.NullString         `db:"latest_attempt_id"`
 	}
-	if err := s.db.Select(ctx, &rows, query, service, service, stack, limit); err != nil {
+	if err := s.db.Select(ctx, &rows, query, service, service, stack, service, limit); err != nil {
 		return nil, err
 	}
 	items := make([]deploymentmodel.ServiceDeployment, 0, len(rows))
@@ -1016,6 +1011,36 @@ func (s *Store) insertAttemptRow(ctx context.Context, attempt deploymentmodel.At
 		record["finished_at"] = attempt.FinishedAt.UTC()
 	}
 	query, args, err := s.db.Dialect().Insert("deployment_attempts").Prepared(true).Rows(record).ToSQL()
+	if err != nil {
+		return err
+	}
+	if _, err = s.db.Exec(ctx, query, args...); err != nil {
+		return err
+	}
+	return s.insertAttemptServices(ctx, attempt)
+}
+
+// insertAttemptServices indexes the services an Attempt executes. A nil target list
+// selects every service of the deployment snapshot.
+func (s *Store) insertAttemptServices(ctx context.Context, attempt deploymentmodel.Attempt) error {
+	if attempt.TargetServices == nil {
+		const query = `INSERT OR IGNORE INTO deployment_services (deployment_id, attempt_id, service_name)
+			SELECT d.id, ?, json_extract(svc.value, '$.name')
+			FROM deployments AS d JOIN json_each(d.desired_payload, '$.definition.compose.services') AS svc
+			WHERE d.id = ? AND COALESCE(json_extract(svc.value, '$.name'), '') <> ''`
+		_, err := s.db.Exec(ctx, query, attempt.ID, attempt.DeploymentID)
+		return err
+	}
+	if len(attempt.TargetServices) == 0 {
+		return nil
+	}
+	rows := make([]any, 0, len(attempt.TargetServices))
+	for _, name := range attempt.TargetServices {
+		rows = append(rows, goqu.Record{
+			"deployment_id": attempt.DeploymentID, "attempt_id": attempt.ID, "service_name": name,
+		})
+	}
+	query, args, err := s.db.Dialect().Insert("deployment_services").Prepared(true).Rows(rows...).ToSQL()
 	if err != nil {
 		return err
 	}

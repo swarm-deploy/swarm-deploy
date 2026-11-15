@@ -126,6 +126,10 @@ func TestListServiceDeploymentsFollowsAttemptTargets(t *testing.T) {
 	// Deployments recorded before Attempts were persisted remain whole-stack.
 	_, err = db.Exec(ctx, "DELETE FROM deployment_attempts WHERE deployment_id = ?", initial.DeploymentID)
 	require.NoError(t, err)
+	// Migration 0005 indexes such deployments without an Attempt.
+	_, err = db.Exec(ctx, `INSERT INTO deployment_services (deployment_id, attempt_id, service_name)
+		VALUES (?, NULL, 'api'), (?, NULL, 'worker')`, initial.DeploymentID, initial.DeploymentID)
+	require.NoError(t, err)
 	assert.Len(t, history("api"), 2)
 }
 

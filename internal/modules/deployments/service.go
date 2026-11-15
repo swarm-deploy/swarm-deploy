@@ -196,11 +196,6 @@ func (s *Service) startExisting(
 		if len(options.TargetServices) == 0 {
 			return nil, nil //nolint:nilnil // Every target already has a receipt.
 		}
-		withHistory, err := s.persistHistoricalSuccess(ctx, latest)
-		if err != nil {
-			return nil, err
-		}
-		latest = withHistory
 	case deploymentmodel.Failed, deploymentmodel.Interrupted:
 		if !options.ManualRetry && !s.automaticRetryAllowed(latest) {
 			return nil, nil //nolint:nilnil // Preserve failure classification and retry backoff.
@@ -213,9 +208,13 @@ func (s *Service) startExisting(
 	default:
 		return nil, fmt.Errorf("unsupported deployment status %q", latest.Status)
 	}
+	latest, err := s.persistHistoricalAttempt(ctx, latest)
+	if err != nil {
+		return nil, err
+	}
 	attempt := newAttempt(latest.ID, latest.AttemptCount+1, s.now())
 	setAttemptTargets(&attempt, desired, commit, options)
-	if err := s.store.StartAttempt(ctx, latest, attempt); err != nil {
+	if err = s.store.StartAttempt(ctx, latest, attempt); err != nil {
 		return nil, err
 	}
 	return &attempt, nil
@@ -262,12 +261,13 @@ func (s *Service) runningAttempt(
 	return attempt, nil
 }
 
-// persistHistoricalSuccess materializes the whole-stack success of a Deployment recorded
-// before Attempts were persisted, so it remains a receipt once later Attempts exist.
-func (s *Service) persistHistoricalSuccess(
+// persistHistoricalAttempt materializes the terminal whole-stack execution of a
+// Deployment recorded before Attempts were persisted. Later Attempts then keep its
+// outcome as a receipt and in each service's history.
+func (s *Service) persistHistoricalAttempt(
 	ctx context.Context, deployment deploymentmodel.Deployment,
 ) (deploymentmodel.Deployment, error) {
-	if len(deployment.Attempts) > 0 || deployment.Status != deploymentmodel.Succeeded {
+	if len(deployment.Attempts) > 0 {
 		return deployment, nil
 	}
 	attempt := newAttempt(deployment.ID, 1, deployment.StartedAt)
@@ -275,10 +275,10 @@ func (s *Service) persistHistoricalSuccess(
 	if deployment.FinishedAt != nil {
 		finishedAt = deployment.FinishedAt.UTC()
 	}
-	attempt.Status, attempt.FinishedAt = deploymentmodel.Succeeded, &finishedAt
-	attempt.Phase = deploymentmodel.PhaseCompleted
-	attempt.ApplyStatus, attempt.VerificationStatus = deploymentmodel.StageSucceeded, deploymentmodel.StageSucceeded
-	attempt.CleanupStatus = deploymentmodel.StageSucceeded
+	attempt.Status, attempt.FinishedAt, attempt.ErrorCode = deployment.Status, &finishedAt, deployment.ErrorCode
+	attempt.Phase, attempt.ApplyStatus = deployment.Phase, deployment.ApplyStatus
+	attempt.VerificationStatus, attempt.CleanupStatus = deployment.VerificationStatus, deployment.CleanupStatus
+	attempt.ActualStateStatus = deployment.ActualStateStatus
 	if err := s.store.InsertLegacyAttempt(ctx, attempt); err != nil {
 		return deployment, err
 	}

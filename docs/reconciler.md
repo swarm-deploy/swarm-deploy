@@ -48,10 +48,15 @@ in Compose deploys it again, even when cleanup failed or the process stopped aft
 pruning and before the result was recorded. A service kept running because pruning
 is disabled is redeployed as well when restored.
 
-A service's deployment history lists only Attempts that executed it: Attempts
+A service's deployment history and the service filter of the deployment list
+include only deployments with an Attempt that executed the service: Attempts
 targeting it, historical whole-stack Attempts, and deployments recorded before
-Attempts were persisted. Each entry reports that Attempt's outcome and the
-service's source commit.
+Attempts were persisted. The `deployment_services` table indexes these executions;
+it is written with each Attempt and backfilled by migration 0005. A history entry
+reports the outcome of the latest Attempt that executed the service and the
+service's source commit. Before a later Attempt starts on a deployment recorded
+before Attempts were persisted, its whole-stack outcome is stored as the first
+Attempt.
 
 Deployments persists the explicit target list and each target's digest and source
 commit on the Attempt before execution. An empty list selects no services. A nil list,
