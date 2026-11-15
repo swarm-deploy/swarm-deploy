@@ -7,7 +7,7 @@ apply: by file patterns
 
 ## Design Principles
 
-Follow SOLID principles where they improve the design, with SRP as the primary consideration. Apply these principles within existing architecture; they do not authorize changes to module ownership or boundaries.
+Prioritize SRP and cohesive responsibility boundaries; apply dependency inversion where it improves the design. These principles do not authorize changes to established module ownership or architecture.
 
 ### Single Responsibility Principle (SRP)
 
@@ -19,6 +19,15 @@ Follow SOLID principles where they improve the design, with SRP as the primary c
 - Avoid god objects that accumulate unrelated methods, dependencies, and business rules.
 - Do not split cohesive components merely to reduce file size, method count, or lines of code.
 - Prefer extracting a focused component when an existing component accumulates distinct responsibilities.
+
+### Responsibility Separation
+
+- Before implementing a component, identify the distinct decisions it makes and the effects it performs.
+- Separate domain decisions from orchestration and state mutations when they have independent reasons to change.
+- Prefer focused components for independent domain rules rather than accumulating them in a central coordinator.
+- Keep orchestration components focused on coordinating existing responsibilities, not implementing their business rules.
+- Domain decisions should be independently testable without requiring unrelated side effects.
+- Do not introduce additional layers when responsibilities are already cohesive.
 
 ### Dependency Inversion
 
