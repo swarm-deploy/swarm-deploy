@@ -240,13 +240,16 @@ func (c *Controller) succeed(
 	return result, nil
 }
 
-// executionError rejects late success without replacing an earlier, classified stage failure.
 // successRevisions includes receipts from earlier executions of the same snapshot.
 func (c *Controller) successRevisions(
 	ctx context.Context, stack string, attempt deploymentmodel.Attempt,
 ) map[string]deploymentmodel.ServiceRevision {
 	latest, snapshot, err := c.lifecycle.store.Latest(ctx, stack)
-	if err != nil || latest.ID != attempt.DeploymentID {
+	if err != nil {
+		slog.ErrorContext(ctx, "load latest deployment for successful service revisions", "stack", stack, "err", err)
+		return attempt.ServiceRevisions
+	}
+	if latest.ID != attempt.DeploymentID {
 		return attempt.ServiceRevisions
 	}
 	revisions, err := c.lifecycle.appliedRevisions(ctx, latest, snapshot, nil)
@@ -257,6 +260,7 @@ func (c *Controller) successRevisions(
 	return revisions
 }
 
+// executionError rejects late success without replacing an earlier, classified stage failure.
 func executionError(ctx context.Context, err error) error {
 	if err != nil {
 		return err

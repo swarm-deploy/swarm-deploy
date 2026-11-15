@@ -1,9 +1,11 @@
 package deployments
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"testing"
 	"time"
@@ -32,6 +34,28 @@ type failedJobWithLogs struct{ logs []string }
 
 func (e *failedJobWithLogs) Error() string  { return "job exited with status 1" }
 func (e *failedJobWithLogs) Logs() []string { return e.logs }
+
+func TestSuccessRevisionsLogsLatestReadFailureAndKeepsAttemptReceipts(t *testing.T) {
+	_, lifecycle, _ := openService(t)
+	controller := &Controller{lifecycle: lifecycle}
+	var logs bytes.Buffer
+	previous := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
+	t.Cleanup(func() { slog.SetDefault(previous) })
+	attempt := deploymentmodel.Attempt{
+		DeploymentID: "completed",
+		ServiceRevisions: map[string]deploymentmodel.ServiceRevision{
+			"api": {Digest: "applied", Commit: "one"},
+		},
+	}
+
+	revisions := controller.successRevisions(t.Context(), "app", attempt)
+
+	assert.Equal(t, attempt.ServiceRevisions, revisions)
+	assert.Contains(t, logs.String(), "level=ERROR")
+	assert.Contains(t, logs.String(), "stack=app")
+	assert.Contains(t, logs.String(), deploymentstore.ErrNotFound.Error())
+}
 
 func TestInitJobDiagnosticsAreBoundedAndSanitized(t *testing.T) {
 	failure := &failedJobWithLogs{logs: []string{
