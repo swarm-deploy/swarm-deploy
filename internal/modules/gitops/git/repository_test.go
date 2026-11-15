@@ -13,6 +13,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"testing"
 	"time"
@@ -280,6 +281,47 @@ func TestGoGitRepositoryPullUsesConfiguredRemoteURL(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, result.Updated)
 	assert.Equal(t, wantHead.String(), result.NewRevision)
+}
+
+func TestGoGitRepositoryPullDoesNotWriteThroughSymlink(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("creating symlinks can require elevated privileges on Windows")
+	}
+
+	source, sourceHead := initSourceRepository(t)
+	target := filepath.Join(t.TempDir(), "target")
+	repository, err := NewGoGitRepository(t.Context(), config.GitSpec{
+		Repository: source, Branch: sourceHead.Name().Short(),
+	}, target)
+	require.NoError(t, err)
+
+	metadataPath := filepath.Join(target, ".git", "config")
+	original, err := os.ReadFile(metadataPath)
+	require.NoError(t, err)
+	require.NoError(t, os.Symlink(".git", filepath.Join(target, "alias")))
+
+	sourceRepository, err := gogit.PlainOpen(source)
+	require.NoError(t, err)
+	worktree, err := sourceRepository.Worktree()
+	require.NoError(t, err)
+	require.NoError(t, os.Mkdir(filepath.Join(source, "alias"), 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(source, "alias", "config"), []byte("new content"), 0o600))
+	_, err = worktree.Add("alias/config")
+	require.NoError(t, err)
+	head, err := worktree.Commit("add tracked file", &gogit.CommitOptions{
+		Author: &object.Signature{Name: "test", Email: "test@example.com", When: time.Now()},
+	})
+	require.NoError(t, err)
+
+	result, err := repository.Pull(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t, head.String(), result.NewRevision)
+	metadata, err := os.ReadFile(metadataPath)
+	require.NoError(t, err)
+	assert.Equal(t, original, metadata)
+	tracked, err := os.ReadFile(filepath.Join(target, "alias", "config"))
+	require.NoError(t, err)
+	assert.Equal(t, "new content", string(tracked))
 }
 
 func TestGoGitRepositoryPullUsesConfiguredHTTPRemoteAndAuth(t *testing.T) {
