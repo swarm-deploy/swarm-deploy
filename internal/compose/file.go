@@ -28,7 +28,7 @@ type File struct {
 	Digest string `json:"digest"`
 	// ResourceDigests fingerprints referenced config/secret file contents without storing them.
 	ResourceDigests map[string]string `json:"resource_digests,omitempty"`
-	// ServiceDigests fingerprints the current effective desired state of each service.
+	// ServiceDigests holds per-service fingerprints populated after GitOps preparation.
 	ServiceDigests map[string]string `json:"-"`
 }
 
@@ -36,9 +36,6 @@ type File struct {
 type FileLoader interface {
 	// Load reads, decodes, normalizes, and digests a compose file.
 	Load(ctx context.Context, path string) (*File, error)
-	// Recalculate rebuilds per-service digests from the current effective Compose state.
-	// It does not modify the source-level File.Digest.
-	Recalculate(file *File) error
 }
 
 type fileLoader struct {
@@ -159,14 +156,7 @@ func (l *fileLoader) Load(ctx context.Context, path string) (*File, error) {
 		ResourceDigests: resourceDigests(configFiles, secretFiles),
 	}
 
-	return l.loadDigests(file, raw, configFiles, secretFiles)
-}
-
-func (l *fileLoader) loadDigests(file *File, raw []byte, configs, secrets objectFileContents) (*File, error) {
-	file.Digest = computeDigest(*file, raw, configs, secrets)
-	if err := l.Recalculate(file); err != nil {
-		return nil, fmt.Errorf("calculate service digests: %w", err)
-	}
+	file.Digest = computeDigest(*file, raw, configFiles, secretFiles)
 	return file, nil
 }
 

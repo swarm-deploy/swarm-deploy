@@ -112,13 +112,14 @@ func canonicalizeService(service *Service, preserveMountOrder bool) error {
 	// the old digest order for escaped names. NormalizeCapabilities already sorts them.
 	err := errors.Join(
 		sortByCanonicalJSON(service.Ports.Ports),
-		sortByCanonicalJSON(service.Networks.list()), sortByCanonicalJSON(service.Secrets),
-		sortByCanonicalJSON(service.Configs), sortByCanonicalJSON(service.CapAdd),
+		sortByCanonicalJSON(service.Networks.list()),
+		sortByCanonicalJSON(service.CapAdd),
 		sortByCanonicalJSON(service.CapDrop),
 	)
 	if !preserveMountOrder {
 		service.Volumes.Volumes = slices.Clone(service.Volumes.Volumes)
-		err = errors.Join(err, sortByCanonicalJSON(service.Volumes.Volumes))
+		err = errors.Join(err, sortByCanonicalJSON(service.Volumes.Volumes),
+			sortByCanonicalJSON(service.Secrets), sortByCanonicalJSON(service.Configs))
 	}
 	if err != nil {
 		return fmt.Errorf("services.%s: %w", service.Name, err)

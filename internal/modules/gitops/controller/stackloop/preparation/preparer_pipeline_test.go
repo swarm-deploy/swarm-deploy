@@ -61,9 +61,11 @@ func TestPrepareRecordsOriginalStepSpans(t *testing.T) {
 	assert.Contains(t, names, "prepare stack")
 	assert.Contains(t, names, "add managed label")
 	assert.Contains(t, names, "validate desired state")
-	assert.Contains(t, names, "recalculate service digests")
+	assert.Contains(t, names, "calculate service digests")
 	assert.Equal(t, labelsdict.ServiceManagedLabelValue, prepared.Compose.Services[0].Deploy.Labels.Map[labelsdict.ServiceManagedLabelKey])
-	assert.NotEmpty(t, prepared.ServiceDigests["api"])
+	digests, err := compose.ServiceDigests(prepared)
+	require.NoError(t, err)
+	assert.Equal(t, digests, prepared.ServiceDigests)
 }
 
 func TestPrepareKeepsExistingManagedLabelWithoutRendering(t *testing.T) {

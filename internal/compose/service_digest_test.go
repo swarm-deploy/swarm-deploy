@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/hex"
 	"encoding/json/v2"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -11,43 +12,46 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 )
 
-func TestFileLoaderRecalculateReusesLoadedServiceDigest(t *testing.T) {
+func TestServiceDigestsUsesCurrentComposeWithoutUpdatingSource(t *testing.T) {
 	loader := compose.NewFileLoaderWithReader(func(context.Context, string) ([]byte, error) {
 		return []byte("services: {api: {image: api:1}}"), nil
 	})
 	file, err := loader.Load(t.Context(), "compose.yaml")
 	require.NoError(t, err)
-	loadedDigest := file.ServiceDigests["api"]
-	require.NotEmpty(t, loadedDigest)
+	require.Nil(t, file.ServiceDigests)
 	sourceDigest := file.Digest
+	require.NotEmpty(t, sourceDigest)
+
+	before, err := compose.ServiceDigests(file)
+	require.NoError(t, err)
+	require.NotEmpty(t, before["api"])
 
 	file.Compose.Services[0].Image = "api:2"
-	require.NoError(t, loader.Recalculate(file))
-	assert.NotEqual(t, loadedDigest, file.ServiceDigests["api"])
-	assert.Equal(t, sourceDigest, file.Digest, "recalculation must preserve the source digest")
-
-	recalculated := file.ServiceDigests["api"]
-	require.NoError(t, loader.Recalculate(file))
-	assert.Equal(t, recalculated, file.ServiceDigests["api"])
+	after, err := compose.ServiceDigests(file)
+	require.NoError(t, err)
+	assert.NotEqual(t, before["api"], after["api"])
+	assert.Equal(t, sourceDigest, file.Digest)
+	assert.Nil(t, file.ServiceDigests)
 }
 
-func TestFileLoaderRecalculateReplacesDigestsOnlyAfterSuccess(t *testing.T) {
+func TestServiceDigestsReturnsNoDigestsOnError(t *testing.T) {
 	file := parseDigestCompose(t, `
 services:
+  worker:
+    image: worker:1
   api:
     image: api:1
 `)
-	file.Compose.Services[0].Command = compose.Command{Args: []string{"echo 'unterminated"}}
-	file.ServiceDigests = map[string]string{"existing": "digest"}
+	file.Compose.Services[1].Command = compose.Command{Args: []string{"echo 'unterminated"}}
 
-	err := compose.NewFileLoader().Recalculate(file)
+	digests, err := compose.ServiceDigests(file)
 	require.Error(t, err)
-	assert.Equal(t, map[string]string{"existing": "digest"}, file.ServiceDigests)
+	assert.Nil(t, digests)
 }
 
 func TestDesiredServiceDigestTracksEffectiveDependencies(t *testing.T) {
 	base := desiredDigestFixture()
-	baseline, err := computeDesiredServiceDigests(base)
+	baseline, err := compose.ServiceDigests(base)
 	require.NoError(t, err)
 
 	tests := []struct {
@@ -98,7 +102,7 @@ func TestDesiredServiceDigestTracksEffectiveDependencies(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			candidate := desiredDigestFixture()
 			test.mutate(candidate)
-			digests, digestErr := computeDesiredServiceDigests(candidate)
+			digests, digestErr := compose.ServiceDigests(candidate)
 			require.NoError(t, digestErr)
 			assert.NotEqual(t, baseline["api"], digests["api"])
 			assert.Equal(t, baseline["worker"], digests["worker"], "unrelated service digest changed")
@@ -107,7 +111,7 @@ func TestDesiredServiceDigestTracksEffectiveDependencies(t *testing.T) {
 }
 
 func TestDesiredServiceDigestIgnoresSourceOnlyAndUnreferencedChanges(t *testing.T) {
-	baseline, err := computeDesiredServiceDigests(desiredDigestFixture())
+	baseline, err := compose.ServiceDigests(desiredDigestFixture())
 	require.NoError(t, err)
 
 	tests := []struct {
@@ -131,7 +135,7 @@ func TestDesiredServiceDigestIgnoresSourceOnlyAndUnreferencedChanges(t *testing.
 		t.Run(test.name, func(t *testing.T) {
 			candidate := desiredDigestFixture()
 			test.mutate(candidate)
-			digests, digestErr := computeDesiredServiceDigests(candidate)
+			digests, digestErr := compose.ServiceDigests(candidate)
 			require.NoError(t, digestErr)
 			assert.Equal(t, baseline, digests)
 		})
@@ -156,13 +160,13 @@ func TestDesiredServiceDigestUsesReferencedFileFingerprints(t *testing.T) {
 			before := desiredDigestFixture()
 			test.clear(before)
 			before.ResourceDigests[test.resource] = "first-fingerprint"
-			baseline, err := computeDesiredServiceDigests(before)
+			baseline, err := compose.ServiceDigests(before)
 			require.NoError(t, err)
 
 			after := desiredDigestFixture()
 			test.clear(after)
 			after.ResourceDigests[test.resource] = "second-fingerprint"
-			changed, err := computeDesiredServiceDigests(after)
+			changed, err := compose.ServiceDigests(after)
 			require.NoError(t, err)
 			assert.NotEqual(t, baseline["api"], changed["api"])
 			assert.Equal(t, baseline["worker"], changed["worker"])
@@ -201,36 +205,62 @@ secrets:
   token: {external: true, name: token}
 `)
 
-	leftDigest, err := computeDesiredServiceDigests(left)
+	leftDigest, err := compose.ServiceDigests(left)
 	require.NoError(t, err)
-	rightDigest, err := computeDesiredServiceDigests(right)
+	rightDigest, err := compose.ServiceDigests(right)
 	require.NoError(t, err)
 	assert.Equal(t, leftDigest, rightDigest)
 }
 
 func TestDesiredServiceDigestPreservesMountOrder(t *testing.T) {
-	left := parseDigestCompose(t, `
+	const definition = `
 services:
   api:
     image: api:1
     volumes:
       - ./root:/app
       - ./config:/app/config
-`)
-	right := parseDigestCompose(t, `
-services:
-  api:
-    image: api:1
-    volumes:
-      - ./config:/app/config
-      - ./root:/app
-`)
+    secrets: [a, b]
+    configs: [a, b]
+    x-init-deploy-jobs:
+      - name: migrate
+        image: migrate:1
+        secrets: [job-a, job-b]
+        configs: [job-a, job-b]
+secrets:
+  a: {external: true}
+  b: {external: true}
+  job-a: {external: true}
+  job-b: {external: true}
+configs:
+  a: {external: true}
+  b: {external: true}
+  job-a: {external: true}
+  job-b: {external: true}
+`
+	baseline, err := compose.ServiceDigests(parseDigestCompose(t, definition))
+	require.NoError(t, err)
 
-	leftDigest, err := computeDesiredServiceDigests(left)
-	require.NoError(t, err)
-	rightDigest, err := computeDesiredServiceDigests(right)
-	require.NoError(t, err)
-	assert.NotEqual(t, leftDigest, rightDigest)
+	tests := []struct {
+		name    string
+		reorder func(*compose.Service)
+	}{
+		{name: "service volumes", reorder: func(service *compose.Service) { slices.Reverse(service.Volumes.Volumes) }},
+		{name: "service secrets", reorder: func(service *compose.Service) { slices.Reverse(service.Secrets) }},
+		{name: "service configs", reorder: func(service *compose.Service) { slices.Reverse(service.Configs) }},
+		{name: "init job secrets", reorder: func(service *compose.Service) { slices.Reverse(service.InitJobs[0].Secrets) }},
+		{name: "init job configs", reorder: func(service *compose.Service) { slices.Reverse(service.InitJobs[0].Configs) }},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			candidate := parseDigestCompose(t, definition)
+			test.reorder(&candidate.Compose.Services[0])
+
+			digests, err := compose.ServiceDigests(candidate)
+			require.NoError(t, err)
+			assert.NotEqual(t, baseline["api"], digests["api"])
+		})
+	}
 }
 
 func TestDesiredServiceDigestUsesInitJobConfigTargetSemantics(t *testing.T) {
@@ -268,11 +298,11 @@ configs:
   settings: {external: true, name: settings}
 `)
 
-	shortDigest, err := computeDesiredServiceDigests(short)
+	shortDigest, err := compose.ServiceDigests(short)
 	require.NoError(t, err)
-	explicitDigest, err := computeDesiredServiceDigests(explicit)
+	explicitDigest, err := compose.ServiceDigests(explicit)
 	require.NoError(t, err)
-	differentDigest, err := computeDesiredServiceDigests(different)
+	differentDigest, err := compose.ServiceDigests(different)
 	require.NoError(t, err)
 	assert.Equal(t, shortDigest, explicitDigest)
 	assert.NotEqual(t, explicitDigest, differentDigest)
@@ -284,9 +314,9 @@ func TestDesiredServiceDigestPreservesInitJobOrderAndDoesNotMutateCompose(t *tes
 		compose.InitJob{Name: "seed", Image: "seed:1"})
 	before, err := json.Marshal(desired, json.Deterministic(true))
 	require.NoError(t, err)
-	first, err := computeDesiredServiceDigests(desired)
+	first, err := compose.ServiceDigests(desired)
 	require.NoError(t, err)
-	second, err := computeDesiredServiceDigests(desired)
+	second, err := compose.ServiceDigests(desired)
 	require.NoError(t, err)
 	after, err := json.Marshal(desired, json.Deterministic(true))
 	require.NoError(t, err)
@@ -299,20 +329,12 @@ func TestDesiredServiceDigestPreservesInitJobOrderAndDoesNotMutateCompose(t *tes
 
 	desired.Compose.Services[0].InitJobs[0], desired.Compose.Services[0].InitJobs[1] =
 		desired.Compose.Services[0].InitJobs[1], desired.Compose.Services[0].InitJobs[0]
-	reordered, err := computeDesiredServiceDigests(desired)
+	reordered, err := compose.ServiceDigests(desired)
 	require.NoError(t, err)
 	assert.NotEqual(t, first["api"], reordered["api"])
 }
 
 const sha256HexLength = 64
-
-func computeDesiredServiceDigests(desired *compose.File) (map[string]string, error) {
-	loader := compose.NewFileLoader()
-	if err := loader.Recalculate(desired); err != nil {
-		return nil, err
-	}
-	return desired.ServiceDigests, nil
-}
 
 func boolPointer(value bool) *bool { return &value }
 

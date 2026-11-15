@@ -9,18 +9,8 @@ import (
 	"slices"
 )
 
-// Recalculate rebuilds per-service digests from the current effective Compose state.
-// The source-level File.Digest is preserved.
-func (*fileLoader) Recalculate(file *File) error {
-	digests, err := computeDesiredServiceDigests(file)
-	if err != nil {
-		return err
-	}
-	file.ServiceDigests = digests
-	return nil
-}
-
-func computeDesiredServiceDigests(desired *File) (map[string]string, error) {
+// ServiceDigests fingerprints each service's effective desired state without modifying desired.
+func ServiceDigests(desired *File) (map[string]string, error) {
 	digests := make(map[string]string, len(desired.Compose.Services))
 	for _, service := range desired.Compose.Services {
 		dependencies, fingerprints := desiredServiceDependencies(desired, service)
@@ -146,6 +136,7 @@ func digestServiceIdentity(desired Compose, resourceDigests map[string]string) (
 	for i := range service.InitJobs {
 		service.InitJobs[i].Networks = digestNetworkAttachments(service.InitJobs[i].Networks)
 	}
+	// Init Jobs inherit service secrets and configs in their declared order.
 	if err := canonicalizeService(service, true); err != nil {
 		return "", err
 	}

@@ -141,6 +141,9 @@ func (r *Reconciler) Reconcile(
 		}
 		return wrapReconcileError(stage, desiredState.Compose.Services, errors.Join(err, persistErr))
 	}
+	// Persist the prepared revision before execution so an interruption cannot
+	// lose the commit that introduced it. Completion events only project the
+	// deployment outcome and do not reconstruct desired revisions.
 	if err = r.recordPreparedDesired(ctx, req, prepared, &prev); err != nil {
 		return err
 	}
