@@ -210,6 +210,9 @@ func TestReconcilePreservesAppliedRevisionWhenDriftAnalysisFails(t *testing.T) {
 	completed, _, err := store.Latest(t.Context(), "app")
 	require.NoError(t, err)
 	assert.Equal(t, deploymentmodel.Succeeded, completed.Status)
+	require.Len(t, completed.Attempts, 1)
+	assert.True(t, completed.Attempts[0].StartedAt.Equal(stack.LastDeployAt))
+	assert.True(t, stack.LastDeployAt.Before(stack.StateUpdatedAt))
 
 	reconciler.attachPipeline()
 	req.IsManual = false

@@ -388,7 +388,7 @@ func (r *Reconciler) recordPipelineFailure(
 	failed.StateUpdatedAt = time.Now().UTC()
 	if pl.ExecutionSucceeded {
 		failed.LastError = strings.ReplaceAll(pipeErr.StepName, " ", "_") + "_failed"
-		failed.LastDeployAt = failed.StateUpdatedAt
+		failed.LastDeployAt = pl.Attempt.StartedAt
 		projectAppliedRevisionsAfterFailure(&failed, pl)
 	} else {
 		failed.LastError = pl.ExecutionError
