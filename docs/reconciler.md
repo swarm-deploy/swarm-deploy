@@ -30,18 +30,6 @@ for each service. The digest includes the prepared service specification, Init J
 and referenced resource content. A changed Git commit or source formatting alone
 does not select an unchanged service. A service without applied metadata is selected.
 
-Records written before applied revisions were tracked do not trigger a redeployment
-when the effective state is confirmed. GitOps selects such services, and Deployments
-checks them against the latest successful deployment snapshot: when its whole-stack
-effective digest matches the prepared state, the snapshot adopts the current service
-digests and its historical whole-stack Attempt counts as the receipt, with the
-deployment commit as each service's applied commit. A matching source alone is not
-enough: a changed prepared state, such as newly injected variables, is deployed.
-The whole-stack digest omits mount order, so a service with two or more volumes,
-secrets or configs, including those of its Init Jobs, cannot be confirmed this way.
-It stays unconfirmed in the snapshot and is deployed once; other services are not
-executed again. A successful Attempt confirms the services it applied.
-
 A service that leaves desired state loses its applied revision in the same durable
 update that records the new desired revisions, before it can be pruned. Restoring it
 in Compose deploys it again, even when cleanup failed or the process stopped after
@@ -54,9 +42,9 @@ targeting it, historical whole-stack Attempts, and deployments recorded before
 Attempts were persisted. The `deployment_services` table indexes these executions;
 it is written with each Attempt and backfilled by migration 0005. A history entry
 reports the outcome of the latest Attempt that executed the service and the
-service's source commit. Before a later Attempt starts on a deployment recorded
-before Attempts were persisted, its whole-stack outcome is stored as the first
-Attempt.
+service's source commit. When a failed or interrupted Deployment recorded
+before Attempts were persisted is retried, its whole-stack outcome is stored
+as the first Attempt.
 
 Deployments persists the explicit target list and each target's digest and source
 commit on the Attempt before execution. An empty list selects no services. A nil list,
@@ -68,15 +56,32 @@ digest eligible for deployment after a failed or interrupted apply may have chan
 Swarm. Event replay uses the Attempt's captured revision rather
 than the latest mutable GitOps desired state.
 
-The same overall desired state can have a later Attempt for services not covered by
-an earlier success. Such an Attempt is not a retry: it does not restart failed Swarm
-updates, a failure does not hide the earlier successful baseline, and automatic
-backoff counts only consecutive failed or interrupted Attempts. Any later Attempt,
-including a retry, skips targets that already have a valid receipt for the same
-desired state; a retry without remaining targets still retries cleanup. Failure
-classification, manual retries and automatic backoff remain owned by Deployments. Pruning uses the full desired service list, independently
-of targets. A partial success advances the full-stack comparison baseline only when
-all desired services are covered by successful Attempts or the previous baseline.
+A Succeeded Deployment keeps its status and Attempt history. If the same desired
+snapshot still needs to apply services without a successful receipt, Deployments
+creates a separate Deployment for those targets. A retry of a failed or interrupted
+Deployment adds an Attempt to that Deployment. It skips services with a valid
+receipt for the same desired snapshot. A retry without remaining targets still
+retries cleanup. Deployments owns failure classification, manual retries and
+automatic backoff. Pruning uses the full desired service list, independently of
+targets. A partial success advances the full-stack comparison baseline once every
+desired service is covered by a successful receipt or the previous baseline.
+
+## Upgrade to per-service applied revisions
+
+When the prepared state matches the latest legacy successful snapshot, swarm-deploy
+adopts the current service digests. The legacy execution confirms their applied
+revisions, using the Deployment commit. The old whole-stack digest discarded
+mount order, so a service with two or more volumes, secrets or configs, including
+mounts in its Init Jobs, cannot be confirmed from that snapshot. Those services
+are redeployed once in a separate Deployment, which records their applied revisions.
+
+If the prepared stack differs from the last snapshot after the upgrade, the first
+deployment applies every service because there are no per-service applied revisions yet.
+Changes to injected variables can cause this even when the Git commit is unchanged.
+
+The history can show consecutive Deployments with the same commit. This happens
+when services lack confirmed application, for example after this migration or when
+reconciliation resumes after a failure or a GitOps runtime reset.
 
 ## Sync runs and the stack queue
 
