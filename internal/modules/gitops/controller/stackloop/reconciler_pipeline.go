@@ -12,10 +12,17 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments"
 	deploymentmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/pruner"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackloop/drift"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/labelsdict"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
+)
+
+const (
+	stepAnalyzeDrift   = "analyze drift"
+	stepSelfHealDrift  = "self-heal drift"
+	stepVerifySelfHeal = "verify self-heal"
 )
 
 type pipelinePayload struct {
@@ -76,7 +83,7 @@ func (r *Reconciler) attachPipeline() {
 	})
 
 	r.pipeline.Add(pipe.Step[*pipelinePayload]{
-		Name: "analyze drift",
+		Name: stepAnalyzeDrift,
 		When: pipe.When(func(payload *pipelinePayload) bool {
 			return payload.Attempt == nil || payload.IsManualSync || payload.HasPreviousDrift
 		}),
@@ -84,7 +91,7 @@ func (r *Reconciler) attachPipeline() {
 	})
 
 	r.pipeline.Add(pipe.Step[*pipelinePayload]{
-		Name: "self-heal drift",
+		Name: stepSelfHealDrift,
 		When: pipe.When(func(payload *pipelinePayload) bool {
 			return payload.Attempt == nil && (len(payload.Drift) > 0 || len(payload.PendingSelfHeal) > 0)
 		}),
@@ -92,12 +99,25 @@ func (r *Reconciler) attachPipeline() {
 	})
 
 	r.pipeline.Add(pipe.Step[*pipelinePayload]{
-		Name: "verify self-heal",
+		Name: stepVerifySelfHeal,
 		When: pipe.When(func(payload *pipelinePayload) bool {
 			return hasRemediationAttempt(payload.Remediations)
 		}),
 		Run: r.verifySelfHeal,
 	})
+}
+
+func postDeploymentFailureCode(step string) string {
+	switch step {
+	case stepAnalyzeDrift:
+		return events.DeployErrorCodeAnalyzeDriftFailed
+	case stepSelfHealDrift:
+		return events.DeployErrorCodeSelfHealDriftFailed
+	case stepVerifySelfHeal:
+		return events.DeployErrorCodeVerifySelfHealFailed
+	default:
+		return events.DeployErrorCodeReconcileFailed
+	}
 }
 
 func (r *Reconciler) executeDeployment(ctx context.Context, payload *pipelinePayload) error {

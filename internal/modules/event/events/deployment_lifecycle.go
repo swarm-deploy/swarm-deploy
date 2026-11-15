@@ -7,8 +7,14 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
 )
 
-// DeployErrorCodePreparationFailed is the stable error code for DeployPreparationFailed.
-const DeployErrorCodePreparationFailed = "preparation_failed"
+// Stable error codes for DeployPreparationFailed.
+const (
+	DeployErrorCodePreparationFailed    = "preparation_failed"
+	DeployErrorCodeAnalyzeDriftFailed   = "analyze_drift_failed"
+	DeployErrorCodeSelfHealDriftFailed  = "self_heal_drift_failed"
+	DeployErrorCodeVerifySelfHealFailed = "verify_self_heal_failed"
+	DeployErrorCodeReconcileFailed      = "reconcile_failed"
+)
 
 // Stable reasons for DeployInterrupted.
 const (

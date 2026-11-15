@@ -208,7 +208,7 @@ func TestReconcilePreservesAppliedRevisionWhenDriftAnalysisFails(t *testing.T) {
 	reconciler.pipeline = pipe.NewPipeline[*pipelinePayload]()
 	reconciler.pipeline.Add(pipe.Step[*pipelinePayload]{Name: "execute deployment", Run: reconciler.executeDeployment})
 	reconciler.pipeline.Add(pipe.Step[*pipelinePayload]{
-		Name: "analyze drift",
+		Name: stepAnalyzeDrift,
 		Run:  func(context.Context, *pipelinePayload) error { return driftErr },
 	})
 	reconcileErr := reconciler.Reconcile(t.Context(), req)
@@ -269,6 +269,21 @@ func TestReconcilePreservesAppliedRevisionWhenDriftAnalysisFails(t *testing.T) {
 	assert.Equal(t, completed, latest)
 }
 
+func TestPostDeploymentFailureCode(t *testing.T) {
+	for _, tc := range []struct {
+		step, code string
+	}{
+		{step: stepAnalyzeDrift, code: "analyze_drift_failed"},
+		{step: stepSelfHealDrift, code: "self_heal_drift_failed"},
+		{step: stepVerifySelfHeal, code: "verify_self_heal_failed"},
+		{step: "unknown-stage", code: "reconcile_failed"},
+	} {
+		t.Run(tc.step, func(t *testing.T) {
+			assert.Equal(t, tc.code, postDeploymentFailureCode(tc.step))
+		})
+	}
+}
+
 func TestPostDeploymentFailurePublicationRollsBackRuntime(t *testing.T) {
 	ctx := t.Context()
 	db, store := newSQLState(t)
@@ -300,7 +315,7 @@ func TestPostDeploymentFailurePublicationRollsBackRuntime(t *testing.T) {
 	}
 	driftErr := errors.New("drift analysis failed")
 	err := reconciler.recordPipelineFailure(ctx, ReconciliationRequest{Stack: config.StackSpec{Name: "app"}, Commit: "next"},
-		previous, payload, &pipe.StepError{StepName: "analyze drift", Err: fmt.Errorf("%w (token=private-value)", driftErr)})
+		previous, payload, &pipe.StepError{StepName: stepAnalyzeDrift, Err: fmt.Errorf("%w (token=private-value)", driftErr)})
 	require.ErrorIs(t, err, publicationErr)
 	require.ErrorIs(t, err, driftErr)
 	assert.Equal(t, before, readSQLState(t, store))

@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 	"slices"
-	"strings"
 	"time"
 
 	pipe "github.com/artarts36/gopipe"
@@ -387,7 +386,7 @@ func (r *Reconciler) recordPipelineFailure(
 	failed.LastCommit = req.Commit
 	failed.StateUpdatedAt = time.Now().UTC()
 	if pl.ExecutionSucceeded {
-		failed.LastError = strings.ReplaceAll(pipeErr.StepName, " ", "_") + "_failed"
+		failed.LastError = postDeploymentFailureCode(pipeErr.StepName)
 		failed.LastDeployAt = pl.Attempt.StartedAt
 		projectAppliedRevisionsAfterFailure(&failed, pl)
 	} else {

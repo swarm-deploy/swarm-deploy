@@ -56,6 +56,9 @@ verification interruptions publish `DeployInterrupted` with `verification_unknow
 A reconciliation step can fail after a successful Attempt. GitOps publishes internal
 `DeployPreparationFailed` with the failed stage and safe diagnostic. Alert Management
 opens or updates `sync_failed`, while the Attempt keeps its successful outcome.
+Post-deployment error codes are fixed for drift analysis (`analyze_drift_failed`),
+self-heal (`self_heal_drift_failed`), and self-heal verification
+(`verify_self_heal_failed`). An unrecognized stage uses `reconcile_failed`.
 Deployment completion events describe the persisted Attempt. Their `Services` list
 contains only its execution targets; GitOps updates applied revisions only for those
 services. `DeploySuccess` means those targets completed successfully. Pruning still
