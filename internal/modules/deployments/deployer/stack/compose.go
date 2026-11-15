@@ -4,29 +4,35 @@ package stack
 import (
 	"fmt"
 	"maps"
+	"slices"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 )
 
 // TargetServicesCompose selects services and their dependencies, including Init Jobs.
+// Services keep their declared Compose order because Init Jobs run in that order.
 // An empty target list produces an empty execution scope.
 func TargetServicesCompose(desired compose.Compose, names []string) (compose.Compose, error) {
+	for _, name := range names {
+		if !slices.ContainsFunc(desired.Services, func(service compose.Service) bool { return service.Name == name }) {
+			return compose.Compose{}, fmt.Errorf("service %q not found in compose", name)
+		}
+	}
+
 	selected := desired
 	selected.Services = compose.Services{}
 	selected.Networks = make(map[string]compose.Network)
 	selected.Configs = make(compose.Configs)
 	selected.Secrets = make(compose.Secrets)
 	selected.Volumes = make(compose.Volumes)
-	seen := make(map[string]bool, len(names))
-	for _, name := range names {
-		if seen[name] {
+	for _, service := range desired.Services {
+		if !slices.Contains(names, service.Name) {
 			continue
 		}
-		part, err := SingleServiceCompose(desired, name)
+		part, err := SingleServiceCompose(desired, service.Name)
 		if err != nil {
 			return compose.Compose{}, err
 		}
-		seen[name] = true
 		selected.Services = append(selected.Services, part.Services...)
 		maps.Copy(selected.Networks, part.Networks)
 		maps.Copy(selected.Configs, part.Configs)

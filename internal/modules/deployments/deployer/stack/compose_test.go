@@ -177,3 +177,11 @@ func TestTargetServicesComposeIncludesJobDependencies(t *testing.T) {
 	_, err = TargetServicesCompose(desired, []string{"missing"})
 	require.ErrorContains(t, err, "not found")
 }
+
+func TestTargetServicesComposeKeepsDeclaredOrder(t *testing.T) {
+	desired := compose.Compose{Services: compose.Services{{Name: "worker"}, {Name: "api"}, {Name: "db"}}}
+	// Targets arrive sorted from the Attempt; Init Jobs must still run in declared order.
+	selected, err := TargetServicesCompose(desired, []string{"api", "db", "worker", "worker"})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"worker", "api", "db"}, selected.Services.Names())
+}
