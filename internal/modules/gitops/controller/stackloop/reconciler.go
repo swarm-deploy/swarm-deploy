@@ -120,7 +120,7 @@ func (r *Reconciler) Reconcile(
 ) error {
 	desiredState, err := r.preparer.Load(ctx, req.Stack, req.Commit)
 	if err != nil {
-		persistErr := r.recordFailure(ctx, req.Stack.Name, req.Commit, nil, err)
+		persistErr := r.recordFailure(ctx, req.Stack.Name, req.Commit, nil, nil, err)
 
 		return wrapReconcileError("load compose", nil, errors.Join(err, persistErr))
 	}
@@ -134,7 +134,7 @@ func (r *Reconciler) Reconcile(
 		Stack: req.Stack, Desired: desiredState,
 	})
 	if err != nil {
-		persistErr := r.recordFailure(ctx, req.Stack.Name, req.Commit, desiredState, err)
+		persistErr := r.recordFailure(ctx, req.Stack.Name, req.Commit, desiredState, nil, err)
 		stage := "prepare compose"
 		if stepErr, ok := errors.AsType[*pipe.StepError](err); ok {
 			stage = stepErr.StepName
@@ -144,7 +144,7 @@ func (r *Reconciler) Reconcile(
 	// Persist the prepared revision before execution so an interruption cannot
 	// lose the commit that introduced it. Completion events only project the
 	// deployment outcome and do not reconstruct desired revisions.
-	if err = r.recordPreparedDesired(ctx, req, prepared, desiredState.Digest, &prev); err != nil {
+	if err = r.recordPreparedDesired(ctx, req, prepared, &prev); err != nil {
 		return err
 	}
 
@@ -202,11 +202,10 @@ func (r *Reconciler) recordPreparedDesired(
 	ctx context.Context,
 	req ReconciliationRequest,
 	prepared *compose.File,
-	sourceDigest string,
 	previous *model.Stack,
 ) error {
 	desiredServices, err := r.persistDesiredServices(
-		ctx, req.Stack.Name, req.Commit, sourceDigest, prepared.ServiceDigests,
+		ctx, req.Stack.Name, req.Commit, prepared.ServiceDigests,
 	)
 	if err != nil {
 		return wrapReconcileError("persist desired service state", prepared.Compose.Services, err)
@@ -224,7 +223,6 @@ func (r *Reconciler) persistDesiredServices(
 	ctx context.Context,
 	stackName string,
 	commit string,
-	sourceDigest string,
 	digests map[string]string,
 ) (map[string]model.Service, error) {
 	services := make(map[string]model.Service, len(digests))
@@ -234,7 +232,7 @@ func (r *Reconciler) persistDesiredServices(
 			stack.Services = map[string]model.Service{}
 		}
 		for name, digest := range digests {
-			service := adoptLegacyApplied(stack, stack.Services[name], sourceDigest, digest)
+			service := stack.Services[name]
 			if service.DesiredDigest != digest || service.DesiredCommit == "" {
 				service.DesiredCommit = commit
 			}
@@ -321,7 +319,7 @@ func hasRemediationAttempt(remediations map[string]serviceRemediation) bool {
 }
 
 func (r *Reconciler) recordFailure(
-	ctx context.Context, stackName, commit string, desired *compose.File, cause error,
+	ctx context.Context, stackName, commit string, desired *compose.File, pruned []string, cause error,
 ) error {
 	var services []compose.Service
 	if desired != nil {
@@ -352,6 +350,7 @@ func (r *Reconciler) recordFailure(
 					SelfHealPending: previous.SelfHealPending, SyncError: previous.SyncError,
 				}
 			}
+			forgetPrunedServices(state.Services, pruned)
 			state.Status = model.NewStackStatus(state.Services)
 			runtime.Stacks[stackName] = state
 		}); err != nil {
@@ -370,7 +369,7 @@ func (r *Reconciler) recordPipelineFailure(
 	services := pl.Desired.Compose.Services
 	var persistErr error
 	if pl.Attempt == nil {
-		persistErr = r.recordFailure(ctx, req.Stack.Name, req.Commit, pl.Desired, pipeErr)
+		persistErr = r.recordFailure(ctx, req.Stack.Name, req.Commit, pl.Desired, pl.PrunedServices, pipeErr)
 	} else {
 		// Deployments has already classified and committed the terminal Attempt.
 		// GitOps keeps the reconciliation error observable and lets the durable
@@ -396,6 +395,7 @@ func (r *Reconciler) recordPipelineFailure(
 				SyncStatus:   model.SyncStatusOutOfSync, SyncAt: time.Now(),
 			}
 		}
+		forgetPrunedServices(failed.Services, pl.PrunedServices)
 		failed.Status = model.NewStackStatus(failed.Services)
 		persistErr = r.stateStore.Update(ctx, func(runtime *model.Runtime) {
 			runtime.Stacks[req.Stack.Name] = failed

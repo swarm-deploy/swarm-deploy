@@ -37,7 +37,7 @@ func (s *Service) coversDesired(
 		return false, err
 	}
 	attempts := append([]deploymentmodel.Attempt{attempt}, deployment.Attempts...)
-	revisions := appliedRevisions(attempts, deploymentmodel.Prepared{ServiceDigests: desired.ServiceDigests})
+	revisions := appliedRevisions(attempts, deploymentmodel.Prepared{ServiceDigests: desired.ServiceDigests}, deployment.Commit)
 	for name, digest := range desired.ServiceDigests {
 		if _, ok := revisions[name]; !ok && (digest == "" || baseline.ServiceDigests[name] != digest) {
 			return false, nil
@@ -67,8 +67,12 @@ func setAttemptTargets(
 }
 
 // targetsApplied checks immutable execution receipts, not the caller's policy or its projection timing.
-func targetsApplied(attempts []deploymentmodel.Attempt, desired deploymentmodel.Prepared, targets []string) bool {
-	revisions := appliedRevisions(attempts, desired)
+// A nil target list selects every desired service; an empty list selects none.
+func targetsApplied(deployment deploymentmodel.Deployment, desired deploymentmodel.Prepared, targets []string) bool {
+	if targets == nil {
+		targets = desired.Definition.Compose.Services.Names()
+	}
+	revisions := appliedRevisions(receipts(deployment), desired, deployment.Commit)
 	for _, name := range targets {
 		if _, ok := revisions[name]; !ok {
 			return false
@@ -77,8 +81,20 @@ func targetsApplied(attempts []deploymentmodel.Attempt, desired deploymentmodel.
 	return true
 }
 
+// receipts returns a Deployment's Attempts as execution receipts. A successful
+// Deployment recorded before Attempts were persisted counts as one whole-stack Attempt.
+func receipts(deployment deploymentmodel.Deployment) []deploymentmodel.Attempt {
+	if len(deployment.Attempts) == 0 && deployment.Status == deploymentmodel.Succeeded {
+		return []deploymentmodel.Attempt{{Status: deploymentmodel.Succeeded}}
+	}
+	return deployment.Attempts
+}
+
+// appliedRevisions resolves the newest receipt of each service in the snapshot
+// described by desired. A historical whole-stack Attempt has no per-service receipt:
+// it applied the whole snapshot of its Deployment at the Deployment commit.
 func appliedRevisions(
-	attempts []deploymentmodel.Attempt, desired deploymentmodel.Prepared,
+	attempts []deploymentmodel.Attempt, desired deploymentmodel.Prepared, commit string,
 ) map[string]deploymentmodel.ServiceRevision {
 	revisions := make(map[string]deploymentmodel.ServiceRevision)
 	for name, digest := range desired.ServiceDigests {
@@ -86,7 +102,10 @@ func appliedRevisions(
 			if !attempt.Targets(name) {
 				continue
 			}
-			revision := attempt.ServiceRevisions[name]
+			revision, recorded := attempt.ServiceRevisions[name]
+			if !recorded && attempt.TargetServices == nil {
+				revision = deploymentmodel.ServiceRevision{Digest: digest, Commit: commit}
+			}
 			if attempt.Status == deploymentmodel.Succeeded && revision.Digest == digest {
 				revisions[name] = revision
 			}

@@ -246,7 +246,7 @@ func (c *Controller) unchangedResult(ctx context.Context, req ExecuteRequest) (E
 		return ExecuteResult{}, err
 	}
 	result := ExecuteResult{Status: latest.Status, ErrorCode: latest.ErrorCode}
-	result.AppliedRevisions = appliedRevisions(latest.Attempts, desired)
+	result.AppliedRevisions = appliedRevisions(receipts(latest), desired, latest.Commit)
 	result.RetryDeferred = latest.Status == deploymentmodel.Failed || latest.Status == deploymentmodel.Interrupted
 	if result.RetryDeferred {
 		result.UnresolvedServices = deferredServices(latest, req.Desired)

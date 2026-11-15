@@ -20,27 +20,13 @@ func targetServices(desired *compose.File, previous model.Stack) ([]string, map[
 	return names, commits
 }
 
-// adoptLegacyApplied treats a service synchronized before applied revisions were
-// tracked as applied at the stack's last commit, so an upgrade does not redeploy it.
-func adoptLegacyApplied(stack model.Stack, service model.Service, sourceDigest, digest string) model.Service {
-	legacy := service.AppliedDigest == "" && !service.ApplyPending && service.SyncStatus == model.SyncStatusSynced
-	if !legacy || stack.LastCommit == "" {
-		return service
+// forgetPrunedServices drops runtime state of services confirmed removed from Swarm,
+// even when cleanup of other services failed. A service restored later in Compose
+// has no applied revision and is deployed again.
+func forgetPrunedServices(services map[string]model.Service, pruned []string) {
+	for _, name := range pruned {
+		delete(services, name)
 	}
-	switch {
-	case service.DesiredDigest != "":
-		// The synchronized service matches the desired digest tracked before execution.
-		service.AppliedDigest = service.DesiredDigest
-	case stack.SourceDigest != "" && stack.SourceDigest == sourceDigest:
-		// The source is unchanged, so the current effective state is the synchronized one.
-		service.DesiredDigest, service.DesiredCommit = digest, stack.LastCommit
-		service.AppliedDigest = digest
-	default:
-		// The source changed with the upgrade, so the synchronized revision is unknown.
-		return service
-	}
-	service.AppliedCommit = stack.LastCommit
-	return service
 }
 
 func serviceExecutionState(

@@ -138,13 +138,9 @@ func (r *Reconciler) pruneOrphanedServices(ctx context.Context, payload *pipelin
 		Desired: payload.Desired.Compose.Services,
 		Live:    payload.LiveServices,
 	})
-	if err != nil {
-		return err
-	}
-
+	// Removals confirmed before a failure must reach the failure state as well.
 	payload.PrunedServices = prunedServices
-
-	return nil
+	return err
 }
 
 func (r *Reconciler) cleanRotatedResources(ctx context.Context, payload *pipelinePayload) error {

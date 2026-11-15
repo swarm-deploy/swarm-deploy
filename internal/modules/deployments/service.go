@@ -186,7 +186,7 @@ func (s *Service) startExisting(
 	case deploymentmodel.Running:
 		return nil, nil //nolint:nilnil // An active attempt owns execution.
 	case deploymentmodel.Succeeded:
-		if targetsApplied(latest.Attempts, desired, options.TargetServices) {
+		if targetsApplied(latest, desired, options.TargetServices) {
 			return nil, nil //nolint:nilnil // Delivery lag must not repeat a successful execution.
 		}
 	case deploymentmodel.Failed, deploymentmodel.Interrupted:

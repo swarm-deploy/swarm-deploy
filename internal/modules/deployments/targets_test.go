@@ -129,34 +129,84 @@ func TestServiceRevisionChangeCreatesFreshDesiredSnapshot(t *testing.T) {
 }
 
 func TestLegacySnapshotAdoptsServiceDigestsWithoutRedeploy(t *testing.T) {
+	for name, legacyReceipts := range map[string]string{
+		"attempt without receipts":    "UPDATE deployment_attempts SET details_payload = json_remove(details_payload, '$.service_revisions', '$.target_services')",
+		"deployment without attempts": "DELETE FROM deployment_attempts",
+	} {
+		t.Run(name, func(t *testing.T) {
+			db, lifecycle, _ := openService(t)
+			store := deploymentstore.NewStore(db)
+			desired := desiredServices("api", "worker")
+			first, err := lifecycle.StartIfChanged(t.Context(), "app", "one", desired, true, StartOptions{})
+			require.NoError(t, err)
+			require.NoError(t, lifecycle.Complete(t.Context(), first.ID, Completion{Outcome: CompletionSucceeded}))
+			// Simulate a deployment recorded before per-service digests and receipts existed.
+			_, err = db.Exec(t.Context(), "UPDATE deployments SET desired_payload = json_remove(desired_payload, '$.service_digests')")
+			require.NoError(t, err)
+			_, err = db.Exec(t.Context(), legacyReceipts)
+			require.NoError(t, err)
+
+			// GitOps has no applied revisions for legacy records and selects every service.
+			next, err := lifecycle.StartIfChanged(t.Context(), "app", "upgrade", desired, false,
+				StartOptions{TargetServices: []string{"api", "worker"}})
+			require.NoError(t, err)
+			assert.Nil(t, next, "an upgrade must not redeploy an unchanged effective state")
+			latest, snapshot, err := store.Latest(t.Context(), "app")
+			require.NoError(t, err)
+			revisions := appliedRevisions(receipts(latest), snapshot, latest.Commit)
+			assert.Equal(t, first.ServiceRevisions["api"].Digest, revisions["api"].Digest)
+			assert.Equal(t, "one", revisions["worker"].Commit, "the deployed stack commit becomes the service commit")
+
+			// A later change of one service is covered by the adopted baseline for the other.
+			desired = desiredServices("api", "worker")
+			desired.Compose.Services[0].Image = "api:2"
+			changed, err := lifecycle.StartIfChanged(t.Context(), "app", "two", desired, true, StartOptions{TargetServices: []string{"api"}})
+			require.NoError(t, err)
+			require.NotNil(t, changed)
+			require.NoError(t, lifecycle.Complete(t.Context(), changed.ID, Completion{Outcome: CompletionSucceeded}))
+			baselineID, err := store.BaselineDeploymentID(t.Context(), "app")
+			require.NoError(t, err)
+			assert.Equal(t, changed.DeploymentID, baselineID)
+		})
+	}
+}
+
+func TestLegacySnapshotWithChangedEffectiveStateRedeploys(t *testing.T) {
 	db, lifecycle, _ := openService(t)
-	store := deploymentstore.NewStore(db)
-	desired := desiredServices("api", "worker")
+	desired := desiredServices("api")
 	first, err := lifecycle.StartIfChanged(t.Context(), "app", "one", desired, true, StartOptions{})
 	require.NoError(t, err)
 	require.NoError(t, lifecycle.Complete(t.Context(), first.ID, Completion{Outcome: CompletionSucceeded}))
-	// Simulate a snapshot written before per-service digests existed.
-	_, err = db.Exec(t.Context(), "UPDATE deployments SET desired_payload = json_remove(desired_payload, '$.service_digests') WHERE id = ?", first.DeploymentID)
+	_, err = db.Exec(t.Context(), "UPDATE deployments SET desired_payload = json_remove(desired_payload, '$.service_digests')")
+	require.NoError(t, err)
+	_, err = db.Exec(t.Context(), "DELETE FROM deployment_attempts")
 	require.NoError(t, err)
 
-	next, err := lifecycle.StartIfChanged(t.Context(), "app", "upgrade", desired, false, StartOptions{TargetServices: []string{}})
+	// Same source, different prepared service: e.g. injected variables enabled during the upgrade.
+	desired.Compose.Services[0].Environment = compose.Environment{Map: map[string]string{"INJECTED": "1"}}
+	next, err := lifecycle.StartIfChanged(t.Context(), "app", "one", desired, false, StartOptions{TargetServices: []string{"api"}})
 	require.NoError(t, err)
-	assert.Nil(t, next, "an upgrade must not redeploy an unchanged stack")
-	baseline, err := store.Baseline(t.Context(), "app")
-	require.NoError(t, err)
-	assert.Equal(t, first.ServiceRevisions["api"].Digest, baseline.ServiceDigests["api"])
-	assert.Equal(t, first.ServiceRevisions["worker"].Digest, baseline.ServiceDigests["worker"])
+	require.NotNil(t, next, "a changed effective state must be deployed")
+	assert.NotEqual(t, first.DeploymentID, next.DeploymentID)
+}
 
-	// A later change of one service is covered by the adopted baseline for the other.
-	desired = desiredServices("api", "worker")
-	desired.Compose.Services[0].Image = "api:2"
-	changed, err := lifecycle.StartIfChanged(t.Context(), "app", "two", desired, true, StartOptions{TargetServices: []string{"api"}})
+func TestNilTargetScopeIncludesUnappliedServices(t *testing.T) {
+	_, lifecycle, _ := openService(t)
+	desired := desiredServices("api", "worker")
+	first, err := lifecycle.StartIfChanged(t.Context(), "app", "one", desired, true, StartOptions{TargetServices: []string{"api"}})
 	require.NoError(t, err)
-	require.NotNil(t, changed)
-	require.NoError(t, lifecycle.Complete(t.Context(), changed.ID, Completion{Outcome: CompletionSucceeded}))
-	baselineID, err := store.BaselineDeploymentID(t.Context(), "app")
+	require.NoError(t, lifecycle.Complete(t.Context(), first.ID, Completion{Outcome: CompletionSucceeded}))
+
+	next, err := lifecycle.StartIfChanged(t.Context(), "app", "one", desired, false, StartOptions{})
 	require.NoError(t, err)
-	assert.Equal(t, changed.DeploymentID, baselineID)
+	require.NotNil(t, next, "a nil scope must not skip the unapplied worker")
+	assert.Equal(t, first.DeploymentID, next.DeploymentID)
+	assert.Nil(t, next.TargetServices)
+	require.NoError(t, lifecycle.Complete(t.Context(), next.ID, Completion{Outcome: CompletionSucceeded}))
+
+	again, err := lifecycle.StartIfChanged(t.Context(), "app", "one", desired, false, StartOptions{})
+	require.NoError(t, err)
+	assert.Nil(t, again, "every service is applied")
 }
 
 func TestFailedTopUpKeepsBaselineAndResetsRetryBackoff(t *testing.T) {

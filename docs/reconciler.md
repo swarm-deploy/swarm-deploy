@@ -28,15 +28,19 @@ Some steps are conditional. For example, the image policy step is absent when ev
 GitOps stores `DesiredDigest` / `DesiredCommit` and `AppliedDigest` / `AppliedCommit`
 for each service. The digest includes the prepared service specification, Init Jobs,
 and referenced resource content. A changed Git commit or source formatting alone
-does not select an unchanged service. Missing applied metadata selects a new service.
+does not select an unchanged service. A service without applied metadata is selected.
 
-Runtime records written before applied revisions were tracked do not trigger a
-redeployment. A service that was `Synced` is treated as applied at the stack's last
-commit: its applied digest is the previously tracked desired digest, or the current
-digest when the source digest is unchanged. When the source changed together with
-the upgrade, the synchronized revision is unknown and the service is deployed.
-Deployment snapshots without per-service digests adopt the current digests when their
-whole-stack digest matches, so the existing successful deployment remains current.
+Records written before applied revisions were tracked do not trigger a redeployment
+when the effective state is confirmed. GitOps selects such services, and Deployments
+checks them against the latest successful deployment snapshot: when its whole-stack
+effective digest matches the prepared state, the snapshot adopts the current service
+digests and its historical whole-stack Attempt counts as the receipt, with the
+deployment commit as each service's applied commit. A matching source alone is not
+enough: a changed prepared state, such as newly injected variables, is deployed.
+
+When cleanup fails after some orphaned services were removed, GitOps drops the
+runtime state of the removed services, so restoring one of them in Compose deploys
+it again.
 
 Deployments persists the explicit target list and each target's digest and source
 commit on the Attempt before execution. An empty list selects no services. A nil list,
