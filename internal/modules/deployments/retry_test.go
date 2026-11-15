@@ -151,3 +151,42 @@ type retryTestTemporaryError struct{}
 
 func (retryTestTemporaryError) Error() string   { return "temporary unavailable" }
 func (retryTestTemporaryError) Temporary() bool { return true }
+
+func TestLegacyFailedDeploymentRetainsDiagnosticsOnRetry(t *testing.T) {
+	db, lifecycle, _ := openService(t)
+	store := deploymentstore.NewStore(db)
+	desired := desiredServices("api")
+	first, err := lifecycle.StartIfChanged(t.Context(), "app", "one", desired, true)
+	require.NoError(t, err)
+	observedAt := time.Now().UTC()
+	require.NoError(t, lifecycle.Complete(t.Context(), first.ID, Completion{
+		Outcome: CompletionCleanupFailed, Diagnostic: context.DeadlineExceeded, ObservedAt: &observedAt,
+	}))
+	// Legacy rows stored the terminal outcome only on the Deployment.
+	_, err = db.Exec(t.Context(), "DELETE FROM deployment_attempts WHERE id = ?", first.ID)
+	require.NoError(t, err)
+	legacy, err := store.Get(t.Context(), first.DeploymentID)
+	require.NoError(t, err)
+	require.Empty(t, legacy.Attempts)
+	require.True(t, legacy.Retryable)
+	require.NotEmpty(t, legacy.ErrorDiagnostic)
+
+	retry, err := lifecycle.StartIfChanged(t.Context(), "app", "one", desired, false, StartOptions{ManualRetry: true})
+	require.NoError(t, err)
+	require.NotNil(t, retry)
+	assert.Equal(t, first.DeploymentID, retry.DeploymentID)
+	assert.Equal(t, 2, retry.Number)
+
+	current, err := store.Get(t.Context(), first.DeploymentID)
+	require.NoError(t, err)
+	require.Len(t, current.Attempts, 2)
+	historical := current.Attempts[1]
+	assert.Equal(t, 1, historical.Number)
+	assert.Equal(t, deploymentmodel.Failed, historical.Status)
+	assert.Equal(t, legacy.ErrorDiagnostic, historical.ErrorDiagnostic)
+	assert.Equal(t, legacy.Retryable, historical.Retryable)
+	require.NotNil(t, historical.ObservedAt)
+	assert.True(t, observedAt.Equal(*historical.ObservedAt))
+	assert.Empty(t, current.ErrorDiagnostic)
+	assert.False(t, current.Retryable)
+}

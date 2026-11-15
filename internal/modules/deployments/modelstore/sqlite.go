@@ -450,6 +450,15 @@ func marshalDeploymentPayloads(d deploymentmodel.Deployment) (string, string, er
 	return string(details), string(changesPayload), nil
 }
 
+func marshalAttemptDetails(attempt deploymentmodel.Attempt) ([]byte, error) {
+	return json.Marshal(deploymentDetails{
+		TargetServices: attempt.TargetServices, ServiceRevisions: attempt.ServiceRevisions,
+		ErrorDiagnostic: attempt.ErrorDiagnostic, Retryable: attempt.Retryable, ApplyStatus: attempt.ApplyStatus,
+		VerificationStatus: attempt.VerificationStatus, CleanupStatus: attempt.CleanupStatus,
+		ActualStateStatus: attempt.ActualStateStatus, ObservedAt: attempt.ObservedAt,
+	}, json.FormatNilSliceAsNull(true), jsontext.AllowInvalidUTF8(true))
+}
+
 func projectedStatus(status deploymentmodel.Status, isSuperseded bool) deploymentmodel.Status {
 	if isSuperseded {
 		return deploymentmodel.Superseded
@@ -1017,11 +1026,7 @@ func (s *Store) insertAttemptRow(ctx context.Context, attempt deploymentmodel.At
 	if attempt.StartedAt.IsZero() {
 		return fmt.Errorf("attempt start time is required")
 	}
-	details, err := json.Marshal(deploymentDetails{
-		TargetServices: attempt.TargetServices, ServiceRevisions: attempt.ServiceRevisions,
-		ApplyStatus: attempt.ApplyStatus, VerificationStatus: attempt.VerificationStatus,
-		CleanupStatus: attempt.CleanupStatus, ActualStateStatus: attempt.ActualStateStatus,
-	}, json.FormatNilSliceAsNull(true), jsontext.AllowInvalidUTF8(true))
+	details, err := marshalAttemptDetails(attempt)
 	if err != nil {
 		return err
 	}
@@ -1080,12 +1085,7 @@ func (s *Store) FinishAttempt(
 	if attempt.FinishedAt == nil || attempt.FinishedAt.IsZero() {
 		return fmt.Errorf("terminal attempt requires finish time")
 	}
-	attemptDetails, err := json.Marshal(deploymentDetails{
-		TargetServices: attempt.TargetServices, ServiceRevisions: attempt.ServiceRevisions,
-		ErrorDiagnostic: attempt.ErrorDiagnostic, Retryable: attempt.Retryable, ApplyStatus: attempt.ApplyStatus,
-		VerificationStatus: attempt.VerificationStatus, CleanupStatus: attempt.CleanupStatus,
-		ActualStateStatus: attempt.ActualStateStatus, ObservedAt: attempt.ObservedAt,
-	}, json.FormatNilSliceAsNull(true), jsontext.AllowInvalidUTF8(true))
+	attemptDetails, err := marshalAttemptDetails(attempt)
 	if err != nil {
 		return err
 	}

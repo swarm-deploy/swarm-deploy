@@ -278,7 +278,8 @@ func (s *Service) persistHistoricalAttempt(ctx context.Context, deployment deplo
 	attempt.Status, attempt.FinishedAt, attempt.ErrorCode = deployment.Status, &finishedAt, deployment.ErrorCode
 	attempt.Phase, attempt.ApplyStatus = deployment.Phase, deployment.ApplyStatus
 	attempt.VerificationStatus, attempt.CleanupStatus = deployment.VerificationStatus, deployment.CleanupStatus
-	attempt.ActualStateStatus = deployment.ActualStateStatus
+	attempt.ActualStateStatus, attempt.ObservedAt = deployment.ActualStateStatus, deployment.ObservedAt
+	attempt.ErrorDiagnostic, attempt.Retryable = deployment.ErrorDiagnostic, deployment.Retryable
 	return s.store.InsertLegacyAttempt(ctx, attempt)
 }
 
