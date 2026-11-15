@@ -68,6 +68,9 @@ func (c *SecretComparator) CompareSecrets(
 func mapSecretRefs(secrets []compose.ObjectRef) map[string]compose.ObjectRef {
 	set := map[string]compose.ObjectRef{}
 	for _, secret := range secrets {
+		// Compare where Docker mounts the secret, whatever the spelling of its target.
+		secret = secret.ServiceSecret()
+		secret.Target = compose.SecretPath(secret.Target)
 		key := secret.Source + ":" + secret.Target
 		set[key] = secret
 	}

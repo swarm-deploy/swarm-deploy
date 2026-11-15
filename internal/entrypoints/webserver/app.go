@@ -2,7 +2,8 @@ package webserver
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"html"
 	"io/fs"
@@ -92,7 +93,7 @@ func injectRuntimeConfig(indexBytes []byte, basePath string) []byte {
 
 	runtimeConfig, err := json.Marshal(struct {
 		BasePath string `json:"basePath"`
-	}{BasePath: basePath})
+	}{BasePath: basePath}, jsontext.EscapeForHTML(true), jsontext.EscapeForJS(true))
 	if err != nil {
 		panic(fmt.Errorf("encode UI runtime config: %w", err))
 	}

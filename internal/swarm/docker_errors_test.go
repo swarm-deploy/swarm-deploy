@@ -2,7 +2,7 @@ package swarm
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -165,7 +165,7 @@ func TestManagersClassifyDockerErrors(t *testing.T) {
 					}
 					// Successful inspection before an update; every failing request is checked above.
 					assert.Equal(t, http.MethodGet, r.Method)
-					require.NoError(t, json.NewEncoder(w).Encode(map[string]any{
+					require.NoError(t, json.MarshalWrite(w, map[string]any{
 						"ID": "id", "Version": map[string]any{"Index": 1},
 						"Spec": map[string]any{"Labels": map[string]string{stackNamespaceLabelKey: "app"},
 							"Mode": map[string]any{"Replicated": map[string]any{"Replicas": 1}}},
@@ -267,10 +267,10 @@ func TestNodeManagerUpdateConflicts(t *testing.T) {
 					assert.Equal(t, "/v1.48/nodes/id/update", r.URL.Path)
 					assert.Equal(t, "7", r.URL.Query().Get("version"))
 					var spec dockerswarm.NodeSpec
-					require.NoError(t, json.NewDecoder(r.Body).Decode(&spec))
+					require.NoError(t, json.UnmarshalRead(r.Body, &spec))
 					assert.Equal(t, "value", spec.Labels["keep"])
 					w.WriteHeader(tc.status)
-					require.NoError(t, json.NewEncoder(w).Encode(map[string]string{"message": tc.message}))
+					require.NoError(t, json.MarshalWrite(w, map[string]string{"message": tc.message}))
 				}))
 				t.Cleanup(server.Close)
 				m := newNodeManager(newTestDockerClient(t, server))

@@ -593,6 +593,10 @@ func (s *AlertKind) Decode(d *jx.Decoder) error {
 		*s = AlertKindGitRepositoryUnavailable
 	case AlertKindServiceDrift:
 		*s = AlertKindServiceDrift
+	case AlertKindMessengerUnavailable:
+		*s = AlertKindMessengerUnavailable
+	case AlertKindMessengerMisconfigured:
+		*s = AlertKindMessengerMisconfigured
 	default:
 		*s = AlertKind(v)
 	}
@@ -805,6 +809,8 @@ func (s *AlertResourceType) Decode(d *jx.Decoder) error {
 		*s = AlertResourceTypeRepository
 	case AlertResourceTypeService:
 		*s = AlertResourceTypeService
+	case AlertResourceTypeMessenger:
+		*s = AlertResourceTypeMessenger
 	default:
 		*s = AlertResourceType(v)
 	}

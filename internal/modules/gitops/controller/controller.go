@@ -40,17 +40,12 @@ const (
 	TriggerManual   = syncrun.TriggerManual
 )
 
-type renderedCleaner interface {
-	CleanupStale(ctx context.Context) error
-}
-
 // Controller owns GitOps lifecycle, process ownership and graceful shutdown.
 type Controller struct {
 	deployments  deployments.Executor
 	scheduler    *scheduler.Scheduler
 	stacks       *stackqueue.Queue
 	event        dispatcher.Dispatcher
-	cleaner      renderedCleaner
 	ownership    *controllerOwnership
 	shutdownWait time.Duration
 }
@@ -90,7 +85,6 @@ func New(
 		scheduler:    scheduler.New(cfg, runner),
 		stacks:       stacks,
 		event:        eventDispatcher,
-		cleaner:      preparer,
 		ownership:    newControllerOwnership(cfg.Spec.DataDir),
 		shutdownWait: gracefulReconciliationShutdownTimeout,
 	}
@@ -121,11 +115,6 @@ func (c *Controller) Run(ctx context.Context) error {
 	}
 	if handle != nil {
 		defer c.releaseOwnership(ctx, handle)
-		if c.cleaner != nil {
-			if err := c.cleaner.CleanupStale(ctx); err != nil {
-				slog.WarnContext(ctx, "failed to clean up rendered compose files", "err", err)
-			}
-		}
 	}
 	if c.deployments != nil {
 		if err := c.deployments.Recover(ctx); err != nil {

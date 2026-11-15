@@ -60,6 +60,7 @@ func TestVersionAndPayloadValidation(t *testing.T) {
 		{"future version", events.TypeNameNodeJoined, 2, `{}`},
 		{"unknown type", "unknown", 1, `{}`},
 		{"unknown field", events.TypeNameNodeJoined, 1, `{"password":"secret"}`},
+		{"duplicate field", events.TypeNameNodeJoined, 1, `{"id":"one","id":"two"}`},
 		{"trailing data", events.TypeNameNodeJoined, 1, `{} {}`},
 		{"null payload", events.TypeNameNodeJoined, 1, `null`},
 	} {
@@ -151,6 +152,25 @@ func TestAlertLifecycleCodecCarriesDeploymentID(t *testing.T) {
 	decoded, err := Decode(events.TypeNameAlertOpened, Version, payload)
 	require.NoError(t, err)
 	assert.Equal(t, "deployment-1", decoded.(*events.AlertOpened).Alert.DeploymentID)
+}
+
+func TestMessengerHealthCodec(t *testing.T) {
+	for _, event := range []events.Event{
+		&events.MessengerUnavailable{ResourceID: "telegram", ErrorCode: "dns_error",
+			Description: "Messenger DNS lookup failed"},
+		&events.MessengerAvailable{ResourceID: "telegram"},
+		&events.MessengerMisconfigured{ResourceID: "telegram:production", ErrorCode: "chat_not_found",
+			Description: "Messenger chat was not found"},
+		&events.MessengerDeliverySucceeded{ResourceID: "telegram:production"},
+	} {
+		t.Run(event.Type().String(), func(t *testing.T) {
+			payload, err := Encode(event)
+			require.NoError(t, err)
+			decoded, err := Decode(event.Type().Name(), Version, payload)
+			require.NoError(t, err)
+			assert.Equal(t, event, decoded)
+		})
+	}
 }
 
 func TestGitPullLifecycleCodec(t *testing.T) {

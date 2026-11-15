@@ -194,7 +194,7 @@ Accepted updates still in progress are verified even when their specs are unchan
 With no mutations or active updates, stack apply is a no-op rather than a health check.
 
 Periodic reconciliation does not retry an unchanged non-retryable failure,
-including `convergence_failed` and `policy_rejected`. Transient failures (such
+including `convergence_failed`. Transient failures (such
 as interrupted verification or explicitly classified temporary infrastructure
 errors) are retried indefinitely with exponential delays of 1, 2, 4, ...
 minutes, capped at 1 hour. The retry classification, persisted Attempt count,

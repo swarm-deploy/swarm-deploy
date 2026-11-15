@@ -103,6 +103,10 @@ func (s AlertKind) Validate() error {
 		return nil
 	case "service_drift":
 		return nil
+	case "messenger_unavailable":
+		return nil
+	case "messenger_misconfigured":
+		return nil
 	default:
 		return errors.Errorf("invalid value: %v", s)
 	}
@@ -151,6 +155,8 @@ func (s AlertResourceType) Validate() error {
 	case "repository":
 		return nil
 	case "service":
+		return nil
+	case "messenger":
 		return nil
 	default:
 		return errors.Errorf("invalid value: %v", s)

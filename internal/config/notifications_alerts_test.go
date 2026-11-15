@@ -6,6 +6,7 @@ import (
 	"github.com/artarts36/specw"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	"go.yaml.in/yaml/v3"
 )
 
@@ -29,6 +30,22 @@ func TestAlertNotificationFallback(t *testing.T) {
 	require.Empty(t, spec.validate())
 	assert.Equal(t, []string{"default"}, (TelegramChannel{Chats: spec.AlertTelegramRoutes("sync_failed")[0].Chats}).ChatNames())
 	assert.Equal(t, []string{"deployments"}, (TelegramChannel{Chats: spec.AlertTelegramRoutes("node_disconnected")[0].Chats}).ChatNames())
+}
+
+func TestMessengerAlertRoutesExcludeFailingTelegramDestination(t *testing.T) {
+	spec := alertNotificationSpec()
+	spec.Alerts = map[string]NotificationAlertRoutes{"default": {Telegram: []TelegramAlertChannel{{
+		Chats: NotificationChatNames{"default", "deployments"},
+	}}}}
+
+	assert.Empty(t, spec.AlertRecipientsFor("messenger_unavailable", "telegram"))
+	recipients := spec.AlertRecipientsFor("messenger_misconfigured", "telegram:default")
+	require.Len(t, recipients, 1)
+	assert.Equal(t, events.AlertRecipient{
+		BotIdentity: spec.TelegramBotIdentity(), ChatID: "-101", ThreadID: 2,
+	}, recipients[0])
+	assert.Len(t, spec.AlertRecipientsFor("messenger_misconfigured", "telegram:deployments"), 1)
+	assert.Empty(t, spec.AlertRecipientsFor("messenger_misconfigured", "invalid"))
 }
 
 func TestAlertRouteValidationAllowsDeploymentIDTemplate(t *testing.T) {
@@ -131,6 +148,8 @@ func TestAlertRouteValidationAllowsSamePhysicalDestinationForDifferentKinds(t *t
 		"SyncFailed":               {Telegram: []TelegramAlertChannel{{Chats: NotificationChatNames{"default"}}}},
 		"NodeDisconnected":         {Telegram: []TelegramAlertChannel{{Chats: NotificationChatNames{"default"}}}},
 		"GitRepositoryUnavailable": {Telegram: []TelegramAlertChannel{{Chats: NotificationChatNames{"default"}}}},
+		"MessengerUnavailable":     {Telegram: []TelegramAlertChannel{{Chats: NotificationChatNames{"default"}}}},
+		"MessengerMisconfigured":   {Telegram: []TelegramAlertChannel{{Chats: NotificationChatNames{"default"}}}},
 	}
 
 	assert.Empty(t, spec.validate())

@@ -1,14 +1,14 @@
-package alertmanagement
+package evaluators
 
 import (
 	"errors"
 	"fmt"
 	"testing"
-	"time"
 
 	dockerswarm "github.com/docker/docker/api/types/swarm"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/codec"
@@ -19,6 +19,7 @@ import (
 )
 
 func TestDockerFaultsExtractedIntoAlertFindings(t *testing.T) {
+	evaluator := NewSyncEvaluator(modelstore.NewSQLStore(testutil.OpenSQLite(t)), &config.Config{})
 	for _, tc := range []struct {
 		state      swarm.TaskState
 		diagnostic string
@@ -54,24 +55,20 @@ func TestDockerFaultsExtractedIntoAlertFindings(t *testing.T) {
 			require.NoError(t, err)
 			decoded, err := codec.Decode(typeName, codec.Version, payload)
 			require.NoError(t, err)
-			repo := modelstore.NewSQLStore(testutil.OpenSQLite(t))
-			subscriber := newTestSQLSubscriber(repo)
-			now := time.Date(2026, time.November, 8, 12, 0, 0, 0, time.FixedZone("MSK", 3*60*60))
-			subscriber.now = func() time.Time { return now }
-			require.NoError(t, subscriber.Handle(t.Context(), events.Envelope{ID: "failure", OccurredAt: now, Event: decoded}))
-			alerts, err := repo.List(t.Context(), modelstore.ListFilter{})
+			actions, err := evaluator.Evaluate(t.Context(), events.Envelope{ID: "failure", Event: decoded})
 			require.NoError(t, err)
-			require.Len(t, alerts, 1)
-			assert.Contains(t, alerts[0].Message, "verify service app/api: "+tc.diagnostic)
+			require.Len(t, actions, 1)
+			action := actions[0]
+			assert.Contains(t, action.Alert.Message, "verify service app/api: "+tc.diagnostic)
 			if tc.code == "" {
-				assert.Empty(t, alerts[0].Findings)
+				assert.Empty(t, action.Findings)
 				return
 			}
 			wantSummary := tc.diagnostic
 			if tc.code == faults.CodeImageExtractionFailed {
 				wantSummary = "Container image extraction failed: containerd snapshot lease is missing. Retry deployment; check for concurrent image cleanup."
 			}
-			assert.Equal(t, []model.Finding{{Code: tc.code, Summary: wantSummary, DetectedAt: now.UTC()}}, alerts[0].Findings)
+			assert.Equal(t, []model.Finding{{Code: tc.code, Summary: wantSummary}}, action.Findings)
 		})
 	}
 }

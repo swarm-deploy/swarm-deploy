@@ -5,7 +5,9 @@ import (
 	"context"
 	"database/sql"
 	"encoding/base64"
-	"encoding/json"
+	jsonv1 "encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"strconv"
@@ -336,7 +338,7 @@ type deploymentDetails struct {
 	// UnresolvedServices retains verification obligations across desired-state deployments.
 	UnresolvedServices []string                          `json:"unresolved_services"`
 	ErrorDiagnostic    string                            `json:"error_diagnostic,omitempty"`
-	Retryable          bool                              `json:"retryable,omitempty"`
+	Retryable          bool                              `json:"retryable,omitzero"`
 	ApplyStatus        deploymentmodel.StageStatus       `json:"apply_status"`
 	VerificationStatus deploymentmodel.StageStatus       `json:"verification_status"`
 	CleanupStatus      deploymentmodel.StageStatus       `json:"cleanup_status"`
@@ -392,7 +394,8 @@ func detailsFromDeployment(d deploymentmodel.Deployment) deploymentDetails {
 }
 
 func marshalDeploymentPayloads(d deploymentmodel.Deployment) (string, string, error) {
-	details, err := json.Marshal(detailsFromDeployment(d))
+	details, err := json.Marshal(detailsFromDeployment(d),
+		json.FormatNilSliceAsNull(true), jsontext.AllowInvalidUTF8(true))
 	if err != nil {
 		return "", "", err
 	}
@@ -743,7 +746,7 @@ func (s *Store) getPrepared(ctx context.Context, query string, args ...any) (dep
 		return deploymentmodel.Prepared{}, err
 	}
 	var desired deploymentmodel.Prepared
-	err := json.Unmarshal(payload, &desired)
+	err := json.Unmarshal(payload, &desired, jsonv1.DefaultOptionsV1())
 	return desired, err
 }
 
@@ -838,7 +841,7 @@ func (s *Store) CreateDeployment(
 	if d.StartedAt.IsZero() {
 		return fmt.Errorf("deployment start time is required")
 	}
-	safe, err := json.Marshal(desired)
+	safe, err := json.Marshal(desired, jsonv1.DefaultOptionsV1())
 	if err != nil {
 		return err
 	}
@@ -902,7 +905,7 @@ func (s *Store) insertAttemptRow(ctx context.Context, attempt deploymentmodel.At
 		SkippedServices: attempt.SkippedServices,
 		ApplyStatus:     attempt.ApplyStatus, VerificationStatus: attempt.VerificationStatus,
 		CleanupStatus: attempt.CleanupStatus, ActualStateStatus: attempt.ActualStateStatus,
-	})
+	}, json.FormatNilSliceAsNull(true), jsontext.AllowInvalidUTF8(true))
 	if err != nil {
 		return err
 	}
@@ -932,7 +935,7 @@ func (s *Store) FinishAttempt(
 		ErrorDiagnostic: attempt.ErrorDiagnostic, Retryable: attempt.Retryable, ApplyStatus: attempt.ApplyStatus,
 		VerificationStatus: attempt.VerificationStatus, CleanupStatus: attempt.CleanupStatus,
 		ActualStateStatus: attempt.ActualStateStatus, ObservedAt: attempt.ObservedAt,
-	})
+	}, json.FormatNilSliceAsNull(true), jsontext.AllowInvalidUTF8(true))
 	if err != nil {
 		return err
 	}

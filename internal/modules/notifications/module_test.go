@@ -2,7 +2,7 @@ package notifications
 
 import (
 	"crypto/sha256"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -26,7 +26,7 @@ func TestInitModuleDeliversPendingWebhookAfterRestart(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var message struct{ Payload eventnotify.NodePayload }
 		assert.Equal(t, http.MethodPost, r.Method)
-		if assert.NoError(t, json.NewDecoder(r.Body).Decode(&message)) {
+		if assert.NoError(t, json.UnmarshalRead(r.Body, &message)) {
 			received <- message.Payload
 		}
 		w.WriteHeader(http.StatusNoContent)
@@ -71,6 +71,23 @@ func TestInitModuleDeliversPendingWebhookAfterRestart(t *testing.T) {
 		t.Fatal("pending webhook delivery was not sent")
 	}
 	deliveries, err := repository.ListDeliveries(ctx, outbox.ListDeliveriesFilter{})
+	require.NoError(t, err)
+	assert.Empty(t, deliveries)
+}
+
+func TestInitModuleIgnoresRetiredNotificationRoute(t *testing.T) {
+	db, err := storage.OpenSQLite(t.Context(), t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	repository := outbox.New(db)
+	bus := dispatcher.NewOutboxDispatcher(repository)
+	spec := config.NotificationSpec{Events: map[events.TypeName]config.NotificationEventRoutes{
+		events.TypeNameSendNotificationFailed: {Custom: []config.CustomChannel{{Name: "audit"}}},
+	}}
+
+	require.NoError(t, InitModule(t.Context(), spec, bus, db))
+	require.NoError(t, bus.Publish(t.Context(), &events.SendNotificationFailed{Destination: "telegram", Channel: "ops"}))
+	deliveries, err := repository.ListDeliveries(t.Context(), outbox.ListDeliveriesFilter{})
 	require.NoError(t, err)
 	assert.Empty(t, deliveries)
 }

@@ -21,7 +21,6 @@ const (
 	initJobDeleteRetryAttempts  = uint(5)
 	initJobDeleteRetryDelay     = 1 * time.Second
 	initJobDeleteAttemptTimeout = 10 * time.Second
-	initJobObjectFileMode       = 0o444
 	initJobLogCollectionTimeout = 5 * time.Second
 	initJobLogLimit             = 64 * 1024
 )

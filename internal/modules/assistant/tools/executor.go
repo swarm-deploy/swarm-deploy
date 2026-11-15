@@ -2,7 +2,8 @@ package tools
 
 import (
 	"context"
-	"encoding/json"
+	jsonv1 "encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -173,7 +174,7 @@ func (e *Executor) Execute(ctx context.Context, req routing.Request) (string, er
 		return "", err
 	}
 
-	encoded, err := json.Marshal(result.Payload)
+	encoded, err := json.Marshal(result.Payload, jsonv1.DefaultOptionsV1())
 	if err != nil {
 		tracing.FailSpan(span, fmt.Errorf("failed to encode payload: %w", err))
 

@@ -17,11 +17,8 @@ func healthcheck(source *compose.ServiceHealth) (*container.HealthConfig, error)
 		}
 		return &container.HealthConfig{Test: []string{"NONE"}}, nil
 	}
-	result := &container.HealthConfig{Test: slices.Clone(source.Test.Args)}
-	if len(result.Test) > 0 && !source.Test.IsList() {
-		result.Test = append([]string{"CMD-SHELL"}, result.Test...)
-	}
-	if len(result.Test) > 0 && !slices.Contains([]string{"NONE", "CMD", "CMD-SHELL"}, result.Test[0]) {
+	result := &container.HealthConfig{Test: source.Canonical().Test.Args}
+	if len(result.Test) > 0 && !slices.Contains([]string{"NONE", "CMD", compose.HealthcheckShell}, result.Test[0]) {
 		return nil, fmt.Errorf("healthcheck.test: expected NONE, CMD or CMD-SHELL")
 	}
 	if len(result.Test) > 1 && result.Test[0] == "NONE" {

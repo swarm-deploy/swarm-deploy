@@ -28,6 +28,8 @@ type File struct {
 	Digest string `json:"digest"`
 	// ResourceDigests fingerprints referenced config/secret file contents without storing them.
 	ResourceDigests map[string]string `json:"resource_digests,omitempty"`
+	// ServiceDigests holds per-service fingerprints populated after GitOps preparation.
+	ServiceDigests map[string]string `json:"-"`
 }
 
 // FileLoader loads compose files.
@@ -99,7 +101,10 @@ func (l *fileLoader) Load(ctx context.Context, path string) (*File, error) {
 		return nil, &ValidateComposeError{FilePath: path, Issues: decodeIssues(validateErr), Err: validateErr}
 	}
 	schema := Compose{}
-	if err = syntax.Decode(&schema); err != nil {
+	if err = syntax.Decode(&schema); err == nil {
+		err = normalizeServiceCommands(schema.Services)
+	}
+	if err != nil {
 		if interpolated {
 			err = fmt.Errorf("invalid Compose value after interpolation")
 		}
@@ -152,7 +157,6 @@ func (l *fileLoader) Load(ctx context.Context, path string) (*File, error) {
 	}
 
 	file.Digest = computeDigest(*file, raw, configFiles, secretFiles)
-
 	return file, nil
 }
 

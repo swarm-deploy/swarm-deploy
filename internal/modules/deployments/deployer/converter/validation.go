@@ -168,7 +168,10 @@ func validateInitNetworks(service compose.Service, definitions map[string]compos
 func validateFileTargets(field string, refs []compose.ObjectRef, secret bool) error {
 	targets := map[string]bool{}
 	for _, ref := range refs {
-		target, _, _, _ := fileTarget(ref, secret)
+		target := ref.ServiceConfig().Target
+		if secret {
+			target = ref.ServiceSecret().Target
+		}
 		if targets[target] {
 			return fmt.Errorf("%s.%s.target: duplicate file target", field, ref.Source)
 		}

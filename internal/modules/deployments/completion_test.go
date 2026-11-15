@@ -66,14 +66,6 @@ func TestCompletePersistsLifecycleBaselineAndEvents(t *testing.T) {
 			wantEvent: events.TypeNameDeployFailed, wantEventStage: "verification", wantFault: faults.CodeImageNotFound,
 		},
 		{
-			name:       "policy rejection",
-			completion: Completion{Outcome: CompletionPolicyRejected},
-			wantStatus: deploymentmodel.Failed, wantPhase: deploymentmodel.PhaseApply,
-			wantApply: deploymentmodel.StageFailed, wantVerification: deploymentmodel.StageSkipped,
-			wantCleanup: deploymentmodel.StageSkipped, wantActual: deploymentmodel.ActualStateUnknown,
-			wantEvent: events.TypeNameDeployFailed, wantEventStage: "apply",
-		},
-		{
 			name:       "init job failure",
 			completion: Completion{Outcome: CompletionInitJobFailed},
 			wantStatus: deploymentmodel.Failed, wantPhase: deploymentmodel.PhaseApply,

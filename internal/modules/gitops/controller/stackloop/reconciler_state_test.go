@@ -48,18 +48,25 @@ func TestReconcileUpdatesStateOnSuccess(t *testing.T) {
 
 	mockRepositoryFiles(repository, repoDir)
 
-	require.NoError(t, writeComposeFile(repoDir), "write compose")
-	otherRenderedPath := filepath.Join(repoDir, ".data", "rendered", "other.yaml")
-	require.NoError(t, os.MkdirAll(filepath.Dir(otherRenderedPath), 0o755), "create rendered dir")
-	require.NoError(t, os.WriteFile(otherRenderedPath, []byte("other stack"), 0o600),
-		"write another stack rendered compose")
+	require.NoError(t, os.WriteFile(filepath.Join(repoDir, "app.yaml"), []byte(`
+services:
+  api:
+    image: nginx:latest
+    environment:
+      PRIVATE_VALUE: must-not-be-persisted
+`), 0o600), "write compose")
 
 	stackDeployer.EXPECT().
 		DeployStack(gomock.Any(), gomock.Cond(func(req deployer.StackRequest) bool {
 			return req.StackName == "app" &&
 				req.SourceComposePath == filepath.Join(repoDir, "app.yaml")
 		})).
-		Return(deployer.Result{}, nil)
+		DoAndReturn(func(context.Context, deployer.StackRequest) (deployer.Result, error) {
+			service := readSQLState(t, stateStore).Stacks["app"].Services["api"]
+			assert.NotEmpty(t, service.DesiredDigest, "desired state must be persisted before deployment")
+			assert.Equal(t, "commit-1", service.DesiredCommit)
+			return deployer.Result{}, nil
+		})
 	serviceManager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "app"}).Return(nil, nil)
 
 	reconciler := &Reconciler{
@@ -90,7 +97,6 @@ func TestReconcileUpdatesStateOnSuccess(t *testing.T) {
 	})
 
 	require.NoError(t, err, "reconcile")
-	assert.FileExists(t, otherRenderedPath, "reconciliation must not remove another stack rendered compose")
 	state := readSQLState(t, stateStore)
 	stackState, exists := state.Stacks["app"]
 	require.True(t, exists, "expected stack state")
@@ -100,7 +106,12 @@ func TestReconcileUpdatesStateOnSuccess(t *testing.T) {
 	require.Len(t, stackState.Services, 1, "expected one service state")
 	serviceState := stackState.Services["api"]
 	assert.Equal(t, "nginx:latest", serviceState.Image, "unexpected image")
+	assert.NotEmpty(t, serviceState.DesiredDigest)
+	assert.Equal(t, "commit-1", serviceState.DesiredCommit)
 	assert.Equal(t, model.SyncStatus(model.SyncStatusSynced), serviceState.SyncStatus, "unexpected sync status")
+	var persistedPayload string
+	require.NoError(t, db.Get(t.Context(), &persistedPayload, "SELECT payload FROM gitops_runtime WHERE id = 1"))
+	assert.NotContains(t, persistedPayload, "must-not-be-persisted")
 }
 
 func TestReconcileUpdatesStateOnFailure(t *testing.T) {
@@ -160,6 +171,8 @@ func TestReconcileUpdatesStateOnFailure(t *testing.T) {
 	assert.Empty(t, stackState.SourceDigest, "expected empty source digest")
 	require.Len(t, stackState.Services, 1, "expected one service state")
 	serviceState := stackState.Services["api"]
+	assert.NotEmpty(t, serviceState.DesiredDigest)
+	assert.Equal(t, "commit-2", serviceState.DesiredCommit)
 	assert.Equal(t, model.SyncStatus(model.SyncStatusOutOfSync), serviceState.SyncStatus, "unexpected sync status")
 	page, listErr := deploymentstore.NewStore(db).List(context.Background(), deploymentmodel.ListFilter{})
 	require.NoError(t, listErr)
@@ -170,6 +183,71 @@ func TestReconcileUpdatesStateOnFailure(t *testing.T) {
 	assert.Equal(t, deploymentmodel.StageFailed, attempt.ApplyStatus)
 	assert.Equal(t, deploymentmodel.StageSkipped, attempt.VerificationStatus)
 	assert.Equal(t, deploymentmodel.ActualStateUnknown, attempt.ActualStateStatus)
+}
+
+func TestPersistDesiredServicesTracksChangesPerService(t *testing.T) {
+	store := modelstore.NewMemoryStore()
+	updatedAt := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
+	require.NoError(t, store.Update(t.Context(), func(runtime *model.Runtime) {
+		runtime.Stacks["app"] = model.Stack{StateUpdatedAt: updatedAt, Services: map[string]model.Service{
+			"api": {Image: "api:1", SyncStatus: model.SyncStatusSynced},
+		}}
+	}))
+	reconciler := &Reconciler{stateStore: store}
+
+	services, err := reconciler.persistDesiredServices(t.Context(), "app", "commit-1", map[string]string{
+		"api": "digest-a", "worker": "digest-worker",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "commit-1", services["api"].DesiredCommit)
+	assert.Equal(t, "commit-1", services["worker"].DesiredCommit)
+	assert.Equal(t, model.SyncStatus(model.SyncStatusSynced), services["api"].SyncStatus)
+
+	services, err = reconciler.persistDesiredServices(t.Context(), "app", "commit-2", map[string]string{
+		"api": "digest-b", "worker": "digest-worker",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "commit-2", services["api"].DesiredCommit)
+	assert.Equal(t, "commit-1", services["worker"].DesiredCommit, "unchanged service must retain its commit")
+
+	services, err = reconciler.persistDesiredServices(t.Context(), "app", "commit-3", map[string]string{
+		"api": "digest-a", "worker": "digest-worker",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "commit-3", services["api"].DesiredCommit, "revert is a new desired-state change")
+	assert.Equal(t, updatedAt, store.Get().Stacks["app"].StateUpdatedAt, "desired metadata must not affect event ordering")
+}
+
+func TestProcessResultKeepsDesiredRevisionsForPausedServices(t *testing.T) {
+	db, store := newSQLState(t)
+	reconciler := &Reconciler{db: db, stateStore: store}
+	request := ReconciliationRequest{Stack: config.StackSpec{Name: "app"}, Commit: "commit-2"}
+	previous := model.Stack{Services: map[string]model.Service{
+		"api": {Image: "api:1", SyncStatus: model.SyncStatusSynced},
+	}}
+	require.NoError(t, store.Update(t.Context(), func(runtime *model.Runtime) {
+		runtime.Stacks["app"] = previous
+	}))
+	desired := &compose.File{
+		Compose: compose.Compose{Services: compose.Services{
+			{Name: "api", Image: "api:2"}, {Name: "worker", Image: "worker:1"},
+		}},
+		ServiceDigests: map[string]string{"api": "digest-api", "worker": "digest-worker"},
+	}
+	require.NoError(t, reconciler.recordPreparedDesired(t.Context(), request, desired, &previous))
+	require.NoError(t, reconciler.processResult(t.Context(), request, previous, desired, &pipelinePayload{
+		PreservedServices: []string{"api", "worker"},
+	}))
+
+	services := readSQLState(t, store).Stacks["app"].Services
+	assert.Equal(t, model.Service{
+		Image: "api:1", SyncStatus: model.SyncStatusSynced,
+		DesiredDigest: "digest-api", DesiredCommit: "commit-2",
+	}, services["api"])
+	assert.Equal(t, model.Service{
+		Image: "worker:1", SyncStatus: model.SyncStatusOutOfSync,
+		DesiredDigest: "digest-worker", DesiredCommit: "commit-2",
+	}, services["worker"])
 }
 
 func TestReconcileSeparatesPostApplyOutcomes(t *testing.T) {
@@ -885,6 +963,7 @@ services:
 		Commit: "commit-downward-3",
 	})
 	require.NoError(t, reconcileErr, "second reconcile")
+	assert.Equal(t, "commit-downward-2", readSQLState(t, stateStore).Stacks["app"].Services["api"].DesiredCommit)
 }
 
 func TestReconcilePrunesServicesWithoutNewDeployment(t *testing.T) {

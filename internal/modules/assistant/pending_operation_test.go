@@ -2,9 +2,8 @@ package assistant
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
-	"go.uber.org/mock/gomock"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -19,6 +18,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/syncpause"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/model"
+	"go.uber.org/mock/gomock"
 )
 
 func TestPendingOperationFullRestartSkipsMainGenerationAndConfirmationSkipsModels(t *testing.T) {
@@ -26,7 +26,7 @@ func TestPendingOperationFullRestartSkipsMainGenerationAndConfirmationSkipsModel
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		requests++
 		w.Header().Set("Content-Type", "application/json")
-		require.NoError(t, json.NewEncoder(w).Encode(map[string]any{
+		require.NoError(t, json.MarshalWrite(w, map[string]any{
 			"choices": []map[string]any{{"message": map[string]any{"content": `{"route":"services","operation":{"type":"service_restart_trigger","target":"core/api"}}`}}},
 			"usage":   map[string]any{"prompt_tokens": 3, "completion_tokens": 1, "total_tokens": 4},
 		}))

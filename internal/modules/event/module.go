@@ -66,7 +66,7 @@ func (s *Module) Run(ctx context.Context) error { return s.Bus.Run(ctx) }
 // History.Handle retains its own persistence filters.
 func projectionEventTypes() []events.TypeName {
 	return []events.TypeName{
-		events.TypeNameServiceCatalogUpdated, events.TypeNameDeploySuccess, events.TypeNameSendNotificationFailed,
+		events.TypeNameServiceCatalogUpdated, events.TypeNameDeploySuccess,
 		events.TypeNameSyncManualStarted, events.TypeNameWebhookReceived, events.TypeNameNodeJoined,
 		events.TypeNameSyncPaused, events.TypeNameSyncResumed, events.TypeNameSyncPauseExpired,
 		events.TypeNameNodeConnected, events.TypeNameNodeDisconnected, events.TypeNameServiceMissed,

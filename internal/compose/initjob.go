@@ -1,7 +1,8 @@
 package compose
 
 import (
-	"encoding/json"
+	jsonv1 "encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"time"
 
@@ -48,13 +49,13 @@ func (j InitJob) MarshalJSON() ([]byte, error) {
 		Name: j.Name, Image: j.Image, Entrypoint: j.Entrypoint, Command: j.Command,
 		Environment: j.Environment, Networks: j.Networks, Secrets: j.Secrets, Configs: j.Configs,
 		Timeout: int64(j.Timeout.Value),
-	})
+	}, jsonv1.DefaultOptionsV1())
 }
 
 // UnmarshalJSON restores an init job persisted in a desired-state snapshot.
 func (j *InitJob) UnmarshalJSON(data []byte) error {
 	var value initJobJSON
-	if err := json.Unmarshal(data, &value); err != nil {
+	if err := json.Unmarshal(data, &value, jsonv1.DefaultOptionsV1()); err != nil {
 		return err
 	}
 	j.Name, j.Image = value.Name, value.Image
@@ -63,6 +64,57 @@ func (j *InitJob) UnmarshalJSON(data []byte) error {
 	j.Secrets, j.Configs = value.Secrets, value.Configs
 	j.Timeout.Value = time.Duration(value.Timeout)
 	return nil
+}
+
+// resolveObjectRefs resolves config and secret references as Init Jobs mount them.
+func (j *InitJob) resolveObjectRefs() {
+	j.Secrets = mapObjectRefs(j.Secrets, ObjectRef.InitJobSecret)
+	j.Configs = mapObjectRefs(j.Configs, ObjectRef.ServiceConfig)
+}
+
+// ValidateObjectRefs checks that declarations for the same source and path
+// agree on file ownership and permissions within the job.
+func (j InitJob) ValidateObjectRefs() error {
+	if err := validateMountOwnership("configs", j.Configs, ObjectRef.ServiceConfig); err != nil {
+		return err
+	}
+	return validateMountOwnership("secrets", j.Secrets, ObjectRef.InitJobSecret)
+}
+
+func validateMountOwnership(field string, refs []ObjectRef, resolve func(ObjectRef) ObjectRef) error {
+	if len(refs) <= 1 {
+		return nil
+	}
+	type mount struct{ source, target string }
+	seen := make(map[mount]int, len(refs))
+	for i, ref := range refs {
+		if ref.Source == "" {
+			continue
+		}
+		resolved := resolve(ref)
+		key := mount{source: resolved.Source, target: resolved.MountPath()}
+		if previous, exists := seen[key]; exists {
+			uid, gid, mode := ref.FileOwnership()
+			previousUID, previousGID, previousMode := refs[previous].FileOwnership()
+			if uid != previousUID || gid != previousGID || mode != previousMode {
+				return fmt.Errorf("%s[%d]: conflicting uid, gid or mode for the same mount as entry %d", field, i, previous)
+			}
+			continue
+		}
+		seen[key] = i
+	}
+	return nil
+}
+
+func mapObjectRefs(refs []ObjectRef, resolve func(ObjectRef) ObjectRef) []ObjectRef {
+	if refs == nil {
+		return nil
+	}
+	result := make([]ObjectRef, len(refs))
+	for i, ref := range refs {
+		result[i] = resolve(ref)
+	}
+	return result
 }
 
 func normalizeInitJobs(jobs []InitJob, networks map[string]Network) ([]InitJob, []ValidationIssue) {

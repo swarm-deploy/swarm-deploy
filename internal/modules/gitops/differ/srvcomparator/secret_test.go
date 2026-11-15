@@ -44,6 +44,12 @@ func TestServiceSecretComparatorCompareSecrets(t *testing.T) {
 			},
 			expecteds: []diff.SecretDiff{},
 		},
+		{
+			name:      "compares targets by mount path",
+			left:      []compose.ObjectRef{{Source: "db-pass", Target: "db-pass"}, {Source: "cert", Target: "tls.crt"}},
+			right:     []compose.ObjectRef{{Source: "db-pass"}, {Source: "cert", Target: "/run/secrets/tls.crt"}},
+			expecteds: []diff.SecretDiff{},
+		},
 	}
 
 	for _, testCase := range testCases {

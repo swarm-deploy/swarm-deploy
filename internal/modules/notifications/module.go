@@ -33,6 +33,11 @@ func InitModule(
 func registerEventSubscribers(ctx context.Context, bus dispatcher.Dispatcher, spec config.NotificationSpec) error {
 	subscribersCount := 0
 	for eventType, routes := range spec.Events {
+		if eventType == events.TypeNameSendNotificationFailed {
+			slog.WarnContext(ctx, "ignoring retired notification route", "event_type", eventType,
+				"config_key", "notifications.events.SendNotificationFailed")
+			continue
+		}
 		if !eventType.Valid() {
 			return fmt.Errorf("unknown notifications.events event type %q", eventType)
 		}
@@ -78,7 +83,7 @@ func registerTelegramNotifications(
 		for _, chatName := range channel.ChatNames() {
 			chat := telegram.Chats[chatName]
 			notifier, err := notifiers.NewTelegramNotifier(
-				chatName, string(telegram.BotToken.Content), chat.ID,
+				chatName, string(telegram.BotToken.Content), chat.ID, bus,
 				notifiers.TelegramOptions{
 					ChatThreadID: chat.ThreadID, Message: channel.Message, DefaultMessage: defaultTemplate,
 					Buttons: channel.Buttons,
