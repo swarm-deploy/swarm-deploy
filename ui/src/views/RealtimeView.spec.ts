@@ -10,8 +10,8 @@ const apiMocks = vi.hoisted(() => ({
   scaleSwarmService: vi.fn(),
 }));
 const pauseMocks = vi.hoisted(() => ({
-  getStackSyncPauses: vi.fn(),
-  setStackSyncPause: vi.fn(),
+  getServiceSyncPause: vi.fn(),
+  setServiceSyncPause: vi.fn(),
 }));
 
 vi.mock("../api/services", () => apiMocks);
@@ -63,10 +63,11 @@ describe("RealtimeView", () => {
     apiMocks.fetchSwarmServiceTasks.mockResolvedValue({ tasks });
     apiMocks.scaleSwarmService.mockResolvedValue(undefined);
     apiMocks.fetchSwarmTask.mockImplementation(async (id: string) => taskDetails(id));
-    pauseMocks.getStackSyncPauses.mockResolvedValue({ effectively_paused_services: 0 });
-    pauseMocks.setStackSyncPause.mockResolvedValue({
-      stack_pause: { stack: "infra", expires_at: null },
-      effectively_paused_services: 2,
+    pauseMocks.getServiceSyncPause.mockResolvedValue({ effective_paused: false });
+    pauseMocks.setServiceSyncPause.mockResolvedValue({
+      effective_paused: true,
+      effective_source: "service",
+      service_pause: { scope: "service", stack: "infra", service: "api", expires_at: null },
     });
   });
 
@@ -360,10 +361,11 @@ describe("Realtime service scaling", () => {
     apiMocks.fetchSwarmServiceTasks.mockResolvedValue({ tasks });
     apiMocks.fetchSwarmTask.mockImplementation(async (id: string) => taskDetails(id));
     apiMocks.scaleSwarmService.mockResolvedValue(undefined);
-    pauseMocks.getStackSyncPauses.mockResolvedValue({ effectively_paused_services: 0 });
-    pauseMocks.setStackSyncPause.mockResolvedValue({
-      stack_pause: { stack: "infra", expires_at: null },
-      effectively_paused_services: 2,
+    pauseMocks.getServiceSyncPause.mockResolvedValue({ effective_paused: false });
+    pauseMocks.setServiceSyncPause.mockResolvedValue({
+      effective_paused: true,
+      effective_source: "service",
+      service_pause: { scope: "service", stack: "infra", service: "api", expires_at: null },
     });
   });
 
@@ -485,11 +487,12 @@ describe("Realtime service scaling", () => {
 
   it("persists Pause Sync before scaling", async () => {
     const order: string[] = [];
-    pauseMocks.setStackSyncPause.mockImplementation(async () => {
+    pauseMocks.setServiceSyncPause.mockImplementation(async () => {
       order.push("pause");
       return {
-        stack_pause: { stack: "infra", expires_at: null },
-        effectively_paused_services: 2,
+        effective_paused: true,
+        effective_source: "service",
+        service_pause: { scope: "service", stack: "infra", service: "api", expires_at: null },
       };
     });
     apiMocks.scaleSwarmService.mockImplementation(async () => { order.push("scale"); });
@@ -507,24 +510,26 @@ describe("Realtime service scaling", () => {
   });
 
   it("ignores a stale Pause Sync lookup after switching services", async () => {
-    let resolveFirst!: (value: object) => void;
-    let resolveSecond!: (value: object) => void;
-    pauseMocks.getStackSyncPauses
-      .mockImplementationOnce(() => new Promise((resolve) => { resolveFirst = resolve; }))
-      .mockImplementationOnce(() => new Promise((resolve) => { resolveSecond = resolve; }));
+    let resolveAPI!: (value: { effective_paused: boolean; effective_source: string }) => void;
+    let resolveWorker!: (value: { effective_paused: boolean; effective_source: string }) => void;
+    pauseMocks.getServiceSyncPause.mockImplementation((_stack: string, service: string) => new Promise((resolve) => {
+      if (service === "api") resolveAPI = resolve;
+      else resolveWorker = resolve;
+    }));
     const wrapper = await mountView();
 
     await wrapper.get('[aria-label="Scale api"]').trigger("click");
     await wrapper.get('[aria-label="Close scaling modal"]').trigger("click");
     await wrapper.get('[aria-label="Scale worker"]').trigger("click");
-    resolveSecond({ stack_pause: { stack: "infra", expires_at: null }, effectively_paused_services: 2 });
+    resolveWorker({ effective_paused: true, effective_source: "stack" });
     await flushPromises();
     expect(wrapper.get('[role="dialog"]').text()).toContain("worker");
-    expect(wrapper.get('[role="dialog"]').text()).toContain("Sync paused for the entire stack");
+    expect(wrapper.get('[role="dialog"]').text()).toContain("Sync paused by: Stack");
 
-    resolveFirst({ effectively_paused_services: 0 });
+    resolveAPI({ effective_paused: true, effective_source: "service" });
     await flushPromises();
-    expect(wrapper.get('[role="dialog"]').text()).toContain("Sync paused for the entire stack");
+    expect(wrapper.get('[role="dialog"]').text()).toContain("Sync paused by: Stack");
+    expect(wrapper.get('[role="dialog"]').text()).not.toContain("Sync paused by: Service");
     wrapper.unmount();
   });
 
@@ -540,11 +545,11 @@ describe("Realtime service scaling", () => {
 
     expect(wrapper.get('[role="dialog"] [role="alert"]').text()).toContain("Sync is paused, but scaling failed");
     expect(wrapper.get('[role="dialog"]').text()).toContain("Retry will only retry scaling");
-    expect(pauseMocks.setStackSyncPause).toHaveBeenCalledTimes(1);
+    expect(pauseMocks.setServiceSyncPause).toHaveBeenCalledTimes(1);
 
     await wrapper.get("form").trigger("submit");
     await flushPromises();
-    expect(pauseMocks.setStackSyncPause).toHaveBeenCalledTimes(1);
+    expect(pauseMocks.setServiceSyncPause).toHaveBeenCalledTimes(1);
     expect(apiMocks.scaleSwarmService).toHaveBeenCalledTimes(2);
     expect(wrapper.find('[role="dialog"]').exists()).toBe(false);
     wrapper.unmount();

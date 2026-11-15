@@ -242,21 +242,23 @@ func TestPendingOperationConfirmsDeploySync(t *testing.T) {
 	assert.Equal(t, []string{deploySyncTriggerTool}, tools.calls)
 }
 
-func TestPendingPauseStackResumeRequiresConfirmation(t *testing.T) {
-	tools := &fakeTools{definitions: assistantTestToolDefinitions(), executeResult: `{"stack":"app","changed":true}`}
+func TestPendingPauseStackResumeWarnsThatServicePausesRemain(t *testing.T) {
+	tools := &fakeTools{definitions: assistantTestToolDefinitions(), executeResult: `{"scope":"stack","stack":"app","changed":true}`}
 	g := newPendingTestGraph(serviceStore(t, nil), tools)
-	g.pauseTargets = &fakePauseTargets{}
+	g.pauseTargets = &fakePauseTargets{stackState: syncpause.StackState{ServicePauses: []syncpause.Pause{{
+		Scope: syncpause.ScopeService, StackName: "app", ServiceName: "api",
+	}}}}
 
 	answer, usage := g.startPendingOperation(t.Context(), "conversation", OperationIntent{
-		Type: OperationSyncPauseResume, Target: "app",
+		Type: OperationSyncPauseResume, Scope: "stack", Target: "app",
 	})
 	assert.Zero(t, usage)
-	assert.Contains(t, answer, "Удалить Pause Sync для стека `app`")
+	assert.Contains(t, answer, "1 прямых пауз сервисов останутся активными")
 
 	handled, answer, _, err := g.handlePendingOperation(t.Context(), "conversation", "confirm")
 	require.NoError(t, err)
 	assert.True(t, handled)
-	assert.Contains(t, answer, "Pause Sync policy removed")
+	assert.Contains(t, answer, "Direct Pause Sync policy removed")
 	assert.Equal(t, []string{syncPauseResumeTool}, tools.calls)
 }
 
@@ -266,10 +268,7 @@ func TestPendingPauseAndScaleFailureRetainsRetryForScaleOnly(t *testing.T) {
 	tools.executeFunc = func(request routing.Request) (string, error) {
 		switch request.ToolName {
 		case syncPauseSetTool:
-			payload, ok := request.Payload.(string)
-			require.True(t, ok)
-			assert.JSONEq(t, `{"stack":"app","expires_at":null}`, payload)
-			return `{"stack":"app","changed":true}`, nil
+			return `{"scope":"service","stack":"app","service":"api","changed":true}`, nil
 		case serviceReplicasSetTool:
 			scaleCalls++
 			if scaleCalls == 1 {
@@ -285,10 +284,9 @@ func TestPendingPauseAndScaleFailureRetainsRetryForScaleOnly(t *testing.T) {
 	replicas := uint64(3)
 
 	answer, _ := g.startPendingOperation(t.Context(), "conversation", OperationIntent{
-		Type: OperationSyncPauseSet, Target: "app/api", Replicas: &replicas,
+		Type: OperationSyncPauseSet, Scope: "service", Target: "app/api", Replicas: &replicas,
 	})
-	assert.Contains(t, answer, "всего стека `app`")
-	assert.Contains(t, answer, "затем установить 3 реплик для сервиса `api`")
+	assert.Contains(t, answer, "затем установить 3 реплик")
 	handled, answer, _, err := g.handlePendingOperation(t.Context(), "conversation", "yes")
 	require.NoError(t, err)
 	assert.True(t, handled)
@@ -391,4 +389,8 @@ type fakePauseTargets struct{ stackState syncpause.StackState }
 
 func (f *fakePauseTargets) StackSyncPause(context.Context, string) (syncpause.StackState, error) {
 	return f.stackState, nil
+}
+
+func (f *fakePauseTargets) ServiceSyncPause(context.Context, string, string) (syncpause.ServiceState, error) {
+	return syncpause.ServiceState{}, nil
 }

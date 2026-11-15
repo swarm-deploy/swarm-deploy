@@ -26,10 +26,13 @@ var (
 	rn12AllowedHeaders = map[string]string{
 		"POST": "Content-Type",
 	}
-	rn18AllowedHeaders = map[string]string{
+	rn20AllowedHeaders = map[string]string{
 		"PUT": "Content-Type",
 	}
-	rn78AllowedHeaders = map[string]string{
+	rn22AllowedHeaders = map[string]string{
+		"PUT": "Content-Type",
+	}
+	rn80AllowedHeaders = map[string]string{
 		"PUT": "Content-Type",
 	}
 )
@@ -1394,32 +1397,84 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 											return
 										}
 										switch elem[0] {
-										case '/': // Prefix: "/deployments"
+										case '/': // Prefix: "/"
 
-											if l := len("/deployments"); len(elem) >= l && elem[0:l] == "/deployments" {
+											if l := len("/"); len(elem) >= l && elem[0:l] == "/" {
 												elem = elem[l:]
 											} else {
 												break
 											}
 
 											if len(elem) == 0 {
-												// Leaf node.
-												switch r.Method {
-												case "GET":
-													s.handleListServiceDeploymentsRequest([2]string{
-														args[0],
-														args[1],
-													}, elemIsEscaped, w, r)
-												default:
-													s.notAllowed(w, r, notAllowedParams{
-														allowedMethods: "GET",
-														allowedHeaders: nil,
-														acceptPost:     "",
-														acceptPatch:    "",
-													})
+												break
+											}
+											switch elem[0] {
+											case 'd': // Prefix: "deployments"
+
+												if l := len("deployments"); len(elem) >= l && elem[0:l] == "deployments" {
+													elem = elem[l:]
+												} else {
+													break
 												}
 
-												return
+												if len(elem) == 0 {
+													// Leaf node.
+													switch r.Method {
+													case "GET":
+														s.handleListServiceDeploymentsRequest([2]string{
+															args[0],
+															args[1],
+														}, elemIsEscaped, w, r)
+													default:
+														s.notAllowed(w, r, notAllowedParams{
+															allowedMethods: "GET",
+															allowedHeaders: nil,
+															acceptPost:     "",
+															acceptPatch:    "",
+														})
+													}
+
+													return
+												}
+
+											case 's': // Prefix: "sync-pause"
+
+												if l := len("sync-pause"); len(elem) >= l && elem[0:l] == "sync-pause" {
+													elem = elem[l:]
+												} else {
+													break
+												}
+
+												if len(elem) == 0 {
+													// Leaf node.
+													switch r.Method {
+													case "DELETE":
+														s.handleDeleteServiceSyncPauseRequest([2]string{
+															args[0],
+															args[1],
+														}, elemIsEscaped, w, r)
+													case "GET":
+														s.handleGetServiceSyncPauseRequest([2]string{
+															args[0],
+															args[1],
+														}, elemIsEscaped, w, r)
+													case "PUT":
+														s.handlePutServiceSyncPauseRequest([2]string{
+															args[0],
+															args[1],
+														}, elemIsEscaped, w, r)
+													default:
+														s.notAllowed(w, r, notAllowedParams{
+															allowedMethods: "DELETE,GET,PUT",
+															allowedHeaders: rn20AllowedHeaders,
+															acceptPost:     "",
+															acceptPatch:    "",
+														})
+													}
+
+													return
+												}
+
 											}
 
 										}
@@ -1445,7 +1500,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 											default:
 												s.notAllowed(w, r, notAllowedParams{
 													allowedMethods: "DELETE,PUT",
-													allowedHeaders: rn18AllowedHeaders,
+													allowedHeaders: rn22AllowedHeaders,
 													acceptPost:     "",
 													acceptPatch:    "",
 												})
@@ -1578,7 +1633,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 											default:
 												s.notAllowed(w, r, notAllowedParams{
 													allowedMethods: "PUT",
-													allowedHeaders: rn78AllowedHeaders,
+													allowedHeaders: rn80AllowedHeaders,
 													acceptPost:     "",
 													acceptPatch:    "",
 												})
@@ -3094,29 +3149,86 @@ func (s *Server) FindPath(method string, u *url.URL) (r Route, _ bool) {
 											}
 										}
 										switch elem[0] {
-										case '/': // Prefix: "/deployments"
+										case '/': // Prefix: "/"
 
-											if l := len("/deployments"); len(elem) >= l && elem[0:l] == "/deployments" {
+											if l := len("/"); len(elem) >= l && elem[0:l] == "/" {
 												elem = elem[l:]
 											} else {
 												break
 											}
 
 											if len(elem) == 0 {
-												// Leaf node.
-												switch method {
-												case "GET":
-													r.name = ListServiceDeploymentsOperation
-													r.summary = ""
-													r.operationID = "listServiceDeployments"
-													r.operationGroup = ""
-													r.pathPattern = "/api/v1/stacks/{stack}/services/{service}/deployments"
-													r.args = args
-													r.count = 2
-													return r, true
-												default:
-													return
+												break
+											}
+											switch elem[0] {
+											case 'd': // Prefix: "deployments"
+
+												if l := len("deployments"); len(elem) >= l && elem[0:l] == "deployments" {
+													elem = elem[l:]
+												} else {
+													break
 												}
+
+												if len(elem) == 0 {
+													// Leaf node.
+													switch method {
+													case "GET":
+														r.name = ListServiceDeploymentsOperation
+														r.summary = ""
+														r.operationID = "listServiceDeployments"
+														r.operationGroup = ""
+														r.pathPattern = "/api/v1/stacks/{stack}/services/{service}/deployments"
+														r.args = args
+														r.count = 2
+														return r, true
+													default:
+														return
+													}
+												}
+
+											case 's': // Prefix: "sync-pause"
+
+												if l := len("sync-pause"); len(elem) >= l && elem[0:l] == "sync-pause" {
+													elem = elem[l:]
+												} else {
+													break
+												}
+
+												if len(elem) == 0 {
+													// Leaf node.
+													switch method {
+													case "DELETE":
+														r.name = DeleteServiceSyncPauseOperation
+														r.summary = ""
+														r.operationID = "deleteServiceSyncPause"
+														r.operationGroup = ""
+														r.pathPattern = "/api/v1/stacks/{stack}/services/{service}/sync-pause"
+														r.args = args
+														r.count = 2
+														return r, true
+													case "GET":
+														r.name = GetServiceSyncPauseOperation
+														r.summary = ""
+														r.operationID = "getServiceSyncPause"
+														r.operationGroup = ""
+														r.pathPattern = "/api/v1/stacks/{stack}/services/{service}/sync-pause"
+														r.args = args
+														r.count = 2
+														return r, true
+													case "PUT":
+														r.name = PutServiceSyncPauseOperation
+														r.summary = ""
+														r.operationID = "putServiceSyncPause"
+														r.operationGroup = ""
+														r.pathPattern = "/api/v1/stacks/{stack}/services/{service}/sync-pause"
+														r.args = args
+														r.count = 2
+														return r, true
+													default:
+														return
+													}
+												}
+
 											}
 
 										}

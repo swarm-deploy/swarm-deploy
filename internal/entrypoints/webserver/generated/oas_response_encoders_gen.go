@@ -69,6 +69,13 @@ func encodeDeleteNodeLabelResponse(response *DeleteNodeLabelNoContent, w http.Re
 	return nil
 }
 
+func encodeDeleteServiceSyncPauseResponse(response *DeleteServiceSyncPauseNoContent, w http.ResponseWriter, span trace.Span) error {
+	w.WriteHeader(204)
+	span.SetStatus(codes.Ok, http.StatusText(204))
+
+	return nil
+}
+
 func encodeDeleteStackSyncPauseResponse(response *DeleteStackSyncPauseNoContent, w http.ResponseWriter, span trace.Span) error {
 	w.WriteHeader(204)
 	span.SetStatus(codes.Ok, http.StatusText(204))
@@ -270,6 +277,20 @@ func encodeGetSecretByNameResponse(response *SecretDetailsResponse, w http.Respo
 }
 
 func encodeGetServiceResponse(response *ServiceStatusResponse, w http.ResponseWriter, span trace.Span) error {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(200)
+	span.SetStatus(codes.Ok, http.StatusText(200))
+
+	e := new(jx.Encoder)
+	response.Encode(e)
+	if _, err := e.WriteTo(w); err != nil {
+		return errors.Wrap(err, "write")
+	}
+
+	return nil
+}
+
+func encodeGetServiceSyncPauseResponse(response *ServiceSyncPauseResponse, w http.ResponseWriter, span trace.Span) error {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(200)
 	span.SetStatus(codes.Ok, http.StatusText(200))
@@ -585,6 +606,20 @@ func encodeListSwarmServiceTasksResponse(response *ServiceRealtimeResponse, w ht
 }
 
 func encodeListSwarmServicesResponse(response *SwarmServicesResponse, w http.ResponseWriter, span trace.Span) error {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(200)
+	span.SetStatus(codes.Ok, http.StatusText(200))
+
+	e := new(jx.Encoder)
+	response.Encode(e)
+	if _, err := e.WriteTo(w); err != nil {
+		return errors.Wrap(err, "write")
+	}
+
+	return nil
+}
+
+func encodePutServiceSyncPauseResponse(response *ServiceSyncPauseResponse, w http.ResponseWriter, span trace.Span) error {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(200)
 	span.SetStatus(codes.Ok, http.StatusText(200))
