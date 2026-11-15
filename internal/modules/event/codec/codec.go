@@ -88,6 +88,9 @@ func Decode(typ events.TypeName, version int, payload []byte) (events.Event, err
 	if isDeploymentFailureType(typ) {
 		return decodeDeploymentFailure(typ, payload)
 	}
+	if isMessengerObservationType(typ) {
+		return decodeMessengerEvent(typ, payload)
+	}
 	if event, serviceReference, err := decodeServiceReference(typ, payload); serviceReference {
 		return event, err
 	}

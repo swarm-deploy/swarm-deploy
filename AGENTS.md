@@ -10,6 +10,7 @@
 - `apply: by file patterns` + `globs` means apply only to matching files.
 - `alwaysApply: true` means apply regardless of globs.
 - In the first progress update, briefly state which `.cursor` rules were loaded.
+- For Pull Request reviews, use the `.cursor/skills/pr-review/SKILL.md` skill.
 - For Go changes, run `make check` before finishing. For UI changes, run `npm test` and `npm run build` in `ui/`. If a check cannot run, report why.
 - If instructed to create a pull request, always assign appropriate repository labels to the PR before finishing the task. Use only the allowed labels from the file `.github/workflows/pr-labels.yaml`
 

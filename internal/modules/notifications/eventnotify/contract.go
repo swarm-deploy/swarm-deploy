@@ -20,11 +20,11 @@ func StandardTemplate(eventType events.TypeName) (string, bool) {
 		return DefaultTemplate(), true
 	case events.TypeNameAssistantPromptInjectionDetected:
 		return DefaultTemplate(), true
-	case events.TypeNameSendNotificationFailed:
-		return DefaultTemplate(), true
 	case events.TypeNameDeployFailed, events.TypeNameDeployPreparationFailed, events.TypeNameDeployInterrupted,
 		events.TypeNameAlertOpened, events.TypeNameAlertResolved, events.TypeNameConfigurationChanged,
-		events.TypeNameGitPullFailed, events.TypeNameGitPullSucceeded, events.TypeNameServiceRemovedFromDesired:
+		events.TypeNameGitPullFailed, events.TypeNameGitPullSucceeded, events.TypeNameServiceRemovedFromDesired,
+		events.TypeNameSendNotificationFailed, events.TypeNameMessengerUnavailable, events.TypeNameMessengerAvailable,
+		events.TypeNameMessengerMisconfigured, events.TypeNameMessengerDeliverySucceeded:
 		return "", false
 	default:
 		return "", false
@@ -53,11 +53,11 @@ func ReferencePayloads(eventType events.TypeName) ([]any, bool) {
 		return []any{SecurityReferencePayload()}, true
 	case events.TypeNameAssistantPromptInjectionDetected:
 		return []any{AssistantReferencePayload()}, true
-	case events.TypeNameSendNotificationFailed:
-		return []any{ReferencePayload()}, true
 	case events.TypeNameDeployFailed, events.TypeNameDeployPreparationFailed, events.TypeNameDeployInterrupted,
 		events.TypeNameAlertOpened, events.TypeNameAlertResolved, events.TypeNameConfigurationChanged,
-		events.TypeNameGitPullFailed, events.TypeNameGitPullSucceeded, events.TypeNameServiceRemovedFromDesired:
+		events.TypeNameGitPullFailed, events.TypeNameGitPullSucceeded, events.TypeNameServiceRemovedFromDesired,
+		events.TypeNameSendNotificationFailed, events.TypeNameMessengerUnavailable, events.TypeNameMessengerAvailable,
+		events.TypeNameMessengerMisconfigured, events.TypeNameMessengerDeliverySucceeded:
 		return nil, false
 	default:
 		return nil, false

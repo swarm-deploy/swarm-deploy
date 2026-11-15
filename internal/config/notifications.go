@@ -21,6 +21,8 @@ const (
 	notificationAlertNameSyncFailed               = "SyncFailed"
 	notificationAlertNameNodeDisconnected         = "NodeDisconnected"
 	notificationAlertNameGitRepositoryUnavailable = "GitRepositoryUnavailable"
+	notificationAlertNameMessengerUnavailable     = "MessengerUnavailable"
+	notificationAlertNameMessengerMisconfigured   = "MessengerMisconfigured"
 	notificationAlertNameServiceDrift             = "ServiceDrift"
 )
 
@@ -104,6 +106,36 @@ func (c NotificationSpec) AlertRecipients(kind string) []events.AlertRecipient {
 		}
 	}
 	return recipients
+}
+
+// AlertRecipientsFor returns alert routes after excluding the failing messenger destination.
+func (c NotificationSpec) AlertRecipientsFor(kind, resourceID string) []events.AlertRecipient {
+	recipients := c.AlertRecipients(kind)
+	switch kind {
+	case string(alertmodel.AlertKindMessengerUnavailable):
+		return nil
+	case string(alertmodel.AlertKindMessengerMisconfigured):
+		channelName, ok := strings.CutPrefix(resourceID, "telegram:")
+		if !ok {
+			return nil
+		}
+		chat, ok := c.Messengers.Telegram.Chats[channelName]
+		if !ok {
+			return nil
+		}
+		failed := events.AlertRecipient{
+			BotIdentity: c.TelegramBotIdentity(), ChatID: chat.ID, ThreadID: chat.ThreadID,
+		}
+		filtered := recipients[:0]
+		for _, recipient := range recipients {
+			if recipient != failed {
+				filtered = append(filtered, recipient)
+			}
+		}
+		return filtered
+	default:
+		return recipients
+	}
 }
 
 // TelegramBotIdentity returns a stable non-secret identity for the configured bot.
@@ -237,6 +269,9 @@ func (c *NotificationSpec) validate() []error {
 	err := c.validateAlertRoutes()
 	errs = append(errs, err...)
 	for eventTypeName, routes := range c.Events {
+		if eventTypeName == events.TypeNameSendNotificationFailed {
+			continue // Accept the retired route for existing configurations.
+		}
 		if !eventTypeName.Valid() {
 			errs = append(errs, fmt.Errorf(
 				"notifications.events[%q] has unknown or non-public event type", eventTypeName,
@@ -287,6 +322,10 @@ func notificationAlertConfigKey(kind alertmodel.AlertKind) string {
 		return notificationAlertNameNodeDisconnected
 	case alertmodel.AlertKindGitRepositoryUnavailable:
 		return notificationAlertNameGitRepositoryUnavailable
+	case alertmodel.AlertKindMessengerUnavailable:
+		return notificationAlertNameMessengerUnavailable
+	case alertmodel.AlertKindMessengerMisconfigured:
+		return notificationAlertNameMessengerMisconfigured
 	case alertmodel.AlertKindServiceDrift:
 		return notificationAlertNameServiceDrift
 	default:
@@ -302,6 +341,10 @@ func notificationAlertKind(configKey string) alertmodel.AlertKind {
 		return alertmodel.AlertKindNodeDisconnected
 	case notificationAlertNameGitRepositoryUnavailable:
 		return alertmodel.AlertKindGitRepositoryUnavailable
+	case notificationAlertNameMessengerUnavailable:
+		return alertmodel.AlertKindMessengerUnavailable
+	case notificationAlertNameMessengerMisconfigured:
+		return alertmodel.AlertKindMessengerMisconfigured
 	case notificationAlertNameServiceDrift:
 		return alertmodel.AlertKindServiceDrift
 	default:
@@ -313,6 +356,7 @@ func validNotificationAlertConfigKey(kind string) bool {
 	switch kind {
 	case notificationAlertNameDefault, notificationAlertNameSyncFailed,
 		notificationAlertNameNodeDisconnected, notificationAlertNameGitRepositoryUnavailable,
+		notificationAlertNameMessengerUnavailable, notificationAlertNameMessengerMisconfigured,
 		notificationAlertNameServiceDrift:
 		return true
 	default:

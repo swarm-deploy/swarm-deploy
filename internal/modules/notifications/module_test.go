@@ -74,3 +74,20 @@ func TestInitModuleDeliversPendingWebhookAfterRestart(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, deliveries)
 }
+
+func TestInitModuleIgnoresRetiredNotificationRoute(t *testing.T) {
+	db, err := storage.OpenSQLite(t.Context(), t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	repository := outbox.New(db)
+	bus := dispatcher.NewOutboxDispatcher(repository)
+	spec := config.NotificationSpec{Events: map[events.TypeName]config.NotificationEventRoutes{
+		events.TypeNameSendNotificationFailed: {Custom: []config.CustomChannel{{Name: "audit"}}},
+	}}
+
+	require.NoError(t, InitModule(t.Context(), spec, bus, db))
+	require.NoError(t, bus.Publish(t.Context(), &events.SendNotificationFailed{Destination: "telegram", Channel: "ops"}))
+	deliveries, err := repository.ListDeliveries(t.Context(), outbox.ListDeliveriesFilter{})
+	require.NoError(t, err)
+	assert.Empty(t, deliveries)
+}
