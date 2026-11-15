@@ -53,7 +53,7 @@ networks:
 					require.NoError(t, err)
 					return *file
 				}
-				req := deployments.ExecuteRequest{Stack: f.request.Stack, Desired: load(), Commit: "broken", SourceChanged: true}
+				req := deployments.ExecuteRequest{Stack: f.request.Stack, Desired: load(), Commit: "broken", SourceChanged: true, TargetServices: []string{"job"}}
 				started := time.Now()
 				failed, err := f.executor.Execute(f.ctx, req)
 				require.ErrorIs(t, err, waiter.ErrConvergenceFailed)
@@ -124,6 +124,7 @@ networks:
 				// while Docker retains failed tasks from earlier iterations.
 				side = "  other:\n    image: busybox:1.36\n    command: [sleep, '600']\n"
 				req.Desired, req.Commit = load(), "other-service"
+				req.TargetServices = req.Desired.Compose.Services.Names()
 				updated, err := f.executor.Execute(f.ctx, req)
 				require.NoError(t, err)
 				require.Equal(t, model.Succeeded, updated.Status)
@@ -161,7 +162,7 @@ func TestRealSwarmJobManualRetryAfterMaxAttempts(t *testing.T) {
       restart_policy: {%smax_attempts: 1, delay: 100ms}
 `, input, tc.condition)
 			req := deployments.ExecuteRequest{
-				Stack: f.request.Stack, Desired: f.manifest(t, services), Commit: "failed", SourceChanged: true,
+				Stack: f.request.Stack, Desired: f.manifest(t, services), Commit: "failed", SourceChanged: true, TargetServices: []string{"job"},
 			}
 			failed, err := f.executor.Execute(f.ctx, req)
 			require.ErrorIs(t, err, waiter.ErrConvergenceFailed)
