@@ -108,7 +108,7 @@ func completeRecommendationDeployment(
 	desired := compose.File{Path: "compose.yaml", Digest: "persisted-digest", Compose: compose.Compose{
 		Services: compose.Services{{Name: "api", Image: "example/api:1"}},
 	}}
-	attempt, err := lifecycle.StartIfChanged(t.Context(), "app", "persisted-commit", desired, true)
+	attempt, err := lifecycle.StartIfChanged(t.Context(), "app", "persisted-commit", desired, true, deployments.StartOptions{TargetServices: desired.Compose.Services.Names()})
 	require.NoError(t, err)
 	require.NotNil(t, attempt)
 	require.NoError(t, lifecycle.Complete(t.Context(), attempt.ID, completion))

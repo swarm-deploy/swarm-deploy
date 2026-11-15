@@ -22,7 +22,7 @@ func TestRealSwarmInitialStartupFailureHistoryAndRecovery(t *testing.T) {
 	broken := strings.Replace(lifecycleService("job", "sleep 1; exit 23", ""), "    deploy:\n",
 		"    healthcheck: {test: [CMD, 'false'], interval: 1s, timeout: 1s, retries: 30}\n    deploy:\n", 1)
 	desired := f.manifest(t, broken)
-	req := deployments.ExecuteRequest{Stack: f.request.Stack, Desired: desired, Commit: "broken", SourceChanged: true}
+	req := deployments.ExecuteRequest{Stack: f.request.Stack, Desired: desired, Commit: "broken", SourceChanged: true, TargetServices: desired.Compose.Services.Names()}
 	// Unlike a failed rolling update, initial startup has no UpdateStatus. A
 	// real failed task with restart disabled is still a known convergence failure.
 	result, err := f.executor.Execute(f.ctx, req)
@@ -245,13 +245,13 @@ func TestRealSwarmInitialDeploymentRecoveryWithoutServiceUpdate(t *testing.T) {
 	f := newLifecycleFixture(t, true)
 	desired := f.manifest(t, lifecycleService("job", "sleep 600", ""))
 	lifecycle := deployments.NewService(f.db, f.bus)
-	attempt, err := lifecycle.StartIfChanged(f.ctx, f.stack, "initial", desired, true)
+	attempt, err := lifecycle.StartIfChanged(f.ctx, f.stack, "initial", desired, true, deployments.StartOptions{TargetServices: desired.Compose.Services.Names()})
 	require.NoError(t, err)
 	require.NotNil(t, attempt)
 	// Simulate a process stopping after Swarm converged, before the attempt's
 	// completion was persisted. Recovery must verify the existing creation tasks.
 	_, err = f.deployer.DeployStack(f.ctx, deployer.StackRequest{
-		StackName: f.stack, SourceComposePath: f.path, Desired: desired.Compose,
+		StackName: f.stack, SourceComposePath: f.path, Desired: desired.Compose, TargetServices: desired.Compose.Services.Names(),
 	})
 	require.NoError(t, err)
 	f.settled(t, "job")
@@ -265,7 +265,7 @@ func TestRealSwarmInitialDeploymentRecoveryWithoutServiceUpdate(t *testing.T) {
 	require.Equal(t, model.Interrupted, interrupted.Status)
 	require.Equal(t, []string{"job"}, interrupted.Verification.UnresolvedServices)
 	// Explicit retry bypasses the lifecycle backoff without sleeping.
-	req := deployments.ExecuteRequest{Stack: f.request.Stack, Desired: desired, Commit: "initial", SourceChanged: true, ManualRetry: true}
+	req := deployments.ExecuteRequest{Stack: f.request.Stack, Desired: desired, Commit: "initial", SourceChanged: true, ManualRetry: true, TargetServices: desired.Compose.Services.Names()}
 	result, err := f.executor.Execute(f.ctx, req)
 	require.NoError(t, err)
 	require.Equal(t, model.Succeeded, result.Status)

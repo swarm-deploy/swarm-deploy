@@ -42,7 +42,7 @@ func TestInvalidDesiredStateCannotMutateDockerResources(t *testing.T) {
 					result, err = d.DeployStack(t.Context(), StackRequest{
 						StackName:         "demo",
 						SourceComposePath: "compose.yaml",
-						Desired:           *desired,
+						Desired:           *desired, TargetServices: (*desired).Services.Names(),
 					})
 				}
 				require.Error(t, err)

@@ -121,7 +121,7 @@ func testEndpointControllerRecovery(t *testing.T, followup string) {
 		}
 		return file
 	}
-	req := deployments.ExecuteRequest{Stack: config.StackSpec{Name: f.stack}, Commit: "initial", Desired: load(32211), SourceChanged: true}
+	req := deployments.ExecuteRequest{Stack: config.StackSpec{Name: f.stack}, Commit: "initial", Desired: load(32211), SourceChanged: true, TargetServices: []string{"job"}}
 	initial, err := f.executor.Execute(f.ctx, req)
 	require.NoError(t, err)
 	require.Equal(t, deploymentmodel.Succeeded, initial.Status)
@@ -129,7 +129,7 @@ func testEndpointControllerRecovery(t *testing.T, followup string) {
 	require.Len(t, original, 1)
 	req.Commit, req.Desired = "endpoint", load(32212)
 	lifecycle := deployments.NewService(f.db, f.bus)
-	attempt, err := lifecycle.StartIfChanged(f.ctx, f.stack, req.Commit, req.Desired, true)
+	attempt, err := lifecycle.StartIfChanged(f.ctx, f.stack, req.Commit, req.Desired, true, deployments.StartOptions{TargetServices: req.Desired.Compose.Services.Names()})
 	require.NoError(t, err)
 	require.NotNil(t, attempt)
 	converted, err := converter.New(f.sw.Networks, f.sw.Configs, f.sw.Secrets).Convert(f.ctx, f.stack, req.Desired.Compose)

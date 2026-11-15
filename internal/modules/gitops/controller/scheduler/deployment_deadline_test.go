@@ -74,7 +74,7 @@ func TestDeploymentDeadlinePreservesGitOpsProgress(t *testing.T) {
 							Stack: req.Stack, Commit: req.Commit, SourceChanged: true,
 							Desired: compose.File{Path: req.Stack.ComposeFile, Compose: compose.Compose{
 								Services: compose.Services{{Name: "api", Image: "example/api:1"}},
-							}},
+							}}, TargetServices: []string{"api"},
 						})
 						if req.Stack.Name == "fast" && result.Attempt != nil {
 							fastCompleted = time.Now()

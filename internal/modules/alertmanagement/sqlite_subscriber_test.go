@@ -720,7 +720,7 @@ func TestDeploymentCompletionOutboxPreservesAlertThresholds(t *testing.T) {
 					service := deployments.NewService(db, bus)
 					attempt, startErr := service.StartIfChanged(ctx, "app", fmt.Sprint(i), compose.File{
 						Compose: compose.Compose{Services: compose.Services{{Name: "api", Image: "api:1"}}},
-					}, true, deployments.StartOptions{ManualRetry: true})
+					}, true, deployments.StartOptions{ManualRetry: true, TargetServices: []string{"api"}})
 					require.NoError(t, startErr)
 					if i == 0 {
 						deploymentID = attempt.DeploymentID
@@ -796,7 +796,7 @@ func TestConvergenceFailureSkippedTicksDoNotIncreaseOccurrencesAndRecoveryResolv
 	}
 	desired := compose.File{Compose: compose.Compose{Services: compose.Services{{Name: "api", Image: "api:1"}}}}
 	lifecycle := deployments.NewService(db, bus)
-	attempt, err := lifecycle.StartIfChanged(ctx, "app", "first", desired, true)
+	attempt, err := lifecycle.StartIfChanged(ctx, "app", "first", desired, true, deployments.StartOptions{TargetServices: desired.Compose.Services.Names()})
 	require.NoError(t, err)
 	for number := 1; number <= 2; number++ {
 		require.NoError(t, lifecycle.Complete(ctx, attempt.ID, deployments.Completion{Outcome: deployments.CompletionConvergenceFailed, Diagnostic: errors.New("service api paused; task failed-task exit_code=1")}))
@@ -804,7 +804,7 @@ func TestConvergenceFailureSkippedTicksDoNotIncreaseOccurrencesAndRecoveryResolv
 		require.NoError(t, err)
 		require.True(t, processed)
 		for range 10 {
-			skipped, err := lifecycle.StartIfChanged(ctx, "app", "tick", desired, true)
+			skipped, err := lifecycle.StartIfChanged(ctx, "app", "tick", desired, true, deployments.StartOptions{TargetServices: desired.Compose.Services.Names()})
 			require.NoError(t, err)
 			assert.Nil(t, skipped)
 			processed, err := bus.ProcessNext(ctx)
@@ -830,7 +830,7 @@ func TestConvergenceFailureSkippedTicksDoNotIncreaseOccurrencesAndRecoveryResolv
 			require.NoError(t, bus.Subscribe(typ, "alerts", subscriber))
 		}
 		lifecycle = deployments.NewService(db, bus)
-		attempt, err = lifecycle.StartIfChanged(ctx, "app", "manual", desired, false, deployments.StartOptions{ManualRetry: true})
+		attempt, err = lifecycle.StartIfChanged(ctx, "app", "manual", desired, false, deployments.StartOptions{ManualRetry: true, TargetServices: desired.Compose.Services.Names()})
 		require.NoError(t, err)
 		require.NotNil(t, attempt)
 	}

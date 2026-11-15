@@ -10,6 +10,7 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -53,9 +54,8 @@ func (s *Store) FilterOptions(ctx context.Context) ([]string, []FilterService, e
 	}
 	var services []FilterService
 	if err := s.db.Select(ctx, &services, `SELECT DISTINCT d.stack AS stack_name,
-		json_extract(svc.value, '$.name') AS service_name
-		FROM deployments AS d, json_each(d.desired_payload, '$.definition.compose.services') AS svc
-		WHERE json_extract(svc.value, '$.name') <> ''
+		executed.service_name AS service_name
+		FROM deployment_services AS executed JOIN deployments AS d ON d.id = executed.deployment_id
 		ORDER BY stack_name, service_name`); err != nil {
 		return nil, nil, err
 	}
@@ -264,9 +264,10 @@ func filterDeploymentIdentities(
 		dataset = dataset.Where(goqu.Ex{"stack": filter.Stacks})
 	}
 	if len(filter.Services) > 0 {
-		serviceNames := goqu.L("json_extract(svc.value, '$.name')").In(filter.Services)
-		dataset = dataset.Where(goqu.L(`EXISTS (SELECT 1 FROM json_each(deployments.desired_payload,
-			'$.definition.compose.services') AS svc WHERE ?)`, serviceNames))
+		// Only deployments with an Attempt that executed one of the services.
+		serviceNames := goqu.I("executed.service_name").In(filter.Services)
+		dataset = dataset.Where(goqu.L(`EXISTS (SELECT 1 FROM deployment_services AS executed
+			WHERE executed.deployment_id = deployments.id AND ?)`, serviceNames))
 	}
 	return dataset
 }
@@ -281,34 +282,70 @@ func (s *Store) ListServiceDeployments(
 	if limit < 1 || limit > 100 {
 		limit = 5
 	}
+	// A service's history contains only deployments with an Attempt that executed
+	// it, as indexed in deployment_services. The latest such Attempt decides the entry.
 	const query = `
 		SELECT d.id, d."commit", d.status,
-			CASE WHEN d.status IN ('failed','interrupted') AND EXISTS (
+			EXISTS (
 				SELECT 1 FROM deployments AS newer
 				WHERE newer.stack = d.stack AND newer.rowid > d.rowid
-			) THEN 1 ELSE 0 END AS is_superseded,
+			) AS has_newer,
 			d.started_at,
-			json_extract(svc.value, '$.image') AS image
-		FROM deployments AS d,
-			json_each(d.desired_payload, '$.definition.compose.services') AS svc
-		WHERE d.stack = ? AND json_extract(svc.value, '$.name') = ?
+			COALESCE((SELECT json_extract(svc.value, '$.image')
+				FROM json_each(d.desired_payload, '$.definition.compose.services') AS svc
+				WHERE json_extract(svc.value, '$.name') = ?), '') AS image,
+			attempt.id AS attempt_id, attempt.status AS attempt_status,
+			attempt.details_payload AS attempt_details,
+			(SELECT latest.id FROM deployment_attempts AS latest
+				WHERE latest.deployment_id = d.id ORDER BY latest.number DESC LIMIT 1) AS latest_attempt_id
+		FROM deployments AS d
+			LEFT JOIN deployment_attempts AS attempt ON attempt.id = (
+				SELECT executed.attempt_id FROM deployment_services AS executed
+					JOIN deployment_attempts AS included ON included.id = executed.attempt_id
+				WHERE executed.deployment_id = d.id AND executed.service_name = ?
+				ORDER BY included.number DESC LIMIT 1
+			)
+		WHERE d.stack = ? AND EXISTS (
+			SELECT 1 FROM deployment_services AS executed
+			WHERE executed.deployment_id = d.id AND executed.service_name = ?
+		)
 		ORDER BY d.started_at DESC, d.id ASC
 		LIMIT ?`
 	var rows []struct {
-		ID           string                 `db:"id"`
-		Commit       string                 `db:"commit"`
-		Status       deploymentmodel.Status `db:"status"`
-		IsSuperseded bool                   `db:"is_superseded"`
-		StartedAt    time.Time              `db:"started_at"`
-		Image        string                 `db:"image"`
+		ID              string                 `db:"id"`
+		Commit          string                 `db:"commit"`
+		Status          deploymentmodel.Status `db:"status"`
+		HasNewer        bool                   `db:"has_newer"`
+		StartedAt       time.Time              `db:"started_at"`
+		Image           string                 `db:"image"`
+		AttemptID       sql.NullString         `db:"attempt_id"`
+		AttemptStatus   sql.NullString         `db:"attempt_status"`
+		AttemptDetails  []byte                 `db:"attempt_details"`
+		LatestAttemptID sql.NullString         `db:"latest_attempt_id"`
 	}
-	if err := s.db.Select(ctx, &rows, query, stack, service, limit); err != nil {
+	if err := s.db.Select(ctx, &rows, query, service, service, stack, service, limit); err != nil {
 		return nil, err
 	}
 	items := make([]deploymentmodel.ServiceDeployment, 0, len(rows))
 	for _, row := range rows {
+		status, commit := row.Status, row.Commit
+		// A retry may omit a service that ran in an earlier Attempt.
+		// The Deployment projection applies only to its latest Attempt.
+		if row.AttemptID.Valid && row.AttemptID.String != row.LatestAttemptID.String {
+			status = deploymentmodel.Status(row.AttemptStatus.String)
+		}
+		if len(row.AttemptDetails) > 0 {
+			var details deploymentDetails
+			if err := json.Unmarshal(row.AttemptDetails, &details); err != nil {
+				return nil, err
+			}
+			if revision := details.ServiceRevisions[service]; revision.Commit != "" {
+				commit = revision.Commit
+			}
+		}
+		superseded := row.HasNewer && (status == deploymentmodel.Failed || status == deploymentmodel.Interrupted)
 		items = append(items, deploymentmodel.ServiceDeployment{
-			ID: row.ID, Commit: row.Commit, Status: projectedStatus(row.Status, row.IsSuperseded),
+			ID: row.ID, Commit: commit, Status: projectedStatus(status, superseded),
 			StartedAt: row.StartedAt.UTC(), Image: row.Image,
 		})
 	}
@@ -331,6 +368,10 @@ type summaryRow struct {
 }
 
 type deploymentDetails struct {
+	// TargetServices is null only for historical whole-stack attempts.
+	TargetServices []string `json:"target_services"`
+	// ServiceRevisions is immutable source metadata captured before execution.
+	ServiceRevisions map[string]deploymentmodel.ServiceRevision `json:"service_revisions,omitempty"`
 	// UpdateGenerations retains only non-secret pre-update boundaries.
 	UpdateGenerations map[string]deploymentmodel.UpdateGeneration `json:"update_generations,omitempty"`
 	// UnresolvedServices retains verification obligations across desired-state deployments.
@@ -406,6 +447,15 @@ func marshalDeploymentPayloads(d deploymentmodel.Deployment) (string, string, er
 		return "", "", err
 	}
 	return string(details), string(changesPayload), nil
+}
+
+func marshalAttemptDetails(attempt deploymentmodel.Attempt) ([]byte, error) {
+	return json.Marshal(deploymentDetails{
+		TargetServices: attempt.TargetServices, ServiceRevisions: attempt.ServiceRevisions,
+		ErrorDiagnostic: attempt.ErrorDiagnostic, Retryable: attempt.Retryable, ApplyStatus: attempt.ApplyStatus,
+		VerificationStatus: attempt.VerificationStatus, CleanupStatus: attempt.CleanupStatus,
+		ActualStateStatus: attempt.ActualStateStatus, ObservedAt: attempt.ObservedAt,
+	}, json.FormatNilSliceAsNull(true), jsontext.AllowInvalidUTF8(true))
 }
 
 func projectedStatus(status deploymentmodel.Status, isSuperseded bool) deploymentmodel.Status {
@@ -492,7 +542,7 @@ func (row attemptRow) attempt() (deploymentmodel.Attempt, error) {
 		ErrorDiagnostic: details.ErrorDiagnostic, Retryable: details.Retryable, Phase: row.Phase,
 		ApplyStatus: details.ApplyStatus, VerificationStatus: details.VerificationStatus,
 		CleanupStatus: details.CleanupStatus, ActualStateStatus: details.ActualStateStatus,
-		ObservedAt: details.ObservedAt,
+		ObservedAt: details.ObservedAt, TargetServices: details.TargetServices, ServiceRevisions: details.ServiceRevisions,
 	}
 	if row.FinishedAt.Valid {
 		finished := row.FinishedAt.Time.UTC()
@@ -718,6 +768,7 @@ func (s *Store) Desired(ctx context.Context, id string) (compose.File, error) {
 		return compose.File{}, err
 	}
 	desired, err := s.getPrepared(ctx, query, args...)
+	desired.Definition.ServiceDigests = desired.ServiceDigests
 	return desired.Definition, notFound(err)
 }
 
@@ -733,6 +784,53 @@ func (s *Store) Baseline(ctx context.Context, stack string) (deploymentmodel.Pre
 	}
 	desired, err := s.getPrepared(ctx, query, args...)
 	return desired, notFound(err)
+}
+
+// AdoptServiceDigests backfills service digests into a snapshot recorded before they
+// were tracked. Callers adopt only digests of the same effective whole-stack state and
+// list services whose digest the historical snapshot cannot confirm.
+func (s *Store) AdoptServiceDigests(
+	ctx context.Context, id string, digests map[string]string, unconfirmed []string,
+) error {
+	digestsPayload, err := json.Marshal(digests)
+	if err != nil {
+		return err
+	}
+	unconfirmedPayload, err := json.Marshal(unconfirmed, json.FormatNilSliceAsNull(true))
+	if err != nil {
+		return err
+	}
+	const query = `UPDATE deployments
+		SET desired_payload = json_set(desired_payload,
+			'$.service_digests', json(?), '$.unconfirmed_services', json(?))
+		WHERE id = ? AND json_extract(desired_payload, '$.service_digests') IS NULL`
+	_, err = s.db.Exec(ctx, query, string(digestsPayload), string(unconfirmedPayload), id)
+	return err
+}
+
+// ConfirmServices removes services applied by a successful Attempt from the
+// snapshot's unconfirmed services.
+func (s *Store) ConfirmServices(ctx context.Context, id string, applied []string) error {
+	snapshot, err := s.prepared(ctx, id)
+	if err != nil || len(snapshot.UnconfirmedServices) == 0 {
+		return err
+	}
+	remaining := slices.DeleteFunc(slices.Clone(snapshot.UnconfirmedServices), func(name string) bool {
+		return slices.Contains(applied, name)
+	})
+	payload, err := json.Marshal(remaining)
+	if err != nil {
+		return err
+	}
+	const query = `UPDATE deployments
+		SET desired_payload = json_set(desired_payload, '$.unconfirmed_services', json(?)) WHERE id = ?`
+	_, err = s.db.Exec(ctx, query, string(payload), id)
+	return err
+}
+
+// Snapshot returns the prepared desired state of one deployment.
+func (s *Store) Snapshot(ctx context.Context, id string) (deploymentmodel.Prepared, error) {
+	return s.prepared(ctx, id)
 }
 
 func (s *Store) getPrepared(ctx context.Context, query string, args ...any) (deploymentmodel.Prepared, error) {
@@ -777,6 +875,29 @@ func (s *Store) Latest(
 	}
 	prepared, err := s.prepared(ctx, id)
 	return deployment, prepared, err
+}
+
+// PreviousSnapshot returns the snapshot immediately before id in the stack's history.
+func (s *Store) PreviousSnapshot(
+	ctx context.Context, stack, id string,
+) (string, deploymentmodel.Prepared, error) {
+	predecessor := s.db.Dialect().From("deployments").Select("rowid").Where(goqu.Ex{"id": id})
+	query, args, err := s.db.Dialect().From("deployments").Prepared(true).Select("id", "desired_payload").
+		Where(goqu.Ex{"stack": stack}, goqu.I("rowid").Lt(predecessor)).
+		Order(goqu.I("rowid").Desc()).Limit(1).ToSQL()
+	if err != nil {
+		return "", deploymentmodel.Prepared{}, err
+	}
+	var row struct {
+		ID      string `db:"id"`
+		Payload []byte `db:"desired_payload"`
+	}
+	if err = s.db.Get(ctx, &row, query, args...); err != nil {
+		return "", deploymentmodel.Prepared{}, notFound(err)
+	}
+	var snapshot deploymentmodel.Prepared
+	err = json.Unmarshal(row.Payload, &snapshot, jsonv1.DefaultOptionsV1())
+	return row.ID, snapshot, err
 }
 
 // LegacyRunning returns running deployments that predate persisted attempts.
@@ -860,9 +981,6 @@ func (s *Store) CreateDeployment(
 
 // StartAttempt persists a retry and updates the deployment projection to running.
 func (s *Store) StartAttempt(ctx context.Context, d deploymentmodel.Deployment, attempt deploymentmodel.Attempt) error {
-	if err := s.insertAttemptRow(ctx, attempt); err != nil {
-		return err
-	}
 	d.ErrorDiagnostic, d.ApplyStatus = "", deploymentmodel.StageRunning
 	d.Retryable = false
 	d.VerificationStatus, d.CleanupStatus = deploymentmodel.StagePending, deploymentmodel.StagePending
@@ -875,7 +993,10 @@ func (s *Store) StartAttempt(ctx context.Context, d deploymentmodel.Deployment, 
 		"status": deploymentmodel.Running, "error_code": "", "phase": deploymentmodel.PhaseApply,
 		"finished_at": nil, "details_payload": details,
 	}).Where(
-		goqu.Ex{"id": d.ID, "status": []deploymentmodel.Status{deploymentmodel.Failed, deploymentmodel.Interrupted}},
+		goqu.Ex{
+			"id":     d.ID,
+			"status": []deploymentmodel.Status{deploymentmodel.Failed, deploymentmodel.Interrupted},
+		},
 	).ToSQL()
 	if err != nil {
 		return err
@@ -884,7 +1005,10 @@ func (s *Store) StartAttempt(ctx context.Context, d deploymentmodel.Deployment, 
 	if err != nil {
 		return err
 	}
-	return requireOneRunning(result)
+	if err = requireOneRunning(result); err != nil {
+		return err
+	}
+	return s.insertAttemptRow(ctx, attempt)
 }
 
 // InsertLegacyAttempt materializes an attempt for a deployment created before attempt persistence.
@@ -896,18 +1020,49 @@ func (s *Store) insertAttemptRow(ctx context.Context, attempt deploymentmodel.At
 	if attempt.StartedAt.IsZero() {
 		return fmt.Errorf("attempt start time is required")
 	}
-	details, err := json.Marshal(deploymentDetails{
-		ApplyStatus: attempt.ApplyStatus, VerificationStatus: attempt.VerificationStatus,
-		CleanupStatus: attempt.CleanupStatus, ActualStateStatus: attempt.ActualStateStatus,
-	}, json.FormatNilSliceAsNull(true), jsontext.AllowInvalidUTF8(true))
+	details, err := marshalAttemptDetails(attempt)
 	if err != nil {
 		return err
 	}
-	query, args, err := s.db.Dialect().Insert("deployment_attempts").Prepared(true).Rows(goqu.Record{
+	record := goqu.Record{
 		"id": attempt.ID, "deployment_id": attempt.DeploymentID, "number": attempt.Number,
 		"status": attempt.Status, "error_code": attempt.ErrorCode, "phase": attempt.Phase,
 		"started_at": attempt.StartedAt.UTC(), "details_payload": string(details),
-	}).ToSQL()
+	}
+	if attempt.FinishedAt != nil {
+		record["finished_at"] = attempt.FinishedAt.UTC()
+	}
+	query, args, err := s.db.Dialect().Insert("deployment_attempts").Prepared(true).Rows(record).ToSQL()
+	if err != nil {
+		return err
+	}
+	if _, err = s.db.Exec(ctx, query, args...); err != nil {
+		return err
+	}
+	return s.insertAttemptServices(ctx, attempt)
+}
+
+// insertAttemptServices indexes the services an Attempt executes. A nil target list
+// selects every service of the deployment snapshot.
+func (s *Store) insertAttemptServices(ctx context.Context, attempt deploymentmodel.Attempt) error {
+	if attempt.TargetServices == nil {
+		const query = `INSERT OR IGNORE INTO deployment_services (deployment_id, attempt_id, service_name)
+			SELECT d.id, ?, json_extract(svc.value, '$.name')
+			FROM deployments AS d JOIN json_each(d.desired_payload, '$.definition.compose.services') AS svc
+			WHERE d.id = ? AND COALESCE(json_extract(svc.value, '$.name'), '') <> ''`
+		_, err := s.db.Exec(ctx, query, attempt.ID, attempt.DeploymentID)
+		return err
+	}
+	if len(attempt.TargetServices) == 0 {
+		return nil
+	}
+	rows := make([]any, 0, len(attempt.TargetServices))
+	for _, name := range attempt.TargetServices {
+		rows = append(rows, goqu.Record{
+			"deployment_id": attempt.DeploymentID, "attempt_id": attempt.ID, "service_name": name,
+		})
+	}
+	query, args, err := s.db.Dialect().Insert("deployment_services").Prepared(true).Rows(rows...).ToSQL()
 	if err != nil {
 		return err
 	}
@@ -924,11 +1079,7 @@ func (s *Store) FinishAttempt(
 	if attempt.FinishedAt == nil || attempt.FinishedAt.IsZero() {
 		return fmt.Errorf("terminal attempt requires finish time")
 	}
-	attemptDetails, err := json.Marshal(deploymentDetails{
-		ErrorDiagnostic: attempt.ErrorDiagnostic, Retryable: attempt.Retryable, ApplyStatus: attempt.ApplyStatus,
-		VerificationStatus: attempt.VerificationStatus, CleanupStatus: attempt.CleanupStatus,
-		ActualStateStatus: attempt.ActualStateStatus, ObservedAt: attempt.ObservedAt,
-	}, json.FormatNilSliceAsNull(true), jsontext.AllowInvalidUTF8(true))
+	attemptDetails, err := marshalAttemptDetails(attempt)
 	if err != nil {
 		return err
 	}
@@ -982,7 +1133,10 @@ func (s *Store) SynchronizeRunningAttempt(
 			error_code = (SELECT error_code FROM deployments WHERE id = deployment_attempts.deployment_id),
 			phase = (SELECT phase FROM deployments WHERE id = deployment_attempts.deployment_id),
 			finished_at = (SELECT finished_at FROM deployments WHERE id = deployment_attempts.deployment_id),
-			details_payload = (SELECT details_payload FROM deployments WHERE id = deployment_attempts.deployment_id)
+			details_payload = json_set(
+				(SELECT details_payload FROM deployments WHERE id = deployment_attempts.deployment_id),
+				'$.target_services', json_extract(deployment_attempts.details_payload, '$.target_services'),
+				'$.service_revisions', json_extract(deployment_attempts.details_payload, '$.service_revisions'))
 		WHERE id = ? AND deployment_id = ? AND status = 'running'
 			AND EXISTS (
 				SELECT 1 FROM deployments

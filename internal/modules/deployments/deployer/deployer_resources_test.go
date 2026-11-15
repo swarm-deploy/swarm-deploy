@@ -91,12 +91,12 @@ func TestDeployStackReconcilesResourcesWithAndWithoutInitJobs(t *testing.T) {
 					}).Return("secret-id", nil))
 				}
 
-				service := compose.Service{Name: "api", Image: "alpine:3"}
+				service := compose.Service{Name: "api", Image: "alpine:3", Configs: []compose.ObjectRef{{Source: "app"}}, Secrets: []compose.ObjectRef{{Source: "password"}}}
 				if withInitJobs {
 					service.InitJobs = []compose.InitJob{{Name: "migrate"}, {Name: "seed"}}
 					for _, job := range service.InitJobs {
 						calls = append(calls, jobs.EXPECT().Run(gomock.Any(), InitJobSpec{
-							StackName: "demo", ServiceName: "api", Job: job,
+							StackName: "demo", ServiceName: "api", Job: job, ServiceSecrets: service.Secrets, ServiceConfigs: service.Configs,
 							DefaultNetwork:  []string{"default"},
 							NetworkTargets:  map[string]string{"default": "network-demo_default"},
 							ResolvedConfigs: map[string]ResolvedResource{"app": {ID: "config-id", Name: configName}},
@@ -121,7 +121,7 @@ func TestDeployStackReconcilesResourcesWithAndWithoutInitJobs(t *testing.T) {
 					SourceComposePath: filepath.Join(dir, "compose.yaml"),
 					Desired: compose.Compose{
 						Services: []compose.Service{service}, Configs: compose.Configs{"app": config}, Secrets: compose.Secrets{"password": secret},
-					},
+					}, TargetServices: []string{"api"},
 				})
 				require.NoError(t, err)
 			})
@@ -163,12 +163,14 @@ func TestDeployStackResourceFailuresStopDeployment(t *testing.T) {
 					listErr = apiErr
 				}
 				if tt.config {
+					desired.Services[0].Configs = []compose.ObjectRef{{Source: "app"}}
 					desired.Configs = compose.Configs{"app": {External: tt.external, Data: []byte("data")}}
 					configs.EXPECT().List(gomock.Any(), gomock.Any()).Return(nil, listErr)
 					if tt.stage == "create" {
 						configs.EXPECT().Create(gomock.Any(), gomock.Any()).Return("", apiErr)
 					}
 				} else {
+					desired.Services[0].Secrets = []compose.ObjectRef{{Source: "password"}}
 					desired.Secrets = compose.Secrets{"password": {External: tt.external, File: "password.txt"}}
 					if tt.stage != "read" {
 						secrets.EXPECT().List(gomock.Any(), gomock.Any()).Return(nil, listErr)
@@ -179,6 +181,7 @@ func TestDeployStackResourceFailuresStopDeployment(t *testing.T) {
 					}
 					if tt.stage == "create" {
 						// A later failure must also retain resources already created in this attempt.
+						desired.Services[0].Configs = []compose.ObjectRef{{Source: "app"}}
 						desired.Configs = compose.Configs{"app": {Data: []byte("data")}}
 						gomock.InOrder(
 							configs.EXPECT().List(gomock.Any(), gomock.Any()).Return(nil, nil),
@@ -198,7 +201,7 @@ func TestDeployStackResourceFailuresStopDeployment(t *testing.T) {
 				_, err := deployer.DeployStack(context.Background(), StackRequest{
 					StackName:         "demo",
 					SourceComposePath: filepath.Join(dir, "compose.yaml"),
-					Desired:           desired,
+					Desired:           desired, TargetServices: desired.Services.Names(),
 				})
 				require.ErrorContains(t, err, "")
 				assert.ErrorContains(t, err, tt.errorMatch)
@@ -222,7 +225,7 @@ func TestDeployStackDeployFailureKeepsReconciledResources(t *testing.T) {
 			deployErr := errors.New("deploy failed")
 			desired := compose.Compose{
 				Configs:  compose.Configs{"app": {Data: []byte("data")}},
-				Services: []compose.Service{{Name: "api", Image: "alpine:3"}},
+				Services: []compose.Service{{Name: "api", Image: "alpine:3", Configs: []compose.ObjectRef{{Source: "app"}}}},
 			}
 			gomock.InOrder(
 				configs.EXPECT().List(gomock.Any(), gomock.Any()).Return(nil, nil),
@@ -246,7 +249,7 @@ func TestDeployStackDeployFailureKeepsReconciledResources(t *testing.T) {
 			result, err := deployer.DeployStack(t.Context(), StackRequest{
 				StackName:         "demo",
 				SourceComposePath: "compose.yaml",
-				Desired:           desired,
+				Desired:           desired, TargetServices: desired.Services.Names(),
 			})
 			require.ErrorIs(t, err, deployErr)
 			assert.ErrorContains(t, err, "create service api")

@@ -36,13 +36,13 @@ func TestSecretResolverValidatesReusedSecrets(t *testing.T) {
 				secretResolver: newTestSecretResolverWithIdentity([]byte(identity.String())),
 				serviceWaiter:  newSuccessfulServiceWaiter(t)}
 			wireNativeTestDeployer(t, d)
-			desired := compose.Compose{Secrets: compose.Secrets{
+			desired := compose.Compose{Services: compose.Services{{Name: "api", Image: "alpine:3", Secrets: []compose.ObjectRef{{Source: "password"}}}}, Secrets: compose.Secrets{
 				"password": {Name: "existing-password", File: "password.age", Data: ciphertext},
 			}}
 			_, err = d.DeployStack(t.Context(), StackRequest{
 				StackName:         "app",
 				SourceComposePath: filepath.Join(dir, "compose.yaml"),
-				Desired:           desired,
+				Desired:           desired, TargetServices: desired.Services.Names(),
 			})
 			require.NoError(t, err)
 			switch scenario {
@@ -58,7 +58,7 @@ func TestSecretResolverValidatesReusedSecrets(t *testing.T) {
 			_, err = d.DeployStack(t.Context(), StackRequest{
 				StackName:         "app",
 				SourceComposePath: filepath.Join(dir, "compose.yaml"),
-				Desired:           desired,
+				Desired:           desired, TargetServices: desired.Services.Names(),
 			})
 			require.Error(t, err)
 			assert.NotContains(t, err.Error(), "private-corrupt-marker")

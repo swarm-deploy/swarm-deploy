@@ -124,7 +124,7 @@ func TestDeployStackReconcilesResourcesBeforeInitJobs(t *testing.T) {
 			_, err := deployer.DeployStack(context.Background(), StackRequest{
 				StackName:         "demo",
 				SourceComposePath: filepath.Join(dir, "compose.yaml"),
-				Desired:           desired,
+				Desired:           desired, TargetServices: desired.Services.Names(),
 			})
 			require.NoError(t, err, "deploy stack")
 			require.NoError(t, handlerErr, "decode create request")
@@ -256,7 +256,7 @@ func TestDeployStackInitJobFailureDoesNotDeleteResources(t *testing.T) {
 	_, err := deployer.DeployStack(context.Background(), StackRequest{
 		StackName:         "demo",
 		SourceComposePath: filepath.Join(dir, "compose.yaml"),
-		Desired:           desired,
+		Desired:           desired, TargetServices: desired.Services.Names(),
 	})
 	require.ErrorIs(t, err, initErr, "init job failure must be preserved")
 	assert.Zero(t, deleteCalls, "old resources must not be pruned when init job fails")

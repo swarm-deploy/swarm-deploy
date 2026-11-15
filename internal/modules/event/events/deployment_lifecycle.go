@@ -7,8 +7,14 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
 )
 
-// DeployErrorCodePreparationFailed is the stable error code for DeployPreparationFailed.
-const DeployErrorCodePreparationFailed = "preparation_failed"
+// Stable error codes for DeployPreparationFailed.
+const (
+	DeployErrorCodePreparationFailed    = "preparation_failed"
+	DeployErrorCodeAnalyzeDriftFailed   = "analyze_drift_failed"
+	DeployErrorCodeSelfHealDriftFailed  = "self_heal_drift_failed"
+	DeployErrorCodeVerifySelfHealFailed = "verify_self_heal_failed"
+	DeployErrorCodeReconcileFailed      = "reconcile_failed"
+)
 
 // Stable reasons for DeployInterrupted.
 const (
@@ -16,9 +22,9 @@ const (
 	DeployInterruptReasonVerificationUnknown = "verification_unknown"
 )
 
-// DeployPreparationFailed reports a safe pre-apply failure without inventing a deployment attempt.
+// DeployPreparationFailed reports a stack synchronization failure outside an Attempt.
 type DeployPreparationFailed struct {
-	// StackName identifies the stack whose desired input could not be prepared.
+	// StackName identifies the stack whose reconciliation failed.
 	StackName string
 	// Commit identifies the source revision.
 	Commit string
@@ -28,7 +34,7 @@ type DeployPreparationFailed struct {
 	Error error
 	// ErrorCode is a stable safe category and never contains raw error text.
 	ErrorCode string
-	// Stage identifies the preparation stage that failed.
+	// Stage identifies the reconciliation stage that failed.
 	Stage string
 }
 

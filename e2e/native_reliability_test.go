@@ -121,7 +121,7 @@ func TestRealSwarmMetadataUpdatePartialApplyRetry(t *testing.T) {
 		return file
 	}
 	req := deployments.ExecuteRequest{
-		Stack: config.StackSpec{Name: f.stack}, Commit: "initial", Desired: load("initial", false), SourceChanged: true,
+		Stack: config.StackSpec{Name: f.stack}, Commit: "initial", Desired: load("initial", false), SourceChanged: true, TargetServices: []string{"a"},
 	}
 	result, err := f.executor.Execute(f.ctx, req)
 	require.NoError(t, err)
@@ -130,6 +130,7 @@ func TestRealSwarmMetadataUpdatePartialApplyRetry(t *testing.T) {
 	initial := f.inspect(t, "a")
 
 	req.Commit, req.Desired = "metadata-and-b", load("metadata", true)
+	req.TargetServices = req.Desired.Compose.Services.Names()
 	converted, err := converter.New(f.sw.Networks, f.sw.Configs, f.sw.Secrets).Convert(f.ctx, f.stack, req.Desired.Compose)
 	require.NoError(t, err)
 	// An existing, foreign-owned service makes B's application fail only after

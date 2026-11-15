@@ -13,6 +13,15 @@ import (
 
 type Services []Service
 
+// Names returns service names in their declared order.
+func (s Services) Names() []string {
+	names := make([]string, 0, len(s))
+	for _, service := range s {
+		names = append(names, service.Name)
+	}
+	return names
+}
+
 type Service struct {
 	Name    string  `yaml:"-" json:"name"`
 	Image   string  `yaml:"image" json:"image"`

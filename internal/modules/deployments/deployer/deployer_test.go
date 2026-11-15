@@ -72,7 +72,7 @@ func TestDeployStackRunsInitJobsBeforeNativeServiceApplication(t *testing.T) {
 	result, err := deployer.DeployStack(t.Context(), StackRequest{
 		StackName:         "demo",
 		SourceComposePath: "source.yaml",
-		Desired:           desired,
+		Desired:           desired, TargetServices: desired.Services.Names(),
 	})
 	require.NoError(t, err)
 	assert.Equal(t, []string{"network", "init:api:migrate", "apply"}, events)
@@ -96,7 +96,7 @@ func TestDeployStackInitJobFailureStopsApplicationAndPreservesPartialResult(t *t
 	result, err := deployer.DeployStack(t.Context(), StackRequest{
 		StackName:         "demo",
 		SourceComposePath: "source.yaml",
-		Desired:           desired,
+		Desired:           desired, TargetServices: desired.Services.Names(),
 	})
 	require.ErrorIs(t, err, jobErr)
 	assert.True(t, InitJobsFailed(err))
@@ -172,7 +172,7 @@ func TestDeployStackPassesNoTargetsWhenApplicationIsUnchanged(t *testing.T) {
 	_, err := deployer.DeployStack(t.Context(), StackRequest{
 		StackName:         "demo",
 		SourceComposePath: "source.yaml",
-		Desired:           minimalCompose("api"),
+		Desired:           minimalCompose("api"), TargetServices: minimalCompose("api").Services.Names(),
 	})
 	require.NoError(t, err)
 }
@@ -196,7 +196,7 @@ func TestDeployStackParentCancellationInterruptsConvergence(t *testing.T) {
 	_, err := deployer.DeployStack(ctx, StackRequest{
 		StackName:         "demo",
 		SourceComposePath: "source.yaml",
-		Desired:           minimalCompose("api"),
+		Desired:           minimalCompose("api"), TargetServices: minimalCompose("api").Services.Names(),
 	})
 	require.ErrorIs(t, err, context.Canceled)
 }
@@ -210,7 +210,7 @@ func TestDeployPathsShareOneApplyDeadline(t *testing.T) {
 			_, err := deployer.DeployStack(t.Context(), StackRequest{
 				StackName:         "demo",
 				SourceComposePath: "source.yaml",
-				Desired:           minimalCompose("api"),
+				Desired:           minimalCompose("api"), TargetServices: minimalCompose("api").Services.Names(),
 			})
 			return err
 		}},
@@ -301,7 +301,7 @@ func TestDeployStackStartsApplyTimeoutAfterInitJobs(t *testing.T) {
 	_, err := deployer.DeployStack(t.Context(), StackRequest{
 		StackName:         "demo",
 		SourceComposePath: "source.yaml",
-		Desired:           desired,
+		Desired:           desired, TargetServices: desired.Services.Names(),
 	})
 	require.NoError(t, err)
 }
@@ -326,7 +326,7 @@ func TestDeployStackDoesNotReturnBeforeServiceConvergence(t *testing.T) {
 		_, err := deployer.DeployStack(context.Background(), StackRequest{
 			StackName:         "demo",
 			SourceComposePath: "source.yaml",
-			Desired:           minimalCompose("api"),
+			Desired:           minimalCompose("api"), TargetServices: minimalCompose("api").Services.Names(),
 		})
 		result <- err
 	}()
@@ -352,7 +352,7 @@ func TestDeployStackPropagatesServiceWaitFailure(t *testing.T) {
 	_, err := deployer.DeployStack(t.Context(), StackRequest{
 		StackName:         "demo",
 		SourceComposePath: "source.yaml",
-		Desired:           minimalCompose("api"),
+		Desired:           minimalCompose("api"), TargetServices: minimalCompose("api").Services.Names(),
 	})
 	require.ErrorIs(t, err, waitErr)
 	assert.True(t, ConvergenceFailed(err))
@@ -405,7 +405,7 @@ func TestDeployStackPreservesInitJobResultsWhenNativeApplyFails(t *testing.T) {
 	result, err := deployer.DeployStack(t.Context(), StackRequest{
 		StackName:         "demo",
 		SourceComposePath: "source.yaml",
-		Desired:           desired,
+		Desired:           desired, TargetServices: desired.Services.Names(),
 	})
 	require.ErrorIs(t, err, applyErr)
 	require.Len(t, result.InitJobs, 1)
@@ -427,7 +427,7 @@ func TestDeployStackOmitsInitJobResultWhenExecutionNeverStarted(t *testing.T) {
 	result, err := deployer.DeployStack(t.Context(), StackRequest{
 		StackName:         "demo",
 		SourceComposePath: "source.yaml",
-		Desired:           desired,
+		Desired:           desired, TargetServices: desired.Services.Names(),
 	})
 	require.ErrorIs(t, err, createErr)
 	assert.Empty(t, result.InitJobs)

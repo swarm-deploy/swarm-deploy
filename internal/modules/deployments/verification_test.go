@@ -28,7 +28,7 @@ func TestUpdateGenerationSurvivesInterruptedApplyAndDesiredStateChanges(t *testi
 	require.NoError(t, err)
 	lifecycle := NewService(db, &dispatcher.NopDispatcher{})
 	desired := desiredServices("api", "worker")
-	attempt, err := lifecycle.StartIfChanged(t.Context(), "app", "one", desired, true)
+	attempt, err := lifecycle.StartIfChanged(t.Context(), "app", "one", desired, true, StartOptions{TargetServices: desired.Compose.Services.Names()})
 	require.NoError(t, err)
 	generation := deploymentmodel.UpdateGeneration{ServiceID: "api-id", After: time.Now().UTC(), ForceUpdate: 7, Mode: deploymentmodel.VerifyNewGeneration, TasksAfter: time.Now().UTC().Add(-time.Second)}
 	_, err = lifecycle.RecordUpdateGeneration(t.Context(), attempt.ID, "api", generation)
@@ -48,7 +48,7 @@ func TestUpdateGenerationSurvivesInterruptedApplyAndDesiredStateChanges(t *testi
 	_, err = lifecycle.RecordUpdateGeneration(t.Context(), attempt.ID, "api", generation)
 	require.ErrorIs(t, err, deploymentstore.ErrNotRunning)
 	desired.Compose.Services[1].Image = "worker:2"
-	next, err := lifecycle.StartIfChanged(t.Context(), "app", "two", desired, true)
+	next, err := lifecycle.StartIfChanged(t.Context(), "app", "two", desired, true, StartOptions{TargetServices: desired.Compose.Services.Names()})
 	require.NoError(t, err)
 	saved, err = store.Get(t.Context(), next.DeploymentID)
 	require.NoError(t, err)
@@ -83,12 +83,12 @@ func TestRejectedUpdateThenNoOpApplyVerifiesHealthyService(t *testing.T) {
 		CreatedAt: current.CreatedAt, UpdatedAt: current.UpdatedAt, ServiceSpec: current.Spec, PreviousSpec: &previous,
 		UpdateStatus: &swarm.ServiceUpdateStatus{State: swarm.ServiceUpdateStateCompleted, StartedAt: started}}
 	initialDesired := desiredServices("api")
-	initial, err := lifecycle.StartIfChanged(t.Context(), "app", "A", initialDesired, true)
+	initial, err := lifecycle.StartIfChanged(t.Context(), "app", "A", initialDesired, true, StartOptions{TargetServices: initialDesired.Compose.Services.Names()})
 	require.NoError(t, err)
 	require.NoError(t, lifecycle.Complete(t.Context(), initial.ID, Completion{Outcome: CompletionSucceeded}))
 	changedDesired := desiredServices("api")
 	changedDesired.Compose.Services[0].Image = "api:B"
-	attempt, err := lifecycle.StartIfChanged(t.Context(), "app", "B", changedDesired, true)
+	attempt, err := lifecycle.StartIfChanged(t.Context(), "app", "B", changedDesired, true, StartOptions{TargetServices: changedDesired.Compose.Services.Names()})
 	require.NoError(t, err)
 	wanted := current.Spec
 	wanted.EndpointSpec = &dockerswarm.EndpointSpec{Ports: []dockerswarm.PortConfig{{TargetPort: 80, PublishedPort: 8081}}}
@@ -108,7 +108,7 @@ func TestRejectedUpdateThenNoOpApplyVerifiesHealthyService(t *testing.T) {
 	assert.Empty(t, saved.Verification.UnresolvedServices)
 	require.NoError(t, lifecycle.Complete(t.Context(), attempt.ID, Completion{Outcome: CompletionApplyFailed,
 		Verification: deploymentmodel.Verification{Known: true}}))
-	next, err := lifecycle.StartIfChanged(t.Context(), "app", "A-again", initialDesired, true)
+	next, err := lifecycle.StartIfChanged(t.Context(), "app", "A-again", initialDesired, true, StartOptions{TargetServices: initialDesired.Compose.Services.Names()})
 	require.NoError(t, err)
 	saved, err = store.Get(t.Context(), next.DeploymentID)
 	require.NoError(t, err)
@@ -132,7 +132,7 @@ func TestRejectedFollowupRestoresUnresolvedGeneration(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	lifecycle := NewService(db, &dispatcher.NopDispatcher{})
-	attempt, err := lifecycle.StartIfChanged(t.Context(), "app", "one", desiredServices("api"), true)
+	attempt, err := lifecycle.StartIfChanged(t.Context(), "app", "one", desiredServices("api"), true, StartOptions{TargetServices: desiredServices("api").Compose.Services.Names()})
 	require.NoError(t, err)
 	first := deploymentmodel.UpdateGeneration{ServiceID: "api-id", After: time.Now().UTC(), Mode: deploymentmodel.VerifyNewGeneration}
 	_, err = lifecycle.RecordUpdateGeneration(t.Context(), attempt.ID, "api", first)
