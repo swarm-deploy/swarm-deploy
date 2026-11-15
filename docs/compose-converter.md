@@ -50,10 +50,18 @@ still rejected by Docker. `RESET` is discarded, `ALL` replaces the rest
 of its list, and a capability present in both `cap_add` and `cap_drop` is only added.
 Conversion restores the `CAP_` prefix expected by the Docker API. Definitions that
 spelled capabilities differently (for example `net_admin` or `CAP_NET_ADMIN`) get a
-new effective digest once, which starts a Deployment that applies no changes.
+new effective digest once. That starts a Deployment which leaves ServiceSpecs
+unchanged but, like every stack Deployment, runs the stack's Init Jobs.
 
-Scalar commands are tokenized with the `google/shlex` package; they do not implicitly invoke a shell. Exec-form arguments retain their
-boundaries. Scalar healthcheck tests become `CMD-SHELL` tests.
+Commands, entrypoints and healthcheck tests are normalized to exec form while Compose
+is loaded (and when persisted deployment snapshots are read), next to capabilities.
+Scalar commands are tokenized with the `google/shlex` package; they do not implicitly
+invoke a shell. Exec-form arguments retain their boundaries. Scalar healthcheck tests
+become `CMD-SHELL` tests. Invalid quoting in a scalar `command` or `entrypoint` is
+therefore reported when the file is loaded or linted, as a decode error at
+`services.<name>.command` or `services.<name>.entrypoint`, before any preparation or
+deployment starts; the error does not include the command text. The deployment
+snapshot YAML shows these fields in list form.
 
 Names use `stack_alias` unless overridden by `name` or an external definition.
 Services, containers, owned networks and owned volumes carry
@@ -78,15 +86,46 @@ size/mode are supported. External volumes carry no creation options and are not
 inspected on the manager: ordinary Swarm volumes belong to individual nodes.
 
 Config and secret references contain the actual ID/name, target, UID/GID and
-file mode (default `0444`, UID/GID `0`). Short-form config references retain their syntax across JSON snapshots, so their
-targets are unchanged after serialization. Short-form config targets are `/<alias>`;
-short-form secrets use the alias under Docker's secret directory. This accounts
-for the existing shared ObjectRef parser's secret-style short-form target without
-changing its behavior for existing consumers.
+file mode (default `0444`, UID/GID `0`). Short-form and target-less config targets
+are `/<alias>`; short-form and target-less secrets use the alias, which Docker
+mounts under its secret directory. These rules and Docker's defaults are defined
+once on `compose.ObjectRef` (`ServiceConfig`, `ServiceSecret`, `InitJobSecret`,
+`FileOwnership`) and shared by conversion, InitJobRunner and the
+effective digest. References are resolved while Compose is loaded, so the short
+form is only Compose syntax: loaded definitions and snapshots contain explicit
+targets.
 
 Init Jobs are excluded from application service conversion. Their declared
 networks are included and undefined dependencies are rejected. InitJobRunner
 owns the temporary services and job lifecycle.
+
+Init Jobs mount their own config and secret references and those inherited from
+the service. All configs default to `/<alias>`, with their configured UID, GID
+and mode. An explicit target sets the mount path. Earlier releases mounted
+short-form configs in Init Jobs at `/run/secrets/<alias>` and attached long-form
+configs without a target without a file. Set `target: /run/secrets/<alias>`
+explicitly if a job still needs that path.
+
+Init Job secret targets resolve to `/run/secrets/<source>` when empty and under
+`/run/secrets/` when relative. Each source is attached once per mount path.
+For example, config targets `app` and `/app` refer to the same file. When a job
+and its service declare the same source at the same path, the job's UID, GID
+and mode apply. Duplicate declarations within a job must agree on UID, GID
+and mode. Compose validation rejects conflicting declarations.
+
+Earlier releases ignored user environment variables, labels and resource names
+that matched internal model fields such as `Keys`, `env_file` or `Map`. Stacks
+with such definitions get a new effective digest once after upgrading, which
+starts one Deployment that runs their Init Jobs.
+
+The effective digest (`compose.Canonicalize`) applies the same typed normalization
+to definitions built in code and sorts order-insensitive lists (ports, mounts,
+networks, config and secret references, capabilities) by their JSON encoding with
+sorted keys; Init Jobs keep their order. Parser metadata, such as the source order
+of environment variables, the indexes of mounts and networks, or the form of a
+command already converted to exec form, is not serialized. The digest keeps the
+command encoding of earlier releases (`{"Args": [...], "IsList": true}`) so
+existing baselines stay valid; deployment snapshots use the current encoding.
 
 Map-derived collections and service/network results have deterministic ordering.
 Conversion never mutates its input or shares mutable input maps, slices or

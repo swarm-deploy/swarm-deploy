@@ -1,6 +1,7 @@
 package compose
 
 import (
+	"context"
 	jsonv1 "encoding/json"
 	"encoding/json/v2"
 	"testing"
@@ -78,6 +79,21 @@ services:
 	assert.Equal(t, Capabilities{"ALL"}, parsed.Services[0].CapDrop)
 	assert.Nil(t, parsed.Services[1].CapAdd)
 	assert.Nil(t, parsed.Services[1].CapDrop)
+}
+
+func TestFileLoaderNormalizesCapabilities(t *testing.T) {
+	raw := []byte(`services:
+  api:
+    image: alpine
+    cap_add: [net_admin, CAP_NET_ADMIN, RESET]
+    cap_drop: [sys_admin, net_admin, CAP_SYS_ADMIN]
+`)
+	loader := NewFileLoaderWithReader(func(context.Context, string) ([]byte, error) { return raw, nil })
+	file, err := loader.Load(t.Context(), "compose.yaml")
+	require.NoError(t, err)
+	require.Len(t, file.Compose.Services, 1)
+	assert.Equal(t, Capabilities{"NET_ADMIN"}, file.Compose.Services[0].CapAdd)
+	assert.Equal(t, Capabilities{"SYS_ADMIN"}, file.Compose.Services[0].CapDrop)
 }
 
 func TestUnmarshalJSONNormalizesPersistedCapabilities(t *testing.T) {

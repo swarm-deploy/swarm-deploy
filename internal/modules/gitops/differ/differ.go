@@ -69,7 +69,7 @@ func (d *Differ) Compare(composeFiles []ComposeFile) (diff.Diff, error) {
 }
 
 func parseComposeFile(raw string) (*compose.Compose, error) {
-	parsed, err := compose.Parse([]byte(raw))
+	parsed, err := compose.ParseSource([]byte(raw))
 	if err != nil {
 		return nil, err
 	}

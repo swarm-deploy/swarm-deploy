@@ -3,7 +3,6 @@ package converter
 import (
 	"context"
 	"fmt"
-	"os"
 	"slices"
 
 	dockerswarm "github.com/docker/docker/api/types/swarm"
@@ -68,10 +67,11 @@ func serviceObjects(container *dockerswarm.ContainerSpec, service compose.Servic
 		if !ok {
 			return fmt.Errorf("configs.%s: undefined config", object.Source)
 		}
-		target, uid, gid, mode := fileTarget(object, false)
+		file := object.ServiceConfig()
+		uid, gid, mode := file.FileOwnership()
 		container.Configs = append(container.Configs, &dockerswarm.ConfigReference{
 			ConfigID: resource.ID, ConfigName: resource.Name,
-			File: &dockerswarm.ConfigReferenceFileTarget{Name: target, UID: uid, GID: gid, Mode: mode},
+			File: &dockerswarm.ConfigReferenceFileTarget{Name: file.Target, UID: uid, GID: gid, Mode: mode},
 		})
 	}
 	for _, object := range service.Secrets {
@@ -79,10 +79,11 @@ func serviceObjects(container *dockerswarm.ContainerSpec, service compose.Servic
 		if !ok {
 			return fmt.Errorf("secrets.%s: undefined secret", object.Source)
 		}
-		target, uid, gid, mode := fileTarget(object, true)
+		file := object.ServiceSecret()
+		uid, gid, mode := file.FileOwnership()
 		container.Secrets = append(container.Secrets, &dockerswarm.SecretReference{
 			SecretID: resource.ID, SecretName: resource.Name,
-			File: &dockerswarm.SecretReferenceFileTarget{Name: target, UID: uid, GID: gid, Mode: mode},
+			File: &dockerswarm.SecretReferenceFileTarget{Name: file.Target, UID: uid, GID: gid, Mode: mode},
 		})
 	}
 	slices.SortStableFunc(container.Configs, func(a, b *dockerswarm.ConfigReference) int {
@@ -92,28 +93,4 @@ func serviceObjects(container *dockerswarm.ContainerSpec, service compose.Servic
 		return compareStrings(a.SecretName, b.SecretName)
 	})
 	return nil
-}
-
-const defaultFileMode = 0o444
-
-func fileTarget(object compose.ObjectRef, secret bool) (string, string, string, os.FileMode) {
-	target := object.Target
-	if target == "" || object.IsShortForm() {
-		target = "/" + object.Source
-		if secret {
-			target = object.Source
-		}
-	}
-	uid, gid := object.Uid, object.Gid
-	if uid == "" {
-		uid = "0"
-	}
-	if gid == "" {
-		gid = "0"
-	}
-	mode := os.FileMode(defaultFileMode)
-	if object.Mode != nil {
-		mode = *object.Mode
-	}
-	return target, uid, gid, mode
 }

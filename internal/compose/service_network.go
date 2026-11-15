@@ -1,11 +1,16 @@
 package compose
 
 import (
+	jsonv1 "encoding/json"
+	"encoding/json/v2"
 	"fmt"
 
 	"go.yaml.in/yaml/v3"
 )
 
+// ServiceNetworks lists service network attachments. Names, AliasMap and Aliases
+// index List; they are parser metadata and are not serialized, although snapshots
+// persisted by older releases may still contain them.
 type ServiceNetworks struct {
 	Names []string `json:"Names"`
 
@@ -14,6 +19,17 @@ type ServiceNetworks struct {
 	Aliases  []string                   `json:"Aliases"`
 
 	onlyAlias bool
+}
+
+// serviceNetworksJSON is the persisted form of ServiceNetworks, without parser metadata.
+type serviceNetworksJSON struct {
+	// List contains network attachments in source order.
+	List []*ServiceNetwork `json:"List"`
+}
+
+// MarshalJSON omits the indexes derived from List.
+func (s ServiceNetworks) MarshalJSON() ([]byte, error) {
+	return json.Marshal(serviceNetworksJSON{List: s.List}, jsonv1.DefaultOptionsV1())
 }
 
 type ServiceNetwork struct {

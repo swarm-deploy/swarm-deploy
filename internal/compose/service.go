@@ -4,6 +4,7 @@ import (
 	jsonv1 "encoding/json"
 	"encoding/json/v2"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/labelsdict"
@@ -89,6 +90,24 @@ type ServiceHealth struct {
 	Disable       bool    `yaml:"disable,omitempty" json:"disable,omitempty"`
 }
 
+// HealthcheckShell is the healthcheck test prefix that runs the rest through the container shell.
+const HealthcheckShell = "CMD-SHELL"
+
+// Canonical returns the healthcheck with its test in exec form: a scalar test
+// runs through the container shell as [CMD-SHELL, test], and an empty test has
+// nil arguments. Canonical is idempotent and does not modify h.
+func (h ServiceHealth) Canonical() ServiceHealth {
+	words := slices.Clone(h.Test.Args)
+	if len(words) > 0 && !h.Test.IsList() {
+		words = append([]string{HealthcheckShell}, words...)
+	}
+	if len(words) == 0 {
+		words = nil
+	}
+	h.Test = NewCommand(words)
+	return h
+}
+
 type ServiceLogging struct {
 	Driver  string            `yaml:"driver,omitempty" json:"driver,omitempty"`
 	Options map[string]string `yaml:"options,omitempty" json:"options,omitempty"`
@@ -159,22 +178,68 @@ func (s *Services) UnmarshalYAML(n *yaml.Node) error {
 		services = append(services, srv)
 	}
 
-	normalizeServiceCapabilities(services)
+	normalizeServices(services)
 	*s = services
 
 	return nil
 }
 
 // UnmarshalJSON restores services persisted in desired-state snapshots.
-// Capabilities are normalized because snapshots may predate their normalization.
+// They are normalized like decoded YAML because snapshots may predate it.
 func (s *Services) UnmarshalJSON(data []byte) error {
 	var services []Service
 	if err := json.Unmarshal(data, &services, jsonv1.DefaultOptionsV1()); err != nil {
 		return err
 	}
-	normalizeServiceCapabilities(services)
+	if err := normalizeServiceCommands(services); err != nil {
+		return err
+	}
+	normalizeServices(services)
 	*s = services
 	return nil
+}
+
+func normalizeServiceCommands(services []Service) error {
+	for i := range services {
+		if err := services[i].normalizeCommands(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Service) normalizeCommands() error {
+	var err error
+	if s.Command, err = s.Command.Exec(); err != nil {
+		return fmt.Errorf("services.%s.command: %w", s.Name, err)
+	}
+	if s.Entrypoint, err = s.Entrypoint.Exec(); err != nil {
+		return fmt.Errorf("services.%s.entrypoint: %w", s.Name, err)
+	}
+	return nil
+}
+
+// normalizeServices replaces equivalent spellings whose difference carries no
+// meaning for Docker. Healthcheck tests use exec form, capabilities are canonical, and
+// config and secret references are resolved with the rules of the service or
+// Init Job that declares them. Init Jobs mount the references they inherit from
+// their service as the service does.
+//
+// List order is kept because mount order is part of the deployed ServiceSpec.
+func normalizeServices(services []Service) {
+	for i := range services {
+		service := &services[i]
+		if service.Healthcheck != nil {
+			health := service.Healthcheck.Canonical()
+			service.Healthcheck = &health
+		}
+		service.CapAdd, service.CapDrop = NormalizeCapabilities(service.CapAdd, service.CapDrop)
+		service.Secrets = mapObjectRefs(service.Secrets, ObjectRef.ServiceSecret)
+		service.Configs = mapObjectRefs(service.Configs, ObjectRef.ServiceConfig)
+		for j := range service.InitJobs {
+			service.InitJobs[j].resolveObjectRefs()
+		}
+	}
 }
 
 func (s Services) MarshalYAML() (interface{}, error) {

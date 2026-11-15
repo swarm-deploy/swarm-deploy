@@ -99,7 +99,10 @@ func (l *fileLoader) Load(ctx context.Context, path string) (*File, error) {
 		return nil, &ValidateComposeError{FilePath: path, Issues: decodeIssues(validateErr), Err: validateErr}
 	}
 	schema := Compose{}
-	if err = syntax.Decode(&schema); err != nil {
+	if err = syntax.Decode(&schema); err == nil {
+		err = normalizeServiceCommands(schema.Services)
+	}
+	if err != nil {
 		if interpolated {
 			err = fmt.Errorf("invalid Compose value after interpolation")
 		}
