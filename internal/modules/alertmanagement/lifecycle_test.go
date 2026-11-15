@@ -21,7 +21,7 @@ func TestLifecycleFailureThresholdAndPartialReset(t *testing.T) {
 	bus := dispatcher.NewOutboxDispatcher(outbox.New(db))
 	require.NoError(t, dispatcher.SubscribeMany(bus, []events.TypeName{events.TypeNameAlertOpened, events.TypeNameAlertResolved},
 		"test-alert-transitions", newTestSQLSubscriber(store)))
-	lifecycle := newLifecycle(store, bus, noAlertRecipients)
+	lifecycle := newLifecycle(store, bus, noAlertRecipientsForResource)
 	fingerprint := model.SyncFailedFingerprint("app")
 	alert := model.Alert{
 		Fingerprint: fingerprint, Kind: model.AlertKindSyncFailed, ResourceType: model.ResourceTypeStack, ResourceID: "app",
@@ -62,7 +62,7 @@ func TestLifecycleUpdatesOpenIncidentAndAccumulatesDistinctFindings(t *testing.T
 	bus := dispatcher.NewOutboxDispatcher(outbox.New(db))
 	require.NoError(t, dispatcher.SubscribeMany(bus, []events.TypeName{events.TypeNameAlertOpened, events.TypeNameAlertResolved},
 		"test-alert-transitions", newTestSQLSubscriber(store)))
-	lifecycle := newLifecycle(store, bus, noAlertRecipients)
+	lifecycle := newLifecycle(store, bus, noAlertRecipientsForResource)
 	start := time.Date(2026, time.November, 7, 10, 0, 0, 0, time.FixedZone("MSK", 3*60*60))
 	now := start
 	lifecycle.now = func() time.Time { return now }
@@ -118,7 +118,7 @@ func TestLifecycleUpdatesOpenIncidentAndAccumulatesDistinctFindings(t *testing.T
 
 func TestLifecycleSkipsStreaksForNodeAndDrift(t *testing.T) {
 	db, store := openAlertStore(t)
-	lifecycle := newLifecycle(store, &dispatcher.NopDispatcher{}, noAlertRecipients)
+	lifecycle := newLifecycle(store, &dispatcher.NopDispatcher{}, noAlertRecipientsForResource)
 	for _, alert := range []model.Alert{
 		{Fingerprint: model.NodeDisconnectedFingerprint("worker"), Kind: model.AlertKindNodeDisconnected,
 			ResourceType: model.ResourceTypeNode, ResourceID: "worker", LatestEventID: "node"},
@@ -137,7 +137,7 @@ func TestLifecycleSkipsStreaksForNodeAndDrift(t *testing.T) {
 
 func TestLifecycleRejectsInvalidActions(t *testing.T) {
 	db, store := openAlertStore(t)
-	lifecycle := newLifecycle(store, &dispatcher.NopDispatcher{}, noAlertRecipients)
+	lifecycle := newLifecycle(store, &dispatcher.NopDispatcher{}, noAlertRecipientsForResource)
 	fingerprint := model.SyncFailedFingerprint("app")
 	for _, tc := range []struct {
 		name   string

@@ -16,6 +16,7 @@ type Subscriber struct {
 	sync          evaluators.Evaluator
 	gitRepository evaluators.Evaluator
 	node          evaluators.Evaluator
+	messenger     evaluators.Evaluator
 	serviceDrift  evaluators.Evaluator
 	configuration evaluators.Evaluator
 	lifecycle     Lifecycle
@@ -26,6 +27,7 @@ func newSubscriber(store modelstore.Store, lifecycle Lifecycle, stacks config.St
 		sync:          evaluators.NewSyncEvaluator(store, stacks),
 		gitRepository: evaluators.NewGitRepositoryEvaluator(store),
 		node:          evaluators.NewNodeEvaluator(store),
+		messenger:     evaluators.NewMessengerEvaluator(store),
 		serviceDrift:  evaluators.NewServiceDriftEvaluator(store),
 		configuration: evaluators.NewConfigurationEvaluator(store, stacks),
 		lifecycle:     lifecycle,
@@ -64,6 +66,9 @@ func (s *Subscriber) evaluatorFor(event events.Event) evaluators.Evaluator {
 		return s.gitRepository
 	case *events.NodeDisconnected, *events.NodeConnected:
 		return s.node
+	case *events.MessengerUnavailable, *events.MessengerAvailable,
+		*events.MessengerMisconfigured, *events.MessengerDeliverySucceeded:
+		return s.messenger
 	case *events.ServiceMissed, *events.ServiceDrifted, *events.ServiceDriftFixed, *events.ServiceRemovedFromDesired:
 		return s.serviceDrift
 	default:

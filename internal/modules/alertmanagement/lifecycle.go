@@ -22,13 +22,13 @@ type Lifecycle interface {
 type alertLifecycle struct {
 	store      modelstore.Store
 	publisher  Publisher
-	recipients func(model.AlertKind) []events.AlertRecipient
+	recipients func(model.AlertKind, string) []events.AlertRecipient
 	now        func() time.Time
 	newID      func() string
 }
 
 func newLifecycle(
-	store modelstore.Store, publisher Publisher, recipients func(model.AlertKind) []events.AlertRecipient,
+	store modelstore.Store, publisher Publisher, recipients func(model.AlertKind, string) []events.AlertRecipient,
 ) *alertLifecycle {
 	return &alertLifecycle{
 		store: store, publisher: publisher, recipients: recipients, now: time.Now, newID: uuid.NewString,
@@ -100,7 +100,7 @@ func (l *alertLifecycle) recordFailure(ctx context.Context, action model.AlertAc
 		return fmt.Errorf("create alert %q: %w", alert.Fingerprint, err)
 	}
 	return l.publisher.Publish(ctx, &events.AlertOpened{
-		Alert: alertSnapshot(alert), Recipients: l.recipients(alert.Kind),
+		Alert: alertSnapshot(alert), Recipients: l.recipients(alert.Kind, alert.ResourceID),
 	})
 }
 
@@ -137,6 +137,6 @@ func (l *alertLifecycle) resolve(ctx context.Context, incoming model.Alert, now 
 		return fmt.Errorf("resolve alert %q: %w", alert.Fingerprint, err)
 	}
 	return l.publisher.Publish(ctx, &events.AlertResolved{
-		Alert: alertSnapshot(alert), Recipients: l.recipients(alert.Kind),
+		Alert: alertSnapshot(alert), Recipients: l.recipients(alert.Kind, alert.ResourceID),
 	})
 }

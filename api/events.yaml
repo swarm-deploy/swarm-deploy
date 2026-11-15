@@ -233,10 +233,10 @@ components:
           type: string
         kind:
           type: string
-          enum: [sync_failed, node_disconnected, git_repository_unavailable, service_drift]
+          enum: [sync_failed, node_disconnected, git_repository_unavailable, service_drift, messenger_unavailable, messenger_misconfigured]
         resourceType:
           type: string
-          enum: [stack, node, repository, service]
+          enum: [stack, node, repository, service, messenger]
         resourceId:
           type: string
         status:

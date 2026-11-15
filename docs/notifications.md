@@ -7,6 +7,8 @@ Each Telegram rule accepts `chats` as a single name or array of names; omitting 
 selects `default`. An unknown, empty or repeated destination is a configuration error.
 The `message` field uses Go `text/template`; omitting it selects the standard template.
 The removed `notifications.on` key is rejected; no compatibility alias is provided.
+Existing configurations with `notifications.events.SendNotificationFailed` load
+with a startup warning. Remove this retired route from the configuration.
 
 ## Telegram buttons
 
@@ -30,7 +32,8 @@ Replies and fallback sends use the buttons configured under `resolved`.
 ## Alert lifecycle
 
 Notification configuration uses the exact PascalCase alert names `SyncFailed`,
-`NodeDisconnected`, `GitRepositoryUnavailable`, and `ServiceDrift`.
+`NodeDisconnected`, `GitRepositoryUnavailable`, `ServiceDrift`,
+`MessengerUnavailable`, and `MessengerMisconfigured`.
 The special `default` key remains the fallback rule. Internal alert kinds and
 fingerprints keep their existing snake_case identifiers.
 A kind rule replaces `alerts.default`, and an omitted `alerts.default` selects built-in
@@ -77,6 +80,24 @@ database recording prevents repeat sends on replay, but a crash after Telegram a
 a call and before its receipt is stored can duplicate a message. Telegram delivery is
 therefore at least once, not exactly once.
 
+## Messenger health
+
+Telegram request attempts for event notifications and ordinary alerts publish
+internal messenger health observations. Transport
+failures and HTTP 5xx responses open or update one `messenger_unavailable` alert with
+resource ID `telegram`. Any non-5xx Telegram response resolves it, even when the
+notification itself is rejected. Configuration rejections open or update a
+`messenger_misconfigured` alert with resource ID `telegram:<chat-name>`; a successful
+delivery to that same named chat resolves it. Chat IDs, thread IDs and bot credentials
+are never part of these resource IDs.
+
+These observations are durable Event Bus inputs but are neither public notification
+event names nor Event History entries. Availability alerts are not routed through
+Telegram. Configuration alerts exclude their own failing named chat, while other
+configured alert destinations may still receive the lifecycle notification. Deliveries
+of messenger health alerts suppress observations to prevent recursion. A delivery to
+a persisted recipient whose chat is no longer configured only reports availability.
+
 ## Template API
 
 Payloads are typed contracts rather than internal event, alert, deployment, or Compose
@@ -99,7 +120,6 @@ All payloads have `ID`, `Type`, and `OccurredAt` (`time.Time`, UTC). Most also p
 | `ServiceCatalogUpdated`, `SyncManualStarted`, `WebhookReceived`, `NetworkCreated` | `ID`, `Type`, `StackName`, `Username`, `Queued`, `NetworkName`, `NetworkID`, `Driver`, `Message`, `OccurredAt` |
 | `UserAuthenticated` | `ID`, `Type`, `Username`, `Message`, `OccurredAt` |
 | `AssistantPromptInjectionDetected` | `ID`, `Type`, `Detector`, `Username`, `Message`, `OccurredAt` |
-| `SendNotificationFailed` | `ID`, `Type`, `EventType`, `Destination`, `Channel`, `Error`, `Message`, `OccurredAt` |
 
 Shared template fields and serialized JSON names match Event History semantics:
 

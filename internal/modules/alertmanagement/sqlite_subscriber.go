@@ -23,6 +23,16 @@ func NewSQLSubscriber(
 	recipients func(model.AlertKind) []events.AlertRecipient,
 	stacks config.StackProvider,
 ) *SQLSubscriber {
+	return newSQLSubscriberWithResources(store, publisher,
+		func(kind model.AlertKind, _ string) []events.AlertRecipient { return recipients(kind) }, stacks)
+}
+
+func newSQLSubscriberWithResources(
+	store *modelstore.SQLStore,
+	publisher Publisher,
+	recipients func(model.AlertKind, string) []events.AlertRecipient,
+	stacks config.StackProvider,
+) *SQLSubscriber {
 	lifecycle := newLifecycle(store, publisher, recipients)
 	return &SQLSubscriber{Subscriber: newSubscriber(store, lifecycle, stacks), store: store}
 }
@@ -52,6 +62,14 @@ func (s *SQLSubscriber) Handle(ctx context.Context, event events.Envelope) error
 		resource = "repository:" + e.Repository
 	case *events.GitPullSucceeded:
 		resource = "repository:" + e.Repository
+	case *events.MessengerUnavailable:
+		resource = model.MessengerFingerprint(model.AlertKindMessengerUnavailable, e.ResourceID)
+	case *events.MessengerAvailable:
+		resource = model.MessengerFingerprint(model.AlertKindMessengerUnavailable, e.ResourceID)
+	case *events.MessengerMisconfigured:
+		resource = model.MessengerFingerprint(model.AlertKindMessengerMisconfigured, e.ResourceID)
+	case *events.MessengerDeliverySucceeded:
+		resource = model.MessengerFingerprint(model.AlertKindMessengerMisconfigured, e.ResourceID)
 	case *events.ServiceMissed:
 		resource = "service:" + e.StackName + "/" + e.ServiceName
 	case *events.ServiceDrifted:
