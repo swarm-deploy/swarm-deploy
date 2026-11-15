@@ -200,8 +200,7 @@ swarm-deploy may mutate the loaded source Compose before deployment. Today this 
 The source Compose in Git is the declarative input. Preparation produces an effective
 in-memory definition, which both stack deployments and single-service remediation
 submit directly to Deployments. No intermediate Compose file is written or read.
-Execution traces identify the original source Compose path. Legacy rendered files
-from older versions are removed after the controller acquires ownership.
+Execution traces identify the original source Compose path.
 
 ## Configuration compatibility
 

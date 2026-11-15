@@ -1,7 +1,7 @@
 package codec
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"time"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
@@ -10,10 +10,14 @@ import (
 func encodeInternal(event events.Event) ([]byte, bool, error) {
 	switch e := event.(type) {
 	case *events.AlertOpened:
-		payload, err := json.Marshal(alertOpenedPayload{Alert: alertPayloadFrom(e.Alert), Recipients: e.Recipients})
+		payload, err := json.Marshal(alertOpenedPayload{
+			Alert: alertPayloadFrom(e.Alert), Recipients: e.Recipients,
+		}, json.FormatNilSliceAsNull(true))
 		return payload, true, err
 	case *events.AlertResolved:
-		payload, err := json.Marshal(alertResolvedPayload{Alert: alertPayloadFrom(e.Alert), Recipients: e.Recipients})
+		payload, err := json.Marshal(alertResolvedPayload{
+			Alert: alertPayloadFrom(e.Alert), Recipients: e.Recipients,
+		}, json.FormatNilSliceAsNull(true))
 		return payload, true, err
 	case *events.GitPullFailed:
 		payload, err := encodeGitPullFailed(e)
@@ -23,6 +27,18 @@ func encodeInternal(event events.Event) ([]byte, bool, error) {
 			return nil, true, err
 		}
 		payload, err := json.Marshal(gitPullSucceededPayload{Repository: e.Repository, TriggerReason: e.TriggerReason})
+		return payload, true, err
+	case *events.MessengerUnavailable:
+		payload, err := encodeMessengerObservation(e.ResourceID, e.ErrorCode, e.Description)
+		return payload, true, err
+	case *events.MessengerAvailable:
+		payload, err := encodeMessengerObservation(e.ResourceID, "", "")
+		return payload, true, err
+	case *events.MessengerMisconfigured:
+		payload, err := encodeMessengerObservation(e.ResourceID, e.ErrorCode, e.Description)
+		return payload, true, err
+	case *events.MessengerDeliverySucceeded:
+		payload, err := encodeMessengerObservation(e.ResourceID, "", "")
 		return payload, true, err
 	default:
 		return nil, false, nil
@@ -39,7 +55,7 @@ type alertPayload struct {
 	ResourceID       string     `json:"resourceId"`
 	DeploymentID     string     `json:"deploymentId,omitempty"`
 	ErrorCode        string     `json:"errorCode,omitempty"`
-	Occurrences      uint64     `json:"occurrences,omitempty"`
+	Occurrences      uint64     `json:"occurrences,omitzero"`
 	Duration         string     `json:"duration,omitempty"`
 	OpenedAt         time.Time  `json:"openedAt"`
 	ResolvedAt       *time.Time `json:"resolvedAt,omitempty"`

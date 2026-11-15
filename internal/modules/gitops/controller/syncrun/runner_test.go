@@ -200,21 +200,19 @@ func TestCleanupSkipsBusyStacks(t *testing.T) {
 	repository.EXPECT().WorkingDir().Return(repoDir).AnyTimes()
 	reconciler := stackloop.NewMockStackReconciler(ctrl)
 	busyStarted, releaseBusy := make(chan struct{}), make(chan struct{})
-	idleFinished := make(chan struct{})
+	defer close(releaseBusy)
 	reconciler.EXPECT().Reconcile(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, req stackloop.ReconciliationRequest) error {
 			if req.Stack.Name == "busy" {
 				close(busyStarted)
 				<-releaseBusy
-			} else {
-				close(idleFinished)
 			}
 			return nil
 		}).Times(2)
-	runner, _, queue := newTestRunner(t, repository, reconciler, 2)
+	runner, _, _ := newTestRunner(t, repository, reconciler, 2)
 	runner.run(t.Context(), Task{Reason: TriggerInterval}, &gitx.PullResult{NewRevision: "revision"})
 	receive(t, busyStarted)
-	receive(t, idleFinished)
+	waitQueueState(t, runner, 0, 1)
 
 	// Cleanup runs at the dispatched revision for the idle stack only.
 	cleaned := make(chan struct{})
@@ -227,8 +225,6 @@ func TestCleanupSkipsBusyStacks(t *testing.T) {
 	runner.Cleanup(t.Context())
 
 	receive(t, cleaned)
-	close(releaseBusy)
-	waitIdle(t, queue)
 }
 
 func TestCleanupSkipsInvalidatedDispatchAfterFailedRun(t *testing.T) {

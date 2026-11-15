@@ -116,7 +116,7 @@ type Change struct {
 	// After is the new safe value, absent when removed.
 	After *string `json:"after,omitempty"`
 	// Redacted indicates that a sensitive value changed without disclosing it.
-	Redacted bool `json:"redacted,omitempty"`
+	Redacted bool `json:"redacted,omitzero"`
 }
 
 // ChangeSummary contains field-level transition totals.

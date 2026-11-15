@@ -55,10 +55,6 @@ services:
     environment:
       PRIVATE_VALUE: must-not-be-persisted
 `), 0o600), "write compose")
-	otherRenderedPath := filepath.Join(repoDir, ".data", "rendered", "other.yaml")
-	require.NoError(t, os.MkdirAll(filepath.Dir(otherRenderedPath), 0o755), "create rendered dir")
-	require.NoError(t, os.WriteFile(otherRenderedPath, []byte("other stack"), 0o600),
-		"write another stack rendered compose")
 
 	stackDeployer.EXPECT().
 		DeployStack(gomock.Any(), gomock.Cond(func(req deployer.StackRequest) bool {
@@ -101,7 +97,6 @@ services:
 	})
 
 	require.NoError(t, err, "reconcile")
-	assert.FileExists(t, otherRenderedPath, "reconciliation must not remove another stack rendered compose")
 	state := readSQLState(t, stateStore)
 	stackState, exists := state.Stacks["app"]
 	require.True(t, exists, "expected stack state")
@@ -936,6 +931,7 @@ services:
 		Commit: "commit-downward-3",
 	})
 	require.NoError(t, reconcileErr, "second reconcile")
+	assert.Equal(t, "commit-downward-2", readSQLState(t, stateStore).Stacks["app"].Services["api"].DesiredCommit)
 }
 
 func TestReconcilePrunesServicesWithoutNewDeployment(t *testing.T) {

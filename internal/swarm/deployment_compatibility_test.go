@@ -2,7 +2,7 @@ package swarm
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"log/slog"
 	"net/http"
@@ -55,7 +55,7 @@ func TestNetworkCreatePreservesIPAM(t *testing.T) {
 	ipam := &dockernetwork.IPAM{Driver: "default", Options: map[string]string{"driver-option": "value"}, Config: []dockernetwork.IPAMConfig{{Subnet: "10.20.0.0/24", IPRange: "10.20.0.0/25", Gateway: "10.20.0.1", AuxAddress: map[string]string{"reserved": "10.20.0.2"}}}}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var body dockernetwork.CreateRequest
-		require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+		require.NoError(t, json.UnmarshalRead(r.Body, &body))
 		assert.Equal(t, ipam, body.IPAM)
 		w.Header().Set("Content-Type", "application/json")
 		_, err := io.WriteString(w, `{"Id":"network-id"}`)

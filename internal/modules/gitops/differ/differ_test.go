@@ -111,6 +111,20 @@ services:
 	assert.Empty(t, diff.Services, "unchanged compose must not produce service diff")
 }
 
+func TestDifferCompareCommitFixingCommandQuoting(t *testing.T) {
+	delta, err := New().Compare([]ComposeFile{{
+		StackName:      "payments",
+		ComposePath:    "payments/docker-compose.yaml",
+		OldComposeFile: "services:\n  api:\n    image: alpine:3.21\n    command: echo 'hello\n",
+		NewComposeFile: "services:\n  api:\n    image: alpine:3.22\n    command: echo hello\n",
+	}})
+	require.NoError(t, err)
+	require.Len(t, delta.Services, 1)
+	require.NotNil(t, delta.Services[0].Image)
+	assert.Equal(t, "alpine:3.21", delta.Services[0].Image.Old)
+	assert.Equal(t, "alpine:3.22", delta.Services[0].Image.New)
+}
+
 func TestDifferCompareFailsOnInvalidCompose(t *testing.T) {
 	d := New()
 

@@ -3,7 +3,7 @@ package compose_test
 import (
 	"context"
 	"encoding/hex"
-	"encoding/json"
+	"encoding/json/v2"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -36,8 +36,8 @@ func TestFileLoaderRecalculateReplacesDigestsOnlyAfterSuccess(t *testing.T) {
 services:
   api:
     image: api:1
-    command: "echo 'unterminated"
 `)
+	file.Compose.Services[0].Command = compose.Command{Args: []string{"echo 'unterminated"}}
 	file.ServiceDigests = map[string]string{"existing": "digest"}
 
 	err := compose.NewFileLoader().Recalculate(file)
@@ -256,25 +256,39 @@ services:
 configs:
   settings: {external: true, name: settings}
 `)
+	different := parseDigestCompose(t, `
+services:
+  api:
+    image: api:1
+    x-init-deploy-jobs:
+      - name: migrate
+        image: migrate:1
+        configs: [{source: settings, target: /etc/settings}]
+configs:
+  settings: {external: true, name: settings}
+`)
 
 	shortDigest, err := computeDesiredServiceDigests(short)
 	require.NoError(t, err)
 	explicitDigest, err := computeDesiredServiceDigests(explicit)
 	require.NoError(t, err)
-	assert.NotEqual(t, shortDigest, explicitDigest)
+	differentDigest, err := computeDesiredServiceDigests(different)
+	require.NoError(t, err)
+	assert.Equal(t, shortDigest, explicitDigest)
+	assert.NotEqual(t, explicitDigest, differentDigest)
 }
 
 func TestDesiredServiceDigestPreservesInitJobOrderAndDoesNotMutateCompose(t *testing.T) {
 	desired := desiredDigestFixture()
 	desired.Compose.Services[0].InitJobs = append(desired.Compose.Services[0].InitJobs,
 		compose.InitJob{Name: "seed", Image: "seed:1"})
-	before, err := json.Marshal(desired)
+	before, err := json.Marshal(desired, json.Deterministic(true))
 	require.NoError(t, err)
 	first, err := computeDesiredServiceDigests(desired)
 	require.NoError(t, err)
 	second, err := computeDesiredServiceDigests(desired)
 	require.NoError(t, err)
-	after, err := json.Marshal(desired)
+	after, err := json.Marshal(desired, json.Deterministic(true))
 	require.NoError(t, err)
 	assert.Equal(t, first, second)
 	assert.Equal(t, before, after, "digest calculation mutated prepared Compose")

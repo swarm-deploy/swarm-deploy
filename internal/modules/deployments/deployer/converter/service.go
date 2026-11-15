@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"maps"
 	"slices"
-	"strings"
 
 	dockerswarm "github.com/docker/docker/api/types/swarm"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
@@ -82,29 +81,10 @@ func commandWords(command compose.Command) ([]string, error) {
 	return command.Words()
 }
 
-func capabilities(add, drop []string) ([]string, []string) {
-	added, dropped := normalizeCapabilities(add), normalizeCapabilities(drop)
-	dropped = slices.DeleteFunc(dropped, func(value string) bool { return slices.Contains(added, value) })
-	return added, dropped
-}
-
-func normalizeCapabilities(values []string) []string {
-	var result []string
-	for _, value := range values {
-		value = strings.ToUpper(strings.TrimSpace(value))
-		if value == "RESET" {
-			continue
-		}
-		if value == "ALL" {
-			return []string{"ALL"}
-		}
-		if !strings.HasPrefix(value, "CAP_") {
-			value = "CAP_" + value
-		}
-		result = append(result, value)
-	}
-	slices.Sort(result)
-	return slices.Compact(result)
+// capabilities normalizes again because prepared Compose may be built without decoding.
+func capabilities(add, drop compose.Capabilities) ([]string, []string) {
+	added, dropped := compose.NormalizeCapabilities(add, drop)
+	return added.DockerNames(), dropped.DockerNames()
 }
 
 func endpoint(service compose.Service) (*dockerswarm.EndpointSpec, error) {

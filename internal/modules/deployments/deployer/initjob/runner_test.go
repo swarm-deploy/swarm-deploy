@@ -4,10 +4,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -108,6 +109,69 @@ func TestBuildInitServiceSpecUsesResolvedResourceIDs(t *testing.T) {
 	assert.Equal(t, "/run/secrets/db-password", container.Secrets[0].File.Name)
 	assert.Equal(t, "0", container.Secrets[0].File.UID)
 	assert.Equal(t, "0", container.Secrets[0].File.GID)
+}
+
+func TestBuildInitServiceSpecMountsConfigsLikeService(t *testing.T) {
+	parsed, err := compose.Parse([]byte(`services:
+  api:
+    image: alpine
+    secrets: [token, {source: token, target: /etc/token}, {source: cert, target: tls.crt}]
+    configs: [app, {source: plain, uid: "1000"}, {source: base, target: /etc/base.conf, mode: 0440}]
+    x-init-deploy-jobs:
+      - image: migrator
+        secrets:
+          - {source: token, target: token, uid: "1000", gid: "1001", mode: 0400}
+          - {source: cert, target: /run/secrets/tls.crt}
+          - key
+        configs:
+          - {source: app, target: app, uid: "1000", mode: 0400}
+          - local
+          - {source: owned, uid: "1000", mode: 0400}
+          - {source: job, target: /run/secrets/job}
+`))
+	require.NoError(t, err)
+	service := parsed.Services[0]
+	resolvedResources := func(names ...string) map[string]resources.ResolvedResource {
+		result := map[string]resources.ResolvedResource{}
+		for _, name := range names {
+			result[name] = resources.ResolvedResource{ID: name + "-id", Name: "demo_" + name}
+		}
+		return result
+	}
+	runner := &InitJobRunner{swarmService: &swarmclient.Swarm{}}
+
+	spec, err := runner.buildInitServiceSpec(context.Background(), InitJobSpec{
+		StackName: "demo", ServiceName: "api", Job: service.InitJobs[0],
+		ServiceSecrets: service.Secrets, ServiceConfigs: service.Configs,
+		ResolvedSecrets: resolvedResources("token", "cert", "key"),
+		ResolvedConfigs: resolvedResources("app", "plain", "base", "local", "owned", "job"),
+	}, "migrate")
+	require.NoError(t, err)
+
+	secret := func(name, target string) *swarm.SecretReference {
+		return &swarm.SecretReference{SecretID: name + "-id", SecretName: "demo_" + name,
+			File: &swarm.SecretReferenceFileTarget{Name: target, UID: "0", GID: "0", Mode: compose.DefaultObjectFileMode}}
+	}
+	config := func(name, target, uid string, mode os.FileMode) *swarm.ConfigReference {
+		return &swarm.ConfigReference{ConfigID: name + "-id", ConfigName: "demo_" + name,
+			File: &swarm.ConfigReferenceFileTarget{Name: target, UID: uid, GID: "0", Mode: mode}}
+	}
+	token := secret("token", "/run/secrets/token")
+	token.File.UID, token.File.GID, token.File.Mode = "1000", "1001", 0o400
+	assert.Equal(t, []*swarm.SecretReference{
+		secret("token", "/etc/token"),
+		token,
+		secret("cert", "/run/secrets/tls.crt"),
+		secret("key", "/run/secrets/key"),
+	}, spec.TaskTemplate.ContainerSpec.Secrets, "equivalent targets are mounted once with the job's file settings")
+	assert.Equal(t, []*swarm.ConfigReference{
+		config("plain", "/plain", "1000", compose.DefaultObjectFileMode),
+		config("base", "/etc/base.conf", "0", 0o440),
+		config("app", "app", "1000", 0o400),
+		config("local", "/local", "0", compose.DefaultObjectFileMode),
+		config("owned", "/owned", "1000", 0o400),
+		config("job", "/run/secrets/job", "0", compose.DefaultObjectFileMode),
+	}, spec.TaskTemplate.ContainerSpec.Configs)
 }
 
 func TestInitJobRunnerCollectsLogsWithoutChangingOutcomeAndCleansUp(t *testing.T) {
@@ -284,7 +348,7 @@ func newInitJobDockerServer(
 			_, _ = w.Write([]byte(`{"ID":"service-id"}`))
 		case req.Method == http.MethodGet && strings.HasSuffix(req.URL.Path, "/tasks"):
 			w.Header().Set("Content-Type", "application/json")
-			err := json.NewEncoder(w).Encode([]swarm.Task{{
+			err := json.MarshalWrite(w, []swarm.Task{{
 				ID: "task-id", Meta: swarm.Meta{UpdatedAt: time.Now()}, Status: swarm.TaskStatus{State: state, Err: taskError},
 			}})
 			require.NoError(t, err)

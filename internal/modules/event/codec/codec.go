@@ -3,10 +3,10 @@ package codec
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
-	"io"
 	"reflect"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
@@ -87,6 +87,9 @@ func Decode(typ events.TypeName, version int, payload []byte) (events.Event, err
 	}
 	if isDeploymentFailureType(typ) {
 		return decodeDeploymentFailure(typ, payload)
+	}
+	if isMessengerObservationType(typ) {
+		return decodeMessengerEvent(typ, payload)
 	}
 	if event, serviceReference, err := decodeServiceReference(typ, payload); serviceReference {
 		return event, err
@@ -271,16 +274,7 @@ func decode(payload []byte, target any) error {
 	if trimmed := bytes.TrimSpace(payload); len(trimmed) == 0 || trimmed[0] != '{' {
 		return errors.New("event payload must be an object")
 	}
-	decoder := json.NewDecoder(bytes.NewReader(payload))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(target); err != nil {
-		return err
-	}
-	var extra any
-	if err := decoder.Decode(&extra); err != io.EOF {
-		return errors.New("trailing event payload data")
-	}
-	return nil
+	return json.Unmarshal(payload, target, json.RejectUnknownMembers(true))
 }
 
 type deployPayload struct {
@@ -349,7 +343,8 @@ func encodeDeploymentFailure(
 	for _, service := range services {
 		payload.Services = append(payload.Services, servicePayload{Name: service.Name, Image: service.Image})
 	}
-	return json.Marshal(payload)
+	// Diagnostics may contain invalid UTF-8, including a rune split by byte truncation.
+	return json.Marshal(payload, jsontext.AllowInvalidUTF8(true))
 }
 
 func (p deployPayload) deployment() events.DeployEvent {
@@ -367,7 +362,7 @@ func encodeDeployment(event events.DeployEvent) ([]byte, error) {
 	for _, service := range event.Services {
 		p.Services = append(p.Services, servicePayload{Name: service.Name, Image: service.Image})
 	}
-	return json.Marshal(p)
+	return json.Marshal(p, json.FormatNilSliceAsNull(true))
 }
 
 type servicePayload struct {
@@ -382,7 +377,7 @@ type servicePayload struct {
 	// Reason describes service drift when applicable.
 	Reason string `json:"reason,omitempty"`
 	// Resolved reports same-reconciliation recovery for drift detection events.
-	Resolved bool `json:"resolved,omitempty"`
+	Resolved bool `json:"resolved,omitzero"`
 	// Username identifies the initiating user.
 	Username string `json:"username"`
 	// Previous is the former replica count.

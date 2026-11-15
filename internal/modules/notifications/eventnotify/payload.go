@@ -6,7 +6,6 @@ import (
 
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
-	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
 )
 
 func notificationPayload(envelope events.Envelope) (any, error) {
@@ -68,10 +67,6 @@ func notificationPayload(envelope events.Envelope) (any, error) {
 	case *events.AssistantPromptInjectionDetected:
 		return AssistantPayload{ID: eventID, Type: event.Type().String(), Detector: string(event.Detector),
 			Username: event.Username, Message: event.Message(), OccurredAt: occurredAt}, nil
-	case *events.SendNotificationFailed:
-		return Payload{ID: eventID, Type: event.Type().String(), EventType: event.EventType.String(),
-			Destination: event.Destination, Channel: event.Channel, Error: errorString(event.Error),
-			Message: event.Message(), OccurredAt: occurredAt}, nil
 	default:
 		return nil, fmt.Errorf("notification payload is not defined for %T", envelope.Event)
 	}
@@ -110,8 +105,4 @@ func servicePayload(
 	return ServicePayload{ID: id, Type: eventType, StackName: stackName, ServiceName: serviceName,
 		Commit: commit, Username: username, PreviousReplicas: previous, CurrentReplicas: current,
 		Message: message, OccurredAt: occurredAt}
-}
-
-func errorString(err error) string {
-	return faults.SafeDiagnostic(err)
 }

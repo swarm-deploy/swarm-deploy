@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
@@ -82,7 +81,14 @@ func (r *InitJobRunner) addInitJobObjects(
 	spec Spec,
 	containerSpec *dockerswarm.ContainerSpec,
 ) error {
-	for _, secret := range mergeObjectRefs(spec.ServiceSecrets, spec.Job.Secrets) {
+	if err := spec.Job.ValidateObjectRefs(); err != nil {
+		return err
+	}
+	// Resolve mount targets before deduplication so equivalent spellings of one
+	// file are attached once.
+	secrets := mergeObjectRefs(resolveObjectRefs(spec.ServiceSecrets, inheritedSecret),
+		resolveObjectRefs(spec.Job.Secrets, compose.ObjectRef.InitJobSecret))
+	for _, secret := range secrets {
 		ref := resolvedSecretReference(secret, spec.ResolvedSecrets)
 		if ref == nil {
 			var err error
@@ -93,7 +99,9 @@ func (r *InitJobRunner) addInitJobObjects(
 		}
 		containerSpec.Secrets = append(containerSpec.Secrets, ref)
 	}
-	for _, cfg := range mergeObjectRefs(spec.ServiceConfigs, spec.Job.Configs) {
+	configs := mergeObjectRefs(resolveObjectRefs(spec.ServiceConfigs, compose.ObjectRef.ServiceConfig),
+		resolveObjectRefs(spec.Job.Configs, compose.ObjectRef.ServiceConfig))
+	for _, cfg := range configs {
 		ref := resolvedConfigReference(cfg, spec.ResolvedConfigs)
 		if ref == nil {
 			var err error
@@ -117,6 +125,24 @@ func networkAliases(networks *compose.ServiceNetworks) []string {
 	return networks.GetNames()
 }
 
+// inheritedSecret mounts a service secret at the service's path, spelled absolute
+// like Init Job secrets so that it deduplicates with them.
+func inheritedSecret(ref compose.ObjectRef) compose.ObjectRef {
+	return ref.ServiceSecret().InitJobSecret()
+}
+
+// resolveObjectRefs resolves each reference with resolve.
+func resolveObjectRefs(
+	refs []compose.ObjectRef, resolve func(compose.ObjectRef) compose.ObjectRef,
+) []compose.ObjectRef {
+	result := make([]compose.ObjectRef, len(refs))
+	for i, ref := range refs {
+		result[i] = resolve(ref)
+	}
+	return result
+}
+
+// resolvedSecretReference mounts a secret resolved with compose.ObjectRef.InitJobSecret.
 func resolvedSecretReference(
 	object compose.ObjectRef,
 	resolved map[string]resources.ResolvedResource,
@@ -125,15 +151,12 @@ func resolvedSecretReference(
 	if !ok {
 		return nil
 	}
-	target := object.Target
-	if target == "" {
-		target = "/run/secrets/" + object.Source
-	}
-	uid, gid := objectOwner(object)
+	uid, gid, mode := object.FileOwnership()
 	return &dockerswarm.SecretReference{SecretID: resource.ID, SecretName: resource.Name,
-		File: &dockerswarm.SecretReferenceFileTarget{Name: target, UID: uid, GID: gid, Mode: objectMode(object.Mode)}}
+		File: &dockerswarm.SecretReferenceFileTarget{Name: object.Target, UID: uid, GID: gid, Mode: mode}}
 }
 
+// resolvedConfigReference mounts a config resolved with compose.ObjectRef.ServiceConfig.
 func resolvedConfigReference(
 	object compose.ObjectRef,
 	resolved map[string]resources.ResolvedResource,
@@ -142,32 +165,9 @@ func resolvedConfigReference(
 	if !ok {
 		return nil
 	}
-	ref := &dockerswarm.ConfigReference{ConfigID: resource.ID, ConfigName: resource.Name}
-	if object.Target != "" {
-		uid, gid := objectOwner(object)
-		ref.File = &dockerswarm.ConfigReferenceFileTarget{
-			Name: object.Target, UID: uid, GID: gid, Mode: objectMode(object.Mode),
-		}
-	}
-	return ref
-}
-
-func objectMode(mode *os.FileMode) os.FileMode {
-	if mode == nil {
-		return initJobObjectFileMode
-	}
-	return *mode
-}
-
-func objectOwner(object compose.ObjectRef) (string, string) {
-	uid, gid := object.Uid, object.Gid
-	if uid == "" {
-		uid = "0"
-	}
-	if gid == "" {
-		gid = "0"
-	}
-	return uid, gid
+	uid, gid, mode := object.FileOwnership()
+	return &dockerswarm.ConfigReference{ConfigID: resource.ID, ConfigName: resource.Name,
+		File: &dockerswarm.ConfigReferenceFileTarget{Name: object.Target, UID: uid, GID: gid, Mode: mode}}
 }
 
 func (r *InitJobRunner) resolveNetworkTarget(ctx context.Context, stackName, network string) (string, error) {
@@ -232,25 +232,28 @@ func uniqueStrings(values []string) []string {
 	return out
 }
 
-func mergeObjectRefs(a, b []compose.ObjectRef) []compose.ObjectRef {
-	seen := map[string]struct{}{}
-	out := make([]compose.ObjectRef, 0, len(a)+len(b))
-	appendOne := func(ref compose.ObjectRef) {
-		key := ref.Source + "|" + ref.Target
-		if ref.Source == "" {
-			return
+func mergeObjectRefs(inherited, job []compose.ObjectRef) []compose.ObjectRef {
+	type mountKey struct {
+		source string
+		target string
+	}
+	seen := map[mountKey]struct{}{}
+	unique := func(refs []compose.ObjectRef) []compose.ObjectRef {
+		out := make([]compose.ObjectRef, 0, len(refs))
+		for _, ref := range refs {
+			if ref.Source == "" {
+				continue
+			}
+			key := mountKey{source: ref.Source, target: ref.MountPath()}
+			if _, exists := seen[key]; exists {
+				continue
+			}
+			seen[key] = struct{}{}
+			out = append(out, ref)
 		}
-		if _, ok := seen[key]; ok {
-			return
-		}
-		seen[key] = struct{}{}
-		out = append(out, ref)
+		return out
 	}
-	for _, ref := range a {
-		appendOne(ref)
-	}
-	for _, ref := range b {
-		appendOne(ref)
-	}
-	return out
+	// Keep job references on a match and pass them after the remaining inherited mounts.
+	jobRefs := unique(job)
+	return append(unique(inherited), jobRefs...)
 }

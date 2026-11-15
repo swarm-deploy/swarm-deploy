@@ -22,13 +22,24 @@ func TestParserParse(t *testing.T) {
 	}{
 		{
 			name:        "json structured log",
-			message:     `{"time":"2026-10-19T18:29:59.123Z","level":"warning","msg":"request slow","request_id":"req-1","duration_ms":42}`,
+			message:     `{"time":"2026-10-19T18:29:59.123Z","level":"warning","msg":"request slow","request_id":"req-1","duration_ms":42,"attributes":{"sequence":9007199254740993}}`,
 			wantTime:    time.Date(2026, time.October, 19, 18, 29, 59, 123000000, time.UTC),
 			wantLevel:   LevelWarn,
 			wantMessage: "request slow",
 			wantAttrs: map[string]any{
 				"request_id":  "req-1",
 				"duration_ms": requireJSONNumber(t, "42"),
+				"attributes":  map[string]any{"sequence": requireJSONNumber(t, "9007199254740993")},
+			},
+		},
+		{
+			name:        "json merges repeated object attributes",
+			message:     `{"msg":"request","ctx":{"request_id":"abc","region":"us","tags":["old"]},"ctx":{"region":"eu","tags":["new"]}}`,
+			wantTime:    dockerTimestamp,
+			wantLevel:   LevelInfo,
+			wantMessage: "request",
+			wantAttrs: map[string]any{
+				"ctx": map[string]any{"request_id": "abc", "region": "eu", "tags": []any{"new"}},
 			},
 		},
 		{

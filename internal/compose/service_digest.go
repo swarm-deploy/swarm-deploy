@@ -1,21 +1,12 @@
 package compose
 
 import (
-	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
+	jsonv1 "encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"slices"
-	"sort"
-	"strings"
-)
-
-type digestReferenceContext uint8
-
-const (
-	digestServiceReferences digestReferenceContext = iota
-	digestInitJobReferences
 )
 
 // Recalculate rebuilds per-service digests from the current effective Compose state.
@@ -31,90 +22,27 @@ func (*fileLoader) Recalculate(file *File) error {
 
 func computeDesiredServiceDigests(desired *File) (map[string]string, error) {
 	digests := make(map[string]string, len(desired.Compose.Services))
-	for _, source := range desired.Compose.Services {
-		service, err := canonicalDigestService(source)
-		if err != nil {
-			return nil, fmt.Errorf("normalize service %s: %w", source.Name, err)
-		}
+	for _, service := range desired.Compose.Services {
 		dependencies, fingerprints := desiredServiceDependencies(desired, service)
 		digest, err := digestServiceIdentity(dependencies, fingerprints)
 		if err != nil {
-			return nil, fmt.Errorf("digest service %s: %w", source.Name, err)
+			return nil, fmt.Errorf("digest service %s: %w", service.Name, err)
 		}
-		digests[source.Name] = digest
+		digests[service.Name] = digest
 	}
 	return digests, nil
-}
-
-func canonicalDigestService(service Service) (Service, error) {
-	for _, command := range []struct {
-		name  string
-		value *Command
-	}{
-		{name: "command", value: &service.Command},
-		{name: "entrypoint", value: &service.Entrypoint},
-	} {
-		words, err := command.value.Words()
-		if err != nil {
-			return service, fmt.Errorf("%s: invalid quoting", command.name)
-		}
-		if len(words) == 0 {
-			words = nil
-		}
-		*command.value = NewCommand(words)
-	}
-	if service.Healthcheck != nil {
-		health := *service.Healthcheck
-		words := slices.Clone(health.Test.Args)
-		if len(words) > 0 && !health.Test.IsList() {
-			words = append([]string{"CMD-SHELL"}, words...)
-		}
-		if len(words) == 0 {
-			words = nil
-		}
-		health.Test = NewCommand(words)
-		service.Healthcheck = &health
-	}
-	service.CapAdd = normalizeDigestCapabilities(service.CapAdd)
-	service.CapDrop = normalizeDigestCapabilities(service.CapDrop)
-	service.CapDrop = slices.DeleteFunc(service.CapDrop, func(value string) bool {
-		return slices.Contains(service.CapAdd, value)
-	})
-	if service.Networks == nil || len(service.Networks.List) == 0 {
-		service.Networks = NewServiceNetworks(&ServiceNetwork{Alias: "default"})
-	}
-	return service, nil
-}
-
-func normalizeDigestCapabilities(values []string) []string {
-	var result []string
-	for _, value := range values {
-		value = strings.ToUpper(strings.TrimSpace(value))
-		if value == "RESET" {
-			continue
-		}
-		if value == "ALL" {
-			return []string{"ALL"}
-		}
-		if !strings.HasPrefix(value, "CAP_") {
-			value = "CAP_" + value
-		}
-		result = append(result, value)
-	}
-	slices.Sort(result)
-	return slices.Compact(result)
 }
 
 func desiredServiceDependencies(
 	desired *File,
 	service Service,
 ) (Compose, map[string]string) {
+	if len(service.Networks.list()) == 0 {
+		service.Networks = NewServiceNetworks(&ServiceNetwork{Alias: "default"})
+	}
 	configs := slices.Clone(service.Configs)
 	secrets := slices.Clone(service.Secrets)
-	networkAliases := service.Networks.GetAliases()
-	if len(networkAliases) == 0 {
-		networkAliases = []string{"default"}
-	}
+	networkAliases := slices.Clone(service.Networks.GetAliases())
 	if service.CredentialSpec != nil && service.CredentialSpec.Config != "" {
 		configs = append(configs, ObjectRef{Source: service.CredentialSpec.Config})
 	}
@@ -129,9 +57,15 @@ func desiredServiceDependencies(
 	fingerprints := make(map[string]string, len(selectedConfigs)+len(selectedSecrets))
 	for alias, config := range selectedConfigs {
 		copyDesiredResourceFingerprint(fingerprints, desired.ResourceDigests, "configs/"+alias, config.Data)
+		definition := *config
+		definition.File = ""
+		selectedConfigs[alias] = &definition
 	}
 	for alias, secret := range selectedSecrets {
 		copyDesiredResourceFingerprint(fingerprints, desired.ResourceDigests, "secrets/"+alias, secret.Data)
+		definition := *secret
+		definition.File = ""
+		selectedSecrets[alias] = &definition
 	}
 
 	return Compose{
@@ -149,7 +83,7 @@ func selectDesiredObjects[T any, Objects ~map[string]*T](objects Objects, refs [
 	}
 	selected := make(Objects)
 	for _, ref := range refs {
-		if object, ok := objects[ref.Source]; ok {
+		if object := objects[ref.Source]; object != nil {
 			selected[ref.Source] = object
 		}
 	}
@@ -206,23 +140,19 @@ func copyDesiredResourceFingerprint(target, source map[string]string, name strin
 }
 
 func digestServiceIdentity(desired Compose, resourceDigests map[string]string) (string, error) {
-	payload, err := json.Marshal(desired)
-	if err != nil {
+	service := &desired.Services[0]
+	service.Networks = digestNetworkAttachments(service.Networks)
+	service.InitJobs = slices.Clone(service.InitJobs)
+	for i := range service.InitJobs {
+		service.InitJobs[i].Networks = digestNetworkAttachments(service.InitJobs[i].Networks)
+	}
+	if err := canonicalizeService(service, true); err != nil {
 		return "", err
 	}
-	var tree map[string]any
-	decoder := json.NewDecoder(bytes.NewReader(payload))
-	decoder.UseNumber()
-	if err = decoder.Decode(&tree); err != nil {
-		return "", err
-	}
-	removeDesiredResourcePaths(tree, "configs")
-	removeDesiredResourcePaths(tree, "secrets")
-	normalizeDesiredDigestTree(tree, digestServiceReferences)
 	canonical, err := json.Marshal(struct {
-		Compose   map[string]any    `json:"compose"`
+		Compose   Compose           `json:"compose"`
 		Resources map[string]string `json:"resources"`
-	}{Compose: tree, Resources: resourceDigests})
+	}{Compose: desired, Resources: resourceDigests}, jsonv1.DefaultOptionsV1())
 	if err != nil {
 		return "", err
 	}
@@ -230,121 +160,16 @@ func digestServiceIdentity(desired Compose, resourceDigests map[string]string) (
 	return hex.EncodeToString(sum[:]), nil
 }
 
-func removeDesiredResourcePaths(tree map[string]any, field string) {
-	objects, _ := tree[field].(map[string]any)
-	for _, value := range objects {
-		object, _ := value.(map[string]any)
-		delete(object, "file")
-	}
-}
-
-func normalizeDesiredDigestTree(value any, refContext digestReferenceContext) {
-	switch node := value.(type) {
-	case map[string]any:
-		normalizeDesiredObjectRefs(node, "secrets", refContext)
-		normalizeDesiredObjectRefs(node, "configs", refContext)
-		delete(node, "Keys")
-		delete(node, "env_file")
-		if _, isVolumeList := node["Volumes"]; isVolumeList {
-			delete(node, "Map")
-		}
-		if _, isNetworkList := node["List"]; isNetworkList {
-			delete(node, "AliasMap")
-			delete(node, "Names")
-			delete(node, "Aliases")
-		}
-		delete(node, "ResolvedName")
-		for key, child := range node {
-			childContext := refContext
-			if key == "init_jobs" {
-				childContext = digestInitJobReferences
-			}
-			normalizeDesiredDigestTree(child, childContext)
-		}
-		sortDesiredDigestSets(node, refContext)
-	case []any:
-		for _, child := range node {
-			normalizeDesiredDigestTree(child, refContext)
+// digestNetworkAttachments excludes the resolved name. The network definition
+// already contributes the source name and properties to the digest.
+func digestNetworkAttachments(networks *ServiceNetworks) *ServiceNetworks {
+	cloned := cloneNetworkList(networks)
+	for i, network := range cloned.list() {
+		if network != nil {
+			attachment := *network
+			attachment.ResolvedName = ""
+			cloned.List[i] = &attachment
 		}
 	}
-}
-
-func sortDesiredDigestSets(node map[string]any, refContext digestReferenceContext) {
-	unordered := []string{"Ports", "List", "cap_add", "cap_drop"}
-	if refContext == digestServiceReferences {
-		unordered = append(unordered, "secrets", "configs")
-	}
-	for _, key := range unordered {
-		if list, ok := node[key].([]any); ok {
-			sort.SliceStable(list, func(i, j int) bool {
-				left, _ := json.Marshal(list[i])
-				right, _ := json.Marshal(list[j])
-				return bytes.Compare(left, right) < 0
-			})
-		}
-	}
-}
-
-func normalizeDesiredObjectRefs(node map[string]any, key string, refContext digestReferenceContext) {
-	refs, _ := node[key].([]any)
-	for _, value := range refs {
-		ref, ok := value.(map[string]any)
-		if !ok {
-			continue
-		}
-		normalizeDesiredObjectRef(ref, key, refContext)
-	}
-}
-
-func normalizeDesiredObjectRef(ref map[string]any, key string, refContext digestReferenceContext) {
-	source, _ := ref["source"].(string)
-	target, _ := ref["target"].(string)
-	short, _ := ref["short_form"].(bool)
-	target = desiredObjectTarget(key, source, target, short, refContext)
-	if target == "" {
-		delete(ref, "target")
-	} else {
-		ref["target"] = target
-	}
-	delete(ref, "short_form")
-	if refContext == digestInitJobReferences && key == "configs" && target == "" {
-		delete(ref, "uid")
-		delete(ref, "gid")
-		delete(ref, "mode")
-		return
-	}
-	for _, owner := range []string{"uid", "gid"} {
-		if ref[owner] == nil || ref[owner] == "" || ref[owner] == "0" {
-			delete(ref, owner)
-		}
-	}
-	if ref["mode"] == nil || ref["mode"] == json.Number("292") { // Docker's default file mode, 0444.
-		delete(ref, "mode")
-	}
-}
-
-func desiredObjectTarget(
-	key, source, target string,
-	short bool,
-	refContext digestReferenceContext,
-) string {
-	if refContext == digestInitJobReferences {
-		if key == "secrets" && target == "" {
-			return "/run/secrets/" + source
-		}
-		return target
-	}
-	if key == "configs" && (short || target == "") {
-		return "/" + source
-	}
-	if key != "secrets" {
-		return target
-	}
-	if target == "" || short {
-		target = source
-	}
-	if !strings.HasPrefix(target, "/") {
-		target = "/run/secrets/" + target
-	}
-	return target
+	return cloned
 }

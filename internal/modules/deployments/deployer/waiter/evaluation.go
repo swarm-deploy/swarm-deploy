@@ -279,6 +279,8 @@ func terminalUpdateFailure(status *swarm.ServiceUpdateStatus) (string, bool) {
 			message += ": " + diagnostic
 		}
 		return message, true
+	case swarm.ServiceUpdateStateUpdating, swarm.ServiceUpdateStateCompleted:
+		return "", false
 	default:
 		return "", false
 	}
@@ -386,6 +388,8 @@ func countVerifiedRunningTasks(
 		return countPlacementCompatibleRunningTasks(tasks, template, nodes, mode == services.VerifyPlacementCompatibleTasks)
 	case services.VerifyNewGeneration:
 		return countMatchingCurrentRunningTasks(tasks, template, cutoff)
+	case services.VerifyUnspecified:
+		return 0
 	default:
 		return 0
 	}

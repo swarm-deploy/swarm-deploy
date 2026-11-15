@@ -192,7 +192,7 @@ func executionSettled(template dockerswarm.TaskSpec, replicas uint64, tasks []sw
 	}
 	newest := make(map[int]swarm.ServiceTask, replicas)
 	for _, task := range tasks {
-		if task.Slot < 1 || uint64(task.Slot) > replicas { //nolint:gosec // Positive int slots fit uint64.
+		if task.Slot < 1 || uint64(task.Slot) > replicas {
 			continue
 		}
 		previous, exists := newest[task.Slot]

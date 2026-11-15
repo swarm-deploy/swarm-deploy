@@ -3,6 +3,7 @@ package compose
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -47,12 +48,20 @@ func TestLoader_Load(t *testing.T) {
 			err = encoder.Encode(file.Compose)
 			require.NoError(t, err)
 
-			if string(fileRaw) != result.String() {
+			// Decoding normalizes some syntax, such as short-form references.
+			// Such cases keep the normalized form in N.expected.yaml.
+			expected, err := os.ReadFile(fmt.Sprintf("./tests/loader/%d.expected.yaml", i))
+			if errors.Is(err, os.ErrNotExist) {
+				expected, err = fileRaw, nil
+			}
+			require.NoError(t, err)
+
+			if string(expected) != result.String() {
 				err = os.WriteFile(fmt.Sprintf("./tests/loader/%d.actual.yaml", i), result.Bytes(), 0666)
 				require.NoError(t, err)
 			}
 
-			assert.Equal(t, string(fileRaw), result.String())
+			assert.Equal(t, string(expected), result.String())
 		})
 	}
 }

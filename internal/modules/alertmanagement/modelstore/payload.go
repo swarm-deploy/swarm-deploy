@@ -2,7 +2,7 @@ package modelstore
 
 import (
 	"database/sql"
-	"encoding/json"
+	"encoding/json/v2"
 	"time"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/model"

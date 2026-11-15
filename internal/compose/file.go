@@ -104,7 +104,10 @@ func (l *fileLoader) Load(ctx context.Context, path string) (*File, error) {
 		return nil, &ValidateComposeError{FilePath: path, Issues: decodeIssues(validateErr), Err: validateErr}
 	}
 	schema := Compose{}
-	if err = syntax.Decode(&schema); err != nil {
+	if err = syntax.Decode(&schema); err == nil {
+		err = normalizeServiceCommands(schema.Services)
+	}
+	if err != nil {
 		if interpolated {
 			err = fmt.Errorf("invalid Compose value after interpolation")
 		}
@@ -156,11 +159,14 @@ func (l *fileLoader) Load(ctx context.Context, path string) (*File, error) {
 		ResourceDigests: resourceDigests(configFiles, secretFiles),
 	}
 
-	file.Digest = computeDigest(*file, raw, configFiles, secretFiles)
-	if err = l.Recalculate(file); err != nil {
+	return l.loadDigests(file, raw, configFiles, secretFiles)
+}
+
+func (l *fileLoader) loadDigests(file *File, raw []byte, configs, secrets objectFileContents) (*File, error) {
+	file.Digest = computeDigest(*file, raw, configs, secrets)
+	if err := l.Recalculate(file); err != nil {
 		return nil, fmt.Errorf("calculate service digests: %w", err)
 	}
-
 	return file, nil
 }
 
