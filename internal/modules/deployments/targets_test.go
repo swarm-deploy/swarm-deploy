@@ -50,6 +50,18 @@ func TestTargetedDeploymentsAccumulateSuccessForSameDesired(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, deploymentmodel.Succeeded, original.Status)
 	assert.Equal(t, []deploymentmodel.Attempt{persisted}, original.Attempts)
+
+	running, err := store.Get(t.Context(), second.DeploymentID)
+	require.NoError(t, err)
+	definition, err := store.Desired(t.Context(), second.DeploymentID)
+	require.NoError(t, err)
+	completed := *second
+	completed.Status = deploymentmodel.Succeeded
+	covered, err := service.coversDesired(t.Context(), running, completed, definition)
+	require.NoError(t, err)
+	assert.True(t, covered)
+	assert.Equal(t, deploymentmodel.Running, running.Attempts[0].Status, "coverage keeps the caller's attempt intact")
+
 	require.NoError(t, service.Complete(t.Context(), second.ID, Completion{Outcome: CompletionSucceeded}))
 	baseline, err := store.Baseline(t.Context(), "app")
 	require.NoError(t, err)

@@ -41,6 +41,7 @@ func (s *Service) coversDesired(
 	if err != nil {
 		return false, err
 	}
+	deployment.Attempts = slices.Clone(deployment.Attempts)
 	deployment.Attempts[0] = attempt
 	revisions, err := s.appliedRevisions(ctx, deployment, snapshot, nil)
 	if err != nil {
