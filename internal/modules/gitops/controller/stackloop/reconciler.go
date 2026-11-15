@@ -210,12 +210,9 @@ func (r *Reconciler) recordPreparedDesired(
 	if err != nil {
 		return wrapReconcileError("persist desired service state", prepared.Compose.Services, err)
 	}
-	if previous.Services == nil {
-		previous.Services = map[string]model.Service{}
-	}
-	for name, service := range desiredServices {
-		previous.Services[name] = service
-	}
+	// Failure handling must use the persisted desired scope so it cannot restore
+	// applied revisions of removed services after a partial pruning failure.
+	previous.Services = desiredServices
 	return nil
 }
 

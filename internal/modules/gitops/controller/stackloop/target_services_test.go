@@ -18,6 +18,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackloop/preparation"
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/model"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/labelsdict"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	"go.uber.org/mock/gomock"
 )
@@ -176,4 +177,85 @@ func TestRemovedServiceIsRedeployedAfterInterruptedReconciliation(t *testing.T) 
 	restored := &compose.File{Compose: compose.Compose{Services: compose.Services{{Name: "api"}, {Name: "worker"}}}}
 	targets, _ := targetServices(restored, readSQLState(t, store).Stacks["app"])
 	assert.Equal(t, []string{"worker"}, targets)
+}
+
+func TestReconcileRestoresServiceAfterPartialPruneFailure(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	repository := gitx.NewMockRepository(ctrl)
+	manager := swarm.NewMockServiceManager(ctrl)
+	executor := deployer.NewMockStackDeployer(ctrl)
+	db, store := newSQLState(t)
+	dir := t.TempDir()
+	mockRepositoryFiles(repository, dir)
+	cfg := &config.Config{Spec: config.Spec{DataDir: t.TempDir()}}
+	cfg.Spec.GitOps.Sync.Policy.Prune = true
+	cfg.Spec.GitOps.Sync.Policy.SelfHeal = false
+	bus := &dispatcher.NopDispatcher{}
+	create := func() *Reconciler {
+		return newTestReconciler(cfg, repository, deployments.NewService(db, bus), executor,
+			&swarm.Swarm{Services: manager}, bus, &metrics.NopDeploys{}, store, db)
+	}
+	live := []swarm.StackService{
+		{ID: "api-id", Name: "api", Labels: map[string]string{labelsdict.ServiceManagedLabelKey: labelsdict.ServiceManagedLabelValue}},
+		{ID: "worker-id", Name: "worker", Labels: map[string]string{labelsdict.ServiceManagedLabelKey: labelsdict.ServiceManagedLabelValue}},
+		{ID: "old-id", Name: "old", Labels: map[string]string{labelsdict.ServiceManagedLabelKey: labelsdict.ServiceManagedLabelValue}},
+	}
+	var previous model.Stack
+	for _, step := range []struct {
+		name              string
+		services, targets []string
+		removals          map[string]error
+		fail              bool
+	}{
+		{
+			name: "initial", services: []string{"api", "worker", "old"},
+			targets: []string{"api", "worker", "old"},
+		},
+		{
+			name: "remove-workers", services: []string{"api"},
+			removals: map[string]error{"worker-id": nil, "old-id": assert.AnError}, fail: true,
+		},
+		{
+			name: "restore-worker", services: []string{"api", "worker"}, targets: []string{"worker"},
+			removals: map[string]error{"old-id": nil},
+		},
+	} {
+		t.Run(step.name, func(t *testing.T) {
+			manifest := "services:\n"
+			for _, name := range step.services {
+				manifest += fmt.Sprintf("  %s:\n    image: %s:1\n", name, name)
+			}
+			require.NoError(t, os.WriteFile(filepath.Join(dir, "app.yaml"), []byte(manifest), 0600))
+			executor.EXPECT().DeployStack(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, req deployer.StackRequest) (deployer.Result, error) {
+				assert.ElementsMatch(t, step.targets, req.TargetServices, "a restored service must be deployed even with its original configuration")
+				return deployer.Result{}, nil
+			})
+			manager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "app"}).Return(live, nil)
+			for id, err := range step.removals {
+				manager.EXPECT().Remove(gomock.Any(), id).Return(err)
+			}
+
+			err := create().Reconcile(t.Context(), ReconciliationRequest{
+				Stack: config.StackSpec{Name: "app", ComposeFile: "app.yaml"}, Commit: step.name,
+			})
+			if step.fail {
+				require.ErrorIs(t, err, assert.AnError)
+			} else {
+				require.NoError(t, err)
+			}
+			current := readSQLState(t, store).Stacks["app"]
+			assert.Len(t, current.Services, len(step.services), "failure handling must not restore removed service revisions")
+			for _, name := range step.services {
+				assert.Contains(t, current.Services, name)
+				assert.NotEmpty(t, current.Services[name].AppliedDigest)
+				assert.Equal(t, current.Services[name].DesiredDigest, current.Services[name].AppliedDigest)
+				assert.False(t, current.Services[name].ApplyPending)
+			}
+			if step.name != "initial" {
+				assert.Equal(t, previous.Services["api"], current.Services["api"], "unselected service retains its applied state")
+			}
+			previous = current
+		})
+	}
+	assert.Equal(t, "restore-worker", previous.Services["worker"].AppliedCommit)
 }
