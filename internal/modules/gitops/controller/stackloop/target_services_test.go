@@ -17,6 +17,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer"
 	deploymentmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackloop/preparation"
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
@@ -123,9 +124,11 @@ func TestReconcileAdoptsLegacyDeploymentReceiptWithoutRedeploy(t *testing.T) {
 		&swarm.Swarm{Services: manager}, bus, &metrics.NopDeploys{}, store, db)
 	desired, err := reconciler.preparer.Load(t.Context(), stack, "legacy")
 	require.NoError(t, err)
+	prepared, err := reconciler.preparer.Prepare(t.Context(), preparation.Request{Stack: stack, Desired: desired})
+	require.NoError(t, err)
 
 	// A successful deployment recorded before per-service digests and receipts existed.
-	attempt, err := lifecycle.StartIfChanged(t.Context(), "app", "legacy", *desired, true)
+	attempt, err := lifecycle.StartIfChanged(t.Context(), "app", "legacy", *prepared, true)
 	require.NoError(t, err)
 	require.NoError(t, lifecycle.Complete(t.Context(), attempt.ID, deployments.Completion{Outcome: deployments.CompletionSucceeded}))
 	_, err = db.Exec(t.Context(), "UPDATE deployments SET desired_payload = json_remove(desired_payload, '$.service_digests')")

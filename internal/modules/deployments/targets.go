@@ -37,7 +37,8 @@ func (s *Service) coversDesired(
 		return false, err
 	}
 	attempts := append([]deploymentmodel.Attempt{attempt}, deployment.Attempts...)
-	revisions := appliedRevisions(attempts, deploymentmodel.Prepared{ServiceDigests: desired.ServiceDigests}, deployment.Commit)
+	snapshot := deploymentmodel.Prepared{ServiceDigests: desired.ServiceDigests}
+	revisions := appliedRevisions(attempts, snapshot, deployment.Commit)
 	for name, digest := range desired.ServiceDigests {
 		if _, ok := revisions[name]; !ok && (digest == "" || baseline.ServiceDigests[name] != digest) {
 			return false, nil
