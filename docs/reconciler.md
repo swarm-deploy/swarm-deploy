@@ -59,7 +59,9 @@ than the latest mutable GitOps desired state.
 The same overall desired state can have a later Attempt for services not covered by
 an earlier success. Such an Attempt is not a retry: it does not restart failed Swarm
 updates, a failure does not hide the earlier successful baseline, and automatic
-backoff counts only consecutive failed or interrupted Attempts. Failure
+backoff counts only consecutive failed or interrupted Attempts. Any later Attempt,
+including a retry, skips targets that already have a valid receipt for the same
+desired state; a retry without remaining targets still retries cleanup. Failure
 classification, manual retries and automatic backoff remain owned by Deployments. Pruning uses the full desired service list, independently
 of targets. A partial success advances the full-stack comparison baseline only when
 all desired services are covered by successful Attempts or the previous baseline.

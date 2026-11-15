@@ -2,6 +2,7 @@ package deployments
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -193,7 +194,15 @@ func TestLegacySnapshotDeploysServicesWithUnconfirmedMountOrder(t *testing.T) {
 	require.NotNil(t, next, "the applied mount order of api is unknown")
 	assert.Equal(t, first.DeploymentID, next.DeploymentID)
 	assert.Equal(t, []string{"api"}, next.TargetServices, "worker is confirmed by the historical snapshot")
-	require.NoError(t, lifecycle.Complete(t.Context(), next.ID, Completion{Outcome: CompletionSucceeded}))
+	require.NoError(t, lifecycle.Complete(t.Context(), next.ID, Completion{Outcome: CompletionApplyFailed, Diagnostic: assert.AnError}))
+
+	// GitOps has not recorded worker as applied yet and selects both services again.
+	retry, err := lifecycle.StartIfChanged(t.Context(), "app", "upgrade", desired, false,
+		StartOptions{TargetServices: []string{"api", "worker"}, ManualRetry: true})
+	require.NoError(t, err)
+	require.NotNil(t, retry)
+	assert.Equal(t, []string{"api"}, retry.TargetServices, "a retry does not repeat the confirmed worker")
+	require.NoError(t, lifecycle.Complete(t.Context(), retry.ID, Completion{Outcome: CompletionSucceeded}))
 
 	snapshot, err := store.Snapshot(t.Context(), first.DeploymentID)
 	require.NoError(t, err)
@@ -205,6 +214,25 @@ func TestLegacySnapshotDeploysServicesWithUnconfirmedMountOrder(t *testing.T) {
 		StartOptions{TargetServices: []string{"api", "worker"}})
 	require.NoError(t, err)
 	assert.Nil(t, again)
+}
+
+func TestRetryWithoutUnappliedTargetsStillRetriesCleanup(t *testing.T) {
+	_, lifecycle, _ := openService(t)
+	desired := desiredServices("api")
+	first, err := lifecycle.StartIfChanged(t.Context(), "app", "one", desired, true, StartOptions{TargetServices: []string{}})
+	require.NoError(t, err)
+	observedAt := time.Now()
+	require.NoError(t, lifecycle.Complete(t.Context(), first.ID, Completion{
+		Outcome: CompletionCleanupFailed, Diagnostic: assert.AnError, ObservedAt: &observedAt,
+	}))
+
+	retry, err := lifecycle.StartIfChanged(t.Context(), "app", "one", desired, false,
+		StartOptions{TargetServices: []string{}, ManualRetry: true})
+	require.NoError(t, err)
+	require.NotNil(t, retry, "an empty scope retries cleanup")
+	assert.Equal(t, first.DeploymentID, retry.DeploymentID)
+	assert.NotNil(t, retry.TargetServices)
+	assert.Empty(t, retry.TargetServices)
 }
 
 func TestLegacySnapshotWithChangedEffectiveStateRedeploys(t *testing.T) {

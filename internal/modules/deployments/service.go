@@ -205,6 +205,9 @@ func (s *Service) startExisting(
 		if !options.ManualRetry && !s.automaticRetryAllowed(latest) {
 			return nil, nil //nolint:nilnil // Preserve failure classification and retry backoff.
 		}
+		// A retry does not repeat targets with a valid receipt. An empty scope still
+		// retries cleanup of the failed Attempt.
+		options.TargetServices = unappliedTargets(latest, snapshot, options.TargetServices)
 	case deploymentmodel.Superseded:
 		return nil, ErrInconsistentDeployment
 	default:
