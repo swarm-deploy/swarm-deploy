@@ -170,23 +170,3 @@ func successfulRevision(
 	}
 	return revision, revision.Digest == digest
 }
-
-// consecutiveFailures preserves backoff for histories recorded when an Attempt
-// could follow a success in the same Deployment.
-func consecutiveFailures(deployment deploymentmodel.Deployment) int {
-	if len(deployment.Attempts) == 0 {
-		return deployment.AttemptCount
-	}
-	count := 0
-	for _, attempt := range deployment.Attempts {
-		if !failedAttempt(attempt) {
-			break
-		}
-		count++
-	}
-	return count
-}
-
-func failedAttempt(attempt deploymentmodel.Attempt) bool {
-	return attempt.Status == deploymentmodel.Failed || attempt.Status == deploymentmodel.Interrupted
-}

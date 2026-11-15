@@ -233,7 +233,7 @@ func (s *Service) automaticRetryAllowed(latest deploymentmodel.Deployment) bool 
 		return false
 	}
 	delay := automaticRetryDelay
-	for attempt := 1; attempt < consecutiveFailures(latest) && delay < maximumRetryDelay; attempt++ {
+	for attempt := 1; attempt < latest.AttemptCount && delay < maximumRetryDelay; attempt++ {
 		delay = min(delay*retryBackoffMultiplier, maximumRetryDelay)
 	}
 	return !s.now().Before(latest.FinishedAt.Add(delay))

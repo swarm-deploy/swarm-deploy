@@ -329,34 +329,7 @@ func TestSameSnapshotWithoutReceiptCreatesDeploymentAfterSuccess(t *testing.T) {
 	assert.Equal(t, deploymentmodel.Succeeded, original.Status)
 	require.Len(t, original.Attempts, 1)
 	assert.Equal(t, deploymentmodel.Succeeded, original.Attempts[0].Status)
-	current, err := store.Get(t.Context(), next.DeploymentID)
+	baseline, err := store.Baseline(t.Context(), "app")
 	require.NoError(t, err)
-	assert.Equal(t, 1, consecutiveFailures(current))
-}
-
-func TestHistoricalFailureAfterSuccessKeepsBaselineAndBackoff(t *testing.T) {
-	db, lifecycle, _ := openService(t)
-	store := deploymentstore.NewStore(db)
-	desired := desiredServices("api", "worker")
-	first, err := lifecycle.StartIfChanged(t.Context(), "app", "one", desired, true)
-	require.NoError(t, err)
-	require.NoError(t, lifecycle.Complete(t.Context(), first.ID, Completion{Outcome: CompletionSucceeded}))
-
-	// Simulate a row written when a deployment allowed a later Attempt after success.
-	later := newAttempt(first.DeploymentID, 2, first.StartedAt.Add(time.Second))
-	later.TargetServices = []string{"worker"}
-	later.Status, later.FinishedAt = deploymentmodel.Interrupted, &later.StartedAt
-	require.NoError(t, store.InsertLegacyAttempt(t.Context(), later))
-	_, err = db.Exec(t.Context(), "UPDATE deployments SET status = ? WHERE id = ?", later.Status, first.DeploymentID)
-	require.NoError(t, err)
-
-	_, err = store.Baseline(t.Context(), "app")
-	require.NoError(t, err)
-	current, err := store.Get(t.Context(), first.DeploymentID)
-	require.NoError(t, err)
-	assert.Equal(t, 1, consecutiveFailures(current))
-	history, err := store.ListServiceDeployments(t.Context(), "app", "api", 5)
-	require.NoError(t, err)
-	require.Len(t, history, 1)
-	assert.Equal(t, deploymentmodel.Succeeded, history[0].Status)
+	assert.Equal(t, first.ServiceRevisions["api"].Digest, baseline.ServiceDigests["api"])
 }

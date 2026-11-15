@@ -329,9 +329,8 @@ func (s *Store) ListServiceDeployments(
 	items := make([]deploymentmodel.ServiceDeployment, 0, len(rows))
 	for _, row := range rows {
 		status, commit := row.Status, row.Commit
-		// The service may have run only in an earlier Attempt, including in
-		// histories written when a later Attempt could follow a success.
-		// Use the Deployment projection for its latest Attempt.
+		// A retry may omit a service that ran in an earlier Attempt.
+		// The Deployment projection applies only to its latest Attempt.
 		if row.AttemptID.Valid && row.AttemptID.String != row.LatestAttemptID.String {
 			status = deploymentmodel.Status(row.AttemptStatus.String)
 		}
@@ -779,12 +778,7 @@ func (s *Store) Baseline(ctx context.Context, stack string) (deploymentmodel.Pre
 		Join(goqu.T("deployments").As("deployment"),
 			goqu.On(goqu.I("deployment.id").Eq(goqu.I("snapshot.deployment_id")))).
 		Select(goqu.I("deployment.desired_payload")).
-		// Keep baselines written when a Deployment could be retried after success.
-		Where(goqu.Ex{"snapshot.stack": stack}, goqu.Or(
-			goqu.I("deployment.status").Eq(deploymentmodel.Succeeded),
-			goqu.L(`EXISTS (SELECT 1 FROM deployment_attempts AS attempt
-				WHERE attempt.deployment_id = deployment.id AND attempt.status = ?)`, deploymentmodel.Succeeded),
-		)).ToSQL()
+		Where(goqu.Ex{"snapshot.stack": stack, "deployment.status": deploymentmodel.Succeeded}).ToSQL()
 	if err != nil {
 		return deploymentmodel.Prepared{}, err
 	}
