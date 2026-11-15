@@ -241,9 +241,7 @@ func (c *Controller) succeed(
 }
 
 // executionError rejects late success without replacing an earlier, classified stage failure.
-// successRevisions returns the receipts of a successful Attempt's desired state.
-// Earlier Attempts of the same state may hold receipts of targets this Attempt
-// skipped as already applied.
+// successRevisions includes receipts from earlier executions of the same snapshot.
 func (c *Controller) successRevisions(
 	ctx context.Context, stack string, attempt deploymentmodel.Attempt,
 ) map[string]deploymentmodel.ServiceRevision {
@@ -251,7 +249,12 @@ func (c *Controller) successRevisions(
 	if err != nil || latest.ID != attempt.DeploymentID {
 		return attempt.ServiceRevisions
 	}
-	return appliedRevisions(receipts(latest), snapshot, latest.Commit)
+	revisions, err := c.lifecycle.appliedRevisions(ctx, latest, snapshot, nil)
+	if err != nil {
+		slog.ErrorContext(ctx, "load successful service revisions", "stack", stack, "err", err)
+		return attempt.ServiceRevisions
+	}
+	return revisions
 }
 
 func executionError(ctx context.Context, err error) error {
@@ -267,7 +270,10 @@ func (c *Controller) unchangedResult(ctx context.Context, req ExecuteRequest) (E
 		return ExecuteResult{}, err
 	}
 	result := ExecuteResult{Status: latest.Status, ErrorCode: latest.ErrorCode}
-	result.AppliedRevisions = appliedRevisions(receipts(latest), desired, latest.Commit)
+	result.AppliedRevisions, err = c.lifecycle.appliedRevisions(ctx, latest, desired, nil)
+	if err != nil {
+		return result, err
+	}
 	result.RetryDeferred = latest.Status == deploymentmodel.Failed || latest.Status == deploymentmodel.Interrupted
 	if result.RetryDeferred {
 		result.UnresolvedServices = deferredServices(latest, req.Desired)
@@ -430,7 +436,7 @@ func (c *Controller) stackOptions(
 		return deployer.StackOptions{}, nil
 	}
 	return deployer.StackOptions{
-		RetryFailedUpdates: retriesFailedAttempt(current, attempt),
+		RetryFailedUpdates: attempt.Number > 1,
 		UnresolvedServices: slices.DeleteFunc(slices.Clone(current.Verification.UnresolvedServices), func(name string) bool {
 			return !attempt.Targets(name)
 		}),

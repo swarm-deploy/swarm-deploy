@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -14,6 +15,8 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer"
+	deploymentmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/model"
+	deploymentstore "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackloop/preparation"
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
@@ -104,6 +107,56 @@ func TestReconcileTargetsUnappliedServiceRevisions(t *testing.T) {
 			previous = current
 		})
 	}
+}
+
+func TestReconcileRevertAfterPersistingDesiredCreatesNewDeployment(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	repository := gitx.NewMockRepository(ctrl)
+	manager := swarm.NewMockServiceManager(ctrl)
+	executor := deployer.NewMockStackDeployer(ctrl)
+	db, runtime := newSQLState(t)
+	store := deploymentstore.NewStore(db)
+	dir := t.TempDir()
+	mockRepositoryFiles(repository, dir)
+	cfg := &config.Config{Spec: config.Spec{DataDir: t.TempDir()}}
+	bus := &dispatcher.NopDispatcher{}
+	reconciler := newTestReconciler(cfg, repository, deployments.NewService(db, bus), executor,
+		&swarm.Swarm{Services: manager}, bus, &metrics.NopDeploys{}, runtime, db)
+	req := ReconciliationRequest{Stack: config.StackSpec{Name: "app", ComposeFile: "app.yaml"}}
+	reconcile := func(commit string, api string, targets []string) {
+		t.Helper()
+		req.Commit = commit
+		manifest := fmt.Sprintf("services:\n  api:\n    image: %s\n  worker:\n    image: worker:1\n", api)
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "app.yaml"), []byte(manifest), 0600))
+		executor.EXPECT().DeployStack(gomock.Any(), gomock.Cond(func(req deployer.StackRequest) bool {
+			return slices.Equal(targets, req.TargetServices)
+		})).Return(deployer.Result{}, nil)
+		manager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "app"}).
+			Return([]swarm.StackService{{Name: "api"}, {Name: "worker"}}, nil)
+		require.NoError(t, reconciler.Reconcile(t.Context(), req))
+	}
+	reconcile("one", "api:1", []string{"api", "worker"})
+	reconcile("two", "api:2", []string{"api"})
+	original, _, err := store.Latest(t.Context(), "app")
+	require.NoError(t, err)
+
+	// The process stops after persisting a worker change and before creating its Deployment.
+	state := readSQLState(t, runtime).Stacks["app"]
+	_, err = reconciler.persistDesiredServices(t.Context(), "app", "interrupted", map[string]string{
+		"api": state.Services["api"].DesiredDigest, "worker": "changed-worker-digest",
+	})
+	require.NoError(t, err)
+
+	reconcile("reverted", "api:2", []string{"worker"})
+	latest, _, err := store.Latest(t.Context(), "app")
+	require.NoError(t, err)
+	assert.NotEqual(t, original.ID, latest.ID)
+	assert.Equal(t, deploymentmodel.Succeeded, latest.Status)
+	require.Len(t, latest.Attempts, 1)
+	assert.Equal(t, []string{"worker"}, latest.Attempts[0].TargetServices)
+	after, err := store.Get(t.Context(), original.ID)
+	require.NoError(t, err)
+	assert.Equal(t, original, after)
 }
 
 func TestReconcileAdoptsLegacyDeploymentReceiptWithoutRedeploy(t *testing.T) {

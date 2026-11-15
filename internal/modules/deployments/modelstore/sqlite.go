@@ -329,8 +329,9 @@ func (s *Store) ListServiceDeployments(
 	items := make([]deploymentmodel.ServiceDeployment, 0, len(rows))
 	for _, row := range rows {
 		status, commit := row.Status, row.Commit
-		// An earlier Attempt reports its own outcome; the latest one reports the
-		// deployment status, which also reflects supersession.
+		// The service may have run only in an earlier Attempt, including in
+		// histories written when a later Attempt could follow a success.
+		// Use the Deployment projection for its latest Attempt.
 		if row.AttemptID.Valid && row.AttemptID.String != row.LatestAttemptID.String {
 			status = deploymentmodel.Status(row.AttemptStatus.String)
 		}
@@ -769,8 +770,7 @@ func (s *Store) Baseline(ctx context.Context, stack string) (deploymentmodel.Pre
 		Join(goqu.T("deployments").As("deployment"),
 			goqu.On(goqu.I("deployment.id").Eq(goqu.I("snapshot.deployment_id")))).
 		Select(goqu.I("deployment.desired_payload")).
-		// A later targeted Attempt of the same desired state may fail without
-		// invalidating the success that established this baseline.
+		// Keep baselines written when a Deployment could be retried after success.
 		Where(goqu.Ex{"snapshot.stack": stack}, goqu.Or(
 			goqu.I("deployment.status").Eq(deploymentmodel.Succeeded),
 			goqu.L(`EXISTS (SELECT 1 FROM deployment_attempts AS attempt
@@ -874,6 +874,29 @@ func (s *Store) Latest(
 	return deployment, prepared, err
 }
 
+// PreviousSnapshot returns the snapshot immediately before id in the stack's history.
+func (s *Store) PreviousSnapshot(
+	ctx context.Context, stack, id string,
+) (string, deploymentmodel.Prepared, error) {
+	predecessor := s.db.Dialect().From("deployments").Select("rowid").Where(goqu.Ex{"id": id})
+	query, args, err := s.db.Dialect().From("deployments").Prepared(true).Select("id", "desired_payload").
+		Where(goqu.Ex{"stack": stack}, goqu.I("rowid").Lt(predecessor)).
+		Order(goqu.I("rowid").Desc()).Limit(1).ToSQL()
+	if err != nil {
+		return "", deploymentmodel.Prepared{}, err
+	}
+	var row struct {
+		ID      string `db:"id"`
+		Payload []byte `db:"desired_payload"`
+	}
+	if err = s.db.Get(ctx, &row, query, args...); err != nil {
+		return "", deploymentmodel.Prepared{}, notFound(err)
+	}
+	var snapshot deploymentmodel.Prepared
+	err = json.Unmarshal(row.Payload, &snapshot, jsonv1.DefaultOptionsV1())
+	return row.ID, snapshot, err
+}
+
 // LegacyRunning returns running deployments that predate persisted attempts.
 func (s *Store) LegacyRunning(ctx context.Context, stack string) ([]deploymentmodel.Deployment, error) {
 	dataset := s.db.Dialect().From("deployments").Prepared(true).Select("id").
@@ -955,9 +978,6 @@ func (s *Store) CreateDeployment(
 
 // StartAttempt persists a retry and updates the deployment projection to running.
 func (s *Store) StartAttempt(ctx context.Context, d deploymentmodel.Deployment, attempt deploymentmodel.Attempt) error {
-	if err := s.insertAttemptRow(ctx, attempt); err != nil {
-		return err
-	}
 	d.ErrorDiagnostic, d.ApplyStatus = "", deploymentmodel.StageRunning
 	d.Retryable = false
 	d.VerificationStatus, d.CleanupStatus = deploymentmodel.StagePending, deploymentmodel.StagePending
@@ -972,7 +992,7 @@ func (s *Store) StartAttempt(ctx context.Context, d deploymentmodel.Deployment, 
 	}).Where(
 		goqu.Ex{
 			"id":     d.ID,
-			"status": []deploymentmodel.Status{deploymentmodel.Succeeded, deploymentmodel.Failed, deploymentmodel.Interrupted},
+			"status": []deploymentmodel.Status{deploymentmodel.Failed, deploymentmodel.Interrupted},
 		},
 	).ToSQL()
 	if err != nil {
@@ -982,7 +1002,10 @@ func (s *Store) StartAttempt(ctx context.Context, d deploymentmodel.Deployment, 
 	if err != nil {
 		return err
 	}
-	return requireOneRunning(result)
+	if err = requireOneRunning(result); err != nil {
+		return err
+	}
+	return s.insertAttemptRow(ctx, attempt)
 }
 
 // InsertLegacyAttempt materializes an attempt for a deployment created before attempt persistence.

@@ -3,6 +3,7 @@ package deployments
 import (
 	"context"
 	"errors"
+	"maps"
 	"slices"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
@@ -40,8 +41,11 @@ func (s *Service) coversDesired(
 	if err != nil {
 		return false, err
 	}
-	attempts := append([]deploymentmodel.Attempt{attempt}, deployment.Attempts...)
-	revisions := appliedRevisions(attempts, snapshot, deployment.Commit)
+	deployment.Attempts[0] = attempt
+	revisions, err := s.appliedRevisions(ctx, deployment, snapshot, nil)
+	if err != nil {
+		return false, err
+	}
 	for name, digest := range desired.ServiceDigests {
 		if _, ok := revisions[name]; ok {
 			continue
@@ -73,62 +77,102 @@ func setAttemptTargets(
 	}
 }
 
-// unappliedTargets returns targets without a receipt in the deployment snapshot. It
-// checks immutable execution receipts, not the caller's policy or its projection timing.
-// A nil target list selects every desired service; an empty list selects none.
-func unappliedTargets(
-	deployment deploymentmodel.Deployment, snapshot deploymentmodel.Prepared, targets []string,
-) []string {
+// unappliedTargets skips services with a receipt for this desired snapshot.
+func (s *Service) unappliedTargets(
+	ctx context.Context, deployment deploymentmodel.Deployment, snapshot deploymentmodel.Prepared, targets []string,
+) ([]string, error) {
 	if targets == nil {
 		targets = snapshot.Definition.Compose.Services.Names()
 	}
-	revisions := appliedRevisions(receipts(deployment), snapshot, deployment.Commit)
+	revisions, err := s.appliedRevisions(ctx, deployment, snapshot, targets)
+	if err != nil {
+		return nil, err
+	}
 	unapplied := []string{}
 	for _, name := range targets {
 		if _, ok := revisions[name]; !ok {
 			unapplied = append(unapplied, name)
 		}
 	}
-	return unapplied
+	return unapplied, nil
 }
 
-// receipts returns a Deployment's Attempts as execution receipts. A successful
-// Deployment recorded before Attempts were persisted counts as one whole-stack Attempt.
-func receipts(deployment deploymentmodel.Deployment) []deploymentmodel.Attempt {
-	if len(deployment.Attempts) == 0 && deployment.Status == deploymentmodel.Succeeded {
-		return []deploymentmodel.Attempt{{Status: deploymentmodel.Succeeded}}
+// appliedRevisions looks for the latest execution of each target, walking back
+// only while consecutive Deployments describe the same desired snapshot.
+func (s *Service) appliedRevisions(
+	ctx context.Context, deployment deploymentmodel.Deployment, snapshot deploymentmodel.Prepared, targets []string,
+) (map[string]deploymentmodel.ServiceRevision, error) {
+	if targets == nil {
+		targets = snapshot.Definition.Compose.Services.Names()
 	}
-	return deployment.Attempts
+	unseen := make(map[string]struct{}, len(targets))
+	for _, name := range targets {
+		unseen[name] = struct{}{}
+	}
+	revisions := make(map[string]deploymentmodel.ServiceRevision)
+	for len(unseen) > 0 {
+		collectReceipts(deployment, snapshot, unseen, revisions)
+		if len(unseen) == 0 {
+			break
+		}
+		id, previous, err := s.store.PreviousSnapshot(ctx, deployment.Stack, deployment.ID)
+		if errors.Is(err, deploymentstore.ErrNotFound) {
+			break
+		}
+		if err != nil {
+			return revisions, err
+		}
+		if previous.Digest != snapshot.Digest || !maps.Equal(previous.ServiceDigests, snapshot.ServiceDigests) {
+			break
+		}
+		deployment, err = s.store.Get(ctx, id)
+		if err != nil {
+			return revisions, err
+		}
+		snapshot = previous
+	}
+	return revisions, nil
 }
 
-// appliedRevisions resolves the newest receipt of each service in the snapshot
-// described by desired. A historical whole-stack Attempt has no per-service receipt:
-// it applied the whole snapshot of its Deployment at the Deployment commit, except
-// services whose adopted digest the historical snapshot cannot confirm.
-func appliedRevisions(
-	attempts []deploymentmodel.Attempt, desired deploymentmodel.Prepared, commit string,
-) map[string]deploymentmodel.ServiceRevision {
-	revisions := make(map[string]deploymentmodel.ServiceRevision)
-	for name, digest := range desired.ServiceDigests {
-		for _, attempt := range attempts {
+func collectReceipts(
+	deployment deploymentmodel.Deployment, snapshot deploymentmodel.Prepared,
+	unseen map[string]struct{}, revisions map[string]deploymentmodel.ServiceRevision,
+) {
+	attempts := deployment.Attempts
+	if len(attempts) == 0 && deployment.Status == deploymentmodel.Succeeded {
+		// A legacy successful Deployment represents one whole-stack execution.
+		attempts = []deploymentmodel.Attempt{{Status: deploymentmodel.Succeeded}}
+	}
+	for _, attempt := range attempts {
+		for name := range unseen {
 			if !attempt.Targets(name) {
 				continue
 			}
-			revision, recorded := attempt.ServiceRevisions[name]
-			if !recorded && attempt.TargetServices == nil && !slices.Contains(desired.UnconfirmedServices, name) {
-				revision = deploymentmodel.ServiceRevision{Digest: digest, Commit: commit}
-			}
-			if attempt.Status == deploymentmodel.Succeeded && revision.Digest == digest {
+			// A newer execution invalidates older receipts, even when it failed.
+			delete(unseen, name)
+			if revision, ok := successfulRevision(attempt, snapshot, name, deployment.Commit); ok {
 				revisions[name] = revision
 			}
-			break
 		}
 	}
-	return revisions
 }
 
-// consecutiveFailures counts the newest failed or interrupted Attempts. A targeted
-// Attempt can follow a success of the same desired state, so success resets backoff.
+func successfulRevision(
+	attempt deploymentmodel.Attempt, snapshot deploymentmodel.Prepared, name, commit string,
+) (deploymentmodel.ServiceRevision, bool) {
+	digest := snapshot.ServiceDigests[name]
+	if attempt.Status != deploymentmodel.Succeeded || digest == "" {
+		return deploymentmodel.ServiceRevision{}, false
+	}
+	revision, recorded := attempt.ServiceRevisions[name]
+	if !recorded && attempt.TargetServices == nil && !slices.Contains(snapshot.UnconfirmedServices, name) {
+		revision = deploymentmodel.ServiceRevision{Digest: digest, Commit: commit}
+	}
+	return revision, revision.Digest == digest
+}
+
+// consecutiveFailures preserves backoff for histories recorded when an Attempt
+// could follow a success in the same Deployment.
 func consecutiveFailures(deployment deploymentmodel.Deployment) int {
 	if len(deployment.Attempts) == 0 {
 		return deployment.AttemptCount
@@ -141,17 +185,6 @@ func consecutiveFailures(deployment deploymentmodel.Deployment) int {
 		count++
 	}
 	return count
-}
-
-// retriesFailedAttempt reports whether an Attempt follows a failed or interrupted one
-// rather than a success that left other targets of the same desired state unapplied.
-func retriesFailedAttempt(deployment deploymentmodel.Deployment, attempt deploymentmodel.Attempt) bool {
-	for _, previous := range deployment.Attempts {
-		if previous.Number < attempt.Number {
-			return failedAttempt(previous)
-		}
-	}
-	return attempt.Number > 1
 }
 
 func failedAttempt(attempt deploymentmodel.Attempt) bool {

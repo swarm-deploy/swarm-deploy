@@ -147,10 +147,8 @@ func (s *Service) startPrepared(
 			return nil, err
 		}
 	}
-	attempt, err := s.createDeployment(ctx, stack, commit, desired, options, deploymentmodel.Verification{
-		Known: true, UnresolvedServices: unresolvedServices(latest, desired.Definition),
-		Generations: unresolvedGenerations(latest.Verification, unresolvedServices(latest, desired.Definition)),
-	})
+	verification := inheritedVerification(latest, desired.Definition)
+	attempt, err := s.createDeployment(ctx, stack, commit, desired, options, verification)
 	if err != nil {
 		return nil, err
 	}
@@ -191,28 +189,36 @@ func (s *Service) startExisting(
 	case deploymentmodel.Running:
 		return nil, nil //nolint:nilnil // An active attempt owns execution.
 	case deploymentmodel.Succeeded:
-		// Delivery lag must not repeat a successful execution of any target.
-		options.TargetServices = unappliedTargets(latest, snapshot, options.TargetServices)
-		if len(options.TargetServices) == 0 {
-			return nil, nil //nolint:nilnil // Every target already has a receipt.
-		}
 	case deploymentmodel.Failed, deploymentmodel.Interrupted:
 		if !options.ManualRetry && !s.automaticRetryAllowed(latest) {
 			return nil, nil //nolint:nilnil // Preserve failure classification and retry backoff.
 		}
-		// A retry does not repeat targets with a valid receipt. An empty scope still
-		// retries cleanup of the failed Attempt.
-		options.TargetServices = unappliedTargets(latest, snapshot, options.TargetServices)
 	case deploymentmodel.Superseded:
 		return nil, ErrInconsistentDeployment
 	default:
 		return nil, fmt.Errorf("unsupported deployment status %q", latest.Status)
 	}
-	latest, err := s.persistHistoricalAttempt(ctx, latest)
+	targets, err := s.unappliedTargets(ctx, latest, snapshot, options.TargetServices)
 	if err != nil {
 		return nil, err
 	}
-	attempt := newAttempt(latest.ID, latest.AttemptCount+1, s.now())
+	options.TargetServices = targets
+	if latest.Status == deploymentmodel.Succeeded {
+		if len(targets) == 0 {
+			return nil, nil //nolint:nilnil // Every target already has a receipt.
+		}
+		verification := inheritedVerification(latest, desired.Definition)
+		return s.createDeployment(ctx, latest.Stack, commit, desired, options, verification)
+	}
+	// A retry with no remaining targets still retries cleanup.
+	number := latest.AttemptCount + 1
+	if len(latest.Attempts) == 0 {
+		if err = s.persistHistoricalAttempt(ctx, latest); err != nil {
+			return nil, err
+		}
+		number = 2
+	}
+	attempt := newAttempt(latest.ID, number, s.now())
 	setAttemptTargets(&attempt, desired, commit, options)
 	if err = s.store.StartAttempt(ctx, latest, attempt); err != nil {
 		return nil, err
@@ -261,15 +267,9 @@ func (s *Service) runningAttempt(
 	return attempt, nil
 }
 
-// persistHistoricalAttempt materializes the terminal whole-stack execution of a
-// Deployment recorded before Attempts were persisted. Later Attempts then keep its
-// outcome as a receipt and in each service's history.
-func (s *Service) persistHistoricalAttempt(
-	ctx context.Context, deployment deploymentmodel.Deployment,
-) (deploymentmodel.Deployment, error) {
-	if len(deployment.Attempts) > 0 {
-		return deployment, nil
-	}
+// persistHistoricalAttempt records a legacy failed or interrupted execution
+// before its Deployment is updated for a retry.
+func (s *Service) persistHistoricalAttempt(ctx context.Context, deployment deploymentmodel.Deployment) error {
 	attempt := newAttempt(deployment.ID, 1, deployment.StartedAt)
 	finishedAt := deployment.StartedAt.UTC()
 	if deployment.FinishedAt != nil {
@@ -279,11 +279,7 @@ func (s *Service) persistHistoricalAttempt(
 	attempt.Phase, attempt.ApplyStatus = deployment.Phase, deployment.ApplyStatus
 	attempt.VerificationStatus, attempt.CleanupStatus = deployment.VerificationStatus, deployment.CleanupStatus
 	attempt.ActualStateStatus = deployment.ActualStateStatus
-	if err := s.store.InsertLegacyAttempt(ctx, attempt); err != nil {
-		return deployment, err
-	}
-	deployment.Attempts, deployment.AttemptCount = []deploymentmodel.Attempt{attempt}, 1
-	return deployment, nil
+	return s.store.InsertLegacyAttempt(ctx, attempt)
 }
 
 func (s *Service) createDeployment(
@@ -434,6 +430,13 @@ func (s *Service) interruptAttempts(ctx context.Context, attempts []deploymentmo
 		}
 	}
 	return nil
+}
+
+func inheritedVerification(previous deploymentmodel.Deployment, desired compose.File) deploymentmodel.Verification {
+	names := unresolvedServices(previous, desired)
+	return deploymentmodel.Verification{
+		Known: true, UnresolvedServices: names, Generations: unresolvedGenerations(previous.Verification, names),
+	}
 }
 
 // unresolvedServices filters durable obligations only when a service leaves desired state.
