@@ -72,7 +72,7 @@ func NewExecutor(
 		NewGetTaskLogs(taskLogs),
 		NewGetServiceSpec(swarmService.Services),
 		NewServiceHealthGet(
-			swarmService.Services, resourcesModule.NodeStore, alertModule.Store, gitopsModule.Deployments,
+			swarmService.Services, resourcesModule.NodeStore, alertModule.Store, deployments,
 		),
 		NewDNSNameResolve(),
 		NewPingWebRoutes(resourcesModule.ServiceStore),
