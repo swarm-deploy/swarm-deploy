@@ -33,7 +33,8 @@
 **Agents MUST discuss and resolve all ambiguities with the maintainer before starting implementation, not only architectural questions.**
 
 - Clarify unclear or conflicting requirements, scope, expected behavior, acceptance criteria, and implementation constraints before making changes.
-- State the ambiguity, reasonable options, and relevant trade-offs; obtain an explicit maintainer decision instead of guessing, silently choosing an interpretation, or expanding scope.
+- For each ambiguity, propose concrete, actionable solutions rather than only reporting the problem. Describe the pros, cons, and relevant trade-offs of each reasonable option, recommend a preferred option with rationale, and ask the maintainer to choose or approve it. If only one viable solution exists, explain why.
+- Obtain an explicit maintainer decision before proceeding; do not guess, silently choose an interpretation, or expand scope.
 - If an ambiguity emerges during implementation, pause the affected work and seek clarification before proceeding.
 - Routine local implementation details that are unambiguous and preserve established behavior and architecture do not require separate approval.
 
