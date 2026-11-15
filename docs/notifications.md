@@ -151,6 +151,8 @@ selected services, such as one that only prunes removed services, sends no
 `DeployFailed`, `DeployPreparationFailed`, and `DeployInterrupted` are internal lifecycle
 events. They cannot be configured under `notifications.events`; synchronization failures
 open or update the `sync_failed` alert and use Alert Notifications instead.
+A reconciliation step that fails after a successful Attempt also reports its diagnostic
+through this alert.
 
 ## Date formatting
 

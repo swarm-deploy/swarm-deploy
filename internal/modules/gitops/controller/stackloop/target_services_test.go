@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"slices"
 	"testing"
+	"time"
 
 	pipe "github.com/artarts36/gopipe"
 	"github.com/stretchr/testify/assert"
@@ -15,11 +16,16 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement"
+	alertmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/model"
+	alertstore "github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer"
 	deploymentmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/model"
 	deploymentstore "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/outbox"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackloop/preparation"
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/model"
@@ -171,20 +177,28 @@ func TestReconcilePreservesAppliedRevisionWhenDriftAnalysisFails(t *testing.T) {
 	dir := t.TempDir()
 	mockRepositoryFiles(repository, dir)
 	cfg := &config.Config{Spec: config.Spec{DataDir: t.TempDir()}}
-	bus := &dispatcher.NopDispatcher{}
+	publications := outbox.New(db)
+	bus := dispatcher.NewOutboxDispatcher(publications)
+	alerts := alertstore.NewSQLStore(db)
+	subscriber := alertmanagement.NewSQLSubscriber(alerts, bus,
+		func(alertmodel.AlertKind) []events.AlertRecipient { return nil }, cfg)
+	require.NoError(t, dispatcher.SubscribeMany(bus, []events.TypeName{
+		events.TypeNameDeploySuccess, events.TypeNameDeployPreparationFailed,
+	}, "alert-management", subscriber))
 	reconciler := newTestReconciler(cfg, repository, deployments.NewService(db, bus), executor,
 		&swarm.Swarm{Services: manager}, bus, &metrics.NopDeploys{}, runtime, db)
 	req := ReconciliationRequest{Stack: config.StackSpec{Name: "app", ComposeFile: "app.yaml"}, Commit: "one"}
 	writeManifest := func(image string) {
 		t.Helper()
-		manifest := fmt.Sprintf("services:\n  api:\n    image: %s\n", image)
+		manifest := fmt.Sprintf("services:\n  api:\n    image: %s\n  worker:\n    image: worker:1\n", image)
 		require.NoError(t, os.WriteFile(filepath.Join(dir, "app.yaml"), []byte(manifest), 0600))
 	}
 	executor.EXPECT().DeployStack(gomock.Any(), gomock.Any()).Return(deployer.Result{}, nil).Times(2)
 	manager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "app"}).
-		Return([]swarm.StackService{{Name: "api"}}, nil).Times(3)
+		Return([]swarm.StackService{{Name: "api"}, {Name: "worker"}}, nil).Times(3)
 	writeManifest("api:1")
 	require.NoError(t, reconciler.Reconcile(t.Context(), req))
+	drainOutbox(t, t.Context(), bus)
 	previous := readSQLState(t, runtime).Stacks["app"].Services["api"].AppliedDigest
 	require.NotEmpty(t, previous)
 
@@ -214,6 +228,38 @@ func TestReconcilePreservesAppliedRevisionWhenDriftAnalysisFails(t *testing.T) {
 	assert.True(t, completed.Attempts[0].StartedAt.Equal(stack.LastDeployAt))
 	assert.True(t, stack.LastDeployAt.Before(stack.StateUpdatedAt))
 
+	published, err := publications.ListPublications(t.Context(), outbox.ListFilter{})
+	require.NoError(t, err)
+	require.Len(t, published, 2, "updated success, then the reconciliation failure")
+	success, ok := published[0].Envelope.Event.(*events.DeploySuccess)
+	require.True(t, ok)
+	assert.Equal(t, completed.Attempts[0].ID, success.AttemptID)
+	assert.Equal(t, []string{"api"}, compose.Services(success.Services).Names())
+	failure, ok := published[1].Envelope.Event.(*events.DeployPreparationFailed)
+	require.True(t, ok)
+	assert.Equal(t, req.Stack.Name, failure.StackName)
+	assert.Equal(t, req.Commit, failure.Commit)
+	assert.ElementsMatch(t, []string{"api", "worker"}, compose.Services(failure.Services).Names())
+	assert.Equal(t, stack.LastError, failure.ErrorCode)
+	assert.Equal(t, "analyze drift", failure.Stage)
+	require.ErrorContains(t, failure.Error, "analyze drift: drift analysis unavailable")
+
+	processed, err := bus.ProcessNext(t.Context())
+	require.NoError(t, err)
+	require.True(t, processed)
+	beforeFailure, err := alerts.List(t.Context(), alertstore.ListFilter{Kind: alertmodel.AlertKindSyncFailed})
+	require.NoError(t, err)
+	assert.Empty(t, beforeFailure, "the successful attempt is delivered before the reconciliation failure")
+	drainOutbox(t, t.Context(), bus)
+	alert, err := alerts.FindOpenByFingerprint(t.Context(), alertmodel.SyncFailedFingerprint(req.Stack.Name))
+	require.NoError(t, err)
+	assert.Equal(t, alertmodel.AlertKindSyncFailed, alert.Kind)
+	assert.Equal(t, alertmodel.AlertStatusOpen, alert.Status)
+	assert.Equal(t, failure.Error.Error(), alert.Message)
+	assert.Equal(t, failure.ErrorCode, alert.ErrorCode)
+	assert.Equal(t, failure.Stage, alert.FailureStage)
+	assert.Equal(t, published[1].Envelope.ID, alert.OpenEventID)
+
 	reconciler.attachPipeline()
 	req.IsManual = false
 	executor.EXPECT().RefreshRegistryAuth(gomock.Any(), gomock.Any()).Return(nil)
@@ -221,6 +267,43 @@ func TestReconcilePreservesAppliedRevisionWhenDriftAnalysisFails(t *testing.T) {
 	latest, _, err := store.Latest(t.Context(), "app")
 	require.NoError(t, err)
 	assert.Equal(t, completed, latest)
+}
+
+func TestPostDeploymentFailurePublicationRollsBackRuntime(t *testing.T) {
+	ctx := t.Context()
+	db, store := newSQLState(t)
+	previous := model.Stack{LastCommit: "previous", Services: map[string]model.Service{
+		"api": {DesiredDigest: "desired", AppliedDigest: "prior", ApplyPending: true},
+	}}
+	require.NoError(t, store.Update(ctx, func(runtime *model.Runtime) { runtime.Stacks["app"] = previous }))
+	before := readSQLState(t, store)
+	publisher := dispatcher.NewMockDispatcher(gomock.NewController(t))
+	publicationErr := errors.New("publish failed")
+	publisher.EXPECT().Publish(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, event events.Event) error {
+		failure, ok := event.(*events.DeployPreparationFailed)
+		require.True(t, ok)
+		require.ErrorContains(t, failure.Error, "analyze drift: drift analysis failed")
+		assert.NotContains(t, failure.Error.Error(), "private-value")
+		runtime, err := store.Read(ctx)
+		require.NoError(t, err)
+		stack := runtime.Stacks["app"]
+		assert.Equal(t, failure.ErrorCode, stack.LastError)
+		assert.Equal(t, "desired", stack.Services["api"].AppliedDigest)
+		return publicationErr
+	})
+	reconciler := &Reconciler{db: db, stateStore: store, event: publisher}
+	payload := &pipelinePayload{
+		Desired:            &compose.File{Compose: compose.Compose{Services: compose.Services{{Name: "api"}}}},
+		Attempt:            &deploymentmodel.Attempt{StartedAt: time.Now().UTC(), TargetServices: []string{"api"}},
+		ExecutionSucceeded: true,
+		AppliedRevisions:   map[string]deploymentmodel.ServiceRevision{"api": {Digest: "desired", Commit: "next"}},
+	}
+	driftErr := errors.New("drift analysis failed")
+	err := reconciler.recordPipelineFailure(ctx, ReconciliationRequest{Stack: config.StackSpec{Name: "app"}, Commit: "next"},
+		previous, payload, &pipe.StepError{StepName: "analyze drift", Err: fmt.Errorf("%w (token=private-value)", driftErr)})
+	require.ErrorIs(t, err, publicationErr)
+	require.ErrorIs(t, err, driftErr)
+	assert.Equal(t, before, readSQLState(t, store))
 }
 
 func TestReconcileAdoptsLegacyDeploymentReceiptWithoutRedeploy(t *testing.T) {

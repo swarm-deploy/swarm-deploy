@@ -404,9 +404,25 @@ func (r *Reconciler) recordPipelineFailure(
 		}
 	}
 	failed.Status = model.NewStackStatus(failed.Services)
-	persistErr := r.stateStore.Update(ctx, func(runtime *model.Runtime) {
-		runtime.Stacks[req.Stack.Name] = failed
-	})
+	persist := func(ctx context.Context) error {
+		return r.stateStore.Update(ctx, func(runtime *model.Runtime) {
+			runtime.Stacks[req.Stack.Name] = failed
+		})
+	}
+	var persistErr error
+	if pl.ExecutionSucceeded {
+		persistErr = r.db.WithinTransaction(ctx, func(ctx context.Context) error {
+			if err := persist(ctx); err != nil {
+				return err
+			}
+			return r.event.Publish(ctx, &events.DeployPreparationFailed{
+				StackName: req.Stack.Name, Commit: req.Commit, Services: services, ErrorCode: failed.LastError,
+				Stage: pipeErr.StepName, Error: faults.SafeError(pipeErr),
+			})
+		})
+	} else {
+		persistErr = persist(ctx)
+	}
 	return wrapReconcileError(pipeErr.StepName, services, errors.Join(pipeErr, persistErr))
 }
 

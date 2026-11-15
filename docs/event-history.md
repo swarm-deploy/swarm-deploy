@@ -53,6 +53,9 @@ not public event names and are not available under `notifications.events`.
 Known terminal service convergence failures publish internal `DeployFailed` with
 `error_code=convergence_failed` and `stage=verification`; observation failures and
 verification interruptions publish `DeployInterrupted` with `verification_unknown`.
+A reconciliation step can fail after a successful Attempt. GitOps publishes internal
+`DeployPreparationFailed` with the failed stage and safe diagnostic. Alert Management
+opens or updates `sync_failed`, while the Attempt keeps its successful outcome.
 Deployment completion events describe the persisted Attempt. Their `Services` list
 contains only its execution targets; GitOps updates applied revisions only for those
 services. `DeploySuccess` means those targets completed successfully. Pruning still
