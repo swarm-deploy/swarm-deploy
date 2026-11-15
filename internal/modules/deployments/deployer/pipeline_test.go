@@ -3,7 +3,7 @@ package deployer
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -131,7 +131,7 @@ func TestDeployStackStepErrorPreservesJobFailureType(t *testing.T) {
 	result, err := deployer.DeployStack(t.Context(), StackRequest{
 		StackName:         "demo",
 		SourceComposePath: "source.yaml",
-		Desired:           desired,
+		Desired:           desired, TargetServices: desired.Services.Names(),
 	})
 	require.Error(t, err)
 	require.Len(t, result.InitJobs, 1)
@@ -194,7 +194,7 @@ func TestDeployPipelinesShareLiteralDesiredState(t *testing.T) {
 	_, err = deployer.DeployStack(t.Context(), StackRequest{
 		StackName:         "demo",
 		SourceComposePath: "source.yaml",
-		Desired:           file.Compose,
+		Desired:           file.Compose, TargetServices: file.Compose.Services.Names(),
 	})
 	require.NoError(t, err)
 	_, err = deployer.DeployService(t.Context(), ServiceRequest{
@@ -217,7 +217,7 @@ func runMinimalStack(t *testing.T, deployer *Deployer) error {
 	_, err := deployer.DeployStack(t.Context(), StackRequest{
 		StackName:         "demo",
 		SourceComposePath: "source.yaml",
-		Desired:           minimalCompose("api"),
+		Desired:           minimalCompose("api"), TargetServices: minimalCompose("api").Services.Names(),
 	})
 	return err
 }
@@ -290,7 +290,7 @@ func TestUnchangedPausedServiceIsVerifiedForRemediation(t *testing.T) {
 				_, err = d.DeployStack(t.Context(), StackRequest{
 					StackName:         "demo",
 					SourceComposePath: "source.yaml",
-					Desired:           minimalCompose("api"),
+					Desired:           minimalCompose("api"), TargetServices: minimalCompose("api").Services.Names(),
 				})
 			}
 			if single {
@@ -329,7 +329,7 @@ func TestRetryPausedStackActuallyAppliesNewTaskGeneration(t *testing.T) {
 		StackName:         "demo",
 		SourceComposePath: "source.yaml",
 		Desired:           minimalCompose("api"),
-		Options:           StackOptions{RetryFailedUpdates: true},
+		Options:           StackOptions{RetryFailedUpdates: true}, TargetServices: minimalCompose("api").Services.Names(),
 	})
 	require.NoError(t, err)
 }
@@ -362,7 +362,7 @@ func TestAcceptedUnchangedRolloutIsVerified(t *testing.T) {
 				StackName:         "demo",
 				SourceComposePath: "source.yaml",
 				Desired:           minimalCompose("api"),
-				Options:           options,
+				Options:           options, TargetServices: minimalCompose("api").Services.Names(),
 			})
 			require.NoError(t, err)
 		})
@@ -385,7 +385,7 @@ func TestFailuresDistinguishPreApplyChecksFromPartialServiceApply(t *testing.T) 
 			result, err := d.DeployStack(t.Context(), StackRequest{
 				StackName:         "demo",
 				SourceComposePath: "source.yaml",
-				Desired:           desired,
+				Desired:           desired, TargetServices: desired.Services.Names(),
 			})
 			require.Error(t, err)
 			if preApply {
@@ -436,7 +436,7 @@ func TestPlacementOnlyPartialApplyRecoversUnresolvedServiceWithoutNewUpdate(t *t
 	}
 	wireNativeTestDeployerWithServiceManager(t, d, manager, false)
 	first, err := d.DeployStack(t.Context(), StackRequest{
-		StackName: "demo", SourceComposePath: "source.yaml", Desired: desired,
+		StackName: "demo", SourceComposePath: "source.yaml", Desired: desired, TargetServices: desired.Services.Names(),
 	})
 	require.ErrorIs(t, err, assert.AnError)
 	assert.False(t, first.Verification.Known)
@@ -469,7 +469,7 @@ func TestPlacementOnlyPartialApplyRecoversUnresolvedServiceWithoutNewUpdate(t *t
 
 	second, err := d.DeployStack(t.Context(), StackRequest{
 		StackName: "demo", SourceComposePath: "source.yaml", Desired: desired,
-		Options: StackOptions{UnresolvedServices: []string{"a"}},
+		Options: StackOptions{UnresolvedServices: []string{"a"}}, TargetServices: desired.Services.Names(),
 	})
 
 	require.NoError(t, err)

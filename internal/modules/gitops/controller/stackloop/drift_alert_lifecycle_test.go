@@ -95,6 +95,7 @@ func TestReconcileDriftRecoveryPersistsAndDeliversEvents(t *testing.T) {
 				}}
 			}))
 			mockRepositoryFiles(repository, dir)
+			seedAppliedDesired(t, newTestReconciler(cfg, repository, deployments.NewService(db, publisher), stackDeployer, &swarm.Swarm{Services: manager}, publisher, &metrics.NopDeploys{}, store, db), config.StackSpec{Name: "app", ComposeFile: "app.yaml"})
 			// Recreate the reconciler and lifecycle controller on every tick. The clock
 			// stays before the automatic retry deadline to exercise persisted backoff.
 			clock := time.Now().UTC()
@@ -264,7 +265,8 @@ func TestDriftLifecycleSurvivesPreparationFailure(t *testing.T) {
 		DriftedServices: map[string]bool{"api": true},
 		Services: map[string]model.Service{
 			"api": {
-				Image: "nginx:1.27", SyncStatus: model.SyncStatusOutOfSync, SelfHealPending: true, SyncError: "drift",
+				Image: "nginx:1.27", DesiredCommit: "prepared",
+				SyncStatus: model.SyncStatusOutOfSync, SelfHealPending: true, SyncError: "drift",
 			},
 			"worker": {Image: "busybox:1.37", SyncStatus: model.SyncStatusSynced},
 		},
@@ -285,6 +287,7 @@ func TestDriftLifecycleSurvivesPreparationFailure(t *testing.T) {
 	assert.Equal(t, model.StackStatus{Synced: 1, OutOfSynced: 1}, failed.Status)
 	api := failed.Services["api"]
 	assert.Equal(t, "nginx:1.28", api.Image)
+	assert.Equal(t, "prepared", api.DesiredCommit)
 	assert.Equal(t, model.SyncStatus(model.SyncStatusOutOfSync), api.SyncStatus)
 	assert.True(t, api.SelfHealPending)
 	assert.Equal(t, "drift", api.SyncError)

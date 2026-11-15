@@ -66,14 +66,6 @@ func TestCompletePersistsLifecycleBaselineAndEvents(t *testing.T) {
 			wantEvent: events.TypeNameDeployFailed, wantEventStage: "verification", wantFault: faults.CodeImageNotFound,
 		},
 		{
-			name:       "policy rejection",
-			completion: Completion{Outcome: CompletionPolicyRejected},
-			wantStatus: deploymentmodel.Failed, wantPhase: deploymentmodel.PhaseApply,
-			wantApply: deploymentmodel.StageFailed, wantVerification: deploymentmodel.StageSkipped,
-			wantCleanup: deploymentmodel.StageSkipped, wantActual: deploymentmodel.ActualStateUnknown,
-			wantEvent: events.TypeNameDeployFailed, wantEventStage: "apply",
-		},
-		{
 			name:       "init job failure",
 			completion: Completion{Outcome: CompletionInitJobFailed},
 			wantStatus: deploymentmodel.Failed, wantPhase: deploymentmodel.PhaseApply,
@@ -127,7 +119,7 @@ func TestCompletePersistsLifecycleBaselineAndEvents(t *testing.T) {
 			}))
 			subscribe(t, db, bus, testCase.wantEvent)
 			attempt, err := service.StartIfChanged(
-				t.Context(), "app", "commit", desiredServices("api"), true,
+				t.Context(), "app", "commit", desiredServices("api"), true, StartOptions{TargetServices: desiredServices("api").Compose.Services.Names()},
 			)
 			require.NoError(t, err)
 			require.NoError(t, service.Complete(t.Context(), attempt.ID, testCase.completion))
@@ -222,10 +214,10 @@ func assertCompletionPublication(
 
 func TestFailedCompletionDoesNotReplaceSuccessfulBaseline(t *testing.T) {
 	db, service, _ := openService(t)
-	first, err := service.StartIfChanged(t.Context(), "app", "first", desiredServices("api"), true)
+	first, err := service.StartIfChanged(t.Context(), "app", "first", desiredServices("api"), true, StartOptions{TargetServices: desiredServices("api").Compose.Services.Names()})
 	require.NoError(t, err)
 	require.NoError(t, service.Complete(t.Context(), first.ID, Completion{Outcome: CompletionSucceeded}))
-	second, err := service.StartIfChanged(t.Context(), "app", "second", desiredServices("worker"), true)
+	second, err := service.StartIfChanged(t.Context(), "app", "second", desiredServices("worker"), true, StartOptions{TargetServices: desiredServices("worker").Compose.Services.Names()})
 	require.NoError(t, err)
 	require.NoError(t, service.Complete(t.Context(), second.ID, Completion{Outcome: CompletionApplyFailed}))
 
@@ -247,7 +239,7 @@ func TestCompleteRejectsInvalidOrTerminalTransitions(t *testing.T) {
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
 			db, service, _ := openService(t)
-			attempt, err := service.StartIfChanged(t.Context(), "app", "commit", desiredServices("api"), true)
+			attempt, err := service.StartIfChanged(t.Context(), "app", "commit", desiredServices("api"), true, StartOptions{TargetServices: desiredServices("api").Compose.Services.Names()})
 			require.NoError(t, err)
 			require.Error(t, service.Complete(t.Context(), attempt.ID, testCase.completion))
 			stored, err := deploymentstore.NewStore(db).Get(t.Context(), attempt.DeploymentID)
@@ -260,10 +252,10 @@ func TestCompleteRejectsInvalidOrTerminalTransitions(t *testing.T) {
 	}
 
 	_, service, _ := openService(t)
-	first, err := service.StartIfChanged(t.Context(), "app", "first", desiredServices("api"), true)
+	first, err := service.StartIfChanged(t.Context(), "app", "first", desiredServices("api"), true, StartOptions{TargetServices: desiredServices("api").Compose.Services.Names()})
 	require.NoError(t, err)
 	require.NoError(t, service.Complete(t.Context(), first.ID, Completion{Outcome: CompletionApplyFailed}))
-	retry, err := service.StartIfChanged(t.Context(), "app", "retry", desiredServices("api"), true, StartOptions{ManualRetry: true})
+	retry, err := service.StartIfChanged(t.Context(), "app", "retry", desiredServices("api"), true, StartOptions{ManualRetry: true, TargetServices: desiredServices("api").Compose.Services.Names()})
 	require.NoError(t, err)
 	require.ErrorIs(t, service.Complete(t.Context(), first.ID, Completion{
 		Outcome: CompletionApplyFailed,
@@ -306,7 +298,7 @@ func TestCompleteRollsBackEveryTransactionalParticipant(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			db, service, bus := openService(t)
 			subscribe(t, db, bus, events.TypeNameDeploySuccess)
-			attempt, err := service.StartIfChanged(t.Context(), "app", "commit", desiredServices("api"), true)
+			attempt, err := service.StartIfChanged(t.Context(), "app", "commit", desiredServices("api"), true, StartOptions{TargetServices: desiredServices("api").Compose.Services.Names()})
 			require.NoError(t, err)
 
 			testCase.setup(t, db)
@@ -326,7 +318,7 @@ func TestCompleteRollsBackEveryTransactionalParticipant(t *testing.T) {
 
 func TestCompleteJoinsExistingTransaction(t *testing.T) {
 	db, service, _ := openService(t)
-	attempt, err := service.StartIfChanged(t.Context(), "app", "commit", desiredServices("api"), true)
+	attempt, err := service.StartIfChanged(t.Context(), "app", "commit", desiredServices("api"), true, StartOptions{TargetServices: desiredServices("api").Compose.Services.Names()})
 	require.NoError(t, err)
 
 	err = db.WithinTransaction(t.Context(), func(ctx context.Context) error {

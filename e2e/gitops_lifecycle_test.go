@@ -115,6 +115,7 @@ func TestRealSwarmGitOpsLifecycle(t *testing.T) {
 		f.pollGit(t)
 		latest := f.assertRevision(t, sha, content, desired)
 		f.assertSuccessfulDeployment(t, latest)
+		require.Equal(t, []string{"api"}, latest.Attempts[0].TargetServices)
 
 		api = f.updatedAPI(t, api, desired)
 		require.Equal(t, originalResources, f.mountedResources(t, 1))
@@ -130,6 +131,7 @@ func TestRealSwarmGitOpsLifecycle(t *testing.T) {
 		f.pollGit(t)
 		latest := f.assertRevision(t, sha, content, desired)
 		f.assertSuccessfulDeployment(t, latest)
+		require.Equal(t, []string{"scheduler"}, latest.Attempts[0].TargetServices)
 
 		// Retain the API baseline: the bounded idle check also proves isolation
 		// across adding scheduler, including retained task generations.

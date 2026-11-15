@@ -2,7 +2,7 @@ package assistant
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -92,7 +92,7 @@ func TestServiceChatReturnsCompletedResponse(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
 		case "/embeddings":
-			_ = json.NewEncoder(w).Encode(map[string]any{
+			_ = json.MarshalWrite(w, map[string]any{
 				"data": []map[string]any{
 					{"index": 0, "embedding": []float64{1, 0}},
 					{"index": 1, "embedding": []float64{0.9, 0.1}},
@@ -100,7 +100,7 @@ func TestServiceChatReturnsCompletedResponse(t *testing.T) {
 			})
 		case "/chat/completions":
 			if chatCall.Add(1) == 1 {
-				_ = json.NewEncoder(w).Encode(map[string]any{
+				_ = json.MarshalWrite(w, map[string]any{
 					"choices": []map[string]any{{"message": map[string]any{"content": "services"}}},
 					"usage": map[string]any{
 						"prompt_tokens": 5, "completion_tokens": 1, "total_tokens": 6,
@@ -108,7 +108,7 @@ func TestServiceChatReturnsCompletedResponse(t *testing.T) {
 				})
 				return
 			}
-			_ = json.NewEncoder(w).Encode(map[string]any{
+			_ = json.MarshalWrite(w, map[string]any{
 				"choices": []map[string]any{
 					{
 						"message": map[string]any{
@@ -252,7 +252,7 @@ func TestServiceChatHandlesToolCalls(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
 		case "/embeddings":
-			_ = json.NewEncoder(w).Encode(map[string]any{
+			_ = json.MarshalWrite(w, map[string]any{
 				"data": []map[string]any{
 					{"index": 0, "embedding": []float64{1, 0}},
 					{"index": 1, "embedding": []float64{0.9, 0.1}},
@@ -261,7 +261,7 @@ func TestServiceChatHandlesToolCalls(t *testing.T) {
 		case "/chat/completions":
 			call := atomic.AddInt64(&chatCall, 1)
 			if call == 1 {
-				_ = json.NewEncoder(w).Encode(map[string]any{
+				_ = json.MarshalWrite(w, map[string]any{
 					"usage": map[string]any{
 						"prompt_tokens": 5, "completion_tokens": 1, "total_tokens": 6,
 					},

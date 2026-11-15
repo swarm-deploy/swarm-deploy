@@ -1,6 +1,7 @@
 import { apiRequest, apiTextRequest } from "./client";
 import { withWebBasePath } from "../runtimeConfig";
 import type {
+  Alert,
   AlertsResponse,
   DeploymentsResponse,
   DeploymentActivityInterval,
@@ -35,6 +36,10 @@ export function fetchAlerts(options: { status?: AlertStatus; limit?: number; sta
 
   const query = params.toString();
   return apiRequest<AlertsResponse>(`/api/v1/alerts${query ? `?${query}` : ""}`);
+}
+
+export function fetchAlert(id: string): Promise<Alert> {
+  return apiRequest<Alert>(`/api/v1/alerts/${encodeURIComponent(id)}`);
 }
 
 export interface FetchEventsOptions {

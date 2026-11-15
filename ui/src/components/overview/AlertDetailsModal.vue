@@ -8,6 +8,7 @@ import DeploymentIcon from "./DeploymentIcon.vue";
 import { useOverviewStore } from "../../stores/overview";
 import { formatDate, shortCommitHash } from "../../utils/format";
 
+const props = defineProps<{ linked?: boolean }>();
 const overviewStore = useOverviewStore();
 
 const timestampOptions: Intl.DateTimeFormatOptions = {
@@ -52,6 +53,10 @@ function closeAlertDetailsModal() {
   overviewStore.closeAlertDetailsModal();
 }
 
+function closeOnResourceNavigation() {
+  if (!props.linked) closeAlertDetailsModal();
+}
+
 function openDeployment() {
   const deploymentID = alert.value?.deploymentId;
   if (!deploymentID) return;
@@ -81,7 +86,13 @@ function openCommit() {
       <h2 id="alert-details-title">Alert details</h2>
     </template>
 
-    <template v-if="alert && overviewStore.alertDetailsModalOpen">
+    <div v-if="overviewStore.alertDetailsLoading" class="modal-body alert-details-body">
+      <p class="meta" role="status">Loading alert details...</p>
+    </div>
+    <div v-else-if="overviewStore.alertDetailsError" class="modal-body alert-details-body">
+      <p class="meta" role="alert">{{ overviewStore.alertDetailsError }}</p>
+    </div>
+    <template v-else-if="alert && overviewStore.alertDetailsModalOpen">
       <div class="modal-body alert-details-body">
         <div>
           <div class="alert-details-heading">
@@ -101,7 +112,7 @@ function openCommit() {
             <DeploymentIcon v-else-if="alert.resourceType === 'service'" name="service" />
             <span>
               {{ alert.resourceType }} /
-              <RouterLink v-if="resourceTarget" :to="resourceTarget" class="alert-details-link" @click="closeAlertDetailsModal">
+              <RouterLink v-if="resourceTarget" :to="resourceTarget" class="alert-details-link" @click="closeOnResourceNavigation">
                 {{ alert.resourceId }}
               </RouterLink>
               <strong v-else>{{ alert.resourceId || "unknown" }}</strong>
@@ -175,7 +186,7 @@ function openCommit() {
       <footer class="alert-details-footer">
         <span>Updated <time :datetime="alert.updatedAt" :title="formatDate(alert.updatedAt)">{{ formatTimestamp(alert.updatedAt, footerTimestamp) }}</time></span>
         <nav v-if="stackTarget || alert.deploymentId" class="alert-details-actions" aria-label="Related resources">
-          <AppButton v-if="stackTarget" :to="stackTarget" variant="secondary" compact @click="closeAlertDetailsModal">View stack</AppButton>
+          <AppButton v-if="stackTarget" :to="stackTarget" variant="secondary" compact @click="closeOnResourceNavigation">View stack</AppButton>
           <AppButton v-if="alert.deploymentId" compact @click="openDeployment">
             View deployment <span aria-hidden="true">↗</span>
           </AppButton>

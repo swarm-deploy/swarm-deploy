@@ -2,7 +2,7 @@ package assistant
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -571,7 +571,7 @@ func TestAssistantRouterFailureStopsMainRequest(t *testing.T) {
 				w.Header().Set("Content-Type", "application/json")
 				if len(requests) == 1 {
 					if testCase.emptyChoices {
-						_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{}})
+						_ = json.MarshalWrite(w, map[string]any{"choices": []any{}})
 						return
 					}
 					writeChatResponse(t, w, testCase.routerContent, nil)
@@ -669,7 +669,7 @@ func newRoutingTestServiceWithHistory(
 func decodeCapturedChatRequest(t *testing.T, req *http.Request) capturedChatRequest {
 	t.Helper()
 	var captured capturedChatRequest
-	require.NoError(t, json.NewDecoder(req.Body).Decode(&captured))
+	require.NoError(t, json.UnmarshalRead(req.Body, &captured))
 	return captured
 }
 
@@ -679,7 +679,7 @@ func writeChatResponse(t *testing.T, w http.ResponseWriter, content string, tool
 	if toolCalls != nil {
 		message["tool_calls"] = toolCalls
 	}
-	require.NoError(t, json.NewEncoder(w).Encode(map[string]any{
+	require.NoError(t, json.MarshalWrite(w, map[string]any{
 		"choices": []map[string]any{{"message": message}},
 		"usage":   map[string]any{"prompt_tokens": 3, "completion_tokens": 1, "total_tokens": 4},
 	}))

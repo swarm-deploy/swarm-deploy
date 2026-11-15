@@ -5,6 +5,46 @@ globs: ["**/*.go"]
 apply: by file patterns
 ---
 
+## Design Principles
+
+Prioritize SRP and cohesive responsibility boundaries; apply dependency inversion where it improves the design. These principles do not authorize changes to established module ownership or architecture.
+
+### Single Responsibility Principle (SRP)
+
+- Each component must have one clearly defined responsibility and one primary reason to change.
+- Before modifying a component, identify its primary responsibility. If the requested behavior belongs to a different responsibility, place it in the appropriate existing component or extract a focused component without changing module boundaries.
+- Keep components focused on a single domain concern or cohesive workflow.
+- Separate unrelated responsibilities such as domain evaluation, orchestration, persistence, and external I/O.
+- Place behavior in the component that owns the corresponding responsibility.
+- Avoid god objects that accumulate unrelated methods, dependencies, and business rules.
+- Do not split cohesive components merely to reduce file size, method count, or lines of code.
+- Prefer extracting a focused component when an existing component accumulates distinct responsibilities.
+
+### Responsibility Separation
+
+- Before implementing a component, identify the distinct decisions it makes and the effects it performs.
+- Separate domain decisions from orchestration and state mutations when they have independent reasons to change.
+- Prefer focused components for independent domain rules rather than accumulating them in a central coordinator.
+- Keep orchestration components focused on coordinating existing responsibilities, not implementing their business rules.
+- Domain decisions should be independently testable without requiring unrelated side effects.
+- Do not introduce additional layers when responsibilities are already cohesive.
+
+### Dependency Inversion
+
+- Business logic must not depend directly on infrastructure implementation details.
+- Respect existing module boundaries and dependency contracts.
+- Prefer constructor injection for external dependencies.
+- Reuse existing interfaces and abstractions before introducing new ones.
+- Do not introduce interfaces solely for mocking or hypothetical extensibility.
+
+### Simplicity
+
+- Prefer simple, cohesive components over additional abstraction layers.
+- Avoid components that merely delegate calls without owning meaningful behavior.
+- Do not introduce abstractions without a concrete need.
+- Refactoring must preserve existing architectural boundaries unless explicitly approved.
+- Before completing a Go implementation, review changed components for responsibility mixing, unnecessary abstractions, redundant interfaces, dependency direction violations, and behavioral contract changes. Simplify where possible without changing established architecture or expanding task scope.
+
 ## Docker API Boundary
 
 - **All new Docker Engine / Docker Swarm API operations MUST go through `internal/swarm`.** Other packages must use the managers exposed by `internal/swarm`; they must not call Docker SDK client methods directly or introduce parallel Docker API clients/adapters.

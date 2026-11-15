@@ -1,7 +1,7 @@
 package deployer
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -39,7 +39,7 @@ func TestHostNetworkExternalReplicasConvergesAndRepeatedDeployIsIdempotent(t *te
 					network.ID, network.Scope = "swarm-host-id", "swarm"
 				}
 				w.Header().Set("Content-Type", "application/json")
-				assert.NoError(t, json.NewEncoder(w).Encode(network))
+				assert.NoError(t, json.MarshalWrite(w, network))
 			}))
 			defer server.Close()
 			docker, err := client.NewClientWithOpts(client.WithHost(server.URL), client.WithHTTPClient(server.Client()), client.WithVersion("1.48"))
@@ -94,7 +94,7 @@ networks:
 				if single {
 					result, err = d.DeployService(t.Context(), ServiceRequest{StackName: "demo", ServiceName: "job", Desired: *desired})
 				} else {
-					result, err = d.DeployStack(t.Context(), StackRequest{StackName: "demo", Desired: *desired})
+					result, err = d.DeployStack(t.Context(), StackRequest{StackName: "demo", Desired: *desired, TargetServices: (*desired).Services.Names()})
 				}
 				require.NoError(t, err, "deploy attempt %d", attempt)
 				assert.True(t, result.Verification.Known)

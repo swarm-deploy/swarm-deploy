@@ -48,8 +48,8 @@ func TestInitJobCleanupFallbackHonorsExecutionDeadline(t *testing.T) {
 		manager := swarm.NewMockServiceManager(gomock.NewController(t))
 		runner := &InitJobRunner{
 			swarmService: &swarm.Swarm{Services: manager},
-			deleteTasks: make(chan initJobDeleteTask), // Full queue forces synchronous cleanup.
-			deleteWake:  make(chan struct{}, 1),
+			deleteTasks:  make(chan initJobDeleteTask), // Full queue forces synchronous cleanup.
+			deleteWake:   make(chan struct{}, 1),
 		}
 		ctx, cancel := context.WithTimeout(t.Context(), time.Second)
 		defer cancel()

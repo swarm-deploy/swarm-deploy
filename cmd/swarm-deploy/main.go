@@ -76,6 +76,14 @@ var modules = []module{
 		},
 	},
 	{
+		Name: "deployments",
+		Initialize: func(ctx context.Context, cfg *config.Config, cnt *container) error {
+			mod, err := deployments.InitModule(ctx, cfg, cnt)
+			cnt.Deployments = mod
+			return err
+		},
+	},
+	{
 		Name: "resources",
 		Initialize: func(ctx context.Context, cfg *config.Config, cnt *container) error {
 			mod, err := resources.InitModule(ctx, cfg, cnt)
@@ -88,14 +96,6 @@ var modules = []module{
 		Initialize: func(ctx context.Context, cfg *config.Config, cnt *container) error {
 			mod, err := recommendations.InitModule(ctx, cfg, cnt)
 			cnt.Recommendations = mod
-			return err
-		},
-	},
-	{
-		Name: "deployments",
-		Initialize: func(ctx context.Context, cfg *config.Config, cnt *container) error {
-			mod, err := deployments.InitModule(ctx, cfg, cnt)
-			cnt.Deployments = mod
 			return err
 		},
 	},
@@ -209,6 +209,7 @@ func main() {
 		cfg.Spec.Web,
 		cnt.ConfigStore,
 		cnt.GitOps,
+		cnt.Deployments,
 		cnt.Swarm,
 		cnt.Event,
 		cnt.Resources,

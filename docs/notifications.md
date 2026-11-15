@@ -7,11 +7,33 @@ Each Telegram rule accepts `chats` as a single name or array of names; omitting 
 selects `default`. An unknown, empty or repeated destination is a configuration error.
 The `message` field uses Go `text/template`; omitting it selects the standard template.
 The removed `notifications.on` key is rejected; no compatibility alias is provided.
+Existing configurations with `notifications.events.SendNotificationFailed` load
+with a startup warning. Remove this retired route from the configuration.
+
+## Telegram buttons
+
+Add an optional `buttons` list to a Telegram event route or to an alert route's
+`opened` or `resolved` section. Each button has a `text` label and a `url`.
+Both use Go `text/template` with the same fields as the corresponding message.
+Telegram displays the buttons in configuration order, one per row.
+
+The rendered URL must be an absolute `http://`, `https://`, or `tg://` URL.
+If the template renders an empty URL, swarm-deploy skips that button. The
+[example below](#example) uses this to hide the deployment link when a `SyncFailed`
+alert has no `DeploymentID`. Button templates are validated at startup, and
+rendered URLs are checked before sending.
+
+With `resolved.action: edit`, omitting `resolved.buttons` renders the current
+`opened.buttons` templates again using the resolved alert's data. The resulting
+links can change if the templates or alert data change. Set `buttons: []` under
+`resolved` to clear the keyboard on edit, or supply a list to replace it.
+Replies and fallback sends use the buttons configured under `resolved`.
 
 ## Alert lifecycle
 
 Notification configuration uses the exact PascalCase alert names `SyncFailed`,
-`NodeDisconnected`, `GitRepositoryUnavailable`, and `ServiceDrift`.
+`NodeDisconnected`, `GitRepositoryUnavailable`, `ServiceDrift`,
+`MessengerUnavailable`, and `MessengerMisconfigured`.
 The special `default` key remains the fallback rule. Internal alert kinds and
 fingerprints keep their existing snake_case identifiers.
 A kind rule replaces `alerts.default`, and an omitted `alerts.default` selects built-in
@@ -58,6 +80,24 @@ database recording prevents repeat sends on replay, but a crash after Telegram a
 a call and before its receipt is stored can duplicate a message. Telegram delivery is
 therefore at least once, not exactly once.
 
+## Messenger health
+
+Telegram request attempts for event notifications and ordinary alerts publish
+internal messenger health observations. Transport
+failures and HTTP 5xx responses open or update one `messenger_unavailable` alert with
+resource ID `telegram`. Any non-5xx Telegram response resolves it, even when the
+notification itself is rejected. Configuration rejections open or update a
+`messenger_misconfigured` alert with resource ID `telegram:<chat-name>`; a successful
+delivery to that same named chat resolves it. Chat IDs, thread IDs and bot credentials
+are never part of these resource IDs.
+
+These observations are durable Event Bus inputs but are neither public notification
+event names nor Event History entries. Availability alerts are not routed through
+Telegram. Configuration alerts exclude their own failing named chat, while other
+configured alert destinations may still receive the lifecycle notification. Deliveries
+of messenger health alerts suppress observations to prevent recursion. A delivery to
+a persisted recipient whose chat is no longer configured only reports availability.
+
 ## Template API
 
 Payloads are typed contracts rather than internal event, alert, deployment, or Compose
@@ -80,7 +120,6 @@ All payloads have `ID`, `Type`, and `OccurredAt` (`time.Time`, UTC). Most also p
 | `ServiceCatalogUpdated`, `SyncManualStarted`, `WebhookReceived`, `NetworkCreated` | `ID`, `Type`, `StackName`, `Username`, `Queued`, `NetworkName`, `NetworkID`, `Driver`, `Message`, `OccurredAt` |
 | `UserAuthenticated` | `ID`, `Type`, `Username`, `Message`, `OccurredAt` |
 | `AssistantPromptInjectionDetected` | `ID`, `Type`, `Detector`, `Username`, `Message`, `OccurredAt` |
-| `SendNotificationFailed` | `ID`, `Type`, `EventType`, `Destination`, `Channel`, `Error`, `Message`, `OccurredAt` |
 
 Shared template fields and serialized JSON names match Event History semantics:
 
@@ -104,9 +143,16 @@ The former `.TriggeredBy` template field and `triggered_by` JSON field have been
 removed; manual synchronization templates must use `.Username`. The obsolete
 `stack` and `service` aliases are not available in notification JSON.
 
+`DeploySuccess.Services` lists only the services selected for that deployment Attempt.
+Unchanged services are omitted from its notification payload. An Attempt without
+selected services, such as one that only prunes removed services, sends no
+`DeploySuccess` notification; `ServicePruned` reports each removal.
+
 `DeployFailed`, `DeployPreparationFailed`, and `DeployInterrupted` are internal lifecycle
 events. They cannot be configured under `notifications.events`; synchronization failures
 open or update the `sync_failed` alert and use Alert Notifications instead.
+A reconciliation step that fails after a successful Attempt also reports its diagnostic
+through this alert.
 
 ## Date formatting
 
@@ -165,6 +211,9 @@ notifications:
             💚 deploy {{ .Status }}
             stack: {{ .StackName }}
             at: {{ date "2006-01-02 15:04" .OccurredAt }} UTC
+          buttons:
+            - text: "Open {{ .StackName }} deployment"
+              url: "https://swarm-deploy.example/deployments?deployment_id={{ .DeploymentID | urlquery }}"
     NodeJoined:
       telegram:
         - chats: [default, deployments]
@@ -177,11 +226,19 @@ notifications:
           resolved:
             action: reply
             message: "✅ {{ .Title }}: {{ .Resolution }}"
+            buttons:
+              - text: "Open alert"
+                url: "https://swarm-deploy.example/events?tab=alerts&alert_id={{ .ID | urlquery }}"
     SyncFailed:
       telegram:
         - chats: deployments
           opened:
-            message: "🔴 Synchronization failed: {{ .ResourceID }}\nhttps://swarm-deploy.example/deployments?deployment_id={{ .DeploymentID }}"
+            message: "🔴 Synchronization failed: {{ .ResourceID }}"
+            buttons:
+              - text: "Open alert"
+                url: "https://swarm-deploy.example/events?tab=alerts&alert_id={{ .ID | urlquery }}"
+              - text: "Open failed deployment"
+                url: '{{ with .DeploymentID }}https://swarm-deploy.example/deployments?deployment_id={{ . | urlquery }}{{ end }}'
           resolved:
             action: edit
             message: "✅ Synchronization recovered: {{ .ResourceID }}"

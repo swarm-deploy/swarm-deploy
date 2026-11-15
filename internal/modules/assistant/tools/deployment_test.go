@@ -1,7 +1,7 @@
 package tools
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"testing"
 
@@ -25,7 +25,7 @@ func TestDeploymentToolsListFilterPaginationAndSafeDetail(t *testing.T) {
 	for index, stack := range []string{"api", "other", "api", "api"} {
 		file := deploymentToolCompose(index)
 		attempt, err := service.StartIfChanged(
-			t.Context(), stack, string(rune('a'+index)), file, true,
+			t.Context(), stack, string(rune('a'+index)), file, true, deployments.StartOptions{TargetServices: file.Compose.Services.Names()},
 		)
 		require.NoError(t, err)
 		if index == 1 {
@@ -41,12 +41,12 @@ func TestDeploymentToolsListFilterPaginationAndSafeDetail(t *testing.T) {
 		}))
 	}
 	running, err := service.StartIfChanged(
-		t.Context(), "running", "running", deploymentToolCompose(10), true,
+		t.Context(), "running", "running", deploymentToolCompose(10), true, deployments.StartOptions{TargetServices: deploymentToolCompose(10).Compose.Services.Names()},
 	)
 	require.NoError(t, err)
 	require.NotNil(t, running)
 	interrupted, err := service.StartIfChanged(
-		t.Context(), "interrupted", "interrupted", deploymentToolCompose(11), true,
+		t.Context(), "interrupted", "interrupted", deploymentToolCompose(11), true, deployments.StartOptions{TargetServices: deploymentToolCompose(11).Compose.Services.Names()},
 	)
 	require.NoError(t, err)
 	require.NoError(t, service.Complete(t.Context(), interrupted.ID, deployments.Completion{

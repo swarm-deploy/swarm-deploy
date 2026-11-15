@@ -2,7 +2,7 @@ package deployer
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -30,13 +30,13 @@ func TestResourceReconcilerFiltersBulkListsByResourceName(t *testing.T) {
 		switch {
 		case req.Method == http.MethodGet && path == "/configs":
 			configNames = args.Get("name")
-			_ = json.NewEncoder(w).Encode([]dockerswarm.Config{
+			_ = json.MarshalWrite(w, []dockerswarm.Config{
 				{ID: "config-id", Spec: dockerswarm.ConfigSpec{Annotations: dockerswarm.Annotations{Name: "demo_app-config"}}},
 				{ID: "external-config-id", Spec: dockerswarm.ConfigSpec{Annotations: dockerswarm.Annotations{Name: "shared-config"}}},
 			})
 		case req.Method == http.MethodGet && path == "/secrets":
 			secretNames = args.Get("name")
-			_ = json.NewEncoder(w).Encode([]dockerswarm.Secret{
+			_ = json.MarshalWrite(w, []dockerswarm.Secret{
 				{ID: "secret-id", Spec: dockerswarm.SecretSpec{Annotations: dockerswarm.Annotations{Name: "demo_db-password", Labels: map[string]string{"com.docker.stack.namespace": "demo"}}}},
 				{ID: "rotated-secret-id", Spec: dockerswarm.SecretSpec{Annotations: dockerswarm.Annotations{Name: "demo-api-token-abc123", Labels: map[string]string{"com.docker.stack.namespace": "demo"}}}},
 			})

@@ -2,7 +2,8 @@ package stackloop
 
 import (
 	"context"
-	"encoding/json"
+	jsonv1 "encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"os"
@@ -205,7 +206,7 @@ func newCredentialReconcileFixture(t *testing.T, extra string) *credentialReconc
 	mockRepositoryFiles(repository, repoDir)
 	cfg := &config.Config{Spec: config.Spec{GitOps: config.GitOpsSpec{Sync: config.SyncSpec{Policy: config.SyncPolicySpec{SelfHeal: true}}}}}
 	sw := &swarm.Swarm{Services: manager, Networks: networks, Configs: configs, Secrets: secrets}
-	native := deployer.NewDeployer(time.Millisecond, time.Second, nil, sw, &metrics.NopDeploys{},
+	native := deployer.NewDeployer(time.Millisecond, time.Second, sw, &metrics.NopDeploys{},
 		deployer.NewSecretResolver(deployer.PlaintextDecoder{}))
 	f.reconciler = newTestReconciler(cfg, repository, deployments.NewService(db, bus), native, sw,
 		bus, &metrics.NopDeploys{}, state, db)
@@ -215,10 +216,10 @@ func newCredentialReconcileFixture(t *testing.T, extra string) *credentialReconc
 func (f *credentialReconcileFixture) createService(_ context.Context, spec dockerswarm.ServiceSpec, options dockerswarm.ServiceCreateOptions) (string, error) {
 	f.creates++
 	// Model the SDK's JSON response, including omitted empty collections.
-	wire, err := json.Marshal(spec)
+	wire, err := json.Marshal(spec, jsonv1.DefaultOptionsV1())
 	require.NoError(f.t, err)
 	spec = dockerswarm.ServiceSpec{}
-	require.NoError(f.t, json.Unmarshal(wire, &spec))
+	require.NoError(f.t, json.Unmarshal(wire, &spec, jsonv1.DefaultOptionsV1()))
 	now := time.Now().UTC()
 	f.current = &dockerswarm.Service{ID: fmt.Sprintf("api-%d", f.creates), Spec: spec,
 		Meta: dockerswarm.Meta{Version: dockerswarm.Version{Index: 1}, CreatedAt: now, UpdatedAt: now}}

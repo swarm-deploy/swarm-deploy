@@ -28,7 +28,6 @@ newly persisted events.
 | `DeploySuccess`                    | `info`   | `sync`     | Successful stack deployment         | `stack_name`, `commit`, `deployment_id`, `attempt_id`, `status` |
 | `ServicePruned`                    | `info`   | `sync`     | Orphaned managed service was removed | `stack_name`, `service_name`, `commit`                       |
 | `NetworkCreated`                   | `info`   | `sync`     | Managed network was created          | `network_name`, `network_id`, `driver`                       |
-| `SendNotificationFailed`           | `error`  | `sync`     | Notification delivery failure       | `destination`, `channel`, `event_type`, `error` (if present) |
 | `WebhookReceived`                  | `info`   | `sync`     | Authenticated webhook received and reconciliation scheduling attempted | `queued` (`true` or `false`)                     |
 | `SyncManualStarted`                | `info`   | `sync`     | Manual sync run started             | `username` (if present)                                      |
 | `NodeJoined`                       | `info`   | `swarm`    | New node joined the swarm           | `node_id`, `node_name` (if present), `role` (if present)      |
@@ -54,6 +53,16 @@ not public event names and are not available under `notifications.events`.
 Known terminal service convergence failures publish internal `DeployFailed` with
 `error_code=convergence_failed` and `stage=verification`; observation failures and
 verification interruptions publish `DeployInterrupted` with `verification_unknown`.
+A reconciliation step can fail after a successful Attempt. GitOps publishes internal
+`DeployPreparationFailed` with the failed stage and safe diagnostic. Alert Management
+opens or updates `sync_failed`, while the Attempt keeps its successful outcome.
+Post-deployment error codes are fixed for drift analysis (`analyze_drift_failed`),
+self-heal (`self_heal_drift_failed`), and self-heal verification
+(`verify_self_heal_failed`). An unrecognized stage uses `reconcile_failed`.
+Deployment completion events describe the persisted Attempt. Their `Services` list
+contains only its execution targets; GitOps updates applied revisions only for those
+services. `DeploySuccess` means those targets completed successfully. Pruning still
+uses the full desired stack. No new event types are introduced for targeted execution.
 Retry-deferred scheduler cycles publish neither event and do not increase alert
 occurrences. These remain internal facts, excluded from Event History.
 Deployment failures, node disconnections, and unresolved service drift feed Alert Management.
@@ -112,5 +121,6 @@ event:
 Event notifications use PascalCase event type identifiers. Synchronization failures are delivered
 through the `sync_failed` alert lifecycle instead of Event Notifications. Durable payloads intentionally
 omit raw Compose, environment, logs, arbitrary errors and assistant prompts.
-`SendNotificationFailed` has no runtime publisher;
-delivery diagnostics live in outbox status/metrics rather than recursive notifications.
+Messenger health events and the legacy internal `SendNotificationFailed` type are not
+subscribed by Event History. Messenger health is represented by the current alert state;
+delivery diagnostics remain in Outbox status and metrics.

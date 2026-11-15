@@ -3,10 +3,10 @@ package codec
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
-	"io"
 	"reflect"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
@@ -19,8 +19,6 @@ const Version = 1
 
 // Encode copies approved fields only. It never marshals Event, Details, errors,
 // logs, prompts, environment or Compose definitions.
-//
-//nolint:funlen // Keep the durable event allowlist together so its accepted fields are auditable.
 func Encode(event events.Event) ([]byte, error) {
 	if event == nil || (reflect.ValueOf(event).Kind() == reflect.Pointer && reflect.ValueOf(event).IsNil()) {
 		return nil, errors.New("cannot encode a nil event")
@@ -39,22 +37,12 @@ func Encode(event events.Event) ([]byte, error) {
 	case *events.DeploySuccess:
 		return encodeDeployment(e.DeployEvent)
 	case *events.DeployFailed:
-		code := e.ErrorCode
-		if code == "" {
-			code = safeFailureCode(e.Error)
-		}
-		return encodeDeploymentFailure(e.StackName, e.Commit, e.DeploymentID, e.AttemptID, code, e.Stage,
+		return encodeDeploymentFailure(e.StackName, e.Commit, e.DeploymentID, e.AttemptID, e.ErrorCode, e.Stage,
 			e.Error, e.Services)
 	case *events.DeployPreparationFailed:
-		if e.ErrorCode != "preparation_failed" {
-			return nil, errors.New("unsupported deployment preparation failure code")
-		}
 		return encodeDeploymentFailure(e.StackName, e.Commit, "", "", e.ErrorCode, e.Stage,
 			e.Error, e.Services)
 	case *events.DeployInterrupted:
-		if e.Reason != "process_interrupted" && e.Reason != "verification_unknown" {
-			return nil, errors.New("unsupported deployment interruption reason")
-		}
 		return encodeDeploymentFailure(e.StackName, e.Commit, e.DeploymentID, e.AttemptID, e.Reason, e.Stage,
 			e.Error, e.Services)
 	case *events.NodeJoined:
@@ -99,6 +87,9 @@ func Decode(typ events.TypeName, version int, payload []byte) (events.Event, err
 	}
 	if isDeploymentFailureType(typ) {
 		return decodeDeploymentFailure(typ, payload)
+	}
+	if isMessengerObservationType(typ) {
+		return decodeMessengerEvent(typ, payload)
 	}
 	if event, serviceReference, err := decodeServiceReference(typ, payload); serviceReference {
 		return event, err
@@ -255,7 +246,7 @@ func decodeDeploymentFailure(typ events.TypeName, payload []byte) (events.Event,
 					DeploymentID: p.DeploymentID, AttemptID: p.AttemptID,
 					StackName: p.Stack, Commit: p.Commit, Services: p.services(),
 				},
-				Error: diagnostic, ErrorCode: safeFailureCode(errors.New(p.Code)), Stage: p.Stage,
+				Error: diagnostic, ErrorCode: p.Code, Stage: p.Stage,
 			}
 		case events.TypeNameDeployPreparationFailed:
 			return &events.DeployPreparationFailed{
@@ -283,16 +274,7 @@ func decode(payload []byte, target any) error {
 	if trimmed := bytes.TrimSpace(payload); len(trimmed) == 0 || trimmed[0] != '{' {
 		return errors.New("event payload must be an object")
 	}
-	decoder := json.NewDecoder(bytes.NewReader(payload))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(target); err != nil {
-		return err
-	}
-	var extra any
-	if err := decoder.Decode(&extra); err != io.EOF {
-		return errors.New("trailing event payload data")
-	}
-	return nil
+	return json.Unmarshal(payload, target, json.RejectUnknownMembers(true))
 }
 
 type deployPayload struct {
@@ -317,7 +299,7 @@ type deploymentFailurePayload struct {
 	Stack string `json:"stack"`
 	// Commit identifies the source revision.
 	Commit string `json:"commit"`
-	// Code is an allowlisted safe failure category.
+	// Code is the failure category or interruption reason.
 	Code string `json:"code"`
 	// Stage identifies the failing pipeline stage.
 	Stage string `json:"stage,omitempty"`
@@ -341,16 +323,6 @@ func (p deploymentFailurePayload) services() []compose.Service {
 	return result
 }
 
-func safeFailureCode(err error) string {
-	if err != nil {
-		switch err.Error() {
-		case "policy_rejected", "init_failed", "apply_failed", "convergence_failed", "prune_failed":
-			return err.Error()
-		}
-	}
-	return "apply_failed"
-}
-
 func encodeDeploymentFailure(
 	stack, commit, deploymentID, attemptID, code, stage string, diagnostic error,
 	services []compose.Service,
@@ -371,7 +343,8 @@ func encodeDeploymentFailure(
 	for _, service := range services {
 		payload.Services = append(payload.Services, servicePayload{Name: service.Name, Image: service.Image})
 	}
-	return json.Marshal(payload)
+	// Diagnostics may contain invalid UTF-8, including a rune split by byte truncation.
+	return json.Marshal(payload, jsontext.AllowInvalidUTF8(true))
 }
 
 func (p deployPayload) deployment() events.DeployEvent {
@@ -389,7 +362,7 @@ func encodeDeployment(event events.DeployEvent) ([]byte, error) {
 	for _, service := range event.Services {
 		p.Services = append(p.Services, servicePayload{Name: service.Name, Image: service.Image})
 	}
-	return json.Marshal(p)
+	return json.Marshal(p, json.FormatNilSliceAsNull(true))
 }
 
 type servicePayload struct {
@@ -404,7 +377,7 @@ type servicePayload struct {
 	// Reason describes service drift when applicable.
 	Reason string `json:"reason,omitempty"`
 	// Resolved reports same-reconciliation recovery for drift detection events.
-	Resolved bool `json:"resolved,omitempty"`
+	Resolved bool `json:"resolved,omitzero"`
 	// Username identifies the initiating user.
 	Username string `json:"username"`
 	// Previous is the former replica count.

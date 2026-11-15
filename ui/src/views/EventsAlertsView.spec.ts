@@ -6,8 +6,6 @@ import { fetchAlerts, fetchEventFilters, fetchEvents } from "../api/overview";
 import type { Alert } from "../api/types";
 import EventsAlertsView from "./EventsAlertsView.vue";
 
-const { openAlertDetailsModal } = vi.hoisted(() => ({ openAlertDetailsModal: vi.fn() }));
-vi.mock("../stores/overview", () => ({ useOverviewStore: () => ({ openAlertDetailsModal }) }));
 vi.mock("../api/overview", () => ({ fetchEvents: vi.fn(), fetchEventFilters: vi.fn(), fetchAlerts: vi.fn() }));
 
 const activeAlert: Alert = {
@@ -73,7 +71,6 @@ describe("Events & Alerts", () => {
   });
 
   beforeEach(() => {
-    openAlertDetailsModal.mockClear();
     vi.mocked(fetchEventFilters).mockResolvedValue({ stacks: [], services: [] });
     vi.mocked(fetchEvents).mockReset();
     vi.mocked(fetchEvents).mockResolvedValue({ events: [{
@@ -137,8 +134,8 @@ describe("Events & Alerts", () => {
     expect(tab(invalidView.wrapper, "Alerts").attributes("aria-selected")).toBe("true");
   });
 
-  it("searches resources, combines filters and opens the original alert details", async () => {
-    const { wrapper } = await mountView();
+  it("searches resources, combines filters and links to the selected alert", async () => {
+    const { wrapper, router } = await mountView("/events?severity=warn");
     const status = wrapper.get('[aria-label="Filter alerts by status"]');
     const type = wrapper.get('[aria-label="Filter alerts by type"]');
     const resource = wrapper.get("#alerts-filter-panel .events-search-filter");
@@ -162,9 +159,11 @@ describe("Events & Alerts", () => {
     await resource.findAll("button").find((button) => button.text() === "app/api (service)")!.trigger("click");
     expect(wrapper.findAll(".alerts-title").map((title) => title.text())).toEqual(["Service drift detected"]);
 
+    const detailsURL = "/events?severity=warn&tab=alerts&alert_id=resolved-incident";
+    expect(wrapper.get("a.alerts-title").attributes("href")).toBe(detailsURL);
     await wrapper.get(".alerts-table tbody tr").trigger("click");
-    await wrapper.get(".alerts-title").trigger("click");
-    expect(openAlertDetailsModal.mock.calls).toEqual([[resolvedAlert], [resolvedAlert]]);
+    await flushPromises();
+    expect(router.currentRoute.value.fullPath).toBe(detailsURL);
     wrapper.unmount();
   });
 

@@ -458,6 +458,11 @@ app.get("/api/v1/alerts", (context) => {
   return context.json({ alerts: alerts.slice(0, Number.isFinite(limit) ? Math.max(0, limit) : 100) });
 });
 
+app.get("/api/v1/alerts/:id", (context) => {
+  const alert = stackAlerts.find((item) => item.id === context.req.param("id"));
+  return alert ? context.json(alert) : context.json({ error_message: "Alert not found" }, 404);
+});
+
 app.get("/api/v1/deployments/filters", (context) => {
   console.log(`[mock-api] GET ${context.req.path} (deployment filter fixtures)`);
   return context.json({

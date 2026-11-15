@@ -74,6 +74,14 @@ func TestDeferredDeploymentIsolatesIndependentReconciliation(t *testing.T) {
 			}
 			req := ReconciliationRequest{Stack: config.StackSpec{Name: "app", ComposeFile: "app.yaml"}, Commit: "one"}
 			req.Stack.Sync.Policy.SelfHeal = tc.stack
+			seedAppliedDesired(t, create(), req.Stack)
+			require.NoError(t, stateStore.Update(t.Context(), func(runtime *model.Runtime) {
+				state := runtime.Stacks["app"]
+				current := state.Services["a"]
+				current.AppliedDigest = "old-a"
+				state.Services["a"] = current
+				runtime.Stacks["app"] = state
+			}))
 			stackDeployer.EXPECT().DeployStack(gomock.Any(), gomock.Cond(func(req deployer.StackRequest) bool { return req.StackName == "app" })).Return(deployer.Result{Verification: deploymentmodel.Verification{Known: true, UnresolvedServices: []string{"a"}}}, &pipe.StepError{StepName: "wait for service convergence", Err: waiter.ErrConvergenceFailed})
 			require.Error(t, create().Reconcile(t.Context(), req))
 			original := readSQLState(t, stateStore).Stacks["app"]

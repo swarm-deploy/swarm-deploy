@@ -62,7 +62,7 @@ func newExternalSwarmFixtureWithTimeout(t *testing.T, timeout time.Duration) *ex
 		stack: fmt.Sprintf("sdexternal%d", time.Now().UnixNano()), path: filepath.Join(t.TempDir(), "compose.yaml"),
 		subnet: fmt.Sprintf("198.18.%d.0/24", externalSubnetSequence.Add(1))}
 	f.observer = newSwarmObserver(t)
-	f.deployer = deployer.NewDeployer(100*time.Millisecond, 40*time.Second, cli, f.sw, nil,
+	f.deployer = deployer.NewDeployer(100*time.Millisecond, 40*time.Second, f.sw, nil,
 		deployer.NewSecretResolver(deployer.PlaintextDecoder{}))
 	t.Cleanup(func() {
 		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 25*time.Second)
@@ -118,7 +118,7 @@ networks:
 func (f *externalSwarmFixture) deploy(t *testing.T, desired compose.Compose, options deployer.StackOptions) deployer.Result {
 	t.Helper()
 	result, err := f.deployer.DeployStack(f.ctx, deployer.StackRequest{
-		StackName: f.stack, SourceComposePath: f.path, Desired: desired, Options: options,
+		StackName: f.stack, SourceComposePath: f.path, Desired: desired, Options: options, TargetServices: desired.Services.Names(),
 	})
 	require.NoError(t, err)
 	require.True(t, result.Verification.Known)
@@ -309,7 +309,7 @@ func TestExternalActiveAndIdleUpdateOnRealSwarm(t *testing.T) {
 	// Sorted after job: this must still be applied after the blocked error.
 	zero := uint64(0)
 	desired.Services = append(desired.Services, compose.Service{Name: "web", Image: "busybox:1.36", Deploy: compose.ServiceDeploy{Replicas: &zero}})
-	result, err := f.deployer.DeployStack(f.ctx, deployer.StackRequest{StackName: f.stack, SourceComposePath: f.path, Desired: desired})
+	result, err := f.deployer.DeployStack(f.ctx, deployer.StackRequest{StackName: f.stack, SourceComposePath: f.path, Desired: desired, TargetServices: desired.Services.Names()})
 	require.ErrorIs(t, err, services.ErrUpdateBlocked)
 	require.Equal(t, "apply stack", deployer.FailedStep(err))
 	require.False(t, result.Verification.Known)
@@ -395,7 +395,7 @@ func TestSwarmCronjob116OnRealSwarm(t *testing.T) {
 	changed := f.load(t, 0, "echo changed; sleep 30", `        swarm.cronjob.enable: "true"
         swarm.cronjob.schedule: "* * * * *"
         swarm.cronjob.skip-running: "true"`)
-	_, err = f.deployer.DeployStack(f.ctx, deployer.StackRequest{StackName: f.stack, SourceComposePath: f.path, Desired: changed})
+	_, err = f.deployer.DeployStack(f.ctx, deployer.StackRequest{StackName: f.stack, SourceComposePath: f.path, Desired: changed, TargetServices: changed.Services.Names()})
 	require.ErrorIs(t, err, services.ErrUpdateBlocked)
 	require.Equal(t, "apply stack", deployer.FailedStep(err))
 	f.unchanged(t, external)
@@ -441,7 +441,7 @@ func TestManagedFailureWithExternalJobOnRealSwarm(t *testing.T) {
 	f.deploy(t, desired, deployer.StackOptions{})
 	// A genuine deployment-generated failure must still fail verification.
 	desired.Services[1].Command = desired.Services[0].Command
-	result, err := f.deployer.DeployStack(f.ctx, deployer.StackRequest{StackName: f.stack, SourceComposePath: f.path, Desired: desired})
+	result, err := f.deployer.DeployStack(f.ctx, deployer.StackRequest{StackName: f.stack, SourceComposePath: f.path, Desired: desired, TargetServices: desired.Services.Names()})
 	require.ErrorIs(t, err, waiter.ErrConvergenceFailed)
 	require.Equal(t, "wait for service convergence", deployer.FailedStep(err))
 	require.Equal(t, []string{"web"}, result.Verification.UnresolvedServices)

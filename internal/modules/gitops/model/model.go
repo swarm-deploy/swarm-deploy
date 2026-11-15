@@ -8,12 +8,23 @@ import (
 type Service struct {
 	// Image is the deployed image reference for the service.
 	Image string `json:"image"`
+	// DesiredDigest identifies the latest effective desired state observed by GitOps.
+	DesiredDigest string `json:"desired_digest,omitempty"`
+	// DesiredCommit is the Git revision where GitOps last observed DesiredDigest change.
+	DesiredCommit string `json:"desired_commit,omitempty"`
+	// AppliedDigest identifies the last successfully deployed effective service state.
+	AppliedDigest string `json:"applied_digest,omitempty"`
+	// AppliedCommit is the desired revision captured by that successful Attempt.
+	AppliedCommit string `json:"applied_commit,omitempty"`
+	// ApplyPending retains an unconfirmed desired transition, including a revert
+	// to AppliedDigest after a failed or interrupted apply may have changed Swarm.
+	ApplyPending bool `json:"apply_pending,omitzero"`
 	// SyncStatus is the latest deployment status for the service.
 	SyncStatus SyncStatus `json:"sync_status"`
 
 	SyncError string `json:"sync_error"`
 	// SelfHealPending retains a remediation until execution-owned convergence is verified.
-	SelfHealPending bool `json:"self_heal_pending,omitempty"`
+	SelfHealPending bool `json:"self_heal_pending,omitzero"`
 
 	// SyncAt is the timestamp of the latest service deployment attempt.
 	SyncAt time.Time `json:"last_sync_at"`
@@ -28,7 +39,7 @@ type Stack struct {
 	LastCommit string `json:"last_commit"`
 	// Status contains aggregated deployment counters for stack services.
 	Status StackStatus `json:"status"`
-	// LastError contains the latest deployment error message for the stack.
+	// LastError contains the latest reconciliation error code for the stack.
 	LastError string `json:"last_error"`
 	// LastDeployAt is the timestamp of the latest stack deployment attempt.
 	LastDeployAt time.Time `json:"last_deploy_at"`

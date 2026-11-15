@@ -1,7 +1,7 @@
 package swarm
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -117,7 +117,7 @@ func TestNetworkGetPreservesRequestedScope(t *testing.T) {
 					}
 				}
 				w.Header().Set("Content-Type", "application/json")
-				assert.NoError(t, json.NewEncoder(w).Encode(network))
+				assert.NoError(t, json.MarshalWrite(w, network))
 			}))
 			defer server.Close()
 			docker := newTestDockerClient(t, server)

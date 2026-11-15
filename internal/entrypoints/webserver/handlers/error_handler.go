@@ -2,7 +2,8 @@ package handlers
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 
@@ -38,7 +39,8 @@ func HandleHTTPError(_ context.Context, w http.ResponseWriter, _ *http.Request, 
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
-	_ = json.NewEncoder(w).Encode(map[string]string{
+	_ = json.MarshalEncode(jsontext.NewEncoder(w, jsontext.EscapeForHTML(true), jsontext.EscapeForJS(true),
+		jsontext.AllowInvalidUTF8(true)), map[string]string{
 		"error_message": err.Error(),
 	})
 }

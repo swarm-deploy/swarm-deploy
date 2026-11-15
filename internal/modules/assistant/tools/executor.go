@@ -2,7 +2,8 @@ package tools
 
 import (
 	"context"
-	"encoding/json"
+	jsonv1 "encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -16,6 +17,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/tools/routing"
+	deploymentstore "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources"
@@ -43,6 +45,7 @@ type Executor struct {
 func NewExecutor(
 	resourcesModule *resources.Module,
 	gitopsModule *gitops.Module,
+	deployments *deploymentstore.Store,
 	alertModule *alertmanagement.Module,
 	eventModule *event.Module,
 	swarmService *swarm.Swarm,
@@ -57,8 +60,8 @@ func NewExecutor(
 		NewListHistoryEvents(eventModule.History),
 		NewAlertList(alertModule.Store),
 		NewAlertGet(alertModule.Store),
-		NewDeploymentList(gitopsModule.Deployments),
-		NewDeploymentGet(gitopsModule.Deployments),
+		NewDeploymentList(deployments),
+		NewDeploymentGet(deployments),
 		NewSync(gitopsModule.Controller),
 		NewListNodes(resourcesModule.NodeStore),
 		NewDockerNetworkList(swarmService.Networks),
@@ -158,7 +161,7 @@ func (e *Executor) Execute(ctx context.Context, req routing.Request) (string, er
 		return "", err
 	}
 
-	encoded, err := json.Marshal(result.Payload)
+	encoded, err := json.Marshal(result.Payload, jsonv1.DefaultOptionsV1())
 	if err != nil {
 		tracing.FailSpan(span, fmt.Errorf("failed to encode payload: %w", err))
 

@@ -2,7 +2,8 @@ package webserver
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"html"
 	"io/fs"
@@ -19,6 +20,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/middlewares"
 	alertstore "github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops"
 	recommendationstore "github.com/swarm-deploy/swarm-deploy/internal/modules/recommendations/modelstore"
@@ -91,7 +93,7 @@ func injectRuntimeConfig(indexBytes []byte, basePath string) []byte {
 
 	runtimeConfig, err := json.Marshal(struct {
 		BasePath string `json:"basePath"`
-	}{BasePath: basePath})
+	}{BasePath: basePath}, jsontext.EscapeForHTML(true), jsontext.EscapeForJS(true))
 	if err != nil {
 		panic(fmt.Errorf("encode UI runtime config: %w", err))
 	}
@@ -166,6 +168,7 @@ func NewApplication(
 	webConfig config.WebSpec,
 	stackProvider config.StackProvider,
 	gitopsModule *gitops.Module,
+	deploymentsModule *deployments.Module,
 	swarmService *swarm.Swarm,
 	eventModule *event.Module,
 	resourcesModule *resources.Module,
@@ -189,7 +192,7 @@ func NewApplication(
 		recommendations,
 		alerts,
 		assistantService,
-		gitopsModule.Deployments,
+		deploymentsModule.Store,
 		taskLogs,
 		eventModule.Dispatcher,
 	)

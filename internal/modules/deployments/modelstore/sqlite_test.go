@@ -2,7 +2,7 @@ package modelstore
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"strings"
 	"testing"
@@ -58,6 +58,13 @@ func TestDeploymentPersistenceAndSuccessfulBaseline(t *testing.T) {
 	baseline, err := store.Baseline(ctx, "app")
 	require.NoError(t, err)
 	assert.Equal(t, desired.Digest, baseline.Digest)
+
+	retry := attempt
+	retry.ID, retry.Number, retry.Status = "attempt-2", 2, deploymentmodel.Running
+	require.ErrorIs(t, store.StartAttempt(ctx, stored, retry), ErrNotRunning)
+	after, err := store.Get(ctx, deployment.ID)
+	require.NoError(t, err)
+	assert.Equal(t, stored, after)
 }
 
 func TestInitJobExecutionPersistenceOrderingLogsAndCascade(t *testing.T) {

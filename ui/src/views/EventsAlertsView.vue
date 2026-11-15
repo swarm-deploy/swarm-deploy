@@ -22,7 +22,10 @@ function selectTab(tab: string): void {
     return;
   }
 
-  void router.replace({ query: { ...route.query, tab } });
+  const query = { ...route.query };
+  query.tab = tab;
+  if (tab === "events") delete query.alert_id;
+  void router.replace({ query });
 }
 </script>
 

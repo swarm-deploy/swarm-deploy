@@ -2,7 +2,7 @@ package handlers
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -70,6 +70,18 @@ func TestAlertFindingCodeContract(t *testing.T) {
 	})
 	require.Equal(t, string(faults.CodeImageExtractionFailed), alert.Findings[0].Code)
 	require.NoError(t, alert.Validate())
+}
+
+func TestMessengerAlertResponseContract(t *testing.T) {
+	response := generated.AlertsResponse{Alerts: toGeneratedAlerts([]alertmodel.Alert{
+		{Kind: alertmodel.AlertKindSyncFailed, ResourceType: alertmodel.ResourceTypeStack,
+			Status: alertmodel.AlertStatusOpen, Occurrences: 1},
+		{Kind: alertmodel.AlertKindMessengerUnavailable, ResourceType: alertmodel.ResourceTypeMessenger,
+			Status: alertmodel.AlertStatusOpen, Occurrences: 1},
+		{Kind: alertmodel.AlertKindMessengerMisconfigured, ResourceType: alertmodel.ResourceTypeMessenger,
+			Status: alertmodel.AlertStatusOpen, Occurrences: 1},
+	})}
+	require.NoError(t, response.Validate())
 }
 
 func TestAlertsAPIStackFilter(t *testing.T) {

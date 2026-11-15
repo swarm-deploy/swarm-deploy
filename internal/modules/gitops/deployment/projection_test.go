@@ -27,12 +27,12 @@ func TestProjectionSubscriberIsIdempotentAndRejectsStaleAttempts(t *testing.T) {
 	runtime := modelstore.NewSQLStore(db)
 	subscriber := NewProjectionSubscriber(db, store, runtime)
 
-	first, err := lifecycle.StartIfChanged(t.Context(), "app", "first", projectionDesired("api:1"), true)
+	first, err := lifecycle.StartIfChanged(t.Context(), "app", "first", projectionDesired("api:1"), true, deployments.StartOptions{TargetServices: projectionDesired("api:1").Compose.Services.Names()})
 	require.NoError(t, err)
 	require.NoError(t, lifecycle.Complete(t.Context(), first.ID, deployments.Completion{
 		Outcome: deployments.CompletionApplyFailed, Diagnostic: errors.New("apply failed"),
 	}))
-	retry, err := lifecycle.StartIfChanged(t.Context(), "app", "retry", projectionDesired("api:1"), true, deployments.StartOptions{ManualRetry: true})
+	retry, err := lifecycle.StartIfChanged(t.Context(), "app", "retry", projectionDesired("api:1"), true, deployments.StartOptions{ManualRetry: true, TargetServices: projectionDesired("api:1").Compose.Services.Names()})
 	require.NoError(t, err)
 	require.NoError(t, lifecycle.Complete(t.Context(), retry.ID, deployments.Completion{
 		Outcome: deployments.CompletionSucceeded,
@@ -77,7 +77,7 @@ func TestProjectionIgnoresEventAfterNewerPreparationFailure(t *testing.T) {
 	lifecycle := deployments.NewService(db, &dispatcher.NopDispatcher{})
 	runtime := modelstore.NewSQLStore(db)
 	subscriber := NewProjectionSubscriber(db, deploymentstore.NewStore(db), runtime)
-	attempt, err := lifecycle.StartIfChanged(t.Context(), "app", "commit-a", projectionDesired("api:1"), true)
+	attempt, err := lifecycle.StartIfChanged(t.Context(), "app", "commit-a", projectionDesired("api:1"), true, deployments.StartOptions{TargetServices: projectionDesired("api:1").Compose.Services.Names()})
 	require.NoError(t, err)
 	require.NoError(t, lifecycle.Complete(t.Context(), attempt.ID, deployments.Completion{Outcome: deployments.CompletionSucceeded}))
 	require.NoError(t, runtime.Update(t.Context(), func(state *gitopsmodel.Runtime) {
@@ -105,14 +105,15 @@ func TestProjectionSuccessRestoresServicesAndSourceDigest(t *testing.T) {
 	subscriber := NewProjectionSubscriber(db, deploymentstore.NewStore(db), runtime)
 	desired := projectionDesired("api:1")
 	desired.Digest = "source-compose-digest"
-	attempt, err := lifecycle.StartIfChanged(t.Context(), "app", "commit", desired, true)
+	attempt, err := lifecycle.StartIfChanged(t.Context(), "app", "commit", desired, true, deployments.StartOptions{TargetServices: desired.Compose.Services.Names()})
 	require.NoError(t, err)
 	require.NoError(t, lifecycle.Complete(t.Context(), attempt.ID, deployments.Completion{Outcome: deployments.CompletionSucceeded}))
 	require.NoError(t, runtime.Update(t.Context(), func(state *gitopsmodel.Runtime) {
 		state.Stacks["app"] = gitopsmodel.Stack{
 			LastError: "apply_failed",
 			Services: map[string]gitopsmodel.Service{"api": {
-				Image: "api:1", SyncStatus: gitopsmodel.SyncStatusOutOfSync, SyncError: "apply_failed",
+				Image: "api:1", DesiredDigest: attempt.ServiceRevisions["api"].Digest, DesiredCommit: "desired-commit",
+				SyncStatus: gitopsmodel.SyncStatusOutOfSync, SyncError: "apply_failed",
 			}},
 		}
 	}))
@@ -128,4 +129,66 @@ func TestProjectionSuccessRestoresServicesAndSourceDigest(t *testing.T) {
 	assert.Empty(t, stack.LastError)
 	assert.Equal(t, gitopsmodel.SyncStatus(gitopsmodel.SyncStatusSynced), stack.Services["api"].SyncStatus)
 	assert.Empty(t, stack.Services["api"].SyncError)
+	assert.Equal(t, attempt.ServiceRevisions["api"].Digest, stack.Services["api"].DesiredDigest)
+	assert.Equal(t, "desired-commit", stack.Services["api"].DesiredCommit)
+}
+
+func TestProjectRuntimePreservesDesiredRevisionForEveryOutcome(t *testing.T) {
+	tests := []struct {
+		name      string
+		status    deploymentmodel.Status
+		errorCode string
+	}{
+		{name: "succeeded", status: deploymentmodel.Succeeded},
+		{name: "failed", status: deploymentmodel.Failed, errorCode: "apply_failed"},
+		{name: "interrupted", status: deploymentmodel.Interrupted, errorCode: "interrupted"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			runtime := &gitopsmodel.Runtime{Stacks: map[string]gitopsmodel.Stack{
+				"app": {Services: map[string]gitopsmodel.Service{
+					"api": {DesiredDigest: "desired-digest", DesiredCommit: "desired-commit"},
+				}},
+			}}
+			attempt := deploymentmodel.Attempt{StartedAt: time.Now().UTC()}
+			projectRuntime(runtime, deploymentmodel.Deployment{Stack: "app", Commit: "deployment-commit"},
+				attempt, deploymentmodel.Prepared{Definition: projectionDesired("api:1")}, test.status, test.errorCode)
+
+			service := runtime.Stacks["app"].Services["api"]
+			assert.Equal(t, "desired-digest", service.DesiredDigest)
+			assert.Equal(t, "desired-commit", service.DesiredCommit)
+		})
+	}
+}
+
+func TestProjectionUsesImmutableTargetRevision(t *testing.T) {
+	db, err := storage.OpenSQLite(t.Context(), t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	lifecycle := deployments.NewService(db, &dispatcher.NopDispatcher{})
+	runtime := modelstore.NewSQLStore(db)
+	desired := projectionDesired("api:2")
+	desired.Compose.Services = append(desired.Compose.Services, compose.Service{Name: "worker", Image: "worker:2"})
+	attempt, err := lifecycle.StartIfChanged(t.Context(), "app", "stack-two", desired, true, deployments.StartOptions{TargetServices: []string{"api"}, ServiceCommits: map[string]string{"api": "api-two"}})
+	require.NoError(t, err)
+	require.NoError(t, lifecycle.Complete(t.Context(), attempt.ID, deployments.Completion{Outcome: deployments.CompletionSucceeded}))
+	worker := gitopsmodel.Service{Image: "worker:1", DesiredDigest: "worker-new", DesiredCommit: "worker-two", AppliedDigest: "worker-old", AppliedCommit: "worker-one", SyncStatus: gitopsmodel.SyncStatusOutOfSync, SyncAt: time.Now().UTC()}
+	require.NoError(t, runtime.Update(t.Context(), func(state *gitopsmodel.Runtime) {
+		state.Stacks["app"] = gitopsmodel.Stack{Services: map[string]gitopsmodel.Service{
+			"api": {DesiredDigest: "newer-api-digest", DesiredCommit: "api-three"}, "worker": worker,
+		}}
+	}))
+	subscriber := NewProjectionSubscriber(db, deploymentstore.NewStore(db), runtime)
+	event := events.Envelope{ID: "completion", Event: &events.DeploySuccess{DeployEvent: events.DeployEvent{DeploymentID: attempt.DeploymentID, AttemptID: attempt.ID}}}
+	for range 2 {
+		require.NoError(t, subscriber.Handle(t.Context(), event))
+	}
+	state, err := runtime.Read(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t, worker, state.Stacks["app"].Services["worker"])
+	api := state.Stacks["app"].Services["api"]
+	assert.Equal(t, "api-three", api.DesiredCommit)
+	assert.Equal(t, "api-two", api.AppliedCommit)
+	assert.Equal(t, attempt.ServiceRevisions["api"].Digest, api.AppliedDigest)
+	assert.EqualValues(t, gitopsmodel.SyncStatusOutOfSync, api.SyncStatus)
 }

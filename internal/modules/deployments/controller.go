@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -51,6 +52,11 @@ type ServicePruner interface {
 
 // ExecuteRequest contains the effective desired state and execution inputs prepared by GitOps.
 type ExecuteRequest struct {
+	// TargetServices lists services to apply. Nil selects every desired service;
+	// an empty list selects none while still pruning against the full desired state.
+	TargetServices []string
+	// ServiceCommits identifies the source commit of each target service.
+	ServiceCommits map[string]string
 	// Stack contains stack identity and prune policy overrides.
 	Stack config.StackSpec
 	// Commit identifies the source revision that requested execution.
@@ -79,6 +85,8 @@ type ExecuteServiceRequest struct {
 
 // ExecuteResult contains observations produced by a synchronous stack execution.
 type ExecuteResult struct {
+	// AppliedRevisions contains immutable receipts for services successfully executed for this desired state.
+	AppliedRevisions map[string]deploymentmodel.ServiceRevision
 	// Attempt is nil when the desired state did not require a new execution.
 	Attempt *deploymentmodel.Attempt
 	// RetryDeferred reports that failure/backoff prevented a stack deployment retry.
@@ -141,7 +149,9 @@ func (c *Controller) execute(ctx context.Context, req ExecuteRequest) (ExecuteRe
 		return ExecuteResult{}, fmt.Errorf("recover deployment completion: %w", err)
 	}
 	attempt, err := c.lifecycle.StartIfChanged(
-		ctx, req.Stack.Name, req.Commit, req.Desired, req.SourceChanged, StartOptions{ManualRetry: req.ManualRetry},
+		ctx, req.Stack.Name, req.Commit, req.Desired, req.SourceChanged, StartOptions{
+			ManualRetry: req.ManualRetry, TargetServices: req.TargetServices, ServiceCommits: req.ServiceCommits,
+		},
 	)
 	result := ExecuteResult{Attempt: attempt}
 	if err != nil {
@@ -156,10 +166,11 @@ func (c *Controller) execute(ctx context.Context, req ExecuteRequest) (ExecuteRe
 		completion := Completion{Outcome: CompletionApplyFailed, Diagnostic: err, Retryable: true}
 		result.Status, result.ErrorCode = deploymentmodel.Failed, completion.ErrorCode()
 		completeErr := c.complete(ctx, req.Stack.Name, attempt.ID, completion)
-		c.record(req, "failed")
+		c.record(req, *attempt, "failed")
 		return result, errors.Join(err, completeErr)
 	}
 	deployResult, deployErr := c.deployer.DeployStack(ctx, deployer.StackRequest{
+		TargetServices:    attempt.TargetServices,
 		StackName:         req.Stack.Name,
 		SourceComposePath: req.Desired.Path,
 		Desired:           req.Desired.Compose,
@@ -177,7 +188,7 @@ func (c *Controller) execute(ctx context.Context, req ExecuteRequest) (ExecuteRe
 		completion.Verification = deployResult.Verification
 		result.Status, result.ErrorCode = completionStatus(completion), completion.ErrorCode()
 		completeErr := c.complete(ctx, req.Stack.Name, attempt.ID, completion)
-		c.record(req, "failed")
+		c.record(req, *attempt, "failed")
 		return result, errors.Join(deployErr, completeErr)
 	}
 
@@ -190,7 +201,7 @@ func (c *Controller) execute(ctx context.Context, req ExecuteRequest) (ExecuteRe
 		}
 		result.Status, result.ErrorCode = deploymentmodel.Interrupted, completion.ErrorCode()
 		completeErr := c.complete(ctx, req.Stack.Name, attempt.ID, completion)
-		c.record(req, "failed")
+		c.record(req, *attempt, "failed")
 		return result, errors.Join(observeErr, completeErr)
 	}
 	result.LiveServices = live
@@ -208,17 +219,45 @@ func (c *Controller) execute(ctx context.Context, req ExecuteRequest) (ExecuteRe
 		}
 		result.Status, result.ErrorCode = deploymentmodel.Failed, completion.ErrorCode()
 		completeErr := c.complete(ctx, req.Stack.Name, attempt.ID, completion)
-		c.record(req, "failed")
+		c.record(req, *attempt, "failed")
 		return result, errors.Join(cleanupErr, completeErr)
 	}
 
+	return c.succeed(ctx, req, *attempt, result)
+}
+
+// succeed completes a successful Attempt and reports the receipts of its desired state.
+func (c *Controller) succeed(
+	ctx context.Context, req ExecuteRequest, attempt deploymentmodel.Attempt, result ExecuteResult,
+) (ExecuteResult, error) {
 	completion := Completion{Outcome: CompletionSucceeded, ObservedAt: &result.ObservedAt}
-	result.Status = deploymentmodel.Succeeded
-	if err = c.complete(ctx, req.Stack.Name, attempt.ID, completion); err != nil {
+	result.Status, result.AppliedRevisions = deploymentmodel.Succeeded, attempt.ServiceRevisions
+	if err := c.complete(ctx, req.Stack.Name, attempt.ID, completion); err != nil {
 		return result, err
 	}
-	c.record(req, "success")
+	c.record(req, attempt, "success")
+	result.AppliedRevisions = c.successRevisions(ctx, req.Stack.Name, attempt)
 	return result, nil
+}
+
+// successRevisions includes receipts from earlier executions of the same snapshot.
+func (c *Controller) successRevisions(
+	ctx context.Context, stack string, attempt deploymentmodel.Attempt,
+) map[string]deploymentmodel.ServiceRevision {
+	latest, snapshot, err := c.lifecycle.store.Latest(ctx, stack)
+	if err != nil {
+		slog.ErrorContext(ctx, "load latest deployment for successful service revisions", "stack", stack, "err", err)
+		return attempt.ServiceRevisions
+	}
+	if latest.ID != attempt.DeploymentID {
+		return attempt.ServiceRevisions
+	}
+	revisions, err := c.lifecycle.appliedRevisions(ctx, latest, snapshot, nil)
+	if err != nil {
+		slog.ErrorContext(ctx, "load successful service revisions", "stack", stack, "err", err)
+		return attempt.ServiceRevisions
+	}
+	return revisions
 }
 
 // executionError rejects late success without replacing an earlier, classified stage failure.
@@ -230,11 +269,15 @@ func executionError(ctx context.Context, err error) error {
 }
 
 func (c *Controller) unchangedResult(ctx context.Context, req ExecuteRequest) (ExecuteResult, error) {
-	latest, _, err := c.lifecycle.store.Latest(ctx, req.Stack.Name)
+	latest, desired, err := c.lifecycle.store.Latest(ctx, req.Stack.Name)
 	if err != nil && !errors.Is(err, deploymentstore.ErrNotFound) {
 		return ExecuteResult{}, err
 	}
 	result := ExecuteResult{Status: latest.Status, ErrorCode: latest.ErrorCode}
+	result.AppliedRevisions, err = c.lifecycle.appliedRevisions(ctx, latest, desired, nil)
+	if err != nil {
+		return result, err
+	}
 	result.RetryDeferred = latest.Status == deploymentmodel.Failed || latest.Status == deploymentmodel.Interrupted
 	if result.RetryDeferred {
 		result.UnresolvedServices = deferredServices(latest, req.Desired)
@@ -346,8 +389,9 @@ func (c *Controller) persistInitJobs(ctx context.Context, attemptID string, resu
 	}
 }
 
-func (c *Controller) record(req ExecuteRequest, status string) {
-	for _, service := range req.Desired.Compose.Services {
+// record reports metrics for the services the persisted Attempt actually executed.
+func (c *Controller) record(req ExecuteRequest, attempt deploymentmodel.Attempt, status string) {
+	for _, service := range attempt.Services(req.Desired) {
 		c.metrics.RecordDeploy(req.Stack.Name, service.Name, status)
 	}
 }
@@ -397,14 +441,19 @@ func (c *Controller) stackOptions(
 	}
 	return deployer.StackOptions{
 		RetryFailedUpdates: attempt.Number > 1,
-		UnresolvedServices: current.Verification.UnresolvedServices,
-		UpdateGenerations:  current.Verification.Generations,
+		UnresolvedServices: slices.DeleteFunc(slices.Clone(current.Verification.UnresolvedServices), func(name string) bool {
+			return !attempt.Targets(name)
+		}),
+		UpdateGenerations: current.Verification.Generations,
 	}, nil
 }
 
 func deferredServices(latest deploymentmodel.Deployment, desired compose.File) []string {
 	if latest.Phase == deploymentmodel.PhaseApply {
 		// Single-service remediation must not bypass pre-apply checks such as Init Jobs.
+		if len(latest.Attempts) > 0 {
+			return latest.Attempts[0].Services(desired).Names()
+		}
 		return desiredServiceNames(desired)
 	}
 	return unresolvedServices(latest, desired)

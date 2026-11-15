@@ -114,9 +114,9 @@ func TestReconcileAgeSecretFailuresDoNotApplyServices(t *testing.T) {
 				StackName:         "app",
 				SourceComposePath: filepath.Join(dir, "compose.yaml"),
 				Desired: compose.Compose{
-					Services: minimalCompose("api").Services,
+					Services: compose.Services{{Name: "api", Image: "alpine:3", Secrets: []compose.ObjectRef{{Source: "password"}}}},
 					Secrets:  compose.Secrets{"password": {File: "password.age", Data: tt.contents, Driver: tt.driver}},
-				},
+				}, TargetServices: []string{"api"},
 			})
 			require.ErrorContains(t, err, tt.want)
 			assert.NotContains(t, err.Error(), "private-marker")

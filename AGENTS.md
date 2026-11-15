@@ -10,8 +10,16 @@
 - `apply: by file patterns` + `globs` means apply only to matching files.
 - `alwaysApply: true` means apply regardless of globs.
 - In the first progress update, briefly state which `.cursor` rules were loaded.
+- For Pull Request reviews, use the `.cursor/skills/pr-review/SKILL.md` skill.
 - For Go changes, run `make check` before finishing. For UI changes, run `npm test` and `npm run build` in `ui/`. If a check cannot run, report why.
 - If instructed to create a pull request, always assign appropriate repository labels to the PR before finishing the task. Use only the allowed labels from the file `.github/workflows/pr-labels.yaml`
+
+## Pull Request Descriptions
+
+- Every pull request description MUST include `## User-facing changes` and `## Events`, including PRs that only change backend or internal code.
+- Under `User-facing changes`, describe changes to observable user behavior: UI/UX, sync and deployment behavior, statuses, diagnostics, errors, notifications, and assistant responses. Describe the effect on users, not just implementation details. Write `None` if there is no user-facing impact.
+- Under `Events`, list added, changed, or removed domain, lifecycle, and activity events, including their name/type, emission conditions, payload or meaning, and where users see them when applicable. Include changes to event consumption or presentation that affect behavior. Write `None` if events are unchanged.
+- Review the actual diff before claiming `None`. Keep these sections accurate when a PR changes during review.
 
 ## Conventional Commits
 
@@ -20,18 +28,21 @@
 - Use lowercase types and concise English imperative descriptions.
 - Examples: `feat: add notifications`, `fix: correct tracing keys`, `docs: update architecture`.
 
-## Architecture Decisions
+## Maintainer Approval and Architecture Decisions
 
-**Agents MUST NOT make architectural decisions without explicit maintainer approval.**
+**Agents MUST resolve ambiguities with the maintainer before implementation and MUST NOT make architectural decisions without explicit maintainer approval.**
 
+- Before implementing, identify unclear or conflicting requirements, scope, expected behavior, acceptance criteria, and implementation constraints.
+- For each ambiguity, propose concrete, actionable solutions with their pros, cons, and trade-offs. Recommend a preferred option with rationale and request an explicit maintainer decision. If only one viable solution exists, explain why.
+- Do not guess, silently choose an interpretation, or expand scope. If an ambiguity emerges during implementation, pause the affected work until it is resolved.
 - Preserve existing architecture, component boundaries, and established patterns.
 - Respect the responsibilities and dependency directions documented in `.cursor/rules/architecture.md`; reuse existing components, interfaces, and interaction patterns before introducing abstractions.
 - Do not introduce cross-module dependencies, transfer responsibilities, or change architectural contracts without explicit maintainer approval.
-- Local refactoring and implementation decisions are allowed if they do not change architectural responsibilities.
-- If an implementation conflicts with an established boundary, stop the conflicting work, explain the conflict, motivation, alternatives, and trade-offs, and request explicit maintainer approval before proceeding. Do not resolve documented architectural ambiguities by inventing a rule.
+- If an implementation conflicts with an established boundary, stop the conflicting work, explain the conflict, motivation, alternatives, and trade-offs, recommend a solution, and request explicit maintainer approval before proceeding. Do not resolve documented architectural ambiguities by inventing a rule.
 - Approval of a task does not imply approval of architectural changes.
+- Routine local refactoring and implementation decisions are allowed without separate approval when they are unambiguous and preserve established behavior, architectural responsibilities, and boundaries.
 
-**When in doubt, ask before implementing.**
+**When in doubt, propose options and ask before implementing.**
 
 The module inventory, ownership, interactions, and known boundary issues are in
 `.cursor/rules/architecture.md`. Existing scoped instructions supplement these rules.

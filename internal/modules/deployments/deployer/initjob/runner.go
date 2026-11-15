@@ -12,7 +12,6 @@ import (
 	"time"
 
 	dockerswarm "github.com/docker/docker/api/types/swarm"
-	"github.com/docker/docker/client"
 	"github.com/swarm-deploy/swarm-deploy/internal/registry"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
@@ -22,7 +21,6 @@ const (
 	initJobDeleteRetryAttempts  = uint(5)
 	initJobDeleteRetryDelay     = 1 * time.Second
 	initJobDeleteAttemptTimeout = 10 * time.Second
-	initJobObjectFileMode       = 0o444
 	initJobLogCollectionTimeout = 5 * time.Second
 	initJobLogLimit             = 64 * 1024
 )
@@ -48,9 +46,7 @@ type InitJobRunner struct {
 }
 
 // NewInitJobRunner creates init job runner with async cleanup queue.
-// The client argument is retained for compatibility; Docker operations use swarmService.
 func NewInitJobRunner(
-	_ *client.Client,
 	swarmService *swarm.Swarm,
 	pollInterval time.Duration,
 	timeout time.Duration,

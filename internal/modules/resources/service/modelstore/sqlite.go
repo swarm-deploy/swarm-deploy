@@ -3,7 +3,7 @@ package modelstore
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 
@@ -85,7 +85,7 @@ func (s *SQLStore) ReplaceStack(ctx context.Context, stack string, services []mo
 			if info.Name == "" {
 				return fmt.Errorf("service name is required")
 			}
-			payload, marshalErr := json.Marshal(storeInfoFromServiceInfo(info))
+			payload, marshalErr := json.Marshal(storeInfoFromServiceInfo(info), json.FormatNilSliceAsNull(true))
 			if marshalErr != nil {
 				return marshalErr
 			}

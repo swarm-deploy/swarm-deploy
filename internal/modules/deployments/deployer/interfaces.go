@@ -6,7 +6,6 @@ import (
 	"context"
 	"time"
 
-	"github.com/docker/docker/client"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/initjob"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/resources"
@@ -63,13 +62,12 @@ func NewSecretResolver(decoders ...SecretDecoder) *SecretResolver {
 func NewAgeDecoder(identity []byte) *AgeDecoder { return secrets.NewAgeDecoder(identity) }
 
 func NewInitJobRunner(
-	dockerClient *client.Client,
 	swarmService *swarm.Swarm,
 	pollInterval time.Duration,
 	timeout time.Duration,
 	metrics InitJobMetrics,
 ) *initjob.InitJobRunner {
-	return initjob.NewInitJobRunner(dockerClient, swarmService, pollInterval, timeout, metrics)
+	return initjob.NewInitJobRunner(swarmService, pollInterval, timeout, metrics)
 }
 
 func NewServiceWaiter(
@@ -93,6 +91,9 @@ type StackOptions struct {
 
 // StackRequest contains the effective stack and resource-resolution inputs.
 type StackRequest struct {
+	// TargetServices lists services to apply. Nil applies the whole desired stack;
+	// an empty list performs no service mutations.
+	TargetServices []string
 	// StackName identifies the Docker stack namespace.
 	StackName string
 	// SourceComposePath is the original Compose path used to resolve resource files.

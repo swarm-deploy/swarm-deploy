@@ -3,7 +3,7 @@ package handlers
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -242,7 +242,7 @@ func createSuccessfulDeployment(
 	publisher := eventbus.NewOutboxDispatcher(outbox.New(db))
 	service := deployments.NewService(db, publisher)
 	attempt, err := service.StartIfChanged(
-		t.Context(), stack, commit, file, true,
+		t.Context(), stack, commit, file, true, deployments.StartOptions{TargetServices: file.Compose.Services.Names()},
 	)
 	require.NoError(t, err)
 	require.NotNil(t, attempt)

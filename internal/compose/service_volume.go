@@ -1,6 +1,8 @@
 package compose
 
 import (
+	jsonv1 "encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"os"
 	"slices"
@@ -21,8 +23,20 @@ const (
 type ServiceVolumes struct {
 	Volumes []*ServiceVolume `json:"Volumes"`
 
-	// Map<ServiceVolume.Target, ServiceVolume>
+	// Map indexes Volumes by ServiceVolume.Target. It is parser metadata and is not
+	// serialized; snapshots persisted by older releases may still contain it.
 	Map map[string]*ServiceVolume `json:"Map"`
+}
+
+// serviceVolumesJSON is the persisted form of ServiceVolumes, without parser metadata.
+type serviceVolumesJSON struct {
+	// Volumes lists service mounts in source order.
+	Volumes []*ServiceVolume `json:"Volumes"`
+}
+
+// MarshalJSON omits Map, which duplicates Volumes.
+func (sv ServiceVolumes) MarshalJSON() ([]byte, error) {
+	return json.Marshal(serviceVolumesJSON{Volumes: sv.Volumes}, jsonv1.DefaultOptionsV1())
 }
 
 type ServiceVolume struct {

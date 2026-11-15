@@ -50,16 +50,6 @@ func TestSensitiveFieldsAreNeverPersisted(t *testing.T) {
 	}
 }
 
-func TestDeploymentLifecycleCodecRejectsUnboundedDiagnostics(t *testing.T) {
-	for _, event := range []events.Event{
-		&events.DeployPreparationFailed{StackName: "stack", ErrorCode: "raw secret"},
-		&events.DeployInterrupted{StackName: "stack", Reason: "raw secret"},
-	} {
-		_, err := Encode(event)
-		require.Error(t, err)
-	}
-}
-
 func TestVersionAndPayloadValidation(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
@@ -70,6 +60,7 @@ func TestVersionAndPayloadValidation(t *testing.T) {
 		{"future version", events.TypeNameNodeJoined, 2, `{}`},
 		{"unknown type", "unknown", 1, `{}`},
 		{"unknown field", events.TypeNameNodeJoined, 1, `{"password":"secret"}`},
+		{"duplicate field", events.TypeNameNodeJoined, 1, `{"id":"one","id":"two"}`},
 		{"trailing data", events.TypeNameNodeJoined, 1, `{} {}`},
 		{"null payload", events.TypeNameNodeJoined, 1, `null`},
 	} {
@@ -143,6 +134,25 @@ func TestAlertLifecycleCodecCarriesDeploymentID(t *testing.T) {
 	assert.Equal(t, "deployment-1", decoded.(*events.AlertOpened).Alert.DeploymentID)
 }
 
+func TestMessengerHealthCodec(t *testing.T) {
+	for _, event := range []events.Event{
+		&events.MessengerUnavailable{ResourceID: "telegram", ErrorCode: "dns_error",
+			Description: "Messenger DNS lookup failed"},
+		&events.MessengerAvailable{ResourceID: "telegram"},
+		&events.MessengerMisconfigured{ResourceID: "telegram:production", ErrorCode: "chat_not_found",
+			Description: "Messenger chat was not found"},
+		&events.MessengerDeliverySucceeded{ResourceID: "telegram:production"},
+	} {
+		t.Run(event.Type().String(), func(t *testing.T) {
+			payload, err := Encode(event)
+			require.NoError(t, err)
+			decoded, err := Decode(event.Type().Name(), Version, payload)
+			require.NoError(t, err)
+			assert.Equal(t, event, decoded)
+		})
+	}
+}
+
 func TestGitPullLifecycleCodec(t *testing.T) {
 	failed := &events.GitPullFailed{
 		Repository: "git.example.com/team/app", Category: events.GitFailureAuthentication,
@@ -181,19 +191,24 @@ func TestGitPullCodecRejectsUnsafePayloads(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestDeploymentFailureCategorySurvivesCodec(t *testing.T) {
-	for _, code := range []string{"policy_rejected", "init_failed", "apply_failed", "convergence_failed", "prune_failed"} {
-		event := &events.DeployFailed{DeployEvent: events.DeployEvent{StackName: "app"}, Error: errors.New(code)}
-		payload, err := Encode(event)
-		require.NoError(t, err)
-		assert.Contains(t, string(payload), code)
-		decoded, err := Decode(events.TypeNameDeployFailed, Version, payload)
-		require.NoError(t, err)
-		assert.Equal(t, code, decoded.(*events.DeployFailed).Error.Error())
+func TestDeploymentLifecycleCodesSurviveCodec(t *testing.T) {
+	for _, code := range []string{"", "init_failed", "future_code"} {
+		for _, event := range []events.Event{
+			&events.DeployFailed{ErrorCode: code, Error: errors.New("apply_failed")},
+			&events.DeployPreparationFailed{ErrorCode: code},
+			&events.DeployInterrupted{Reason: code},
+		} {
+			t.Run(event.Type().String()+"/code="+code, func(t *testing.T) {
+				payload, err := Encode(event)
+				require.NoError(t, err)
+				assert.Contains(t, string(payload), `"code":"`+code+`"`)
+
+				decoded, err := Decode(event.Type().Name(), Version, payload)
+				require.NoError(t, err)
+				assert.Equal(t, code, decoded.Details()[events.AttributeErrorCode])
+			})
+		}
 	}
-	payload, err := Encode(&events.DeployFailed{Error: errors.New("secret diagnostic")})
-	require.NoError(t, err)
-	assert.NotContains(t, string(payload), "secret diagnostic")
 }
 
 func TestDeploymentFailureDiagnosticIsActionableAndMasked(t *testing.T) {

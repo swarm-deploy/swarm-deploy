@@ -277,7 +277,7 @@ func TestDeployPipelinesIncludeFailedTaskLogs(t *testing.T) {
 			if single {
 				_, err = d.DeployService(t.Context(), ServiceRequest{StackName: "demo", ServiceName: "api", Desired: minimalCompose("api")})
 			} else {
-				_, err = d.DeployStack(t.Context(), StackRequest{StackName: "demo", Desired: minimalCompose("api")})
+				_, err = d.DeployStack(t.Context(), StackRequest{StackName: "demo", Desired: minimalCompose("api"), TargetServices: minimalCompose("api").Services.Names()})
 			}
 			require.ErrorIs(t, err, waiter.ErrConvergenceFailed)
 			assert.True(t, ConvergenceFailed(err))

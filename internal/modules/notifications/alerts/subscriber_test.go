@@ -2,7 +2,7 @@ package alerts
 
 import (
 	"database/sql"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"html"
 	"net/http"
@@ -17,10 +17,14 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/model"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/modelstore"
 	eventbus "github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/outbox"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/notifications/notifiers"
+	notificationtemplate "github.com/swarm-deploy/swarm-deploy/internal/modules/notifications/template"
 	"github.com/swarm-deploy/swarm-deploy/internal/storage"
 )
 
@@ -35,6 +39,164 @@ func alertSpec() config.NotificationSpec {
 			Opened:   config.AlertMessageSpec{Message: "{{ .Title }}"},
 			Resolved: config.AlertMessageSpec{Action: "reply", Message: "{{ .Resolution }}"},
 		}}}},
+	}
+}
+
+func TestTelegramAlertDeliveryReportsMessengerHealth(t *testing.T) {
+	ctx := t.Context()
+	db, err := storage.OpenSQLite(ctx, t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	spec := alertSpec()
+	bus := eventbus.NewOutboxDispatcher(outbox.New(db))
+	alertStore := modelstore.NewSQLStore(db)
+	projection := alertmanagement.NewSQLSubscriber(alertStore, bus,
+		func(model.AlertKind) []events.AlertRecipient { return nil }, &config.Config{})
+	require.NoError(t, eventbus.SubscribeMany(bus, []events.TypeName{
+		events.TypeNameMessengerAvailable, events.TypeNameMessengerUnavailable,
+		events.TypeNameMessengerMisconfigured, events.TypeNameMessengerDeliverySucceeded,
+	}, "alert-management", projection))
+
+	var reject atomic.Bool
+	reject.Store(true)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if reject.Load() {
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte(`{"ok":false,"error_code":401,"description":"Unauthorized"}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"ok":true,"result":{"message_id":42}}`))
+	}))
+	t.Cleanup(server.Close)
+	recipients := spec.AlertRecipients("sync_failed")
+	subscriber := &Subscriber{
+		store: NewStore(db), spec: spec, recipient: recipients[0],
+		publisher: bus, now: time.Now, apiBaseURL: server.URL,
+	}
+	alert := events.AlertSnapshot{ID: "sync", Kind: "sync_failed", Title: "Sync failed"}
+	require.ErrorContains(t, subscriber.Handle(ctx, events.Envelope{Event: &events.AlertOpened{
+		Alert: alert, Recipients: recipients,
+	}}), "telegram API status 401")
+	drain(t, bus)
+	alerts, err := alertStore.List(ctx, modelstore.ListFilter{})
+	require.NoError(t, err)
+	require.Len(t, alerts, 1)
+	assert.Equal(t, model.AlertKindMessengerMisconfigured, alerts[0].Kind)
+	assert.Equal(t, model.AlertStatusOpen, alerts[0].Status)
+	assert.Equal(t, "telegram:default", alerts[0].ResourceID)
+	assert.Equal(t, "invalid_credentials", alerts[0].ErrorCode)
+
+	messengerAlert := events.AlertSnapshot{
+		ID: "other-chat", Kind: "messenger_misconfigured", ResourceID: "telegram:infra",
+		Title: "Messenger misconfigured",
+	}
+	require.ErrorContains(t, subscriber.Handle(ctx, events.Envelope{Event: &events.AlertOpened{
+		Alert: messengerAlert, Recipients: recipients,
+	}}), "telegram API status 401")
+	handled, err := bus.ProcessNext(ctx)
+	require.NoError(t, err)
+	assert.False(t, handled, "messenger health alerts must suppress their own observations")
+
+	reject.Store(false)
+	require.NoError(t, subscriber.Handle(ctx, events.Envelope{Event: &events.AlertResolved{Alert: alert}}))
+	drain(t, bus)
+	recovered, err := alertStore.Get(ctx, alerts[0].ID)
+	require.NoError(t, err)
+	assert.Equal(t, model.AlertStatusResolved, recovered.Status)
+}
+
+func TestAlertTelegramButtons(t *testing.T) {
+	const inheritedURL = "https://example.com/current/dep-2"
+	const resolvedURL = "https://example.com/resolved/dep-2"
+	resolvedButtons := []notificationtemplate.ButtonSpec{{
+		Text: "{{ .Resolution }}", URL: "https://example.com/resolved/{{ .DeploymentID }}",
+	}}
+	for _, tt := range []struct {
+		name, action, wantURL string
+		buttons               []notificationtemplate.ButtonSpec
+		invalidEdit           bool
+	}{
+		{name: "edit rerenders current opening template", action: "edit", wantURL: inheritedURL},
+		{name: "edit uses explicit resolution buttons", action: "edit", buttons: resolvedButtons, wantURL: resolvedURL},
+		{name: "edit clears buttons with an empty list", action: "edit", buttons: []notificationtemplate.ButtonSpec{}},
+		{name: "reply does not inherit", action: "reply"},
+		{name: "reply uses resolution buttons", action: "reply", buttons: resolvedButtons, wantURL: resolvedURL},
+		{name: "edit fallback drops inherited buttons", action: "edit", wantURL: inheritedURL, invalidEdit: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			type request struct {
+				Path   string
+				Markup *struct {
+					Rows [][]notificationtemplate.Button `json:"inline_keyboard"`
+				} `json:"reply_markup"`
+			}
+			requests := make(chan request, 3)
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				body := request{Path: r.URL.Path}
+				if assert.NoError(t, json.UnmarshalRead(r.Body, &body)) {
+					requests <- body
+				}
+				if tt.invalidEdit && strings.HasSuffix(r.URL.Path, "/editMessageText") {
+					w.WriteHeader(http.StatusBadRequest)
+					_, _ = w.Write([]byte(`{"ok":false,"description":"message to edit not found"}`))
+					return
+				}
+				_, _ = w.Write([]byte(`{"ok":true,"result":{"message_id":71}}`))
+			}))
+			t.Cleanup(server.Close)
+			db, err := storage.OpenSQLite(t.Context(), t.TempDir())
+			require.NoError(t, err)
+			t.Cleanup(func() { require.NoError(t, db.Close()) })
+			spec := alertSpec()
+			routes := spec.Alerts["NodeDisconnected"]
+			spec.Alerts["SyncFailed"] = routes
+			route := &routes.Telegram[0]
+			route.Opened.Buttons = []notificationtemplate.ButtonSpec{{Text: "Open", URL: "https://example.com/{{ .DeploymentID }}"}}
+			route.Resolved.Action = tt.action
+			route.Resolved.Buttons = tt.buttons
+			recipients := spec.AlertRecipients("sync_failed")
+			subscriber := &Subscriber{
+				store: NewStore(db), spec: spec, recipient: recipients[0], publisher: &eventbus.NopDispatcher{}, now: time.Now, apiBaseURL: server.URL,
+			}
+			alert := events.AlertSnapshot{ID: "alert-1", Kind: "sync_failed", Title: "Sync failed", DeploymentID: "dep-1"}
+			require.NoError(t, subscriber.Handle(t.Context(), events.Envelope{Event: &events.AlertOpened{
+				Alert: alert, Recipients: recipients,
+			}}))
+			require.Len(t, requests, 1)
+			opened := <-requests
+			assert.True(t, strings.HasSuffix(opened.Path, "/sendMessage"))
+			require.NotNil(t, opened.Markup)
+			assert.Equal(t, [][]notificationtemplate.Button{{{Text: "Open", URL: "https://example.com/dep-1"}}}, opened.Markup.Rows)
+
+			route.Opened.Buttons[0].URL = "https://example.com/current/{{ .DeploymentID }}"
+			alert.DeploymentID = "dep-2"
+			alert.Resolution = "Recovered"
+			require.NoError(t, subscriber.Handle(t.Context(), events.Envelope{Event: &events.AlertResolved{Alert: alert}}))
+			if tt.invalidEdit {
+				require.Len(t, requests, 2)
+			} else {
+				require.Len(t, requests, 1)
+			}
+			resolved := <-requests
+			if tt.action == "edit" {
+				assert.True(t, strings.HasSuffix(resolved.Path, "/editMessageText"))
+			} else {
+				assert.True(t, strings.HasSuffix(resolved.Path, "/sendMessage"))
+			}
+			if tt.wantURL == "" {
+				assert.Nil(t, resolved.Markup)
+			} else {
+				require.NotNil(t, resolved.Markup)
+				require.Len(t, resolved.Markup.Rows, 1)
+				require.Len(t, resolved.Markup.Rows[0], 1)
+				assert.Equal(t, tt.wantURL, resolved.Markup.Rows[0][0].URL)
+			}
+			if tt.invalidEdit {
+				fallback := <-requests
+				assert.True(t, strings.HasSuffix(fallback.Path, "/sendMessage"))
+				assert.Nil(t, fallback.Markup)
+			}
+		})
 	}
 }
 
@@ -105,13 +267,13 @@ func TestSyncFailedAlertRendering(t *testing.T) {
 				ParseMode string `json:"parse_mode"`
 			}
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				require.NoError(t, json.NewDecoder(r.Body).Decode(&request))
+				require.NoError(t, json.UnmarshalRead(r.Body, &request))
 				_, _ = w.Write([]byte(`{"ok":true,"result":{"message_id":42}}`))
 			}))
 			defer server.Close()
 			recipient := spec.AlertRecipients("sync_failed")[0]
 			subscriber := &Subscriber{
-				store: NewStore(db), spec: spec, recipient: recipient, now: time.Now, apiBaseURL: server.URL,
+				store: NewStore(db), spec: spec, recipient: recipient, publisher: &eventbus.NopDispatcher{}, now: time.Now, apiBaseURL: server.URL,
 			}
 			alert := events.AlertSnapshot{
 				ID: "failed", Kind: "sync_failed", Title: test.title, ResourceID: "infra<&",
@@ -136,13 +298,13 @@ func TestSyncFailedDefaultAlertTruncatesLongError(t *testing.T) {
 		ParseMode string `json:"parse_mode"`
 	}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.NoError(t, json.NewDecoder(r.Body).Decode(&request))
+		require.NoError(t, json.UnmarshalRead(r.Body, &request))
 		_, _ = w.Write([]byte(`{"ok":true,"result":{"message_id":42}}`))
 	}))
 	defer server.Close()
 	recipient := spec.AlertRecipients("sync_failed")[0]
 	subscriber := &Subscriber{
-		store: NewStore(db), spec: spec, recipient: recipient, now: time.Now, apiBaseURL: server.URL,
+		store: NewStore(db), spec: spec, recipient: recipient, publisher: &eventbus.NopDispatcher{}, now: time.Now, apiBaseURL: server.URL,
 	}
 	alert := events.AlertSnapshot{
 		ID: "long-failure", Kind: "sync_failed", Title: "Synchronization outcome unknown", ResourceID: "infra-monitoring",
@@ -164,7 +326,7 @@ func subscribeTestRecipients(t *testing.T, bus *eventbus.OutboxDispatcher, db st
 	t.Helper()
 	recipients := spec.AlertRecipients("node_disconnected")
 	for _, recipient := range recipients {
-		subscriber := eventbus.External(&Subscriber{store: NewStore(db), spec: spec, recipient: recipient, now: time.Now, apiBaseURL: url})
+		subscriber := eventbus.External(&Subscriber{store: NewStore(db), spec: spec, recipient: recipient, publisher: bus, now: time.Now, apiBaseURL: url})
 		require.NoError(t, bus.Subscribe(events.TypeNameAlertOpened, SubscriptionID(recipient), subscriber))
 		require.NoError(t, bus.Subscribe(events.TypeNameAlertResolved, SubscriptionID(recipient), subscriber))
 	}
@@ -235,7 +397,7 @@ func TestAlertIndependentDeliveryOrderingAndRestart(t *testing.T) {
 				MessageID int64 `json:"message_id"`
 			} `json:"reply_parameters"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		if err := json.UnmarshalRead(r.Body, &body); err != nil {
 			t.Errorf("decode Telegram request: %v", err)
 			return
 		}
@@ -339,7 +501,7 @@ func TestAlertReceiptSurvivesReplayBeforeAcknowledgement(t *testing.T) {
 	}))
 	defer server.Close()
 	bus := eventbus.NewOutboxDispatcher(outbox.New(db))
-	subscriber := &Subscriber{store: NewStore(db), spec: spec, recipient: recipient, now: time.Now, apiBaseURL: server.URL}
+	subscriber := &Subscriber{store: NewStore(db), spec: spec, recipient: recipient, publisher: &eventbus.NopDispatcher{}, now: time.Now, apiBaseURL: server.URL}
 	require.NoError(t, bus.Subscribe(events.TypeNameAlertOpened, SubscriptionID(recipient), eventbus.External(subscriber)))
 	alert := events.AlertSnapshot{ID: "crash-cycle", Kind: "node_disconnected", Title: "Node disconnected", OpenedAt: time.Now().UTC()}
 	event := &events.AlertOpened{Alert: alert, Recipients: []events.AlertRecipient{recipient}}
@@ -374,7 +536,7 @@ func TestAlertResolutionUsesOriginalPhysicalChatAfterRouteChange(t *testing.T) {
 		var body struct {
 			ChatID string `json:"chat_id"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		if err := json.UnmarshalRead(r.Body, &body); err != nil {
 			t.Errorf("decode Telegram request: %v", err)
 			return
 		}
@@ -382,7 +544,7 @@ func TestAlertResolutionUsesOriginalPhysicalChatAfterRouteChange(t *testing.T) {
 		_, _ = w.Write([]byte(`{"ok":true,"result":{"message_id":78}}`))
 	}))
 	defer server.Close()
-	subscriber := &Subscriber{store: store, spec: newSpec, recipient: recipient, now: time.Now, apiBaseURL: server.URL}
+	subscriber := &Subscriber{store: store, spec: newSpec, recipient: recipient, publisher: &eventbus.NopDispatcher{}, now: time.Now, apiBaseURL: server.URL}
 	resolved := time.Now().UTC()
 	err = subscriber.Handle(t.Context(), events.Envelope{Event: &events.AlertResolved{Alert: events.AlertSnapshot{
 		ID: "moved-route", Kind: "node_disconnected", Title: "Node disconnected",
@@ -404,7 +566,7 @@ func TestAlertResolutionUsesOriginalPhysicalChatAfterRouteChange(t *testing.T) {
 	assert.False(t, noOriginal.ReplyMessageID.Valid)
 	defaultRecipient := newSpec.AlertRecipients("node_disconnected")[0]
 	defaultSubscriber := &Subscriber{
-		store: store, spec: newSpec, recipient: defaultRecipient, now: time.Now, apiBaseURL: server.URL,
+		store: store, spec: newSpec, recipient: defaultRecipient, publisher: &eventbus.NopDispatcher{}, now: time.Now, apiBaseURL: server.URL,
 	}
 	require.NoError(t, defaultSubscriber.Handle(t.Context(), events.Envelope{Event: &events.AlertResolved{
 		Alert: events.AlertSnapshot{ID: "never-opened", Kind: "node_disconnected", Title: "Node disconnected",
@@ -417,7 +579,7 @@ func TestAlertResolutionUsesOriginalPhysicalChatAfterRouteChange(t *testing.T) {
 	assert.Equal(t, "send", defaultLink.ResolvedAction.String)
 
 	newSpec.Messengers.Telegram.BotToken.Content = nil
-	missing := &Subscriber{store: store, spec: newSpec, recipient: recipient, now: time.Now, apiBaseURL: server.URL}
+	missing := &Subscriber{store: store, spec: newSpec, recipient: recipient, publisher: &eventbus.NopDispatcher{}, now: time.Now, apiBaseURL: server.URL}
 	alert := events.AlertSnapshot{ID: "missing-credentials", Kind: "node_disconnected", Title: "Node disconnected"}
 	require.ErrorContains(t, missing.Handle(t.Context(), events.Envelope{Event: &events.AlertOpened{
 		Alert: alert, Recipients: []events.AlertRecipient{recipient},
@@ -441,7 +603,7 @@ func TestResolvedAlertDoesNotSendOpeningOnManualReplay(t *testing.T) {
 	repository := outbox.New(db)
 	bus := eventbus.NewOutboxDispatcher(repository)
 	subscriber := &Subscriber{
-		store: NewStore(db), spec: spec, recipient: recipient, now: time.Now, apiBaseURL: server.URL,
+		store: NewStore(db), spec: spec, recipient: recipient, publisher: &eventbus.NopDispatcher{}, now: time.Now, apiBaseURL: server.URL,
 	}
 	id := SubscriptionID(recipient)
 	require.NoError(t, bus.Subscribe(events.TypeNameAlertOpened, id, eventbus.External(subscriber)))
@@ -503,26 +665,38 @@ func TestGitAlertDefaultTelegramHTMLAndCustomTemplates(t *testing.T) {
 			require.NoError(t, err)
 			defer db.Close()
 			spec := alertSpec()
+			buttons := []notificationtemplate.ButtonSpec{{
+				Text: "{{ .ResourceID }}",
+				URL:  "https://example.com/repositories?repo={{ .ResourceID | urlquery }}",
+			}}
+			route := config.TelegramAlertChannel{
+				Opened:   config.AlertMessageSpec{Buttons: buttons},
+				Resolved: config.AlertMessageSpec{Buttons: buttons},
+			}
 			if custom {
-				spec.Alerts["GitRepositoryUnavailable"] = config.NotificationAlertRoutes{Telegram: []config.TelegramAlertChannel{{
-					Opened:   config.AlertMessageSpec{Message: "repo={{ .ResourceID }}"},
-					Resolved: config.AlertMessageSpec{Message: "recovered={{ .ResourceID }}"},
-				}}}
+				route.Opened.Message = "repo={{ .ResourceID }}"
+				route.Resolved.Message = "recovered={{ .ResourceID }}"
+			}
+			spec.Alerts["GitRepositoryUnavailable"] = config.NotificationAlertRoutes{
+				Telegram: []config.TelegramAlertChannel{route},
 			}
 			type request struct {
 				Text      string `json:"text"`
 				ParseMode string `json:"parse_mode"`
+				Markup    struct {
+					Rows [][]notificationtemplate.Button `json:"inline_keyboard"`
+				} `json:"reply_markup"`
 			}
 			var received []request
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				var req request
-				require.NoError(t, json.NewDecoder(r.Body).Decode(&req))
+				require.NoError(t, json.UnmarshalRead(r.Body, &req))
 				received = append(received, req)
 				_, _ = w.Write([]byte(`{"ok":true,"result":{"message_id":42}}`))
 			}))
 			defer server.Close()
 			recipient := spec.AlertRecipients("git_repository_unavailable")[0]
-			subscriber := &Subscriber{store: NewStore(db), spec: spec, recipient: recipient, now: time.Now, apiBaseURL: server.URL}
+			subscriber := &Subscriber{store: NewStore(db), spec: spec, recipient: recipient, publisher: &eventbus.NopDispatcher{}, now: time.Now, apiBaseURL: server.URL}
 			alert := events.AlertSnapshot{
 				ID: "git-html", Kind: "git_repository_unavailable", Title: "Git repository unavailable",
 				ResourceID: "example.com/org/<repo>&test", Message: "Git <network> & unavailable",
@@ -537,6 +711,12 @@ func TestGitAlertDefaultTelegramHTMLAndCustomTemplates(t *testing.T) {
 				Alert: alert, Recipients: []events.AlertRecipient{recipient},
 			}}))
 			require.Len(t, received, 2)
+			for _, req := range received {
+				assert.Equal(t, [][]notificationtemplate.Button{{{
+					Text: alert.ResourceID,
+					URL:  "https://example.com/repositories?repo=example.com%2Forg%2F%3Crepo%3E%26test",
+				}}}, req.Markup.Rows)
+			}
 			if custom {
 				assert.Empty(t, received[0].ParseMode)
 				assert.Empty(t, received[1].ParseMode)

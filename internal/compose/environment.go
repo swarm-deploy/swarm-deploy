@@ -1,6 +1,8 @@
 package compose
 
 import (
+	jsonv1 "encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"slices"
 	"sort"
@@ -17,9 +19,24 @@ type Environment struct {
 	// Newly loaded Compose environments contain explicit values.
 	Unset []string          `json:"Unset,omitempty"`
 	Map   map[string]string `json:"Map"`
-	Keys  []string          `json:"Keys"`
+	// Keys records the source order of Map. It is parser metadata and is not
+	// serialized; snapshots persisted by older releases may still contain it.
+	Keys []string `json:"Keys"`
 
 	isMap bool
+}
+
+// environmentJSON is the persisted form of Environment, without parser metadata.
+type environmentJSON struct {
+	// Unset lists legacy variables without a value.
+	Unset []string `json:"Unset,omitempty"`
+	// Map contains variable values by name.
+	Map map[string]string `json:"Map"`
+}
+
+// MarshalJSON omits Keys, which only records the source order of Map.
+func (e Environment) MarshalJSON() ([]byte, error) {
+	return json.Marshal(environmentJSON{Unset: e.Unset, Map: e.Map}, jsonv1.DefaultOptionsV1())
 }
 
 func NewEnvironment(values []string) (*Environment, error) {

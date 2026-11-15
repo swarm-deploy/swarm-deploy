@@ -10,10 +10,8 @@ import AppSearchFilter from "../components/common/AppSearchFilter.vue";
 import AppStatusBadge from "../components/common/AppStatusBadge.vue";
 import AppTable from "../components/common/AppTable.vue";
 import AppTableEmpty from "../components/common/AppTableEmpty.vue";
-import { useOverviewStore } from "../stores/overview";
 import { formatDate } from "../utils/format";
 
-const overviewStore = useOverviewStore();
 const route = useRoute();
 const router = useRouter();
 const stackFilter = computed(() => typeof route.query.stack_name === "string" ? route.query.stack_name : "");
@@ -54,6 +52,10 @@ function resourceKey(alert: Alert): string {
 
 function updatedAt(alert: Alert): string {
   return alert.status === "resolved" ? alert.resolvedAt || alert.updatedAt : alert.updatedAt;
+}
+
+function alertDetailsLocation(id: string) {
+  return { query: { ...route.query, tab: "alerts", alert_id: id }, hash: route.hash };
 }
 
 function clearStackFilter() {
@@ -159,7 +161,7 @@ onMounted(() => void loadAlerts());
           <th>Occurrences</th>
         </tr>
       </template>
-      <tr v-for="alert in visibleAlerts" :key="alert.id" class="app-table-row--clickable" @click="overviewStore.openAlertDetailsModal(alert)">
+      <tr v-for="alert in visibleAlerts" :key="alert.id" class="app-table-row--clickable" @click="router.push(alertDetailsLocation(alert.id))">
         <td>{{ formatDate(updatedAt(alert)) }}</td>
         <td>
           <AppStatusBadge :variant="alert.status === 'resolved' ? 'neutral' : 'warning'" dot>
@@ -167,7 +169,7 @@ onMounted(() => void loadAlerts());
           </AppStatusBadge>
         </td>
         <td>
-          <button class="alerts-title" type="button" @click.stop="overviewStore.openAlertDetailsModal(alert)">{{ alert.title }}</button>
+          <RouterLink :to="alertDetailsLocation(alert.id)" class="alerts-title" @click.stop>{{ alert.title }}</RouterLink>
           <span v-if="alert.message && alert.message !== alert.title" class="alerts-message">{{ alert.message }}</span>
         </td>
         <td class="alerts-resource">{{ alert.resourceId || "unknown resource" }}</td>
@@ -196,14 +198,9 @@ onMounted(() => void loadAlerts());
 }
 .alerts-title {
   display: block;
-  border: 0;
-  padding: 0;
-  background: transparent;
   color: inherit;
-  font: inherit;
   font-weight: 600;
-  text-align: left;
-  cursor: pointer;
+  text-decoration: none;
   overflow-wrap: anywhere;
 }
 .alerts-title:focus-visible {

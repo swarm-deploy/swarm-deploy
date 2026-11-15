@@ -66,7 +66,7 @@ func TestInitJobCreationFailureRetryEligibilityPersistsAcrossRestart(t *testing.
 			if tc.closeServer {
 				server.Close()
 			}
-			runner := initjob.NewInitJobRunner(dockerClient, swarm.NewSwarm(dockerClient),
+			runner := initjob.NewInitJobRunner(swarm.NewSwarm(dockerClient),
 				time.Millisecond, time.Second, &metrics.NopDeploys{})
 			_, creationErr := runner.Run(t.Context(), initjob.Spec{StackName: "app", ServiceName: "api",
 				Job: compose.InitJob{Name: "migrate", Image: "busybox:1.36"}})
@@ -84,7 +84,7 @@ func TestInitJobCreationFailureRetryEligibilityPersistsAcrossRestart(t *testing.
 			clock := func() time.Time { return now }
 			db, lifecycle, bus := openService(t, WithClock(clock))
 			desired := desiredServices("api")
-			first, err := lifecycle.StartIfChanged(t.Context(), "app", "first", desired, true)
+			first, err := lifecycle.StartIfChanged(t.Context(), "app", "first", desired, true, StartOptions{TargetServices: desired.Compose.Services.Names()})
 			require.NoError(t, err)
 			require.NotNil(t, first)
 			require.NoError(t, lifecycle.Complete(t.Context(), first.ID, Completion{
@@ -100,11 +100,11 @@ func TestInitJobCreationFailureRetryEligibilityPersistsAcrossRestart(t *testing.
 			// Recreate the lifecycle using only SQLite retry metadata.
 			lifecycle = NewService(db, bus, WithClock(clock))
 			now = now.Add(automaticRetryDelay - time.Nanosecond)
-			next, err := lifecycle.StartIfChanged(t.Context(), "app", "tick", desired, false)
+			next, err := lifecycle.StartIfChanged(t.Context(), "app", "tick", desired, false, StartOptions{TargetServices: desired.Compose.Services.Names()})
 			require.NoError(t, err)
 			assert.Nil(t, next)
 			now = now.Add(time.Nanosecond)
-			next, err = lifecycle.StartIfChanged(t.Context(), "app", "tick", desired, false)
+			next, err = lifecycle.StartIfChanged(t.Context(), "app", "tick", desired, false, StartOptions{TargetServices: desired.Compose.Services.Names()})
 			require.NoError(t, err)
 			if tc.retryable {
 				require.NotNil(t, next)
@@ -113,7 +113,7 @@ func TestInitJobCreationFailureRetryEligibilityPersistsAcrossRestart(t *testing.
 			} else {
 				assert.Nil(t, next)
 				manual, manualErr := lifecycle.StartIfChanged(t.Context(), "app", "manual", desired, false,
-					StartOptions{ManualRetry: true})
+					StartOptions{ManualRetry: true, TargetServices: desired.Compose.Services.Names()})
 				require.NoError(t, manualErr)
 				require.NotNil(t, manual)
 				assert.Equal(t, 2, manual.Number)

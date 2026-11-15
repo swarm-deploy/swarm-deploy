@@ -123,7 +123,7 @@ func newRegistryLifecycleFixture(t *testing.T) (*lifecycleFixture, *authenticate
 	group := metrics.NewGroup(metrics.CreateGroupParams{Namespace: "gitops_registry_e2e"})
 	metricRegistry := prometheus.NewRegistry()
 	metricRegistry.MustRegister(group)
-	base.deployer = deployer.NewDeployer(100*time.Millisecond, time.Minute, base.docker, base.sw, group.Deploys,
+	base.deployer = deployer.NewDeployer(100*time.Millisecond, time.Minute, base.sw, group.Deploys,
 		deployer.NewSecretResolver(deployer.PlaintextDecoder{}))
 	dir := filepath.Dir(base.path)
 	gitCommand(t, base.ctx, dir, "init")

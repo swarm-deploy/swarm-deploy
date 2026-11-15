@@ -9,11 +9,11 @@ import (
 	"time"
 
 	pipe "github.com/artarts36/gopipe"
-	"github.com/docker/docker/client"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/converter"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/initjob"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/networks"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/services"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/stack"
 	waiterpkg "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/waiter"
 	deploymentmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/registry"
@@ -63,7 +63,6 @@ type Deployer struct {
 func NewDeployer(
 	initJobPoll time.Duration,
 	initJobTimeout time.Duration,
-	dockerClient *client.Client,
 	swarmService *swarm.Swarm,
 	initJobMetrics InitJobMetrics,
 	secretResolver *SecretResolver,
@@ -73,7 +72,6 @@ func NewDeployer(
 		services:       swarmService.Services,
 		resources:      newResourceReconciler(swarmService),
 		initJobRunner: initjob.NewInitJobRunner(
-			dockerClient,
 			swarmService,
 			initJobPoll,
 			initJobTimeout,
@@ -121,9 +119,20 @@ func (d *Deployer) RefreshRegistryAuth(ctx context.Context, request StackRequest
 
 // DeployStack runs the full stack deployment pipeline.
 func (d *Deployer) DeployStack(ctx context.Context, request StackRequest) (Result, error) {
+	desired := request.Desired
+	if request.TargetServices != nil {
+		var err error
+		desired, err = stack.TargetServicesCompose(request.Desired, request.TargetServices)
+		if err != nil {
+			return Result{}, err
+		}
+		if len(desired.Services) == 0 {
+			return Result{Verification: deploymentmodel.Verification{Known: true}}, nil
+		}
+	}
 	d.attachPipelines()
 	payload := &deployStackPayload{
-		stackName: request.StackName, sourceComposePath: request.SourceComposePath, desired: request.Desired,
+		stackName: request.StackName, sourceComposePath: request.SourceComposePath, desired: desired,
 		result:             Result{Verification: deploymentmodel.Verification{Known: true}},
 		retryFailedUpdates: request.Options.RetryFailedUpdates,
 		unresolvedServices: request.Options.UnresolvedServices,

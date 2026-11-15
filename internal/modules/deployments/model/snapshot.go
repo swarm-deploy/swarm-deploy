@@ -1,10 +1,10 @@
 package model
 
 import (
-	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
+	jsonv1 "encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"maps"
 	"sort"
@@ -14,6 +14,7 @@ import (
 
 	"github.com/artarts36/envmasker"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/utils"
 )
 
 const (
@@ -25,6 +26,14 @@ const (
 // Source formatting, checkout paths and env-file ordering are not effective state.
 // The caller must populate env files and apply transformations before calling it.
 func Prepare(file compose.File) (Prepared, error) {
+	serviceDigests := file.ServiceDigests
+	if serviceDigests == nil {
+		var err error
+		serviceDigests, err = compose.ServiceDigests(&file)
+		if err != nil {
+			return Prepared{}, err
+		}
+	}
 	resourceDigests := maps.Clone(file.ResourceDigests)
 	if resourceDigests == nil {
 		resourceDigests = map[string]string{}
@@ -34,47 +43,54 @@ func Prepare(file compose.File) (Prepared, error) {
 			resourceDigests["configs/"+name] = fingerprint(config.Data)
 		}
 	}
-	comparison, err := comparisonCompose(file.Compose)
+	canonical, err := compose.CanonicalCompose(file.Compose)
 	if err != nil {
 		return Prepared{}, err
 	}
-	payload, err := json.Marshal(comparison)
+	// TODO(0.16.0): Use the current snapshot encoding for the digest before redaction
+	// and remove the separate serialization for compatibility with persisted digests.
+	digestCompose, err := compose.Canonicalize(canonical)
 	if err != nil {
-		return Prepared{}, fmt.Errorf("encode effective desired state: %w", err)
-	}
-	var tree map[string]any
-	decoder := json.NewDecoder(bytes.NewReader(payload))
-	decoder.UseNumber()
-	if err = decoder.Decode(&tree); err != nil {
 		return Prepared{}, err
 	}
-	normalize(tree)
-	if services, ok := tree["services"].([]any); ok {
-		sort.SliceStable(services, func(i, j int) bool {
-			left, _ := services[i].(map[string]any)
-			right, _ := services[j].(map[string]any)
-			return fmt.Sprint(left["name"]) < fmt.Sprint(right["name"])
-		})
+	var digestTree map[string]any
+	if err = json.Unmarshal(digestCompose, &digestTree, utils.PreserveJSONNumbers()); err != nil {
+		return Prepared{}, err
 	}
 	identity := struct {
 		// Compose is normalized effective state, temporarily held only in memory.
 		Compose map[string]any `json:"Compose"`
 		// Resources includes referenced file-content digests.
 		Resources map[string]string `json:"Resources"`
-	}{tree, resourceDigests}
-	canonical, err := json.Marshal(identity)
+	}{digestTree, resourceDigests}
+	identityPayload, err := json.Marshal(identity, jsonv1.DefaultOptionsV1())
 	if err != nil {
 		return Prepared{}, err
 	}
-	result := Prepared{Digest: fingerprint(canonical), Fields: map[string]string{},
-		Fingerprints: map[string]string{}, Redacted: map[string]bool{}}
-	result.sanitize(tree, "", "")
-	safe, err := json.Marshal(tree)
+	snapshot, err := json.Marshal(canonical, jsonv1.DefaultOptionsV1())
+	if err != nil {
+		return Prepared{}, err
+	}
+	var tree map[string]any
+	if err = json.Unmarshal(snapshot, &tree, utils.PreserveJSONNumbers()); err != nil {
+		return Prepared{}, err
+	}
+	result := Prepared{
+		ServiceDigests: maps.Clone(serviceDigests), Digest: fingerprint(identityPayload), Fields: map[string]string{},
+		Fingerprints: map[string]string{}, Redacted: map[string]bool{},
+	}
+	for _, service := range file.Compose.Services {
+		if service.HasOrderedMounts() {
+			result.OrderedMountServices = append(result.OrderedMountServices, service.Name)
+		}
+	}
+	result.sanitize(tree, "", "", "")
+	safe, err := json.Marshal(tree, jsonv1.DefaultOptionsV1())
 	if err != nil {
 		return Prepared{}, err
 	}
 	result.Definition = compose.File{Path: file.Path, Digest: file.Digest, ResourceDigests: resourceDigests}
-	if err = json.Unmarshal(safe, &result.Definition.Compose); err != nil {
+	if err = json.Unmarshal(safe, &result.Definition.Compose, jsonv1.DefaultOptionsV1()); err != nil {
 		return Prepared{}, err
 	}
 	for name, digest := range resourceDigests {
@@ -86,52 +102,20 @@ func Prepare(file compose.File) (Prepared, error) {
 	return result, nil
 }
 
-func normalize(value any) {
+// sanitize masks value in place and records its fields. identityField names the
+// field that identifies value in path; it is kept in the safe definition but not
+// recorded, because the path already represents it.
+func (p *Prepared) sanitize(value any, path, key, identityField string) any {
 	switch node := value.(type) {
 	case map[string]any:
-		normalizeObjectRefs(node, secretsField)
-		normalizeObjectRefs(node, configsField)
-		// Environment.Keys is parser ordering, not container state. EnvFiles have
-		// already been merged into environment and can contain duplicate raw values.
-		delete(node, "Keys")
-		delete(node, "env_file")
-		// ServiceVolumes.Map and ServiceNetworks.AliasMap duplicate their lists.
-		if _, isVolumeList := node["Volumes"]; isVolumeList {
-			delete(node, "Map")
+		// Entries of top-level resource maps (configs, secrets) carry their key as alias.
+		childIdentity := ""
+		if path != "" && !strings.Contains(path, "/") {
+			childIdentity = aliasField
 		}
-		if _, isNetworkList := node["List"]; isNetworkList {
-			delete(node, "AliasMap")
-			delete(node, "Names")
-			delete(node, "Aliases")
-		}
-		for _, child := range node {
-			normalize(child)
-		}
-		for _, listKey := range []string{"Ports", "Volumes", "List", "cap_add", "cap_drop", secretsField, configsField} {
-			if list, ok := node[listKey].([]any); ok {
-				sort.SliceStable(list, func(i, j int) bool {
-					left, _ := json.Marshal(list[i])
-					right, _ := json.Marshal(list[j])
-					return bytes.Compare(left, right) < 0
-				})
-			}
-		}
-	case []any:
-		for _, child := range node {
-			normalize(child)
-		}
-	}
-}
-
-func (p *Prepared) sanitize(value any, path, key string) any {
-	switch node := value.(type) {
-	case map[string]any:
 		for name, child := range node {
 			childPath := joinPath(path, name)
-			// Alias values identify map/list entries and are already represented in
-			// semantic paths. Keeping them in the safe definition preserves faithful
-			// YAML while omitting a duplicate display field.
-			if name == "Alias" {
+			if name == identityField {
 				continue
 			}
 			// Commands, entrypoints, healthchecks and init-job scripts are opaque.
@@ -142,7 +126,7 @@ func (p *Prepared) sanitize(value any, path, key string) any {
 				continue
 			}
 			// Config file bytes are already excluded by Compose's JSON contract.
-			node[name] = p.sanitize(child, childPath, name)
+			node[name] = p.sanitize(child, childPath, name, childIdentity)
 		}
 		return node
 	case []any:
@@ -167,9 +151,6 @@ func (p *Prepared) sanitizeOpaque(value any, path string) any {
 	switch node := value.(type) {
 	case map[string]any:
 		for name, child := range node {
-			if name == "IsList" {
-				continue
-			}
 			node[name] = p.sanitizeOpaque(child, joinPath(path, name))
 		}
 		return node
@@ -280,10 +261,10 @@ func publicChange(path string) Change {
 		case "services":
 			change.ResourceType, change.ResourceName = "service", parts[1]
 			change.Field = publicField(parts[2:])
-		case configsField:
+		case compose.ConfigsField:
 			change.ResourceType, change.ResourceName = "config", parts[1]
 			change.Field = publicField(parts[2:])
-		case secretsField:
+		case compose.SecretsField:
 			change.ResourceType, change.ResourceName = "secret", parts[1]
 			change.Field = publicField(parts[2:])
 		case "networks":
@@ -293,7 +274,7 @@ func publicChange(path string) Change {
 			change.ResourceType, change.ResourceName = "volume", parts[1]
 			change.Field = publicField(parts[2:])
 		case "resources":
-			if len(parts) >= contentPathParts && (parts[1] == configsField || parts[1] == secretsField) {
+			if len(parts) >= contentPathParts && (parts[1] == compose.ConfigsField || parts[1] == compose.SecretsField) {
 				change.ResourceType = strings.TrimSuffix(parts[1], "s")
 				change.ResourceName = parts[2]
 				change.Field = "content"
@@ -310,7 +291,8 @@ func publicField(parts []string) string {
 	fields := make([]string, 0, len(parts))
 	for _, part := range parts {
 		switch part {
-		case "Map", "Keys", "Args", "Extra", "Ports", "Volumes", "Names", "List", "AliasMap", "Alias":
+		// Wrapper fields of Compose types. Parser metadata never reaches snapshot fields.
+		case "Map", "Args", "Extra", "Ports", "Volumes", "List":
 			continue
 		}
 		if _, err := strconv.Atoi(part); err == nil {
@@ -381,38 +363,44 @@ func Summarize(changes []Change) (ChangeSummary, ResourceSummary) {
 func (p *Prepared) sanitizeList(node []any, path, key string) any {
 	used := map[string]int{}
 	for i, child := range node {
-		segment := listSegment(child, i)
+		segment, identityField := listSegment(child, i)
 		count := used[segment]
 		used[segment] = count + 1
 		if count > 0 {
 			segment += fmt.Sprintf("#%d", count)
 		}
 		fieldKey := listFieldKey(node, i, key)
-		node[i] = p.sanitize(child, joinPath(path, segment), fieldKey)
+		node[i] = p.sanitize(child, joinPath(path, segment), fieldKey, identityField)
 	}
 	return node
 }
 
-func listSegment(child any, index int) string {
+// aliasField is the JSON name of the alias that identifies Compose configs,
+// secrets and network attachments.
+const aliasField = "Alias"
+
+// listSegment returns the persisted path segment of a list element and, when the
+// element is identified by its alias, the field that the segment represents.
+func listSegment(child any, index int) (string, string) {
 	object, ok := child.(map[string]any)
 	if !ok {
-		return strconv.Itoa(index)
+		return strconv.Itoa(index), ""
 	}
 	switch {
 	case object["name"] != nil:
-		return fmt.Sprint(object["name"])
+		return fmt.Sprint(object["name"]), ""
 	case object["Target"] != nil:
-		return "@" + fmt.Sprint(object["Target"])
+		return "@" + fmt.Sprint(object["Target"]), ""
 	case object["target"] != nil:
 		segment := "@" + fmt.Sprint(object["target"])
 		if object["protocol"] != nil {
 			segment += "/" + fmt.Sprint(object["protocol"])
 		}
-		return segment
-	case object["Alias"] != nil:
-		return "@" + fmt.Sprint(object["Alias"])
+		return segment, ""
+	case object[aliasField] != nil:
+		return "@" + fmt.Sprint(object[aliasField]), aliasField
 	default:
-		return strconv.Itoa(index)
+		return strconv.Itoa(index), ""
 	}
 }
 

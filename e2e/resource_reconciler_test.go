@@ -2,7 +2,7 @@ package e2e
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"os"
 	"os/exec"
@@ -39,7 +39,7 @@ func TestDeployStackCompatibilityOnRealSwarm(t *testing.T) {
 	dir := t.TempDir()
 	swarmService := swarm.NewSwarm(dockerClient)
 	observer := newSwarmObserver(t)
-	stackDeployer := deployer.NewDeployer(100*time.Millisecond, 2*time.Minute, dockerClient, swarmService, nil, deployer.NewSecretResolver(deployer.PlaintextDecoder{}))
+	stackDeployer := deployer.NewDeployer(100*time.Millisecond, 2*time.Minute, swarmService, nil, deployer.NewSecretResolver(deployer.PlaintextDecoder{}))
 	composePath := filepath.Join(dir, "compose.yaml")
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
@@ -75,7 +75,7 @@ func TestDeployStackCompatibilityOnRealSwarm(t *testing.T) {
 			_, err = stackDeployer.DeployStack(ctx, deployer.StackRequest{
 				StackName:         stack,
 				SourceComposePath: composePath,
-				Desired:           prepared.Compose,
+				Desired:           prepared.Compose, TargetServices: prepared.Compose.Services.Names(),
 			})
 			require.NoError(t, err)
 			require.NoError(t, observer.WaitUnchanged(ctx, baseline, 2*time.Second))
@@ -120,7 +120,7 @@ func TestDeployStackCompatibilityOnRealSwarm(t *testing.T) {
 	_, err = stackDeployer.DeployStack(ctx, deployer.StackRequest{
 		StackName:         stack,
 		SourceComposePath: composePath,
-		Desired:           prepared.Compose,
+		Desired:           prepared.Compose, TargetServices: prepared.Compose.Services.Names(),
 	})
 	require.NoError(t, err)
 	networkAfter, err := swarmService.Networks.Get(ctx, stack+"_default")
@@ -138,7 +138,7 @@ func TestDeployStackCompatibilityOnRealSwarm(t *testing.T) {
 	_, err = stackDeployer.DeployStack(ctx, deployer.StackRequest{
 		StackName:         stack,
 		SourceComposePath: composePath,
-		Desired:           failing,
+		Desired:           failing, TargetServices: failing.Services.Names(),
 	})
 	require.Error(t, err)
 	require.True(t, deployer.ConvergenceFailed(err))
@@ -150,7 +150,7 @@ func TestDeployStackCompatibilityOnRealSwarm(t *testing.T) {
 		StackName:         stack,
 		SourceComposePath: composePath,
 		Desired:           failing,
-		Options:           deployer.StackOptions{RetryFailedUpdates: true},
+		Options:           deployer.StackOptions{RetryFailedUpdates: true}, TargetServices: failing.Services.Names(),
 	})
 	require.Error(t, retryErr)
 	assert.True(t, deployer.ConvergenceFailed(retryErr))
@@ -182,7 +182,7 @@ func TestDeployStackCompatibilityOnRealSwarm(t *testing.T) {
 		_, err = stackDeployer.DeployStack(ctx, deployer.StackRequest{
 			StackName:         stack,
 			SourceComposePath: composePath,
-			Desired:           desired,
+			Desired:           desired, TargetServices: desired.Services.Names(),
 		})
 		require.NoError(t, err)
 		pinned, err := swarmService.Services.Inspect(ctx, stack+"_check")
@@ -193,7 +193,7 @@ func TestDeployStackCompatibilityOnRealSwarm(t *testing.T) {
 		_, err = stackDeployer.DeployStack(ctx, deployer.StackRequest{
 			StackName:         stack,
 			SourceComposePath: composePath,
-			Desired:           desired,
+			Desired:           desired, TargetServices: desired.Services.Names(),
 		})
 		require.NoError(t, err)
 		unchanged, err := swarmService.Services.Inspect(ctx, stack+"_check")
@@ -204,7 +204,7 @@ func TestDeployStackCompatibilityOnRealSwarm(t *testing.T) {
 		_, err = stackDeployer.DeployStack(ctx, deployer.StackRequest{
 			StackName:         stack,
 			SourceComposePath: composePath,
-			Desired:           desired,
+			Desired:           desired, TargetServices: desired.Services.Names(),
 		})
 		require.NoError(t, err)
 		updated, err := swarmService.Services.Inspect(ctx, stack+"_check")
@@ -250,7 +250,7 @@ func deployFixture(t *testing.T, ctx context.Context, stackDeployer deployer.Sta
 	_, err = stackDeployer.DeployStack(ctx, deployer.StackRequest{
 		StackName:         stack,
 		SourceComposePath: composePath,
-		Desired:           file.Compose,
+		Desired:           file.Compose, TargetServices: file.Compose.Services.Names(),
 	})
 	require.NoError(t, err)
 }

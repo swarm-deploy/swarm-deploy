@@ -121,7 +121,7 @@ func testEndpointControllerRecovery(t *testing.T, followup string) {
 		}
 		return file
 	}
-	req := deployments.ExecuteRequest{Stack: config.StackSpec{Name: f.stack}, Commit: "initial", Desired: load(32211), SourceChanged: true}
+	req := deployments.ExecuteRequest{Stack: config.StackSpec{Name: f.stack}, Commit: "initial", Desired: load(32211), SourceChanged: true, TargetServices: []string{"job"}}
 	initial, err := f.executor.Execute(f.ctx, req)
 	require.NoError(t, err)
 	require.Equal(t, deploymentmodel.Succeeded, initial.Status)
@@ -129,7 +129,7 @@ func testEndpointControllerRecovery(t *testing.T, followup string) {
 	require.Len(t, original, 1)
 	req.Commit, req.Desired = "endpoint", load(32212)
 	lifecycle := deployments.NewService(f.db, f.bus)
-	attempt, err := lifecycle.StartIfChanged(f.ctx, f.stack, req.Commit, req.Desired, true)
+	attempt, err := lifecycle.StartIfChanged(f.ctx, f.stack, req.Commit, req.Desired, true, deployments.StartOptions{TargetServices: req.Desired.Compose.Services.Names()})
 	require.NoError(t, err)
 	require.NotNil(t, attempt)
 	converted, err := converter.New(f.sw.Networks, f.sw.Configs, f.sw.Secrets).Convert(f.ctx, f.stack, req.Desired.Compose)
@@ -169,7 +169,7 @@ func testEndpointControllerRecovery(t *testing.T, followup string) {
 	t.Logf("recovery: matching spec=%t, nonempty registry credentials=%t", services.SpecsEqual(accepted.Spec, converted.Services[0]), auth != "")
 	// Simulate losing the controller immediately after Docker accepts the write:
 	// leave the Attempt running, then rebuild execution components from SQLite.
-	freshDeployer := deployer.NewDeployer(20*time.Millisecond, 40*time.Second, f.docker, f.sw, nil, deployer.NewSecretResolver(deployer.PlaintextDecoder{}))
+	freshDeployer := deployer.NewDeployer(20*time.Millisecond, 40*time.Second, f.sw, nil, deployer.NewSecretResolver(deployer.PlaintextDecoder{}))
 	recovered := deployments.NewController(deployments.NewService(f.db, f.bus), freshDeployer, f.sw.Services,
 		pruner.NewServicePruner(f.sw.Services, f.bus, config.SyncPolicySpec{}), &metrics.NopDeploys{})
 	require.NoError(t, recovered.Recover(f.ctx))
