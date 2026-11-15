@@ -490,7 +490,7 @@ func saveSuccessfulDeployment(
 ) string {
 	t.Helper()
 	lifecycle := deployments.NewService(db, &dispatcher.NopDispatcher{})
-	attempt, err := lifecycle.StartIfChanged(t.Context(), stack, "commit", desired, true)
+	attempt, err := lifecycle.StartIfChanged(t.Context(), stack, "commit", desired, true, deployments.StartOptions{TargetServices: desired.Compose.Services.Names()})
 	require.NoError(t, err)
 	require.NotNil(t, attempt)
 	require.NoError(t, lifecycle.Complete(t.Context(), attempt.ID, deployments.Completion{

@@ -113,6 +113,7 @@ func TestReconcileReplicaDriftPolicy(t *testing.T) {
 				deployments.NewService(db, publisher), stackDeployer, services, r.pruner, r.deployMetrics)
 			r.preparer = preparation.New(cfg, repository, r.composeRotator)
 			r.attachPipeline()
+			seedAppliedDesired(t, r, config.StackSpec{Name: "app", ComposeFile: "app.yaml"})
 			require.NoError(t, r.Reconcile(t.Context(), ReconciliationRequest{
 				Stack: config.StackSpec{Name: "app", ComposeFile: "app.yaml"}, Commit: "current",
 			}))

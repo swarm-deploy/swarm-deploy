@@ -78,7 +78,7 @@ func TestRealSwarmPausedUpdateRetryAndRecovery(t *testing.T) {
 		require.NoError(t, err)
 		return *file
 	}
-	req := deployments.ExecuteRequest{Stack: config.StackSpec{Name: stack}, Commit: "healthy", Desired: load("sleep 600"), SourceChanged: true}
+	req := deployments.ExecuteRequest{Stack: config.StackSpec{Name: stack}, Commit: "healthy", Desired: load("sleep 600"), SourceChanged: true, TargetServices: []string{"api", "other"}}
 	result, err := controller.Execute(ctx, req)
 	require.NoError(t, err)
 	assert.Equal(t, deploymentmodel.Succeeded, result.Status)

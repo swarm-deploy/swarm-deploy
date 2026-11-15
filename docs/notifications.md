@@ -143,9 +143,16 @@ The former `.TriggeredBy` template field and `triggered_by` JSON field have been
 removed; manual synchronization templates must use `.Username`. The obsolete
 `stack` and `service` aliases are not available in notification JSON.
 
+`DeploySuccess.Services` lists only the services selected for that deployment Attempt.
+Unchanged services are omitted from its notification payload. An Attempt without
+selected services, such as one that only prunes removed services, sends no
+`DeploySuccess` notification; `ServicePruned` reports each removal.
+
 `DeployFailed`, `DeployPreparationFailed`, and `DeployInterrupted` are internal lifecycle
 events. They cannot be configured under `notifications.events`; synchronization failures
 open or update the `sync_failed` alert and use Alert Notifications instead.
+A reconciliation step that fails after a successful Attempt also reports its diagnostic
+through this alert.
 
 ## Date formatting
 

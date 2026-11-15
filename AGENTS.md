@@ -28,18 +28,21 @@
 - Use lowercase types and concise English imperative descriptions.
 - Examples: `feat: add notifications`, `fix: correct tracing keys`, `docs: update architecture`.
 
-## Architecture Decisions
+## Maintainer Approval and Architecture Decisions
 
-**Agents MUST NOT make architectural decisions without explicit maintainer approval.**
+**Agents MUST resolve ambiguities with the maintainer before implementation and MUST NOT make architectural decisions without explicit maintainer approval.**
 
+- Before implementing, identify unclear or conflicting requirements, scope, expected behavior, acceptance criteria, and implementation constraints.
+- For each ambiguity, propose concrete, actionable solutions with their pros, cons, and trade-offs. Recommend a preferred option with rationale and request an explicit maintainer decision. If only one viable solution exists, explain why.
+- Do not guess, silently choose an interpretation, or expand scope. If an ambiguity emerges during implementation, pause the affected work until it is resolved.
 - Preserve existing architecture, component boundaries, and established patterns.
 - Respect the responsibilities and dependency directions documented in `.cursor/rules/architecture.md`; reuse existing components, interfaces, and interaction patterns before introducing abstractions.
 - Do not introduce cross-module dependencies, transfer responsibilities, or change architectural contracts without explicit maintainer approval.
-- Local refactoring and implementation decisions are allowed if they do not change architectural responsibilities.
-- If an implementation conflicts with an established boundary, stop the conflicting work, explain the conflict, motivation, alternatives, and trade-offs, and request explicit maintainer approval before proceeding. Do not resolve documented architectural ambiguities by inventing a rule.
+- If an implementation conflicts with an established boundary, stop the conflicting work, explain the conflict, motivation, alternatives, and trade-offs, recommend a solution, and request explicit maintainer approval before proceeding. Do not resolve documented architectural ambiguities by inventing a rule.
 - Approval of a task does not imply approval of architectural changes.
+- Routine local refactoring and implementation decisions are allowed without separate approval when they are unambiguous and preserve established behavior, architectural responsibilities, and boundaries.
 
-**When in doubt, ask before implementing.**
+**When in doubt, propose options and ask before implementing.**
 
 The module inventory, ownership, interactions, and known boundary issues are in
 `.cursor/rules/architecture.md`. Existing scoped instructions supplement these rules.

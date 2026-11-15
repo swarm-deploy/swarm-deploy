@@ -149,13 +149,6 @@ func (r *Reconciler) Reconcile(
 		}
 		return wrapReconcileError(stage, desiredState.Compose.Services, errors.Join(err, persistErr))
 	}
-	// Persist the prepared revision before execution so an interruption cannot
-	// lose the commit that introduced it. Completion events only project the
-	// deployment outcome and do not reconstruct desired revisions.
-	if err = r.recordPreparedDesired(ctx, req, prepared, &prev); err != nil {
-		return err
-	}
-
 	pl := &pipelinePayload{
 		Stack:            req.Stack,
 		Commit:           req.Commit,
@@ -170,12 +163,14 @@ func (r *Reconciler) Reconcile(
 		if pauseErr != nil {
 			return fmt.Errorf("read sync pause policy: %w", pauseErr)
 		}
-		desiredNames := make([]string, 0, len(prepared.Compose.Services))
-		for _, service := range prepared.Compose.Services {
-			desiredNames = append(desiredNames, service.Name)
-		}
-		pl.PreservedServices = syncpause.PreserveNames(policy, desiredNames, prev)
+		pl.PreservedServices = syncpause.PreserveNames(policy, prepared.Compose.Services.Names(), prev)
 	}
+	// Persist prepared revisions before applying so an interruption cannot lose
+	// the commit that introduced them.
+	if err = r.recordPreparedDesired(ctx, req, prepared, &prev, pl.PreservedServices); err != nil {
+		return err
+	}
+	pl.TargetServices, pl.ServiceCommits = targetServices(prepared, prev, pl.PreservedServices)
 	for name, service := range prev.Services {
 		if service.SelfHealPending {
 			pl.PendingSelfHeal[name] = true
@@ -221,19 +216,17 @@ func (r *Reconciler) recordPreparedDesired(
 	req ReconciliationRequest,
 	prepared *compose.File,
 	previous *model.Stack,
+	preserved []string,
 ) error {
 	desiredServices, err := r.persistDesiredServices(
-		ctx, req.Stack.Name, req.Commit, prepared.ServiceDigests,
+		ctx, req.Stack.Name, req.Commit, prepared.ServiceDigests, preserved,
 	)
 	if err != nil {
 		return wrapReconcileError("persist desired service state", prepared.Compose.Services, err)
 	}
-	if previous.Services == nil {
-		previous.Services = map[string]model.Service{}
-	}
-	for name, service := range desiredServices {
-		previous.Services[name] = service
-	}
+	// Failure handling must use the persisted desired scope so it cannot restore
+	// applied revisions of removed services after a partial pruning failure.
+	previous.Services = desiredServices
 	return nil
 }
 
@@ -242,6 +235,7 @@ func (r *Reconciler) persistDesiredServices(
 	stackName string,
 	commit string,
 	digests map[string]string,
+	preserved []string,
 ) (map[string]model.Service, error) {
 	services := make(map[string]model.Service, len(digests))
 	err := r.stateStore.Update(ctx, func(runtime *model.Runtime) {
@@ -255,8 +249,32 @@ func (r *Reconciler) persistDesiredServices(
 				service.DesiredCommit = commit
 			}
 			service.DesiredDigest = digest
+			service.ApplyPending = service.ApplyPending || service.AppliedDigest != digest
 			stack.Services[name] = service
 			services[name] = service
+		}
+		// A service leaves desired state before it can be pruned. Dropping its applied
+		// revision in the same durable update means that restoring it deploys it again,
+		// even when the process stops after pruning and before the result is recorded.
+		removed := false
+		for name, service := range stack.Services {
+			if _, desired := digests[name]; desired {
+				continue
+			}
+			if slices.Contains(preserved, name) {
+				// Keep runtime visibility while the paused service is retained.
+				// It must be eligible for deployment if restored in Git.
+				service.DesiredDigest, service.DesiredCommit = "", ""
+				service.AppliedDigest, service.AppliedCommit = "", ""
+				service.ApplyPending = false
+				stack.Services[name], services[name] = service, service
+				continue
+			}
+			delete(stack.Services, name)
+			removed = true
+		}
+		if removed {
+			stack.Status = model.NewStackStatus(stack.Services)
 		}
 		runtime.Stacks[stackName] = stack
 	})
@@ -284,14 +302,7 @@ func (r *Reconciler) processResult(
 			serviceStates[service.Name] = previous
 			continue
 		}
-		state := model.Service{
-			Image:           service.Image,
-			DesiredDigest:   previous.DesiredDigest,
-			DesiredCommit:   previous.DesiredCommit,
-			SyncStatus:      model.SyncStatusSynced,
-			SyncAt:          now,
-			SelfHealPending: payload.Attempt == nil && payload.PendingSelfHeal[service.Name],
-		}
+		state := serviceExecutionState(service, previous, payload, now)
 		if state.SelfHealPending {
 			state.SyncStatus = model.SyncStatusOutOfSync
 			state.SyncError = prevState.Services[service.Name].SyncError
@@ -391,7 +402,9 @@ func (r *Reconciler) recordFailure(
 				previous := state.Services[service.Name]
 				state.Services[service.Name] = model.Service{
 					Image: service.Image, DesiredDigest: previous.DesiredDigest, DesiredCommit: previous.DesiredCommit,
-					SyncStatus: model.SyncStatusOutOfSync, SyncAt: time.Now(),
+					AppliedDigest: previous.AppliedDigest, AppliedCommit: previous.AppliedCommit,
+					ApplyPending: previous.ApplyPending,
+					SyncStatus:   model.SyncStatusOutOfSync, SyncAt: time.Now(),
 					SelfHealPending: previous.SelfHealPending, SyncError: previous.SyncError,
 				}
 			}
@@ -411,33 +424,51 @@ func (r *Reconciler) recordPipelineFailure(
 	ctx context.Context, req ReconciliationRequest, prev model.Stack, pl *pipelinePayload, pipeErr *pipe.StepError,
 ) error {
 	services := pl.Desired.Compose.Services
-	var persistErr error
 	if pl.Attempt == nil {
-		persistErr = r.recordFailure(ctx, req.Stack.Name, req.Commit, pl.Desired, pipeErr)
+		persistErr := r.recordFailure(ctx, req.Stack.Name, req.Commit, pl.Desired, pipeErr)
+		return wrapReconcileError(pipeErr.StepName, services, errors.Join(pipeErr, persistErr))
+	}
+	// This write supersedes older completion events. Preserve receipts and the
+	// stack's deployment time if a later reconciliation step failed.
+	failed := prev
+	failed.LastCommit = req.Commit
+	failed.StateUpdatedAt = time.Now().UTC()
+	if pl.ExecutionSucceeded {
+		failed.LastError = postDeploymentFailureCode(pipeErr.StepName)
+		failed.LastDeployAt = pl.Attempt.StartedAt
+		projectAppliedRevisionsAfterFailure(&failed, pl)
 	} else {
-		// Deployments has already classified and committed the terminal Attempt.
-		// GitOps keeps the reconciliation error observable and lets the durable
-		// completion event update its runtime projection.
-		failed := prev
-		failed.LastCommit, failed.LastError = req.Commit, pl.ExecutionError
-		failed.StateUpdatedAt = time.Now().UTC()
+		failed.LastError = pl.ExecutionError
 		if failed.LastError == "" {
 			failed.LastError = events.DeployErrorCodeApplyFailed
 		}
-		if failed.Services == nil {
-			failed.Services = map[string]model.Service{}
+		for _, service := range pl.Attempt.Services(*pl.Desired) {
+			state := failed.Services[service.Name]
+			state.Image = service.Image
+			state.SyncStatus, state.SyncAt = model.SyncStatusOutOfSync, failed.StateUpdatedAt
+			state.SelfHealPending, state.SyncError = false, ""
+			failed.Services[service.Name] = state
 		}
-		for _, service := range services {
-			previous := failed.Services[service.Name]
-			failed.Services[service.Name] = model.Service{
-				Image: service.Image, DesiredDigest: previous.DesiredDigest, DesiredCommit: previous.DesiredCommit,
-				SyncStatus: model.SyncStatusOutOfSync, SyncAt: time.Now(),
-			}
-		}
-		failed.Status = model.NewStackStatus(failed.Services)
-		persistErr = r.stateStore.Update(ctx, func(runtime *model.Runtime) {
+	}
+	failed.Status = model.NewStackStatus(failed.Services)
+	persist := func(ctx context.Context) error {
+		return r.stateStore.Update(ctx, func(runtime *model.Runtime) {
 			runtime.Stacks[req.Stack.Name] = failed
 		})
+	}
+	var persistErr error
+	if pl.ExecutionSucceeded {
+		persistErr = r.db.WithinTransaction(ctx, func(ctx context.Context) error {
+			if err := persist(ctx); err != nil {
+				return err
+			}
+			return r.event.Publish(ctx, &events.DeployPreparationFailed{
+				StackName: req.Stack.Name, Commit: req.Commit, Services: services, ErrorCode: failed.LastError,
+				Stage: pipeErr.StepName, Error: faults.SafeError(pipeErr),
+			})
+		})
+	} else {
+		persistErr = persist(ctx)
 	}
 	return wrapReconcileError(pipeErr.StepName, services, errors.Join(pipeErr, persistErr))
 }

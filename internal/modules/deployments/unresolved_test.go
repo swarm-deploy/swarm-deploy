@@ -129,7 +129,7 @@ func TestNativeDeploymentCarriesUnresolvedRolloutAcrossDesiredDigests(t *testing
 	manager.EXPECT().Update(gomock.Any(), "a-id", gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
 	list(aFailed, bOld, historical)
 	manager.EXPECT().ListTasks(gomock.Any(), "a-id").Return(oldTasks, nil)
-	req := ExecuteRequest{Stack: config.StackSpec{Name: "app"}, Commit: "one", Desired: failedDesired, SourceChanged: true}
+	req := ExecuteRequest{Stack: config.StackSpec{Name: "app"}, Commit: "one", Desired: failedDesired, SourceChanged: true, TargetServices: failedDesired.Compose.Services.Names()}
 	first, err := create().Execute(t.Context(), req)
 	require.ErrorIs(t, err, waiter.ErrConvergenceFailed)
 	assert.ErrorContains(t, err, "migration failed: missing table")
@@ -230,11 +230,11 @@ func TestNativeDeploymentCarriesUnresolvedRolloutAcrossDesiredDigests(t *testing
 func TestUnresolvedServicesSurviveIntermediateFailuresAndRemoval(t *testing.T) {
 	db, lifecycle, _ := openService(t)
 	file := desiredServices("a", "b")
-	first, err := lifecycle.StartIfChanged(t.Context(), "app", "one", file, true)
+	first, err := lifecycle.StartIfChanged(t.Context(), "app", "one", file, true, StartOptions{TargetServices: file.Compose.Services.Names()})
 	require.NoError(t, err)
 	require.NoError(t, lifecycle.Complete(t.Context(), first.ID, Completion{Outcome: CompletionConvergenceFailed, Verification: deploymentmodel.Verification{Known: true, UnresolvedServices: []string{"a"}}}))
 	file.Compose.Services[1].Image = "example/b:2"
-	second, err := NewService(db, &dispatcher.NopDispatcher{}).StartIfChanged(t.Context(), "app", "two", file, true)
+	second, err := NewService(db, &dispatcher.NopDispatcher{}).StartIfChanged(t.Context(), "app", "two", file, true, StartOptions{TargetServices: file.Compose.Services.Names()})
 	require.NoError(t, err)
 	require.NoError(t, lifecycle.Complete(t.Context(), second.ID, Completion{Outcome: CompletionApplyFailed, Verification: deploymentmodel.Verification{Known: true, UnresolvedServices: []string{}}}))
 	stored, _, err := deploymentstore.NewStore(db).Latest(t.Context(), "app")
@@ -242,7 +242,7 @@ func TestUnresolvedServicesSurviveIntermediateFailuresAndRemoval(t *testing.T) {
 	assert.Equal(t, []string{"a"}, stored.Verification.UnresolvedServices)
 	// Explicitly removing a from desired releases its obligation.
 	file.Compose.Services = file.Compose.Services[1:]
-	third, err := lifecycle.StartIfChanged(context.Background(), "app", "three", file, true)
+	third, err := lifecycle.StartIfChanged(context.Background(), "app", "three", file, true, StartOptions{TargetServices: file.Compose.Services.Names()})
 	require.NoError(t, err)
 	stored, err = deploymentstore.NewStore(db).Get(t.Context(), third.DeploymentID)
 	require.NoError(t, err)
@@ -255,7 +255,7 @@ func TestUnresolvedMetadataSurvivesDatabaseReopen(t *testing.T) {
 	require.NoError(t, err)
 	lifecycle := NewService(db, &dispatcher.NopDispatcher{})
 	file := desiredServices("a", "b")
-	attempt, err := lifecycle.StartIfChanged(t.Context(), "app", "one", file, true)
+	attempt, err := lifecycle.StartIfChanged(t.Context(), "app", "one", file, true, StartOptions{TargetServices: file.Compose.Services.Names()})
 	require.NoError(t, err)
 	require.NoError(t, lifecycle.Complete(t.Context(), attempt.ID, Completion{Outcome: CompletionConvergenceFailed, Verification: deploymentmodel.Verification{Known: true, UnresolvedServices: []string{"a"}}}))
 	require.NoError(t, db.Close())
@@ -263,11 +263,11 @@ func TestUnresolvedMetadataSurvivesDatabaseReopen(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close()
 	lifecycle = NewService(db, &dispatcher.NopDispatcher{})
-	skipped, err := lifecycle.StartIfChanged(t.Context(), "app", "tick", file, false)
+	skipped, err := lifecycle.StartIfChanged(t.Context(), "app", "tick", file, false, StartOptions{TargetServices: file.Compose.Services.Names()})
 	require.NoError(t, err)
 	assert.Nil(t, skipped)
 	file.Compose.Services[1].Image = "example/b:2"
-	next, err := lifecycle.StartIfChanged(t.Context(), "app", "two", file, true)
+	next, err := lifecycle.StartIfChanged(t.Context(), "app", "two", file, true, StartOptions{TargetServices: file.Compose.Services.Names()})
 	require.NoError(t, err)
 	stored, err := deploymentstore.NewStore(db).Get(t.Context(), next.DeploymentID)
 	require.NoError(t, err)
@@ -280,7 +280,7 @@ func TestPreApplyFailuresRetainOnlyExistingRolloutObligations(t *testing.T) {
 			t.Run(fmt.Sprint(outcome, unresolved), func(t *testing.T) {
 				db, lifecycle, bus := openService(t)
 				file := desiredServices("a", "b")
-				first, err := lifecycle.StartIfChanged(t.Context(), "app", "one", file, true)
+				first, err := lifecycle.StartIfChanged(t.Context(), "app", "one", file, true, StartOptions{TargetServices: file.Compose.Services.Names()})
 				require.NoError(t, err)
 				completion := Completion{Outcome: CompletionSucceeded}
 				var want []string
@@ -290,7 +290,7 @@ func TestPreApplyFailuresRetainOnlyExistingRolloutObligations(t *testing.T) {
 				}
 				require.NoError(t, lifecycle.Complete(t.Context(), first.ID, completion))
 				file.Compose.Services[1].Image = "example/b:2"
-				second, err := lifecycle.StartIfChanged(t.Context(), "app", "two", file, true)
+				second, err := lifecycle.StartIfChanged(t.Context(), "app", "two", file, true, StartOptions{TargetServices: file.Compose.Services.Names()})
 				require.NoError(t, err)
 				require.NoError(t, lifecycle.Complete(t.Context(), second.ID, Completion{Outcome: outcome}))
 				stored, _, err := deploymentstore.NewStore(db).Latest(t.Context(), "app")
@@ -301,14 +301,14 @@ func TestPreApplyFailuresRetainOnlyExistingRolloutObligations(t *testing.T) {
 				manager := swarm.NewMockServiceManager(ctrl)
 				controller := NewController(NewService(db, bus), deployer.NewMockStackDeployer(ctrl), manager,
 					pruner.NewServicePruner(manager, bus, config.SyncPolicySpec{}), &metrics.NopDeploys{})
-				deferred, err := controller.Execute(t.Context(), ExecuteRequest{Stack: config.StackSpec{Name: "app"}, Desired: file})
+				deferred, err := controller.Execute(t.Context(), ExecuteRequest{Stack: config.StackSpec{Name: "app"}, Desired: file, TargetServices: file.Compose.Services.Names()})
 				require.NoError(t, err)
 				assert.True(t, deferred.RetryDeferred)
 				assert.Nil(t, deferred.Attempt)
 				assert.ElementsMatch(t, []string{"a", "b"}, deferred.UnresolvedServices, "self-heal cannot bypass a failed pre-apply check")
 				// A later digest must not demand new tasks from unaffected healthy services.
 				file.Compose.Services[1].Image = "example/b:3"
-				third, err := NewService(db, bus).StartIfChanged(t.Context(), "app", "three", file, true)
+				third, err := NewService(db, bus).StartIfChanged(t.Context(), "app", "three", file, true, StartOptions{TargetServices: file.Compose.Services.Names()})
 				require.NoError(t, err)
 				stored, err = deploymentstore.NewStore(db).Get(t.Context(), third.DeploymentID)
 				require.NoError(t, err)
@@ -361,7 +361,7 @@ func TestNativeRetryDoesNotTouchUnrelatedPausedExternalJob(t *testing.T) {
 		UpdateStatus: &dockerswarm.UpdateStatus{State: dockerswarm.UpdateStateUpdating}}, nil)
 	manager.EXPECT().ListServices(gomock.Any(), gomock.Any()).Return([]swarm.StackService{backup, failed}, nil)
 	manager.EXPECT().ListTasks(gomock.Any(), web.ID).Return(nil, nil)
-	req := ExecuteRequest{Stack: config.StackSpec{Name: "app"}, Commit: "one", Desired: desired, SourceChanged: true}
+	req := ExecuteRequest{Stack: config.StackSpec{Name: "app"}, Commit: "one", Desired: desired, SourceChanged: true, TargetServices: desired.Compose.Services.Names()}
 	first, err := create().Execute(t.Context(), req)
 	require.Error(t, err)
 	require.NotNil(t, first.Attempt)

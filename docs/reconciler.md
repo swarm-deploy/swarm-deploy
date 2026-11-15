@@ -14,7 +14,7 @@ The current pipeline is:
 4. [Inject Downward metadata when enabled](./downward.md).
 5. Add the swarm-deploy managed label.
 6. [Rotate configs and secrets when enabled](./secrets-rotation.md).
-7. Submit the effective in-memory desired state to Deployments when the source digest changed or the desired state was mutated. Deployments validates desired state, reconciles networks, reconciles configs/secrets, converts Compose to Docker API specs, runs Init Jobs, captures the service baseline, applies services through the Docker API, and waits for convergence.
+7. Compare each effective service digest with its last successfully applied digest. Submit the full desired state and explicit `TargetServices` to Deployments. Deployments validates and applies only selected services and the networks, configs, secrets and volumes they reference, runs their Init Jobs in declared Compose order, and waits for their convergence.
 8. Load live Swarm state.
 9. [Prune managed orphaned services when applicable](./prune.md).
 10. [Analyze drift](./drift.md).
@@ -22,6 +22,77 @@ The current pipeline is:
 12. Reload stack services once and verify every attempted repair against actual Swarm state.
 
 Some steps are conditional. For example, the image policy step is absent when every image rule is disabled, and environment population runs only when at least one desired service declares `env_file`.
+
+## Service revisions and targeted execution
+
+GitOps stores `DesiredDigest` / `DesiredCommit` and `AppliedDigest` / `AppliedCommit`
+for each service. The digest includes the prepared service specification, Init Jobs,
+and referenced resource content. A changed Git commit or source formatting alone
+does not select an unchanged service. A service without applied metadata is selected.
+
+Services outside `TargetServices` keep their live configuration across unrelated
+Git commits. Manual changes from `docker service update` persist until self-heal
+reapplies the service or its effective desired specification changes. Self-heal
+repairs [the drift that swarm-deploy detects](./drift.md). Moving an image tag such
+as `:latest` in the registry does not select the service on a later, unrelated commit.
+
+GitOps has no force redeploy for an unchanged service. To redeploy it through
+GitOps, commit a change to its effective specification, for example a new immutable
+image tag or digest. Manual Sync uses the same target selection and can retry a
+failed Deployment.
+
+A service that leaves desired state loses its applied revision in the same durable
+update that records the new desired revisions, before it can be pruned. Restoring it
+in Compose deploys it again, even when cleanup failed or the process stopped after
+pruning and before the result was recorded. A service kept running because pruning
+is disabled is redeployed as well when restored.
+
+A service's deployment history and the service filter of the deployment list
+include only deployments with an Attempt that executed the service: Attempts
+targeting it, historical whole-stack Attempts, and deployments recorded before
+Attempts were persisted. The `deployment_services` table indexes these executions;
+it is written with each Attempt and backfilled by migration 0005. A history entry
+reports the outcome of the latest Attempt that executed the service and the
+service's source commit. When a failed or interrupted Deployment recorded
+before Attempts were persisted is retried, its whole-stack outcome is stored
+as the first Attempt.
+
+Deployments persists the explicit target list and each target's digest and source
+commit on the Attempt before execution. An empty list selects no services. A nil list,
+including historical Attempts without this field, selects the whole stack. Success
+advances only the selected services' applied revisions. Failure preserves their
+previous applied revisions. `ApplyPending` is persisted with a newly observed desired
+transition and cleared by confirmed success. It keeps a revert to the last successful
+digest eligible for deployment after a failed or interrupted apply may have changed
+Swarm. Event replay uses the Attempt's captured revision rather
+than the latest mutable GitOps desired state.
+
+A Succeeded Deployment keeps its status and Attempt history. If the same desired
+snapshot still needs to apply services without a successful receipt, Deployments
+creates a separate Deployment for those targets. A retry of a failed or interrupted
+Deployment adds an Attempt to that Deployment. It skips services with a valid
+receipt for the same desired snapshot. A retry without remaining targets still
+retries cleanup. Deployments owns failure classification, manual retries and
+automatic backoff. Pruning uses the full desired service list, independently of
+targets. A partial success advances the full-stack comparison baseline once every
+desired service is covered by a successful receipt or the previous baseline.
+
+## Upgrade to per-service applied revisions
+
+When the prepared state matches the latest legacy successful snapshot, swarm-deploy
+adopts the current service digests. The legacy execution confirms their applied
+revisions, using the Deployment commit. The old whole-stack digest discarded
+mount order, so a service with two or more volumes, secrets or configs, including
+mounts in its Init Jobs, cannot be confirmed from that snapshot. Those services
+are redeployed once in a separate Deployment, which records their applied revisions.
+
+If the prepared stack differs from the last snapshot after the upgrade, the first
+deployment applies every service because there are no per-service applied revisions yet.
+Changes to injected variables can cause this even when the Git commit is unchanged.
+
+The history can show consecutive Deployments with the same commit. This happens
+when services lack confirmed application, for example after this migration or when
+reconciliation resumes after a failure or a GitOps runtime reset.
 
 ## Pause Sync policy
 
@@ -35,12 +106,12 @@ specifications or runtime state. Expired records are removed transactionally wit
 the beginning of the next ordinary GitOps sync; no expiration scheduler or worker runs between syncs. An
 operation already running when a pause is created is not canceled.
 
-For each stack reconciliation, GitOps calculates the service names that its current pause policy must
-preserve. It passes those names to Deployments through the neutral `PreservedServices` execution contract.
-Deployments does not read or interpret Pause Sync policy: it excludes preserved services from service apply,
-convergence waiting, service-level mutations, and pruning, while continuing to deploy other services in the
-stack. The no-Attempt pruning and GitOps self-heal paths use the same set. This also keeps a paused live
-service running when it has been removed from Git until its effective pause is removed.
+For each reconciliation, GitOps excludes paused services from `TargetServices`, drift analysis,
+and self-heal. Unpaused services with unapplied revisions continue to deploy. Deployments receives the
+preserved names for pruning and registry authentication refresh. GitOps also preserves those services
+when pruning without an Attempt. This keeps a paused live service running after it is removed from Git
+until its effective pause is removed. A revision observed during a pause remains eligible for deployment
+on the next reconciliation after the pause ends.
 
 Each Deployment and Attempt records the service names intentionally skipped for that execution. Effective
 pause state and paused counts are calculated from active pause records and GitOps-managed services rather

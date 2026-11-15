@@ -12,6 +12,12 @@ Service sync statuses are:
 - `Synced` — live state matches the checked desired fields;
 - `OutOfSync` — drift is present, self-healing failed, or convergence could not be verified.
 
+An unrelated Git commit does not reapply unchanged services or pick up a new image
+behind a floating tag such as `:latest`. Manual edits made with `docker service update`
+persist until self-heal reapplies the service or its effective desired specification
+changes. GitOps has no force redeploy for an unchanged service. See
+[service revisions and targeted execution](./reconciler.md#service-revisions-and-targeted-execution).
+
 ## Self-heal policy
 
 Detection and repair are independent: drift is reported even when self-healing is

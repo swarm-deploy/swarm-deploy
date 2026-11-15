@@ -197,7 +197,7 @@ func TestPersistDesiredServicesTracksChangesPerService(t *testing.T) {
 
 	services, err := reconciler.persistDesiredServices(t.Context(), "app", "commit-1", map[string]string{
 		"api": "digest-a", "worker": "digest-worker",
-	})
+	}, nil)
 	require.NoError(t, err)
 	assert.Equal(t, "commit-1", services["api"].DesiredCommit)
 	assert.Equal(t, "commit-1", services["worker"].DesiredCommit)
@@ -205,14 +205,14 @@ func TestPersistDesiredServicesTracksChangesPerService(t *testing.T) {
 
 	services, err = reconciler.persistDesiredServices(t.Context(), "app", "commit-2", map[string]string{
 		"api": "digest-b", "worker": "digest-worker",
-	})
+	}, nil)
 	require.NoError(t, err)
 	assert.Equal(t, "commit-2", services["api"].DesiredCommit)
 	assert.Equal(t, "commit-1", services["worker"].DesiredCommit, "unchanged service must retain its commit")
 
 	services, err = reconciler.persistDesiredServices(t.Context(), "app", "commit-3", map[string]string{
 		"api": "digest-a", "worker": "digest-worker",
-	})
+	}, nil)
 	require.NoError(t, err)
 	assert.Equal(t, "commit-3", services["api"].DesiredCommit, "revert is a new desired-state change")
 	assert.Equal(t, updatedAt, store.Get().Stacks["app"].StateUpdatedAt, "desired metadata must not affect event ordering")
@@ -234,7 +234,7 @@ func TestProcessResultKeepsDesiredRevisionsForPausedServices(t *testing.T) {
 		}},
 		ServiceDigests: map[string]string{"api": "digest-api", "worker": "digest-worker"},
 	}
-	require.NoError(t, reconciler.recordPreparedDesired(t.Context(), request, desired, &previous))
+	require.NoError(t, reconciler.recordPreparedDesired(t.Context(), request, desired, &previous, []string{"api", "worker"}))
 	require.NoError(t, reconciler.processResult(t.Context(), request, previous, desired, &pipelinePayload{
 		PreservedServices: []string{"api", "worker"},
 	}))
@@ -242,11 +242,11 @@ func TestProcessResultKeepsDesiredRevisionsForPausedServices(t *testing.T) {
 	services := readSQLState(t, store).Stacks["app"].Services
 	assert.Equal(t, model.Service{
 		Image: "api:1", SyncStatus: model.SyncStatusSynced,
-		DesiredDigest: "digest-api", DesiredCommit: "commit-2",
+		DesiredDigest: "digest-api", DesiredCommit: "commit-2", ApplyPending: true,
 	}, services["api"])
 	assert.Equal(t, model.Service{
 		Image: "worker:1", SyncStatus: model.SyncStatusOutOfSync,
-		DesiredDigest: "digest-worker", DesiredCommit: "commit-2",
+		DesiredDigest: "digest-worker", DesiredCommit: "commit-2", ApplyPending: true,
 	}, services["worker"])
 }
 
@@ -485,6 +485,7 @@ func TestReconcileReadsPreviousDigestFromStateStore(t *testing.T) {
 	)
 	reconciler.preparer = preparation.New(reconciler.cfg, repository, reconciler.composeRotator)
 	reconciler.attachPipeline()
+	seedAppliedDesired(t, reconciler, config.StackSpec{Name: "app", ComposeFile: "app.yaml"})
 
 	reconcileErr := reconciler.Reconcile(context.Background(), ReconciliationRequest{
 		Stack: config.StackSpec{
@@ -1040,6 +1041,7 @@ func TestReconcilePrunesServicesWithoutNewDeployment(t *testing.T) {
 			)
 			reconciler.preparer = preparation.New(reconciler.cfg, repository, reconciler.composeRotator)
 			reconciler.attachPipeline()
+			seedAppliedDesired(t, reconciler, config.StackSpec{Name: "app", ComposeFile: "app.yaml"})
 
 			reconcileErr := reconciler.Reconcile(context.Background(), ReconciliationRequest{
 				Stack: config.StackSpec{
@@ -1138,6 +1140,7 @@ func TestReconcileServiceMissedEventOnDrift(t *testing.T) {
 			)
 			reconciler.preparer = preparation.New(reconciler.cfg, repository, reconciler.composeRotator)
 			reconciler.attachPipeline()
+			seedAppliedDesired(t, reconciler, config.StackSpec{Name: "app", ComposeFile: "app.yaml"})
 
 			reconcileErr := reconciler.Reconcile(context.Background(), ReconciliationRequest{
 				Stack: config.StackSpec{
@@ -1279,6 +1282,7 @@ func TestReconcileSelfHealsMissingService(t *testing.T) {
 			)
 			reconciler.preparer = preparation.New(reconciler.cfg, repository, reconciler.composeRotator)
 			reconciler.attachPipeline()
+			seedAppliedDesired(t, reconciler, config.StackSpec{Name: "app", ComposeFile: "app.yaml"})
 
 			err = reconciler.Reconcile(context.Background(), ReconciliationRequest{
 				Stack: config.StackSpec{Name: "app", ComposeFile: "app.yaml"}, Commit: "current",
@@ -1380,6 +1384,7 @@ func TestReconcileSelfHealsReplicaDriftAfterVerification(t *testing.T) {
 	)
 	reconciler.preparer = preparation.New(reconciler.cfg, repository, reconciler.composeRotator)
 	reconciler.attachPipeline()
+	seedAppliedDesired(t, reconciler, config.StackSpec{Name: "app", ComposeFile: "app.yaml"})
 
 	require.NoError(t, reconciler.Reconcile(context.Background(), ReconciliationRequest{
 		Stack: config.StackSpec{Name: "app", ComposeFile: "app.yaml"}, Commit: "current",

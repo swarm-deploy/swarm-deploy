@@ -56,7 +56,7 @@ func TestSequentialInitJobsShareExecutionDeadline(t *testing.T) {
 				desired.Services[0].InitJobs = []compose.InitJob{
 					composeInitJob("first"), composeInitJob("second"), composeInitJob("never-started"),
 				}
-				result, err := d.DeployStack(ctx, StackRequest{StackName: "demo", Desired: desired})
+				result, err := d.DeployStack(ctx, StackRequest{StackName: "demo", Desired: desired, TargetServices: desired.Services.Names()})
 				assert.True(t, InitJobsFailed(err))
 				if earlyFailure {
 					require.ErrorIs(t, err, firstFailure)
@@ -92,7 +92,7 @@ func TestServiceWaiterUsesRemainingExecutionBudget(t *testing.T) {
 				ctx, cancel := context.WithTimeout(t.Context(), 15*time.Minute)
 				defer cancel()
 				started := time.Now()
-				_, err := d.DeployStack(ctx, StackRequest{StackName: "demo", Desired: desired})
+				_, err := d.DeployStack(ctx, StackRequest{StackName: "demo", Desired: desired, TargetServices: desired.Services.Names()})
 				require.ErrorIs(t, err, context.DeadlineExceeded)
 				assert.True(t, ConvergenceFailed(err))
 				assert.NotErrorIs(t, err, waiter.ErrConvergenceFailed)

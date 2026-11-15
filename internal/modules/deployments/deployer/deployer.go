@@ -15,6 +15,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/initjob"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/networks"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/services"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/stack"
 	waiterpkg "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/waiter"
 	deploymentmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/registry"
@@ -121,19 +122,25 @@ func (d *Deployer) RefreshRegistryAuth(ctx context.Context, request StackRequest
 
 // DeployStack runs the full stack deployment pipeline.
 func (d *Deployer) DeployStack(ctx context.Context, request StackRequest) (Result, error) {
+	desired := request.Desired
+	if request.TargetServices != nil {
+		var err error
+		desired, err = stack.TargetServicesCompose(request.Desired, request.TargetServices)
+		if err != nil {
+			return Result{}, err
+		}
+		if len(desired.Services) == 0 {
+			return Result{Verification: deploymentmodel.Verification{Known: true}}, nil
+		}
+	}
 	d.attachPipelines()
-	desired := withoutPreservedServices(request.Desired, request.PreservedServices)
 	payload := &deployStackPayload{
 		stackName: request.StackName, sourceComposePath: request.SourceComposePath, desired: desired,
-		result: Result{Verification: deploymentmodel.Verification{Known: true},
-			SkippedServices: slices.Clone(request.PreservedServices)},
+		result:             Result{Verification: deploymentmodel.Verification{Known: true}},
 		retryFailedUpdates: request.Options.RetryFailedUpdates,
-		unresolvedServices: slices.DeleteFunc(slices.Clone(request.Options.UnresolvedServices), func(name string) bool {
-			return slices.Contains(request.PreservedServices, name)
-		}),
-		preservedServices: slices.Clone(request.PreservedServices),
-		beforeUpdate:      request.BeforeUpdate,
-		applyPayload:      applyPayload{updateGenerations: maps.Clone(request.Options.UpdateGenerations)},
+		unresolvedServices: request.Options.UnresolvedServices,
+		beforeUpdate:       request.BeforeUpdate,
+		applyPayload:       applyPayload{updateGenerations: maps.Clone(request.Options.UpdateGenerations)},
 	}
 
 	ctx, span := otel.GetTracerProvider().Tracer(deployerTracerName).Start(

@@ -47,7 +47,7 @@ func TestBlockedJobFailsDeploymentWhileApplyingIndependentService(t *testing.T) 
 				result, err = d.DeployService(t.Context(), ServiceRequest{StackName: "demo", ServiceName: "job", Desired: desired})
 				assert.Equal(t, stepApplyService, FailedStep(err))
 			} else {
-				result, err = d.DeployStack(t.Context(), StackRequest{StackName: "demo", Desired: desired})
+				result, err = d.DeployStack(t.Context(), StackRequest{StackName: "demo", Desired: desired, TargetServices: desired.Services.Names()})
 				assert.Equal(t, stepApplyStack, FailedStep(err))
 			}
 			require.ErrorIs(t, err, services.ErrUpdateBlocked)
@@ -100,7 +100,7 @@ func TestIdleExternalTemplateUpdateReportsSpecificationOnly(t *testing.T) {
 			if single {
 				result, err = d.DeployService(t.Context(), ServiceRequest{StackName: "demo", ServiceName: "job", Desired: desired})
 			} else {
-				result, err = d.DeployStack(t.Context(), StackRequest{StackName: "demo", Desired: desired})
+				result, err = d.DeployStack(t.Context(), StackRequest{StackName: "demo", Desired: desired, TargetServices: desired.Services.Names()})
 			}
 			require.NoError(t, err)
 			assert.True(t, result.Verification.Known)
@@ -159,7 +159,8 @@ func TestRetryKeepsUnresolvedExternalObligationsWithoutRestartingJobs(t *testing
 			desired := minimalCompose("backup", "web")
 			desired.Services[0].Deploy.Labels = *compose.NewLabels(map[string]string{labelsdict.ServiceSyncPolicyReplicasManagedLabelKey: "false"})
 			result, err := d.DeployStack(t.Context(), StackRequest{StackName: "demo", Desired: desired,
-				Options: StackOptions{RetryFailedUpdates: true, UnresolvedServices: unresolved}})
+				Options: StackOptions{RetryFailedUpdates: true, UnresolvedServices: unresolved}, TargetServices: desired.Services.Names(),
+			})
 			if unresolvedJob {
 				require.ErrorIs(t, err, waiterpkg.ErrConvergenceFailed)
 				assert.Equal(t, []string{"backup"}, result.Verification.UnresolvedServices)
@@ -214,7 +215,7 @@ func TestExternalSchedulerRaceUsesActualAppliedGeneration(t *testing.T) {
 			desired.Services[0].Deploy.Replicas = &zero
 			desired.Services[0].Deploy.Labels = *compose.NewLabels(map[string]string{labelsdict.ServiceSyncPolicyReplicasManagedLabelKey: "false"})
 			desired.Services[0].Environment = compose.Environment{Map: map[string]string{"CHANGED": "yes"}, Keys: []string{"CHANGED"}}
-			result, err := d.DeployStack(t.Context(), StackRequest{StackName: "demo", Desired: desired})
+			result, err := d.DeployStack(t.Context(), StackRequest{StackName: "demo", Desired: desired, TargetServices: desired.Services.Names()})
 			if externalExecution {
 				require.NoError(t, err)
 				assert.Equal(t, []string{"job"}, result.SpecificationOnlyServices)
@@ -262,7 +263,7 @@ func TestExternalInitialCreationAndSubsequentDeploy(t *testing.T) {
 					if single {
 						result, err = d.DeployService(t.Context(), ServiceRequest{StackName: "demo", ServiceName: "job", Desired: desired})
 					} else {
-						result, err = d.DeployStack(t.Context(), StackRequest{StackName: "demo", Desired: desired})
+						result, err = d.DeployStack(t.Context(), StackRequest{StackName: "demo", Desired: desired, TargetServices: desired.Services.Names()})
 					}
 					require.NoError(t, err)
 					assert.True(t, result.Verification.Known)

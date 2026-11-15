@@ -147,6 +147,54 @@ func TestInitJobMigrationPreservesPopulatedV3Database(t *testing.T) {
 	require.NoError(t, err, "the additive table must remain compatible with old writers")
 }
 
+func TestDeploymentServicesMigrationIndexesExecutedServices(t *testing.T) {
+	db, provider := openAtMigration1(t)
+	_, err := provider.UpTo(t.Context(), 4)
+	require.NoError(t, err)
+	started := time.Date(2026, 11, 1, 10, 0, 0, 0, time.UTC)
+	snapshot := `{"definition":{"compose":{"services":[{"name":"api"},{"name":"worker"}]}}}`
+	for _, id := range []string{"targeted", "historical", "legacy"} {
+		_, err = db.Exec(t.Context(), `INSERT INTO deployments
+			(id,stack,"commit",status,error_code,phase,started_at,finished_at,
+			 desired_payload,details_payload,changes_payload)
+			VALUES (?,?,?,?,?,?,?,?,?,'{}','[]')`,
+			id, "app", "commit", "succeeded", "", "completed", started, started, snapshot)
+		require.NoError(t, err)
+	}
+	for id, details := range map[string]string{
+		"targeted":   `{"target_services":["worker"]}`,
+		"historical": `{"target_services":null}`,
+	} {
+		_, err = db.Exec(t.Context(), `INSERT INTO deployment_attempts
+			(id,deployment_id,number,status,error_code,phase,started_at,finished_at,details_payload)
+			VALUES (?,?,1,'succeeded','','completed',?,?,?)`,
+			id+"-attempt", id, started, started, details)
+		require.NoError(t, err)
+	}
+	_, err = provider.Up(t.Context())
+	require.NoError(t, err)
+
+	var rows []struct {
+		Deployment string         `db:"deployment_id"`
+		Attempt    sql.NullString `db:"attempt_id"`
+		Service    string         `db:"service_name"`
+	}
+	require.NoError(t, db.Select(t.Context(), &rows,
+		"SELECT deployment_id, attempt_id, service_name FROM deployment_services ORDER BY deployment_id, service_name"))
+	type row struct{ deployment, attempt, service string }
+	actual := make([]row, 0, len(rows))
+	for _, r := range rows {
+		actual = append(actual, row{r.Deployment, r.Attempt.String, r.Service})
+	}
+	assert.Equal(t, []row{
+		{"historical", "historical-attempt", "api"},
+		{"historical", "historical-attempt", "worker"},
+		{"legacy", "", "api"},
+		{"legacy", "", "worker"},
+		{"targeted", "targeted-attempt", "worker"},
+	}, actual)
+}
+
 func TestDeploymentAttemptMigrationAllowsOldBinaryWrites(t *testing.T) {
 	db, provider := openAtMigration1(t)
 	_, err := provider.Up(t.Context())
@@ -201,6 +249,8 @@ func TestDeploymentAttemptMigrationIsForwardOnly(t *testing.T) {
 	require.NoError(t, err)
 	_, err = provider.Down(t.Context())
 	require.NoError(t, err, "the Pause Sync policy migration is reversible")
+	_, err = provider.Down(t.Context())
+	require.NoError(t, err, "the derived deployment service index is reversible")
 	_, err = provider.Down(t.Context())
 	require.NoError(t, err, "the Init Job table migration is reversible")
 	_, err = provider.Down(t.Context())
@@ -346,7 +396,7 @@ func TestFreshDatabaseEnforcesForeignKeysAndChecks(t *testing.T) {
 	var appliedVersions int
 	require.NoError(t, db.Get(t.Context(), &appliedVersions,
 		"SELECT count(*) FROM goose_db_version WHERE version_id > 0 AND is_applied = 1"))
-	assert.Equal(t, 5, appliedVersions)
+	assert.Equal(t, 6, appliedVersions)
 }
 
 func TestRestartAndRollback(t *testing.T) {

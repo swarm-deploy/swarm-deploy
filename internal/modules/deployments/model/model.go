@@ -183,6 +183,10 @@ type InitJobExecution struct {
 
 // Attempt is one execution of the deployment pipeline for a Deployment.
 type Attempt struct {
+	// TargetServices is the explicit execution scope. Nil identifies historical whole-stack attempts.
+	TargetServices []string `json:"target_services"`
+	// ServiceRevisions retains the source revision executed for each target, independently of later requests.
+	ServiceRevisions map[string]ServiceRevision `json:"-"`
 	// SkippedServices contains services intentionally preserved by the caller's neutral execution policy.
 	SkippedServices []string `json:"skipped_services"`
 	// ID uniquely identifies this execution.
@@ -350,6 +354,14 @@ type Page struct {
 // Prepared contains the redacted effective Compose and private comparison fingerprints.
 // It is persisted in the deployment repository, never in an event envelope.
 type Prepared struct {
+	// ServiceDigests identifies unmasked service state, including referenced resources.
+	ServiceDigests map[string]string `json:"service_digests,omitempty"`
+	// UnconfirmedServices lists services whose adopted digest a historical snapshot
+	// cannot confirm: the whole-stack digest omits their mount order.
+	UnconfirmedServices []string `json:"unconfirmed_services,omitempty"`
+	// OrderedMountServices lists services with order-sensitive mounts. It is derived
+	// in memory for adopting historical snapshots and is never persisted.
+	OrderedMountServices []string `json:"-"`
 	// Definition retains supported effective Compose values after masking.
 	Definition compose.File `json:"definition"`
 	// Digest identifies the unmasked effective state without retaining plaintext.

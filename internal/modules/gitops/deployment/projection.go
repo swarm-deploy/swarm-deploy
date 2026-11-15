@@ -93,14 +93,24 @@ func projectRuntime(
 		state.Services = map[string]gitopsmodel.Service{}
 	}
 	for _, service := range desired.Definition.Compose.Services {
+		if !attempt.Targets(service.Name) {
+			continue
+		}
 		current := state.Services[service.Name]
 		current.Image = service.Image
 		current.SyncAt = projectionTime(attempt)
 		current.SyncError = errorCode
 		current.SyncStatus = gitopsmodel.SyncStatusOutOfSync
 		if status == deploymentmodel.Succeeded {
+			if revision, ok := attempt.ServiceRevisions[service.Name]; ok {
+				current.AppliedDigest, current.AppliedCommit = revision.Digest, revision.Commit
+				current.ApplyPending = current.DesiredDigest != "" && current.DesiredDigest != revision.Digest
+			}
 			current.SyncStatus = gitopsmodel.SyncStatusSynced
 			current.SyncError = ""
+			if current.DesiredDigest != "" && current.AppliedDigest != current.DesiredDigest {
+				current.SyncStatus = gitopsmodel.SyncStatusOutOfSync
+			}
 		}
 		state.Services[service.Name] = current
 	}
