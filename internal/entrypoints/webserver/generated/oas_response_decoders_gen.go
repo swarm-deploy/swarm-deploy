@@ -2042,6 +2042,15 @@ func decodePutStackSyncPauseResponse(resp *http.Response) (res *StackSyncPausesR
 	return res, validate.UnexpectedStatusCodeWithResponse(resp)
 }
 
+func decodeRestartSwarmServiceResponse(resp *http.Response) (res *RestartSwarmServiceNoContent, _ error) {
+	switch resp.StatusCode {
+	case 204:
+		// Code 204.
+		return &RestartSwarmServiceNoContent{}, nil
+	}
+	return res, validate.UnexpectedStatusCodeWithResponse(resp)
+}
+
 func decodeScaleSwarmServiceResponse(resp *http.Response) (res *ScaleSwarmServiceNoContent, _ error) {
 	switch resp.StatusCode {
 	case 204:

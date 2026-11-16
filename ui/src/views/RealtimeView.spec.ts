@@ -8,6 +8,7 @@ const apiMocks = vi.hoisted(() => ({
   fetchSwarmServiceTasks: vi.fn(),
   fetchSwarmTask: vi.fn(),
   scaleSwarmService: vi.fn(),
+  restartSwarmService: vi.fn(),
 }));
 const pauseMocks = vi.hoisted(() => ({
   getServiceSyncPause: vi.fn(),
@@ -51,7 +52,7 @@ function taskDetails(id: string) {
 }
 
 async function mountView() {
-  const wrapper = mount(RealtimeView);
+  const wrapper = mount(RealtimeView, { global: { stubs: { Teleport: true } } });
   await flushPromises();
   return wrapper;
 }
@@ -174,6 +175,7 @@ describe("RealtimeView", () => {
       "Replicas",
       "State",
       "Updated",
+      "Actions",
     ]);
     expect(wrapper.text()).not.toContain("example/api:v1");
     expect(apiMocks.fetchSwarmServices).toHaveBeenCalledTimes(1);
@@ -314,7 +316,7 @@ describe("RealtimeView", () => {
 
   it("refreshes every five seconds, preserves expanded rows, and retains data on temporary errors", async () => {
     vi.useFakeTimers();
-    const wrapper = mount(RealtimeView);
+    const wrapper = mount(RealtimeView, { global: { stubs: { Teleport: true } } });
     await flushPromises();
     await wrapper.findAll(".realtime-expand-button")[0].trigger("click");
     await flushPromises();
@@ -336,7 +338,7 @@ describe("RealtimeView", () => {
   it("pauses polling while hidden and refreshes when the tab becomes visible", async () => {
     vi.useFakeTimers();
     Object.defineProperty(document, "hidden", { configurable: true, value: false });
-    const wrapper = mount(RealtimeView);
+    const wrapper = mount(RealtimeView, { global: { stubs: { Teleport: true } } });
     await flushPromises();
     expect(apiMocks.fetchSwarmServices).toHaveBeenCalledTimes(1);
 
@@ -380,14 +382,10 @@ describe("Realtime service scaling", () => {
       ...["global", "replicated-job", "global-job"].map((mode) => ({ ...services[0], id: mode, full_name: mode, mode })),
     ] });
     const wrapper = await mountView();
-    expect(wrapper.findAll(".realtime-scale-button")).toHaveLength(4);
-    expect(wrapper.findAll(".realtime-service-name-cell .realtime-scale-button")).toHaveLength(0);
-    for (const button of wrapper.findAll(".realtime-replicas .realtime-scale-button")) {
-      expect(button.text()).toBe("");
-      expect(button.find("svg").exists()).toBe(true);
-      expect(button.attributes("title")).toBe("Scale service");
-    }
-    expect(wrapper.find('[aria-label="Scale proxy"]').exists()).toBe(true);
+    expect(wrapper.findAll(".realtime-actions-button")).toHaveLength(4);
+    expect(wrapper.findAll(".realtime-replicas button")).toHaveLength(0);
+    await wrapper.get('[aria-label="Actions for proxy"]').trigger("click");
+    expect(wrapper.get('[aria-label="Scale proxy"]').text()).toContain("Scale replicas");
     for (const row of wrapper.findAll(".realtime-service-row")) {
       if (["global", "replicated-job", "global-job"].some((mode) => row.text().includes(mode))) {
         expect(row.find(".realtime-scale-button").exists()).toBe(false);
@@ -398,6 +396,7 @@ describe("Realtime service scaling", () => {
 
   it("opens with the configured count instead of task counts without expanding the row", async () => {
     const wrapper = await mountView();
+    await wrapper.get('[aria-label="Actions for api"]').trigger("click");
     await wrapper.get('[aria-label="Scale api"]').trigger("click");
     expect(apiMocks.fetchSwarmServiceTasks).not.toHaveBeenCalled();
     expect(wrapper.find(".realtime-task-row").exists()).toBe(false);
@@ -418,6 +417,7 @@ describe("Realtime service scaling", () => {
 
   it("shows the GitOps scaling warning only in the Pause Sync tooltip", async () => {
     const wrapper = await mountView();
+    await wrapper.get('[aria-label="Actions for api"]').trigger("click");
     await wrapper.get('[aria-label="Scale api"]').trigger("click");
     await flushPromises();
     const modal = wrapper.get('[role="dialog"]');
@@ -451,6 +451,7 @@ describe("Realtime service scaling", () => {
 
   it("displays Standalone for services outside stacks", async () => {
     const wrapper = await mountView();
+    await wrapper.get('[aria-label="Actions for proxy"]').trigger("click");
     await wrapper.get('[aria-label="Scale proxy"]').trigger("click");
     expect(wrapper.get('[role="dialog"]').text()).toContain("Standalone");
     wrapper.unmount();
@@ -458,6 +459,7 @@ describe("Realtime service scaling", () => {
 
   it.each(["", "-1", "1.5", "invalid", "9007199254740992"])("rejects invalid replicas: %s", async (value) => {
     const wrapper = await mountView();
+    await wrapper.get('[aria-label="Actions for api"]').trigger("click");
     await wrapper.get('[aria-label="Scale api"]').trigger("click");
     await wrapper.get("#realtime-scale-replicas").setValue(value);
     expect(wrapper.get('button[type="submit"]').attributes("disabled")).toBeDefined();
@@ -473,6 +475,7 @@ describe("Realtime service scaling", () => {
     await flushPromises();
     await wrapper.findAll(".realtime-task-select")[0].trigger("click");
     await flushPromises();
+    await wrapper.get('[aria-label="Actions for api"]').trigger("click");
     await wrapper.get('[aria-label="Scale api"]').trigger("click");
     await wrapper.get('[aria-label="Increase replicas"]').trigger("click");
     expect(wrapper.get<HTMLInputElement>("#realtime-scale-replicas").element.value).toBe("5");
@@ -501,6 +504,7 @@ describe("Realtime service scaling", () => {
     let reject!: (reason: Error) => void;
     apiMocks.scaleSwarmService.mockImplementationOnce(() => new Promise((_resolve, fail) => { reject = fail; }));
     const wrapper = await mountView();
+    await wrapper.get('[aria-label="Actions for api"]').trigger("click");
     await wrapper.get('[aria-label="Scale api"]').trigger("click");
     await wrapper.get("#realtime-scale-replicas").setValue("5");
     await wrapper.get("form").trigger("submit");
@@ -529,6 +533,7 @@ describe("Realtime service scaling", () => {
     });
     apiMocks.scaleSwarmService.mockImplementation(async () => { order.push("scale"); });
     const wrapper = await mountView();
+    await wrapper.get('[aria-label="Actions for api"]').trigger("click");
     await wrapper.get('[aria-label="Scale api"]').trigger("click");
     await flushPromises();
     await wrapper.get('.realtime-scale-pause-toggle input[type="checkbox"]').setValue(true);
@@ -550,8 +555,10 @@ describe("Realtime service scaling", () => {
     }));
     const wrapper = await mountView();
 
+    await wrapper.get('[aria-label="Actions for api"]').trigger("click");
     await wrapper.get('[aria-label="Scale api"]').trigger("click");
     await wrapper.get('[aria-label="Close scaling modal"]').trigger("click");
+    await wrapper.get('[aria-label="Actions for worker"]').trigger("click");
     await wrapper.get('[aria-label="Scale worker"]').trigger("click");
     resolveWorker({ effective_paused: true, effective_source: "stack" });
     await flushPromises();
@@ -568,6 +575,7 @@ describe("Realtime service scaling", () => {
   it("keeps a successful pause when scaling fails and retries only scaling", async () => {
     apiMocks.scaleSwarmService.mockRejectedValueOnce(new Error("manager unavailable")).mockResolvedValueOnce(undefined);
     const wrapper = await mountView();
+    await wrapper.get('[aria-label="Actions for api"]').trigger("click");
     await wrapper.get('[aria-label="Scale api"]').trigger("click");
     await flushPromises();
     await wrapper.get('.realtime-scale-pause-toggle input[type="checkbox"]').setValue(true);
@@ -598,6 +606,7 @@ describe("Realtime service scaling", () => {
     await vi.advanceTimersByTimeAsync(5_000);
     await flushPromises();
     // An old task poll remains in flight when scaling succeeds.
+    await wrapper.get('[aria-label="Actions for api"]').trigger("click");
     await wrapper.get('[aria-label="Scale api"]').trigger("click");
     await wrapper.get("#realtime-scale-replicas").setValue("5");
     apiMocks.fetchSwarmServices.mockResolvedValueOnce({ services: services.map((service) => ({ ...service, configured_replicas: 5 })) });
@@ -609,6 +618,7 @@ describe("Realtime service scaling", () => {
 
     apiMocks.fetchSwarmServices.mockImplementationOnce(() => new Promise((resolve) => { resolveOldServices = resolve; }));
     await vi.advanceTimersByTimeAsync(5_000);
+    await wrapper.get('[aria-label="Actions for api"]').trigger("click");
     await wrapper.get('[aria-label="Scale api"]').trigger("click");
     await wrapper.get("#realtime-scale-replicas").setValue("6");
     const latest = services.map((service) => ({ ...service, configured_replicas: 6, replicas: { running: 2, desired: 6 } }));
@@ -618,12 +628,70 @@ describe("Realtime service scaling", () => {
     resolveOldServices({ services });
     await flushPromises();
     expect(wrapper.findAll(".realtime-replicas")[0].text()).toBe("2/6");
+    await wrapper.get('[aria-label="Actions for api"]').trigger("click");
     await wrapper.get('[aria-label="Scale api"]').trigger("click");
     expect(wrapper.get<HTMLInputElement>("#realtime-scale-replicas").element.value).toBe("6");
     const calls = apiMocks.fetchSwarmServices.mock.calls.length;
     await vi.advanceTimersByTimeAsync(5_000);
     await flushPromises();
     expect(apiMocks.fetchSwarmServices).toHaveBeenCalledTimes(calls + 1);
+    wrapper.unmount();
+  });
+});
+
+describe("Realtime service restart", () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+    window.localStorage.setItem("realtime.refreshInterval", "0");
+    apiMocks.fetchSwarmServices.mockResolvedValue({ services });
+    apiMocks.fetchSwarmServiceTasks.mockResolvedValue({ tasks });
+    apiMocks.restartSwarmService.mockResolvedValue(undefined);
+  });
+  afterEach(() => vi.clearAllMocks());
+
+  it("offers restart only for replicated services with nonzero desired and configured counts", async () => {
+    apiMocks.fetchSwarmServices.mockResolvedValue({ services: [
+      ...services,
+      { ...services[0], id: "zero", name: "zero", full_name: "zero", configured_replicas: 0 },
+      ...["global", "replicated-job", "global-job"].map((mode) => ({ ...services[0], id: mode, name: mode, full_name: mode, mode })),
+    ] });
+    const wrapper = await mountView();
+    expect(wrapper.findAll(".realtime-actions-button")).toHaveLength(5);
+    for (const name of ["api", "proxy", "reports", "zero"]) {
+      await wrapper.get(`[aria-label="Actions for ${name}"]`).trigger("click");
+      expect(wrapper.get(".realtime-actions-menu").text().includes("Restart service")).toBe(["api", "proxy"].includes(name));
+      expect(wrapper.get(".realtime-actions-menu").text()).toContain("Scale replicas");
+    }
+    expect(apiMocks.fetchSwarmServiceTasks).not.toHaveBeenCalled();
+    wrapper.unmount();
+  });
+
+  it.each([null, "service changed while restarting; refresh and retry", "unable to restart service"])("refreshes after completion and prevents duplicate requests: %s", async (failure) => {
+    let finish!: () => void;
+    apiMocks.restartSwarmService.mockImplementationOnce(() => new Promise<void>((resolve, reject) => {
+      finish = () => failure ? reject(new Error(failure)) : resolve();
+    }));
+    const wrapper = await mountView();
+    await wrapper.get('[aria-label="Actions for api"]').trigger("click");
+    await wrapper.get(".realtime-actions-menu button").trigger("click");
+    expect(wrapper.get('[role="dialog"]').text()).toContain("All replicas will temporarily stop");
+    expect(apiMocks.restartSwarmService).not.toHaveBeenCalled();
+    const submit = wrapper.findAll('[role="dialog"] button').find((button) => button.text() === "Restart")!;
+    await submit.trigger("click");
+    await submit.trigger("click");
+    expect(apiMocks.restartSwarmService).toHaveBeenCalledExactlyOnceWith("one");
+    expect(wrapper.get('[aria-label="Close modal"]').attributes("disabled")).toBeDefined();
+    apiMocks.fetchSwarmServices.mockResolvedValue({ services: services.map((service) => service.id === "one" ? { ...service, configured_replicas: failure ? 0 : 4, replicas: { running: 0, desired: failure ? 0 : 4 } } : service) });
+    finish();
+    await flushPromises();
+    expect(apiMocks.fetchSwarmServices).toHaveBeenCalledTimes(2);
+    expect(wrapper.findAll(".realtime-replicas")[0].text()).toBe(failure ? "0/0" : "0/4");
+    if (failure) {
+      expect(wrapper.get('[role="alert"]').text()).toContain(failure);
+      expect(wrapper.get('[role="alert"]').text()).toContain("Replica state may have changed");
+      expect(wrapper.get('[role="dialog"]').text()).not.toContain("Restarting...");
+    } else expect(wrapper.find('[role="dialog"]').exists()).toBe(false);
+    expect(apiMocks.restartSwarmService).toHaveBeenCalledTimes(1);
     wrapper.unmount();
   });
 });

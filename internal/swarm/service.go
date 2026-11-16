@@ -17,6 +17,9 @@ var ErrServiceModeUnsupported = errors.New("only replicated services can be scal
 // ErrServiceUpdateConflict means the service changed during an update.
 var ErrServiceUpdateConflict = errors.New("service changed while updating replicas; refresh and retry")
 
+// ErrServiceZeroReplicas means a stopped service cannot be restarted.
+var ErrServiceZeroReplicas = errors.New("cannot restart a service with zero configured replicas")
+
 // ServiceScaleResult describes the service and replica count before a successful scale.
 type ServiceScaleResult struct {
 	// Stack is the Docker stack namespace, or empty for standalone services.
@@ -305,6 +308,11 @@ func NewServiceReference(stackName, serviceName string) ServiceReference {
 	}
 }
 
+// NewServiceIDReference targets a live Docker service, including standalone services.
+func NewServiceIDReference(serviceID string) ServiceReference {
+	return ServiceReference{fullName: serviceID}
+}
+
 // StackName returns stack name part.
 func (r ServiceReference) StackName() string {
 	return r.stackName
@@ -315,7 +323,7 @@ func (r ServiceReference) ServiceName() string {
 	return r.serviceName
 }
 
-// Name returns full service name as "<stack>_<service>".
+// Name returns the Docker selector: a full stack service name or service ID.
 func (r ServiceReference) Name() string {
 	return r.fullName
 }

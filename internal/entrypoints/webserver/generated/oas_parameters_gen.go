@@ -4361,6 +4361,91 @@ func decodePutStackSyncPauseParams(args [1]string, argsEscaped bool, r *http.Req
 	return params, nil
 }
 
+// RestartSwarmServiceParams is parameters of restartSwarmService operation.
+type RestartSwarmServiceParams struct {
+	ServiceID string
+}
+
+func unpackRestartSwarmServiceParams(packed middleware.Parameters) (params RestartSwarmServiceParams) {
+	{
+		key := middleware.ParameterKey{
+			Name: "serviceID",
+			In:   "path",
+		}
+		params.ServiceID = packed[key].(string)
+	}
+	return params
+}
+
+func decodeRestartSwarmServiceParams(args [1]string, argsEscaped bool, r *http.Request) (params RestartSwarmServiceParams, _ error) {
+	// Decode path: serviceID.
+	if err := func() error {
+		param := args[0]
+		if argsEscaped {
+			unescaped, err := url.PathUnescape(args[0])
+			if err != nil {
+				return errors.Wrap(err, "unescape path")
+			}
+			param = unescaped
+		}
+		if len(param) > 0 {
+			d := uri.NewPathDecoder(uri.PathDecoderConfig{
+				Param:   "serviceID",
+				Value:   param,
+				Style:   uri.PathStyleSimple,
+				Explode: false,
+			})
+
+			if err := func() error {
+				val, err := d.DecodeValue()
+				if err != nil {
+					return err
+				}
+
+				c, err := conv.ToString(val)
+				if err != nil {
+					return err
+				}
+
+				params.ServiceID = c
+				return nil
+			}(); err != nil {
+				return err
+			}
+			if err := func() error {
+				if err := (validate.String{
+					MinLength:     1,
+					MinLengthSet:  true,
+					MaxLength:     0,
+					MaxLengthSet:  false,
+					Email:         false,
+					Hostname:      false,
+					Regex:         nil,
+					MinNumeric:    0,
+					MinNumericSet: false,
+					MaxNumeric:    0,
+					MaxNumericSet: false,
+				}).Validate(string(params.ServiceID)); err != nil {
+					return errors.Wrap(err, "string")
+				}
+				return nil
+			}(); err != nil {
+				return err
+			}
+		} else {
+			return validate.ErrFieldRequired
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "serviceID",
+			In:   "path",
+			Err:  err,
+		}
+	}
+	return params, nil
+}
+
 // ScaleSwarmServiceParams is parameters of scaleSwarmService operation.
 type ScaleSwarmServiceParams struct {
 	ServiceID string

@@ -32,7 +32,7 @@ var (
 	rn22AllowedHeaders = map[string]string{
 		"PUT": "Content-Type",
 	}
-	rn80AllowedHeaders = map[string]string{
+	rn82AllowedHeaders = map[string]string{
 		"PUT": "Content-Type",
 	}
 )
@@ -1615,31 +1615,72 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 										break
 									}
 									switch elem[0] {
-									case 'r': // Prefix: "replicas"
+									case 'r': // Prefix: "re"
 
-										if l := len("replicas"); len(elem) >= l && elem[0:l] == "replicas" {
+										if l := len("re"); len(elem) >= l && elem[0:l] == "re" {
 											elem = elem[l:]
 										} else {
 											break
 										}
 
 										if len(elem) == 0 {
-											// Leaf node.
-											switch r.Method {
-											case "PUT":
-												s.handleScaleSwarmServiceRequest([1]string{
-													args[0],
-												}, elemIsEscaped, w, r)
-											default:
-												s.notAllowed(w, r, notAllowedParams{
-													allowedMethods: "PUT",
-													allowedHeaders: rn80AllowedHeaders,
-													acceptPost:     "",
-													acceptPatch:    "",
-												})
+											break
+										}
+										switch elem[0] {
+										case 'p': // Prefix: "plicas"
+
+											if l := len("plicas"); len(elem) >= l && elem[0:l] == "plicas" {
+												elem = elem[l:]
+											} else {
+												break
 											}
 
-											return
+											if len(elem) == 0 {
+												// Leaf node.
+												switch r.Method {
+												case "PUT":
+													s.handleScaleSwarmServiceRequest([1]string{
+														args[0],
+													}, elemIsEscaped, w, r)
+												default:
+													s.notAllowed(w, r, notAllowedParams{
+														allowedMethods: "PUT",
+														allowedHeaders: rn82AllowedHeaders,
+														acceptPost:     "",
+														acceptPatch:    "",
+													})
+												}
+
+												return
+											}
+
+										case 's': // Prefix: "start"
+
+											if l := len("start"); len(elem) >= l && elem[0:l] == "start" {
+												elem = elem[l:]
+											} else {
+												break
+											}
+
+											if len(elem) == 0 {
+												// Leaf node.
+												switch r.Method {
+												case "POST":
+													s.handleRestartSwarmServiceRequest([1]string{
+														args[0],
+													}, elemIsEscaped, w, r)
+												default:
+													s.notAllowed(w, r, notAllowedParams{
+														allowedMethods: "POST",
+														allowedHeaders: nil,
+														acceptPost:     "",
+														acceptPatch:    "",
+													})
+												}
+
+												return
+											}
+
 										}
 
 									case 't': // Prefix: "tasks"
@@ -3370,29 +3411,68 @@ func (s *Server) FindPath(method string, u *url.URL) (r Route, _ bool) {
 										break
 									}
 									switch elem[0] {
-									case 'r': // Prefix: "replicas"
+									case 'r': // Prefix: "re"
 
-										if l := len("replicas"); len(elem) >= l && elem[0:l] == "replicas" {
+										if l := len("re"); len(elem) >= l && elem[0:l] == "re" {
 											elem = elem[l:]
 										} else {
 											break
 										}
 
 										if len(elem) == 0 {
-											// Leaf node.
-											switch method {
-											case "PUT":
-												r.name = ScaleSwarmServiceOperation
-												r.summary = ""
-												r.operationID = "scaleSwarmService"
-												r.operationGroup = ""
-												r.pathPattern = "/api/v1/swarm/services/{serviceID}/replicas"
-												r.args = args
-												r.count = 1
-												return r, true
-											default:
-												return
+											break
+										}
+										switch elem[0] {
+										case 'p': // Prefix: "plicas"
+
+											if l := len("plicas"); len(elem) >= l && elem[0:l] == "plicas" {
+												elem = elem[l:]
+											} else {
+												break
 											}
+
+											if len(elem) == 0 {
+												// Leaf node.
+												switch method {
+												case "PUT":
+													r.name = ScaleSwarmServiceOperation
+													r.summary = ""
+													r.operationID = "scaleSwarmService"
+													r.operationGroup = ""
+													r.pathPattern = "/api/v1/swarm/services/{serviceID}/replicas"
+													r.args = args
+													r.count = 1
+													return r, true
+												default:
+													return
+												}
+											}
+
+										case 's': // Prefix: "start"
+
+											if l := len("start"); len(elem) >= l && elem[0:l] == "start" {
+												elem = elem[l:]
+											} else {
+												break
+											}
+
+											if len(elem) == 0 {
+												// Leaf node.
+												switch method {
+												case "POST":
+													r.name = RestartSwarmServiceOperation
+													r.summary = ""
+													r.operationID = "restartSwarmService"
+													r.operationGroup = ""
+													r.pathPattern = "/api/v1/swarm/services/{serviceID}/restart"
+													r.args = args
+													r.count = 1
+													return r, true
+												default:
+													return
+												}
+											}
+
 										}
 
 									case 't': // Prefix: "tasks"

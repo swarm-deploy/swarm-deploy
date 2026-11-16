@@ -213,6 +213,17 @@ type Invoker interface {
 	//
 	// PUT /api/v1/stacks/{stack}/sync-pause
 	PutStackSyncPause(ctx context.Context, request *SyncPauseRequest, params PutStackSyncPauseParams) (*StackSyncPausesResponse, error)
+	// RestartSwarmService invokes restartSwarmService operation.
+	//
+	// Restarts a live replicated service, including standalone services, by scaling N to 0 to N. 204
+	// means Docker accepted restoration, not that tasks are Running. Unsupported global/job modes return
+	// 400, missing services 404, zero configured replicas or concurrent changes 409, and internal/Docker
+	// failures 500. Failure after scaling to zero may leave replicas at zero; refresh live state and
+	// check replicas before retrying. Errors use error_message and hide Docker diagnostics. Event
+	// publication failure after restoration does not change success.
+	//
+	// POST /api/v1/swarm/services/{serviceID}/restart
+	RestartSwarmService(ctx context.Context, params RestartSwarmServiceParams) error
 	// ScaleSwarmService invokes scaleSwarmService operation.
 	//
 	// Updates live replicated services, including standalone services, without waiting for tasks or
@@ -4738,6 +4749,104 @@ func (c *Client) sendPutStackSyncPause(ctx context.Context, request *SyncPauseRe
 
 	stage = "DecodeResponse"
 	result, err := decodePutStackSyncPauseResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// RestartSwarmService invokes restartSwarmService operation.
+//
+// Restarts a live replicated service, including standalone services, by scaling N to 0 to N. 204
+// means Docker accepted restoration, not that tasks are Running. Unsupported global/job modes return
+// 400, missing services 404, zero configured replicas or concurrent changes 409, and internal/Docker
+// failures 500. Failure after scaling to zero may leave replicas at zero; refresh live state and
+// check replicas before retrying. Errors use error_message and hide Docker diagnostics. Event
+// publication failure after restoration does not change success.
+//
+// POST /api/v1/swarm/services/{serviceID}/restart
+func (c *Client) RestartSwarmService(ctx context.Context, params RestartSwarmServiceParams) error {
+	_, err := c.sendRestartSwarmService(ctx, params)
+	return err
+}
+
+func (c *Client) sendRestartSwarmService(ctx context.Context, params RestartSwarmServiceParams) (res *RestartSwarmServiceNoContent, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("restartSwarmService"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/api/v1/swarm/services/{serviceID}/restart"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, RestartSwarmServiceOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/api/v1/swarm/services/"
+	{
+		// Encode "serviceID" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "serviceID",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.StringToString(params.ServiceID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = "/restart"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer body.Close()
+
+	stage = "DecodeResponse"
+	result, err := decodeRestartSwarmServiceResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
