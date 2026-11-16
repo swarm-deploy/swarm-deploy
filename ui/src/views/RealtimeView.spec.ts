@@ -674,6 +674,50 @@ describe("Realtime service restart", () => {
     }
   });
 
+  it.each([
+    ["Restart service", "realtime-restart-title"],
+    ["Scale replicas", "realtime-scale-title"],
+  ])("opens %s when a tap clears focus before click", async (action, dialogTitle) => {
+    const wrapper = mount(RealtimeView, { attachTo: document.body, global: { stubs: { RouterLink: true } } });
+    try {
+      await flushPromises();
+      await wrapper.get('[aria-label="Actions for proxy"]').trigger("click");
+      const menu = document.querySelector(".realtime-actions-menu")!;
+      const option = [...menu.querySelectorAll("button")].find((button) => button.textContent?.trim() === action)!;
+      expect(document.activeElement).toBe(menu.querySelector("button"));
+
+      document.activeElement!.dispatchEvent(new FocusEvent("focusout", { bubbles: true, relatedTarget: null }));
+      await flushPromises();
+      expect(option.isConnected).toBe(true);
+      option.click();
+      await flushPromises();
+
+      expect(wrapper.get('[role="dialog"]').attributes("aria-labelledby")).toBe(dialogTitle);
+      expect(document.querySelector(".realtime-actions-menu")).toBeNull();
+    } finally {
+      wrapper.unmount();
+    }
+  });
+
+  it("closes Actions when tapping an outside control that stops click propagation", async () => {
+    const wrapper = mount(RealtimeView, { attachTo: document.body, global: { stubs: { RouterLink: true } } });
+    try {
+      await flushPromises();
+      const trigger = wrapper.get('[aria-label="Actions for api"]');
+      await trigger.trigger("click");
+      expect(trigger.attributes("aria-expanded")).toBe("true");
+
+      document.activeElement!.dispatchEvent(new FocusEvent("focusout", { bubbles: true, relatedTarget: null }));
+      await flushPromises();
+      await wrapper.get('[aria-label="Expand api"]').trigger("click");
+
+      expect(trigger.attributes("aria-expanded")).toBe("false");
+      expect(apiMocks.fetchSwarmServiceTasks).toHaveBeenCalledWith("one");
+    } finally {
+      wrapper.unmount();
+    }
+  });
+
   it("offers restart only for replicated services with nonzero desired and configured counts", async () => {
     apiMocks.fetchSwarmServices.mockResolvedValue({ services: [
       ...services,

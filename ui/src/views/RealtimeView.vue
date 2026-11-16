@@ -98,7 +98,8 @@ function closeActions(): void {
 
 function handleActionsFocusout(event: FocusEvent): void {
   const nextFocus = event.relatedTarget;
-  if (nextFocus === actionsTrigger.value || (nextFocus instanceof Node && actionsMenu.value?.contains(nextFocus))) return;
+  // A tap can clear focus before the browser dispatches the click.
+  if (!nextFocus || nextFocus === actionsTrigger.value || (nextFocus instanceof Node && actionsMenu.value?.contains(nextFocus))) return;
   actionsService.value = null;
 }
 
@@ -529,7 +530,7 @@ watch(refreshInterval, startPolling);
 
 onMounted(() => {
   document.addEventListener("visibilitychange", handleVisibilityChange);
-  document.addEventListener("click", handleDocumentClick);
+  document.addEventListener("click", handleDocumentClick, true);
   void loadServices();
   startPolling();
 });
@@ -541,7 +542,7 @@ onUnmounted(() => {
   stopPolling();
   if (copiedErrorResetTimer !== undefined) window.clearTimeout(copiedErrorResetTimer);
   document.removeEventListener("visibilitychange", handleVisibilityChange);
-  document.removeEventListener("click", handleDocumentClick);
+  document.removeEventListener("click", handleDocumentClick, true);
 });
 </script>
 
