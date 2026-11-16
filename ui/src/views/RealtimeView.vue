@@ -3,7 +3,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 
 import AppModal from "../components/common/AppModal.vue";
 import { ApiError } from "../api/client";
-import { fetchSwarmServices, fetchSwarmServiceTasks, fetchSwarmTask, scaleSwarmService } from "../api/services";
+import { fetchSwarmServices, fetchSwarmServiceTasks, fetchSwarmTask, restartSwarmService, scaleSwarmService } from "../api/services";
 import {
   expirationForDuration,
   getServiceSyncPause,
@@ -82,6 +82,67 @@ const logsTaskID = ref("");
 const logsOpen = ref(false);
 const copiedErrorTaskID = ref("");
 const scalingService = ref<SwarmService | null>(null);
+const actionsService = ref<SwarmService | null>(null);
+const actionsPosition = ref({ top: "0px", right: "0px" });
+const actionsTrigger = ref<HTMLElement | null>(null);
+const actionsMenu = ref<HTMLElement | null>(null);
+const restartingService = ref<SwarmService | null>(null);
+const restartPending = ref(false);
+const restartError = ref("");
+const restartFailed = ref(false);
+
+function closeActions(): void {
+  actionsService.value = null;
+  actionsTrigger.value?.focus();
+}
+
+function handleActionsFocusout(event: FocusEvent): void {
+  const nextFocus = event.relatedTarget;
+  // A tap can clear focus before the browser dispatches the click.
+  if (!nextFocus || nextFocus === actionsTrigger.value || (nextFocus instanceof Node && actionsMenu.value?.contains(nextFocus))) return;
+  actionsService.value = null;
+}
+
+async function toggleActions(service: SwarmService, event: MouseEvent): Promise<void> {
+  if (actionsService.value?.id === service.id) { closeActions(); return; }
+  actionsTrigger.value = event.currentTarget as HTMLElement;
+  const rect = actionsTrigger.value.getBoundingClientRect();
+  actionsPosition.value = { top: `${Math.min(rect.bottom + 4, window.innerHeight - 100)}px`, right: `${Math.min(window.innerWidth - 188, Math.max(8, window.innerWidth - rect.right))}px` };
+  actionsService.value = service;
+  await nextTick();
+  actionsMenu.value?.querySelector("button")?.focus();
+}
+
+function openRestart(service: SwarmService): void {
+  closeActions();
+  restartingService.value = service;
+  restartError.value = "";
+  restartFailed.value = false;
+}
+
+async function submitRestart(): Promise<void> {
+  if (!restartingService.value || restartPending.value || restartFailed.value) return;
+  restartPending.value = true;
+  try {
+    await restartSwarmService(restartingService.value.id);
+    if (!disposed) restartingService.value = null;
+  } catch (reason) {
+    if (!disposed) {
+      restartFailed.value = true;
+      restartError.value = `${errorMessage(reason)}. Replica state may have changed; check the current replica count before trying again.`;
+    }
+  } finally {
+    if (!disposed) {
+      for (const [id, state] of Object.entries(tasksByService.value)) {
+        taskRequests.set(id, (taskRequests.get(id) ?? 0) + 1);
+        state.loading = false;
+      }
+      await loadServices(true);
+      restartPending.value = false;
+    }
+  }
+}
+
 const scaleInput = ref<number | string>("");
 const scalePending = ref(false);
 const scaleError = ref("");
@@ -139,6 +200,7 @@ function onScaleEscape(event: KeyboardEvent): void {
 }
 
 async function openScale(service: SwarmService): Promise<void> {
+  closeActions();
   const request = ++scalePauseRequest;
   scalingService.value = service;
   scaleInput.value = service.configured_replicas ?? "";
@@ -452,6 +514,7 @@ function selectRefreshInterval(interval: RefreshInterval): void {
 }
 
 function handleDocumentClick(event: MouseEvent): void {
+  if (!(event.target as Element | null)?.closest(".realtime-actions-menu, .realtime-actions-button")) actionsService.value = null;
   if (!(event.target instanceof Node) || refreshMenu.value?.contains(event.target)) return;
   refreshMenu.value?.removeAttribute("open");
 }
@@ -467,7 +530,7 @@ watch(refreshInterval, startPolling);
 
 onMounted(() => {
   document.addEventListener("visibilitychange", handleVisibilityChange);
-  document.addEventListener("click", handleDocumentClick);
+  document.addEventListener("click", handleDocumentClick, true);
   void loadServices();
   startPolling();
 });
@@ -479,7 +542,7 @@ onUnmounted(() => {
   stopPolling();
   if (copiedErrorResetTimer !== undefined) window.clearTimeout(copiedErrorResetTimer);
   document.removeEventListener("visibilitychange", handleVisibilityChange);
-  document.removeEventListener("click", handleDocumentClick);
+  document.removeEventListener("click", handleDocumentClick, true);
 });
 </script>
 
@@ -586,9 +649,10 @@ onUnmounted(() => {
             <col class="realtime-col-replicas" />
             <col class="realtime-col-state" />
             <col class="realtime-col-updated" />
+            <col class="realtime-col-actions" />
           </template>
           <template #head>
-            <tr><th>Service</th><th>Stack</th><th>Replicas</th><th>State</th><th>Updated</th></tr>
+            <tr><th>Service</th><th>Stack</th><th>Replicas</th><th>State</th><th>Updated</th><th>Actions</th></tr>
           </template>
           <template v-for="service in filteredServices" :key="service.id">
             <tr class="realtime-service-row" :class="{ 'realtime-service-row--expanded': expandedServiceIDs.has(service.id) }" @click="toggleService(service)">
@@ -607,27 +671,27 @@ onUnmounted(() => {
               <td class="realtime-replicas" data-label="Replicas">
                 <div class="realtime-replicas-content">
                   <span class="realtime-replica-count"><strong :class="{ 'realtime-replicas-running--degraded': serviceRuntimeState(service) === 'degraded' }">{{ service.replicas.running }}</strong><span>/</span>{{ service.replicas.desired }}</span>
-                  <button v-if="service.mode === 'replicated'" type="button" class="realtime-scale-button" :aria-label="`Scale ${service.name || service.full_name}`" title="Scale service" @click.stop="openScale(service)">
-                    <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M10 2h4v4m0-4L9 7M6 14H2v-4m0 4 5-5" /></svg>
-                  </button>
                 </div>
               </td>
               <td data-label="State"><AppStatusBadge class="realtime-state" :variant="stateVariant(serviceRuntimeState(service))" dot>{{ stateLabel(serviceRuntimeState(service)) }}</AppStatusBadge></td>
               <td data-label="Updated"><time :datetime="service.updated_at" :title="formatDate(service.updated_at)">{{ formatRelativeTime(service.updated_at) }}</time></td>
+              <td class="realtime-actions-cell" data-label="Actions" @click.stop>
+                <button v-if="service.mode === 'replicated'" class="realtime-actions-button" type="button" :aria-label="`Actions for ${service.name || service.full_name}`" :aria-expanded="actionsService?.id === service.id" aria-haspopup="true" :disabled="restartPending" @click.stop="toggleActions(service, $event)" @focusout="handleActionsFocusout">⋯</button>
+              </td>
             </tr>
             <template v-if="expandedServiceIDs.has(service.id)">
               <tr v-if="tasksFor(service.id).loading && tasksFor(service.id).tasks.length === 0" class="realtime-task-message-row">
-                <td colspan="5"><span>Loading tasks...</span></td>
+                <td colspan="6"><span>Loading tasks...</span></td>
               </tr>
               <tr v-else-if="tasksFor(service.id).error && tasksFor(service.id).tasks.length === 0" class="realtime-task-message-row realtime-task-message-row--error">
-                <td colspan="5"><span role="alert">Failed to load tasks: {{ tasksFor(service.id).error }}</span></td>
+                <td colspan="6"><span role="alert">Failed to load tasks: {{ tasksFor(service.id).error }}</span></td>
               </tr>
               <tr v-else-if="tasksFor(service.id).tasks.length === 0" class="realtime-task-message-row">
-                <td colspan="5"><span>No tasks for this service.</span></td>
+                <td colspan="6"><span>No tasks for this service.</span></td>
               </tr>
               <template v-else>
                 <tr v-if="tasksFor(service.id).error" class="realtime-task-message-row realtime-task-message-row--warning">
-                  <td colspan="5"><span role="status">Task data may be stale: {{ tasksFor(service.id).error }}</span></td>
+                  <td colspan="6"><span role="status">Task data may be stale: {{ tasksFor(service.id).error }}</span></td>
                 </tr>
                 <tr
                   v-for="task in tasksFor(service.id).tasks"
@@ -635,7 +699,7 @@ onUnmounted(() => {
                   class="realtime-task-row"
                   :class="{ 'realtime-task-row--selected': selectedTaskID === task.id }"
                 >
-                  <td colspan="5">
+                  <td colspan="6">
                     <div class="realtime-task-grid">
                       <button type="button" class="realtime-task-select" @click="selectTask(task)"><strong>Slot {{ task.slot }}</strong><code>{{ shortID(task.id) }}</code></button>
                       <span class="realtime-task-node">{{ task.node_name || task.node || "Unavailable" }}</span>
@@ -681,6 +745,28 @@ onUnmounted(() => {
         @close="closeTaskDetails"
       />
     </div>
+
+    <Teleport to="body">
+      <div v-if="actionsService" ref="actionsMenu" class="realtime-actions-menu" :style="actionsPosition" aria-label="Service actions" @click.stop @keydown.esc.stop.prevent="closeActions" @focusout="handleActionsFocusout">
+        <button v-if="(actionsService.configured_replicas ?? 0) > 0 && actionsService.replicas.desired > 0" type="button" @click="openRestart(actionsService)">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5M6.1 6.1a8 8 0 0 1 13.2 3M4.7 14.9a8 8 0 0 0 13.2 3" /></svg>Restart service
+        </button>
+        <button type="button" class="realtime-scale-button" :aria-label="`Scale ${actionsService.name || actionsService.full_name}`" @click="openScale(actionsService)">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 4h6M8 1v6M5 12h6" /></svg>Scale replicas
+        </button>
+      </div>
+    </Teleport>
+    <AppModal :open="Boolean(restartingService)" labelledby="realtime-restart-title" card-class="realtime-scale-card" :busy="restartPending" :close-disabled="restartPending" @close="restartingService = null">
+      <template #title><h2 id="realtime-restart-title">Restart service</h2></template>
+      <div class="modal-body">
+        <p>Restart <strong>{{ restartingService?.name || restartingService?.full_name }}</strong>? All replicas will temporarily stop before the original count is restored.</p>
+        <p v-if="restartError" class="realtime-scale-error" role="alert">{{ restartError }}</p>
+        <div class="realtime-scale-actions">
+          <AppButton variant="secondary" :disabled="restartPending" @click="restartingService = null">{{ restartFailed ? "Close" : "Cancel" }}</AppButton>
+          <AppButton v-if="!restartFailed" :disabled="restartPending" @click="submitRestart">{{ restartPending ? "Restarting..." : "Restart" }}</AppButton>
+        </div>
+      </div>
+    </AppModal>
 
     <AppModal
       :open="Boolean(scalingService)"
@@ -773,10 +859,15 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-.realtime-scale-button { display: inline-grid; place-items: center; flex: 0 0 auto; width: 24px; height: 24px; border: 0; border-radius: 4px; padding: 0; background: transparent; color: var(--control-primary); transform: none; filter: none; }
-.realtime-scale-button:hover:not(:disabled) { background: var(--surface-hover); transform: none; filter: none; }
-.realtime-scale-button:focus-visible { outline: 2px solid var(--accent-focus); outline-offset: 2px; }
-.realtime-scale-button svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+.realtime-col-actions { width: 64px; }
+.realtime-actions-cell { text-align: center; }
+.realtime-actions-button { width: 28px; height: 26px; padding: 0; background: transparent; color: var(--text); border: 1px solid var(--line); border-radius: 4px; font-size: 20px; line-height: 1; }
+.realtime-actions-menu { position: fixed; z-index: 50; display: grid; min-width: 170px; padding: 4px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface-elevated); }
+.realtime-actions-menu button { display: flex; align-items: center; gap: 8px; width: 100%; height: 32px; padding: 6px 8px; border: 0; background: transparent; color: var(--text); font-size: .8rem; text-align: left; border-radius: 4px; }
+.realtime-actions-menu button:hover { background: var(--surface-hover); }
+.realtime-actions-menu button:focus-visible, .realtime-actions-button:focus-visible { outline: 2px solid var(--accent-focus); }
+.realtime-actions-menu svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+
 :deep(.realtime-scale-card) { width: min(440px, 94vw); }
 .realtime-scale-section-label { margin: 0; color: var(--muted); font-size: .7rem; font-weight: 600; letter-spacing: .055em; text-transform: uppercase; }
 .realtime-scale-summary { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px 16px; margin: 0; font-size: .84rem; }
@@ -855,11 +946,11 @@ onUnmounted(() => {
 .realtime-services-panel :deep(.app-table-wrap) { min-width: 0; }
 .realtime-services-panel :deep(.app-table th) { height: 40px; padding: 7px 14px; }
 .realtime-services-panel :deep(.app-table td) { height: 46px; padding: 9px 14px; }
-.realtime-col-service { width: 34%; }
+.realtime-col-service { width: 32%; }
 .realtime-col-stack { width: 17%; }
 .realtime-col-replicas { width: 12%; }
 .realtime-col-state { width: 17%; }
-.realtime-col-updated { width: 20%; }
+.realtime-col-updated { width: auto; }
 .realtime-service-row { cursor: pointer; transition: background-color 120ms ease; }
 .realtime-service-row:hover, .realtime-service-row--expanded { background: var(--surface-hover-soft); }
 .realtime-service-name-cell { min-width: 0; }
@@ -931,7 +1022,7 @@ onUnmounted(() => {
   .realtime-services-panel :deep(.realtime-services-table) { display: block; min-width: 0 !important; }
   .realtime-services-panel :deep(.realtime-services-table colgroup), .realtime-services-panel :deep(.realtime-services-table > thead) { display: none; }
   .realtime-services-panel :deep(.realtime-services-table > tbody) { display: block; }
-  .realtime-service-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 7px 12px; padding: 12px; border-bottom: 1px solid var(--border-subtle); }
+  .realtime-service-row { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 7px 12px; padding: 12px; border-bottom: 1px solid var(--border-subtle); }
   .realtime-services-panel :deep(.realtime-service-row > td) { display: flex; min-width: 0; height: auto; padding: 0; border: 0; }
   .realtime-service-name-cell { grid-column: 1; grid-row: 1; }
   .realtime-service-title strong { order: 1; }
@@ -939,6 +1030,8 @@ onUnmounted(() => {
   .realtime-service-row > td:nth-child(2) { grid-column: 1; grid-row: 2; font-size: .76rem; }
   .realtime-service-row > td:nth-child(3) { grid-column: 2; grid-row: 2; justify-content: flex-end; }
   .realtime-service-row > td:nth-child(4) { grid-column: 2; grid-row: 1; justify-content: flex-end; }
+  .realtime-service-row:has(.realtime-actions-button) > td:nth-child(3) { padding-right: 40px; }
+  .realtime-service-row > .realtime-actions-cell { position: absolute; right: 12px; bottom: 10px; }
   .realtime-service-row > td:nth-child(5) { display: none !important; }
   .realtime-task-row, .realtime-task-message-row { display: block; }
   .realtime-task-row > td, .realtime-task-message-row > td { display: block; }

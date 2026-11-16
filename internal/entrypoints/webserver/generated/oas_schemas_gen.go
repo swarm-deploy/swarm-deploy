@@ -5819,6 +5819,9 @@ func (s *RecommendationsResponse) SetRecommendations(val []Recommendation) {
 	s.Recommendations = val
 }
 
+// RestartSwarmServiceNoContent is response for RestartSwarmService operation.
+type RestartSwarmServiceNoContent struct{}
+
 // ScaleSwarmServiceNoContent is response for ScaleSwarmService operation.
 type ScaleSwarmServiceNoContent struct{}
 

@@ -51,6 +51,7 @@ const (
 	ListSwarmServicesOperation          OperationName = "ListSwarmServices"
 	PutServiceSyncPauseOperation        OperationName = "PutServiceSyncPause"
 	PutStackSyncPauseOperation          OperationName = "PutStackSyncPause"
+	RestartSwarmServiceOperation        OperationName = "RestartSwarmService"
 	ScaleSwarmServiceOperation          OperationName = "ScaleSwarmService"
 	SearchOperation                     OperationName = "Search"
 	SyncSecretManagerOperation          OperationName = "SyncSecretManager"

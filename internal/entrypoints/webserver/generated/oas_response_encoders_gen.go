@@ -647,6 +647,13 @@ func encodePutStackSyncPauseResponse(response *StackSyncPausesResponse, w http.R
 	return nil
 }
 
+func encodeRestartSwarmServiceResponse(response *RestartSwarmServiceNoContent, w http.ResponseWriter, span trace.Span) error {
+	w.WriteHeader(204)
+	span.SetStatus(codes.Ok, http.StatusText(204))
+
+	return nil
+}
+
 func encodeScaleSwarmServiceResponse(response *ScaleSwarmServiceNoContent, w http.ResponseWriter, span trace.Span) error {
 	w.WriteHeader(204)
 	span.SetStatus(codes.Ok, http.StatusText(204))

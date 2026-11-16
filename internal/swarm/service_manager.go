@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"reflect"
 	"sort"
 	"strconv"
 	"strings"
@@ -273,27 +274,71 @@ func (m *serviceManager) scale(
 }
 
 const (
-	restartServiceRetryAttempts = 3
-	restartServiceDelay         = 250 * time.Second
+	restartServiceRetryAttempts  = 3
+	restartServiceRetryDelay     = 250 * time.Millisecond
+	restartServiceRestoreTimeout = 10 * time.Second
 )
 
-// Restart restarts stack service by scaling replicas to zero and restoring previous count.
+// Restart restarts a referenced service by scaling replicas to zero and restoring previous count.
 func (m *serviceManager) Restart(
 	ctx context.Context,
 	serviceRef ServiceReference,
 ) (uint64, error) {
-	currentReplicas, err := m.GetReplicas(ctx, serviceRef)
+	return m.restart(ctx, serviceRef, restartServiceRetryDelay)
+}
+
+func (m *serviceManager) restart(
+	ctx context.Context,
+	serviceRef ServiceReference,
+	restoreDelay time.Duration,
+) (uint64, error) {
+	service, _, err := m.inspect(ctx, serviceRef)
 	if err != nil {
 		return 0, fmt.Errorf("inspect service replicas: %w", err)
 	}
-
-	err = m.Scale(ctx, serviceRef, 0)
+	mode := service.Spec.Mode
+	if mode.Replicated == nil || mode.Global != nil || mode.ReplicatedJob != nil || mode.GlobalJob != nil {
+		return 0, ErrServiceModeUnsupported
+	}
+	var currentReplicas uint64
+	if mode.Replicated.Replicas != nil {
+		currentReplicas = *mode.Replicated.Replicas
+	}
+	if currentReplicas == 0 {
+		return 0, ErrServiceZeroReplicas
+	}
+	_, err = m.scale(ctx, service, 0)
 	if err != nil {
 		return 0, fmt.Errorf("scale service replicas to 0: %w", err)
 	}
 
-	err = retry.New(retry.Attempts(restartServiceRetryAttempts), retry.Delay(restartServiceDelay)).Do(func() error {
-		return m.Scale(ctx, serviceRef, currentReplicas)
+	// Restore only the spec we stopped; never overwrite a concurrent service change.
+	expectedSpec := service.Spec
+	replicated := *mode.Replicated
+	zero := uint64(0)
+	replicated.Replicas = &zero
+	expectedSpec.Mode.Replicated = &replicated
+	restoreCtx, cancel := context.WithTimeout(ctx, restartServiceRestoreTimeout)
+	defer cancel()
+
+	err = retry.New(
+		retry.Context(restoreCtx),
+		retry.Attempts(restartServiceRetryAttempts),
+		retry.Delay(restoreDelay),
+		retry.LastErrorOnly(true),
+		retry.RetryIf(func(err error) bool {
+			return retry.IsRecoverable(err) && !ServiceUpdateRejected(err)
+		}),
+	).Do(func() error {
+		current, _, inspectErr := m.inspect(restoreCtx, serviceRef)
+		if inspectErr != nil {
+			return inspectErr
+		}
+		if current.ID != service.ID || !reflect.DeepEqual(current.Spec, expectedSpec) {
+			return retry.Unrecoverable(ErrServiceUpdateConflict)
+		}
+		_, scaleErr := m.scale(restoreCtx, current, currentReplicas)
+		return scaleErr
 	})
 	if err != nil {
 		return 0, fmt.Errorf("restore service replicas to %d: %w", currentReplicas, err)

@@ -336,6 +336,20 @@ func (UnimplementedHandler) PutStackSyncPause(ctx context.Context, req *SyncPaus
 	return r, ht.ErrNotImplemented
 }
 
+// RestartSwarmService implements restartSwarmService operation.
+//
+// Restarts a live replicated service, including standalone services, by scaling N to 0 to N. 204
+// means Docker accepted restoration, not that tasks are Running. Unsupported global/job modes return
+// 400, missing services 404, zero configured replicas or concurrent changes 409, and internal/Docker
+// failures 500. Failure after scaling to zero may leave replicas at zero; refresh live state and
+// check replicas before retrying. Errors use error_message and hide Docker diagnostics. Event
+// publication failure after restoration does not change success.
+//
+// POST /api/v1/swarm/services/{serviceID}/restart
+func (UnimplementedHandler) RestartSwarmService(ctx context.Context, params RestartSwarmServiceParams) error {
+	return ht.ErrNotImplemented
+}
+
 // ScaleSwarmService implements scaleSwarmService operation.
 //
 // Updates live replicated services, including standalone services, without waiting for tasks or
