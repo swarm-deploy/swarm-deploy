@@ -29,6 +29,8 @@ jobs:
             ui:
               - 'ui/**'
             backend:
+              - 'go.mod'
+              - 'go.sum'
               - 'cmd/**'
               - 'internal/**'
               - 'tools/compatibility/**'
