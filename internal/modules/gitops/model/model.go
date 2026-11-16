@@ -63,6 +63,8 @@ type Network struct {
 }
 
 type Runtime struct {
+	// GitAccess is the last confirmed remote access observation, independently of local checkout failures.
+	GitAccess *GitAccess `json:"git_access,omitempty"`
 	// GitPullFailure records the repository whose latest pull attempt failed.
 	// It is cleared atomically with publication of the recovery event.
 	GitPullFailure *GitPullFailure `json:"git_pull_failure,omitempty"`
@@ -89,6 +91,15 @@ type Runtime struct {
 	Networks map[string]Network `json:"networks"`
 }
 
+// GitAccess records remote access for a credential-free repository identity.
+// A missing record means no trustworthy observation has been persisted yet.
+type GitAccess struct {
+	// Repository identifies the configured remote without credentials.
+	Repository string `json:"repository"`
+	// Available records whether access to the remote succeeded.
+	Available bool `json:"available"`
+}
+
 // GitPullFailure is the persisted transition state used to detect recovery after restart.
 type GitPullFailure struct {
 	// Repository is the credential-free repository identifier.
@@ -97,6 +108,10 @@ type GitPullFailure struct {
 
 func (r *Runtime) Clone() Runtime {
 	cloned := *r
+	if r.GitAccess != nil {
+		access := *r.GitAccess
+		cloned.GitAccess = &access
+	}
 	if r.GitPullFailure != nil {
 		failure := *r.GitPullFailure
 		cloned.GitPullFailure = &failure

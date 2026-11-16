@@ -123,3 +123,28 @@ func TestClassifyWrappedGitNetworkErrors(t *testing.T) {
 		})
 	}
 }
+
+func TestRemoteAvailability(t *testing.T) {
+	yes, no := true, false
+	for _, tc := range []struct {
+		name string
+		err  error
+		want *bool
+	}{
+		{name: "success", want: &yes},
+		{name: "local unclassified", err: errors.New("disk failure")},
+		{name: "local lock timeout", err: &PullError{category: FailureOther, diagnostic: repositoryLockTimeoutDiagnostic}},
+		{name: "canceled", err: context.Canceled},
+		{name: "invalid local auth", err: errAuthenticationConfiguration},
+		{name: "invalid local host config", err: errSSHHostVerification},
+		{name: "authentication", err: transport.ErrAuthenticationRequired, want: &no},
+		{name: "access denied", err: transport.ErrAuthorizationFailed, want: &no},
+		{name: "not found", err: transport.ErrRepositoryNotFound, want: &no},
+		{name: "network", err: &net.DNSError{IsNotFound: true}, want: &no},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := ClassifyPullError(tc.err, "https://git.example.com/team/app", config.GitAuthTypeNone)
+			assert.Equal(t, tc.want, RemoteAvailability(err))
+		})
+	}
+}

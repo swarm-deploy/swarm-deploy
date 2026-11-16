@@ -52,6 +52,7 @@ func (p *Puller) Pull(ctx context.Context, reason string) (gitx.PullResult, erro
 		)
 		p.metrics.RecordGitUpdate(p.repository, updateResultError)
 		p.observe(ctx, "persist Git pull failure observation", Observation{
+			Availability:  gitx.RemoteAvailability(err),
 			Repository:    p.repository,
 			TriggerReason: reason,
 			Failure:       &Failure{Category: category, Description: diagnostic},
@@ -61,6 +62,7 @@ func (p *Puller) Pull(ctx context.Context, reason string) (gitx.PullResult, erro
 	}
 
 	p.observe(ctx, "persist Git pull recovery", Observation{
+		Availability:  gitx.RemoteAvailability(nil),
 		Repository:    p.repository,
 		TriggerReason: reason,
 	})
