@@ -274,8 +274,9 @@ func (m *serviceManager) scale(
 }
 
 const (
-	restartServiceRetryAttempts = 3
-	restartServiceDelay         = 250 * time.Second
+	restartServiceRetryAttempts  = 3
+	restartServiceRetryDelay     = 250 * time.Millisecond
+	restartServiceRestoreTimeout = 10 * time.Second
 )
 
 // Restart restarts a referenced service by scaling replicas to zero and restoring previous count.
@@ -283,7 +284,7 @@ func (m *serviceManager) Restart(
 	ctx context.Context,
 	serviceRef ServiceReference,
 ) (uint64, error) {
-	return m.restart(ctx, serviceRef, restartServiceDelay)
+	return m.restart(ctx, serviceRef, restartServiceRetryDelay)
 }
 
 func (m *serviceManager) restart(
@@ -317,15 +318,26 @@ func (m *serviceManager) restart(
 	zero := uint64(0)
 	replicated.Replicas = &zero
 	expectedSpec.Mode.Replicated = &replicated
-	err = retry.New(retry.Attempts(restartServiceRetryAttempts), retry.Delay(restoreDelay)).Do(func() error {
-		current, _, inspectErr := m.inspect(ctx, serviceRef)
+	restoreCtx, cancel := context.WithTimeout(ctx, restartServiceRestoreTimeout)
+	defer cancel()
+
+	err = retry.New(
+		retry.Context(restoreCtx),
+		retry.Attempts(restartServiceRetryAttempts),
+		retry.Delay(restoreDelay),
+		retry.LastErrorOnly(true),
+		retry.RetryIf(func(err error) bool {
+			return retry.IsRecoverable(err) && !ServiceUpdateRejected(err)
+		}),
+	).Do(func() error {
+		current, _, inspectErr := m.inspect(restoreCtx, serviceRef)
 		if inspectErr != nil {
 			return inspectErr
 		}
 		if current.ID != service.ID || !reflect.DeepEqual(current.Spec, expectedSpec) {
-			return ErrServiceUpdateConflict
+			return retry.Unrecoverable(ErrServiceUpdateConflict)
 		}
-		_, scaleErr := m.scale(ctx, current, currentReplicas)
+		_, scaleErr := m.scale(restoreCtx, current, currentReplicas)
 		return scaleErr
 	})
 	if err != nil {

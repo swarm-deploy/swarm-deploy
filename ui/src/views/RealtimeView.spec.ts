@@ -649,6 +649,31 @@ describe("Realtime service restart", () => {
   });
   afterEach(() => vi.clearAllMocks());
 
+  it("closes Actions on a second click after focus returns to its trigger", async () => {
+    const wrapper = mount(RealtimeView, { attachTo: document.body, global: { stubs: { RouterLink: true } } });
+    try {
+      await flushPromises();
+      const trigger = wrapper.get<HTMLButtonElement>('[aria-label="Actions for api"]').element;
+      trigger.focus();
+      trigger.click();
+      await flushPromises();
+      expect(trigger.getAttribute("aria-expanded")).toBe("true");
+      expect(document.activeElement?.textContent).toContain("Restart service");
+
+      // Pointer down moves focus to the trigger before the click fires.
+      trigger.focus();
+      await flushPromises();
+      trigger.click();
+      await flushPromises();
+
+      expect(trigger.getAttribute("aria-expanded")).toBe("false");
+      expect(document.querySelector(".realtime-actions-menu")).toBeNull();
+      expect(document.activeElement).toBe(trigger);
+    } finally {
+      wrapper.unmount();
+    }
+  });
+
   it("offers restart only for replicated services with nonzero desired and configured counts", async () => {
     apiMocks.fetchSwarmServices.mockResolvedValue({ services: [
       ...services,

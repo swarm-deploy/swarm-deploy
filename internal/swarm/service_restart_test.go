@@ -26,19 +26,21 @@ func TestServiceManagerRestart(t *testing.T) {
 		changed       bool
 		want          error
 		updates       int
+		inspections   int
 	}{
-		{name: "success", updates: 2},
-		{name: "standalone by ID", standalone: true, updates: 2},
-		{name: "global", mode: dockerswarm.ServiceMode{Global: &dockerswarm.GlobalService{}}, want: ErrServiceModeUnsupported},
-		{name: "replicated job", mode: dockerswarm.ServiceMode{ReplicatedJob: &dockerswarm.ReplicatedJob{}}, want: ErrServiceModeUnsupported},
-		{name: "global job", mode: dockerswarm.ServiceMode{GlobalJob: &dockerswarm.GlobalJob{}}, want: ErrServiceModeUnsupported},
-		{name: "zero", zero: true, want: ErrServiceZeroReplicas},
-		{name: "missing", inspectStatus: 404, want: ErrServiceNotFound},
-		{name: "version conflict", stopStatus: 409, want: ErrServiceUpdateConflict, updates: 1},
-		{name: "docker stop failure", stopStatus: 500, updates: 1},
-		{name: "restore conflict", restoreStatus: 409, want: ErrServiceUpdateConflict, updates: 4},
-		{name: "restore failure leaves zero", restoreStatus: 500, updates: 4},
-		{name: "concurrent change after stop", changed: true, want: ErrServiceUpdateConflict, updates: 1},
+		{name: "success", updates: 2, inspections: 2},
+		{name: "standalone by ID", standalone: true, updates: 2, inspections: 2},
+		{name: "global", mode: dockerswarm.ServiceMode{Global: &dockerswarm.GlobalService{}}, want: ErrServiceModeUnsupported, inspections: 1},
+		{name: "replicated job", mode: dockerswarm.ServiceMode{ReplicatedJob: &dockerswarm.ReplicatedJob{}}, want: ErrServiceModeUnsupported, inspections: 1},
+		{name: "global job", mode: dockerswarm.ServiceMode{GlobalJob: &dockerswarm.GlobalJob{}}, want: ErrServiceModeUnsupported, inspections: 1},
+		{name: "zero", zero: true, want: ErrServiceZeroReplicas, inspections: 1},
+		{name: "missing", inspectStatus: 404, want: ErrServiceNotFound, inspections: 1},
+		{name: "version conflict", stopStatus: 409, want: ErrServiceUpdateConflict, updates: 1, inspections: 1},
+		{name: "docker stop failure", stopStatus: 500, updates: 1, inspections: 1},
+		{name: "restore version conflict", restoreStatus: 409, want: ErrServiceUpdateConflict, updates: 4, inspections: 4},
+		{name: "restore failure leaves zero", restoreStatus: 500, updates: 4, inspections: 4},
+		{name: "restore service removed", restoreStatus: 404, want: ErrServiceNotFound, updates: 2, inspections: 2},
+		{name: "concurrent change after stop", changed: true, want: ErrServiceUpdateConflict, updates: 1, inspections: 2},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -57,9 +59,11 @@ func TestServiceManagerRestart(t *testing.T) {
 			}
 			service := dockerswarm.Service{ID: "service-id", Meta: dockerswarm.Meta{Version: dockerswarm.Version{Index: 42}}, Spec: dockerswarm.ServiceSpec{Annotations: dockerswarm.Annotations{Name: name, Labels: labels}, Mode: mode}}
 			updates := 0
+			inspections := 0
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.Header().Set("Content-Type", "application/json")
 				if r.Method == http.MethodGet {
+					inspections++
 					assert.Equal(t, "/v1.48/services/service-id", r.URL.Path)
 					if tc.inspectStatus != 0 {
 						w.WriteHeader(tc.inspectStatus)
@@ -111,6 +115,7 @@ func TestServiceManagerRestart(t *testing.T) {
 				assert.ErrorIs(t, err, tc.want)
 			}
 			assert.Equal(t, tc.updates, updates)
+			assert.Equal(t, tc.inspections, inspections)
 			if tc.restoreStatus != 0 {
 				assert.Zero(t, *service.Spec.Mode.Replicated.Replicas, "failed restoration leaves service stopped")
 			}

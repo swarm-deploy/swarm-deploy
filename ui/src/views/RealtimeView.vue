@@ -85,6 +85,7 @@ const scalingService = ref<SwarmService | null>(null);
 const actionsService = ref<SwarmService | null>(null);
 const actionsPosition = ref({ top: "0px", right: "0px" });
 const actionsTrigger = ref<HTMLElement | null>(null);
+const actionsMenu = ref<HTMLElement | null>(null);
 const restartingService = ref<SwarmService | null>(null);
 const restartPending = ref(false);
 const restartError = ref("");
@@ -95,6 +96,12 @@ function closeActions(): void {
   actionsTrigger.value?.focus();
 }
 
+function handleActionsFocusout(event: FocusEvent): void {
+  const nextFocus = event.relatedTarget;
+  if (nextFocus === actionsTrigger.value || (nextFocus instanceof Node && actionsMenu.value?.contains(nextFocus))) return;
+  actionsService.value = null;
+}
+
 async function toggleActions(service: SwarmService, event: MouseEvent): Promise<void> {
   if (actionsService.value?.id === service.id) { closeActions(); return; }
   actionsTrigger.value = event.currentTarget as HTMLElement;
@@ -102,7 +109,7 @@ async function toggleActions(service: SwarmService, event: MouseEvent): Promise<
   actionsPosition.value = { top: `${Math.min(rect.bottom + 4, window.innerHeight - 100)}px`, right: `${Math.min(window.innerWidth - 188, Math.max(8, window.innerWidth - rect.right))}px` };
   actionsService.value = service;
   await nextTick();
-  document.querySelector<HTMLElement>(".realtime-actions-menu button")?.focus();
+  actionsMenu.value?.querySelector("button")?.focus();
 }
 
 function openRestart(service: SwarmService): void {
@@ -668,7 +675,7 @@ onUnmounted(() => {
               <td data-label="State"><AppStatusBadge class="realtime-state" :variant="stateVariant(serviceRuntimeState(service))" dot>{{ stateLabel(serviceRuntimeState(service)) }}</AppStatusBadge></td>
               <td data-label="Updated"><time :datetime="service.updated_at" :title="formatDate(service.updated_at)">{{ formatRelativeTime(service.updated_at) }}</time></td>
               <td class="realtime-actions-cell" data-label="Actions" @click.stop>
-                <button v-if="service.mode === 'replicated'" class="realtime-actions-button" type="button" :aria-label="`Actions for ${service.name || service.full_name}`" :aria-expanded="actionsService?.id === service.id" aria-haspopup="true" :disabled="restartPending" @click.stop="toggleActions(service, $event)">⋯</button>
+                <button v-if="service.mode === 'replicated'" class="realtime-actions-button" type="button" :aria-label="`Actions for ${service.name || service.full_name}`" :aria-expanded="actionsService?.id === service.id" aria-haspopup="true" :disabled="restartPending" @click.stop="toggleActions(service, $event)" @focusout="handleActionsFocusout">⋯</button>
               </td>
             </tr>
             <template v-if="expandedServiceIDs.has(service.id)">
@@ -739,7 +746,7 @@ onUnmounted(() => {
     </div>
 
     <Teleport to="body">
-      <div v-if="actionsService" class="realtime-actions-menu" :style="actionsPosition" aria-label="Service actions" @click.stop @keydown.esc.stop.prevent="closeActions" @focusout="(event) => { if (!(event.currentTarget as HTMLElement).contains(event.relatedTarget as Node)) actionsService = null; }">
+      <div v-if="actionsService" ref="actionsMenu" class="realtime-actions-menu" :style="actionsPosition" aria-label="Service actions" @click.stop @keydown.esc.stop.prevent="closeActions" @focusout="handleActionsFocusout">
         <button v-if="(actionsService.configured_replicas ?? 0) > 0 && actionsService.replicas.desired > 0" type="button" @click="openRestart(actionsService)">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5M6.1 6.1a8 8 0 0 1 13.2 3M4.7 14.9a8 8 0 0 0 13.2 3" /></svg>Restart service
         </button>
