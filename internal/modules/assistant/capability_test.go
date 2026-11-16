@@ -14,6 +14,7 @@ func TestOperationalToolCapabilitiesAndDefaultRoutes(t *testing.T) {
 
 	deploymentProfile, ok := capabilityProfile(CapabilityDeploymentHistory)
 	require.True(t, ok)
+	assert.Contains(t, deploymentProfile.Tools, "git_repository_diagnostics")
 	assert.Contains(t, deploymentProfile.Tools, "deployment_list")
 	assert.Contains(t, deploymentProfile.Tools, "deployment_get")
 	assert.Contains(t, deploymentProfile.Tools, "history_event_list")

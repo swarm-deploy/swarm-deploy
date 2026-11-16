@@ -196,7 +196,7 @@ Capabilities:
 - service_runtime: read-only service logs, specs, web-route ping, or dependencies
 - service_operations: mutating service restart or replica changes
 - cluster: nodes, Docker networks, plugins, and secrets
-- deployment_history: desired-state deployments with nested attempts, user-facing event history, recommendations, git history, and commit diffs
+- deployment_history: desired-state deployments with nested attempts, user-facing event history, recommendations, local Git repository diagnostics, git history, and commit diffs
 - alert_management: operational incidents and their open/resolved lifecycle
 - deployment_sync: trigger synchronization
 - pause_sync: inspect Pause Sync and create, change, or remove a pause through explicit confirmation
@@ -217,6 +217,7 @@ Examples:
 "Проверь DNS api.example.com" -> {"route":"lookups","capabilities":["dns"],"operation":null}
 "Проверь DNS у публичных урлов сервиса web-gateway-http" -> {"route":"lookups","capabilities":["service_context","dns"],"operation":null}
 "Посмотри логи api и были ли перед этим деплои" -> {"route":"diagnostics","capabilities":["service_context","service_runtime","deployment_history"],"operation":null}
+"Доступен ли Git-репозиторий?" -> {"route":"diagnostics","capabilities":["deployment_history","alert_management"],"operation":null}
 "Какие деплои были вчера?" -> {"route":"deployments","capabilities":["deployment_history"],"operation":null}
 "Почему упал деплой infra-monitoring?" -> {"route":"diagnostics","capabilities":["service_context","service_runtime","deployment_history","alert_management"],"operation":null}
 "Какие сейчас активные алерты?" -> {"route":"diagnostics","capabilities":["alert_management"],"operation":null}

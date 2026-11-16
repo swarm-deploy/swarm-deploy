@@ -715,6 +715,7 @@ func assistantTestToolDefinitions() []routing.ToolDefinition {
 		"deployment_list",
 		"deployment_get",
 		"recommendation_list",
+		"git_repository_diagnostics",
 		"git_commit_list",
 		"git_commit_diff",
 		"swarm_node_list",
