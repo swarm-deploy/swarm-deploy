@@ -40,6 +40,36 @@ func (m *MockRepository) EXPECT() *MockRepositoryMockRecorder {
 	return m.recorder
 }
 
+// Branch mocks base method.
+func (m *MockRepository) Branch(ctx context.Context) (string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Branch", ctx)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Branch indicates an expected call of Branch.
+func (mr *MockRepositoryMockRecorder) Branch(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Branch", reflect.TypeOf((*MockRepository)(nil).Branch), ctx)
+}
+
+// CountCommits mocks base method.
+func (m *MockRepository) CountCommits(ctx context.Context, revision string) (int, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CountCommits", ctx, revision)
+	ret0, _ := ret[0].(int)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CountCommits indicates an expected call of CountCommits.
+func (mr *MockRepositoryMockRecorder) CountCommits(ctx, revision any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountCommits", reflect.TypeOf((*MockRepository)(nil).CountCommits), ctx, revision)
+}
+
 // Diff mocks base method.
 func (m *MockRepository) Diff(ctx context.Context, oldRevision, newRevision string) ([]CommitFileDiff, error) {
 	m.ctrl.T.Helper()
@@ -53,6 +83,21 @@ func (m *MockRepository) Diff(ctx context.Context, oldRevision, newRevision stri
 func (mr *MockRepositoryMockRecorder) Diff(ctx, oldRevision, newRevision any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Diff", reflect.TypeOf((*MockRepository)(nil).Diff), ctx, oldRevision, newRevision)
+}
+
+// GitSize mocks base method.
+func (m *MockRepository) GitSize(ctx context.Context) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GitSize", ctx)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GitSize indicates an expected call of GitSize.
+func (mr *MockRepositoryMockRecorder) GitSize(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GitSize", reflect.TypeOf((*MockRepository)(nil).GitSize), ctx)
 }
 
 // Head mocks base method.
@@ -115,6 +160,21 @@ func (mr *MockRepositoryMockRecorder) ReadFile(ctx, revision, path any) *gomock.
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReadFile", reflect.TypeOf((*MockRepository)(nil).ReadFile), ctx, revision, path)
 }
 
+// Shallow mocks base method.
+func (m *MockRepository) Shallow(ctx context.Context) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Shallow", ctx)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Shallow indicates an expected call of Shallow.
+func (mr *MockRepositoryMockRecorder) Shallow(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Shallow", reflect.TypeOf((*MockRepository)(nil).Shallow), ctx)
+}
+
 // Show mocks base method.
 func (m *MockRepository) Show(ctx context.Context, commitHash string) (Commit, error) {
 	m.ctrl.T.Helper()
@@ -130,6 +190,36 @@ func (mr *MockRepositoryMockRecorder) Show(ctx, commitHash any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Show", reflect.TypeOf((*MockRepository)(nil).Show), ctx, commitHash)
 }
 
+// Status mocks base method.
+func (m *MockRepository) Status(ctx context.Context, limit int) (WorktreeStatus, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Status", ctx, limit)
+	ret0, _ := ret[0].(WorktreeStatus)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Status indicates an expected call of Status.
+func (mr *MockRepositoryMockRecorder) Status(ctx, limit any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Status", reflect.TypeOf((*MockRepository)(nil).Status), ctx, limit)
+}
+
+// TrackedFiles mocks base method.
+func (m *MockRepository) TrackedFiles(ctx context.Context) (int, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "TrackedFiles", ctx)
+	ret0, _ := ret[0].(int)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// TrackedFiles indicates an expected call of TrackedFiles.
+func (mr *MockRepositoryMockRecorder) TrackedFiles(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "TrackedFiles", reflect.TypeOf((*MockRepository)(nil).TrackedFiles), ctx)
+}
+
 // WorkingDir mocks base method.
 func (m *MockRepository) WorkingDir() string {
 	m.ctrl.T.Helper()
@@ -142,4 +232,19 @@ func (m *MockRepository) WorkingDir() string {
 func (mr *MockRepositoryMockRecorder) WorkingDir() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "WorkingDir", reflect.TypeOf((*MockRepository)(nil).WorkingDir))
+}
+
+// WorkingTreeSize mocks base method.
+func (m *MockRepository) WorkingTreeSize(ctx context.Context) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "WorkingTreeSize", ctx)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// WorkingTreeSize indicates an expected call of WorkingTreeSize.
+func (mr *MockRepositoryMockRecorder) WorkingTreeSize(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "WorkingTreeSize", reflect.TypeOf((*MockRepository)(nil).WorkingTreeSize), ctx)
 }

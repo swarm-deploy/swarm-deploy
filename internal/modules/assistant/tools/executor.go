@@ -57,6 +57,7 @@ func NewExecutor(
 	hostingProviders *githosting.ProviderManager,
 	stacks []config.StackSpec,
 	mcpMetrics metrics.MCP,
+	gitRepositoryURL string,
 ) *Executor {
 	toolComponents := []routing.Tool{
 		NewListHistoryEvents(eventModule.History),
@@ -83,6 +84,7 @@ func NewExecutor(
 		NewSetServiceReplicas(swarmService.Services, eventModule.Dispatcher),
 		NewRestartService(swarmService.Services, eventModule.Dispatcher),
 		NewGetActualImageVersion(imageVersionResolver),
+		NewGitRepositoryDiagnostics(gitopsModule.GitRepository, gitopsModule.Store, alertModule.Store, gitRepositoryURL),
 		NewListGitCommits(gitopsModule.GitRepository),
 		NewGitCommitDiff(gitopsModule.GitRepository, stacks, gitopsModule.Differ),
 		NewGetExternalRepositoryLatestRelease(hostingProviders),

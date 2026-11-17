@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/go-git/go-git/v5/plumbing/transport"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -176,6 +178,42 @@ func TestPullerFailureWithMalformedCredentialURLPublishesSafeIdentifier(t *testi
 			require.NotNil(t, failure, "persisted failure")
 			assert.Regexp(t, `^repository-[0-9a-f]{16}$`, failure.Repository)
 			assert.NotContains(t, failure.Repository, secret)
+		})
+	}
+}
+
+func TestPullerRecordsRemoteObservation(t *testing.T) {
+	yes, no := true, false
+	for _, tc := range []struct {
+		name string
+		err  error
+		want *bool
+	}{
+		{name: "success", want: &yes},
+		{name: "remote failure", err: transport.ErrAuthenticationRequired, want: &no},
+		{name: "local failure", err: errors.New("cannot read local HEAD")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			db, store := newSQLState(t)
+			repository := gitx.NewMockRepository(gomock.NewController(t))
+			repository.EXPECT().Pull(gomock.Any()).Return(gitx.PullResult{}, tc.err)
+			puller := NewPuller(repository, NewMonitor(db, store, &dispatcher.NopDispatcher{}),
+				metrics.NewGroup(metrics.CreateGroupParams{Namespace: "test_git_access_" + strings.ReplaceAll(tc.name, " ", "_")}).Git,
+				config.GitSpec{Repository: "https://robot:private-token@git.example.com/team/app.git"})
+			_, err := puller.Pull(t.Context(), "manual")
+			if tc.err != nil {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+			state := readState(t, store)
+			if tc.want == nil {
+				assert.Nil(t, state.GitAccess)
+			} else {
+				require.NotNil(t, state.GitAccess)
+				assert.Equal(t, *tc.want, state.GitAccess.Available)
+				assert.Equal(t, "git.example.com/team/app", state.GitAccess.Repository)
+			}
 		})
 	}
 }
