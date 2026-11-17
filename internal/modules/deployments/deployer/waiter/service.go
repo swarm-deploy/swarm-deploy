@@ -68,7 +68,9 @@ type ServiceProgress struct {
 
 	taskFault            faults.Coded
 	taskContext          string
+	pendingTaskFaults    []faults.Coded
 	placementConstraints []string
+	taskLookupFailed     bool
 }
 
 func (p *ServiceProgress) failTask(task swarm.ServiceTask, message string) {
@@ -156,7 +158,7 @@ func (w *ServiceWaiter) Wait(ctx context.Context, request ServiceWaitRequest) (S
 	))
 	defer span.End()
 
-	state := waitState{last: make(map[string]ServiceProgress)}
+	state := waitState{last: make(map[string]ServiceProgress), services: make(map[string]swarm.StackService)}
 	var waitErr error
 	defer func() {
 		finishServiceWaitSpan(span, startedAt, state, waitErr)
@@ -187,26 +189,24 @@ func (w *ServiceWaiter) wait(
 	ticker := time.NewTicker(w.pollInterval)
 	defer ticker.Stop()
 
-waitLoop:
 	for {
-		allReady, observeErr := w.poll(waitCtx, span, request, baseline, targets, state)
+		settled, observeErr := w.poll(waitCtx, span, request, baseline, targets, state)
+		if !settled && waitCtx.Err() != nil {
+			break
+		}
 		switch {
-		case errors.Is(observeErr, ErrConvergenceFailed):
-			// Finish observing independent targets before returning the known failure.
-			state.terminalFailure = observeErr
-			if allReady {
-				return observeErr
-			}
 		case observeErr != nil:
-			if waitCtx.Err() != nil {
-				break waitLoop
-			}
-			if waitErr := state.handleObservationError(span, request, targets, observeErr); waitErr != nil {
+			if !isTransientDockerAPIError(observeErr) {
 				cancel()
-				return errors.Join(state.terminalFailure, w.withPlacementSchedulingFault(ctx, waitErr, state.last))
+				failure := w.withObservationFailure(ctx, state, observeErr)
+				state.failPending(span, request.Progress, observeErr)
+				return failure
 			}
-		case allReady:
-			return state.terminalFailure
+			state.retryPending(span, request.Progress, targets, observeErr)
+		case settled:
+			return state.terminalError()
+		default:
+			state.lastObservationError = nil
 		}
 
 		select {
@@ -219,9 +219,25 @@ waitLoop:
 	}
 
 	cause := waitCtx.Err()
+	failure := w.finishInterruptedWait(ctx, request.StackName, state, cause)
 	state.failPending(span, request.Progress, cause)
-	return errors.Join(state.terminalFailure,
-		w.waitInterruptedError(ctx, request.StackName, state.last, cause, state.lastObservationError))
+	return failure
+}
+
+func (w *ServiceWaiter) finishInterruptedWait(ctx context.Context, stack string, state *waitState, cause error) error {
+	interrupted := w.waitInterruptedError(ctx, stack, state.last, cause, state.lastObservationError)
+	terminal := state.terminalError()
+	if terminal == nil {
+		return interrupted
+	}
+	return errors.Join(terminal, interrupted)
+}
+
+func (w *ServiceWaiter) withObservationFailure(ctx context.Context, state *waitState, cause error) error {
+	if terminal := state.terminalError(); terminal != nil {
+		cause = fmt.Errorf("%w; observation failed: %w", terminal, cause)
+	}
+	return w.withPendingTaskFaults(ctx, cause, state.last)
 }
 
 func (w *ServiceWaiter) poll(
@@ -255,41 +271,45 @@ func (w *ServiceWaiter) observeTargets(
 ) (bool, error) {
 	state.observed = len(targets)
 	state.converged = 0
-	allReady := true
-	var failures []error
+	settled := true
+	var observationErrs observationErrors
 	for _, name := range sortedTargetNames(targets) {
+		service := current[name]
+		if ctx.Err() != nil {
+			state.invalidateChangedService(span, request.Progress, name, service)
+			settled = false
+			continue
+		}
 		if slices.Contains(request.AppliedServices, name) && baseline[name].ID != "" &&
-			!serviceChanged(baseline[name], current[name]) {
+			!serviceChanged(baseline[name], service) {
 			// Docker may briefly return the pre-apply snapshot. Neither old running
 			// tasks nor an old paused update describes the accepted service version.
-			state.emit(span, request.Progress, ServiceProgress{
+			state.observe(span, request.Progress, service, ServiceProgress{
 				Name: name, State: ServicePending, Message: "waiting for applied service version",
 			})
-			allReady = false
+			settled = false
 			continue
 		}
-		progress, err := w.observeService(ctx, name, baseline[name], current[name],
+		progress, err := w.observeService(ctx, name, baseline[name], service,
 			slices.Contains(request.UnresolvedServices, name), request.ExpectedSpecs[name], request.UpdateGenerations[name])
-		state.emit(span, request.Progress, progress)
+		state.observe(span, request.Progress, service, progress)
 		if err != nil {
-			return false, errors.Join(append(failures, err)...)
-		}
-		if progress.State == ServiceFailed {
-			diagnostic := errors.New(progress.Message)
-			if progress.taskFault != nil {
-				diagnostic = fmt.Errorf("%s: %w", progress.taskContext, progress.taskFault)
-			}
-			failures = append(failures,
-				fmt.Errorf("%w: service %s failed to converge: %w", ErrConvergenceFailed, name, diagnostic))
+			observationErrs = append(observationErrs, err)
 			continue
 		}
-		if progress.State == ServiceReady {
+		switch progress.State {
+		case ServiceReady:
 			state.converged++
-			continue
+		case ServicePending:
+			settled = false
+		case ServiceFailed:
+			// Keep observing independent targets after a confirmed failure.
 		}
-		allReady = false
 	}
-	return allReady, errors.Join(failures...)
+	if len(observationErrs) != 0 {
+		return false, observationErrs
+	}
+	return settled, nil
 }
 
 func serviceChanged(before, after swarm.StackService) bool {
@@ -305,7 +325,24 @@ func servicesByName(services []swarm.StackService) map[string]swarm.StackService
 	return mapped
 }
 
+type observationErrors []error
+
+func (errs observationErrors) Error() string   { return errors.Join(errs...).Error() }
+func (errs observationErrors) Unwrap() []error { return errs }
+func (errs observationErrors) Temporary() bool {
+	// Retrying the poll only helps when every failed observation can be retried.
+	for _, err := range errs {
+		if !isTransientDockerAPIError(err) {
+			return false
+		}
+	}
+	return true
+}
+
 func isTransientDockerAPIError(err error) bool {
+	if observations, ok := err.(observationErrors); ok {
+		return observations.Temporary()
+	}
 	var temporary faults.Error
 	if errors.As(err, &temporary) && temporary.Temporary() {
 		return true

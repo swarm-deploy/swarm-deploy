@@ -1,12 +1,15 @@
 package waiter
 
 import (
+	"context"
 	"errors"
 	"testing"
 	"time"
 
+	dockerswarm "github.com/docker/docker/api/types/swarm"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	"go.uber.org/mock/gomock"
 )
@@ -73,4 +76,56 @@ func TestWaitResultRetainsConfirmedTaskWhenLaterDiagnosticsAreUnavailable(t *tes
 	require.Len(t, result.FailedTasks, 1)
 	assert.Equal(t, "api", result.FailedTasks[0].Name)
 	assert.Equal(t, "failed-api-task", result.FailedTasks[0].FailedTaskID)
+}
+
+func TestWaitResultRetainsExhaustedTaskFailureForSameRevision(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		changed bool
+	}{
+		{"same revision", false},
+		{"new revision", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			manager := swarm.NewMockServiceManager(gomock.NewController(t))
+			now := serviceWaitTestTime
+			api := testReplicatedService("api", "api-id", 1, now, "api:2")
+			api.ServiceSpec.TaskTemplate.RestartPolicy = &dockerswarm.RestartPolicy{Condition: dockerswarm.RestartPolicyConditionNone}
+			nextAPI := api
+			if tc.changed {
+				nextAPI.UpdatedAt = now.Add(time.Second)
+			}
+			worker := testReplicatedService("worker", "worker-id", 1, now, "worker:2")
+			failed := testTask("failed-api-task", 1, swarm.TaskStateShutdown, swarm.TaskStateRejected, now)
+			failed.Spec = swarm.NewTaskSpec(api.ServiceSpec.TaskTemplate)
+			failed.Error = "unauthorized: authentication required"
+			gomock.InOrder(
+				manager.EXPECT().ListServices(gomock.Any(), gomock.Any()).Return([]swarm.StackService{api, worker}, nil),
+				manager.EXPECT().ListTasks(gomock.Any(), api.ID).Return([]swarm.ServiceTask{failed}, nil),
+				manager.EXPECT().ListTasks(gomock.Any(), worker.ID).Return(nil, nil),
+				manager.EXPECT().ListServices(gomock.Any(), gomock.Any()).Return([]swarm.StackService{nextAPI, worker}, nil),
+				manager.EXPECT().ListTasks(gomock.Any(), api.ID).Return(nil, temporaryDockerError()),
+				manager.EXPECT().ListTasks(gomock.Any(), worker.ID).DoAndReturn(func(context.Context, string) ([]swarm.ServiceTask, error) {
+					cancel()
+					return nil, nil
+				}),
+			)
+			result, err := newTestServiceWaiter(manager).Wait(ctx, ServiceWaitRequest{
+				StackName: "app", ServiceNames: []string{"api", "worker"},
+			})
+			require.ErrorIs(t, err, context.Canceled)
+			if tc.changed {
+				require.NotErrorIs(t, err, ErrConvergenceFailed)
+				assert.Empty(t, result.FailedTasks)
+				assert.Empty(t, faults.Causes(err))
+				return
+			}
+			require.ErrorIs(t, err, ErrConvergenceFailed)
+			require.Len(t, result.FailedTasks, 1)
+			assert.Equal(t, failed.ID, result.FailedTasks[0].FailedTaskID)
+			assert.Equal(t, []faults.Cause{{Code: faults.CodeImagePullDenied, Summary: failed.Error}}, faults.Causes(err))
+		})
+	}
 }
