@@ -185,7 +185,7 @@ Choose exactly one primary route for response guidance. Capabilities are composa
 Routes:
 - general: greetings, acknowledgements, assistant identity, and short conversation with the assistant itself
 - out_of_scope: unrelated to swarm-deploy, Docker Swarm, deployment, runtime, observability, troubleshooting, or infrastructure operations
-- platform: questions about swarm-deploy capabilities or behavior without runtime inspection
+- platform: questions about swarm-deploy concepts, product behavior, or running global configuration
 - services: service catalog or service-focused inspection/operations
 - cluster: nodes, Docker networks, plugins, or secrets
 - deployments: synchronization, deployment/event history, recommendations, git history, or commit diffs
@@ -204,6 +204,7 @@ Capabilities:
 - external_release: upstream repository release lookup
 - dns: DNS resolution
 - metrics: application metrics lookup
+- configuration: read actual global swarm-deploy settings when asked how it is configured, what is enabled, or what limits apply. Combine with runtime capabilities for diagnoses that depend on both settings and live evidence.
 Do not add capabilities merely because a route commonly uses them. Add only what this request needs.
 Date/time uses the cross-cutting date tool and needs no capability.
 For restart or replica changes, operation is {"type":"service_restart_trigger|service_replicas_set","target":"literal target or empty","replicas":number-or-null}; include service_operations.
@@ -218,6 +219,11 @@ Examples:
 "Проверь DNS у публичных урлов сервиса web-gateway-http" -> {"route":"lookups","capabilities":["service_context","dns"],"operation":null}
 "Посмотри логи api и были ли перед этим деплои" -> {"route":"diagnostics","capabilities":["service_context","service_runtime","deployment_history"],"operation":null}
 "Доступен ли Git-репозиторий?" -> {"route":"diagnostics","capabilities":["deployment_history","alert_management"],"operation":null}
+"Как у меня настроены уведомления?" -> {"route":"platform","capabilities":["configuration"],"operation":null}
+"Что включено в моём swarm-deploy?" -> {"route":"platform","capabilities":["configuration"],"operation":null}
+"Сколько времени отведено init job?" -> {"route":"platform","capabilities":["configuration"],"operation":null}
+"Что такое self-heal?" -> {"route":"platform","capabilities":[],"operation":null}
+"Почему у payments не сработал self-heal?" -> {"route":"diagnostics","capabilities":["configuration","deployment_history","alert_management","pause_sync"],"operation":null}
 "Какие деплои были вчера?" -> {"route":"deployments","capabilities":["deployment_history"],"operation":null}
 "Почему упал деплой infra-monitoring?" -> {"route":"diagnostics","capabilities":["service_context","service_runtime","deployment_history","alert_management"],"operation":null}
 "Какие сейчас активные алерты?" -> {"route":"diagnostics","capabilities":["alert_management"],"operation":null}

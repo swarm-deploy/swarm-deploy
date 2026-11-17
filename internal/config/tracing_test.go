@@ -131,7 +131,7 @@ func TestConfigValidateTracing(t *testing.T) {
 			name: "unsupported sampler strategy",
 			tracing: &TracingSpec{
 				Transport: TracingTransportHTTP,
-				Sampler:   TracingSamplerSpec{Strategy: specw.Env[string]{Value: "parentbased_always_on"}},
+				Sampler:   TracingSamplerSpec{Strategy: specw.Env[string]{Value: "unsupported_sampler"}},
 				Exporter:  TracingExporterSpec{Endpoint: specw.Env[string]{Value: "http://otel-collector:4318/v1/traces"}},
 			},
 			wantErr: "system.tracing.sampler.strategy must be one of",
@@ -220,6 +220,44 @@ func TestConfigValidateTracing(t *testing.T) {
 
 			require.NotEmpty(t, errs)
 			assert.Contains(t, errors.Join(errs...).Error(), tt.wantErr)
+		})
+	}
+}
+
+func TestLoadResolvesEffectiveTracingSampler(t *testing.T) {
+	const tracingYAML = `system:
+  tracing:
+    transport: http
+    exporter:
+      endpoint: http://collector:4318/v1/traces
+`
+	cases := []struct {
+		name, samplerYAML, envStrategy, envRatio, wantStrategy string
+		wantRatio                                              float64
+	}{
+		{name: "default", wantStrategy: TracingSamplerParentBasedAlwaysOn},
+		{name: "env strategy", envStrategy: " PARENTBASED_ALWAYS_OFF ", wantStrategy: TracingSamplerParentBasedAlwaysOff},
+		{name: "env ratio", envStrategy: TracingSamplerParentBasedTraceIDRatio, envRatio: "0.25",
+			wantStrategy: TracingSamplerParentBasedTraceIDRatio, wantRatio: 0.25},
+		{name: "env missing ratio", envStrategy: TracingSamplerTraceIDRatio,
+			wantStrategy: TracingSamplerTraceIDRatio, wantRatio: 1},
+		{name: "env bad ratio", envStrategy: TracingSamplerTraceIDRatio, envRatio: "invalid",
+			wantStrategy: TracingSamplerTraceIDRatio, wantRatio: 1},
+		{name: "unknown env strategy", envStrategy: "invalid", wantStrategy: TracingSamplerParentBasedAlwaysOn},
+		{name: "explicit strategy takes precedence", samplerYAML: "    sampler: {strategy: traceidratio, ratio: 0}\n",
+			envStrategy: TracingSamplerAlwaysOn, envRatio: "0.8", wantStrategy: TracingSamplerTraceIDRatio},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("OTEL_TRACES_SAMPLER", tt.envStrategy)
+			t.Setenv("OTEL_TRACES_SAMPLER_ARG", tt.envRatio)
+			cfg, err := Load(writeRuntimeYAML(t, minimalRuntimeYAML+tracingYAML+tt.samplerYAML))
+			require.NoError(t, err)
+			require.NotNil(t, cfg.Spec.System.Tracing)
+			t.Setenv("OTEL_TRACES_SAMPLER", TracingSamplerAlwaysOn)
+			t.Setenv("OTEL_TRACES_SAMPLER_ARG", "0.9")
+			assert.Equal(t, tt.wantStrategy, cfg.Spec.System.Tracing.Sampler.Strategy.Value)
+			assert.Equal(t, tt.wantRatio, cfg.Spec.System.Tracing.Sampler.Ratio.Value)
 		})
 	}
 }

@@ -25,6 +25,7 @@ require (
 	github.com/google/shlex v0.0.0-20191202100458-e7afc7fbc510
 	github.com/google/uuid v1.6.0
 	github.com/jmoiron/sqlx v1.4.0
+	github.com/langwatch/langwatch/sdks/go v1.0.0
 	github.com/langwatch/langwatch/sdks/go/instrumentation/openai v1.0.0
 	github.com/moby/moby/api v1.55.0
 	github.com/moby/swarmkit/v2 v2.0.0
@@ -97,7 +98,6 @@ require (
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.30.0 // indirect
 	github.com/jbenet/go-context v0.0.0-20150711004518-d14ea06fba99 // indirect
 	github.com/kevinburke/ssh_config v1.2.0 // indirect
-	github.com/langwatch/langwatch/sdks/go v1.0.0 // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/mfridman/interpolate v0.0.2 // indirect

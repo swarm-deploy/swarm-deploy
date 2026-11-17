@@ -4,8 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
+	"slices"
 	"strings"
 
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/tools"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/tools/routing"
 )
 
@@ -86,10 +89,37 @@ func capabilitiesNeedServiceContext(capabilities []Capability) bool {
 	return false
 }
 
+func toolCallFailure(ctx context.Context, toolName string, runErr error) string {
+	if !isConfigurationTool(toolName) {
+		slog.ErrorContext(ctx, "[graph] failed to run mcp tool",
+			slog.String("tool.name", toolName),
+			slog.Any("err", runErr),
+		)
+	}
+	return formatToolCallError(toolName, runErr)
+}
+
 func formatToolCallError(toolName string, runErr error) string {
 	return fmt.Sprintf(
 		"tool call failed: tool %q could not be executed. Error: %s",
 		strings.TrimSpace(toolName),
 		strings.TrimSpace(runErr.Error()),
 	)
+}
+
+// Preserve the call ID needed to send an error result, without echoing invalid arguments.
+func toolCallsForModelHistory(calls []modelToolCall) []modelToolCall {
+	history := slices.Clone(calls)
+	for i, call := range history {
+		if isConfigurationTool(call.Name) {
+			if _, err := tools.ParseConfigGetSection(call.Arguments); err != nil {
+				history[i].Arguments = "{}"
+			}
+		}
+	}
+	return history
+}
+
+func isConfigurationTool(name string) bool {
+	return strings.TrimSpace(name) == configurationToolName
 }

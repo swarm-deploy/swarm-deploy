@@ -1,6 +1,10 @@
 package config
 
-import "github.com/artarts36/specw"
+import (
+	"strings"
+
+	"github.com/artarts36/specw"
+)
 
 // AssistantToolName identifies a built-in assistant tool.
 type AssistantToolName string
@@ -38,7 +42,19 @@ const (
 	AssistantToolNameDate                               AssistantToolName = "date"
 	AssistantToolNameSelfMetricsList                    AssistantToolName = "self_metrics_list"
 	AssistantToolNameAssistantPromptInjectionReport     AssistantToolName = "assistant_prompt_injection_report"
+	AssistantToolNameSwarmDeployConfigGet               AssistantToolName = "swarm_deploy_config_get"
 )
+
+// NormalizeAssistantToolAllowlist returns the configured tool names. An empty set permits every tool.
+func NormalizeAssistantToolAllowlist(names []string) map[string]struct{} {
+	allowed := make(map[string]struct{}, len(names))
+	for _, name := range names {
+		if name = strings.TrimSpace(name); name != "" {
+			allowed[name] = struct{}{}
+		}
+	}
+	return allowed
+}
 
 // AssistantSpec configures AI assistant behavior.
 type AssistantSpec struct {
