@@ -119,6 +119,11 @@ func safeChatCompletionError(err error) error {
 	var apiError *openai.Error
 	switch {
 	case errors.As(err, &apiError):
+		switch apiError.Code {
+		case "model_not_found", "unsupported_parameter", "unsupported_value", "context_length_exceeded",
+			"invalid_api_key", "insufficient_quota", "rate_limit_exceeded":
+			return fmt.Errorf("chat completion request failed with HTTP status %d (%s)", apiError.StatusCode, apiError.Code)
+		}
 		return fmt.Errorf("chat completion request failed with HTTP status %d", apiError.StatusCode)
 	case errors.Is(err, context.Canceled):
 		return fmt.Errorf("chat completion request failed: %w", context.Canceled)

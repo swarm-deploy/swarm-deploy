@@ -58,11 +58,15 @@ func TestConfigurationThroughChat(t *testing.T) {
 	tests := []struct {
 		name, userMessage, arguments, answer, wantResult string
 		diagnostic, forbidden, concept, providerError    bool
+		allowedTools                                     []string
 	}{
 		{name: "overview", userMessage: "Что включено в моём swarm-deploy?", arguments: `{}`,
 			answer: "Telegram настроен. Self-heal включён глобально.", wantResult: `"historyCapacity":500`},
 		{name: "notifications", userMessage: "Как у меня настроены уведомления?", arguments: `{"section":"notifications"}`,
 			answer: "Для DeploySuccess настроен Telegram.", wantResult: `"eventTypes":["DeploySuccess"]`},
+		{name: "configured tool allowlist", userMessage: "Какие инструменты разрешены?", arguments: `{"section":"assistant"}`,
+			allowedTools: []string{configurationToolName}, wantResult: `"allowedTools":["swarm_deploy_config_get"]`,
+			answer: "В глобальном списке разрешён инструмент чтения конфигурации. Защитный инструмент доступен отдельно."},
 		{name: "init job timeout", userMessage: "Сколько времени отведено init job?", arguments: `{"section":"deployments"}`,
 			answer: "По умолчанию на init job отведено 17 минут.", wantResult: `"initJobDefaultTimeout":"17m"`},
 		{name: "self-heal diagnosis", userMessage: "Почему у payments не сработал self-heal?", arguments: `{"section":"gitops"}`,
@@ -73,16 +77,15 @@ func TestConfigurationThroughChat(t *testing.T) {
 		{name: "malformed call", userMessage: "Как у меня настроены уведомления?", arguments: configChatInvalid,
 			answer: "Не удалось прочитать настройки уведомлений.", wantResult: "expected a JSON object"},
 		{name: "forbidden call", userMessage: "Как у меня настроены уведомления?", arguments: configChatInvalid,
-			forbidden: true, answer: "Инструмент чтения конфигурации недоступен.", wantResult: "tool is not allowed"},
+			forbidden: true, allowedTools: []string{"date"},
+			answer: "Инструмент чтения конфигурации недоступен.", wantResult: "tool is not allowed"},
 		{name: "provider error", userMessage: "Сколько времени отведено init job?", arguments: `{"section":"deployments"}`,
 			providerError: true, wantResult: `"initJobDefaultTimeout":"17m"`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			spec := configurationChatSpec()
-			if tt.forbidden {
-				spec.Assistant.Tools = []string{"date"}
-			}
+			spec.Assistant.Tools = tt.allowedTools
 			route := `{"route":"platform","capabilities":["configuration"],"operation":null}`
 			if tt.diagnostic {
 				route = `{"route":"diagnostics","capabilities":["configuration","alert_management","pause_sync"],"operation":null}`
@@ -114,7 +117,8 @@ func TestConfigurationThroughChat(t *testing.T) {
 				case 3:
 					if tt.providerError {
 						w.WriteHeader(http.StatusBadRequest)
-						writeChatResponse(t, w, "provider-body-canary", nil)
+						_, err := fmt.Fprint(w, `{"error":{"code":"model_not_found","message":"provider-body-canary"}}`)
+						assert.NoError(t, err)
 						return
 					}
 					writeChatResponse(t, w, tt.answer, nil)
@@ -128,7 +132,7 @@ func TestConfigurationThroughChat(t *testing.T) {
 			response := service.Chat(t.Context(), ChatRequest{Message: tt.userMessage, WaitTimeoutMS: 5000})
 			if tt.providerError {
 				require.Equal(t, StatusFailed, response.Status, response)
-				assert.Contains(t, logs.String()[loggerOffset:], "HTTP status 400")
+				assert.Contains(t, logs.String()[loggerOffset:], "HTTP status 400 (model_not_found)")
 			} else {
 				require.Equal(t, StatusCompleted, response.Status, response)
 				assert.Equal(t, tt.answer, response.Answer)
@@ -153,6 +157,11 @@ func TestConfigurationThroughChat(t *testing.T) {
 			assert.False(t, requestContains(generation, "initJobDefaultTimeout"))
 			assert.Equal(t, !tt.concept && !tt.forbidden,
 				slices.Contains(capturedToolNames(generation), configurationToolName))
+			if len(tt.allowedTools) != 0 && !tt.forbidden {
+				assert.Contains(t, capturedToolNames(generation), assistantPromptInjectionReportTool)
+				assert.True(t, requestContains(generation, "the recognized tools in the configured global allowlist"))
+				assert.True(t, requestContains(generation, "report tool is available regardless of"))
+			}
 
 			if !tt.concept {
 				followup := <-captures

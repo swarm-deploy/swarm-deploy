@@ -130,7 +130,8 @@ Example use-case:
 Tool access is controlled by `assistant.tools`:
 
 - empty list (`[]`) permits all built-in tools, subject to the selected route
-- a non-empty list works as a global allow-list; effective tools are the intersection of it and the route allow-list
+- a non-empty list sets the global allow-list. Selected capabilities determine which of those operational tools are available for the request
+- the built-in prompt-injection report tool is available regardless of `assistant.tools`
 - the effective allow-list is checked both when tools are sent to the model and immediately before execution
 
 Each assistant run permits at most three tool execution rounds. After the third round, the model receives one tool-free instruction to produce its final answer from the evidence already collected. Any further tool request is not executed, and the run terminates gracefully instead of restarting the tool loop.
@@ -140,6 +141,8 @@ Each assistant run permits at most three tool execution rounds. After the third 
 Ask “What is enabled in my swarm-deploy?”, “How are notifications configured?” or “How much time does an init job have?”. The assistant uses the `configuration` capability and calls `swarm_deploy_config_get` with `{}` for the overview or with a single `section`.
 
 The supported sections are `gitops`, `deployments`, `event`, `system`, `notifications`, `web`, `healthServer`, `assistant`, and `hostings`. For example, `{"section":"deployments"}` gives the poll interval and default timeout per init job. A job can define its own timeout in Compose. Other arguments and unsupported section names are rejected. If you use an explicit `assistant.tools` allowlist, add `swarm_deploy_config_get` to enable the tool.
+
+In the `assistant` section, `toolAccess.allowedTools` lists recognized entries from the configured global allowlist. The actual tools available for a request follow the capability and security rules above.
 
 GitOps settings describe the global policy. In webhook mode, local reconciliation still runs on a timer and periodic Git polling is disabled. For a question about self-heal on a particular stack, the assistant can check the global policy and available runtime evidence. The stack or service override requires separate evidence.
 
