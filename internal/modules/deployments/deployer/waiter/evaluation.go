@@ -102,13 +102,7 @@ func runningServiceProgress(
 	}
 
 	progress.pendingSchedulingFault(tasks, service.ServiceSpec.TaskTemplate, cutoff)
-	failed := services.LatestUnreplacedServiceTaskFailure(service.ServiceSpec, tasks, cutoff)
-	if progress.taskFault == nil && progress.Running < progress.Desired {
-		progress.taskFault = failed.Fault()
-		if progress.taskFault != nil {
-			failed.Error = "" // The typed branch supplies the full technical text.
-		}
-	}
+	failed := progress.pendingFailureFaults(service.ServiceSpec, tasks, cutoff)
 	if updating {
 		progress.Message = updateProgressMessage(service.UpdateStatus)
 		return progress

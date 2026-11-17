@@ -54,6 +54,7 @@ func (s *waitState) observe(
 			progress.FailedTaskID = previous.FailedTaskID
 			progress.taskFault = previous.taskFault
 			progress.taskContext = previous.taskContext
+			progress.pendingTaskFaults = previous.pendingTaskFaults
 			progress.placementConstraints = previous.placementConstraints
 		}
 	}

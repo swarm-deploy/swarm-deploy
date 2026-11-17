@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strconv"
 	"time"
 
@@ -72,23 +73,26 @@ func TerminalServiceTaskFailure(
 	return failed, failed.ID != ""
 }
 
-// LatestUnreplacedServiceTaskFailure identifies a current failed task even
-// while Swarm can still retry it.
-func LatestUnreplacedServiceTaskFailure(
+// UnreplacedServiceTaskFailures returns the current failed task for each desired
+// slot or node, newest failure first, even while Swarm can still retry it.
+func UnreplacedServiceTaskFailures(
 	spec dockerswarm.ServiceSpec, tasks []swarm.ServiceTask, since time.Time,
-) swarm.ServiceTask {
-	var failed swarm.ServiceTask
+) []swarm.ServiceTask {
+	var failed []swarm.ServiceTask
 	for _, history := range serviceTaskHistories(spec, tasks, since) {
 		task := latestServiceTask(history)
 		if task.CurrentState != swarm.TaskStateFailed && task.CurrentState != swarm.TaskStateRejected &&
 			task.CurrentState != swarm.TaskStateOrphaned {
 			continue
 		}
-		if failed.ID == "" || task.UpdatedAt.After(failed.UpdatedAt) ||
-			(task.UpdatedAt.Equal(failed.UpdatedAt) && task.ID < failed.ID) {
-			failed = task
-		}
+		failed = append(failed, task)
 	}
+	sort.Slice(failed, func(i, j int) bool {
+		if failed[i].UpdatedAt.Equal(failed[j].UpdatedAt) {
+			return failed[i].ID < failed[j].ID
+		}
+		return failed[i].UpdatedAt.After(failed[j].UpdatedAt)
+	})
 	return failed
 }
 

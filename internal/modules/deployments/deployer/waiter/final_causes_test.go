@@ -85,6 +85,46 @@ func TestWaiterReportsLatestCausesAtDeadline(t *testing.T) {
 	}
 }
 
+func TestWaiterReportsUnreplacedReplicaCausesAtDeadline(t *testing.T) {
+	const denied = "unauthorized: authentication required"
+	const mount = "mount failed: volume data not accessible"
+	pullCause := faults.Cause{Code: faults.CodeImagePullDenied, Summary: denied}
+	for _, tc := range []struct {
+		name          string
+		secondFailure string
+		want          []faults.Cause
+	}{
+		{"newer untyped failure", "application exited", []faults.Cause{pullCause}},
+		{"newer typed failure", mount, []faults.Cause{{Code: faults.CodeMountFailed, Summary: mount}, pullCause}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			manager := swarm.NewMockServiceManager(gomock.NewController(t))
+			now := serviceWaitTestTime
+			service := testReplicatedService("api", "api-id", 3, now, "api:2")
+			first := testTask("denied", 1, swarm.TaskStateShutdown, swarm.TaskStateRejected, now)
+			first.Error = denied
+			second := testTask("second", 2, swarm.TaskStateShutdown, swarm.TaskStateFailed, now.Add(time.Second))
+			second.Error = tc.secondFailure
+			replaced := testTask("replaced", 3, swarm.TaskStateShutdown, swarm.TaskStateRejected, now)
+			replaced.Error = "mount failed: replaced volume"
+			replaced.UpdatedAt = now.Add(3 * time.Second)
+			replacement := testTask("replacement", 3, swarm.TaskStateRunning, swarm.TaskStatePreparing, now.Add(2*time.Second))
+			manager.EXPECT().ListServices(gomock.Any(), gomock.Any()).Return([]swarm.StackService{service}, nil).AnyTimes()
+			manager.EXPECT().ListTasks(gomock.Any(), service.ID).
+				Return([]swarm.ServiceTask{replacement, first, replaced, second}, nil).MinTimes(1)
+
+			result, err := NewServiceWaiter(manager, nil, time.Millisecond, 50*time.Millisecond).Wait(t.Context(), ServiceWaitRequest{
+				StackName: "app", ServiceNames: []string{service.Name},
+			})
+			require.ErrorIs(t, err, context.DeadlineExceeded)
+			require.NotErrorIs(t, err, ErrConvergenceFailed)
+			assert.Empty(t, result.FailedTasks)
+			assert.Equal(t, tc.want, faults.Causes(err))
+			assert.NotContains(t, err.Error(), replaced.Error)
+		})
+	}
+}
+
 func TestWaiterCollectsObservationErrorsAndTaskFailuresInAnyOrder(t *testing.T) {
 	for _, tc := range []struct {
 		name          string

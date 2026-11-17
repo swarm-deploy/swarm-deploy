@@ -68,6 +68,7 @@ type ServiceProgress struct {
 
 	taskFault            faults.Coded
 	taskContext          string
+	pendingTaskFaults    []faults.Coded
 	placementConstraints []string
 	taskLookupFailed     bool
 }

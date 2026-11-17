@@ -103,7 +103,7 @@ func TestWaitInterruptedErrorPreservesTechnicalChain(t *testing.T) {
 	transport := &net.OpError{Op: "read", Net: "docker", Err: errors.New("connection lost")}
 	observation := fmt.Errorf("list tasks for service api: %w", transport)
 	progress := map[string]ServiceProgress{
-		"api": {State: ServicePending, Message: "waiting for rolling update to complete", taskFault: original},
+		"api": {State: ServicePending, Message: "waiting for rolling update to complete", pendingTaskFaults: []faults.Coded{original}},
 	}
 	waiter := &ServiceWaiter{}
 	err := waiter.waitInterruptedError(t.Context(), "app", progress, context.DeadlineExceeded, observation)
