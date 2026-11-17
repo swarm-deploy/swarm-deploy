@@ -2,6 +2,7 @@ package waiter
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -19,12 +20,14 @@ func TestWaiterReportsLatestCausesAtDeadline(t *testing.T) {
 	const scheduling = "no suitable node (insufficient resources on 1 node)"
 	for _, tc := range []struct {
 		name      string
+		apiError  string
 		lastState swarm.TaskState
 		terminal  bool
 	}{
-		{"confirmed failure", swarm.TaskStateRejected, true},
-		{"recovered service", swarm.TaskStateRunning, false},
-		{"replaced task", swarm.TaskStatePreparing, false},
+		{"typed terminal failure", denied, swarm.TaskStateRejected, true},
+		{"untyped terminal failure", "application exited", swarm.TaskStateRejected, true},
+		{"recovered service", denied, swarm.TaskStateRunning, false},
+		{"replaced task", denied, swarm.TaskStatePreparing, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			manager := swarm.NewMockServiceManager(gomock.NewController(t))
@@ -35,7 +38,7 @@ func TestWaiterReportsLatestCausesAtDeadline(t *testing.T) {
 			scheduler := testReplicatedService("scheduler", "scheduler-id", 1, now, "scheduler:2")
 			manager.EXPECT().ListServices(gomock.Any(), gomock.Any()).Return([]swarm.StackService{worker, scheduler, api}, nil).AnyTimes()
 			failedAPI := testTask("api-original", 1, swarm.TaskStateShutdown, swarm.TaskStateRejected, now)
-			failedAPI.Error, failedAPI.Spec = denied, swarm.NewTaskSpec(api.ServiceSpec.TaskTemplate)
+			failedAPI.Error, failedAPI.Spec = tc.apiError, swarm.NewTaskSpec(api.ServiceSpec.TaskTemplate)
 			first := manager.EXPECT().ListTasks(gomock.Any(), api.ID).Return([]swarm.ServiceTask{failedAPI}, nil)
 			apiTasks := []swarm.ServiceTask{failedAPI}
 			if !tc.terminal {
@@ -58,22 +61,77 @@ func TestWaiterReportsLatestCausesAtDeadline(t *testing.T) {
 				StackName: "app", ServiceNames: []string{"worker", "scheduler", "api"},
 			})
 			require.ErrorIs(t, err, context.DeadlineExceeded)
+			causes := []faults.Cause{
+				{Code: faults.CodeNoSuitableNode, Summary: scheduling},
+				{Code: faults.CodeMountFailed, Summary: mount},
+			}
 			if tc.terminal {
 				require.ErrorIs(t, err, ErrConvergenceFailed)
-				assert.Equal(t, []faults.Cause{{Code: faults.CodeImagePullDenied, Summary: denied}}, faults.Causes(err))
+				if tc.apiError == denied {
+					causes = append([]faults.Cause{{Code: faults.CodeImagePullDenied, Summary: denied}}, causes...)
+				}
+				assert.Equal(t, causes, faults.Causes(err))
 				require.Len(t, result.FailedTasks, 1)
 				assert.Equal(t, failedAPI.ID, result.FailedTasks[0].FailedTaskID)
 				return
 			}
 			require.NotErrorIs(t, err, ErrConvergenceFailed)
 			assert.Empty(t, result.FailedTasks)
-			assert.Equal(t, []faults.Cause{
-				{Code: faults.CodeNoSuitableNode, Summary: scheduling},
-				{Code: faults.CodeMountFailed, Summary: mount},
-			}, faults.Causes(err))
+			assert.Equal(t, causes, faults.Causes(err))
 			assert.NotContains(t, err.Error(), denied)
 			assert.NotContains(t, err.Error(), failedAPI.ID)
 			assert.NotContains(t, err.Error(), staleWorker.ID)
+		})
+	}
+}
+
+func TestWaiterCollectsObservationErrorsAndTaskFailuresInAnyOrder(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		temporaryName string
+		permanentName string
+		failedName    string
+		taskError     string
+		wantCode      faults.Code
+	}{
+		{"temporary error first", "api", "sidecar", "worker", "mount failed: volume data", faults.CodeMountFailed},
+		{"permanent error first", "worker", "api", "sidecar", "mount failed: volume data", faults.CodeMountFailed},
+		{"task failure first", "sidecar", "worker", "api", "mount failed: volume data", faults.CodeMountFailed},
+		{"temporary error first without typed cause", "api", "sidecar", "worker", "application exited", ""},
+		{"permanent error first without typed cause", "worker", "api", "sidecar", "application exited", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			manager := swarm.NewMockServiceManager(gomock.NewController(t))
+			now := serviceWaitTestTime
+			temporary := testReplicatedService(tc.temporaryName, "temp-id", 1, now, "app:2")
+			permanent := testReplicatedService(tc.permanentName, "perm-id", 1, now, "app:2")
+			failed := testReplicatedService(tc.failedName, "failed-id", 1, now, "app:2")
+			failed.UpdateStatus = &swarm.ServiceUpdateStatus{State: swarm.ServiceUpdateStatePaused, StartedAt: now}
+			task := testTask("failed-task", 1, swarm.TaskStateShutdown, swarm.TaskStateRejected, now)
+			task.Error = tc.taskError
+			temporaryErr := temporaryDockerError()
+			permanentErr := errors.New("permission denied")
+			manager.EXPECT().ListServices(gomock.Any(), gomock.Any()).Return([]swarm.StackService{failed, temporary, permanent}, nil)
+			manager.EXPECT().ListTasks(gomock.Any(), temporary.ID).Return(nil, temporaryErr)
+			manager.EXPECT().ListTasks(gomock.Any(), permanent.ID).Return(nil, permanentErr)
+			manager.EXPECT().ListTasks(gomock.Any(), failed.ID).Return([]swarm.ServiceTask{task}, nil)
+
+			result, err := newTestServiceWaiter(manager).Wait(t.Context(), ServiceWaitRequest{
+				StackName: "app", ServiceNames: []string{failed.Name, permanent.Name, temporary.Name},
+			})
+			require.ErrorIs(t, err, ErrConvergenceFailed)
+			assert.ErrorIs(t, err, temporaryErr)
+			assert.ErrorIs(t, err, permanentErr)
+			var wantCauses []faults.Cause
+			if tc.wantCode != "" {
+				wantCauses = append(wantCauses, faults.Cause{Code: tc.wantCode, Summary: task.Error})
+			}
+			assert.Equal(t, wantCauses, faults.Causes(err))
+			safe, ok := faults.SafeError(err).(faults.Error)
+			require.True(t, ok)
+			assert.False(t, safe.Temporary())
+			require.Len(t, result.FailedTasks, 1)
+			assert.Equal(t, task.ID, result.FailedTasks[0].FailedTaskID)
 		})
 	}
 }

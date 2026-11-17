@@ -45,12 +45,17 @@ func (s *waitState) observe(
 	span trace.Span, callback ServiceProgressCallback, service swarm.StackService, progress ServiceProgress,
 ) {
 	previous := s.last[progress.Name]
-	if progress.taskLookupFailed && previous.State == progress.State && !s.serviceChanged(progress.Name, service) {
+	if progress.taskLookupFailed && !s.serviceChanged(progress.Name, service) {
 		// A failed lookup adds no new task evidence for the same service revision.
-		progress.FailedTaskID = previous.FailedTaskID
-		progress.taskFault = previous.taskFault
-		progress.taskContext = previous.taskContext
-		progress.placementConstraints = previous.placementConstraints
+		switch {
+		case previous.State == ServiceFailed && progress.State == ServicePending:
+			progress = previous
+		case previous.State == progress.State:
+			progress.FailedTaskID = previous.FailedTaskID
+			progress.taskFault = previous.taskFault
+			progress.taskContext = previous.taskContext
+			progress.placementConstraints = previous.placementConstraints
+		}
 	}
 	s.services[progress.Name] = service
 	s.emit(span, callback, progress)

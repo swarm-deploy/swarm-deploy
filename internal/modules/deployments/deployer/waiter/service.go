@@ -188,14 +188,13 @@ func (w *ServiceWaiter) wait(
 	ticker := time.NewTicker(w.pollInterval)
 	defer ticker.Stop()
 
-waitLoop:
 	for {
 		settled, observeErr := w.poll(waitCtx, span, request, baseline, targets, state)
+		if !settled && waitCtx.Err() != nil {
+			break
+		}
 		switch {
 		case observeErr != nil:
-			if waitCtx.Err() != nil {
-				break waitLoop
-			}
 			if !isTransientDockerAPIError(observeErr) {
 				cancel()
 				failure := w.withObservationFailure(ctx, state, observeErr)
@@ -225,20 +224,17 @@ waitLoop:
 }
 
 func (w *ServiceWaiter) finishInterruptedWait(ctx context.Context, stack string, state *waitState, cause error) error {
-	observation := state.lastObservationError
+	interrupted := w.waitInterruptedError(ctx, stack, state.last, cause, state.lastObservationError)
 	terminal := state.terminalError()
 	if terminal == nil {
-		return w.waitInterruptedError(ctx, stack, state.last, cause, observation)
+		return interrupted
 	}
-	if observation != nil {
-		observation = errors.New(observation.Error())
-	}
-	return errors.Join(terminal, interruptionDiagnostic(stack, state.last, cause, observation))
+	return errors.Join(terminal, interrupted)
 }
 
 func (w *ServiceWaiter) withObservationFailure(ctx context.Context, state *waitState, cause error) error {
 	if terminal := state.terminalError(); terminal != nil {
-		return fmt.Errorf("%w; observation failed: %v", terminal, cause)
+		cause = fmt.Errorf("%w; observation failed: %w", terminal, cause)
 	}
 	return w.withPendingTaskFaults(ctx, cause, state.last)
 }
@@ -275,11 +271,12 @@ func (w *ServiceWaiter) observeTargets(
 	state.observed = len(targets)
 	state.converged = 0
 	settled := true
-	var observationErr error
+	var observationErrs observationErrors
 	for _, name := range sortedTargetNames(targets) {
 		service := current[name]
-		if observationErr != nil {
+		if ctx.Err() != nil {
 			state.invalidateChangedService(span, request.Progress, name, service)
+			settled = false
 			continue
 		}
 		if slices.Contains(request.AppliedServices, name) && baseline[name].ID != "" &&
@@ -296,7 +293,7 @@ func (w *ServiceWaiter) observeTargets(
 			slices.Contains(request.UnresolvedServices, name), request.ExpectedSpecs[name], request.UpdateGenerations[name])
 		state.observe(span, request.Progress, service, progress)
 		if err != nil {
-			observationErr = err
+			observationErrs = append(observationErrs, err)
 			continue
 		}
 		switch progress.State {
@@ -308,7 +305,10 @@ func (w *ServiceWaiter) observeTargets(
 			// Keep observing independent targets after a confirmed failure.
 		}
 	}
-	return settled && observationErr == nil, observationErr
+	if len(observationErrs) != 0 {
+		return false, observationErrs
+	}
+	return settled, nil
 }
 
 func serviceChanged(before, after swarm.StackService) bool {
@@ -324,7 +324,24 @@ func servicesByName(services []swarm.StackService) map[string]swarm.StackService
 	return mapped
 }
 
+type observationErrors []error
+
+func (errs observationErrors) Error() string   { return errors.Join(errs...).Error() }
+func (errs observationErrors) Unwrap() []error { return errs }
+func (errs observationErrors) Temporary() bool {
+	// Retrying the poll only helps when every failed observation can be retried.
+	for _, err := range errs {
+		if !isTransientDockerAPIError(err) {
+			return false
+		}
+	}
+	return true
+}
+
 func isTransientDockerAPIError(err error) bool {
+	if observations, ok := err.(observationErrors); ok {
+		return observations.Temporary()
+	}
 	var temporary faults.Error
 	if errors.As(err, &temporary) && temporary.Temporary() {
 		return true
