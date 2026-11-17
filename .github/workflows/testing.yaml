@@ -91,7 +91,7 @@ jobs:
         if: needs.changes.outputs.backend == 'true'
         run: go test ./internal/...
 
-      - name: Compare native converter with Docker CLI v28.3.3
+      - name: Compare native converter with Docker CLI
         if: needs.changes.outputs.backend == 'true'
         run: make test-compatibility
 

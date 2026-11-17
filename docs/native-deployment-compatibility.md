@@ -146,10 +146,10 @@ registry polling or custom manifest resolver is introduced.
 ## Verification
 
 `make check` runs the repository linter, all Go tests, and differential tests in
-`tools/compatibility`. That separate module pins Docker CLI v28.3.3; it adds no
-production loader/converter or CLI executable dependency. Fixtures compare actual
-converted API specs for commands, service fields, ports, jobs, credentials and
-resources, and explicitly test environment and CLI field limitations.
+`tools/compatibility`. That separate module pins Docker CLI in its `go.mod`.
+Fixtures compare converted API specs for commands, service fields, ports, jobs,
+credentials and resources, and explicitly test environment and CLI field
+limitations.
 
 `SWARM_DEPLOY_E2E=1 go test -count=1 -timeout=10m -v ./e2e` uses the existing real
 Swarm infrastructure. The extended stack scenario checks unchanged service/task
