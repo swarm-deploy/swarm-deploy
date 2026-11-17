@@ -76,15 +76,21 @@ const (
 
 // AlertTelegramRoutes returns the replacing kind route, configured default or built-in route.
 func (c NotificationSpec) AlertTelegramRoutes(kind string) []TelegramAlertChannel {
+	routes, _ := c.AlertTelegramRoutesWithSource(kind)
+	return routes
+}
+
+// AlertTelegramRoutesWithSource reports the chosen rules and whether they are specific to the kind.
+func (c NotificationSpec) AlertTelegramRoutesWithSource(kind string) ([]TelegramAlertChannel, string) {
 	if route, ok := c.Alerts[notificationAlertConfigKey(alertmodel.AlertKind(kind))]; ok {
-		return route.Telegram
+		return route.Telegram, "kind"
 	}
 	if route, ok := c.Alerts[notificationAlertNameDefault]; ok {
-		return route.Telegram
+		return route.Telegram, "configuredDefault"
 	}
 	return []TelegramAlertChannel{{
 		Resolved: AlertMessageSpec{Action: "reply"},
-	}}
+	}}, "builtInDefault"
 }
 
 // AlertRecipients captures the configured physical Telegram destinations for an opening alert.

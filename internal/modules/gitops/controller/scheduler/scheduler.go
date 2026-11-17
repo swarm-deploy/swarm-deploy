@@ -47,7 +47,7 @@ func (s *Scheduler) Run(ctx, reconciliationCtx context.Context) error {
 	defer s.active.Store(false)
 
 	var pollTicker *time.Ticker
-	if s.cfg.Spec.GitOps.Sync.Mode == config.SyncModePull || s.cfg.Spec.GitOps.Sync.Mode == config.SyncModeHybrid {
+	if s.cfg.Spec.GitOps.Sync.GitPollingEnabled() {
 		pollTicker = time.NewTicker(s.cfg.Spec.GitOps.Git.Pull.Interval.Value)
 		s.addTicker(pollTicker)
 		defer s.removeTicker(pollTicker)

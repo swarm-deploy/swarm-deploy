@@ -549,7 +549,7 @@ func (g *graph) generateAnswerNode(
 		executionState.modelMessages = append(executionState.modelMessages, modelMessage{
 			Role:      "assistant",
 			Content:   completion.Content,
-			ToolCalls: completion.ToolCalls,
+			ToolCalls: toolCallsForModelHistory(completion.ToolCalls),
 		})
 		executionState.pendingToolCalls = completion.ToolCalls
 
@@ -591,11 +591,7 @@ func (g *graph) executeMCPNode(
 			success := err == nil
 			reportToolActivity(executionState, modelToolCall.Name, time.Since(startedAt), err)
 			if err != nil {
-				slog.ErrorContext(ctx, "[graph] failed to run mcp tool",
-					slog.String("tool.name", modelToolCall.Name),
-					slog.Any("err", err),
-				)
-				toolResultMessage = formatToolCallError(modelToolCall.Name, err)
+				toolResultMessage = toolCallFailure(ctx, modelToolCall.Name, err)
 			}
 
 			if strings.TrimSpace(toolResultMessage) == "" {

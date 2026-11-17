@@ -79,6 +79,10 @@ func buildSampler(cfg config.TracingSamplerSpec) sdktrace.Sampler {
 		return sdktrace.AlwaysSample()
 	case config.TracingSamplerAlwaysOff:
 		return sdktrace.NeverSample()
+	case config.TracingSamplerParentBasedAlwaysOn:
+		return sdktrace.ParentBased(sdktrace.AlwaysSample())
+	case config.TracingSamplerParentBasedAlwaysOff:
+		return sdktrace.ParentBased(sdktrace.NeverSample())
 	case config.TracingSamplerTraceIDRatio:
 		return sdktrace.TraceIDRatioBased(cfg.Ratio.Value)
 	case config.TracingSamplerParentBasedTraceIDRatio:

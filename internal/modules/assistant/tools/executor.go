@@ -10,6 +10,7 @@ import (
 	"reflect"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
@@ -35,12 +36,13 @@ const selfMetricsNamePrefix = "swarm_deploy_"
 
 // Executor provides built-in assistant tools.
 type Executor struct {
-	tools       map[string]routing.Tool
-	definitions []routing.ToolDefinition
-	requests    map[string]any
-	metrics     metrics.MCP
-	tracer      trace.Tracer
-	syncPauses  *syncpause.Service
+	tools               map[string]routing.Tool
+	definitions         []routing.ToolDefinition
+	requests            map[string]any
+	metrics             metrics.MCP
+	tracer              trace.Tracer
+	syncPauses          *syncpause.Service
+	configToolAllowlist map[string]struct{}
 }
 
 // NewExecutor creates an assistant tool executor from service components.
@@ -57,7 +59,7 @@ func NewExecutor(
 	hostingProviders *githosting.ProviderManager,
 	stacks []config.StackSpec,
 	mcpMetrics metrics.MCP,
-	gitRepositoryURL string,
+	spec config.Spec,
 ) *Executor {
 	toolComponents := []routing.Tool{
 		NewListHistoryEvents(eventModule.History),
@@ -87,7 +89,8 @@ func NewExecutor(
 		NewSetServiceReplicas(swarmService.Services, eventModule.Dispatcher),
 		NewRestartService(swarmService.Services, eventModule.Dispatcher),
 		NewGetActualImageVersion(imageVersionResolver),
-		NewGitRepositoryDiagnostics(gitopsModule.GitRepository, gitopsModule.Store, alertModule.Store, gitRepositoryURL),
+		NewGitRepositoryDiagnostics(gitopsModule.GitRepository, gitopsModule.Store, alertModule.Store,
+			spec.GitOps.Git.Repository),
 		NewListGitCommits(gitopsModule.GitRepository),
 		NewGitCommitDiff(gitopsModule.GitRepository, stacks, gitopsModule.Differ),
 		NewGetExternalRepositoryLatestRelease(hostingProviders),
@@ -95,6 +98,9 @@ func NewExecutor(
 		NewSelfMetricsList(prometheus.DefaultGatherer, selfMetricsNamePrefix),
 		NewReportPromptInjection(eventModule.Dispatcher),
 	}
+
+	allowed := config.NormalizeAssistantToolAllowlist(spec.Assistant.Tools)
+	toolComponents = append(toolComponents, newSwarmDeployConfigGet(spec, allowed, toolComponents))
 
 	tools := make(map[string]routing.Tool, len(toolComponents))
 	requests := make(map[string]any, len(toolComponents))
@@ -109,12 +115,13 @@ func NewExecutor(
 	}
 
 	return &Executor{
-		tools:       tools,
-		definitions: definitions,
-		requests:    requests,
-		metrics:     mcpMetrics,
-		tracer:      otel.Tracer("github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/tools"),
-		syncPauses:  gitopsModule.SyncPauses,
+		tools:               tools,
+		definitions:         definitions,
+		requests:            requests,
+		metrics:             mcpMetrics,
+		tracer:              otel.Tracer("github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/tools"),
+		syncPauses:          gitopsModule.SyncPauses,
+		configToolAllowlist: allowed,
 	}
 }
 
@@ -135,11 +142,16 @@ func (e *Executor) Definitions() []routing.ToolDefinition {
 
 // Execute runs a tool by name.
 func (e *Executor) Execute(ctx context.Context, req routing.Request) (string, error) {
+	if req.ToolName == configGetToolName {
+		return e.executeConfigGet(ctx, req)
+	}
+
+	raw, _ := req.Payload.(string)
 	ctx, span := e.tracer.Start(ctx, "tool "+req.ToolName, trace.WithAttributes(
 		semconv.GenAIOperationNameExecuteTool,
 		tracing.GenAIToolName.String(req.ToolName),
 		tracing.GenAIToolType.String("function"),
-		tracing.GenAIToolCallArguments.String(req.Payload.(string)), //nolint:errcheck // nn
+		tracing.GenAIToolCallArguments.String(raw),
 	))
 	defer span.End()
 
@@ -195,6 +207,50 @@ func (e *Executor) Execute(ctx context.Context, req routing.Request) (string, er
 
 	success = true
 	return string(encoded), nil
+}
+
+// The global configuration tool validates its own raw arguments and records only execution metadata.
+func (e *Executor) executeConfigGet(ctx context.Context, req routing.Request) (encoded string, resultErr error) {
+	ctx, span := e.tracer.Start(ctx, "tool "+configGetToolName, trace.WithAttributes(
+		semconv.GenAIOperationNameExecuteTool,
+		tracing.GenAIToolName.String(configGetToolName),
+	))
+	startedAt := time.Now()
+	defer func() {
+		duration := time.Since(startedAt)
+		success := resultErr == nil
+		e.metrics.RecordToolExecution(configGetToolName, success, duration)
+		if success {
+			span.SetStatus(codes.Ok, "")
+		} else {
+			span.SetStatus(codes.Error, "")
+		}
+		span.SetAttributes(tracing.AssistantToolResultChars.Int(utf8.RuneCountInString(encoded)))
+		span.End()
+
+		slog.InfoContext(ctx, "[assistant-tool] configuration lookup finished",
+			slog.String("tool.name", configGetToolName),
+			slog.Bool("success", success),
+			slog.Duration("duration", duration),
+			slog.Int("response_size", len(encoded)),
+		)
+	}()
+
+	if len(e.configToolAllowlist) > 0 {
+		if _, allowed := e.configToolAllowlist[configGetToolName]; !allowed {
+			return "", errors.New("tool is not allowed by assistant.tools")
+		}
+	}
+
+	result, err := e.tools[configGetToolName].Execute(ctx, req)
+	if err != nil {
+		return "", err
+	}
+	payload, err := json.Marshal(result.Payload, jsonv1.DefaultOptionsV1())
+	if err != nil {
+		return "", errors.New("could not encode configuration response")
+	}
+	return string(payload), nil
 }
 
 func toolResultCanBeTraced(toolName string) bool {
