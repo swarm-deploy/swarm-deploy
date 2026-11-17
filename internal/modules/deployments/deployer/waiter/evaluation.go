@@ -64,17 +64,18 @@ func evaluateService(
 	mode := serviceVerificationMode(baseline, service, unresolved, generation)
 	desired = observedDesiredTasks(service, tasks)
 	progress.Desired = desired
-	if globalSchedulerPending(baseline, service, desired) {
-		progress.Message = "waiting for global scheduler to create tasks"
-		return progress
-	}
-	if desired == 0 {
-		return zeroDesiredProgress(progress, tasks)
-	}
 
 	// A no-op sync of the restored spec verifies its existing tasks, even when
 	// an earlier failed desired spec left an unresolved verification obligation.
 	cutoff, generationPending := verificationTaskCutoff(baseline, service, mode, unresolved, generation)
+	if desired == 0 {
+		progress = zeroDesiredProgress(progress, baseline, service, tasks)
+		if !generationPending && service.Mode == globalServiceMode && progress.State == ServicePending {
+			// Swarm's global desired count omits replacements waiting to start.
+			progress.pendingRegistryPullFault(service, tasks, cutoff)
+		}
+		return progress
+	}
 	if generationPending {
 		progress.Message = waitingForUpdateStatus
 		return progress
@@ -95,6 +96,9 @@ func runningServiceProgress(
 		return progress
 	}
 	progress.pendingSchedulingFault(tasks, service.ServiceSpec.TaskTemplate, cutoff)
+	if progress.taskFault == nil && progress.Running < progress.Desired {
+		progress.pendingRegistryPullFault(service, tasks, cutoff)
+	}
 	if updatePending(service.UpdateStatus) {
 		progress.Message = updateProgressMessage(service.UpdateStatus)
 		return progress
@@ -163,24 +167,14 @@ func observedDesiredTasks(service swarm.StackService, tasks []swarm.ServiceTask)
 	return desired
 }
 
-func globalSchedulerPending(
-	baseline swarm.StackService,
-	service swarm.StackService,
-	desired uint64,
-) bool {
-	if service.Mode != globalServiceMode || desired != 0 {
-		return false
+func zeroDesiredProgress(
+	progress ServiceProgress, baseline, service swarm.StackService, tasks []swarm.ServiceTask,
+) ServiceProgress {
+	if service.Mode == globalServiceMode && (baseline.ID != service.ID || baseline.DesiredTasks > 0 ||
+		!reflect.DeepEqual(baseline.ServiceSpec.TaskTemplate.Placement, service.ServiceSpec.TaskTemplate.Placement)) {
+		progress.Message = "waiting for global scheduler to create tasks"
+		return progress
 	}
-	if baseline.ID == "" || baseline.ID != service.ID {
-		return true
-	}
-	return baseline.DesiredTasks > 0 || !reflect.DeepEqual(
-		baseline.ServiceSpec.TaskTemplate.Placement,
-		service.ServiceSpec.TaskTemplate.Placement,
-	)
-}
-
-func zeroDesiredProgress(progress ServiceProgress, tasks []swarm.ServiceTask) ServiceProgress {
 	active := countActiveTasks(tasks)
 	if active == 0 {
 		progress.State = ServiceReady

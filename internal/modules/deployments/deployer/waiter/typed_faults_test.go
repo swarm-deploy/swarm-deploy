@@ -26,6 +26,7 @@ func TestServiceWaiterTerminalTaskFaults(t *testing.T) {
 	}{
 		{swarm.TaskStatePending, "no suitable node (scheduling constraints not satisfied on 1 node)", faults.CodeNoSuitableNode, false},
 		{swarm.TaskStateRejected, "unauthorized: authentication required", faults.CodeImagePullDenied, false},
+		{swarm.TaskStateRejected, "error from registry: unexpected response token=private-value", faults.CodeImagePullFailed, false},
 		{swarm.TaskStateRejected, `invalid mount config for type "bind": bind source path does not exist: /srv/data`, faults.CodeMountFailed, false},
 		{swarm.TaskStateRejected, "VolumeDriver.Mount: permission denied", faults.CodeMountFailed, true},
 		{swarm.TaskStateRejected, "mount failed: " + strings.Repeat("backend unavailable; ", 30), faults.CodeMountFailed, false},
@@ -64,8 +65,106 @@ func TestServiceWaiterTerminalTaskFaults(t *testing.T) {
 			require.ErrorAs(t, err, &coded)
 			assert.Same(t, original, coded)
 			assert.Equal(t, tc.code, coded.FaultCode())
-			assert.Equal(t, boundedDiagnostic(tc.diagnostic), coded.FaultSummary())
+			wantSummary := boundedDiagnostic(tc.diagnostic)
+			if tc.code == faults.CodeImagePullFailed {
+				var classified faults.Error
+				require.ErrorAs(t, err, &classified)
+				assert.True(t, classified.Temporary())
+				wantSummary = "Docker could not pull the image."
+			}
+			assert.Equal(t, wantSummary, coded.FaultSummary())
 			assert.Equal(t, tc.code == faults.CodeImageNotFound, errors.Is(err, swarm.ErrImageNotFound))
+		})
+	}
+}
+
+func TestServiceWaiterRegistryPullFaultAtTimeout(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		response      string
+		older         bool
+		otherSpec     bool
+		outsideSlot   bool
+		global        bool
+		replacement   swarm.TaskState
+		desiredState  swarm.TaskState
+		wantCode      faults.Code
+		wantTemporary bool
+	}{
+		{name: "current failure between attempts", response: "unexpected response", wantCode: faults.CodeImagePullFailed, wantTemporary: true},
+		{name: "unsupported", response: "unsupported", wantCode: faults.CodeImagePullFailed},
+		{name: "access denied", response: "denied", wantCode: faults.CodeImagePullDenied},
+		{name: "previous generation with the same spec", response: "unexpected response", older: true},
+		{name: "different specification", response: "unexpected response", otherSpec: true},
+		{name: "removed slot", response: "unexpected response", outsideSlot: true},
+		{name: "replacement running while another slot is missing", response: "unexpected response", replacement: swarm.TaskStateRunning},
+		{name: "replacement waiting for a node", response: "unexpected response", replacement: swarm.TaskStatePending},
+		{name: "replacement has fetched the image", response: "unexpected response", replacement: swarm.TaskStateReady, desiredState: swarm.TaskStateReady},
+		{name: "replacement still preparing during restart delay", response: "unexpected response", replacement: swarm.TaskStatePreparing,
+			desiredState: swarm.TaskStateReady, wantCode: faults.CodeImagePullFailed, wantTemporary: true},
+		{name: "global replacement during restart delay", response: "unexpected response", replacement: swarm.TaskStatePreparing,
+			desiredState: swarm.TaskStateReady, global: true, wantCode: faults.CodeImagePullFailed, wantTemporary: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			diagnostic := "error from registry: " + tc.response
+			manager := swarm.NewMockServiceManager(gomock.NewController(t))
+			service := testReplicatedService("api", "api-id", 2, serviceWaitTestTime, "api:2")
+			baseline := testReplicatedService("api", "api-id", 2, serviceWaitTestTime.Add(-time.Minute), "api:1")
+			if tc.global {
+				service = testGlobalService("api", "api-id", 0, serviceWaitTestTime)
+				baseline = testGlobalService("api", "api-id", 1, serviceWaitTestTime.Add(-time.Minute))
+				baseline.ServiceSpec.TaskTemplate.ContainerSpec.Image = "agent:0"
+			}
+			service.UpdateStatus = &swarm.ServiceUpdateStatus{
+				State: swarm.ServiceUpdateStateUpdating, StartedAt: serviceWaitTestTime,
+			}
+			rejected := testTask("rejected", 1, swarm.TaskStateShutdown, swarm.TaskStateRejected, serviceWaitTestTime)
+			rejected.Error = diagnostic
+			rejected.Spec = swarm.NewTaskSpec(service.ServiceSpec.TaskTemplate)
+			rejected.Node = "node-1"
+			if tc.older {
+				rejected.CreatedAt = rejected.CreatedAt.Add(-time.Second)
+			}
+			if tc.otherSpec {
+				rejected.Spec = swarm.NewTaskSpec(baseline.ServiceSpec.TaskTemplate)
+			}
+			if tc.outsideSlot {
+				rejected.Slot = 3
+			}
+			manager.EXPECT().ListServices(gomock.Any(), gomock.Any()).Return([]swarm.StackService{service}, nil).AnyTimes()
+			tasks := []swarm.ServiceTask{rejected}
+			if tc.replacement != "" {
+				manager.EXPECT().ListTasks(gomock.Any(), service.ID).Return(tasks, nil)
+				desiredState := tc.desiredState
+				if desiredState == "" {
+					desiredState = swarm.TaskStateRunning
+				}
+				replacement := testTask("replacement", 1, desiredState, tc.replacement, serviceWaitTestTime.Add(time.Second))
+				replacement.Spec, replacement.Node = rejected.Spec, rejected.Node
+				tasks = append(tasks, replacement)
+			}
+			manager.EXPECT().ListTasks(gomock.Any(), service.ID).Return(tasks, nil).AnyTimes()
+			result, err := NewServiceWaiter(manager, nil, time.Millisecond, 30*time.Millisecond).Wait(t.Context(), ServiceWaitRequest{
+				StackName: "app", ServiceNames: []string{"api"}, Baseline: []swarm.StackService{baseline},
+				ExpectedSpecs: map[string]dockerswarm.ServiceSpec{"api": service.ServiceSpec},
+			})
+			require.ErrorIs(t, err, context.DeadlineExceeded)
+			assert.NotErrorIs(t, err, ErrConvergenceFailed)
+			assert.Equal(t, []string{"api"}, result.UnresolvedServices)
+			assert.Empty(t, result.FailedTasks)
+			var coded faults.Coded
+			if tc.wantCode == "" {
+				assert.NotErrorAs(t, err, &coded)
+				assert.NotContains(t, err.Error(), diagnostic)
+				return
+			}
+			require.ErrorAs(t, err, &coded)
+			assert.Equal(t, tc.wantCode, coded.FaultCode())
+			assert.EqualError(t, coded, diagnostic)
+			assert.Equal(t, 1, strings.Count(err.Error(), diagnostic))
+			var classified faults.Error
+			require.ErrorAs(t, err, &classified)
+			assert.Equal(t, tc.wantTemporary, classified.Temporary())
 		})
 	}
 }
@@ -76,8 +175,8 @@ func TestServiceWaiterContainerdLeaseFindingOnRollback(t *testing.T) {
 	manager := swarm.NewMockServiceManager(gomock.NewController(t))
 	service := testReplicatedService("api", "api-id", 1, serviceWaitTestTime, "api:2")
 	service.UpdateStatus = &swarm.ServiceUpdateStatus{
-		State: "rollback_started",
-		Message: "update rolled back due to failure or early termination of task current-task",
+		State:     "rollback_started",
+		Message:   "update rolled back due to failure or early termination of task current-task",
 		StartedAt: serviceWaitTestTime,
 	}
 	task := testTask("current-task", 1, swarm.TaskStateShutdown, swarm.TaskStateRejected, serviceWaitTestTime)
@@ -106,7 +205,8 @@ func TestWaitInterruptedErrorPreservesTechnicalChain(t *testing.T) {
 		"api": {State: ServicePending, Message: "waiting for rolling update to complete", taskFault: original},
 	}
 	waiter := &ServiceWaiter{}
-	err := waiter.waitInterruptedError(t.Context(), "app", progress, context.DeadlineExceeded, observation)
+	state := &waitState{last: progress, lastObservationError: observation}
+	err := waiter.waitInterruptedError(t.Context(), "app", state, context.DeadlineExceeded)
 	assert.ErrorIs(t, err, context.DeadlineExceeded)
 	assert.ErrorIs(t, err, observation)
 	assert.ErrorIs(t, err, transport)

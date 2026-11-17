@@ -2,6 +2,7 @@ package swarm
 
 import (
 	"errors"
+	"strings"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
 )
@@ -17,10 +18,78 @@ func (t ServiceTask) Fault() faults.Coded {
 		return nil
 	}
 	code, summary := dockerFault(t.Error)
-	if code == "" || (t.CurrentState == TaskStatePending && code != faults.CodeNoSuitableNode) {
+	if t.CurrentState == TaskStatePending && code != faults.CodeNoSuitableNode {
+		return nil
+	}
+	if (code == "" || code == faults.CodeImagePullDenied) &&
+		t.CurrentState == TaskStateRejected && t.Spec.value.ContainerSpec != nil &&
+		strings.TrimSpace(t.Spec.value.ContainerSpec.Image) != "" {
+		// Registry bodies are arbitrary text. Recognize access refusals there
+		// only when the whole message is a standard refusal.
+		if message, found := strings.CutPrefix(t.Error, registryErrorPrefix); found {
+			return registryPullFault(t.Error, strings.TrimSpace(message))
+		}
+	}
+	if code == "" {
 		return nil
 	}
 	return &dockerFaultError{cause: errors.New(t.Error), code: code, summary: summary}
+}
+
+const registryErrorPrefix = "error from registry:"
+
+type registryPullError struct {
+	dockerFaultError
+	temporary bool
+}
+
+func (e *registryPullError) Temporary() bool { return e.temporary }
+
+func registryPullFault(diagnostic, message string) faults.Coded {
+	if message == "" {
+		return nil
+	}
+	base := registryResponseMessage(message)
+	switch strings.ToLower(base) {
+	case "unauthorized", "denied", "authentication required", "requested access to the resource is denied",
+		"unauthorized: authentication required", "denied: requested access to the resource is denied",
+		"no basic auth credentials", "insufficient_scope: authorization failed":
+		return &dockerFaultError{cause: errors.New(diagnostic), code: faults.CodeImagePullDenied, summary: base}
+	case "unsupported", "the operation is unsupported.":
+		return newRegistryPullError(diagnostic, false)
+	default:
+		return newRegistryPullError(diagnostic, true)
+	}
+}
+
+func registryResponseMessage(message string) string {
+	first, rest, _ := strings.Cut(message, "\n")
+	first = strings.TrimSpace(first)
+	// Moby can join multiple registry errors. Treat them as a single standard
+	// response only when each line repeats the same diagnostic.
+	if rest != "" {
+		for line := range strings.SplitSeq(rest, "\n") {
+			if strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), registryErrorPrefix)) != first {
+				return ""
+			}
+		}
+	}
+	// Docker can also repeat the diagnostic in a colon-separated error chain.
+	if head, tail, ok := strings.Cut(first, ": "); ok &&
+		head == strings.TrimSpace(strings.TrimPrefix(tail, registryErrorPrefix)) {
+		first = head
+	}
+	base, _, _ := strings.Cut(first, " - ")
+	return base
+}
+
+func newRegistryPullError(diagnostic string, temporary bool) *registryPullError {
+	return &registryPullError{
+		dockerFaultError: dockerFaultError{
+			cause: errors.New(diagnostic), code: faults.CodeImagePullFailed, summary: "Docker could not pull the image.",
+		},
+		temporary: temporary,
+	}
 }
 
 // TaskState represents the state of a task.

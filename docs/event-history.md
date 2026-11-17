@@ -53,6 +53,9 @@ not public event names and are not available under `notifications.events`.
 Known terminal service convergence failures publish internal `DeployFailed` with
 `error_code=convergence_failed` and `stage=verification`; observation failures and
 verification interruptions publish `DeployInterrupted` with `verification_unknown`.
+Both events can carry a masked registry diagnostic and an `image_pull_failed`
+finding code. Alert Management uses the diagnostic's temporary flag when applying
+its existing failure threshold.
 A reconciliation step can fail after a successful Attempt. GitOps publishes internal
 `DeployPreparationFailed` with the failed stage and safe diagnostic. Alert Management
 opens or updates `sync_failed`, while the Attempt keeps its successful outcome.

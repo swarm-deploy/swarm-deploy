@@ -220,8 +220,7 @@ waitLoop:
 
 	cause := waitCtx.Err()
 	state.failPending(span, request.Progress, cause)
-	return errors.Join(state.terminalFailure,
-		w.waitInterruptedError(ctx, request.StackName, state.last, cause, state.lastObservationError))
+	return w.waitInterruptedError(ctx, request.StackName, state, cause)
 }
 
 func (w *ServiceWaiter) poll(

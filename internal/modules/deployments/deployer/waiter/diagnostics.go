@@ -3,6 +3,7 @@ package waiter
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"sort"
@@ -12,6 +13,7 @@ import (
 
 	dockerswarm "github.com/docker/docker/api/types/swarm"
 	"github.com/moby/swarmkit/v2/manager/constraint"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/services"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
@@ -120,6 +122,72 @@ func (p *ServiceProgress) pendingSchedulingFault(
 	}
 }
 
+func (p *ServiceProgress) pendingRegistryPullFault(
+	service swarm.StackService, tasks []swarm.ServiceTask, cutoff time.Time,
+) {
+	if len(tasks) == 0 {
+		return
+	}
+	if cutoff.IsZero() {
+		// Existing-task verification has no cutoff of its own. Use the observed
+		// update boundary or, in its absence, the latest accepted service version.
+		cutoff = service.UpdatedAt
+		if service.UpdateStatus != nil && !service.UpdateStatus.StartedAt.IsZero() {
+			cutoff = service.UpdateStatus.StartedAt
+		}
+		if cutoff.IsZero() {
+			cutoff = service.CreatedAt
+		}
+	}
+	if cutoff.IsZero() {
+		return
+	}
+	var latest swarm.ServiceTask
+	for _, task := range services.LatestUnrecoveredTaskAttempts(service.ServiceSpec, tasks, cutoff) {
+		if task.CurrentState != swarm.TaskStateRejected {
+			continue
+		}
+		fault := task.Fault()
+		if isImagePullFault(fault) && (latest.ID == "" || task.UpdatedAt.After(latest.UpdatedAt) ||
+			(task.UpdatedAt.Equal(latest.UpdatedAt) && task.ID < latest.ID)) {
+			latest, p.taskFault = task, fault
+		}
+	}
+	if p.taskFault != nil {
+		latest.Error = ""
+		p.taskContext = formatTaskDiagnostic(latest)
+	}
+}
+
+func isImagePullFault(fault faults.Coded) bool {
+	return fault != nil &&
+		(fault.FaultCode() == faults.CodeImagePullFailed || fault.FaultCode() == faults.CodeImagePullDenied)
+}
+
+type registryPullTimeoutError struct {
+	error
+	temporary bool
+}
+
+func (e registryPullTimeoutError) Unwrap() error   { return e.error }
+func (e registryPullTimeoutError) Temporary() bool { return e.temporary }
+
+func withPendingRegistryPullFault(err error, progress map[string]ServiceProgress) error {
+	for _, name := range sortedProgressNames(progress) {
+		service := progress[name]
+		if service.State != ServiceReady && isImagePullFault(service.taskFault) {
+			// The deadline and an earlier API error may themselves be temporary.
+			// Keep the classification of the selected task diagnostic.
+			classified, ok := errors.AsType[faults.Error](service.taskFault)
+			return registryPullTimeoutError{
+				error:     fmt.Errorf("service %s%s: %w; %w", name, service.taskContext, service.taskFault, err),
+				temporary: ok && classified.Temporary(),
+			}
+		}
+	}
+	return err
+}
+
 func terminalTaskCutoff(baseline, service swarm.StackService) time.Time {
 	cutoff := service.UpdateStatus.StartedAt
 	if cutoff.IsZero() {
@@ -160,7 +228,12 @@ func terminalFailureTask(tasks []swarm.ServiceTask, updateMessage string, cutoff
 }
 
 func taskFailureDiagnostic(tasks []swarm.ServiceTask) string {
-	return formatTaskDiagnostic(latestFailedTask(tasks))
+	task := latestFailedTask(tasks)
+	// Registry diagnostics require rollout evidence before they are reported.
+	if isImagePullFault(task.Fault()) {
+		return ""
+	}
+	return formatTaskDiagnostic(task)
 }
 
 func latestFailedTask(tasks []swarm.ServiceTask) swarm.ServiceTask {
@@ -188,7 +261,7 @@ func formatTaskDiagnostic(task swarm.ServiceTask) string {
 		diagnostic += fmt.Sprintf(" exit_code=%d", *task.ExitCode)
 	}
 	if task.Error != "" {
-		diagnostic += ": " + boundedDiagnostic(task.Error)
+		diagnostic += ": " + boundedDiagnostic(faults.SafeDiagnostic(errors.New(task.Error)))
 	}
 	return diagnostic
 }
@@ -196,10 +269,10 @@ func formatTaskDiagnostic(task swarm.ServiceTask) string {
 func (w *ServiceWaiter) waitInterruptedError(
 	ctx context.Context,
 	stackName string,
-	progress map[string]ServiceProgress,
+	state *waitState,
 	cause error,
-	lastObservationError error,
 ) error {
+	progress := state.last
 	pending := make([]string, 0)
 	for _, name := range sortedProgressNames(progress) {
 		service := progress[name]
@@ -215,11 +288,16 @@ func (w *ServiceWaiter) waitInterruptedError(
 		))
 	}
 	diagnostic := strings.Join(pending, "; ")
-	if lastObservationError != nil {
-		cause = fmt.Errorf("%w; last Docker API error: %w", cause, lastObservationError)
+	timedOut := cause == context.DeadlineExceeded
+	if state.lastObservationError != nil {
+		cause = fmt.Errorf("%w; last Docker API error: %w", cause, state.lastObservationError)
 	}
 	err := fmt.Errorf("wait for services in stack %s: %w: %s", stackName, cause, diagnostic)
-	return w.withPlacementSchedulingFault(ctx, err, progress)
+	err = w.withPlacementSchedulingFault(ctx, err, progress)
+	if timedOut && state.terminalFailure == nil {
+		err = withPendingRegistryPullFault(err, progress)
+	}
+	return errors.Join(state.terminalFailure, err)
 }
 
 func boundedDiagnostic(message string) string {

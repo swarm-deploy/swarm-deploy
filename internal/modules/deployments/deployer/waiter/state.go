@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"time"
 
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/tracing"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
@@ -15,9 +16,10 @@ func finishServiceWaitSpan(span trace.Span, startedAt time.Time, state waitState
 	outcome := "success"
 	if waitErr != nil {
 		outcome = "failed"
-		tracing.FailSpan(span, waitErr)
+		safe := faults.SafeError(waitErr)
+		tracing.FailSpan(span, safe)
 		span.SetAttributes(tracing.DeploymentServiceWaitFailureReason.String(
-			boundedDiagnostic(waitErr.Error()),
+			boundedDiagnostic(safe.Error()),
 		))
 	} else {
 		span.SetStatus(codes.Ok, "")
