@@ -14,7 +14,8 @@ jobs:
   binary:
     name: Release binaries
     runs-on: ubuntu-latest
-    permissions: write-all
+    permissions:
+      contents: write
     steps:
       - name: Check out code
         uses: actions/checkout@v4
