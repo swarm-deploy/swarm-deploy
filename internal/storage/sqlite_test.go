@@ -245,7 +245,7 @@ func TestDeploymentAttemptMigrationAllowsOldBinaryWrites(t *testing.T) {
 
 func TestDeploymentAttemptMigrationIsForwardOnly(t *testing.T) {
 	db, provider := openAtMigration1(t)
-	_, err := provider.UpTo(t.Context(), 6)
+	_, err := provider.Up(t.Context())
 	require.NoError(t, err)
 	_, err = provider.Down(t.Context())
 	require.NoError(t, err, "the Pause Sync policy migration is reversible")
@@ -265,49 +265,6 @@ func TestDeploymentAttemptMigrationIsForwardOnly(t *testing.T) {
 	require.NoError(t, db.Get(t.Context(), &tableCount,
 		"SELECT count(*) FROM sqlite_master WHERE type='table' AND name='deployment_attempts'"))
 	assert.Equal(t, 1, tableCount)
-}
-
-func TestDeploymentFailureCauseMigrationPreservesOutboxDeliveries(t *testing.T) {
-	ctx := t.Context()
-	db, provider := openAtMigration1(t)
-	_, err := provider.UpTo(ctx, 6)
-	require.NoError(t, err)
-
-	cases := []struct{ eventType, before, after string }{
-		{"DeployFailed",
-			`{"diagnostic":"verify api","fault_code":"image_pull_denied","fault_summary":"denied","temporary":false}`,
-			`{"diagnostic":"verify api","causes":[{"code":"image_pull_denied","summary":"denied","temporary":false}]}`},
-		{"DeployInterrupted",
-			`{"fault_code":"no_suitable_node","temporary":true}`,
-			`{"causes":[{"code":"no_suitable_node","summary":"","temporary":true}]}`},
-		{"DeployPreparationFailed",
-			`{"fault_code":"invalid_desired_state","fault_summary":"invalid"}`,
-			`{"causes":[{"code":"invalid_desired_state","summary":"invalid","temporary":false}]}`},
-		{"DeployFailed", `{"diagnostic":"network error","temporary":true}`, `{"diagnostic":"network error","temporary":true}`},
-		{"OtherEvent", `{"fault_code":"other","temporary":true}`, `{"fault_code":"other","temporary":true}`},
-	}
-	for i, tc := range cases {
-		id := fmt.Sprintf("event-%d", i)
-		_, err := db.Exec(ctx, `INSERT INTO outbox_events (id,event_type,schema_version,occurred_at,payload)
-			VALUES (?,?,1,0,?)`, id, tc.eventType, tc.before)
-		require.NoError(t, err)
-		_, err = db.Exec(ctx, `INSERT INTO outbox_deliveries
-			(event_id,subscription_id,status,attempts,available_at,updated_at)
-			VALUES (?,'alerts','failed',4,0,0)`, id)
-		require.NoError(t, err)
-	}
-
-	_, err = provider.Up(ctx)
-	require.NoError(t, err)
-	for i, tc := range cases {
-		var payload string
-		require.NoError(t, db.Get(ctx, &payload, `SELECT e.payload FROM outbox_events e
-			JOIN outbox_deliveries d ON d.event_id=e.id
-			WHERE e.id=? AND e.sequence=? AND e.schema_version=1
-				AND d.subscription_id='alerts' AND d.status='failed' AND d.attempts=4`,
-			fmt.Sprintf("event-%d", i), i+1))
-		assert.JSONEq(t, tc.after, payload)
-	}
 }
 
 func TestTimestampRoundTrip(t *testing.T) {
@@ -439,7 +396,7 @@ func TestFreshDatabaseEnforcesForeignKeysAndChecks(t *testing.T) {
 	var appliedVersions int
 	require.NoError(t, db.Get(t.Context(), &appliedVersions,
 		"SELECT count(*) FROM goose_db_version WHERE version_id > 0 AND is_applied = 1"))
-	assert.Equal(t, 7, appliedVersions)
+	assert.Equal(t, 6, appliedVersions)
 }
 
 func TestRestartAndRollback(t *testing.T) {

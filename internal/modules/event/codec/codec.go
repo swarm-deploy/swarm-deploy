@@ -343,6 +343,7 @@ type deploymentFailurePayload struct {
 func (p deploymentFailurePayload) failure() error {
 	temporary := p.Temporary != nil && *p.Temporary
 	causes := p.Causes
+	// TODO(v0.16.0): Remove legacy fault decoding after migrating Outbox payloads to causes.
 	if len(causes) == 0 && p.FaultCode != "" {
 		causes = []faults.Cause{{Code: p.FaultCode, Summary: p.FaultSummary, Temporary: temporary}}
 	}
