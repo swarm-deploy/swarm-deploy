@@ -372,6 +372,8 @@ type deploymentDetails struct {
 	TargetServices []string `json:"target_services"`
 	// ServiceRevisions is immutable source metadata captured before execution.
 	ServiceRevisions map[string]deploymentmodel.ServiceRevision `json:"service_revisions,omitempty"`
+	// SkippedServices records neutral caller-preserved services for an Attempt.
+	SkippedServices []string `json:"skipped_services,omitempty"`
 	// UpdateGenerations retains only non-secret pre-update boundaries.
 	UpdateGenerations map[string]deploymentmodel.UpdateGeneration `json:"update_generations,omitempty"`
 	// UnresolvedServices retains verification obligations across desired-state deployments.
@@ -452,6 +454,7 @@ func marshalDeploymentPayloads(d deploymentmodel.Deployment) (string, string, er
 func marshalAttemptDetails(attempt deploymentmodel.Attempt) ([]byte, error) {
 	return json.Marshal(deploymentDetails{
 		TargetServices: attempt.TargetServices, ServiceRevisions: attempt.ServiceRevisions,
+		SkippedServices: attempt.SkippedServices,
 		ErrorDiagnostic: attempt.ErrorDiagnostic, Retryable: attempt.Retryable, ApplyStatus: attempt.ApplyStatus,
 		VerificationStatus: attempt.VerificationStatus, CleanupStatus: attempt.CleanupStatus,
 		ActualStateStatus: attempt.ActualStateStatus, ObservedAt: attempt.ObservedAt,
@@ -543,6 +546,7 @@ func (row attemptRow) attempt() (deploymentmodel.Attempt, error) {
 		ApplyStatus: details.ApplyStatus, VerificationStatus: details.VerificationStatus,
 		CleanupStatus: details.CleanupStatus, ActualStateStatus: details.ActualStateStatus,
 		ObservedAt: details.ObservedAt, TargetServices: details.TargetServices, ServiceRevisions: details.ServiceRevisions,
+		SkippedServices: details.SkippedServices,
 	}
 	if row.FinishedAt.Valid {
 		finished := row.FinishedAt.Time.UTC()
@@ -700,6 +704,9 @@ func (s *Store) Get(ctx context.Context, id string) (deploymentmodel.Deployment,
 	result.Attempts, err = s.attempts(ctx, id)
 	if err != nil {
 		return deploymentmodel.Deployment{}, err
+	}
+	if len(result.Attempts) > 0 {
+		result.SkippedServices = append([]string(nil), result.Attempts[0].SkippedServices...)
 	}
 	initJobs, err := s.initJobs(ctx, id)
 	if err != nil {

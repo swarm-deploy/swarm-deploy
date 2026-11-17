@@ -7,6 +7,21 @@ import (
 )
 
 type Repository interface {
+	// Branch returns the current branch, or an empty string for detached HEAD.
+	Branch(ctx context.Context) (string, error)
+	// Shallow reports whether history has shallow boundaries.
+	Shallow(ctx context.Context) (bool, error)
+	// CountCommits counts reachable commits at the given revision, stopping at shallow boundaries.
+	CountCommits(ctx context.Context, revision string) (int, error)
+	// GitSize sums file sizes in the local Git storage, including packfiles.
+	GitSize(ctx context.Context) (int64, error)
+	// WorkingTreeSize sums working tree file sizes, excluding .git and without following symlinks.
+	WorkingTreeSize(ctx context.Context) (int64, error)
+	// TrackedFiles counts distinct paths in the current Git index.
+	TrackedFiles(ctx context.Context) (int, error)
+	// Status reads tracked changes and a bounded list of untracked files, respecting ignore rules.
+	Status(ctx context.Context, limit int) (WorktreeStatus, error)
+
 	// WorkingDir returns local repository path.
 	WorkingDir() string
 

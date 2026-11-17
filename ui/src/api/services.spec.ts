@@ -1,6 +1,6 @@
 import { afterEach, expect, it, vi } from "vitest";
 
-import { fetchSwarmServices, scaleSwarmService } from "./services";
+import { fetchSwarmServices, restartSwarmService, scaleSwarmService } from "./services";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -24,4 +24,11 @@ it("propagates meaningful API conflicts", async () => {
     ok: false, status: 409, json: async () => ({ error_message: "service changed; refresh and retry" }),
   }));
   await expect(scaleSwarmService("id", 5)).rejects.toMatchObject({ status: 409, message: "service changed; refresh and retry" });
+});
+
+it("restarts once by encoded Docker ID and accepts an empty 204 response", async () => {
+  const fetch = vi.fn().mockResolvedValue({ ok: true, status: 204 });
+  vi.stubGlobal("fetch", fetch);
+  await expect(restartSwarmService("service/id")).resolves.toBeUndefined();
+  expect(fetch).toHaveBeenCalledExactlyOnceWith("/api/v1/swarm/services/service%2Fid/restart", { method: "POST" });
 });

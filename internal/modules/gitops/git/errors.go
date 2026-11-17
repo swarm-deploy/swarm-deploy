@@ -40,8 +40,9 @@ var (
 // The underlying transport error is deliberately not retained because it may
 // contain credentials embedded in a remote URL.
 type PullError struct {
-	category   FailureCategory
-	diagnostic string
+	category     FailureCategory
+	diagnostic   string
+	availability *bool
 }
 
 func (e *PullError) Error() string { return e.diagnostic }
@@ -60,7 +61,33 @@ func ClassifyPullError(err error, repository string, authType config.GitAuthType
 	}
 
 	category := classifyFailure(err, repository, authType)
-	return &PullError{category: category, diagnostic: safePullDiagnostic(err, category)}
+	return &PullError{category: category, diagnostic: safePullDiagnostic(err, category),
+		availability: failedRemoteAccess(err, category)}
+}
+
+// RemoteAvailability returns a confirmed access observation, or nil for a local/ambiguous failure.
+// Call this on the classified pull result; a nil error means a successful pull including no-change pulls.
+func RemoteAvailability(err error) *bool {
+	if err == nil {
+		available := true
+		return &available
+	}
+	var classified *PullError
+	if errors.As(err, &classified) && classified.availability != nil {
+		available := *classified.availability
+		return &available
+	}
+	return nil
+}
+
+func failedRemoteAccess(err error, category FailureCategory) *bool {
+	// Cancellation and invalid local credentials/known-hosts configuration are not remote observations.
+	if category == FailureOther || gitErrorIs(err, context.Canceled) ||
+		errors.Is(err, errAuthenticationConfiguration) || errors.Is(err, errSSHHostVerification) {
+		return nil
+	}
+	available := false
+	return &available
 }
 
 // PullFailure returns the classification and sanitized diagnostic for a pull failure.

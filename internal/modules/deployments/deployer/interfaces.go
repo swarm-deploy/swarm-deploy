@@ -100,6 +100,8 @@ type StackRequest struct {
 	SourceComposePath string
 	// Desired is the prepared in-memory definition to apply.
 	Desired compose.Compose
+	// PreservedServices are omitted from registry authentication refresh.
+	PreservedServices []string
 	// Options controls recovery of previous failed updates.
 	Options StackOptions
 	// BeforeUpdate optionally records a service generation durably before Docker apply.

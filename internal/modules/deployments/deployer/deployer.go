@@ -5,10 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"slices"
 	"sync"
 	"time"
 
 	pipe "github.com/artarts36/gopipe"
+	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/converter"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/initjob"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/networks"
@@ -102,7 +104,8 @@ func (d *Deployer) RefreshRegistryAuth(ctx context.Context, request StackRequest
 		),
 	)
 	defer span.End()
-	converted, err := d.converter.Convert(ctx, request.StackName, request.Desired)
+	desired := withoutPreservedServices(request.Desired, request.PreservedServices)
+	converted, err := d.converter.Convert(ctx, request.StackName, desired)
 	if err != nil {
 		err = fmt.Errorf("convert registry authentication targets: %w", err)
 	} else {
@@ -152,6 +155,13 @@ func (d *Deployer) DeployStack(ctx context.Context, request StackRequest) (Resul
 		span.SetStatus(codes.Ok, "")
 	}
 	return payload.result, err
+}
+
+func withoutPreservedServices(desired compose.Compose, preserved []string) compose.Compose {
+	desired.Services = slices.DeleteFunc(slices.Clone(desired.Services), func(service compose.Service) bool {
+		return slices.Contains(preserved, service.Name)
+	})
+	return desired
 }
 
 // DeployService runs the single-service deployment pipeline without Init Jobs or pruning.

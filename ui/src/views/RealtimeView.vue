@@ -2,8 +2,15 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 
 import AppModal from "../components/common/AppModal.vue";
-import { fetchSwarmServices, fetchSwarmServiceTasks, fetchSwarmTask, scaleSwarmService } from "../api/services";
-import type { ServiceRealtimeTask, SwarmService, SwarmTaskDetails } from "../api/types";
+import { ApiError } from "../api/client";
+import { fetchSwarmServices, fetchSwarmServiceTasks, fetchSwarmTask, restartSwarmService, scaleSwarmService } from "../api/services";
+import {
+  expirationForDuration,
+  getServiceSyncPause,
+  setServiceSyncPause,
+  syncPauseDurations,
+} from "../api/syncPauses";
+import type { ServiceRealtimeTask, ServiceSyncPauseResponse, SwarmService, SwarmTaskDetails } from "../api/types";
 import AppButton from "../components/common/AppButton.vue";
 import AppSelect from "../components/common/AppSelect.vue";
 import AppStatusBadge from "../components/common/AppStatusBadge.vue";
@@ -75,22 +82,156 @@ const logsTaskID = ref("");
 const logsOpen = ref(false);
 const copiedErrorTaskID = ref("");
 const scalingService = ref<SwarmService | null>(null);
+const actionsService = ref<SwarmService | null>(null);
+const actionsPosition = ref({ top: "0px", right: "0px" });
+const actionsTrigger = ref<HTMLElement | null>(null);
+const actionsMenu = ref<HTMLElement | null>(null);
+const restartingService = ref<SwarmService | null>(null);
+const restartPending = ref(false);
+const restartError = ref("");
+const restartFailed = ref(false);
+
+function closeActions(): void {
+  actionsService.value = null;
+  actionsTrigger.value?.focus();
+}
+
+function handleActionsFocusout(event: FocusEvent): void {
+  const nextFocus = event.relatedTarget;
+  // A tap can clear focus before the browser dispatches the click.
+  if (!nextFocus || nextFocus === actionsTrigger.value || (nextFocus instanceof Node && actionsMenu.value?.contains(nextFocus))) return;
+  actionsService.value = null;
+}
+
+async function toggleActions(service: SwarmService, event: MouseEvent): Promise<void> {
+  if (actionsService.value?.id === service.id) { closeActions(); return; }
+  actionsTrigger.value = event.currentTarget as HTMLElement;
+  const rect = actionsTrigger.value.getBoundingClientRect();
+  actionsPosition.value = { top: `${Math.min(rect.bottom + 4, window.innerHeight - 100)}px`, right: `${Math.min(window.innerWidth - 188, Math.max(8, window.innerWidth - rect.right))}px` };
+  actionsService.value = service;
+  await nextTick();
+  actionsMenu.value?.querySelector("button")?.focus();
+}
+
+function openRestart(service: SwarmService): void {
+  closeActions();
+  restartingService.value = service;
+  restartError.value = "";
+  restartFailed.value = false;
+}
+
+async function submitRestart(): Promise<void> {
+  if (!restartingService.value || restartPending.value || restartFailed.value) return;
+  restartPending.value = true;
+  try {
+    await restartSwarmService(restartingService.value.id);
+    if (!disposed) restartingService.value = null;
+  } catch (reason) {
+    if (!disposed) {
+      restartFailed.value = true;
+      restartError.value = `${errorMessage(reason)}. Replica state may have changed; check the current replica count before trying again.`;
+    }
+  } finally {
+    if (!disposed) {
+      for (const [id, state] of Object.entries(tasksByService.value)) {
+        taskRequests.set(id, (taskRequests.get(id) ?? 0) + 1);
+        state.loading = false;
+      }
+      await loadServices(true);
+      restartPending.value = false;
+    }
+  }
+}
+
 const scaleInput = ref<number | string>("");
 const scalePending = ref(false);
 const scaleError = ref("");
 const scaleInputElement = ref<HTMLInputElement | null>(null);
+const scalePauseLoading = ref(false);
+const scalePauseManaged = ref(false);
+const scalePauseChecked = ref(false);
+const scalePauseHelp = ref<"hover" | "pinned" | null>(null);
+const scalePauseDuration = ref("1");
+const scalePauseState = ref<ServiceSyncPauseResponse | null>(null);
+const scalePausePersisted = ref(false);
+const scalePauseLookupFailed = ref(false);
+const scalePauseDurationOptions: { value: string; label: string }[] = syncPauseDurations.map(({ value, label }) => ({ value, label }));
+let scalePauseRequest = 0;
 
 const validScaleInput = computed(() => (
   typeof scaleInput.value === "number" && Number.isSafeInteger(scaleInput.value) && scaleInput.value >= 0
 ));
 const canScale = computed(() => (
-  validScaleInput.value && scaleInput.value !== scalingService.value?.configured_replicas && !scalePending.value
+  validScaleInput.value
+  && scaleInput.value !== scalingService.value?.configured_replicas
+  && !scalePending.value
+  && !scalePauseLoading.value
+  && !scalePauseLookupFailed.value
 ));
 
+const scaleEffectivePauseLabel = computed(() => {
+  const source = scalePauseState.value?.effective_source;
+  if (source === "both") return "Stack and service";
+  if (source === "stack") return "Stack";
+  if (source === "service") return "Service";
+  return "";
+});
+
+function pauseUntil(expiresAt: string | null | undefined): string {
+  return expiresAt ? formatDate(expiresAt) : "No expiration";
+}
+
+function showScalePauseHelp(event: PointerEvent): void {
+  if (event.pointerType === "mouse" && !scalePauseHelp.value) scalePauseHelp.value = "hover";
+}
+
+function hideScalePauseHelp(event: PointerEvent): void {
+  if (event.pointerType === "mouse" && scalePauseHelp.value === "hover") scalePauseHelp.value = null;
+}
+
+function dismissScalePauseHelp(event: PointerEvent): void {
+  if (!(event.target as Element | null)?.closest(".realtime-scale-pause-help")) scalePauseHelp.value = null;
+}
+
+function onScaleEscape(event: KeyboardEvent): void {
+  if (!scalePauseHelp.value) return;
+  event.preventDefault();
+  scalePauseHelp.value = null;
+}
+
 async function openScale(service: SwarmService): Promise<void> {
+  closeActions();
+  const request = ++scalePauseRequest;
   scalingService.value = service;
   scaleInput.value = service.configured_replicas ?? "";
   scaleError.value = "";
+  scalePauseLoading.value = Boolean(service.stack && service.name);
+  scalePauseManaged.value = false;
+  scalePauseChecked.value = false;
+  scalePauseHelp.value = null;
+  scalePauseDuration.value = "1";
+  scalePauseState.value = null;
+  scalePausePersisted.value = false;
+  scalePauseLookupFailed.value = false;
+  if (service.stack && service.name) {
+    try {
+      const pauseState = await getServiceSyncPause(service.stack, service.name);
+      if (disposed || request !== scalePauseRequest || scalingService.value?.id !== service.id) return;
+      scalePauseState.value = pauseState;
+      scalePauseManaged.value = true;
+    } catch (reason) {
+      if (disposed || request !== scalePauseRequest || scalingService.value?.id !== service.id) return;
+      if (!(reason instanceof ApiError) || reason.status !== 404) {
+        scalePauseLookupFailed.value = true;
+        scaleError.value = errorMessage(reason);
+      }
+    } finally {
+      if (!disposed && request === scalePauseRequest && scalingService.value?.id === service.id) {
+        scalePauseLoading.value = false;
+      }
+    }
+  }
+  if (disposed || request !== scalePauseRequest || scalingService.value?.id !== service.id) return;
   await nextTick();
   scaleInputElement.value?.focus();
   scaleInputElement.value?.select();
@@ -98,6 +239,7 @@ async function openScale(service: SwarmService): Promise<void> {
 
 function closeScale(): void {
   if (scalePending.value) return;
+  scalePauseRequest++;
   scalingService.value = null;
 }
 
@@ -109,9 +251,19 @@ function stepScale(delta: number): void {
 async function submitScale(): Promise<void> {
   if (!scalingService.value || !canScale.value) return;
   const serviceID = scalingService.value.id;
+  scalePauseHelp.value = null;
   scalePending.value = true;
   scaleError.value = "";
   try {
+    const service = scalingService.value;
+    if (scalePauseManaged.value && scalePauseChecked.value && !scalePausePersisted.value) {
+      scalePauseState.value = await setServiceSyncPause(
+        service.stack,
+        service.name,
+        expirationForDuration(scalePauseDuration.value),
+      );
+      scalePausePersisted.value = true;
+    }
     await scaleSwarmService(serviceID, Number(scaleInput.value));
     if (disposed) return;
     scalePending.value = false;
@@ -123,7 +275,11 @@ async function submitScale(): Promise<void> {
     }
     await loadServices(true);
   } catch (reason) {
-    if (!disposed) scaleError.value = errorMessage(reason);
+    if (!disposed) {
+      scaleError.value = scalePausePersisted.value
+        ? `Sync is paused, but scaling failed: ${errorMessage(reason)}`
+        : errorMessage(reason);
+    }
   } finally {
     if (!disposed) scalePending.value = false;
   }
@@ -358,6 +514,7 @@ function selectRefreshInterval(interval: RefreshInterval): void {
 }
 
 function handleDocumentClick(event: MouseEvent): void {
+  if (!(event.target as Element | null)?.closest(".realtime-actions-menu, .realtime-actions-button")) actionsService.value = null;
   if (!(event.target instanceof Node) || refreshMenu.value?.contains(event.target)) return;
   refreshMenu.value?.removeAttribute("open");
 }
@@ -373,7 +530,7 @@ watch(refreshInterval, startPolling);
 
 onMounted(() => {
   document.addEventListener("visibilitychange", handleVisibilityChange);
-  document.addEventListener("click", handleDocumentClick);
+  document.addEventListener("click", handleDocumentClick, true);
   void loadServices();
   startPolling();
 });
@@ -385,7 +542,7 @@ onUnmounted(() => {
   stopPolling();
   if (copiedErrorResetTimer !== undefined) window.clearTimeout(copiedErrorResetTimer);
   document.removeEventListener("visibilitychange", handleVisibilityChange);
-  document.removeEventListener("click", handleDocumentClick);
+  document.removeEventListener("click", handleDocumentClick, true);
 });
 </script>
 
@@ -492,9 +649,10 @@ onUnmounted(() => {
             <col class="realtime-col-replicas" />
             <col class="realtime-col-state" />
             <col class="realtime-col-updated" />
+            <col class="realtime-col-actions" />
           </template>
           <template #head>
-            <tr><th>Service</th><th>Stack</th><th>Replicas</th><th>State</th><th>Updated</th></tr>
+            <tr><th>Service</th><th>Stack</th><th>Replicas</th><th>State</th><th>Updated</th><th>Actions</th></tr>
           </template>
           <template v-for="service in filteredServices" :key="service.id">
             <tr class="realtime-service-row" :class="{ 'realtime-service-row--expanded': expandedServiceIDs.has(service.id) }" @click="toggleService(service)">
@@ -513,27 +671,27 @@ onUnmounted(() => {
               <td class="realtime-replicas" data-label="Replicas">
                 <div class="realtime-replicas-content">
                   <span class="realtime-replica-count"><strong :class="{ 'realtime-replicas-running--degraded': serviceRuntimeState(service) === 'degraded' }">{{ service.replicas.running }}</strong><span>/</span>{{ service.replicas.desired }}</span>
-                  <button v-if="service.mode === 'replicated'" type="button" class="realtime-scale-button" :aria-label="`Scale ${service.name || service.full_name}`" title="Scale service" @click.stop="openScale(service)">
-                    <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M10 2h4v4m0-4L9 7M6 14H2v-4m0 4 5-5" /></svg>
-                  </button>
                 </div>
               </td>
               <td data-label="State"><AppStatusBadge class="realtime-state" :variant="stateVariant(serviceRuntimeState(service))" dot>{{ stateLabel(serviceRuntimeState(service)) }}</AppStatusBadge></td>
               <td data-label="Updated"><time :datetime="service.updated_at" :title="formatDate(service.updated_at)">{{ formatRelativeTime(service.updated_at) }}</time></td>
+              <td class="realtime-actions-cell" data-label="Actions" @click.stop>
+                <button v-if="service.mode === 'replicated'" class="realtime-actions-button" type="button" :aria-label="`Actions for ${service.name || service.full_name}`" :aria-expanded="actionsService?.id === service.id" aria-haspopup="true" :disabled="restartPending" @click.stop="toggleActions(service, $event)" @focusout="handleActionsFocusout">⋯</button>
+              </td>
             </tr>
             <template v-if="expandedServiceIDs.has(service.id)">
               <tr v-if="tasksFor(service.id).loading && tasksFor(service.id).tasks.length === 0" class="realtime-task-message-row">
-                <td colspan="5"><span>Loading tasks...</span></td>
+                <td colspan="6"><span>Loading tasks...</span></td>
               </tr>
               <tr v-else-if="tasksFor(service.id).error && tasksFor(service.id).tasks.length === 0" class="realtime-task-message-row realtime-task-message-row--error">
-                <td colspan="5"><span role="alert">Failed to load tasks: {{ tasksFor(service.id).error }}</span></td>
+                <td colspan="6"><span role="alert">Failed to load tasks: {{ tasksFor(service.id).error }}</span></td>
               </tr>
               <tr v-else-if="tasksFor(service.id).tasks.length === 0" class="realtime-task-message-row">
-                <td colspan="5"><span>No tasks for this service.</span></td>
+                <td colspan="6"><span>No tasks for this service.</span></td>
               </tr>
               <template v-else>
                 <tr v-if="tasksFor(service.id).error" class="realtime-task-message-row realtime-task-message-row--warning">
-                  <td colspan="5"><span role="status">Task data may be stale: {{ tasksFor(service.id).error }}</span></td>
+                  <td colspan="6"><span role="status">Task data may be stale: {{ tasksFor(service.id).error }}</span></td>
                 </tr>
                 <tr
                   v-for="task in tasksFor(service.id).tasks"
@@ -541,7 +699,7 @@ onUnmounted(() => {
                   class="realtime-task-row"
                   :class="{ 'realtime-task-row--selected': selectedTaskID === task.id }"
                 >
-                  <td colspan="5">
+                  <td colspan="6">
                     <div class="realtime-task-grid">
                       <button type="button" class="realtime-task-select" @click="selectTask(task)"><strong>Slot {{ task.slot }}</strong><code>{{ shortID(task.id) }}</code></button>
                       <span class="realtime-task-node">{{ task.node_name || task.node || "Unavailable" }}</span>
@@ -588,6 +746,28 @@ onUnmounted(() => {
       />
     </div>
 
+    <Teleport to="body">
+      <div v-if="actionsService" ref="actionsMenu" class="realtime-actions-menu" :style="actionsPosition" aria-label="Service actions" @click.stop @keydown.esc.stop.prevent="closeActions" @focusout="handleActionsFocusout">
+        <button v-if="(actionsService.configured_replicas ?? 0) > 0 && actionsService.replicas.desired > 0" type="button" @click="openRestart(actionsService)">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5M6.1 6.1a8 8 0 0 1 13.2 3M4.7 14.9a8 8 0 0 0 13.2 3" /></svg>Restart service
+        </button>
+        <button type="button" class="realtime-scale-button" :aria-label="`Scale ${actionsService.name || actionsService.full_name}`" @click="openScale(actionsService)">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 4h6M8 1v6M5 12h6" /></svg>Scale replicas
+        </button>
+      </div>
+    </Teleport>
+    <AppModal :open="Boolean(restartingService)" labelledby="realtime-restart-title" card-class="realtime-scale-card" :busy="restartPending" :close-disabled="restartPending" @close="restartingService = null">
+      <template #title><h2 id="realtime-restart-title">Restart service</h2></template>
+      <div class="modal-body">
+        <p>Restart <strong>{{ restartingService?.name || restartingService?.full_name }}</strong>? All replicas will temporarily stop before the original count is restored.</p>
+        <p v-if="restartError" class="realtime-scale-error" role="alert">{{ restartError }}</p>
+        <div class="realtime-scale-actions">
+          <AppButton variant="secondary" :disabled="restartPending" @click="restartingService = null">{{ restartFailed ? "Close" : "Cancel" }}</AppButton>
+          <AppButton v-if="!restartFailed" :disabled="restartPending" @click="submitRestart">{{ restartPending ? "Restarting..." : "Restart" }}</AppButton>
+        </div>
+      </div>
+    </AppModal>
+
     <AppModal
       :open="Boolean(scalingService)"
       labelledby="realtime-scale-title"
@@ -597,8 +777,11 @@ onUnmounted(() => {
       as="form"
       :busy="scalePending"
       :close-disabled="scalePending"
+      :close-on-escape="!scalePauseHelp"
       close-label="Close scaling modal"
       initial-focus="#realtime-scale-replicas"
+      @pointerdown="dismissScalePauseHelp"
+      @escape="onScaleEscape"
       @submit.prevent="submitScale"
       @close="closeScale"
     >
@@ -620,9 +803,48 @@ onUnmounted(() => {
           <input id="realtime-scale-replicas" ref="scaleInputElement" v-model.number="scaleInput" type="number" min="0" step="1" :max="Number.MAX_SAFE_INTEGER" required :disabled="scalePending" :aria-invalid="!validScaleInput" />
           <AppButton variant="secondary" compact aria-label="Increase replicas" :disabled="scalePending || scaleInput === Number.MAX_SAFE_INTEGER" @click="stepScale(1)">+</AppButton>
         </div>
-        <p class="form-helper" role="note">
+        <p v-if="scalePauseLoading || scalePauseState?.effective_paused || scalePauseChecked" class="form-helper" role="note">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 11v6m0-10h.01" /></svg>
-          <span>Manual scaling may be overwritten by the next GitOps synchronization.</span>
+          <span v-if="scalePauseLoading">Checking GitOps Pause Sync state...</span>
+          <span v-else-if="scalePauseState?.effective_paused">Pause Sync is active. Scaling starts immediately.</span>
+          <span v-else>Pause Sync will be enabled first. Scaling starts immediately afterward.</span>
+        </p>
+        <template v-if="scalePauseManaged && !scalePauseLoading">
+          <div v-if="scalePauseState?.effective_paused" class="realtime-scale-pause-state" role="status">
+            <strong>Sync paused by: {{ scaleEffectivePauseLabel }}</strong>
+            <span v-if="scalePauseState.stack_pause">Stack pause until: {{ pauseUntil(scalePauseState.stack_pause.expires_at) }}</span>
+            <span v-if="scalePauseState.service_pause">Service pause until: {{ pauseUntil(scalePauseState.service_pause.expires_at) }}</span>
+          </div>
+          <template v-else>
+            <div class="realtime-scale-pause-row">
+              <label class="realtime-scale-pause-toggle">
+                <input v-model="scalePauseChecked" type="checkbox" :disabled="scalePending || scalePausePersisted" />
+                <span>Pause sync</span>
+              </label>
+              <div class="realtime-scale-pause-help" @pointerenter="showScalePauseHelp" @pointerleave="hideScalePauseHelp">
+                <button
+                  type="button"
+                  class="realtime-scale-pause-help-button"
+                  aria-label="About Pause Sync"
+                  :aria-expanded="Boolean(scalePauseHelp)"
+                  :aria-describedby="scalePauseHelp ? 'realtime-scale-pause-tooltip' : undefined"
+                  @click="scalePauseHelp = scalePauseHelp === 'pinned' ? null : 'pinned'"
+                >
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M9.5 9.5a2.5 2.5 0 0 1 5 0c0 1.5-2.5 2-2.5 3.5m0 3h.01" /></svg>
+                </button>
+                <div v-if="scalePauseHelp" id="realtime-scale-pause-tooltip" class="realtime-scale-pause-tooltip" role="tooltip">
+                  Manual scaling may be overwritten by the next GitOps synchronization.
+                </div>
+              </div>
+            </div>
+            <div v-if="scalePauseChecked" class="realtime-scale-pause-duration">
+              <span>Pause duration</span>
+              <AppSelect v-model="scalePauseDuration" :options="scalePauseDurationOptions" label="Pause duration" />
+            </div>
+          </template>
+        </template>
+        <p v-if="scalePausePersisted && scaleError" class="form-helper" role="status">
+          Pause Sync remains active. Retry will only retry scaling.
         </p>
         <p v-if="scaleError" class="realtime-scale-error" role="alert">{{ scaleError }}</p>
         <div class="realtime-scale-actions">
@@ -637,16 +859,46 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-.realtime-scale-button { display: inline-grid; place-items: center; flex: 0 0 auto; width: 24px; height: 24px; border: 0; border-radius: 4px; padding: 0; background: transparent; color: var(--control-primary); transform: none; filter: none; }
-.realtime-scale-button:hover:not(:disabled) { background: var(--surface-hover); transform: none; filter: none; }
-.realtime-scale-button:focus-visible { outline: 2px solid var(--accent-focus); outline-offset: 2px; }
-.realtime-scale-button svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+.realtime-col-actions { width: 64px; }
+.realtime-actions-cell { text-align: center; }
+.realtime-actions-button { width: 28px; height: 26px; padding: 0; background: transparent; color: var(--text); border: 1px solid var(--line); border-radius: 4px; font-size: 20px; line-height: 1; }
+.realtime-actions-menu { position: fixed; z-index: 50; display: grid; min-width: 170px; padding: 4px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface-elevated); }
+.realtime-actions-menu button { display: flex; align-items: center; gap: 8px; width: 100%; height: 32px; padding: 6px 8px; border: 0; background: transparent; color: var(--text); font-size: .8rem; text-align: left; border-radius: 4px; }
+.realtime-actions-menu button:hover { background: var(--surface-hover); }
+.realtime-actions-menu button:focus-visible, .realtime-actions-button:focus-visible { outline: 2px solid var(--accent-focus); }
+.realtime-actions-menu svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+
 :deep(.realtime-scale-card) { width: min(440px, 94vw); }
 .realtime-scale-section-label { margin: 0; color: var(--muted); font-size: .7rem; font-weight: 600; letter-spacing: .055em; text-transform: uppercase; }
 .realtime-scale-summary { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px 16px; margin: 0; font-size: .84rem; }
 .realtime-scale-divider { width: 100%; margin: 8px 0 2px; border: 0; border-top: 1px solid var(--line); }
 .realtime-scale-summary dt { color: var(--muted); }
 .realtime-scale-summary dd { margin: 0; overflow-wrap: anywhere; }
+.realtime-scale-pause-state { display: grid; gap: 4px; padding: 10px; border: 1px solid var(--line); border-radius: 6px; font-size: .8rem; }
+.realtime-scale-pause-state span { color: var(--muted); }
+.realtime-scale-pause-row { position: relative; display: flex; align-items: center; gap: 8px; }
+.realtime-scale-pause-toggle { display: flex; align-items: center; gap: 8px; font-size: .84rem; }
+.realtime-scale-pause-help { display: flex; }
+.realtime-scale-pause-help-button { display: inline-grid; place-items: center; width: 25px; height: 25px; padding: 2px; border: 0; border-radius: 50%; background: transparent; color: var(--muted); cursor: help; }
+.realtime-scale-pause-help-button svg { width: 20px; height: 20px; }
+.realtime-scale-pause-help-button:hover, .realtime-scale-pause-help-button[aria-expanded="true"] { color: var(--text); transform: none; filter: none; }
+.realtime-scale-pause-help-button:focus-visible { outline: 2px solid var(--control-primary); outline-offset: 2px; }
+.realtime-scale-pause-tooltip {
+  position: absolute;
+  z-index: 10;
+  bottom: 100%;
+  left: 0;
+  width: min(315px, 100%);
+  padding: 11px 13px;
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+  background: var(--surface-elevated);
+  box-shadow: var(--shadow-popover);
+  color: var(--text);
+  font-size: .82rem;
+  line-height: 1.5;
+}
+.realtime-scale-pause-duration { display: grid; gap: 6px; font-size: .8rem; }
 .realtime-scale-input { display: flex; align-items: stretch; min-width: 0; height: 32px; overflow: hidden; border: 1px solid var(--border-default); border-radius: 6px; background: var(--surface-input); }
 .realtime-scale-input:focus-within { border-color: var(--accent-border); outline: 2px solid var(--accent-focus); outline-offset: 1px; }
 .realtime-scale-input input { flex: 1 1 auto; min-width: 0; width: 100%; height: 100%; border: 0; border-radius: 0; outline: 0; background: transparent; color: var(--text); padding: 4px 8px; text-align: center; font: inherit; font-size: .84rem; appearance: textfield; }
@@ -694,11 +946,11 @@ onUnmounted(() => {
 .realtime-services-panel :deep(.app-table-wrap) { min-width: 0; }
 .realtime-services-panel :deep(.app-table th) { height: 40px; padding: 7px 14px; }
 .realtime-services-panel :deep(.app-table td) { height: 46px; padding: 9px 14px; }
-.realtime-col-service { width: 34%; }
+.realtime-col-service { width: 32%; }
 .realtime-col-stack { width: 17%; }
 .realtime-col-replicas { width: 12%; }
 .realtime-col-state { width: 17%; }
-.realtime-col-updated { width: 20%; }
+.realtime-col-updated { width: auto; }
 .realtime-service-row { cursor: pointer; transition: background-color 120ms ease; }
 .realtime-service-row:hover, .realtime-service-row--expanded { background: var(--surface-hover-soft); }
 .realtime-service-name-cell { min-width: 0; }
@@ -770,7 +1022,7 @@ onUnmounted(() => {
   .realtime-services-panel :deep(.realtime-services-table) { display: block; min-width: 0 !important; }
   .realtime-services-panel :deep(.realtime-services-table colgroup), .realtime-services-panel :deep(.realtime-services-table > thead) { display: none; }
   .realtime-services-panel :deep(.realtime-services-table > tbody) { display: block; }
-  .realtime-service-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 7px 12px; padding: 12px; border-bottom: 1px solid var(--border-subtle); }
+  .realtime-service-row { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 7px 12px; padding: 12px; border-bottom: 1px solid var(--border-subtle); }
   .realtime-services-panel :deep(.realtime-service-row > td) { display: flex; min-width: 0; height: auto; padding: 0; border: 0; }
   .realtime-service-name-cell { grid-column: 1; grid-row: 1; }
   .realtime-service-title strong { order: 1; }
@@ -778,6 +1030,8 @@ onUnmounted(() => {
   .realtime-service-row > td:nth-child(2) { grid-column: 1; grid-row: 2; font-size: .76rem; }
   .realtime-service-row > td:nth-child(3) { grid-column: 2; grid-row: 2; justify-content: flex-end; }
   .realtime-service-row > td:nth-child(4) { grid-column: 2; grid-row: 1; justify-content: flex-end; }
+  .realtime-service-row:has(.realtime-actions-button) > td:nth-child(3) { padding-right: 40px; }
+  .realtime-service-row > .realtime-actions-cell { position: absolute; right: 12px; bottom: 10px; }
   .realtime-service-row > td:nth-child(5) { display: none !important; }
   .realtime-task-row, .realtime-task-message-row { display: block; }
   .realtime-task-row > td, .realtime-task-message-row > td { display: block; }

@@ -63,6 +63,8 @@ type StartOptions struct {
 	TargetServices []string
 	// ServiceCommits retains the source revision of each selected service.
 	ServiceCommits map[string]string
+	// SkippedServices records caller exclusions for deployment history.
+	SkippedServices []string
 }
 
 // StartIfChanged creates an attempt before the caller begins external apply.
@@ -85,6 +87,7 @@ func (s *Service) StartIfChanged(
 		option = options[0]
 	}
 	option.TargetServices = normalizedServiceNames(option.TargetServices)
+	option.SkippedServices = normalizedServiceNames(option.SkippedServices)
 	for _, name := range option.TargetServices {
 		if _, exists := desired.ServiceDigests[name]; !exists {
 			return nil, fmt.Errorf("target service %q is absent from desired state", name)

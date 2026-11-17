@@ -41,6 +41,9 @@ const (
 	TypeNameDeployInterrupted                TypeName = "DeployInterrupted"
 	TypeNameSendNotificationFailed           TypeName = "SendNotificationFailed"
 	TypeNameSyncManualStarted                TypeName = "SyncManualStarted"
+	TypeNameSyncPaused                       TypeName = "SyncPaused"
+	TypeNameSyncResumed                      TypeName = "SyncResumed"
+	TypeNameSyncPauseExpired                 TypeName = "SyncPauseExpired"
 	TypeNameWebhookReceived                  TypeName = "WebhookReceived"
 	TypeNameNodeJoined                       TypeName = "NodeJoined"
 	TypeNameNodeConnected                    TypeName = "NodeConnected"
@@ -165,6 +168,15 @@ var (
 		category: CategorySync,
 		window:   defaultSyncDedupWindow,
 	}
+	TypeSyncPaused = Type{
+		name: TypeNameSyncPaused, severity: SeverityInfo, category: CategorySync,
+	}
+	TypeSyncResumed = Type{
+		name: TypeNameSyncResumed, severity: SeverityInfo, category: CategorySync,
+	}
+	TypeSyncPauseExpired = Type{
+		name: TypeNameSyncPauseExpired, severity: SeverityInfo, category: CategorySync,
+	}
 	TypeWebhookReceived = Type{
 		name:     TypeNameWebhookReceived,
 		isPublic: true,
@@ -278,6 +290,9 @@ var (
 		TypeDeploySuccess,
 		TypeSendNotificationFailed,
 		TypeSyncManualStarted,
+		TypeSyncPaused,
+		TypeSyncResumed,
+		TypeSyncPauseExpired,
 		TypeWebhookReceived,
 		TypeNodeJoined,
 		TypeNodeConnected,

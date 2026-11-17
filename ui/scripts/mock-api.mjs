@@ -287,6 +287,14 @@ const mockSecretManagers = [
 
 const failNextSecretManagerSync = new Set();
 
+app.post("/api/v1/swarm/services/:serviceID/restart", (context) => {
+  const service = swarmServices.find((item) => item.id === context.req.param("serviceID"));
+  if (!service) return context.json({ error_message: "service not found" }, 404);
+  if (service.mode !== "replicated") return context.json({ error_message: "only replicated services can be restarted" }, 400);
+  if (!service.configured_replicas) return context.json({ error_message: "cannot restart a service with zero configured replicas" }, 409);
+  return context.body(null, 204);
+});
+
 app.put("/api/v1/swarm/services/:serviceID/replicas", async (context) => {
   const service = swarmServices.find((item) => item.id === context.req.param("serviceID"));
   if (!service) return context.json({ error_message: "service not found" }, 404);

@@ -20,6 +20,7 @@ import (
 	deploymentstore "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/syncpause"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/logparser"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/tracing"
@@ -39,6 +40,7 @@ type Executor struct {
 	requests    map[string]any
 	metrics     metrics.MCP
 	tracer      trace.Tracer
+	syncPauses  *syncpause.Service
 }
 
 // NewExecutor creates an assistant tool executor from service components.
@@ -55,6 +57,7 @@ func NewExecutor(
 	hostingProviders *githosting.ProviderManager,
 	stacks []config.StackSpec,
 	mcpMetrics metrics.MCP,
+	gitRepositoryURL string,
 ) *Executor {
 	toolComponents := []routing.Tool{
 		NewListHistoryEvents(eventModule.History),
@@ -62,6 +65,9 @@ func NewExecutor(
 		NewAlertGet(alertModule.Store),
 		NewDeploymentList(deployments),
 		NewDeploymentGet(deployments),
+		NewSyncPauseGet(gitopsModule.SyncPauses),
+		NewSyncPauseSet(gitopsModule.SyncPauses),
+		NewSyncPauseResume(gitopsModule.SyncPauses),
 		NewSync(gitopsModule.Controller),
 		NewListNodes(resourcesModule.NodeStore),
 		NewDockerNetworkList(swarmService.Networks),
@@ -81,6 +87,7 @@ func NewExecutor(
 		NewSetServiceReplicas(swarmService.Services, eventModule.Dispatcher),
 		NewRestartService(swarmService.Services, eventModule.Dispatcher),
 		NewGetActualImageVersion(imageVersionResolver),
+		NewGitRepositoryDiagnostics(gitopsModule.GitRepository, gitopsModule.Store, alertModule.Store, gitRepositoryURL),
 		NewListGitCommits(gitopsModule.GitRepository),
 		NewGitCommitDiff(gitopsModule.GitRepository, stacks, gitopsModule.Differ),
 		NewGetExternalRepositoryLatestRelease(hostingProviders),
@@ -107,7 +114,18 @@ func NewExecutor(
 		requests:    requests,
 		metrics:     mcpMetrics,
 		tracer:      otel.Tracer("github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/tools"),
+		syncPauses:  gitopsModule.SyncPauses,
 	}
+}
+
+// StackSyncPause returns GitOps-owned stack pause state for confirmation warnings.
+func (e *Executor) StackSyncPause(ctx context.Context, stack string) (syncpause.StackState, error) {
+	return e.syncPauses.GetStack(ctx, stack)
+}
+
+// ServiceSyncPause revalidates a GitOps-owned service target.
+func (e *Executor) ServiceSyncPause(ctx context.Context, stack, service string) (syncpause.ServiceState, error) {
+	return e.syncPauses.GetService(ctx, stack, service)
 }
 
 // Definitions returns available assistant tool metadata.

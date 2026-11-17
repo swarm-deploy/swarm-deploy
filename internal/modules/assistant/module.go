@@ -83,6 +83,7 @@ func InitModule(_ context.Context, cfg *config.Config, cnt Container) (*Module, 
 		hostingProviders,
 		cnt.GetConfigStore().Stacks(),
 		cnt.GetMetrics().MCP,
+		cfg.Spec.GitOps.Git.Repository,
 	)
 
 	service, err := NewService(Config{

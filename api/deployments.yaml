@@ -328,6 +328,7 @@ components:
         - actual_state_status
         - started_at
         - init_jobs
+        - skipped_services
       properties:
         id:
           type: string
@@ -367,6 +368,11 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/DeploymentInitJobExecution'
+        skipped_services:
+          type: array
+          description: Services intentionally preserved and not applied or observed by this Attempt.
+          items:
+            type: string
     DeploymentInitJobExecution:
       type: object
       required:
@@ -403,7 +409,7 @@ components:
       allOf:
         - $ref: '#/components/schemas/DeploymentSummary'
         - type: object
-          required: [changes, attempts]
+          required: [changes, attempts, skipped_services]
           properties:
             services:
               type: array
@@ -424,6 +430,11 @@ components:
               type: array
               items:
                 $ref: '#/components/schemas/DeploymentAttempt'
+            skipped_services:
+              type: array
+              description: Services intentionally skipped by the latest Attempt.
+              items:
+                type: string
     DeploymentService:
       type: object
       required: [name, image, replicas]

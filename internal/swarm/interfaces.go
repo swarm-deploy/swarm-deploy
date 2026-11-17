@@ -40,7 +40,7 @@ type ServiceManager interface {
 	// ScaleByID scales a live service by Docker ID and returns its previous replica count.
 	ScaleByID(ctx context.Context, serviceID string, replicas uint64) (ServiceScaleResult, error)
 
-	// Restart restarts stack service by scaling replicas to zero and restoring previous count.
+	// Restart restarts a referenced service by scaling replicas to zero and restoring previous count.
 	Restart(ctx context.Context, serviceRef ServiceReference) (uint64, error)
 
 	// GetStatus returns compact status snapshot for a stack service.

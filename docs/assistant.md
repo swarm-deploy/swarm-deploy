@@ -110,6 +110,7 @@ Completed user/assistant turns are persisted in the `assistant_chats` and `assis
 - `dependency_graph_get` - returns service dependency graph with nodes, endpoints, and direct dependencies inferred from service environment variables
 - `registry_image_version_get` - resolves актуальный тег и digest Docker-образа в registry (Docker Hub и совместимые)
   - registry is selected automatically by tool logic
+- `git_repository_diagnostics` - reads local GitOps repository metrics, last confirmed remote availability, and the active repository alert; see the contract below
 - `git_commit_list` - returns latest git commits from repository history (`limit` optional, default 10)
 - `self_metrics_list` - returns structured snapshot of internal Prometheus metrics (`swarm_deploy_*`)
 
@@ -164,3 +165,45 @@ Assistant requests are protected by:
 - immutable safety instructions inside system prompt
 
 When protection is triggered, response status is `rejected`.
+
+### Git repository diagnostics
+
+`git_repository_diagnostics` is a read-only starting point for repository health and GitOps access investigations.
+It accepts no arguments and reads the configured, already-cloned GitOps checkout. It does not fetch, pull,
+create another checkout, or return file contents or Git credentials.
+
+The response contains `head`, nullable `branch` (detached HEAD), `shallow`, `commits`, `gitSizeBytes`,
+`workingTreeSizeBytes`, `trackedFiles`, `workingTreeDirty`, `untrackedFiles`, `untrackedFilesTruncated`,
+`availability`, `alertId`, and `errors`.
+
+- `commits` counts unique reachable commits at the returned `head`, stopping at shallow boundaries.
+- Sizes sum file lengths on disk, including packfiles for Git storage and ignored/untracked files for the working
+  tree. The root `.git` entry is excluded from the working tree. Symlinks are counted without following targets;
+  filesystem allocation blocks and hard-link deduplication are not measured.
+- `trackedFiles` counts distinct index paths, including staged additions. Status uses go-git's staged/unstaged
+  comparison and ignore rules. Untracked files alone never set `workingTreeDirty`.
+- `untrackedFiles` returns up to 100 sorted, repository-relative paths. `untrackedFilesTruncated=true` means
+  additional paths exist; an empty list means none were found.
+- `availability` reads the last confirmed remote observation persisted by `gitpull.Monitor` in the existing
+  GitOps runtime JSON. Successful pulls (including no-change results) establish `true`; classified remote access
+  failures establish `false`. Local/ambiguous failures, invalid local auth configuration and cancellation do not
+  overwrite the last confirmed observation. Missing state or a different repository identity yields `null`.
+  Historical `GitPullFailure` and poll/sync summaries are not treated as proof of remote access.
+- `alertId` reads the active `git_repository_unavailable` incident for the same credential-free repository identity
+  through the existing Alert Management store. Follow it with `alert_get` when availability is false. A false
+  availability without an alert still indicates a problem: network alerts require three consecutive failures,
+  and the asynchronous alert projection can lag. Availability and alert reads are not an atomic snapshot.
+- Failed metrics return `null` with a corresponding entry in `errors`: `read_failed`, `deadline_exceeded`,
+  `canceled`, `scan_limit_exceeded`, or `head_unavailable` for a commit count without HEAD. A null value without
+  an error means expected absence/unknown state. The atomic status operation supplies dirty/untracked/truncation
+  together; if it fails, all three fields are null with error entries. Other metrics remain available.
+
+Each operation has a two-second context deadline. Traversals have a 100,000-entry/commit budget; status also
+bounds filesystem operations and content reads (64 MiB). These are cooperative limits between library/filesystem
+operations, not hard preemption of a single filesystem call or go-git object/index decoding. Budget failures
+never return a misleading exact count. The tool introduces no diagnostic cache.
+
+Long scans use independent go-git handles over the same checkout, without holding the reconciler's repository
+lock. Commit counting is pinned to the captured HEAD; branch, index, status and file sizes are best-effort samples
+and may reflect different moments during a concurrent pull. The tool never writes checkout state. Existing HEAD
+resolution assumes the GitOps checkout has already been cloned.

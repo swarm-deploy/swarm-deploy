@@ -31,3 +31,7 @@ export function scaleSwarmService(serviceID: string, replicas: number): Promise<
     body: JSON.stringify({ replicas }),
   });
 }
+
+export function restartSwarmService(serviceID: string): Promise<void> {
+  return apiRequest<void>(`/api/v1/swarm/services/${encodeURIComponent(serviceID)}/restart`, { method: "POST" });
+}

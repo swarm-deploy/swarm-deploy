@@ -23,8 +23,12 @@ func (h *handler) ListStacks(ctx context.Context) (*generated.StacksResponse, er
 		return nil, err
 	}
 
+	stacks, err := h.listStacks(ctx, state)
+	if err != nil {
+		return nil, err
+	}
 	return &generated.StacksResponse{
-		Stacks: h.listStacks(state),
+		Stacks: stacks,
 		Sync:   syncInfo,
 	}, nil
 }

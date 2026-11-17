@@ -217,3 +217,47 @@ func readState(t *testing.T, store *modelstore.SQLStore) model.Runtime {
 	require.NoError(t, err, "read state")
 	return state
 }
+
+func TestMonitorPersistsRemoteAccessIndependentlyOfPullFailure(t *testing.T) {
+	db, store := newSQLState(t)
+	monitor := NewMonitor(db, store, &dispatcher.NopDispatcher{})
+	yes, no := true, false
+	for _, tc := range []struct {
+		name        string
+		observation Observation
+		want        *model.GitAccess
+	}{
+		{name: "initial local failure remains unknown", observation: Observation{Repository: repositoryA, Failure: &Failure{Category: gitx.FailureOther}}},
+		{name: "first confirmed success", observation: Observation{Repository: repositoryA, Availability: &yes}, want: &model.GitAccess{Repository: repositoryA, Available: true}},
+		{name: "local failure preserves success", observation: Observation{Repository: repositoryA, Failure: &Failure{Category: gitx.FailureOther}}, want: &model.GitAccess{Repository: repositoryA, Available: true}},
+		{name: "remote failure", observation: Observation{Repository: repositoryA, Availability: &no, Failure: &Failure{Category: gitx.FailureNetwork}}, want: &model.GitAccess{Repository: repositoryA, Available: false}},
+		{name: "local failure preserves remote failure", observation: Observation{Repository: repositoryA, Failure: &Failure{Category: gitx.FailureOther}}, want: &model.GitAccess{Repository: repositoryA, Available: false}},
+		{name: "new repository without observation", observation: Observation{Repository: repositoryB, Failure: &Failure{Category: gitx.FailureOther}}, want: &model.GitAccess{Repository: repositoryA, Available: false}},
+		{name: "new repository confirmed", observation: Observation{Repository: repositoryB, Availability: &yes}, want: &model.GitAccess{Repository: repositoryB, Available: true}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			require.NoError(t, monitor.Observe(t.Context(), tc.observation))
+			// Read through a new store to verify persistence, not monitor-local state.
+			actual := readState(t, modelstore.NewSQLStore(db))
+			assert.Equal(t, tc.want, actual.GitAccess)
+			clone := actual.Clone()
+			if clone.GitAccess != nil {
+				clone.GitAccess.Available = !clone.GitAccess.Available
+				assert.NotEqual(t, clone.GitAccess.Available, actual.GitAccess.Available)
+			}
+		})
+	}
+}
+
+func TestMonitorAccessRollsBackWithFailurePublication(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	db, store := newSQLState(t)
+	yes, no := true, false
+	require.NoError(t, NewMonitor(db, store, &dispatcher.NopDispatcher{}).Observe(t.Context(), Observation{Repository: repositoryA, Availability: &yes}))
+	publisher := dispatcher.NewMockDispatcher(ctrl)
+	publisher.EXPECT().Publish(gomock.Any(), gomock.Any()).Return(errors.New("outbox unavailable"))
+	require.Error(t, NewMonitor(db, store, publisher).Observe(t.Context(), Observation{
+		Repository: repositoryA, Availability: &no, Failure: &Failure{Category: gitx.FailureNetwork},
+	}))
+	assert.Equal(t, &model.GitAccess{Repository: repositoryA, Available: true}, readState(t, store).GitAccess)
+}

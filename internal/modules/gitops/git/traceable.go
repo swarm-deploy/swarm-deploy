@@ -145,3 +145,38 @@ func (t *TraceableRepository) Show(ctx context.Context, commitHash string) (Comm
 
 	return commit, nil
 }
+
+// Branch returns the current branch, or an empty string for detached HEAD.
+func (t *TraceableRepository) Branch(ctx context.Context) (string, error) {
+	return t.repo.Branch(ctx)
+}
+
+// Shallow reports whether history has shallow boundaries.
+func (t *TraceableRepository) Shallow(ctx context.Context) (bool, error) {
+	return t.repo.Shallow(ctx)
+}
+
+// CountCommits counts reachable commits at the given revision, stopping at shallow boundaries.
+func (t *TraceableRepository) CountCommits(ctx context.Context, revision string) (int, error) {
+	return t.repo.CountCommits(ctx, revision)
+}
+
+// GitSize sums file sizes in the local Git storage, including packfiles.
+func (t *TraceableRepository) GitSize(ctx context.Context) (int64, error) {
+	return t.repo.GitSize(ctx)
+}
+
+// WorkingTreeSize sums working tree file sizes, excluding .git and without following symlinks.
+func (t *TraceableRepository) WorkingTreeSize(ctx context.Context) (int64, error) {
+	return t.repo.WorkingTreeSize(ctx)
+}
+
+// TrackedFiles counts distinct paths in the current Git index.
+func (t *TraceableRepository) TrackedFiles(ctx context.Context) (int, error) {
+	return t.repo.TrackedFiles(ctx)
+}
+
+// Status reads tracked changes and a bounded list of untracked files, respecting ignore rules.
+func (t *TraceableRepository) Status(ctx context.Context, limit int) (WorktreeStatus, error) {
+	return t.repo.Status(ctx, limit)
+}

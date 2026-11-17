@@ -128,3 +128,38 @@ func (p *LazyProxy) init(ctx context.Context) (*GoGitRepository, error) {
 		return nil, ClassifyPullError(ctx.Err(), p.spec.Repository, p.spec.Auth.Type)
 	}
 }
+
+// Branch returns the current branch, or an empty string for detached HEAD.
+func (p *LazyProxy) Branch(ctx context.Context) (string, error) {
+	return localBranch(ctx, p.path)
+}
+
+// Shallow reports whether history has shallow boundaries.
+func (p *LazyProxy) Shallow(ctx context.Context) (bool, error) {
+	return localShallow(ctx, p.path)
+}
+
+// CountCommits counts reachable commits at the given revision, stopping at shallow boundaries.
+func (p *LazyProxy) CountCommits(ctx context.Context, revision string) (int, error) {
+	return localCountCommits(ctx, p.path, revision)
+}
+
+// GitSize sums file sizes in the local Git storage, including packfiles.
+func (p *LazyProxy) GitSize(ctx context.Context) (int64, error) {
+	return localGitSize(ctx, p.path)
+}
+
+// WorkingTreeSize sums working tree file sizes, excluding .git and without following symlinks.
+func (p *LazyProxy) WorkingTreeSize(ctx context.Context) (int64, error) {
+	return localWorkingTreeSize(ctx, p.path)
+}
+
+// TrackedFiles counts distinct paths in the current Git index.
+func (p *LazyProxy) TrackedFiles(ctx context.Context) (int, error) {
+	return localTrackedFiles(ctx, p.path)
+}
+
+// Status reads tracked changes and a bounded list of untracked files, respecting ignore rules.
+func (p *LazyProxy) Status(ctx context.Context, limit int) (WorktreeStatus, error) {
+	return localStatus(ctx, p.path, limit)
+}

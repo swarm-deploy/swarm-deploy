@@ -15,6 +15,8 @@ import (
 
 // Observation is the outcome of one Git pull attempt.
 type Observation struct {
+	// Availability is a confirmed remote observation; nil leaves remote access unknown or unchanged.
+	Availability *bool
 	// Repository is the credential-free repository identifier.
 	Repository string
 	// TriggerReason is the sync trigger that caused the pull.
@@ -31,7 +33,7 @@ type Failure struct {
 	Description string
 }
 
-// Monitor persists the latest Git pull failure and publishes failure, recovery
+// Monitor persists confirmed remote access and the latest Git pull failure, and publishes failure, recovery
 // and repository change events. The persisted failure lets recovery be detected after restart.
 type Monitor struct {
 	db    storage.Database
@@ -55,12 +57,14 @@ func (m *Monitor) Observe(ctx context.Context, observation Observation) error {
 
 		previous := state.GitPullFailure
 		next, pending := transition(previous, observation)
-		if previous == nil && next == nil {
+		access := observedAccess(state.GitAccess, observation)
+		if previous == nil && next == nil && access == state.GitAccess {
 			return nil
 		}
 
 		if err = m.store.Update(ctx, func(runtime *model.Runtime) {
 			runtime.GitPullFailure = next
+			runtime.GitAccess = access
 		}); err != nil {
 			return fmt.Errorf("persist Git pull state: %w", err)
 		}
@@ -73,6 +77,17 @@ func (m *Monitor) Observe(ctx context.Context, observation Observation) error {
 
 		return nil
 	})
+}
+
+func observedAccess(previous *model.GitAccess, observation Observation) *model.GitAccess {
+	if observation.Availability == nil {
+		return previous
+	}
+	if previous != nil && previous.Repository == observation.Repository &&
+		previous.Available == *observation.Availability {
+		return previous
+	}
+	return &model.GitAccess{Repository: observation.Repository, Available: *observation.Availability}
 }
 
 // transition returns the next persisted failure and the events to publish for an observation.

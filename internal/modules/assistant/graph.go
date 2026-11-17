@@ -102,6 +102,7 @@ type graph struct {
 	allowedToolSet map[string]struct{}
 	observer       routerFallbackObserver
 	store          ServiceStore
+	pauseTargets   syncPauseTargetResolver
 	pending        *pendingOperationStore
 }
 
@@ -147,6 +148,7 @@ func newGraph(
 	observer routerFallbackObserver,
 	store ServiceStore,
 ) *graph {
+	pauseTargets, _ := tools.(syncPauseTargetResolver)
 	return &graph{
 		config:         config,
 		guard:          guard,
@@ -157,6 +159,7 @@ func newGraph(
 		allowedToolSet: allowedToolSet,
 		observer:       observer,
 		store:          store,
+		pauseTargets:   pauseTargets,
 		pending:        newPendingOperationStore(config.ConversationInMemoryTTL),
 	}
 }
