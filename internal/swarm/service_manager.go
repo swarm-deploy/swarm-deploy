@@ -318,7 +318,8 @@ func (m *serviceManager) restart(
 	zero := uint64(0)
 	replicated.Replicas = &zero
 	expectedSpec.Mode.Replicated = &replicated
-	restoreCtx, cancel := context.WithTimeout(ctx, restartServiceRestoreTimeout)
+	// Complete the bounded restoration even if the caller disconnects after the stop.
+	restoreCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), restartServiceRestoreTimeout)
 	defer cancel()
 
 	err = retry.New(

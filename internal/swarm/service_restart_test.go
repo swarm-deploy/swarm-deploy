@@ -1,6 +1,7 @@
 package swarm
 
 import (
+	"context"
 	jsonv1 "encoding/json"
 	"encoding/json/v2"
 	"net/http"
@@ -23,6 +24,7 @@ func TestServiceManagerRestart(t *testing.T) {
 		inspectStatus int
 		stopStatus    int
 		restoreStatus int
+		cancelRestore bool
 		changed       bool
 		want          error
 		updates       int
@@ -30,6 +32,7 @@ func TestServiceManagerRestart(t *testing.T) {
 	}{
 		{name: "success", updates: 2, inspections: 2},
 		{name: "standalone by ID", standalone: true, updates: 2, inspections: 2},
+		{name: "caller cancels after stop", cancelRestore: true, updates: 2, inspections: 2},
 		{name: "global", mode: dockerswarm.ServiceMode{Global: &dockerswarm.GlobalService{}}, want: ErrServiceModeUnsupported, inspections: 1},
 		{name: "replicated job", mode: dockerswarm.ServiceMode{ReplicatedJob: &dockerswarm.ReplicatedJob{}}, want: ErrServiceModeUnsupported, inspections: 1},
 		{name: "global job", mode: dockerswarm.ServiceMode{GlobalJob: &dockerswarm.GlobalJob{}}, want: ErrServiceModeUnsupported, inspections: 1},
@@ -60,10 +63,15 @@ func TestServiceManagerRestart(t *testing.T) {
 			service := dockerswarm.Service{ID: "service-id", Meta: dockerswarm.Meta{Version: dockerswarm.Version{Index: 42}}, Spec: dockerswarm.ServiceSpec{Annotations: dockerswarm.Annotations{Name: name, Labels: labels}, Mode: mode}}
 			updates := 0
 			inspections := 0
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.Header().Set("Content-Type", "application/json")
 				if r.Method == http.MethodGet {
 					inspections++
+					if tc.cancelRestore && updates == 1 {
+						cancel()
+					}
 					assert.Equal(t, "/v1.48/services/service-id", r.URL.Path)
 					if tc.inspectStatus != 0 {
 						w.WriteHeader(tc.inspectStatus)
@@ -102,7 +110,10 @@ func TestServiceManagerRestart(t *testing.T) {
 			}))
 			t.Cleanup(server.Close)
 			manager := newServiceManager(newTestDockerClient(t, server))
-			count, err := manager.restart(t.Context(), NewServiceIDReference("service-id"), time.Millisecond)
+			count, err := manager.restart(ctx, NewServiceIDReference("service-id"), time.Millisecond)
+			if tc.cancelRestore {
+				require.ErrorIs(t, ctx.Err(), context.Canceled)
+			}
 			failed := tc.want != nil || tc.stopStatus != 0 || tc.restoreStatus != 0
 			if failed {
 				require.Error(t, err)
