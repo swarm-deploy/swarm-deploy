@@ -38,7 +38,7 @@ The exporter endpoint must include an `http://` or `https://` scheme.
 
 ## Sampling
 
-Sampling is optional. When `sampler` is omitted, swarm-deploy uses the OpenTelemetry SDK default sampler.
+Swarm-deploy resolves sampling at startup. An explicit `sampler.strategy` takes priority. If omitted, swarm-deploy uses `OTEL_TRACES_SAMPLER` and, for ratio strategies, `OTEL_TRACES_SAMPLER_ARG`. With neither strategy set, it uses `parentbased_always_on`.
 
 ```yaml
 system:
@@ -53,6 +53,8 @@ Available sampler strategies:
 - `always_on`
 - `always_off`
 - `traceidratio`
+- `parentbased_always_on`
+- `parentbased_always_off`
 - `parentbased_traceidratio`
 
 `ratio` is used by `traceidratio` and `parentbased_traceidratio` and must be between `0` and `1`.

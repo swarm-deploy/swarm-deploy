@@ -2,12 +2,12 @@ package assistant
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
 	"time"
 
-	otelopenai "github.com/langwatch/langwatch/sdks/go/instrumentation/openai"
 	openai "github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/conversation"
@@ -20,7 +20,7 @@ type openAIClient struct {
 	client openai.Client
 }
 
-func newOpenAIClient(baseURL, token, organizationID string) *openAIClient {
+func newOpenAIClient(baseURL, token, organizationID, customPrompt string) *openAIClient {
 	baseURL = strings.TrimSpace(baseURL)
 	token = strings.TrimSpace(token)
 	organizationID = strings.TrimSpace(organizationID)
@@ -36,7 +36,7 @@ func newOpenAIClient(baseURL, token, organizationID string) *openAIClient {
 		options = append(options, option.WithOrganization(organizationID))
 	}
 	if tracing.Enabled() {
-		options = append(options, option.WithMiddleware(otelopenai.Middleware("swarm-deploy")))
+		options = append(options, option.WithMiddleware(newOpenAITracing(customPrompt)))
 	}
 
 	return &openAIClient{
@@ -78,7 +78,7 @@ func (c *openAIClient) complete(ctx context.Context, req modelRequest) (modelRes
 		Tools:       tools,
 	})
 	if err != nil {
-		return modelResponse{}, fmt.Errorf("chat completion request failed: %w", err)
+		return modelResponse{}, safeChatCompletionError(err)
 	}
 	if response == nil || len(response.Choices) == 0 {
 		return modelResponse{}, fmt.Errorf("chat completion response does not contain choices")
@@ -112,6 +112,26 @@ func (c *openAIClient) complete(ctx context.Context, req modelRequest) (modelRes
 		ToolCalls: toolCalls,
 		Usage:     usage,
 	}, nil
+}
+
+// Provider and transport errors can include arbitrary response content and URLs.
+func safeChatCompletionError(err error) error {
+	var apiError *openai.Error
+	switch {
+	case errors.As(err, &apiError):
+		switch apiError.Code {
+		case "model_not_found", "unsupported_parameter", "unsupported_value", "context_length_exceeded",
+			"invalid_api_key", "insufficient_quota", "rate_limit_exceeded":
+			return fmt.Errorf("chat completion request failed with HTTP status %d (%s)", apiError.StatusCode, apiError.Code)
+		}
+		return fmt.Errorf("chat completion request failed with HTTP status %d", apiError.StatusCode)
+	case errors.Is(err, context.Canceled):
+		return fmt.Errorf("chat completion request failed: %w", context.Canceled)
+	case errors.Is(err, context.DeadlineExceeded):
+		return fmt.Errorf("chat completion request failed: %w", context.DeadlineExceeded)
+	default:
+		return errors.New("chat completion request failed")
+	}
 }
 
 func (c *openAIClient) Embed(ctx context.Context, model string, inputs []string) ([][]float64, error) {
