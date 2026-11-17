@@ -76,8 +76,8 @@ func TestServiceWaiterContainerdLeaseFindingOnRollback(t *testing.T) {
 	manager := swarm.NewMockServiceManager(gomock.NewController(t))
 	service := testReplicatedService("api", "api-id", 1, serviceWaitTestTime, "api:2")
 	service.UpdateStatus = &swarm.ServiceUpdateStatus{
-		State: "rollback_started",
-		Message: "update rolled back due to failure or early termination of task current-task",
+		State:     "rollback_started",
+		Message:   "update rolled back due to failure or early termination of task current-task",
 		StartedAt: serviceWaitTestTime,
 	}
 	task := testTask("current-task", 1, swarm.TaskStateShutdown, swarm.TaskStateRejected, serviceWaitTestTime)
@@ -262,19 +262,21 @@ func TestServiceWaiterDiagnosesPlacementAfterConvergenceEnds(t *testing.T) {
 		waitCause      error
 		wantUnresolved []string
 		wantSummary    string
+		wantAdditional string
 	}{
-		{"slow node list", nil, false, context.DeadlineExceeded, []string{"api"}, dockerDiagnostic},
+		{"slow node list", nil, false, context.DeadlineExceeded, []string{"api"}, dockerDiagnostic, ""},
 		{
 			"another service fails observation temporarily", faults.NewSafeError("web task list unavailable", true, "", ""),
-			false, context.DeadlineExceeded, []string{"api", "web"}, "No nodes match placement constraint: " + regionConstraint,
+			false, context.DeadlineExceeded, []string{"api", "web"}, "No nodes match placement constraint: " + regionConstraint, "",
 		},
 		{
 			"another service fails observation permanently", permanentErr, false, context.Canceled,
-			[]string{"api", "web"}, "No nodes match placement constraint: " + regionConstraint,
+			[]string{"api", "web"}, "No nodes match placement constraint: " + regionConstraint, "",
 		},
 		{
 			"later service has unmatched constraints", nil, true, context.DeadlineExceeded,
-			[]string{"api", "web"}, "No nodes match placement constraint: " + webConstraint,
+			[]string{"api", "web"}, "no suitable node (insufficient resources on 1 node)",
+			"No nodes match placement constraint: " + webConstraint,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -336,7 +338,14 @@ func TestServiceWaiterDiagnosesPlacementAfterConvergenceEnds(t *testing.T) {
 			require.ErrorAs(t, err, &coded)
 			assert.Equal(t, faults.CodeNoSuitableNode, coded.FaultCode())
 			assert.Equal(t, tc.wantSummary, coded.FaultSummary())
-			assert.EqualError(t, coded, dockerDiagnostic)
+			if tc.wantAdditional == "" {
+				assert.EqualError(t, coded, dockerDiagnostic)
+			} else {
+				assert.Equal(t, []faults.Cause{
+					{Code: faults.CodeNoSuitableNode, Summary: tc.wantSummary},
+					{Code: faults.CodeNoSuitableNode, Summary: tc.wantAdditional},
+				}, faults.Causes(err))
+			}
 		})
 	}
 }

@@ -94,22 +94,30 @@ func runningServiceProgress(
 		progress.failTask(failed, "task failed with no restarts remaining")
 		return progress
 	}
-	progress.pendingSchedulingFault(tasks, service.ServiceSpec.TaskTemplate, cutoff)
-	if updatePending(service.UpdateStatus) {
-		progress.Message = updateProgressMessage(service.UpdateStatus)
-		return progress
-	}
-	if progress.Running == progress.Desired && countDesiredTasks(tasks) == progress.Desired {
+	updating := updatePending(service.UpdateStatus)
+	if !updating && progress.Running == progress.Desired && countDesiredTasks(tasks) == progress.Desired {
 		progress.State = ServiceReady
 		progress.Message = "service converged"
 		return progress
 	}
 
+	progress.pendingSchedulingFault(tasks, service.ServiceSpec.TaskTemplate, cutoff)
+	failed := services.LatestUnreplacedServiceTaskFailure(service.ServiceSpec, tasks, cutoff)
+	if progress.taskFault == nil && progress.Running < progress.Desired {
+		progress.taskFault = failed.Fault()
+		if progress.taskFault != nil {
+			failed.Error = "" // The typed branch supplies the full technical text.
+		}
+	}
+	if updating {
+		progress.Message = updateProgressMessage(service.UpdateStatus)
+		return progress
+	}
 	progress.Message = boundedDiagnostic(fmt.Sprintf(
 		"waiting for current tasks: %d/%d running%s",
 		progress.Running,
 		progress.Desired,
-		taskFailureDiagnostic(tasks),
+		formatTaskDiagnostic(failed),
 	))
 	return progress
 }
@@ -187,11 +195,7 @@ func zeroDesiredProgress(progress ServiceProgress, tasks []swarm.ServiceTask) Se
 		progress.Message = "service converged"
 		return progress
 	}
-	progress.Message = boundedDiagnostic(fmt.Sprintf(
-		"waiting for active tasks to stop: %d remaining%s",
-		active,
-		taskFailureDiagnostic(tasks),
-	))
+	progress.Message = fmt.Sprintf("waiting for active tasks to stop: %d remaining", active)
 	return progress
 }
 

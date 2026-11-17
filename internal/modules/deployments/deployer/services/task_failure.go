@@ -72,6 +72,26 @@ func TerminalServiceTaskFailure(
 	return failed, failed.ID != ""
 }
 
+// LatestUnreplacedServiceTaskFailure identifies a current failed task even
+// while Swarm can still retry it.
+func LatestUnreplacedServiceTaskFailure(
+	spec dockerswarm.ServiceSpec, tasks []swarm.ServiceTask, since time.Time,
+) swarm.ServiceTask {
+	var failed swarm.ServiceTask
+	for _, history := range serviceTaskHistories(spec, tasks, since) {
+		task := latestServiceTask(history)
+		if task.CurrentState != swarm.TaskStateFailed && task.CurrentState != swarm.TaskStateRejected &&
+			task.CurrentState != swarm.TaskStateOrphaned {
+			continue
+		}
+		if failed.ID == "" || task.UpdatedAt.After(failed.UpdatedAt) ||
+			(task.UpdatedAt.Equal(failed.UpdatedAt) && task.ID < failed.ID) {
+			failed = task
+		}
+	}
+	return failed
+}
+
 // SwarmKit keys replicated restart history by slot and global history by node.
 func serviceTaskHistories(
 	spec dockerswarm.ServiceSpec, tasks []swarm.ServiceTask, since time.Time,
@@ -141,24 +161,32 @@ func globalServiceTaskNodes(spec dockerswarm.ServiceSpec, tasks []swarm.ServiceT
 func terminalExhaustedTask(
 	history []swarm.ServiceTask, policy *dockerswarm.RestartPolicy,
 ) (swarm.ServiceTask, bool) {
-	first, latest := history[0], history[0]
+	latest := latestServiceTask(history)
+	if !terminalServiceTask(latest) {
+		return swarm.ServiceTask{}, false
+	}
+	first := history[0]
 	for _, task := range history[1:] {
 		if task.CreatedAt.Before(first.CreatedAt) {
 			first = task
 		}
-		if task.CreatedAt.After(latest.CreatedAt) ||
-			(task.CreatedAt.Equal(latest.CreatedAt) && !terminalServiceTask(task)) {
-			latest = task
-		}
-	}
-	if !terminalServiceTask(latest) {
-		return swarm.ServiceTask{}, false
 	}
 	if policy.Condition != dockerswarm.RestartPolicyConditionNone &&
 		!retryLimitExhausted(history, first.ID, latest.UpdatedAt, policy) {
 		return swarm.ServiceTask{}, false
 	}
 	return latest, true
+}
+
+func latestServiceTask(history []swarm.ServiceTask) swarm.ServiceTask {
+	latest := history[0]
+	for _, task := range history[1:] {
+		if task.CreatedAt.After(latest.CreatedAt) ||
+			(task.CreatedAt.Equal(latest.CreatedAt) && !terminalServiceTask(task)) {
+			latest = task
+		}
+	}
+	return latest
 }
 
 func retryLimitExhausted(

@@ -41,6 +41,7 @@ func (w *ServiceWaiter) observeService(
 	}
 	tasks, err := w.services.ListTasks(ctx, service.ID)
 	if err != nil {
+		progress.taskLookupFailed = true
 		if terminal {
 			progress.Message += "; task diagnostics unavailable"
 			return progress, nil
@@ -60,6 +61,7 @@ func (w *ServiceWaiter) observeService(
 		nodes, listErr := w.nodes.List(ctx)
 		if listErr != nil {
 			progress.State = ServicePending
+			progress.taskLookupFailed = true
 			progress.Message = boundedDiagnostic(fmt.Sprintf("list nodes: %v", listErr))
 			return progress, fmt.Errorf("list nodes for service %s placement: %w", name, listErr)
 		}

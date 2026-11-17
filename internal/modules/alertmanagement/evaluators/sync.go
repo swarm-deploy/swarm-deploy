@@ -94,22 +94,27 @@ func (e *SyncEvaluator) failure(
 		alert.Message = fmt.Sprintf(fallbackFormat, stage)
 	}
 
-	openAfter := openImmediately
-	var classified faults.Error
-	if errors.As(cause, &classified) && classified.Temporary() {
-		openAfter = temporaryFailureThreshold
-	}
-	return []model.AlertAction{model.NewRecordFailureAction(alert, openAfter, true, failureFindings(cause)...)}, nil
+	findings, openAfter := classifySyncFailure(cause)
+	return []model.AlertAction{model.NewRecordFailureAction(alert, openAfter, true, findings...)}, nil
 }
 
-func failureFindings(cause error) []model.Finding {
-	var coded faults.Coded
-	if errors.As(cause, &coded) {
-		if code := coded.FaultCode(); code != "" {
-			return []model.Finding{{Code: code, Summary: coded.FaultSummary()}}
+func classifySyncFailure(err error) ([]model.Finding, uint64) {
+	causes := faults.Causes(err)
+	if len(causes) == 0 {
+		if classified, ok := errors.AsType[faults.Error](err); ok && classified.Temporary() {
+			return nil, temporaryFailureThreshold
+		}
+		return nil, openImmediately
+	}
+	findings := make([]model.Finding, 0, len(causes))
+	openAfter := temporaryFailureThreshold
+	for _, cause := range causes {
+		findings = append(findings, model.Finding{Code: cause.Code, Summary: cause.Summary})
+		if !cause.Temporary {
+			openAfter = openImmediately
 		}
 	}
-	return nil
+	return findings, openAfter
 }
 
 func (e *SyncEvaluator) stackRemoved(stackName string) bool {

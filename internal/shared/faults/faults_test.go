@@ -121,3 +121,17 @@ func TestSafeErrorPreservesClassificationWithoutRetainingCause(t *testing.T) {
 	assert.False(t, SafeError(errors.New("permanent")).(Error).Temporary())
 	assert.True(t, SafeError(&net.DNSError{IsTemporary: true}).(Error).Temporary())
 }
+
+func TestSafeErrorKeepsTemporaryClassificationOnItsOwnBranch(t *testing.T) {
+	persistent := NewSafeError("missing image", false, CodeImageNotFound, "missing image")
+	for _, errs := range [][]error{
+		{context.DeadlineExceeded, persistent},
+		{persistent, context.DeadlineExceeded},
+	} {
+		err := SafeError(fmt.Errorf("wait for rollout: %w", errors.Join(errs...)))
+		require.ErrorAs(t, err, new(Coded))
+		assert.False(t, err.(Error).Temporary())
+		assert.Equal(t, []Cause{{Code: CodeImageNotFound, Summary: "missing image"}}, Causes(err))
+		assert.ErrorContains(t, err, context.DeadlineExceeded.Error())
+	}
+}

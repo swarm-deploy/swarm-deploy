@@ -3,6 +3,7 @@ package waiter
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"sort"
@@ -26,44 +27,36 @@ type placementConstraintError struct {
 func (e placementConstraintError) FaultSummary() string { return e.summary }
 func (e placementConstraintError) Unwrap() error        { return e.Coded }
 
-func (w *ServiceWaiter) withPlacementSchedulingFault(
+func (w *ServiceWaiter) withPendingTaskFaults(
 	ctx context.Context, err error, progress map[string]ServiceProgress,
 ) error {
-	var fallback faults.Coded
+	causes := []error{err}
 	var nodes []swarm.Node
+	nodesLoaded := false
 	for _, name := range sortedProgressNames(progress) {
 		service := progress[name]
 		fault := service.taskFault
-		if service.State == ServiceReady || fault == nil || fault.FaultCode() != faults.CodeNoSuitableNode {
+		if service.State != ServicePending || fault == nil {
 			continue
-		}
-		if fallback == nil {
-			fallback = fault
-		}
-		if ctx.Err() != nil {
-			break
 		}
 		constraints := placementDiagnosticConstraints(service.placementConstraints)
-		if len(constraints) == 0 {
-			continue
-		}
-		if nodes == nil {
-			nodes = w.listPlacementDiagnosticNodes(ctx)
-			if len(nodes) == 0 {
-				break
+		if len(constraints) != 0 && ctx.Err() == nil {
+			if !nodesLoaded {
+				nodes = w.listPlacementDiagnosticNodes(ctx)
+				nodesLoaded = true
+			}
+			if len(nodes) != 0 && !slices.ContainsFunc(nodes, func(node swarm.Node) bool {
+				return constraint.NodeMatches(constraints, node.ConstraintNode())
+			}) {
+				fault = placementConstraintError{Coded: fault, summary: placementConstraintSummary(service.placementConstraints)}
 			}
 		}
-		if !slices.ContainsFunc(nodes, func(node swarm.Node) bool {
-			return constraint.NodeMatches(constraints, node.ConstraintNode())
-		}) {
-			fallback = placementConstraintError{Coded: fault, summary: placementConstraintSummary(service.placementConstraints)}
-			break
-		}
+		causes = append(causes, fmt.Errorf("service %s task diagnostic: %w", name, fault))
 	}
-	if fallback == nil {
+	if len(causes) == 1 {
 		return err
 	}
-	return fmt.Errorf("%w; task diagnostic: %w", err, fallback)
+	return errors.Join(causes...)
 }
 
 func placementDiagnosticConstraints(raw []string) []constraint.Constraint {
@@ -159,10 +152,6 @@ func terminalFailureTask(tasks []swarm.ServiceTask, updateMessage string, cutoff
 	return latestFailedTask(current)
 }
 
-func taskFailureDiagnostic(tasks []swarm.ServiceTask) string {
-	return formatTaskDiagnostic(latestFailedTask(tasks))
-}
-
 func latestFailedTask(tasks []swarm.ServiceTask) swarm.ServiceTask {
 	failed := make([]swarm.ServiceTask, 0)
 	for _, task := range tasks {
@@ -200,10 +189,17 @@ func (w *ServiceWaiter) waitInterruptedError(
 	cause error,
 	lastObservationError error,
 ) error {
+	err := interruptionDiagnostic(stackName, progress, cause, lastObservationError)
+	return w.withPendingTaskFaults(ctx, err, progress)
+}
+
+func interruptionDiagnostic(
+	stackName string, progress map[string]ServiceProgress, cause, lastObservationError error,
+) error {
 	pending := make([]string, 0)
 	for _, name := range sortedProgressNames(progress) {
 		service := progress[name]
-		if service.State == ServiceReady {
+		if service.State != ServicePending {
 			continue
 		}
 		pending = append(pending, fmt.Sprintf(
@@ -218,8 +214,7 @@ func (w *ServiceWaiter) waitInterruptedError(
 	if lastObservationError != nil {
 		cause = fmt.Errorf("%w; last Docker API error: %w", cause, lastObservationError)
 	}
-	err := fmt.Errorf("wait for services in stack %s: %w: %s", stackName, cause, diagnostic)
-	return w.withPlacementSchedulingFault(ctx, err, progress)
+	return fmt.Errorf("wait for services in stack %s: %w: %s", stackName, cause, diagnostic)
 }
 
 func boundedDiagnostic(message string) string {
