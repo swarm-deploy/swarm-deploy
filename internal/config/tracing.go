@@ -3,7 +3,10 @@ package config
 import (
 	"errors"
 	"fmt"
+	"math"
 	"net/url"
+	"os"
+	"strconv"
 	"strings"
 
 	"github.com/artarts36/specw"
@@ -16,6 +19,8 @@ const (
 	TracingSamplerAlwaysOn                = "always_on"
 	TracingSamplerAlwaysOff               = "always_off"
 	TracingSamplerTraceIDRatio            = "traceidratio"
+	TracingSamplerParentBasedAlwaysOn     = "parentbased_always_on"
+	TracingSamplerParentBasedAlwaysOff    = "parentbased_always_off"
 	TracingSamplerParentBasedTraceIDRatio = "parentbased_traceidratio"
 )
 
@@ -35,6 +40,39 @@ type TracingSamplerSpec struct {
 	Strategy specw.Env[string] `yaml:"strategy"`
 	// Ratio is the sampling ratio for traceidratio strategies.
 	Ratio specw.Env[float64] `yaml:"ratio"`
+}
+
+// UsesRatio reports whether Ratio controls sampling for this strategy.
+func (s TracingSamplerSpec) UsesRatio() bool {
+	return s.Strategy.Value == TracingSamplerTraceIDRatio || s.Strategy.Value == TracingSamplerParentBasedTraceIDRatio
+}
+
+func (c *Config) applyTracingSamplerDefaults() {
+	if c.Spec.System.Tracing == nil {
+		return
+	}
+	sampler := &c.Spec.System.Tracing.Sampler
+	sampler.Strategy.Value = strings.TrimSpace(sampler.Strategy.Value)
+	if sampler.Strategy.Value != "" {
+		return
+	}
+
+	// Preserve the defaults of the OTel SDK for configurations that delegated sampling to it.
+	strategy := strings.ToLower(strings.TrimSpace(os.Getenv("OTEL_TRACES_SAMPLER")))
+	switch strategy {
+	case TracingSamplerAlwaysOn, TracingSamplerAlwaysOff, TracingSamplerParentBasedAlwaysOn,
+		TracingSamplerParentBasedAlwaysOff, TracingSamplerTraceIDRatio, TracingSamplerParentBasedTraceIDRatio:
+		sampler.Strategy.Value = strategy
+	default:
+		sampler.Strategy.Value = TracingSamplerParentBasedAlwaysOn
+	}
+	if sampler.UsesRatio() {
+		ratio, err := strconv.ParseFloat(strings.TrimSpace(os.Getenv("OTEL_TRACES_SAMPLER_ARG")), 64)
+		if err != nil || math.IsNaN(ratio) || ratio < 0 || ratio > 1 {
+			ratio = 1
+		}
+		sampler.Ratio.Value = ratio
+	}
 }
 
 // TracingExporterSpec contains OTLP exporter connection settings.
@@ -120,20 +158,23 @@ func validateTracingSampler(sampler TracingSamplerSpec) error {
 	}
 
 	switch strategy {
-	case TracingSamplerAlwaysOn, TracingSamplerAlwaysOff:
+	case TracingSamplerAlwaysOn, TracingSamplerAlwaysOff,
+		TracingSamplerParentBasedAlwaysOn, TracingSamplerParentBasedAlwaysOff:
 		return nil
 	case TracingSamplerTraceIDRatio, TracingSamplerParentBasedTraceIDRatio:
-		if sampler.Ratio.Value < 0 || sampler.Ratio.Value > 1 {
+		if math.IsNaN(sampler.Ratio.Value) || sampler.Ratio.Value < 0 || sampler.Ratio.Value > 1 {
 			return errors.New("system.tracing.sampler.ratio must be between 0 and 1")
 		}
 
 		return nil
 	default:
 		return fmt.Errorf(
-			"system.tracing.sampler.strategy must be one of %q|%q|%q|%q",
+			"system.tracing.sampler.strategy must be one of %q|%q|%q|%q|%q|%q",
 			TracingSamplerAlwaysOn,
 			TracingSamplerAlwaysOff,
 			TracingSamplerTraceIDRatio,
+			TracingSamplerParentBasedAlwaysOn,
+			TracingSamplerParentBasedAlwaysOff,
 			TracingSamplerParentBasedTraceIDRatio,
 		)
 	}

@@ -1,5 +1,7 @@
 package assistant
 
+import "github.com/swarm-deploy/swarm-deploy/internal/config"
+
 // Capability identifies a composable source of assistant context or tools.
 type Capability string
 
@@ -28,6 +30,8 @@ const (
 	CapabilityDNS Capability = "dns"
 	// CapabilityMetrics enables application metrics lookup.
 	CapabilityMetrics Capability = "metrics"
+	// CapabilityConfiguration enables read-only global configuration lookup.
+	CapabilityConfiguration Capability = "configuration"
 )
 
 // CapabilityProfile describes the context and tools enabled by a capability.
@@ -37,6 +41,9 @@ type CapabilityProfile struct {
 }
 
 var capabilityProfiles = map[Capability]CapabilityProfile{
+	CapabilityConfiguration: {
+		Tools: []string{string(config.AssistantToolNameSwarmDeployConfigGet)},
+	},
 	CapabilityServiceContext: {
 		ServiceContext: true,
 	},

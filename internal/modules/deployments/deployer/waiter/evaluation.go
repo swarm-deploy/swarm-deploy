@@ -64,7 +64,6 @@ func evaluateService(
 	mode := serviceVerificationMode(baseline, service, unresolved, generation)
 	desired = observedDesiredTasks(service, tasks)
 	progress.Desired = desired
-
 	// A no-op sync of the restored spec verifies its existing tasks, even when
 	// an earlier failed desired spec left an unresolved verification obligation.
 	cutoff, generationPending := verificationTaskCutoff(baseline, service, mode, unresolved, generation)
@@ -72,10 +71,11 @@ func evaluateService(
 		progress = zeroDesiredProgress(progress, baseline, service, tasks)
 		if !generationPending && service.Mode == globalServiceMode && progress.State == ServicePending {
 			// Swarm's global desired count omits replacements waiting to start.
-			progress.pendingRegistryPullFault(service, tasks, cutoff)
+			progress.pendingRegistryPullFaults(service, tasks, cutoff)
 		}
 		return progress
 	}
+
 	if generationPending {
 		progress.Message = waitingForUpdateStatus
 		return progress
@@ -95,25 +95,27 @@ func runningServiceProgress(
 		progress.failTask(failed, "task failed with no restarts remaining")
 		return progress
 	}
-	progress.pendingSchedulingFault(tasks, service.ServiceSpec.TaskTemplate, cutoff)
-	if progress.taskFault == nil && progress.Running < progress.Desired {
-		progress.pendingRegistryPullFault(service, tasks, cutoff)
-	}
-	if updatePending(service.UpdateStatus) {
-		progress.Message = updateProgressMessage(service.UpdateStatus)
-		return progress
-	}
-	if progress.Running == progress.Desired && countDesiredTasks(tasks) == progress.Desired {
+	updating := updatePending(service.UpdateStatus)
+	if !updating && progress.Running == progress.Desired && countDesiredTasks(tasks) == progress.Desired {
 		progress.State = ServiceReady
 		progress.Message = "service converged"
 		return progress
 	}
 
+	progress.pendingSchedulingFault(tasks, service.ServiceSpec.TaskTemplate, cutoff)
+	failed := progress.pendingFailureFaults(service.ServiceSpec, tasks, cutoff)
+	if progress.Running < progress.Desired {
+		progress.pendingRegistryPullFaults(service, tasks, cutoff)
+	}
+	if updating {
+		progress.Message = updateProgressMessage(service.UpdateStatus)
+		return progress
+	}
 	progress.Message = boundedDiagnostic(fmt.Sprintf(
 		"waiting for current tasks: %d/%d running%s",
 		progress.Running,
 		progress.Desired,
-		taskFailureDiagnostic(tasks),
+		formatTaskDiagnostic(failed),
 	))
 	return progress
 }
@@ -181,11 +183,7 @@ func zeroDesiredProgress(
 		progress.Message = "service converged"
 		return progress
 	}
-	progress.Message = boundedDiagnostic(fmt.Sprintf(
-		"waiting for active tasks to stop: %d remaining%s",
-		active,
-		taskFailureDiagnostic(tasks),
-	))
+	progress.Message = fmt.Sprintf("waiting for active tasks to stop: %d remaining", active)
 	return progress
 }
 

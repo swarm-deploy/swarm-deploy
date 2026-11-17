@@ -9,6 +9,8 @@ import (
 
 const maxToolRoundsPlaceholder = "{{max_tool_rounds}}"
 
+const customPromptHeading = "\n\nProject-specific instructions:\n"
+
 //go:embed prompts/base.md
 var basePrompt string
 
@@ -43,7 +45,7 @@ func buildSystemPrompt(customPrompt, routePrompt string) string {
 
 	customPrompt = strings.TrimSpace(customPrompt)
 	if customPrompt != "" {
-		prompt = fmt.Sprintf("%s\n\nProject-specific instructions:\n%s", prompt, customPrompt)
+		prompt += customPromptHeading + customPrompt
 	}
 
 	return prompt

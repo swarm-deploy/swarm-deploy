@@ -267,8 +267,9 @@ func TestPreparationFailureFaultDetailsSurviveCodec(t *testing.T) {
 	}
 	payload, err := Encode(event)
 	require.NoError(t, err)
-	assert.Contains(t, string(payload), `"fault_code":"image_not_found"`)
-	assert.Contains(t, string(payload), `"fault_summary":"No such image: app:1"`)
+	assert.Contains(t, string(payload), `"causes":[{"code":"image_not_found","summary":"No such image: app:1","temporary":true}]`)
+	assert.NotContains(t, string(payload), "fault_code")
+	assert.NotContains(t, string(payload), "fault_summary")
 	decoded, err := Decode(events.TypeNameDeployPreparationFailed, Version, payload)
 	require.NoError(t, err)
 	failure := decoded.(*events.DeployPreparationFailed)
@@ -290,6 +291,7 @@ func TestAbsentFaultCodesAreOmitted(t *testing.T) {
 		require.NoError(t, err)
 		assert.NotContains(t, string(payload), "fault_code")
 		assert.NotContains(t, string(payload), "fault_summary")
+		assert.NotContains(t, string(payload), "causes")
 		event, err := Decode(events.TypeNameDeployFailed, Version, payload)
 		require.NoError(t, err)
 		var coded faults.Coded
@@ -364,6 +366,14 @@ func TestLegacyDeploymentFailurePayloadWithFaultCodeHasNoSummary(t *testing.T) {
 	require.ErrorAs(t, failure.Error, &coded)
 	assert.Equal(t, faults.CodeImageNotFound, coded.FaultCode())
 	assert.Empty(t, coded.FaultSummary())
+}
+
+func TestLegacyDeploymentFailurePayloadKeepsTemporaryCause(t *testing.T) {
+	payload := []byte(`{"stack":"app","code":"apply_failed","diagnostic":"deploy api","fault_code":"image_not_found","fault_summary":"missing","temporary":true}`)
+	event, err := Decode(events.TypeNameDeployFailed, Version, payload)
+	require.NoError(t, err)
+	cause := event.(*events.DeployFailed).Error
+	assert.Equal(t, []faults.Cause{{Code: faults.CodeImageNotFound, Summary: "missing", Temporary: true}}, faults.Causes(cause))
 }
 
 func TestDeploymentFailureTemporaryClassificationSurvivesCodec(t *testing.T) {

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	appconfig "github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/conversation"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/guard"
@@ -67,7 +68,7 @@ func NewService(
 	eventDispatcher dispatcher.Dispatcher,
 	metrics metrics.Assistant,
 ) (*Service, error) {
-	modelClient := newOpenAIClient(config.BaseURL, config.APIToken, config.OrganizationID)
+	modelClient := newOpenAIClient(config.BaseURL, config.APIToken, config.OrganizationID, config.SystemPrompt)
 	embeddingModelName := config.EmbeddingModelName
 	if embeddingModelName == "" {
 		embeddingModelName = config.ModelName
@@ -76,7 +77,7 @@ func NewService(
 	ragIndex := rag.NewIndex()
 	retriever := rag.NewRetriever(store, modelClient, embeddingModelName, ragIndex, metrics)
 	ragSubscriber := rag.NewIndexSubscriber(store, modelClient, embeddingModelName, ragIndex, metrics)
-	allowedTools := normalizeAllowedTools(config.AllowedTools)
+	allowedTools := appconfig.NormalizeAssistantToolAllowlist(config.AllowedTools)
 	err := eventDispatcher.Subscribe(
 		events.TypeNameServiceCatalogUpdated, "assistant-rag-index", dispatcher.External(ragSubscriber),
 	)
@@ -472,19 +473,6 @@ func sanitizeWaitTimeout(timeoutMS int) time.Duration {
 	}
 
 	return time.Duration(timeoutMS) * time.Millisecond
-}
-
-func normalizeAllowedTools(allowedTools []string) map[string]struct{} {
-	normalized := map[string]struct{}{}
-	for _, toolName := range allowedTools {
-		toolName = strings.TrimSpace(toolName)
-		if toolName == "" {
-			continue
-		}
-		normalized[toolName] = struct{}{}
-	}
-
-	return normalized
 }
 
 type chatRun struct {

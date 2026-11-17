@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log/slog"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/artarts36/envmasker"
@@ -89,29 +90,57 @@ func sanitizeDiagnostic(text string) string {
 	return diagnostic
 }
 
-// SafeError copies the sanitized diagnostic, retry classification, fault code, and sanitized fault summary.
+// SafeError copies the sanitized diagnostic and classifications.
 // It discards the original error, which may contain secrets.
 func SafeError(err error) error {
 	if err == nil {
 		return nil
 	}
-	var classified Error
-	temporary := errors.As(err, &classified) && classified.Temporary()
-	diagnostic := SafeDiagnostic(err)
-	if coded, ok := errors.AsType[Coded](err); ok {
-		return NewSafeError(diagnostic, temporary, coded.FaultCode(), coded.FaultSummary())
+	causes := Causes(err)
+	var temporary bool
+	if len(causes) == 0 {
+		classified, ok := errors.AsType[Error](err)
+		temporary = ok && classified.Temporary()
 	}
-	return NewSafeError(diagnostic, temporary, "", "")
+	return newSafeError(SafeDiagnostic(err), temporary, causes)
 }
 
 // NewSafeError reconstructs an error from a sanitized diagnostic and its classifications.
 // It sanitizes the optional fault summary.
 func NewSafeError(diagnostic string, temporary bool, code Code, summary string) error {
-	safe := safeError{diagnostic: diagnostic, temporary: temporary}
 	if code == "" {
-		return safe
+		return safeError{diagnostic: diagnostic, temporary: temporary}
 	}
-	return safeCodedError{safeError: safe, code: code, summary: sanitizeDiagnostic(summary)}
+	cause := Cause{Code: code, Summary: sanitizeDiagnostic(summary), Temporary: temporary}
+	return newSafeError(diagnostic, false, []Cause{cause})
+}
+
+// NewSafeErrorWithCauses reconstructs a durable error and sanitizes its diagnostic and summaries.
+// The fallback classification applies only when no cause has a code.
+func NewSafeErrorWithCauses(diagnostic string, temporary bool, causes []Cause) error {
+	var safe []Cause
+	for _, cause := range causes {
+		if cause.Code != "" {
+			cause.Summary = sanitizeDiagnostic(cause.Summary)
+			safe = append(safe, cause)
+		}
+	}
+	return newSafeError(sanitizeDiagnostic(diagnostic), temporary, safe)
+}
+
+func newSafeError(diagnostic string, temporary bool, causes []Cause) error {
+	safe := safeError{diagnostic: diagnostic, temporary: temporary}
+	switch len(causes) {
+	case 0:
+		return safe
+	case 1:
+		cause := causes[0]
+		safe.temporary = cause.Temporary
+		return safeCodedError{safeError: safe, cause: cause}
+	default:
+		safe.temporary = !slices.ContainsFunc(causes, func(cause Cause) bool { return !cause.Temporary })
+		return safeCausesError{safeError: safe, causes: causes}
+	}
 }
 
 type safeError struct {
@@ -124,12 +153,16 @@ func (e safeError) Temporary() bool { return e.temporary }
 
 type safeCodedError struct {
 	safeError
-	code    Code
-	summary string
+	cause Cause
 }
 
-func (e safeCodedError) FaultCode() Code      { return e.code }
-func (e safeCodedError) FaultSummary() string { return e.summary }
+func (e safeCodedError) FaultCode() Code      { return e.cause.Code }
+func (e safeCodedError) FaultSummary() string { return e.cause.Summary }
+
+type safeCausesError struct {
+	safeError
+	causes []Cause
+}
 
 // NewSafeLogger wraps a logger so error-valued attributes are masked before
 // they reach any output handler.

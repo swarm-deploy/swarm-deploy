@@ -162,9 +162,9 @@ func TestServiceWaiterRegistryPullFaultAtTimeout(t *testing.T) {
 			assert.Equal(t, tc.wantCode, coded.FaultCode())
 			assert.EqualError(t, coded, diagnostic)
 			assert.Equal(t, 1, strings.Count(err.Error(), diagnostic))
-			var classified faults.Error
-			require.ErrorAs(t, err, &classified)
-			assert.Equal(t, tc.wantTemporary, classified.Temporary())
+			causes := faults.Causes(err)
+			require.Len(t, causes, 1)
+			assert.Equal(t, tc.wantTemporary, causes[0].Temporary)
 		})
 	}
 }
@@ -202,11 +202,11 @@ func TestWaitInterruptedErrorPreservesTechnicalChain(t *testing.T) {
 	transport := &net.OpError{Op: "read", Net: "docker", Err: errors.New("connection lost")}
 	observation := fmt.Errorf("list tasks for service api: %w", transport)
 	progress := map[string]ServiceProgress{
-		"api": {State: ServicePending, Message: "waiting for rolling update to complete", taskFault: original},
+		"api": {State: ServicePending, Message: "waiting for rolling update to complete", pendingTaskFaults: []faults.Coded{original}},
 	}
 	waiter := &ServiceWaiter{}
 	state := &waitState{last: progress, lastObservationError: observation}
-	err := waiter.waitInterruptedError(t.Context(), "app", state, context.DeadlineExceeded)
+	err := waiter.finishInterruptedWait(t.Context(), "app", state, context.DeadlineExceeded)
 	assert.ErrorIs(t, err, context.DeadlineExceeded)
 	assert.ErrorIs(t, err, observation)
 	assert.ErrorIs(t, err, transport)
@@ -362,19 +362,21 @@ func TestServiceWaiterDiagnosesPlacementAfterConvergenceEnds(t *testing.T) {
 		waitCause      error
 		wantUnresolved []string
 		wantSummary    string
+		wantAdditional string
 	}{
-		{"slow node list", nil, false, context.DeadlineExceeded, []string{"api"}, dockerDiagnostic},
+		{"slow node list", nil, false, context.DeadlineExceeded, []string{"api"}, dockerDiagnostic, ""},
 		{
 			"another service fails observation temporarily", faults.NewSafeError("web task list unavailable", true, "", ""),
-			false, context.DeadlineExceeded, []string{"api", "web"}, "No nodes match placement constraint: " + regionConstraint,
+			false, context.DeadlineExceeded, []string{"api", "web"}, "No nodes match placement constraint: " + regionConstraint, "",
 		},
 		{
 			"another service fails observation permanently", permanentErr, false, context.Canceled,
-			[]string{"api", "web"}, "No nodes match placement constraint: " + regionConstraint,
+			[]string{"api", "web"}, "No nodes match placement constraint: " + regionConstraint, "",
 		},
 		{
 			"later service has unmatched constraints", nil, true, context.DeadlineExceeded,
-			[]string{"api", "web"}, "No nodes match placement constraint: " + webConstraint,
+			[]string{"api", "web"}, "no suitable node (insufficient resources on 1 node)",
+			"No nodes match placement constraint: " + webConstraint,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -436,7 +438,14 @@ func TestServiceWaiterDiagnosesPlacementAfterConvergenceEnds(t *testing.T) {
 			require.ErrorAs(t, err, &coded)
 			assert.Equal(t, faults.CodeNoSuitableNode, coded.FaultCode())
 			assert.Equal(t, tc.wantSummary, coded.FaultSummary())
-			assert.EqualError(t, coded, dockerDiagnostic)
+			if tc.wantAdditional == "" {
+				assert.EqualError(t, coded, dockerDiagnostic)
+			} else {
+				assert.Equal(t, []faults.Cause{
+					{Code: faults.CodeNoSuitableNode, Summary: tc.wantSummary},
+					{Code: faults.CodeNoSuitableNode, Summary: tc.wantAdditional},
+				}, faults.Causes(err))
+			}
 		})
 	}
 }

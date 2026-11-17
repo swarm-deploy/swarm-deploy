@@ -20,7 +20,7 @@ func (w *ServiceWaiter) observeExternalService(
 		var err error
 		tasks, err = w.services.ListTasks(ctx, service.ID)
 		if err != nil {
-			return ServiceProgress{}, err
+			return ServiceProgress{Name: name, ServiceID: service.ID, State: ServicePending, taskLookupFailed: true}, err
 		}
 	}
 	progress := specificationProgress(name, baseline, service, unresolved, expected, generation, tasks)
@@ -29,7 +29,9 @@ func (w *ServiceWaiter) observeExternalService(
 	}
 	// Task health is outside specification-only verification. Diagnostics are best effort.
 	if tasks == nil {
-		tasks, _ = w.services.ListTasks(ctx, service.ID)
+		var err error
+		tasks, err = w.services.ListTasks(ctx, service.ID)
+		progress.taskLookupFailed = err != nil
 	}
 	progress.Running = countCurrentRunningTasks(tasks, false, time.Time{})
 	if progress.State == ServiceFailed {

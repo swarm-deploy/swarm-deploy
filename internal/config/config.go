@@ -152,6 +152,11 @@ type SyncSpec struct {
 	Webhook WebhookSpec `yaml:"webhook"`
 }
 
+// GitPollingEnabled reports whether the sync mode starts a periodic Git pull.
+func (s SyncSpec) GitPollingEnabled() bool {
+	return s.Mode == SyncModePull || s.Mode == SyncModeHybrid
+}
+
 type SyncPolicySpec struct {
 	// Prune enables deletion of orphaned managed services.
 	Prune bool `yaml:"prune"`
@@ -303,6 +308,7 @@ func (c *Config) applyDefaults(configDir string) error {
 	c.applyGitAndSyncDefaults()
 	c.applyWebhookDefaults()
 	c.applyWebAndHealthDefaults()
+	c.applyTracingSamplerDefaults()
 	c.Spec.Notifications.applyDefaults()
 	c.applyAssistantDefaults()
 	c.applyDeploymentsDefaults()

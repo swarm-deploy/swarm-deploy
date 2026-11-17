@@ -2,12 +2,14 @@
 package waiter
 
 import (
+	"errors"
 	"fmt"
 	"reflect"
 	"time"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/tracing"
+	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -35,23 +37,52 @@ func finishServiceWaitSpan(span trace.Span, startedAt time.Time, state waitState
 type waitState struct {
 	targets              map[string]struct{}
 	last                 map[string]ServiceProgress
-	failedTasks          map[string]ServiceProgress
+	services             map[string]swarm.StackService
 	observed             int
 	converged            int
 	lastObservationError error
-	terminalFailure      error
+}
+
+func (s *waitState) observe(
+	span trace.Span, callback ServiceProgressCallback, service swarm.StackService, progress ServiceProgress,
+) {
+	previous := s.last[progress.Name]
+	if progress.taskLookupFailed && !s.serviceChanged(progress.Name, service) {
+		// A failed lookup adds no new task evidence for the same service revision.
+		switch {
+		case previous.State == ServiceFailed && progress.State == ServicePending:
+			progress = previous
+		case previous.State == progress.State:
+			progress.FailedTaskID = previous.FailedTaskID
+			progress.taskFault = previous.taskFault
+			progress.taskContext = previous.taskContext
+			progress.pendingTaskFaults = previous.pendingTaskFaults
+			progress.placementConstraints = previous.placementConstraints
+		}
+	}
+	s.services[progress.Name] = service
+	s.emit(span, callback, progress)
+}
+
+func (s *waitState) serviceChanged(name string, service swarm.StackService) bool {
+	previous := s.services[name]
+	return serviceChanged(previous, service) || !reflect.DeepEqual(previous.UpdateStatus, service.UpdateStatus)
+}
+
+func (s *waitState) invalidateChangedService(
+	span trace.Span, callback ServiceProgressCallback, name string, service swarm.StackService,
+) {
+	if _, observed := s.last[name]; observed && s.serviceChanged(name, service) {
+		s.observe(span, callback, service, ServiceProgress{
+			Name: name, ServiceID: service.ID, State: ServicePending, Message: "waiting for current service observation",
+		})
+	}
 }
 
 func (s *waitState) emit(span trace.Span, callback ServiceProgressCallback, progress ServiceProgress) {
 	// Faults are reconstructed on each poll, so compare their values rather than pointer identity.
 	if previous, ok := s.last[progress.Name]; ok && reflect.DeepEqual(previous, progress) {
 		return
-	}
-	if progress.State == ServiceFailed && progress.FailedTaskID != "" {
-		if s.failedTasks == nil {
-			s.failedTasks = make(map[string]ServiceProgress)
-		}
-		s.failedTasks[progress.Name] = progress
 	}
 	s.last[progress.Name] = progress
 	span.AddEvent("service convergence state changed", trace.WithAttributes(
@@ -66,6 +97,26 @@ func (s *waitState) emit(span trace.Span, callback ServiceProgressCallback, prog
 	if callback != nil {
 		callback(progress)
 	}
+}
+
+func (s *waitState) terminalError() error {
+	var failures []error
+	for _, name := range sortedProgressNames(s.last) {
+		progress := s.last[name]
+		if progress.State != ServiceFailed {
+			continue
+		}
+		if progress.taskFault != nil {
+			failures = append(failures, fmt.Errorf("service %s failed to converge: %s: %w",
+				name, progress.taskContext, progress.taskFault))
+		} else {
+			failures = append(failures, fmt.Errorf("service %s failed to converge: %s", name, progress.Message))
+		}
+	}
+	if len(failures) == 0 {
+		return nil
+	}
+	return fmt.Errorf("%w: %w", ErrConvergenceFailed, errors.Join(failures...))
 }
 
 func (s *waitState) failPending(span trace.Span, callback ServiceProgressCallback, cause error) {
@@ -100,29 +151,16 @@ func (s *waitState) retryPending(
 	}
 }
 
-func (s *waitState) handleObservationError(
-	span trace.Span,
-	request ServiceWaitRequest,
-	targets map[string]struct{},
-	cause error,
-) error {
-	if isTransientDockerAPIError(cause) {
-		s.retryPending(span, request.Progress, targets, cause)
-		return nil
-	}
-	s.failPending(span, request.Progress, cause)
-	return cause
-}
-
 func (s *waitState) result() ServiceWaitResult {
 	result := ServiceWaitResult{}
-	for _, name := range sortedProgressNames(s.failedTasks) {
-		result.FailedTasks = append(result.FailedTasks, s.failedTasks[name])
-	}
 	for _, name := range sortedTargetNames(s.targets) {
-		if s.last[name].State != ServiceReady {
+		progress := s.last[name]
+		if progress.State == ServiceFailed && progress.FailedTaskID != "" {
+			result.FailedTasks = append(result.FailedTasks, progress)
+		}
+		if progress.State != ServiceReady {
 			result.UnresolvedServices = append(result.UnresolvedServices, name)
-		} else if s.last[name].SpecificationOnly {
+		} else if progress.SpecificationOnly {
 			result.SpecificationOnlyServices = append(result.SpecificationOnlyServices, name)
 		}
 	}
