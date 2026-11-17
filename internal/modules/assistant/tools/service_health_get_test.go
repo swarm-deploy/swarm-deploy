@@ -8,10 +8,12 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	alertmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/model"
 	alertstore "github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/tools/routing"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments"
+	deploymentmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/model"
 	deploymentstore "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
@@ -224,6 +226,89 @@ func TestServiceHealthGetSourceAvailability(t *testing.T) {
 			assert.Equal(t, testCase.expectService, payload.Service != nil)
 		})
 	}
+}
+
+func TestServiceHealthGetUsesLastAttemptForRequestedService(t *testing.T) {
+	stores := newServiceHealthTestStores(t)
+	succeededID := stores.deploy(t, 0, deployments.CompletionSucceeded)
+	desired := deploymentToolCompose(1)
+	desired.Compose.Services = append(desired.Compose.Services, compose.Service{Name: "worker", Image: "worker:v1"})
+
+	failed, err := stores.service.StartIfChanged(t.Context(), "shop", "stack-commit", desired, true, deployments.StartOptions{
+		TargetServices: []string{"api"}, ServiceCommits: map[string]string{"api": "api-commit"},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, failed)
+	require.NoError(t, stores.service.Complete(t.Context(), failed.ID, deployments.Completion{
+		Outcome:    deployments.CompletionConvergenceFailed,
+		Diagnostic: errors.New("api did not converge"),
+	}))
+	retry, err := stores.service.StartIfChanged(t.Context(), "shop", "retry-commit", desired, false, deployments.StartOptions{
+		TargetServices: []string{"worker"}, ManualRetry: true,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, retry)
+	require.Equal(t, failed.DeploymentID, retry.DeploymentID)
+	require.NoError(t, stores.service.Complete(t.Context(), retry.ID, deployments.Completion{
+		Outcome: deployments.CompletionSucceeded,
+	}))
+
+	services := swarm.NewMockServiceManager(gomock.NewController(t))
+	expectServiceHealthLiveAPI(services, serviceHealthTestLive(1, time.Hour))
+	tool := newServiceHealthTestTool(t, services, nodeStore(t, []swarm.Node{{ID: "node-1", Status: "ready"}}), stores)
+	payload := executeServiceHealth(t.Context(), t, tool)
+
+	require.Len(t, payload.Deployments, 2)
+	latest := payload.Deployments[0]
+	assert.Equal(t, failed.DeploymentID, latest.ID)
+	assert.Equal(t, "api-commit", latest.Commit)
+	assert.Equal(t, deploymentmodel.Failed, latest.Status)
+	assert.Equal(t, deploymentmodel.PhaseVerification, latest.Phase)
+	assert.Equal(t, deploymentmodel.StageFailed, latest.VerificationStatus)
+	assert.Equal(t, failed.StartedAt, latest.StartedAt)
+	assert.Equal(t, "api did not converge", latest.ErrorDiagnostic)
+	assert.Equal(t, succeededID, payload.Deployments[1].ID)
+	assert.Equal(t, serviceHealthDeploymentRoleLastSucceeded, payload.Deployments[1].Role)
+	findServiceHealthFlag(t, payload.Flags, serviceHealthFlagLastDeployFailed)
+	findServiceHealthFlag(t, payload.Flags, serviceHealthFlagConvergenceUnverified)
+}
+
+func TestServiceHealthGetReportsPreparationFailureWithoutDeployment(t *testing.T) {
+	stores := newServiceHealthTestStores(t)
+	require.NoError(t, stores.alerts.Create(t.Context(), alertmodel.Alert{
+		ID: "prepare", Fingerprint: "sync_failed:stack:shop", Kind: alertmodel.AlertKindSyncFailed,
+		ResourceType: alertmodel.ResourceTypeStack, ResourceID: "shop", Status: alertmodel.AlertStatusOpen,
+		Title: "Synchronization failed", Message: "services.api: undefined network", FailureStage: "validation",
+		Occurrences: 1, OpenedAt: serviceHealthTestNow, UpdatedAt: serviceHealthTestNow,
+	}))
+	ctrl := gomock.NewController(t)
+	services := swarm.NewMockServiceManager(ctrl)
+	services.EXPECT().ListServices(gomock.Any(), gomock.Any()).Return(nil, nil)
+	tool := newServiceHealthTestTool(t, services, NewMockNodesReader(ctrl), stores)
+
+	payload := executeServiceHealth(t.Context(), t, tool)
+
+	assert.Empty(t, payload.Deployments)
+	require.Len(t, payload.Alerts, 1)
+	assert.Equal(t, "services.api: undefined network", payload.Alerts[0].Message)
+	assert.Equal(t, "validation", payload.Alerts[0].FailureStage)
+	assert.False(t, payload.Alerts[0].Linked)
+	missing := findServiceHealthFlag(t, payload.Flags, serviceHealthFlagServiceNotFound)
+	assert.Equal(t, "service was not found in Docker Swarm", missing.Message)
+}
+
+func TestServiceHealthGetReportsUnavailableHistoryWhenServiceIsMissing(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	services := swarm.NewMockServiceManager(ctrl)
+	services.EXPECT().ListServices(gomock.Any(), gomock.Any()).Return(nil, nil)
+	tool := newServiceHealthTestTool(t, services, NewMockNodesReader(ctrl), newServiceHealthTestStores(t))
+	canceled, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	payload := executeServiceHealth(canceled, t, tool)
+
+	assert.Equal(t, serviceHealthSourceOK, payload.Sources.Swarm)
+	assert.Equal(t, serviceHealthSourceUnavailable, payload.Sources.Deployments)
 }
 
 func TestServiceHealthGetErrors(t *testing.T) {

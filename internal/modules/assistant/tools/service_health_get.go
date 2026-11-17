@@ -140,7 +140,8 @@ func (g *ServiceHealthGet) Execute(ctx context.Context, request routing.Request)
 	}
 
 	input := g.collect(ctx, stack, service)
-	if input.sources.Swarm == serviceHealthSourceOK && input.live == nil && input.latest == nil {
+	if input.sources.Swarm == serviceHealthSourceOK && input.sources.Deployments == serviceHealthSourceOK &&
+		input.sources.Alerts == serviceHealthSourceOK && input.live == nil && input.latest == nil && len(input.alerts) == 0 {
 		return routing.Response{}, fmt.Errorf(
 			"service %q not found in stack %q: no live service and no deployment contains it", service, stack,
 		)
@@ -227,13 +228,13 @@ func (g *ServiceHealthGet) collectDeployments(ctx context.Context, input *servic
 		return
 	}
 
-	latest, err := g.deployments.Get(ctx, items[0].ID)
+	latest, err := g.getServiceDeployment(ctx, items[0], input.service)
 	if err != nil {
 		return
 	}
 	input.latest = &latest
 	if latest.Status == deploymentmodel.Failed || latest.Status == deploymentmodel.Interrupted {
-		baseline, found, baselineErr := g.lastSucceededDeployment(ctx, items[1:])
+		baseline, found, baselineErr := g.lastSucceededDeployment(ctx, items[1:], input.service)
 		if baselineErr != nil {
 			return
 		}
@@ -247,19 +248,57 @@ func (g *ServiceHealthGet) collectDeployments(ctx context.Context, input *servic
 func (g *ServiceHealthGet) lastSucceededDeployment(
 	ctx context.Context,
 	items []deploymentmodel.ServiceDeployment,
+	service string,
 ) (deploymentmodel.Deployment, bool, error) {
 	for _, item := range items {
 		if item.Status != deploymentmodel.Succeeded {
 			continue
 		}
-		deployment, err := g.deployments.Get(ctx, item.ID)
+		deployment, err := g.getServiceDeployment(ctx, item, service)
 		if err != nil {
 			return deploymentmodel.Deployment{}, false, err
 		}
-		return deployment, true, nil
+		if deployment.Status == deploymentmodel.Succeeded {
+			return deployment, true, nil
+		}
 	}
 
 	return deploymentmodel.Deployment{}, false, nil
+}
+
+func (g *ServiceHealthGet) getServiceDeployment(
+	ctx context.Context,
+	item deploymentmodel.ServiceDeployment,
+	service string,
+) (deploymentmodel.Deployment, error) {
+	deployment, err := g.deployments.Get(ctx, item.ID)
+	if err != nil {
+		return deploymentmodel.Deployment{}, err
+	}
+	// The deployment row describes its latest attempt, which may have targeted other services.
+	for _, attempt := range deployment.Attempts {
+		if !attempt.Targets(service) {
+			continue
+		}
+		superseded := item.Status == deploymentmodel.Superseded || deployment.Status == deploymentmodel.Superseded
+		deployment.Status = attempt.Status
+		if superseded && (attempt.Status == deploymentmodel.Failed || attempt.Status == deploymentmodel.Interrupted) {
+			deployment.Status = deploymentmodel.Superseded
+		}
+		if revision := attempt.ServiceRevisions[service]; revision.Commit != "" {
+			deployment.Commit = revision.Commit
+		}
+		deployment.Phase = attempt.Phase
+		deployment.ErrorCode = attempt.ErrorCode
+		deployment.ErrorDiagnostic = attempt.ErrorDiagnostic
+		deployment.ApplyStatus = attempt.ApplyStatus
+		deployment.VerificationStatus = attempt.VerificationStatus
+		deployment.StartedAt = attempt.StartedAt
+		deployment.FinishedAt = attempt.FinishedAt
+		break
+	}
+
+	return deployment, nil
 }
 
 func (g *ServiceHealthGet) collectAlerts(ctx context.Context, input *serviceHealthInput) {

@@ -93,6 +93,10 @@ type serviceHealthAlertResponse struct {
 	Linked bool `json:"linked"`
 	// Title is the short incident summary and is untrusted data.
 	Title string `json:"title"`
+	// Message is the bounded stored incident detail and is untrusted data.
+	Message string `json:"message,omitempty"`
+	// FailureStage identifies the failing pipeline stage when known.
+	FailureStage string `json:"failure_stage,omitempty"`
 	// Occurrences counts correlated failure occurrences.
 	Occurrences uint64 `json:"occurrences"`
 	// OpenedAt is when the incident started.
@@ -188,7 +192,7 @@ func buildServiceHealthResponse(input *serviceHealthInput) serviceHealthResponse
 			Code:     serviceHealthFlagServiceNotFound,
 			Severity: serviceHealthSeverityCritical,
 			Phase:    serviceHealthPhaseActive,
-			Message:  "service is absent from Docker Swarm although a deployment contains it",
+			Message:  "service was not found in Docker Swarm",
 		})
 		serviceDown = true
 	}
@@ -348,6 +352,8 @@ func serviceHealthAlertViews(alerts []serviceHealthAlert) []serviceHealthAlertRe
 			Scope:        item.scope,
 			Linked:       item.linked,
 			Title:        serviceHealthText(item.alert.Title),
+			Message:      serviceHealthText(item.alert.Message),
+			FailureStage: item.alert.FailureStage,
 			Occurrences:  item.alert.Occurrences,
 			OpenedAt:     item.alert.OpenedAt,
 			UpdatedAt:    item.alert.UpdatedAt,
