@@ -12,6 +12,7 @@ import (
 
 	gogit "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/filemode"
 	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -29,6 +30,7 @@ func TestLocalStatus(t *testing.T) {
 		{name: "staged", dirty: true, untracked: []string{}},
 		{name: "deleted", dirty: true, untracked: []string{}},
 		{name: "staged deletion", dirty: true, untracked: []string{}},
+		{name: "staged deletion with untracked copy", dirty: true, untracked: []string{"README.md"}},
 		{name: "staged addition", dirty: true, untracked: []string{}},
 		{name: "untracked", untracked: []string{"new.txt"}},
 		{name: "ignored", untracked: []string{}},
@@ -58,9 +60,12 @@ func TestLocalStatus(t *testing.T) {
 				}
 			case "deleted":
 				require.NoError(t, os.Remove(filepath.Join(dir, "README.md")))
-			case "staged deletion":
+			case "staged deletion", "staged deletion with untracked copy":
 				_, err = wt.Remove("README.md")
 				require.NoError(t, err)
+				if tc.name == "staged deletion with untracked copy" {
+					require.NoError(t, os.WriteFile(filepath.Join(dir, "README.md"), []byte("hello"), 0o600))
+				}
 			case "untracked", "staged addition":
 				require.NoError(t, os.WriteFile(filepath.Join(dir, "new.txt"), []byte("new"), 0o600))
 				if tc.name == "staged addition" {
@@ -86,6 +91,55 @@ func TestLocalStatus(t *testing.T) {
 			assert.Equal(t, tc.untracked, status.UntrackedFiles)
 			assert.False(t, status.Truncated)
 			assert.Equal(t, before, checkoutContents(t, dir), "status must not write the index, refs or worktree")
+		})
+	}
+}
+
+func TestLocalStatusSubmodules(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		head plumbing.Hash
+	}{
+		{name: "configured without local HEAD"},
+		{name: "checked out at a different revision", head: plumbing.NewHash("1111111111111111111111111111111111111111")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir, initial := initSourceRepository(t)
+			repo, err := gogit.PlainOpen(dir)
+			require.NoError(t, err)
+			wt, err := repo.Worktree()
+			require.NoError(t, err)
+			require.NoError(t, os.Mkdir(filepath.Join(dir, "demo"), 0o700))
+			require.NoError(t, os.WriteFile(filepath.Join(dir, ".gitmodules"),
+				[]byte("[submodule \"demo\"]\n\tpath = demo\n\turl = https://example.com/demo.git\n"), 0o600))
+			_, err = wt.Add(".gitmodules")
+			require.NoError(t, err)
+			index, err := repo.Storer.Index()
+			require.NoError(t, err)
+			gitlink := index.Add("demo")
+			gitlink.Mode = filemode.Submodule
+			gitlink.Hash = initial.Hash()
+			require.NoError(t, repo.Storer.SetIndex(index))
+			_, err = wt.Commit("add submodule", &gogit.CommitOptions{Author: &object.Signature{Name: "test"}})
+			require.NoError(t, err)
+			submodule, err := wt.Submodule("demo")
+			require.NoError(t, err)
+			require.NoError(t, submodule.Init())
+			if !tc.head.IsZero() {
+				module, moduleErr := repo.Storer.Module("demo")
+				require.NoError(t, moduleErr)
+				require.NoError(t, module.SetReference(plumbing.NewHashReference(plumbing.HEAD, tc.head)))
+			}
+			before := checkoutContents(t, dir)
+			repository := NewLazyProxy(config.GitSpec{}, dir)
+			status, err := repository.Status(t.Context(), 100)
+			require.NoError(t, err)
+			assert.Equal(t, !tc.head.IsZero(), status.Dirty)
+			assert.Empty(t, status.UntrackedFiles)
+			assert.Equal(t, before, checkoutContents(t, dir))
+			if tc.head.IsZero() {
+				assert.NoDirExists(t, filepath.Join(dir, ".git", "modules", "demo"))
+			}
 		})
 	}
 }
