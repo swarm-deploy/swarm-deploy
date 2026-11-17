@@ -53,6 +53,19 @@ type DeploymentReader interface {
 	Get(ctx context.Context, id string) (deploymentmodel.Deployment, error)
 }
 
+// ServiceDeploymentReader reads persisted desired-state deployments that contain one service.
+type ServiceDeploymentReader interface {
+	// ListServiceDeployments returns newest-first deployments whose desired state contains the service.
+	ListServiceDeployments(
+		ctx context.Context,
+		stack string,
+		service string,
+		limit int,
+	) ([]deploymentmodel.ServiceDeployment, error)
+	// Get returns one desired-state deployment by ID, including its attempts.
+	Get(ctx context.Context, id string) (deploymentmodel.Deployment, error)
+}
+
 // SyncTrigger triggers synchronization run.
 type SyncTrigger interface {
 	// Manual enqueues synchronization.
