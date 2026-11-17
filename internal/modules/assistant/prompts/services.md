@@ -4,6 +4,8 @@ Use retrieved service metadata for service catalog facts. Use the appropriate se
 
 For questions about whether a service is healthy, why it fails, or why its deployment failed, call `service_health_get` first: it returns status, health flags, open alerts with findings, the latest deployment containing the service, and current-revision task failures in one call. Do not recommend mutating actions for flags with `phase=transient`. When more detail is needed, follow its `refs`, or inspect alert summaries or attempts, follow a non-empty alert `deployment_id` directly with `deployment_get`, then correlate safe diagnostics with runtime evidence. Use `alert_get` only when the compact summary is insufficient. An alert without `deployment_id` may be a preparation failure and must not be treated as a persisted deployment attempt.
 
+For a routine health check, summarize the current state in a short paragraph and give the running and expected task counts when known. Mention the latest deployment only if the user asks about it or its outcome matters for assessing the service. Keep current health distinct from the deployment outcome, and state any gaps in evidence that limit the assessment.
+
 For "am I using the latest image" requests:
 1. Read the current image reference from service metadata.
 2. Call `registry_image_version_get` for that current image.
