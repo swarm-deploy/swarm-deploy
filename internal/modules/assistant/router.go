@@ -78,14 +78,9 @@ func (r *llmRouter) Route(ctx context.Context, req RouteRequest) (RouteResult, e
 		return RouteResult{}, fmt.Errorf("router completion: %w", err)
 	}
 
-	rawContent := strings.TrimSpace(completion.Content)
-	var decision RouteDecision
-	if strings.HasPrefix(rawContent, "{") {
-		if unmarshalErr := json.Unmarshal([]byte(rawContent), &decision); unmarshalErr != nil {
-			return RouteResult{Usage: completion.Usage}, fmt.Errorf("%w: %q", errInvalidRouterResponse, completion.Content)
-		}
-	} else {
-		decision.Route = Route(strings.ToLower(rawContent))
+	decision, err := decodeRouteDecision(completion.Content)
+	if err != nil {
+		return RouteResult{Usage: completion.Usage}, err
 	}
 
 	rawRoute := strings.ToLower(strings.TrimSpace(string(decision.Route)))
@@ -110,6 +105,10 @@ func (r *llmRouter) Route(ctx context.Context, req RouteRequest) (RouteResult, e
 		)
 	}
 
+	if route == RouteOutOfScope {
+		normalizedCapabilities = nil
+	}
+
 	if decision.Operation != nil && !operationAllowedForRoute(route, decision.Operation.Type) {
 		decision.Operation = nil
 	}
@@ -127,6 +126,18 @@ func (r *llmRouter) Route(ctx context.Context, req RouteRequest) (RouteResult, e
 	return RouteResult{
 		Route: route, Capabilities: normalizedCapabilities, Operation: decision.Operation, Usage: completion.Usage,
 	}, nil
+}
+
+func decodeRouteDecision(content string) (RouteDecision, error) {
+	raw := strings.TrimSpace(content)
+	if !strings.HasPrefix(raw, "{") {
+		return RouteDecision{Route: Route(strings.ToLower(raw))}, nil
+	}
+	var decision RouteDecision
+	if err := json.Unmarshal([]byte(raw), &decision); err != nil {
+		return RouteDecision{}, fmt.Errorf("%w: %q", errInvalidRouterResponse, content)
+	}
+	return decision, nil
 }
 
 func operationCapability(operation OperationType) Capability {
@@ -185,7 +196,7 @@ Choose exactly one primary route for response guidance. Capabilities are composa
 Routes:
 - general: greetings, acknowledgements, assistant identity, and short conversation with the assistant itself
 - out_of_scope: unrelated to swarm-deploy, Docker Swarm, deployment, runtime, observability, troubleshooting, or infrastructure operations
-- platform: questions about swarm-deploy concepts, product behavior, or running global configuration
+- platform: product behavior, running global configuration, and practical infrastructure guidance: installing components, monitoring, deployment patterns, and Docker Swarm concepts
 - services: service catalog or service-focused inspection/operations
 - cluster: nodes, Docker networks, plugins, or secrets
 - deployments: synchronization, deployment/event history, recommendations, git history, or commit diffs
@@ -205,6 +216,7 @@ Capabilities:
 - dns: DNS resolution
 - metrics: application metrics lookup
 - configuration: read actual global swarm-deploy settings when asked how it is configured, what is enabled, or what limits apply. Combine with runtime capabilities for diagnoses that depend on both settings and live evidence.
+For explanations and how-to questions choose platform with empty capabilities and null operation unless the answer needs actual environment data. An infrastructure task can be in scope without naming Docker or swarm-deploy. Decide by the requested outcome.
 Do not add capabilities merely because a route commonly uses them. Add only what this request needs.
 Date/time uses the cross-cutting date tool and needs no capability.
 For restart or replica changes, operation is {"type":"service_restart_trigger|service_replicas_set","target":"literal target or empty","replicas":number-or-null}; include service_operations.
@@ -229,5 +241,4 @@ Examples:
 "Какие сейчас активные алерты?" -> {"route":"diagnostics","capabilities":["alert_management"],"operation":null}
 "Какие проблемы сейчас есть в кластере?" -> {"route":"cluster","capabilities":["cluster","alert_management"],"operation":null}
 "Какой сегодня день?" -> {"route":"lookups","capabilities":[],"operation":null}
-Legacy route examples: "Где находится Юпитер?" -> out_of_scope; "Как приготовить борщ?" -> out_of_scope
-Use recent history only to resolve ordinary follow-up intent. Pending operation confirmation is handled by the backend.`
+Use recent conversation to resolve follow-ups, including objections to the previous answer. Re-read the original user goal and consider that the previous assistant may have misunderstood it. Pending operation confirmation is handled by the backend.`
