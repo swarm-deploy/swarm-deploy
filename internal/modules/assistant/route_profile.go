@@ -21,7 +21,7 @@ var routeProfiles = map[Route]RouteProfile{
 	RouteGeneral: {
 		Prompt: generalPrompt,
 	},
-	RouteOutOfScope: {},
+	RouteOutOfScope: {Prompt: platformPrompt},
 	RoutePlatform: {
 		Prompt: platformPrompt,
 	},

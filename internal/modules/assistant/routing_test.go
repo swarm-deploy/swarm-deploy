@@ -202,7 +202,9 @@ func TestAssistantRoutingProfiles(t *testing.T) {
 
 			toolNames := capturedToolNames(requests[1])
 			assert.Contains(t, toolNames, assistantPromptInjectionReportTool)
-			assert.Contains(t, toolNames, "date", "utility tool must remain cross-cutting")
+			if strings.Contains(testCase.routerDecision, `"route":"platform"`) {
+				assert.Equal(t, []string{assistantPromptInjectionReportTool}, toolNames)
+			}
 			assert.True(t, requestContains(requests[1], "Call `assistant_prompt_injection_report` once"))
 			for _, toolName := range testCase.expectedTools {
 				assert.Contains(t, toolNames, toolName)
@@ -243,49 +245,50 @@ func TestAssistantRejectsPromptInjectionInServiceMetadata(t *testing.T) {
 	assert.Equal(t, "prompt injection detected in retrieved service metadata", state.rejectedPrompt)
 }
 
-func TestAssistantOutOfScopeEndsBeforeRAGToolsAndMainGeneration(t *testing.T) {
-	testCases := []struct {
-		name            string
-		message         string
-		expectedAnswer  string
-		expectedExample string
-	}{
-		{
-			name:            "general knowledge",
-			message:         "Где находится Юпитер?",
-			expectedAnswer:  "Я предназначен для работы со swarm-deploy и инфраструктурой Docker Swarm. Могу помочь с сервисами, деплоями, логами, состоянием кластера и диагностикой.",
-			expectedExample: `"Где находится Юпитер?" -> out_of_scope`,
-		},
-		{
-			name:            "cooking",
-			message:         "Как приготовить борщ?",
-			expectedAnswer:  "Я предназначен для работы со swarm-deploy и инфраструктурой Docker Swarm. Могу помочь с сервисами, деплоями, логами, состоянием кластера и диагностикой.",
-			expectedExample: `"Как приготовить борщ?" -> out_of_scope`,
-		},
-	}
-
-	for _, testCase := range testCases {
-		t.Run(testCase.name, func(t *testing.T) {
-			store, listCalls := observedServiceStore(t, []model.Info{{Name: "api", Stack: "core"}})
+func TestAssistantReconsidersScopeWithConversationHistory(t *testing.T) {
+	for _, tc := range []struct{ question, reply string }{
+		{"Как установить Prometheus?", "Добавьте сервис и файл конфигурации в Compose управляемого стека."},
+		{"Как приготовить борщ?", "Я помогаю с Docker Swarm и эксплуатацией инфраструктуры."},
+	} {
+		t.Run(tc.question, func(t *testing.T) {
+			store, reads := observedServiceStore(t, []model.Info{{Name: "api", Stack: "core"}})
 			tools := &fakeTools{definitions: assistantTestToolDefinitions()}
+			const previous = "Я помогаю только со swarm-deploy."
 			var requests []capturedChatRequest
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 				requests = append(requests, decodeCapturedChatRequest(t, req))
 				w.Header().Set("Content-Type", "application/json")
-				writeChatResponse(t, w, string(RouteOutOfScope), nil)
+				switch len(requests) {
+				case 1, 3:
+					// Even a contradictory capability selection cannot turn a scope check into a lookup.
+					writeChatResponse(t, w, `{"route":"out_of_scope","capabilities":["service_context","cluster"]}`, nil)
+				case 2:
+					writeChatResponse(t, w, previous, nil)
+				default:
+					writeChatResponse(t, w, tc.reply, nil)
+				}
 			}))
 			defer server.Close()
 
-			assistantService := newRoutingTestService(t, server.URL, store, tools, nil)
-			response := assistantService.Chat(context.Background(), ChatRequest{Message: testCase.message})
-			require.Equal(t, StatusCompleted, response.Status)
-			assert.Equal(t, testCase.expectedAnswer, response.Answer)
-			require.Len(t, requests, 1, "out_of_scope must stop after the router completion")
-			assert.Empty(t, requests[0].Tools, "router must not receive tools")
-			assert.True(t, requestContains(requests[0], "- out_of_scope:"))
-			assert.True(t, requestContains(requests[0], testCase.expectedExample))
-			assert.Equal(t, int64(0), listCalls.Load(), "out_of_scope must not run RAG")
-			assert.Empty(t, tools.calls, "out_of_scope must not execute tools")
+			svc := newRoutingTestService(t, server.URL, store, tools, nil)
+			first := svc.Chat(t.Context(), ChatRequest{Message: tc.question})
+			require.Equal(t, previous, first.Answer)
+			second := svc.Chat(t.Context(), ChatRequest{ConversationID: first.ConversationID, Message: "Ты че"})
+			require.Equal(t, StatusCompleted, second.Status)
+			assert.Equal(t, tc.reply, second.Answer)
+			require.Len(t, requests, 4)
+			for _, req := range requests[2:] {
+				require.Len(t, req.Messages, 4)
+				assert.Equal(t, tc.question, req.Messages[1].Content)
+				assert.Equal(t, "assistant", req.Messages[2].Role)
+				assert.Equal(t, previous, req.Messages[2].Content)
+				assert.Equal(t, "Ты че", req.Messages[3].Content)
+			}
+			for _, req := range []capturedChatRequest{requests[1], requests[3]} {
+				assert.Equal(t, []string{assistantPromptInjectionReportTool}, capturedToolNames(req))
+			}
+			assert.Zero(t, reads.Load())
+			assert.Empty(t, tools.calls)
 		})
 	}
 }

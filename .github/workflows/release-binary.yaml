@@ -18,7 +18,7 @@ jobs:
       contents: write
     steps:
       - name: Check out code
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Generate builder values
         id: values
@@ -27,7 +27,7 @@ jobs:
           echo "buildDate=$(echo $(date +%FT%T%z))" >> $GITHUB_OUTPUT
 
       - name: Compile binary files
-        uses: crazy-max/ghaction-xgo@v3
+        uses: crazy-max/ghaction-xgo@acf46aa99b919eb9ef6bba89dfd13bafa680667f # v3
         with:
           xgo_version: latest
           go_version: ${{ env.GO_VERSION }}
@@ -72,7 +72,7 @@ jobs:
           done
 
       - name: Attach binary files to release
-        uses: ncipollo/release-action@v1
+        uses: ncipollo/release-action@339a81892b84b4eeb0f6e744e4574d79d0d9b8dd # v1
         with:
           artifacts: "dist/*.zip"
           generateReleaseNotes: false

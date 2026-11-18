@@ -9,9 +9,9 @@ Assistant is available only when `assistant.enabled: true`.
 
 ## Request routing
 
-Each non-greeting message is classified by a small tool-free LLM request into one of these capability routes: `general`, `platform`, `services`, `cluster`, `deployments`, `diagnostics`, or `lookups`. The router composes narrow capabilities, including `deployment_history` for desired-state deployments and their attempts, and `alert_management` for operational incidents. The router uses the configured assistant model and a few recent conversation turns so short follow-ups retain their original intent. Greetings use a local fast-path and do not call the router.
+For a regular chat turn the configured model classifies the current message and up to six recent messages without calling tools. The selected profile is one of `general`, `platform`, `services`, `cluster`, `deployments`, `diagnostics`, `lookups`, or `out_of_scope`. Exact greetings and acknowledgements use a local fast path. An invalid router response fails the request.
 
-The selected route controls the additional prompt fragment, available tools, and whether service metadata retrieval runs. Service RAG is enabled only for `services` and `diagnostics`. If routing fails or returns an invalid route, the assistant logs and counts the fallback reason, then continues with the broad compatibility profile.
+`platform` covers stable infrastructure guidance as well as swarm-deploy itself. Questions about the actual installation can request the configuration capability. Capabilities select operational tools independently of the response profile; only `service_context` requests service catalog retrieval. Pure platform guidance and a preliminary `out_of_scope` decision reach the response model with conversation history and only the security-report tool. This lets the assistant correct a misunderstanding while keeping unrelated requests outside its specialization.
 
 ## Terminal service actions
 
