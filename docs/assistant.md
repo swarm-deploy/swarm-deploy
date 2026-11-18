@@ -19,6 +19,8 @@ Successful single calls to `service_restart_trigger` and `service_replicas_set` 
 
 The assistant chat span records request-size diagnostics without recording prompt or user content: `swarm-deploy.assistant.request.system_prompt_chars`, `swarm-deploy.assistant.request.history_chars`, `swarm-deploy.assistant.request.context_chars`, `swarm-deploy.assistant.request.user_message_chars`, `swarm-deploy.assistant.request.tools_chars`, `swarm-deploy.assistant.request.message_count`, and `swarm-deploy.assistant.request.tool_count`. It also records `swarm-deploy.assistant.route` and, for a completed terminal action, `swarm-deploy.assistant.terminal_tool`. MCP tool execution spans use the OpenTelemetry GenAI attribute `gen_ai.operation.name=execute_tool`. Log tool results are excluded from span attributes; only their encoded character count is recorded.
 
+While an action awaits confirmation, only an explicit yes or no consumes that confirmation. Other replies return to the conversation and retire the old operation. While collecting a parameter, a catalog name, an explicit request to resolve the original target, or a replica count can continue the operation. A correction can therefore replace the task without a later yes executing the abandoned action.
+
 ## API
 
 - `POST /api/v1/assistant/chat`
