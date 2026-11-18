@@ -5,6 +5,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/swarm-deploy/swarm-deploy/internal/config"
 )
 
 func TestOperationalToolCapabilitiesAndDefaultRoutes(t *testing.T) {
@@ -43,6 +44,16 @@ func TestOperationalToolCapabilitiesAndDefaultRoutes(t *testing.T) {
 				assert.Contains(t, actual, capability)
 			}
 		})
+	}
+}
+
+func TestTLSCapabilityDefaults(t *testing.T) {
+	profile, ok := capabilityProfile(CapabilityTLS)
+	require.True(t, ok)
+	assert.Equal(t, []string{string(config.AssistantToolNameTLSCertificateCheck)}, profile.Tools)
+	for route := range routeProfiles {
+		assert.Equal(t, route == RouteLookups || route == RouteDiagnostics,
+			hasCapability(defaultCapabilitiesForRoute(route), CapabilityTLS), route)
 	}
 }
 
