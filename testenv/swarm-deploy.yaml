@@ -26,7 +26,7 @@ system:
   tracing:
     transport: http
     exporter:
-      endpoint: http://jaeger:4318
+      endpoint: http://jaeger:4318/v1/traces
 
 healthServer:
   address: ":8082"
