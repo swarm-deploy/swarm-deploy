@@ -83,6 +83,99 @@ describe("Assistant Drawer", () => {
     wrapper.unmount();
   });
 
+  it("keeps the history draft and deduplicates a retry after a transport failure", async () => {
+    const pinia = createPinia();
+    setActivePinia(pinia);
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: "/", component: { template: "<div />" } }],
+    });
+    await router.push("/?assistant=chats&stack=demo");
+    await router.isReady();
+
+    const assistantStore = useAssistantStore();
+    assistantStore.conversationID = "existing";
+    assistantStore.loadChats = vi.fn(async () => undefined);
+    let failRequest!: (reason: Error) => void;
+    const request = vi.spyOn(assistantStore, "requestAssistant")
+      .mockImplementationOnce(() => new Promise((_, reject) => { failRequest = reject; }))
+      .mockResolvedValueOnce({
+        status: "completed",
+        conversation_id: "created",
+        request_id: "request-id",
+        answer: "Assistant answer",
+      });
+
+    const wrapper = mount(AssistantDrawer, { global: { plugins: [pinia, router] } });
+    await flushPromises();
+    const form = wrapper.get(".assistant-history-form");
+    const draft = form.get("textarea");
+    expect(form.find('button[type="submit"]').exists()).toBe(false);
+    await draft.setValue(" \n ");
+    expect(form.find('button[type="submit"]').exists()).toBe(false);
+    await draft.setValue("First message\nSecond line");
+    await form.trigger("submit");
+    await form.trigger("submit");
+
+    expect(request).toHaveBeenCalledOnce();
+    expect(request.mock.calls[0][0]).toMatchObject({
+      message: "First message\nSecond line",
+      request_id: expect.any(String),
+    });
+    expect(request.mock.calls[0][0]).not.toHaveProperty("conversation_id");
+    failRequest(new Error("Connection lost"));
+    await flushPromises();
+
+    expect(draft.element.value).toBe("First message\nSecond line");
+    expect(form.get('[role="alert"]').text()).toContain("Connection lost");
+    expect(assistantStore.conversationID).toBe("existing");
+    expect(router.currentRoute.value.query.assistant).toBe("chats");
+
+    await form.trigger("submit");
+    await flushPromises();
+
+    expect(request.mock.calls[1][0]).toEqual(request.mock.calls[0][0]);
+    expect(router.currentRoute.value.query).toEqual({ assistant: "created", stack: "demo" });
+    expect(wrapper.text()).toContain("Assistant answer");
+    expect(assistantStore.historyOpen).toBe(false);
+    wrapper.unmount();
+  });
+
+  it("filters loaded history titles and preserves the draft when closing search", async () => {
+    const pinia = createPinia();
+    setActivePinia(pinia);
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: "/", component: { template: "<div />" } }],
+    });
+    await router.push("/?assistant=chats");
+    await router.isReady();
+
+    const assistantStore = useAssistantStore();
+    const date = new Date().toISOString();
+    assistantStore.chats = [
+      { id: "first", title: "Inspect proxy", created_at: date, updated_at: date },
+      { id: "second", title: "Check worker nodes", created_at: date, updated_at: date },
+    ];
+    assistantStore.loadChats = vi.fn(async () => undefined);
+    const wrapper = mount(AssistantDrawer, { global: { plugins: [pinia, router] } });
+    await flushPromises();
+    await wrapper.get(".assistant-history-form textarea").setValue("Keep this draft");
+    await wrapper.get('button[aria-label="Search chats"]').trigger("click");
+    await wrapper.get('input[type="search"]').setValue(" PROXY ");
+
+    expect(wrapper.find(".assistant-history-form").exists()).toBe(false);
+    expect(wrapper.findAll(".assistant-history-title").map((item) => item.text())).toEqual(["Inspect proxy"]);
+    await wrapper.get('button[aria-label="Clear search"]').trigger("click");
+    expect(wrapper.findAll(".assistant-history-title")).toHaveLength(2);
+    await wrapper.get('input[type="search"]').trigger("keydown", { key: "Escape" });
+
+    expect(wrapper.find('input[type="search"]').exists()).toBe(false);
+    expect(wrapper.get<HTMLTextAreaElement>(".assistant-history-form textarea").element.value).toBe("Keep this draft");
+    expect(assistantStore.loadChats).toHaveBeenCalledOnce();
+    wrapper.unmount();
+  });
+
   it("shows API suggestions in an empty chat and submits the exact prompt", async () => {
     const prompt = "API-provided prompt\nwith exact context.";
     const fetchMock = vi.fn().mockResolvedValue(

@@ -102,54 +102,67 @@ export const useAssistantStore = defineStore("assistant", {
       }));
       this.historyOpen = false;
     },
+    async pollAssistantMessage(
+      payload: AssistantChatRequest,
+      onProgress?: (response: AssistantChatResponse) => void,
+    ): Promise<AssistantChatResponse | undefined> {
+      for (let attempt = 0; attempt < 150; attempt += 1) {
+        const response = await this.requestAssistant({ ...payload, wait_timeout_ms: 750 });
+        onProgress?.(response);
+
+        if (response.status !== "in_progress") {
+          return response;
+        }
+
+        payload = {
+          conversation_id: response.conversation_id || payload.conversation_id,
+          request_id: response.request_id || payload.request_id,
+        };
+        await sleep(Math.max(100, response.poll_after_ms || 1000));
+      }
+    },
     async runAssistantMessage(message: string) {
-      let payload: AssistantChatRequest = {
+      const response = await this.pollAssistantMessage({
         conversation_id: this.conversationID || undefined,
         message,
-        wait_timeout_ms: 750,
-      };
-
-      for (let attempt = 0; attempt < 150; attempt += 1) {
-        const response = await this.requestAssistant(payload);
+      }, (response) => {
         this.conversationID = response.conversation_id || this.conversationID;
         this.activeRequestID = response.request_id || this.activeRequestID;
         this.activity = response.activity || this.activity;
+      });
 
-        if (response.status === "in_progress") {
-          const delay = Math.max(100, response.poll_after_ms || 1000);
-          payload = {
-            conversation_id: this.conversationID || undefined,
-            request_id: this.activeRequestID || undefined,
-            wait_timeout_ms: 750,
-          };
-          await sleep(delay);
-          continue;
-        }
-
-        this.activeRequestID = "";
-        if (response.status === "completed") {
-          this.pushMessage(
-            "assistant",
-            response.answer || "Assistant returned empty answer.",
-            this.activity.length > 0 ? [...this.activity] : undefined,
-          );
-          this.activity = [];
-          await this.loadChats();
-          return;
-        }
-
-        if (response.status === "disabled") {
-          this.setEnabled(false);
-        }
-
-        this.pushMessage("system", response.error_message || `Assistant status: ${response.status}`);
+      this.activeRequestID = "";
+      if (response?.status === "completed") {
+        this.pushMessage(
+          "assistant",
+          response.answer || "Assistant returned empty answer.",
+          this.activity.length > 0 ? [...this.activity] : undefined,
+        );
         this.activity = [];
+        await this.loadChats();
         return;
       }
 
-      this.activeRequestID = "";
+      if (response?.status === "disabled") {
+        this.setEnabled(false);
+      }
+
       this.activity = [];
-      this.pushMessage("system", "Assistant request timeout. Try again.");
+      this.pushMessage("system", response
+        ? response.error_message || `Assistant status: ${response.status}`
+        : "Assistant request timeout. Try again.");
+    },
+    async sendFirstMessage(message: string, requestID: string) {
+      this.pending = true;
+      try {
+        const response = await this.pollAssistantMessage({ message, request_id: requestID });
+        if (!response) {
+          throw new Error("Assistant request timeout. Try again.");
+        }
+        return response;
+      } finally {
+        this.pending = false;
+      }
     },
     async sendMessage(message: string) {
       if (this.pending) {
