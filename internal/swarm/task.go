@@ -21,7 +21,9 @@ func (t ServiceTask) Fault() faults.Coded {
 	if t.CurrentState == TaskStatePending && code != faults.CodeNoSuitableNode {
 		return nil
 	}
-	if (code == "" || code == faults.CodeImagePullDenied) &&
+	// A wrapped containerd extraction failure retains its specific classification.
+	// Other Registry bodies take precedence over general Docker text patterns.
+	if code != faults.CodeImageExtractionFailed &&
 		t.CurrentState == TaskStateRejected && t.Spec.value.ContainerSpec != nil &&
 		strings.TrimSpace(t.Spec.value.ContainerSpec.Image) != "" {
 		// Registry bodies are arbitrary text. Recognize access refusals there

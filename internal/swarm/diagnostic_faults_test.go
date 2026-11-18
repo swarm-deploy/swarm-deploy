@@ -174,6 +174,8 @@ func TestServiceTaskRegistryPullFault(t *testing.T) {
 		temporary  bool
 	}{
 		{"error from registry: an unexpected response", faults.CodeImagePullFailed, true},
+		{"error from registry: backend failed to mount storage", faults.CodeImagePullFailed, true},
+		{"error from registry: backend returned no suitable node", faults.CodeImagePullFailed, true},
 		{"error from registry: blob unknown", faults.CodeImagePullFailed, true},
 		{"error from registry: access denied for the cached copy only", faults.CodeImagePullFailed, true},
 		{"error from registry: denied by a backend guard", faults.CodeImagePullFailed, true},

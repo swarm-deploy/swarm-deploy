@@ -132,49 +132,45 @@ func (p *ServiceProgress) pendingFailureFaults(
 	spec dockerswarm.ServiceSpec, tasks []swarm.ServiceTask, cutoff time.Time,
 ) swarm.ServiceTask {
 	failed := services.UnreplacedServiceTaskFailures(spec, tasks, cutoff)
-	if len(failed) == 0 {
-		return swarm.ServiceTask{}
+	var latest swarm.ServiceTask
+	if len(failed) != 0 {
+		latest = failed[0]
 	}
-	latest := failed[0]
-	if p.Running >= p.Desired {
-		return latest
-	}
-	for i, task := range failed {
-		fault := task.Fault()
-		if fault == nil {
-			continue
-		}
-		if i == 0 {
-			latest.Error = "" // The typed branch supplies the full technical text.
-		}
-		if !isImagePullFault(fault) {
+	reportedDenials := make(map[string]struct{})
+	if p.Running < p.Desired {
+		for i, task := range failed {
+			fault := task.Fault()
+			if fault == nil {
+				continue
+			}
+			if i == 0 {
+				latest.Error = "" // The typed branch supplies the full technical text.
+			}
+			if fault.FaultCode() == faults.CodeImagePullFailed {
+				continue
+			}
 			p.pendingTaskFaults = append(p.pendingTaskFaults, fault)
+			if fault.FaultCode() == faults.CodeImagePullDenied {
+				reportedDenials[task.ID] = struct{}{}
+			}
 		}
+	}
+	// Swarm's global desired count omits replacements waiting to start.
+	if p.Running < p.Desired || spec.Mode.Global != nil {
+		p.pendingRegistryPullFaults(spec, tasks, cutoff, reportedDenials)
 	}
 	return latest
 }
 
 func (p *ServiceProgress) pendingRegistryPullFaults(
-	service swarm.StackService, tasks []swarm.ServiceTask, cutoff time.Time,
+	spec dockerswarm.ServiceSpec, tasks []swarm.ServiceTask, cutoff time.Time, reportedDenials map[string]struct{},
 ) {
-	if cutoff.IsZero() {
-		// Existing-task verification has no cutoff of its own.
-		cutoff = service.UpdatedAt
-		if service.UpdateStatus != nil && !service.UpdateStatus.StartedAt.IsZero() {
-			cutoff = service.UpdateStatus.StartedAt
+	for _, task := range services.LatestUnrecoveredTaskAttempts(spec, tasks, cutoff) {
+		if _, reported := reportedDenials[task.ID]; reported || task.CurrentState != swarm.TaskStateRejected {
+			continue
 		}
-		if cutoff.IsZero() {
-			cutoff = service.CreatedAt
-		}
-	}
-	if len(tasks) == 0 || cutoff.IsZero() {
-		return
-	}
-	for _, task := range services.LatestUnrecoveredTaskAttempts(service.ServiceSpec, tasks, cutoff) {
-		if task.CurrentState == swarm.TaskStateRejected {
-			if fault := task.Fault(); isImagePullFault(fault) {
-				p.registryPullFaults = append(p.registryPullFaults, fault)
-			}
+		if fault := task.Fault(); isImagePullFault(fault) {
+			p.registryPullFaults = append(p.registryPullFaults, fault)
 		}
 	}
 }

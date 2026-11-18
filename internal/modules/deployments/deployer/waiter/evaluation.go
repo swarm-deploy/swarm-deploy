@@ -71,7 +71,7 @@ func evaluateService(
 		progress = zeroDesiredProgress(progress, baseline, service, tasks)
 		if !generationPending && service.Mode == globalServiceMode && progress.State == ServicePending {
 			// Swarm's global desired count omits replacements waiting to start.
-			progress.pendingRegistryPullFaults(service, tasks, cutoff)
+			progress.pendingRegistryPullFaults(service.ServiceSpec, tasks, cutoff, nil)
 		}
 		return progress
 	}
@@ -104,9 +104,6 @@ func runningServiceProgress(
 
 	progress.pendingSchedulingFault(tasks, service.ServiceSpec.TaskTemplate, cutoff)
 	failed := progress.pendingFailureFaults(service.ServiceSpec, tasks, cutoff)
-	if progress.Running < progress.Desired {
-		progress.pendingRegistryPullFaults(service, tasks, cutoff)
-	}
 	if updating {
 		progress.Message = updateProgressMessage(service.UpdateStatus)
 		return progress
