@@ -654,8 +654,8 @@ function renderMessageText(role: string, text: string): string {
             ref="historyMessageRef"
             v-model="historyMessage"
             rows="1"
-            placeholder="Спросить ассистента…"
-            aria-label="Спросить ассистента"
+            placeholder="Ask the assistant…"
+            aria-label="Ask the assistant"
             :readonly="pending"
             @input="historyError = ''"
           />
