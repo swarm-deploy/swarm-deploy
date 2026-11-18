@@ -1,0 +1,32 @@
+gitops:
+  git:
+    repository: git://git/stacks.git
+    branch: main
+    pull:
+      interval: 5s
+  sync:
+    mode: pull
+    interval: 10s
+    policy:
+      prune: true
+      selfHeal: true
+  stacks:
+    file: stacks.yaml
+
+assistant:
+  enabled: true
+  model:
+    name: gpt-4o-mini
+    embeddingName: text-embedding-3-small
+    openai:
+      baseUrl: https://api.openai.com/v1
+      apiTokenPath: /run/secrets/openai_api_token
+
+system:
+  tracing:
+    transport: http
+    exporter:
+      endpoint: http://jaeger:4318
+
+healthServer:
+  address: ":8082"
