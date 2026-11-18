@@ -1,5 +1,6 @@
+.PHONY: run
 run:
-	docker compose -f docker-compose.local.yaml up
+	$(MAKE) -C testenv up
 
 .PHONY: ui-mock
 ui-mock:
