@@ -1575,14 +1575,12 @@ body {
     inset: auto 6px 6px auto;
     width: 36px;
     height: 36px;
-    border: 1px solid var(--border-default);
     border-radius: 50%;
     background: var(--surface-control-strong);
     color: var(--text);
   }
 
   .assistant-history-composer .assistant-send-button:hover:not(:disabled) {
-    border-color: var(--border-strong);
     background: var(--surface-muted-strong);
     filter: none;
   }
