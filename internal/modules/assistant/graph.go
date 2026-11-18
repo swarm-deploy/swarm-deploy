@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 	"time"
 
@@ -124,7 +125,6 @@ type graphExecutionState struct {
 	preparedSizes           preparedRequestSizes
 	terminalTool            string
 	securityReportAttempted bool
-	operation               *OperationIntent
 	operationHandled        bool
 	reportActivity          func(string)
 }
@@ -324,47 +324,60 @@ func (g *graph) routeNode(
 ) func(context.Context, []llms.MessageContent) ([]llms.MessageContent, error) {
 	return func(ctx context.Context, messages []llms.MessageContent) ([]llms.MessageContent, error) {
 		executionState.report("Routing request")
-		route := RouteGeneral
-		var capabilities []Capability
+		result := RouteResult{Route: RouteGeneral}
 		if !isGreeting(executionState.userMessage) {
-			result, err := g.router.Route(ctx, RouteRequest{
+			var err error
+			result, err = g.router.Route(ctx, RouteRequest{
 				Message:       executionState.userMessage,
 				RecentHistory: executionState.history,
 			})
 			executionState.usage.Add(result.Usage)
 			if err != nil {
 				reason := routerFallbackReason(err)
-				slog.ErrorContext(ctx, "[assistant] router failed",
-					slog.String("reason", reason),
-					slog.Any("err", err),
-				)
+				slog.ErrorContext(ctx, "[assistant] router failed", slog.String("reason", reason), slog.Any("err", err))
 				if g.observer != nil {
 					g.observer.RecordRouterFallback(reason)
 				}
 				return messages, fmt.Errorf("route assistant request: %w", err)
 			}
-			route = result.Route
-			capabilities = result.Capabilities
-			executionState.operation = result.Operation
 		}
-
-		profile, ok := routeProfile(route)
-		if !ok {
-			return messages, fmt.Errorf("profile for route %q is not configured", route)
-		}
-		executionState.route = route
-		executionState.profile = profile
-		executionState.capabilities = append([]Capability(nil), capabilities...)
-		executionState.effectiveToolSet = g.responseToolSet(route, capabilities)
-		executionState.report("Route: " + string(route))
-		if executionState.operation != nil {
-			answer, usage := g.startPendingOperation(ctx, executionState.conversationID, *executionState.operation)
-			executionState.answer = answer
-			executionState.usage.Add(usage)
-			executionState.operationHandled = true
-		}
-		return messages, nil
+		return messages, g.applyRoute(ctx, executionState, result)
 	}
+}
+
+func (g *graph) applyRoute(ctx context.Context, state *graphExecutionState, result RouteResult) error {
+	state.route = result.Route
+	state.report("Route: " + string(result.Route))
+	profileRoute := result.Route
+	capabilities := result.Capabilities
+	limitation := g.operationLimitation(result)
+	if limitation != "" {
+		capabilities = slices.DeleteFunc(slices.Clone(capabilities), func(c Capability) bool {
+			return c == CapabilityServiceOperations || c == CapabilityDeploymentSync
+		})
+		if len(capabilities) == 0 {
+			profileRoute = RoutePlatform
+		}
+	}
+	profile, ok := routeProfile(profileRoute)
+	if !ok {
+		return fmt.Errorf("profile for route %q is not configured", profileRoute)
+	}
+	if limitation != "" {
+		profile.Prompt += "\n\n" + limitation +
+			" Explain the limitation and provide concrete instructions for the requested change. " +
+			"Only use read tools for independently requested evidence. No change has been made."
+	}
+	state.profile = profile
+	state.capabilities = capabilities
+	state.effectiveToolSet = g.responseToolSet(profileRoute, capabilities)
+	if result.Operation != nil && limitation == "" {
+		answer, usage := g.startPendingOperation(ctx, state.conversationID, *result.Operation)
+		state.answer = answer
+		state.usage.Add(usage)
+		state.operationHandled = true
+	}
+	return nil
 }
 
 func (g *graph) guardNode(

@@ -13,6 +13,8 @@ For a regular chat turn the configured model classifies the current message and 
 
 `platform` covers stable infrastructure guidance as well as swarm-deploy itself. Questions about the actual installation can request the configuration capability. Capabilities select operational tools independently of the response profile; only `service_context` requests service catalog retrieval. Pure platform guidance and a preliminary `out_of_scope` decision reach the response model with conversation history and only the security-report tool. This lets the assistant correct a misunderstanding while keeping unrelated requests outside its specialization.
 
+The router distinguishes instructions from an explicit request to change state. When the requested effect has no corresponding operation, the assistant explains how to perform it. Creating a service or writing a Compose file to Git requires such guidance. A manual sync only queues reconciliation. For supported changes the assistant checks registration and the configured tool allowlist before requesting a target or confirmation, including both steps of pause plus scale.
+
 ## Terminal service actions
 
 Successful single calls to `service_restart_trigger` and `service_replicas_set` are terminal assistant actions. After the existing tool-result injection guard passes, the assistant formats their typed result directly instead of issuing a second model completion. Tool errors, malformed results, non-terminal tools, and iterations containing multiple calls continue through the regular model tool loop.
