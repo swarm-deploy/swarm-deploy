@@ -29,6 +29,7 @@ const (
 	AssistantToolNameServiceSpecGet                     AssistantToolName = "service_spec_get"
 	AssistantToolNameServiceHealthGet                   AssistantToolName = "service_health_get"
 	AssistantToolNameDNSNameResolve                     AssistantToolName = "dns_name_resolve"
+	AssistantToolNameTLSCertificateCheck                AssistantToolName = "tls_certificate_check"
 	AssistantToolNameServiceWebRoutePing                AssistantToolName = "service_webroute_ping"
 	AssistantToolNameDependencyGraphGet                 AssistantToolName = "dependency_graph_get"
 	AssistantToolNameRecommendationList                 AssistantToolName = "recommendation_list"
