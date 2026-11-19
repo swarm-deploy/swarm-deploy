@@ -4,6 +4,7 @@ package waiter
 import (
 	"fmt"
 	"reflect"
+	"slices"
 	"time"
 
 	dockerswarm "github.com/docker/docker/api/types/swarm"
@@ -96,7 +97,8 @@ func runningServiceProgress(
 		return progress
 	}
 	updating := updatePending(service.UpdateStatus)
-	if !updating && progress.Running == progress.Desired && countDesiredTasks(tasks) == progress.Desired {
+	allRunning := !updating && progress.Running == progress.Desired && countDesiredTasks(tasks) == progress.Desired
+	if allRunning && !globalReplacementPending(service, tasks, cutoff) {
 		progress.State = ServiceReady
 		progress.Message = "service converged"
 		return progress
@@ -108,6 +110,10 @@ func runningServiceProgress(
 		progress.Message = updateProgressMessage(service.UpdateStatus)
 		return progress
 	}
+	if allRunning {
+		progress.Message = "waiting for global replacement tasks to start"
+		return progress
+	}
 	progress.Message = boundedDiagnostic(fmt.Sprintf(
 		"waiting for current tasks: %d/%d running%s",
 		progress.Running,
@@ -115,6 +121,17 @@ func runningServiceProgress(
 		formatTaskDiagnostic(failed),
 	))
 	return progress
+}
+
+func globalReplacementPending(service swarm.StackService, tasks []swarm.ServiceTask, cutoff time.Time) bool {
+	if service.Mode != globalServiceMode {
+		return false
+	}
+	// Swarm counts only desired RUNNING tasks, omitting replacements in restart delay.
+	return slices.ContainsFunc(tasks, func(task swarm.ServiceTask) bool {
+		return task.DesiredState == swarm.TaskStateReady &&
+			!task.CreatedAt.Before(cutoff) && task.Spec.CompareServiceTemplate(service.ServiceSpec.TaskTemplate).Equal()
+	})
 }
 
 func terminalServiceUpdateProgress(

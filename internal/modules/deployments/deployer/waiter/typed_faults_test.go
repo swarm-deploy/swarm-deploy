@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -87,6 +88,7 @@ func TestServiceWaiterRegistryPullFaultAtTimeout(t *testing.T) {
 		outsideSlot   bool
 		scaleUp       bool
 		global        bool
+		initial       bool
 		globalRunning uint64
 		replacement   swarm.TaskState
 		desiredState  swarm.TaskState
@@ -111,6 +113,12 @@ func TestServiceWaiterRegistryPullFaultAtTimeout(t *testing.T) {
 		{name: "global replacement during restart delay with another node running", response: "unexpected response",
 			replacement: swarm.TaskStatePreparing, desiredState: swarm.TaskStateReady, global: true, globalRunning: 1,
 			wantCode: faults.CodeImagePullFailed, wantTemporary: true},
+		{name: "initial global service with a replacement waiting and another node running", response: "unexpected response",
+			replacement: swarm.TaskStatePreparing, desiredState: swarm.TaskStateReady, global: true, initial: true, globalRunning: 1,
+			wantCode: faults.CodeImagePullFailed, wantTemporary: true},
+		{name: "initial global service with a rejected replacement and another node running", response: "unexpected response",
+			replacement: swarm.TaskStateRejected, desiredState: swarm.TaskStateReady, global: true, initial: true, globalRunning: 1,
+			wantCode: faults.CodeImagePullFailed, wantTemporary: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			diagnostic := "error from registry: " + tc.response
@@ -125,7 +133,7 @@ func TestServiceWaiterRegistryPullFaultAtTimeout(t *testing.T) {
 			if tc.scaleUp {
 				baseline = testReplicatedService("api", "api-id", 1, serviceWaitTestTime.Add(-time.Minute), "api:2")
 				service.CreatedAt = baseline.CreatedAt
-			} else {
+			} else if !tc.initial {
 				service.UpdateStatus = &swarm.ServiceUpdateStatus{
 					State: swarm.ServiceUpdateStateUpdating, StartedAt: serviceWaitTestTime,
 				}
@@ -151,20 +159,30 @@ func TestServiceWaiterRegistryPullFaultAtTimeout(t *testing.T) {
 				tasks = append(tasks, running)
 			}
 			if tc.replacement != "" {
-				manager.EXPECT().ListTasks(gomock.Any(), service.ID).Return(tasks, nil)
+				beforeRestart := slices.Clone(tasks)
+				// Swarm shuts down the rejected task and creates its replacement in the same transaction.
+				beforeRestart[0].DesiredState = swarm.TaskStateRunning
+				manager.EXPECT().ListTasks(gomock.Any(), service.ID).Return(beforeRestart, nil)
 				desiredState := tc.desiredState
 				if desiredState == "" {
 					desiredState = swarm.TaskStateRunning
 				}
 				replacement := testTask("replacement", 1, desiredState, tc.replacement, serviceWaitTestTime.Add(time.Second))
 				replacement.Spec, replacement.Node = rejected.Spec, rejected.Node
+				if tc.replacement == swarm.TaskStateRejected {
+					replacement.Error = diagnostic
+				}
 				tasks = append(tasks, replacement)
 			}
 			manager.EXPECT().ListTasks(gomock.Any(), service.ID).Return(tasks, nil).AnyTimes()
-			result, err := NewServiceWaiter(manager, nil, time.Millisecond, 30*time.Millisecond).Wait(t.Context(), ServiceWaitRequest{
-				StackName: "app", ServiceNames: []string{"api"}, Baseline: []swarm.StackService{baseline},
+			request := ServiceWaitRequest{
+				StackName: "app", ServiceNames: []string{"api"},
 				ExpectedSpecs: map[string]dockerswarm.ServiceSpec{"api": service.ServiceSpec},
-			})
+			}
+			if !tc.initial {
+				request.Baseline = []swarm.StackService{baseline}
+			}
+			result, err := NewServiceWaiter(manager, nil, time.Millisecond, 30*time.Millisecond).Wait(t.Context(), request)
 			require.ErrorIs(t, err, context.DeadlineExceeded)
 			assert.NotErrorIs(t, err, ErrConvergenceFailed)
 			assert.Equal(t, []string{"api"}, result.UnresolvedServices)

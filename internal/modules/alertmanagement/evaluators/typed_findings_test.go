@@ -72,7 +72,7 @@ func TestDockerFaultsExtractedIntoAlertFindings(t *testing.T) {
 			assert.Equal(t, cause.Error(), action.Alert.Message)
 			assert.NotContains(t, action.Alert.Message, "private-value")
 			wantOpenAfter := uint64(openImmediately)
-			if tc.temporary {
+			if tc.interrupted && tc.temporary {
 				wantOpenAfter = temporaryFailureThreshold
 			}
 			assert.Equal(t, wantOpenAfter, action.OpenAfter)
@@ -80,6 +80,9 @@ func TestDockerFaultsExtractedIntoAlertFindings(t *testing.T) {
 				assert.Empty(t, action.Findings)
 				return
 			}
+			causes := faults.Causes(cause)
+			require.Len(t, causes, 1)
+			assert.Equal(t, tc.temporary, causes[0].Temporary)
 			wantSummary := tc.diagnostic
 			switch tc.code {
 			case faults.CodeImageExtractionFailed:
