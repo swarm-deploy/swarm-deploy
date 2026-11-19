@@ -561,6 +561,22 @@ export interface AssistantTokenUsage {
   total_tokens: number;
 }
 
+export type AssistantUsageInterval = "daily" | "weekly" | "monthly";
+
+export interface AssistantUsageQuery {
+  from: string;
+  to: string;
+  interval: AssistantUsageInterval;
+}
+
+export interface AssistantUsageBucket extends AssistantTokenUsage {
+  start: string;
+}
+
+export interface AssistantUsageResponse {
+  buckets: AssistantUsageBucket[];
+}
+
 export interface AssistantChatSummary {
   id: string;
   title: string;

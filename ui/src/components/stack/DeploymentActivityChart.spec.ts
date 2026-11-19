@@ -67,10 +67,10 @@ describe("DeploymentActivityChart", () => {
     expect(wrapper.get(".overview-summary-panel-header .overview-panel-title").text()).toBe("Deployment Activity");
     expect(wrapper.find(".overview-summary-panel-icon .deployment-icon").exists()).toBe(true);
     expect(wrapper.get('[aria-label="Deployment activity interval"] [aria-pressed="true"]').text()).toBe("Weekly");
-    expect(wrapper.findAll(".deployment-activity-legend li").map((item) => item.text())).toEqual([
+    expect(wrapper.findAll(".app-stacked-chart-legend li").map((item) => item.text())).toEqual([
       "Succeeded", "Failed", "Running", "Interrupted", "Superseded",
     ]);
-    expect(wrapper.findAll(".deployment-activity-summary dd").map((item) => item.text())).toEqual([
+    expect(wrapper.findAll(".app-stacked-chart-summary dd").map((item) => item.text())).toEqual([
       "9", "4", "2",
     ]);
     const option = chartMocks.setOption.mock.calls.at(-1)?.[0] as {
@@ -119,7 +119,7 @@ describe("DeploymentActivityChart", () => {
     await wrapper.get('[role="alert"] button').trigger("click");
     await flushPromises();
     expect(wrapper.text()).toContain("No deployments in the selected period.");
-    expect(wrapper.find(".deployment-activity-summary").exists()).toBe(false);
+    expect(wrapper.find(".app-stacked-chart-summary").exists()).toBe(false);
     wrapper.unmount();
   });
 });

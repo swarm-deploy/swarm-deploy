@@ -20,6 +20,11 @@ export const router = createRouter({
     { path: "/stacks/:stack", name: "stack-details", component: StackView },
     { path: "/deployments", name: "deployments", component: DeploymentsView },
     {
+      path: "/assistant/usage",
+      name: "assistant-usage",
+      component: () => import("../views/AssistantUsageView.vue"),
+    },
+    {
       path: "/",
       redirect: "/overview",
     },

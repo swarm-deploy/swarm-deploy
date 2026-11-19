@@ -37,6 +37,10 @@ const activity = computed(() => assistantStore.activity);
 const chats = computed(() => assistantStore.chats);
 const historyOpen = computed(() => assistantStore.historyOpen);
 const historyLoading = computed(() => assistantStore.historyLoading);
+const usageRoute = computed(() => ({
+  name: "assistant-usage",
+  state: { assistantChatsPath: route.name === "assistant-usage" ? null : route.fullPath },
+}));
 const usageOpenChatID = ref("");
 
 const existingChatLoading = computed(() => {
@@ -464,6 +468,17 @@ function renderMessageText(role: string, text: string): string {
         </template>
 
         <div class="assistant-drawer-actions">
+          <RouterLink
+            v-if="historyOpen"
+            :to="usageRoute"
+            class="assistant-icon-button"
+            aria-label="Assistant usage"
+            title="Usage"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M5 20v-7m7 7V4m7 16V9" stroke-width="3" />
+            </svg>
+          </RouterLink>
           <button
             v-if="historyOpen"
             ref="searchButtonRef"
