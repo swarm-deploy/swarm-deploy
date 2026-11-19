@@ -157,15 +157,15 @@ func (p *ServiceProgress) pendingFailureFaults(
 	}
 	// Swarm's global desired count omits replacements waiting to start.
 	if p.Running < p.Desired || spec.Mode.Global != nil {
-		p.pendingRegistryPullFaults(spec, tasks, cutoff, reportedDenials)
+		p.pendingRegistryPullFaults(services.LatestUnrecoveredTaskAttempts(spec, tasks, cutoff), reportedDenials)
 	}
 	return latest
 }
 
 func (p *ServiceProgress) pendingRegistryPullFaults(
-	spec dockerswarm.ServiceSpec, tasks []swarm.ServiceTask, cutoff time.Time, reportedDenials map[string]struct{},
+	attempts []swarm.ServiceTask, reportedDenials map[string]struct{},
 ) {
-	for _, task := range services.LatestUnrecoveredTaskAttempts(spec, tasks, cutoff) {
+	for _, task := range attempts {
 		if _, reported := reportedDenials[task.ID]; reported || task.CurrentState != swarm.TaskStateRejected {
 			continue
 		}

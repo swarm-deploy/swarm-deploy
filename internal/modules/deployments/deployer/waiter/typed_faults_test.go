@@ -114,6 +114,7 @@ func TestServiceWaiterRegistryPullFaultAtTimeout(t *testing.T) {
 		global        bool
 		constrained   bool
 		initial       bool
+		reverify      bool
 		globalRunning uint64
 		replacement   swarm.TaskState
 		desiredState  swarm.TaskState
@@ -144,6 +145,9 @@ func TestServiceWaiterRegistryPullFaultAtTimeout(t *testing.T) {
 		{name: "initial global service with a replacement waiting and another node running", response: "unexpected response",
 			replacement: swarm.TaskStatePreparing, desiredState: swarm.TaskStateReady, global: true, initial: true, globalRunning: 1,
 			wantCode: faults.CodeImagePullFailed, wantTemporary: true},
+		{name: "existing zero-desired global service with rejected replacement", response: "unexpected response",
+			replacement: swarm.TaskStateRejected, desiredState: swarm.TaskStateReady, global: true, reverify: true,
+			wantCode: faults.CodeImagePullFailed, wantTemporary: true},
 		{name: "initial global service with a rejected replacement and another node running", response: "unexpected response",
 			replacement: swarm.TaskStateRejected, desiredState: swarm.TaskStateReady, global: true, initial: true, globalRunning: 1,
 			wantCode: faults.CodeImagePullFailed, wantTemporary: true},
@@ -161,7 +165,9 @@ func TestServiceWaiterRegistryPullFaultAtTimeout(t *testing.T) {
 			if tc.constrained {
 				service.ServiceSpec.TaskTemplate.Placement = &dockerswarm.Placement{Constraints: []string{"node.role == worker"}}
 			}
-			if tc.scaleUp {
+			if tc.reverify {
+				baseline = service
+			} else if tc.scaleUp {
 				baseline = testReplicatedService("api", "api-id", 1, serviceWaitTestTime.Add(-time.Minute), "api:2")
 				service.CreatedAt = baseline.CreatedAt
 			} else if !tc.initial {
@@ -209,6 +215,9 @@ func TestServiceWaiterRegistryPullFaultAtTimeout(t *testing.T) {
 			request := ServiceWaitRequest{
 				StackName: "app", ServiceNames: []string{"api"},
 				ExpectedSpecs: map[string]dockerswarm.ServiceSpec{"api": service.ServiceSpec},
+			}
+			if tc.reverify {
+				request.UnresolvedServices = []string{service.Name}
 			}
 			if !tc.initial {
 				request.Baseline = []swarm.StackService{baseline}

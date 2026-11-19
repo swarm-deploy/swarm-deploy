@@ -105,13 +105,16 @@ func sortTaskFailures(failed []swarm.ServiceTask) {
 func LatestUnrecoveredTaskAttempts(
 	spec dockerswarm.ServiceSpec, tasks []swarm.ServiceTask, since time.Time,
 ) []swarm.ServiceTask {
-	histories := serviceTaskHistories(spec, tasks, since, true)
+	return latestUnrecoveredAttempts(serviceTaskHistories(spec, tasks, since, true))
+}
+
+func latestUnrecoveredAttempts(histories map[string][]swarm.ServiceTask) []swarm.ServiceTask {
 	attempts := make([]swarm.ServiceTask, 0, len(histories))
 instances:
 	for _, history := range histories {
 		var latest swarm.ServiceTask
 		for _, task := range history {
-			if task.DesiredState == swarm.TaskStateRunning && task.CurrentState == swarm.TaskStateRunning {
+			if taskRecovered(task) {
 				continue instances
 			}
 			if preparingReplacement(task) {
@@ -127,6 +130,13 @@ instances:
 	}
 	sortTaskFailures(attempts)
 	return attempts
+}
+
+func taskRecovered(task swarm.ServiceTask) bool {
+	if task.DesiredState == swarm.TaskStateComplete {
+		return task.CurrentState == swarm.TaskStateRunning || task.CurrentState == swarm.TaskStateComplete
+	}
+	return task.DesiredState == swarm.TaskStateRunning && task.CurrentState == swarm.TaskStateRunning
 }
 
 func preparingReplacement(task swarm.ServiceTask) bool {

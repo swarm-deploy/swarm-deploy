@@ -51,38 +51,42 @@ func registryPullFault(diagnostic, message string) faults.Coded {
 	if message == "" {
 		return nil
 	}
-	base := registryResponseMessage(message)
+	first, rest, _ := strings.Cut(message, "\n")
+	code, summary := registryResponseCode(first)
+	// Moby can join several Registry responses with independent detail strings.
+	if rest != "" {
+		for line := range strings.SplitSeq(rest, "\n") {
+			line = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), registryErrorPrefix))
+			if next, _ := registryResponseCode(line); next != code {
+				return newRegistryPullError(diagnostic, true)
+			}
+		}
+	}
+	if code == faults.CodeImagePullDenied {
+		return &dockerFaultError{cause: errors.New(diagnostic), code: code, summary: summary}
+	}
+	return newRegistryPullError(diagnostic, code == "")
+}
+
+// registryResponseCode recognizes explicit permanent responses. Other responses may be retried.
+func registryResponseCode(line string) (faults.Code, string) {
+	line = strings.TrimSpace(line)
+	// Docker can also repeat the diagnostic in a colon-separated error chain.
+	if head, tail, ok := strings.Cut(line, ": "); ok &&
+		head == strings.TrimSpace(strings.TrimPrefix(tail, registryErrorPrefix)) {
+		line = head
+	}
+	base, _, _ := strings.Cut(line, " - ")
 	switch strings.ToLower(base) {
 	case "unauthorized", "denied", "authentication required", "requested access to the resource is denied",
 		"unauthorized: authentication required", "denied: requested access to the resource is denied",
 		"no basic auth credentials", "insufficient_scope: authorization failed":
-		return &dockerFaultError{cause: errors.New(diagnostic), code: faults.CodeImagePullDenied, summary: base}
+		return faults.CodeImagePullDenied, base
 	case "unsupported", "the operation is unsupported.":
-		return newRegistryPullError(diagnostic, false)
+		return faults.CodeImagePullFailed, base
 	default:
-		return newRegistryPullError(diagnostic, true)
+		return "", ""
 	}
-}
-
-func registryResponseMessage(message string) string {
-	first, rest, _ := strings.Cut(message, "\n")
-	first = strings.TrimSpace(first)
-	// Moby can join multiple registry errors. Treat them as a single standard
-	// response only when each line repeats the same diagnostic.
-	if rest != "" {
-		for line := range strings.SplitSeq(rest, "\n") {
-			if strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), registryErrorPrefix)) != first {
-				return ""
-			}
-		}
-	}
-	// Docker can also repeat the diagnostic in a colon-separated error chain.
-	if head, tail, ok := strings.Cut(first, ": "); ok &&
-		head == strings.TrimSpace(strings.TrimPrefix(tail, registryErrorPrefix)) {
-		first = head
-	}
-	base, _, _ := strings.Cut(first, " - ")
-	return base
 }
 
 func newRegistryPullError(diagnostic string, temporary bool) *registryPullError {

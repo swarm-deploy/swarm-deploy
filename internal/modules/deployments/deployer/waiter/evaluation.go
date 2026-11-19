@@ -14,7 +14,10 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 
-const waitingForUpdateStatus = "waiting for current rolling update status"
+const (
+	waitingForUpdateStatus      = "waiting for current rolling update status"
+	waitingForGlobalReplacement = "waiting for global replacement tasks to start"
+)
 
 func evaluateService(
 	name string, baseline, service swarm.StackService, tasks []swarm.ServiceTask, unresolved bool,
@@ -69,7 +72,7 @@ func evaluateService(
 	// an earlier failed desired spec left an unresolved verification obligation.
 	cutoff, generationPending := verificationTaskCutoff(baseline, service, mode, unresolved, generation)
 	if desired == 0 && (service.Mode != globalServiceMode || generationPending) {
-		return zeroDesiredProgress(progress, baseline, service, tasks)
+		return zeroDesiredProgress(progress, baseline, service, tasks, cutoff)
 	}
 
 	if generationPending {
@@ -93,9 +96,9 @@ func runningServiceProgress(
 	}
 	if progress.Desired == 0 {
 		// Swarm's global desired count omits exhausted tasks and replacements in restart delay.
-		progress = zeroDesiredProgress(progress, baseline, service, tasks)
+		progress = zeroDesiredProgress(progress, baseline, service, tasks, cutoff)
 		if progress.State == ServicePending {
-			progress.pendingRegistryPullFaults(service.ServiceSpec, tasks, cutoff, nil)
+			progress.pendingRegistryPullFaults(services.LatestUnrecoveredTaskAttempts(service.ServiceSpec, tasks, cutoff), nil)
 		}
 		return progress
 	}
@@ -114,7 +117,7 @@ func runningServiceProgress(
 		return progress
 	}
 	if allRunning {
-		progress.Message = "waiting for global replacement tasks to start"
+		progress.Message = waitingForGlobalReplacement
 		return progress
 	}
 	progress.Message = boundedDiagnostic(fmt.Sprintf(
@@ -187,11 +190,15 @@ func observedDesiredTasks(service swarm.StackService, tasks []swarm.ServiceTask)
 }
 
 func zeroDesiredProgress(
-	progress ServiceProgress, baseline, service swarm.StackService, tasks []swarm.ServiceTask,
+	progress ServiceProgress, baseline, service swarm.StackService, tasks []swarm.ServiceTask, cutoff time.Time,
 ) ServiceProgress {
 	if service.Mode == globalServiceMode && (baseline.ID != service.ID || baseline.DesiredTasks > 0 ||
 		!reflect.DeepEqual(baseline.ServiceSpec.TaskTemplate.Placement, service.ServiceSpec.TaskTemplate.Placement)) {
 		progress.Message = "waiting for global scheduler to create tasks"
+		return progress
+	}
+	if globalReplacementPending(service, tasks, cutoff) {
+		progress.Message = waitingForGlobalReplacement
 		return progress
 	}
 	active := countActiveTasks(tasks)

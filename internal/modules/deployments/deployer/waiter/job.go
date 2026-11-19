@@ -22,32 +22,44 @@ func jobProgress(
 		baseline.JobStatus.JobIteration == service.JobStatus.JobIteration {
 		return progress
 	}
-	// For global jobs Swarm reports outstanding desired tasks separately from
-	// completed tasks. Sum them so partial completion cannot look converged.
-	desired := service.DesiredTasks + service.CompletedTasks
-	if job := service.ServiceSpec.Mode.ReplicatedJob; job != nil {
-		desired = 1
-		if job.MaxConcurrent != nil {
-			desired = *job.MaxConcurrent
-		}
-		if job.TotalCompletions != nil {
-			desired = *job.TotalCompletions
-		}
-	}
+	desired := jobDesiredTasks(service, tasks)
 	progress.Desired = desired
 	if task, failed := services.JobTaskFailure(service.ServiceSpec, service.JobStatus, tasks); failed {
 		progress.failTask(task, "job task exited without further retries")
 		progress.Message = boundedDiagnostic(faults.SafeDiagnostic(errors.New(progress.Message)))
 		return progress
 	}
-	if service.Mode == globalJobServiceMode && desired == 0 {
-		return progress
-	}
-	if service.CompletedTasks >= desired {
+	if (desired > 0 || service.Mode != globalJobServiceMode) && service.CompletedTasks >= desired {
 		progress.State = ServiceReady
 		progress.Message = "service job completed"
-	} else {
+		return progress
+	}
+	attempts := services.LatestUnrecoveredJobAttempts(service.ServiceSpec, service.JobStatus, tasks)
+	progress.pendingRegistryPullFaults(attempts, nil)
+	if desired > 0 {
 		progress.Message = fmt.Sprintf("waiting for job completion: %d/%d completed", service.CompletedTasks, desired)
 	}
 	return progress
+}
+
+func jobDesiredTasks(service swarm.StackService, tasks []swarm.ServiceTask) uint64 {
+	if job := service.ServiceSpec.Mode.ReplicatedJob; job != nil {
+		if job.TotalCompletions != nil {
+			return *job.TotalCompletions
+		}
+		if job.MaxConcurrent != nil {
+			return *job.MaxConcurrent
+		}
+		return 1
+	}
+	// Swarm's global job summary omits replacements held at READY during restart delay.
+	var outstanding uint64
+	for _, task := range tasks {
+		if task.JobIteration != nil && *task.JobIteration == service.JobStatus.JobIteration &&
+			(task.DesiredState == swarm.TaskStateReady || task.DesiredState == swarm.TaskStateComplete) &&
+			task.CurrentState != swarm.TaskStateComplete {
+			outstanding++
+		}
+	}
+	return service.CompletedTasks + max(service.DesiredTasks, outstanding)
 }
