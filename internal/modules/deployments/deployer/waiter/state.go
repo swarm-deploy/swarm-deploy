@@ -57,6 +57,7 @@ func (s *waitState) observe(
 			progress.taskFault = previous.taskFault
 			progress.taskContext = previous.taskContext
 			progress.pendingTaskFaults = previous.pendingTaskFaults
+			progress.registryPullFaults = previous.registryPullFaults
 			progress.placementConstraints = previous.placementConstraints
 		}
 	}

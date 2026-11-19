@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	dockerswarm "github.com/docker/docker/api/types/swarm"
@@ -79,6 +80,29 @@ func TestServiceWaiterTerminalTaskFaults(t *testing.T) {
 	}
 }
 
+func TestGlobalRegistryFailureWithNoDesiredTasks(t *testing.T) {
+	service := testGlobalService("agent", "agent-id", 0, serviceWaitTestTime)
+	service.ServiceSpec.TaskTemplate.RestartPolicy = &dockerswarm.RestartPolicy{Condition: dockerswarm.RestartPolicyConditionNone}
+	task := testTask("rejected", 0, swarm.TaskStateShutdown, swarm.TaskStateRejected, service.CreatedAt)
+	task.Node, task.NodeInfo = "node-1", &swarm.Node{Availability: "active", Status: "ready"}
+	task.Spec = swarm.NewTaskSpec(service.ServiceSpec.TaskTemplate)
+	task.Error = "error from registry: unavailable"
+
+	manager := swarm.NewMockServiceManager(gomock.NewController(t))
+	manager.EXPECT().ListServices(gomock.Any(), gomock.Any()).Return([]swarm.StackService{service}, nil)
+	manager.EXPECT().ListTasks(gomock.Any(), service.ID).Return([]swarm.ServiceTask{task}, nil)
+	result, err := newTestServiceWaiter(manager).Wait(t.Context(), ServiceWaitRequest{
+		StackName: "app", ServiceNames: []string{service.Name},
+	})
+	require.ErrorIs(t, err, ErrConvergenceFailed)
+	require.Len(t, result.FailedTasks, 1)
+	assert.Equal(t, task.ID, result.FailedTasks[0].FailedTaskID)
+	causes := faults.Causes(err)
+	require.Len(t, causes, 1)
+	assert.Equal(t, faults.CodeImagePullFailed, causes[0].Code)
+	assert.True(t, causes[0].Temporary)
+}
+
 func TestServiceWaiterRegistryPullFaultAtTimeout(t *testing.T) {
 	for _, tc := range []struct {
 		name          string
@@ -88,6 +112,7 @@ func TestServiceWaiterRegistryPullFaultAtTimeout(t *testing.T) {
 		outsideSlot   bool
 		scaleUp       bool
 		global        bool
+		constrained   bool
 		initial       bool
 		globalRunning uint64
 		replacement   swarm.TaskState
@@ -110,6 +135,9 @@ func TestServiceWaiterRegistryPullFaultAtTimeout(t *testing.T) {
 			desiredState: swarm.TaskStateReady, wantCode: faults.CodeImagePullFailed, wantTemporary: true},
 		{name: "global replacement during restart delay", response: "unexpected response", replacement: swarm.TaskStatePreparing,
 			desiredState: swarm.TaskStateReady, global: true, wantCode: faults.CodeImagePullFailed, wantTemporary: true},
+		{name: "constrained global replacement without node metadata", response: "unexpected response",
+			replacement: swarm.TaskStatePreparing, desiredState: swarm.TaskStateReady, global: true, constrained: true,
+			wantCode: faults.CodeImagePullFailed, wantTemporary: true},
 		{name: "global replacement during restart delay with another node running", response: "unexpected response",
 			replacement: swarm.TaskStatePreparing, desiredState: swarm.TaskStateReady, global: true, globalRunning: 1,
 			wantCode: faults.CodeImagePullFailed, wantTemporary: true},
@@ -129,6 +157,9 @@ func TestServiceWaiterRegistryPullFaultAtTimeout(t *testing.T) {
 				service = testGlobalService("api", "api-id", tc.globalRunning, serviceWaitTestTime)
 				baseline = testGlobalService("api", "api-id", 1, serviceWaitTestTime.Add(-time.Minute))
 				baseline.ServiceSpec.TaskTemplate.ContainerSpec.Image = "agent:0"
+			}
+			if tc.constrained {
+				service.ServiceSpec.TaskTemplate.Placement = &dockerswarm.Placement{Constraints: []string{"node.role == worker"}}
 			}
 			if tc.scaleUp {
 				baseline = testReplicatedService("api", "api-id", 1, serviceWaitTestTime.Add(-time.Minute), "api:2")
@@ -200,6 +231,49 @@ func TestServiceWaiterRegistryPullFaultAtTimeout(t *testing.T) {
 			causes := faults.Causes(err)
 			require.Len(t, causes, 1)
 			assert.Equal(t, tc.wantTemporary, causes[0].Temporary)
+		})
+	}
+}
+
+func TestRegistryPullFaultAfterTemporaryTaskLookupFailure(t *testing.T) {
+	for _, tc := range []struct {
+		name            string
+		revisionChanged bool
+	}{
+		{name: "same revision retains observed cause"},
+		{name: "new revision drops old cause", revisionChanged: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				manager := swarm.NewMockServiceManager(gomock.NewController(t))
+				service := testReplicatedService("api", "api-id", 1, serviceWaitTestTime, "api:2")
+				task := testTask("rejected", 1, swarm.TaskStateShutdown, swarm.TaskStateRejected, service.CreatedAt)
+				task.Error = "error from registry: unavailable"
+				next := service
+				if tc.revisionChanged {
+					next.UpdatedAt = next.UpdatedAt.Add(time.Second)
+				}
+				manager.EXPECT().ListServices(gomock.Any(), gomock.Any()).Return([]swarm.StackService{service}, nil)
+				manager.EXPECT().ListTasks(gomock.Any(), service.ID).Return([]swarm.ServiceTask{task}, nil)
+				manager.EXPECT().ListServices(gomock.Any(), gomock.Any()).Return([]swarm.StackService{next}, nil).MinTimes(1)
+				lookupErr := temporaryDockerError()
+				manager.EXPECT().ListTasks(gomock.Any(), service.ID).Return(nil, lookupErr).MinTimes(1)
+
+				waiter := NewServiceWaiter(manager, nil, time.Second, 3*time.Second)
+				_, err := waiter.Wait(t.Context(), ServiceWaitRequest{
+					StackName: "app", ServiceNames: []string{service.Name},
+				})
+				require.ErrorIs(t, err, context.DeadlineExceeded)
+				require.ErrorIs(t, err, lookupErr)
+				causes := faults.Causes(err)
+				if tc.revisionChanged {
+					assert.Empty(t, causes)
+					return
+				}
+				require.Len(t, causes, 1)
+				assert.Equal(t, faults.CodeImagePullFailed, causes[0].Code)
+				assert.True(t, causes[0].Temporary)
+			})
 		})
 	}
 }

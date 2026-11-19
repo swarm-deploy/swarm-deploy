@@ -68,13 +68,8 @@ func evaluateService(
 	// A no-op sync of the restored spec verifies its existing tasks, even when
 	// an earlier failed desired spec left an unresolved verification obligation.
 	cutoff, generationPending := verificationTaskCutoff(baseline, service, mode, unresolved, generation)
-	if desired == 0 {
-		progress = zeroDesiredProgress(progress, baseline, service, tasks)
-		if !generationPending && service.Mode == globalServiceMode && progress.State == ServicePending {
-			// Swarm's global desired count omits replacements waiting to start.
-			progress.pendingRegistryPullFaults(service.ServiceSpec, tasks, cutoff, nil)
-		}
-		return progress
+	if desired == 0 && (service.Mode != globalServiceMode || generationPending) {
+		return zeroDesiredProgress(progress, baseline, service, tasks)
 	}
 
 	if generationPending {
@@ -82,11 +77,11 @@ func evaluateService(
 		return progress
 	}
 
-	return runningServiceProgress(progress, service, tasks, mode, cutoff, placementNodes)
+	return runningServiceProgress(progress, baseline, service, tasks, mode, cutoff, placementNodes)
 }
 
 func runningServiceProgress(
-	progress ServiceProgress, service swarm.StackService, tasks []swarm.ServiceTask,
+	progress ServiceProgress, baseline, service swarm.StackService, tasks []swarm.ServiceTask,
 	mode services.VerificationMode, cutoff time.Time, placementNodes map[string]*swarmkitapi.Node,
 ) ServiceProgress {
 	progress.Running = countVerifiedRunningTasks(
@@ -94,6 +89,14 @@ func runningServiceProgress(
 	)
 	if failed, terminal := services.TerminalServiceTaskFailure(service.ServiceSpec, tasks, cutoff); terminal {
 		progress.failTask(failed, "task failed with no restarts remaining")
+		return progress
+	}
+	if progress.Desired == 0 {
+		// Swarm's global desired count omits exhausted tasks and replacements in restart delay.
+		progress = zeroDesiredProgress(progress, baseline, service, tasks)
+		if progress.State == ServicePending {
+			progress.pendingRegistryPullFaults(service.ServiceSpec, tasks, cutoff, nil)
+		}
 		return progress
 	}
 	updating := updatePending(service.UpdateStatus)

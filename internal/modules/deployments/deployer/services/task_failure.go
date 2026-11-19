@@ -151,13 +151,13 @@ func serviceTaskHistories(
 	spec dockerswarm.ServiceSpec, tasks []swarm.ServiceTask, since time.Time, includeRestartingNodes bool,
 ) map[string][]swarm.ServiceTask {
 	byInstance := make(map[string][]swarm.ServiceTask)
-	desiredNodes := globalServiceTaskNodes(spec, tasks, includeRestartingNodes)
+	desiredNodes := globalServiceTaskNodes(spec, tasks, since, includeRestartingNodes)
 	replicas := uint64(1)
 	if spec.Mode.Replicated != nil && spec.Mode.Replicated.Replicas != nil {
 		replicas = *spec.Mode.Replicated.Replicas
 	}
 	for _, task := range tasks {
-		if task.CreatedAt.Before(since) || !task.Spec.CompareServiceTemplate(spec.TaskTemplate).Equal() {
+		if !matchesServiceRollout(task, spec.TaskTemplate, since) {
 			continue
 		}
 		key := task.Node
@@ -175,8 +175,12 @@ func serviceTaskHistories(
 	return byInstance
 }
 
+func matchesServiceRollout(task swarm.ServiceTask, template dockerswarm.TaskSpec, since time.Time) bool {
+	return !task.CreatedAt.Before(since) && task.Spec.CompareServiceTemplate(template).Equal()
+}
+
 func globalServiceTaskNodes(
-	spec dockerswarm.ServiceSpec, tasks []swarm.ServiceTask, includeRestartingNodes bool,
+	spec dockerswarm.ServiceSpec, tasks []swarm.ServiceTask, since time.Time, includeRestartingNodes bool,
 ) map[string]bool {
 	if spec.Mode.Global == nil {
 		return nil
@@ -191,29 +195,32 @@ func globalServiceTaskNodes(
 	}
 	desired := make(map[string]bool)
 	for _, task := range tasks {
-		active := task.DesiredState == swarm.TaskStateRunning ||
-			(includeRestartingNodes && task.DesiredState == swarm.TaskStateReady)
-		node := task.NodeInfo
-		if node == nil {
-			if active && len(constraints) == 0 {
-				desired[task.Node] = true
-			}
-			continue
-		}
-		if node.Availability == string(dockerswarm.NodeAvailabilityDrain) ||
-			node.Status == string(dockerswarm.NodeStateDown) {
-			continue
-		}
-		// Swarm also shuts down exhausted tasks on eligible nodes. Check current
-		// node attributes against the service constraints before keeping their history.
-		if (active ||
-			node.Availability == string(dockerswarm.NodeAvailabilityActive) ||
-			node.Availability == string(dockerswarm.NodeAvailabilityPause)) &&
-			constraint.NodeMatches(constraints, node.ConstraintNode()) {
+		if globalTaskNodeEligible(task, spec.TaskTemplate, constraints, since, includeRestartingNodes) {
 			desired[task.Node] = true
 		}
 	}
 	return desired
+}
+
+func globalTaskNodeEligible(
+	task swarm.ServiceTask, template dockerswarm.TaskSpec, constraints []constraint.Constraint,
+	since time.Time, includeRestartingNodes bool,
+) bool {
+	active := task.DesiredState == swarm.TaskStateRunning ||
+		(includeRestartingNodes && task.DesiredState == swarm.TaskStateReady)
+	node := task.NodeInfo
+	if node == nil {
+		// A current task assigned by Swarm identifies the node for pending pull diagnostics.
+		return active && (len(constraints) == 0 || (includeRestartingNodes && matchesServiceRollout(task, template, since)))
+	}
+	if node.Availability == string(dockerswarm.NodeAvailabilityDrain) || node.Status == string(dockerswarm.NodeStateDown) {
+		return false
+	}
+	// Swarm also shuts down exhausted tasks on eligible nodes. Check current
+	// node attributes against the service constraints before keeping their history.
+	eligible := active || node.Availability == string(dockerswarm.NodeAvailabilityActive) ||
+		node.Availability == string(dockerswarm.NodeAvailabilityPause)
+	return eligible && constraint.NodeMatches(constraints, node.ConstraintNode())
 }
 
 func terminalExhaustedTask(
