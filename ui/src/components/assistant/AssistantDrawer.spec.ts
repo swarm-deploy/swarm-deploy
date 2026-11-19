@@ -268,11 +268,14 @@ describe("Assistant Drawer", () => {
     await flushPromises();
 
     expect(wrapper.find(".assistant-suggestions").exists()).toBe(false);
+    expect(wrapper.find("#assistant-chat-send").exists()).toBe(false);
     await wrapper.get("textarea").setValue("Show cluster services");
+    expect(wrapper.find("#assistant-chat-send").exists()).toBe(true);
     await wrapper.get("form").trigger("submit");
     await flushPromises();
 
     expect(sendMessage).toHaveBeenCalledWith("Show cluster services");
+    expect(wrapper.find("#assistant-chat-send").exists()).toBe(false);
     expect(wrapper.text()).toContain("Show cluster services");
     expect(fetchMock).toHaveBeenCalledOnce();
     wrapper.unmount();

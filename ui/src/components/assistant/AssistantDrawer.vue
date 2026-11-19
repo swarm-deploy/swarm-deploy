@@ -649,7 +649,7 @@ function renderMessageText(role: string, text: string): string {
         @submit.prevent="submitHistoryMessage"
       >
         <p v-if="historyError" class="assistant-history-error" role="alert">{{ historyError }}</p>
-        <div class="assistant-history-composer">
+        <div class="assistant-composer">
           <textarea
             ref="historyMessageRef"
             v-model="historyMessage"
@@ -675,25 +675,29 @@ function renderMessageText(role: string, text: string): string {
       </form>
 
       <form v-if="!historyOpen" class="assistant-chat-form" @submit.prevent="submitMessage">
-        <textarea
-          ref="inputRef"
-          v-model="messageInput"
-          rows="1"
-          placeholder="Ask something..."
-          :disabled="pending"
-          @keydown="handleComposerKeydown"
-        />
-        <button
-          id="assistant-chat-send"
-          class="assistant-send-button"
-          type="submit"
-          aria-label="Send message"
-          :disabled="pending || !messageInput.trim()"
-        >
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M12 19V5M6 11l6-6 6 6" />
-          </svg>
-        </button>
+        <div class="assistant-composer">
+          <textarea
+            ref="inputRef"
+            v-model="messageInput"
+            rows="1"
+            placeholder="Ask the assistant…"
+            aria-label="Ask the assistant"
+            :disabled="pending"
+            @keydown="handleComposerKeydown"
+          />
+          <button
+            v-if="messageInput.trim()"
+            id="assistant-chat-send"
+            class="assistant-send-button"
+            type="submit"
+            aria-label="Send message"
+            :disabled="pending"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12 19V5M6 11l6-6 6 6" />
+            </svg>
+          </button>
+        </div>
       </form>
     </section>
   </div>
