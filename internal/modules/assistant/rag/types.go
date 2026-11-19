@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/conversation"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/model"
 )
 
@@ -15,8 +16,8 @@ type ServiceStore interface {
 
 // Embedder produces vector embeddings for text inputs.
 type Embedder interface {
-	// Embed returns vectors for each input item in the same order.
-	Embed(ctx context.Context, model string, inputs []string) ([][]float64, error)
+	// Embed returns ordered vectors and any usage reported by the provider, including on error.
+	Embed(ctx context.Context, model string, inputs []string) ([][]float64, conversation.TokenUsage, error)
 }
 
 // Observer records retrieval/indexing telemetry.

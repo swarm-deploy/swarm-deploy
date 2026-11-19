@@ -387,7 +387,8 @@ func (g *graph) retrievePlanNode(
 ) func(context.Context, []llms.MessageContent) ([]llms.MessageContent, error) {
 	return func(ctx context.Context, messages []llms.MessageContent) ([]llms.MessageContent, error) {
 		executionState.report("Finding relevant service context")
-		plan, err := g.retriever.Plan(ctx, executionState.userMessage)
+		plan, usage, err := g.retriever.Plan(ctx, executionState.userMessage)
+		executionState.usage.Add(usage)
 		if err != nil {
 			return messages, fmt.Errorf("retrieve plan: %w", err)
 		}
@@ -514,10 +515,10 @@ func (g *graph) generateAnswerNode(
 		)
 
 		completion, completionErr := g.chat.complete(ctx, request)
+		executionState.usage.Add(completion.Usage)
 		if completionErr != nil {
 			return messages, fmt.Errorf("chat completion: %w", completionErr)
 		}
-		executionState.usage.Add(completion.Usage)
 
 		if len(completion.ToolCalls) == 0 || toolLimitReached {
 			executionState.answer = strings.TrimSpace(completion.Content)

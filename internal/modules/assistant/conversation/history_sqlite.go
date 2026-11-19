@@ -73,7 +73,7 @@ func (s *SQLHistoryStorage) ReadChat(ctx context.Context, id string) (Chat, bool
 	return chat, found, err
 }
 
-// AppendWithUsage appends turns and usage atomically, creating metadata lazily.
+// SaveTurns appends turns and usage atomically, creating metadata lazily.
 func (s *SQLHistoryStorage) SaveTurns(ctx context.Context, id string, usage TokenUsage, turns ...Turn) error {
 	id = strings.TrimSpace(id)
 	if id == "" {
@@ -89,16 +89,22 @@ func (s *SQLHistoryStorage) SaveTurns(ctx context.Context, id string, usage Toke
 		}
 		now := time.Now().UTC()
 		if !exists {
-			chat = Chat{ID: id, Title: buildChatTitle(turns), CreatedAt: now}
+			chat = Chat{ID: id, Title: defaultChatTitle, CreatedAt: now, UpdatedAt: now}
 		}
-		chat.UpdatedAt = now
-		chat.Turns = append(chat.Turns, turns...)
 		if !usage.IsZero() {
 			if chat.Usage == nil {
 				chat.Usage = &TokenUsage{}
 			}
 			chat.Usage.Add(usage)
 		}
+		if len(turns) == 0 {
+			return s.saveChatSummary(ctx, chat)
+		}
+		if len(chat.Turns) == 0 && chat.Title == defaultChatTitle {
+			chat.Title = buildChatTitle(turns)
+		}
+		chat.UpdatedAt = now
+		chat.Turns = append(chat.Turns, turns...)
 		return s.Save(ctx, chat)
 	})
 }

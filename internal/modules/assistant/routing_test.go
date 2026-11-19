@@ -558,10 +558,14 @@ func TestAssistantRouterFailureStopsMainRequest(t *testing.T) {
 		name          string
 		routerContent string
 		emptyChoices  bool
+		missingUsage  bool
+		forbidden     bool
 	}{
 		{name: "unknown route", routerContent: "other"},
 		{name: "invalid response", routerContent: "services because the request concerns logs"},
 		{name: "router error", emptyChoices: true},
+		{name: "router error without usage", emptyChoices: true, missingUsage: true},
+		{name: "HTTP error with usage", forbidden: true},
 	}
 
 	for _, testCase := range testCases {
@@ -573,8 +577,16 @@ func TestAssistantRouterFailureStopsMainRequest(t *testing.T) {
 				requests = append(requests, decodeCapturedChatRequest(t, req))
 				w.Header().Set("Content-Type", "application/json")
 				if len(requests) == 1 {
-					if testCase.emptyChoices {
-						_ = json.MarshalWrite(w, map[string]any{"choices": []any{}})
+					if testCase.emptyChoices || testCase.forbidden {
+						body := map[string]any{"choices": []any{}}
+						if testCase.forbidden {
+							w.WriteHeader(http.StatusForbidden)
+							body = map[string]any{"error": map[string]any{"code": 403, "message": "Generation blocked"}}
+						}
+						if !testCase.missingUsage {
+							body["usage"] = map[string]any{"prompt_tokens": 3, "completion_tokens": 1, "total_tokens": 4}
+						}
+						_ = json.MarshalWrite(w, body)
 						return
 					}
 					writeChatResponse(t, w, testCase.routerContent, nil)
@@ -584,13 +596,33 @@ func TestAssistantRouterFailureStopsMainRequest(t *testing.T) {
 			}))
 			defer server.Close()
 
-			assistantService := newRoutingTestService(t, server.URL, store, tools, nil)
+			history := newSQLHistory(t)
+			assistantService := newRoutingTestServiceWithHistory(t, server.URL, store, tools, nil, history)
 			response := assistantService.Chat(context.Background(), ChatRequest{Message: "Inspect runtime"})
 			require.Equal(t, StatusFailed, response.Status)
 			assert.Contains(t, response.ErrorMessage, "Failed to generate assistant response")
 			require.Len(t, requests, 1)
 			assert.Equal(t, int64(0), listCalls.Load(), "router failure must not expand into service context")
 			assert.Empty(t, tools.calls)
+
+			chat, found, err := history.ReadChat(t.Context(), response.ConversationID)
+			require.NoError(t, err)
+			if testCase.missingUsage {
+				assert.False(t, found)
+				return
+			}
+			require.True(t, found)
+			assert.Empty(t, chat.Turns)
+			assert.Equal(t, &conversation.TokenUsage{InputTokens: 3, OutputTokens: 1, TotalTokens: 4}, chat.Usage)
+
+			followup := assistantService.Chat(t.Context(), ChatRequest{ConversationID: chat.ID, Message: "привет"})
+			require.Equal(t, StatusCompleted, followup.Status)
+			updated, found, err := history.ReadChat(t.Context(), chat.ID)
+			require.NoError(t, err)
+			require.True(t, found)
+			assert.Equal(t, "привет", updated.Title)
+			assert.Equal(t, chat.Usage, updated.Usage)
+			assert.Len(t, updated.Turns, 2)
 		})
 	}
 }

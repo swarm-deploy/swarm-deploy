@@ -660,7 +660,7 @@ func (g *graph) resolveOperationTarget(
 	})
 	if err != nil {
 		slog.WarnContext(ctx, "[assistant] service target resolver fallback failed", slog.Any("err", err))
-		return deterministic, conversation.TokenUsage{}
+		return deterministic, completion.Usage
 	}
 
 	resolution := validateTargetResolverDecision(services, completion.Content)

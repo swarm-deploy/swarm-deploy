@@ -3,15 +3,16 @@ package rag
 import (
 	"context"
 	"errors"
-	"go.uber.org/mock/gomock"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/conversation"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/enrichment/metadata"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/model"
 	webroute "github.com/swarm-deploy/webroute/api"
+	"go.uber.org/mock/gomock"
 )
 
 func serviceStore(t *testing.T, services []model.Info) *MockServiceStore {
@@ -25,8 +26,9 @@ type fakeEmbedder struct {
 	embedFn func(ctx context.Context, model string, inputs []string) ([][]float64, error)
 }
 
-func (f *fakeEmbedder) Embed(ctx context.Context, model string, inputs []string) ([][]float64, error) {
-	return f.embedFn(ctx, model, inputs)
+func (f *fakeEmbedder) Embed(ctx context.Context, model string, inputs []string) ([][]float64, conversation.TokenUsage, error) {
+	vectors, err := f.embedFn(ctx, model, inputs)
+	return vectors, conversation.TokenUsage{}, err
 }
 
 type observerCapture struct {
@@ -42,7 +44,7 @@ func (o *observerCapture) RecordRetrieveFallback(reason string) {
 func runPlan(t *testing.T, retriever *Retriever, query string) []model.Info {
 	t.Helper()
 
-	plan, err := retriever.Plan(context.Background(), query)
+	plan, _, err := retriever.Plan(context.Background(), query)
 	require.NoError(t, err, "plan retrieval")
 
 	switch plan.Branch() {
