@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"strings"
 	"time"
-	"unicode"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/conversation"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/guard"
@@ -32,7 +31,6 @@ const (
 const (
 	graphNodeGuard            = "guard"
 	graphNodeRoute            = "route"
-	graphNodeScopeResponse    = "scope_response"
 	graphNodeRetrievePlan     = "retrieve_plan"
 	graphNodeRetrieveLexical  = "retrieve_lexical"
 	graphNodeRetrieveSemantic = "retrieve_semantic"
@@ -223,7 +221,6 @@ func (g *graph) compile(executionState *graphExecutionState) (*langgraph.Runnabl
 func (g *graph) addGraphNodes(messageGraph *langgraph.MessageGraph, executionState *graphExecutionState) {
 	messageGraph.AddNode(graphNodeGuard, g.guardNode(executionState))
 	messageGraph.AddNode(graphNodeRoute, g.routeNode(executionState))
-	messageGraph.AddNode(graphNodeScopeResponse, g.scopeResponseNode(executionState))
 	messageGraph.AddNode(graphNodeRetrievePlan, g.retrievePlanNode(executionState))
 	messageGraph.AddNode(graphNodeRetrieveLexical, g.retrieveLexicalNode(executionState))
 	messageGraph.AddNode(graphNodeRetrieveSemantic, g.retrieveSemanticNode(executionState))
@@ -242,9 +239,6 @@ func (g *graph) addGraphEdges(messageGraph *langgraph.MessageGraph, executionSta
 			if executionState.operationHandled {
 				return langgraph.END
 			}
-			if executionState.route == RouteOutOfScope {
-				return graphNodeScopeResponse
-			}
 			if capabilitiesNeedServiceContext(executionState.capabilities) {
 				return graphNodeRetrievePlan
 			}
@@ -252,13 +246,11 @@ func (g *graph) addGraphEdges(messageGraph *langgraph.MessageGraph, executionSta
 			return graphNodePrepare
 		},
 		map[string]string{
-			langgraph.END:          langgraph.END,
-			graphNodeScopeResponse: graphNodeScopeResponse,
-			graphNodePrepare:       graphNodePrepare,
-			graphNodeRetrievePlan:  graphNodeRetrievePlan,
+			langgraph.END:         langgraph.END,
+			graphNodePrepare:      graphNodePrepare,
+			graphNodeRetrievePlan: graphNodeRetrievePlan,
 		},
 	)
-	messageGraph.AddEdge(graphNodeScopeResponse, langgraph.END)
 	messageGraph.AddConditionalEdges(
 		graphNodeRetrievePlan,
 		func(_ context.Context, _ []llms.MessageContent) string {
@@ -327,16 +319,6 @@ func (g *graph) addGraphEdges(messageGraph *langgraph.MessageGraph, executionSta
 	)
 }
 
-func (g *graph) scopeResponseNode(
-	executionState *graphExecutionState,
-) func(context.Context, []llms.MessageContent) ([]llms.MessageContent, error) {
-	return func(_ context.Context, messages []llms.MessageContent) ([]llms.MessageContent, error) {
-		executionState.report("Preparing response")
-		executionState.answer = outOfScopeResponse(executionState.userMessage)
-		return messages, nil
-	}
-}
-
 func (g *graph) routeNode(
 	executionState *graphExecutionState,
 ) func(context.Context, []llms.MessageContent) ([]llms.MessageContent, error) {
@@ -373,7 +355,7 @@ func (g *graph) routeNode(
 		executionState.route = route
 		executionState.profile = profile
 		executionState.capabilities = append([]Capability(nil), capabilities...)
-		executionState.effectiveToolSet = g.effectiveToolSet(executionState.capabilities)
+		executionState.effectiveToolSet = g.responseToolSet(route, capabilities)
 		executionState.report("Route: " + string(route))
 		if executionState.operation != nil {
 			answer, usage := g.startPendingOperation(ctx, executionState.conversationID, *executionState.operation)
@@ -688,18 +670,6 @@ func isGreeting(userMessage string) bool {
 
 	_, ok := helloMessages[normalized]
 	return ok
-}
-
-func outOfScopeResponse(userMessage string) string {
-	for _, char := range userMessage {
-		if unicode.In(char, unicode.Cyrillic) {
-			return "Я предназначен для работы со swarm-deploy и инфраструктурой Docker Swarm. " +
-				"Могу помочь с сервисами, деплоями, логами, состоянием кластера и диагностикой."
-		}
-	}
-
-	return "I'm designed for swarm-deploy and Docker Swarm infrastructure. " +
-		"I can help with services, deployments, logs, cluster health, and diagnostics."
 }
 
 func buildServicesContextMessage(services []model.Info) string {

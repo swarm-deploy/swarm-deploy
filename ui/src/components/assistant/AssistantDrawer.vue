@@ -16,6 +16,16 @@ const router = useRouter();
 
 const messageInput = ref("");
 const inputRef = ref<HTMLTextAreaElement | null>(null);
+const historyMessage = ref("");
+const historyMessageRef = ref<HTMLTextAreaElement | null>(null);
+const historyError = ref("");
+const historySending = ref(false);
+let historyRequest: { message: string; id: string } | undefined;
+const searchOpen = ref(false);
+const searchQuery = ref("");
+const searchRef = ref<HTMLInputElement | null>(null);
+const searchButtonRef = ref<HTMLButtonElement | null>(null);
+const viewportStyle = ref<Record<string, string>>();
 const bodyRef = ref<HTMLElement | null>(null);
 const suggestions = ref<AssistantSuggestion[]>([]);
 let suggestionsGeneration = 0;
@@ -91,8 +101,13 @@ const groupedChats = computed(() => {
   const now = new Date();
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
   const day = 24 * 60 * 60 * 1000;
+  const query = searchQuery.value.trim().toLocaleLowerCase();
 
   for (const chat of chats.value) {
+    if (query && !chat.title.toLocaleLowerCase().includes(query)) {
+      continue;
+    }
+
     const updatedAt = new Date(chat.updated_at).getTime();
     if (Number.isNaN(updatedAt)) {
       groups[2].chats.push(chat);
@@ -119,12 +134,47 @@ watch(
     }
 
     await nextTick();
-    if (!historyOpen.value) {
+    if (!historyOpen.value && route.query.assistant !== "chats") {
       inputRef.value?.focus();
     }
     scrollToBottom();
   },
 );
+
+watch(isOpen, (opened, _, onCleanup) => {
+  const viewport = window.visualViewport;
+  if (!opened || !viewport) {
+    return;
+  }
+
+  function updateViewport() {
+    if (viewport && viewport.scale === 1) {
+      viewportStyle.value = {
+        "--assistant-viewport-top": `${viewport.offsetTop}px`,
+        "--assistant-viewport-height": `${viewport.height}px`,
+      };
+    } else {
+      viewportStyle.value = undefined;
+    }
+  }
+
+  updateViewport();
+  viewport.addEventListener("resize", updateViewport);
+  viewport.addEventListener("scroll", updateViewport);
+  onCleanup(() => {
+    viewport.removeEventListener("resize", updateViewport);
+    viewport.removeEventListener("scroll", updateViewport);
+    viewportStyle.value = undefined;
+  });
+}, { immediate: true });
+
+watch([historyMessage, historyMessageRef], () => {
+  const input = historyMessageRef.value;
+  if (input && !window.CSS?.supports("field-sizing", "content")) {
+    input.style.height = "auto";
+    input.style.height = `${input.scrollHeight + input.offsetHeight - input.clientHeight}px`;
+  }
+}, { flush: "post" });
 
 watch(
   () => messages.value.length,
@@ -210,10 +260,40 @@ async function closeDrawer() {
   await router.push({ query: assistantQuery(undefined) });
 }
 
+async function toggleSearch() {
+  searchOpen.value = !searchOpen.value;
+  searchQuery.value = "";
+  usageOpenChatID.value = "";
+  await nextTick();
+  if (searchOpen.value) {
+    searchRef.value?.focus();
+  } else {
+    searchButtonRef.value?.focus();
+  }
+}
+
+function clearSearch() {
+  searchQuery.value = "";
+  searchRef.value?.focus();
+}
+
+function handleEscape() {
+  if (searchOpen.value) {
+    void toggleSearch();
+  } else {
+    void closeDrawer();
+  }
+}
+
 watch(
   () => route.query.assistant,
   async (assistant) => {
     const value = typeof assistant === "string" ? assistant : "";
+
+    if (value !== "chats") {
+      searchOpen.value = false;
+      searchQuery.value = "";
+    }
 
     if (!value) {
       uiStore.closeAssistantDrawer();
@@ -240,6 +320,49 @@ watch(
   },
   { immediate: true },
 );
+
+async function submitHistoryMessage() {
+  const message = historyMessage.value.trim();
+  if (!message || pending.value) {
+    return;
+  }
+
+  historyError.value = "";
+  // Reuse the request ID when a transport error leaves the outcome unknown.
+  if (historyRequest?.message !== message) {
+    historyRequest = {
+      message,
+      id: crypto.getRandomValues(new Uint32Array(4)).join("-"),
+    };
+  }
+
+  try {
+    historySending.value = true;
+    const response = await assistantStore.sendFirstMessage(message, historyRequest.id);
+    historyRequest = undefined;
+    if (response.status !== "completed" || !response.conversation_id) {
+      historyError.value = response.error_message || "Could not start a chat. Try again.";
+      return;
+    }
+
+    historyMessage.value = "";
+    if (route.query.assistant === "chats") {
+      assistantStore.newChat();
+      assistantStore.conversationID = response.conversation_id;
+      assistantStore.pushMessage("user", message);
+      assistantStore.pushMessage(
+        "assistant",
+        response.answer || "Assistant returned empty answer.",
+        response.activity?.length ? response.activity : undefined,
+      );
+      await router.push({ query: assistantQuery(response.conversation_id) });
+    }
+  } catch (error) {
+    historyError.value = error instanceof Error ? error.message : "Could not start a chat. Try again.";
+  } finally {
+    historySending.value = false;
+  }
+}
 
 async function submitMessage() {
   const text = messageInput.value.trim();
@@ -285,13 +408,35 @@ function renderMessageText(role: string, text: string): string {
   <div
     class="assistant-drawer-layer"
     :class="{ open: isOpen, pinned: uiStore.assistantPinned }"
-    @keydown.esc="closeDrawer"
+    :style="viewportStyle"
+    @keydown.esc.prevent="handleEscape"
   >
     <div class="assistant-drawer-overlay" @click="closeDrawer" />
-    <section class="assistant-drawer" aria-label="Assistant Drawer">
+    <section class="assistant-drawer" aria-label="Assistant Drawer" :inert="!isOpen">
       <header class="assistant-drawer-header">
         <template v-if="historyOpen">
-          <div class="assistant-header-identity">
+          <div v-if="searchOpen" class="assistant-history-search">
+            <input
+              ref="searchRef"
+              v-model="searchQuery"
+              type="search"
+              placeholder="Search chats"
+              aria-label="Search chats"
+            />
+            <button
+              v-if="searchQuery"
+              type="button"
+              class="assistant-icon-button"
+              aria-label="Clear search"
+              title="Clear search"
+              @click="clearSearch"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M6 6l12 12M18 6 6 18" />
+              </svg>
+            </button>
+          </div>
+          <div v-else class="assistant-header-identity">
             <span class="assistant-avatar" aria-hidden="true">AI</span>
             <div class="assistant-header-copy">
               <h2>Assistant</h2>
@@ -319,6 +464,24 @@ function renderMessageText(role: string, text: string): string {
         </template>
 
         <div class="assistant-drawer-actions">
+          <button
+            v-if="historyOpen"
+            ref="searchButtonRef"
+            type="button"
+            class="assistant-icon-button assistant-search-button"
+            :aria-expanded="searchOpen"
+            :aria-label="searchOpen ? 'Close search' : 'Search chats'"
+            :title="searchOpen ? 'Close search' : 'Search chats'"
+            @click="toggleSearch"
+          >
+            <svg v-if="searchOpen" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="m15 18-6-6 6-6" />
+            </svg>
+            <svg v-else viewBox="0 0 24 24" aria-hidden="true">
+              <circle cx="10.5" cy="10.5" r="5.5" />
+              <path d="m15 15 4 4" />
+            </svg>
+          </button>
           <button
             v-if="!historyOpen"
             type="button"
@@ -370,7 +533,9 @@ function renderMessageText(role: string, text: string): string {
         </button>
 
         <p v-if="historyLoading" class="assistant-history-empty">Loading chats...</p>
-        <p v-else-if="chats.length === 0" class="assistant-history-empty">No previous chats yet.</p>
+        <p v-else-if="groupedChats.length === 0" class="assistant-history-empty">
+          {{ searchQuery.trim() ? "No matching chats." : "No previous chats yet." }}
+        </p>
 
         <section v-for="group in groupedChats" v-else :key="group.label" class="assistant-history-group">
           <h3>{{ group.label }}</h3>
@@ -378,7 +543,6 @@ function renderMessageText(role: string, text: string): string {
             v-for="chat in group.chats"
             :key="chat.id"
             class="assistant-history-item"
-            :class="{ active: chat.id === assistantStore.conversationID }"
           >
             <button
               type="button"
@@ -477,6 +641,38 @@ function renderMessageText(role: string, text: string): string {
           </div>
         </div>
       </div>
+
+      <form
+        v-if="historyOpen && !searchOpen"
+        class="assistant-history-form"
+        :aria-busy="historySending"
+        @submit.prevent="submitHistoryMessage"
+      >
+        <p v-if="historyError" class="assistant-history-error" role="alert">{{ historyError }}</p>
+        <div class="assistant-history-composer">
+          <textarea
+            ref="historyMessageRef"
+            v-model="historyMessage"
+            rows="1"
+            placeholder="Ask the assistant…"
+            aria-label="Ask the assistant"
+            :readonly="pending"
+            @input="historyError = ''"
+          />
+          <button
+            v-if="historyMessage.trim()"
+            class="assistant-send-button"
+            type="submit"
+            :aria-label="historySending ? 'Sending message' : 'Send message'"
+            :disabled="pending"
+          >
+            <span v-if="historySending" class="assistant-activity-spinner" aria-hidden="true" />
+            <svg v-else viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12 19V5M6 11l6-6 6 6" />
+            </svg>
+          </button>
+        </div>
+      </form>
 
       <form v-if="!historyOpen" class="assistant-chat-form" @submit.prevent="submitMessage">
         <textarea

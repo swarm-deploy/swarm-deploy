@@ -182,12 +182,13 @@ secret creation-only fields are owned by the existing reconciler, not copied
 into the conversion result. Manager lookups are not an atomic Docker snapshot:
 resource deletion during a future apply must still be handled by its executor.
 
-Compatibility assertions use Docker CLI v28.3.3's
+The native converter uses Docker CLI v28.3.3's
 [service conversion](https://github.com/docker/cli/blob/v28.3.3/cli/compose/convert/service.go),
 [volume conversion](https://github.com/docker/cli/blob/v28.3.3/cli/compose/convert/volume.go)
 and [stack labels/network conversion](https://github.com/docker/cli/blob/v28.3.3/cli/compose/convert/compose.go)
-as references. Unit tests do not execute Docker CLI or require a cluster. No
-complete Docker CLI/Compose loader is added to the runtime dependency graph.
+as references. The differential tests use the version pinned in
+[`tools/compatibility/go.mod`](../tools/compatibility/go.mod) and require no
+Docker executable or cluster.
 
 ## Source value handling
 

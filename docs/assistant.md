@@ -9,9 +9,9 @@ Assistant is available only when `assistant.enabled: true`.
 
 ## Request routing
 
-Each non-greeting message is classified by a small tool-free LLM request into one of these capability routes: `general`, `platform`, `services`, `cluster`, `deployments`, `diagnostics`, or `lookups`. The router composes narrow capabilities, including `deployment_history` for desired-state deployments and their attempts, and `alert_management` for operational incidents. The router uses the configured assistant model and a few recent conversation turns so short follow-ups retain their original intent. Greetings use a local fast-path and do not call the router.
+For a regular chat turn the configured model classifies the current message and up to six recent messages without calling tools. The selected profile is one of `general`, `platform`, `services`, `cluster`, `deployments`, `diagnostics`, `lookups`, or `out_of_scope`. Exact greetings and acknowledgements use a local fast path. An invalid router response fails the request.
 
-The selected route controls the additional prompt fragment, available tools, and whether service metadata retrieval runs. Service RAG is enabled only for `services` and `diagnostics`. If routing fails or returns an invalid route, the assistant logs and counts the fallback reason, then continues with the broad compatibility profile.
+`platform` covers stable infrastructure guidance as well as swarm-deploy itself. Questions about the actual installation can request the configuration capability. Capabilities select operational tools independently of the response profile; only `service_context` requests service catalog retrieval. Pure platform guidance and a preliminary `out_of_scope` decision reach the response model with conversation history and only the security-report tool. This lets the assistant correct a misunderstanding while keeping unrelated requests outside its specialization.
 
 ## Terminal service actions
 
@@ -108,6 +108,7 @@ Completed user/assistant turns are persisted in the `assistant_chats` and `assis
 - `service_replicas_set` - updates desired replicas count for a specific stack service
 - `service_restart_trigger` - restarts service by scaling replicas to `0` and restoring previous count
 - `service_webroute_ping` - checks web routes for a specific service from `service.store` and returns HTTP results for each route
+- `tls_certificate_check` - checks a live TLS endpoint and validates its server certificate against the system trust store
 - `dependency_graph_get` - returns service dependency graph with nodes, endpoints, and direct dependencies inferred from service environment variables
 - `registry_image_version_get` - resolves актуальный тег и digest Docker-образа в registry (Docker Hub и совместимые)
   - registry is selected automatically by tool logic
@@ -135,6 +136,38 @@ Tool access is controlled by `assistant.tools`:
 - the effective allow-list is checked both when tools are sent to the model and immediately before execution
 
 Each assistant run permits at most three tool execution rounds. After the third round, the model receives one tool-free instruction to produce its final answer from the evidence already collected. Any further tool request is not executed, and the run terminates gracefully instead of restarting the tool loop.
+
+## TLS certificate checks
+
+Ask “When does the TLS certificate for registry.example.com expire?” or “Проверь TLS на 10.0.0.15:8443 с именем api.example.com”. The `tls` capability is available for focused lookups and diagnostics. General questions about TLS can be answered without a live check. Add `tls_certificate_check` to `assistant.tools` if you use an explicit tool allowlist.
+
+| Argument | Meaning |
+| --- | --- |
+| `host` | Required DNS hostname or IPv4/IPv6 address without a scheme, path, or port. Use an ASCII DNS name for internationalized domains. |
+| `port` | Optional TCP port from 1 to 65535. Defaults to 443. |
+| `server_name` | Optional certificate identity. A DNS name is also sent as SNI. Defaults to `host`. With an IP identity the check uses the IP SAN and sends no SNI. |
+
+```json
+{"host":"registry.example.com"}
+```
+
+```json
+{"host":"10.0.0.15","port":8443,"server_name":"api.example.com"}
+```
+
+The check runs from the swarm-deploy process and accepts any reachable public or internal endpoint, including loopback. It attempts one direct TLS handshake without sending HTTP or other application data. TCP connection and handshake each have a five-second timeout and honor request cancellation. The client offers TLS 1.2 or later using Go's supported suites. The result reports the negotiated version and cipher suite for that handshake.
+
+| Result | Meaning |
+| --- | --- |
+| `connection` | Effective target, TCP connection status, handshake status if attempted, and the version and cipher suite on success. |
+| `certificate` | Leaf subject, issuer, DNS and IP SANs, UTC validity dates, signed remaining seconds, self-signature status, and hex SHA-256 fingerprint. Available certificate details survive handshake or validation failures. |
+| `chain` | Certificates presented by the peer and the result of path and signature verification against the process's system trust store at the time of the check. Path verification is independent of the requested hostname and TLS Server Authentication usage. |
+| `validation` | Leaf validity period, hostname or IP SAN match, TLS Server Authentication suitability when known, and overall certificate status of `valid`, `invalid`, or `not_checked`. Unavailable individual results are omitted. Certificate status describes X.509 validation. Check the connection section separately for handshake success. |
+| `warnings` / `errors` | Diagnostic codes with a stage and technical detail. Network failures may also include a reason of `timeout` or `canceled`. |
+
+`connection_failed` and `tls_handshake_failed` identify different network stages. Certificate findings include `certificate_expired`, `certificate_not_yet_valid`, `hostname_mismatch`, `unknown_authority`, and `server_auth_incompatible`. The tool reports `certificate_expiring_soon` for a currently valid leaf expiring within 30 days. It reports `incomplete_chain` when verified paths prove that the peer omitted an intermediate. If the available certificates cannot establish why trust verification failed, the result retains `unknown_authority` and the verifier's detail. A root trust anchor may be omitted from the peer's certificate list.
+
+The check covers one endpoint per call. It does not perform OCSP/CRL checks, load PEM files, fetch issuer certificates, scan networks, schedule monitoring, renew certificates, or create Alerts or Recommendations.
 
 ## Questions about running configuration
 

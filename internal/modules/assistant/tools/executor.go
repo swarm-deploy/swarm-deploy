@@ -83,6 +83,7 @@ func NewExecutor(
 			swarmService.Services, resourcesModule.NodeStore, alertModule.Store, deployments,
 		),
 		NewDNSNameResolve(),
+		NewTLSCertificateCheck(),
 		NewPingWebRoutes(resourcesModule.ServiceStore),
 		NewGetDependencyGraph(resourcesModule.ServiceStore),
 		NewRecommendationList(recommendations),
