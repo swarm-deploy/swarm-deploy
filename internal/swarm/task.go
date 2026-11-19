@@ -31,6 +31,13 @@ func (t ServiceTask) Fault() faults.Coded {
 		if message, found := strings.CutPrefix(t.Error, registryErrorPrefix); found {
 			return registryPullFault(t.Error, strings.TrimSpace(message))
 		}
+		// The classic image store can surface a Registry error code without the prefix.
+		switch t.Error {
+		case "unsupported", "unsupported: The operation is unsupported.":
+			return newRegistryPullError(t.Error, false)
+		case "denied", "unauthorized":
+			return &dockerFaultError{cause: errors.New(t.Error), code: faults.CodeImagePullDenied, summary: t.Error}
+		}
 	}
 	if code == "" {
 		return nil

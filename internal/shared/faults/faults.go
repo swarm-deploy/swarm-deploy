@@ -3,6 +3,7 @@ package faults
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"regexp"
@@ -26,6 +27,10 @@ var diagnosticCredential = regexp.MustCompile(
 
 var diagnosticField = regexp.MustCompile(
 	`((?:^|[\t ])([[:alnum:]_.-]+)[\t ]*=[\t ]*)("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|[^\s'"<>]+)`,
+)
+
+var diagnosticJSONField = regexp.MustCompile(
+	`(("(?:[^"\\]|\\.)+")\s*:\s*)("(?:[^"\\]|\\.)*"|-?[0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?)`,
 )
 
 var diagnosticAuthorization = regexp.MustCompile(
@@ -69,6 +74,18 @@ func sanitizeDiagnostic(text string) string {
 	if diagnostic == "" {
 		return ""
 	}
+	// Registry errors can embed JSON in otherwise plain-text diagnostics.
+	diagnostic = diagnosticJSONField.ReplaceAllStringFunc(diagnostic, func(field string) string {
+		parts := diagnosticJSONField.FindStringSubmatch(field)
+		var key string
+		if err := json.Unmarshal([]byte(parts[2]), &key); err != nil {
+			return field
+		}
+		if _, sensitive := envmasker.Mask(key, envmasker.MaskValue); sensitive || strings.EqualFold(key, "authorization") {
+			return parts[1] + `"` + envmasker.MaskValue + `"`
+		}
+		return field
+	})
 	diagnostic = bareDSNUserInfo.ReplaceAllString(diagnostic, envmasker.MaskValue+":"+envmasker.MaskValue+"${1}")
 	diagnostic = diagnosticAuthorization.ReplaceAllString(diagnostic, "${1}"+envmasker.MaskValue)
 	diagnostic = diagnosticField.ReplaceAllStringFunc(diagnostic, func(field string) string {

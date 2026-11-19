@@ -196,6 +196,12 @@ func TestServiceTaskRegistryPullFault(t *testing.T) {
 		{"error from registry: The operation is unsupported.: The operation is unsupported.", faults.CodeImagePullFailed, false},
 		{"error from registry: unsupported\nerror from registry: unsupported", faults.CodeImagePullFailed, false},
 		{"error from registry: failed to prepare extraction snapshot: lease does not exist", faults.CodeImageExtractionFailed, false},
+		{"unsupported", faults.CodeImagePullFailed, false},
+		{"unsupported: The operation is unsupported.", faults.CodeImagePullFailed, false},
+		{"denied", faults.CodeImagePullDenied, false},
+		{"unauthorized", faults.CodeImagePullDenied, false},
+		{"unknown: backend unavailable", "", false},
+		{"unsupported container runtime", "", false},
 		{"error from registry:   ", "", false},
 		{"while creating task: error from registry: unsupported", "", false},
 		{"pull access denied for app, repository does not exist or may require 'docker login'", "", false},
@@ -239,9 +245,11 @@ func TestServiceTaskRegistryPullFaultRequiresRejectedContainerWithImage(t *testi
 		{"pending container", TaskStatePending, &dockerswarm.ContainerSpec{Image: "api:2"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			task := ServiceTask{CurrentState: tc.state, Error: "error from registry: unsupported",
-				Spec: NewTaskSpec(dockerswarm.TaskSpec{ContainerSpec: tc.spec})}
-			assert.Nil(t, task.Fault())
+			for _, diagnostic := range []string{"error from registry: unsupported", "unsupported", "denied"} {
+				task := ServiceTask{CurrentState: tc.state, Error: diagnostic,
+					Spec: NewTaskSpec(dockerswarm.TaskSpec{ContainerSpec: tc.spec})}
+				assert.Nil(t, task.Fault(), diagnostic)
+			}
 		})
 	}
 	assert.Nil(t, (ServiceTask{

@@ -37,6 +37,7 @@ func TestDockerFaultsExtractedIntoAlertFindings(t *testing.T) {
 		{state: swarm.TaskStateRejected, diagnostic: "error from registry: unexpected response token=private-value", code: faults.CodeImagePullFailed, temporary: true},
 		{state: swarm.TaskStateRejected, diagnostic: "error from registry: unexpected response password=private-value", code: faults.CodeImagePullFailed, interrupted: true, temporary: true},
 		{state: swarm.TaskStateRejected, diagnostic: "error from registry: unsupported - token=private-value", code: faults.CodeImagePullFailed, interrupted: true},
+		{state: swarm.TaskStateRejected, diagnostic: `error from registry: backend unavailable {"token":"private-value"}`, code: faults.CodeImagePullFailed, interrupted: true, temporary: true},
 	} {
 		t.Run(tc.diagnostic, func(t *testing.T) {
 			task := swarm.ServiceTask{CurrentState: tc.state, Error: tc.diagnostic,
@@ -89,7 +90,7 @@ func TestDockerFaultsExtractedIntoAlertFindings(t *testing.T) {
 				wantSummary = "Container image extraction failed: containerd snapshot lease is missing. Retry deployment; check for concurrent image cleanup."
 			case faults.CodeImagePullFailed:
 				wantSummary = "Docker could not pull the image."
-				assert.Contains(t, action.Alert.Message, "=****")
+				assert.Contains(t, action.Alert.Message, "****")
 			}
 			assert.Equal(t, []model.Finding{{Code: tc.code, Summary: wantSummary}}, action.Findings)
 		})

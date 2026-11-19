@@ -129,7 +129,7 @@ func (p *ServiceProgress) pendingSchedulingFault(
 }
 
 func (p *ServiceProgress) pendingFailureFaults(
-	spec dockerswarm.ServiceSpec, tasks []swarm.ServiceTask, cutoff time.Time,
+	spec dockerswarm.ServiceSpec, tasks []swarm.ServiceTask, cutoff time.Time, matchesTask func(swarm.ServiceTask) bool,
 ) swarm.ServiceTask {
 	failed := services.UnreplacedServiceTaskFailures(spec, tasks, cutoff)
 	var latest swarm.ServiceTask
@@ -157,7 +157,7 @@ func (p *ServiceProgress) pendingFailureFaults(
 	}
 	// Swarm's global desired count omits replacements waiting to start.
 	if p.Running < p.Desired || spec.Mode.Global != nil {
-		p.pendingRegistryPullFaults(services.LatestUnrecoveredTaskAttempts(spec, tasks, cutoff), reportedDenials)
+		p.pendingRegistryPullFaults(services.LatestUnrecoveredTaskAttempts(spec, tasks, cutoff, matchesTask), reportedDenials)
 	}
 	return latest
 }

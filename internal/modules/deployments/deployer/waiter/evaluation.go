@@ -71,8 +71,10 @@ func evaluateService(
 	// A no-op sync of the restored spec verifies its existing tasks, even when
 	// an earlier failed desired spec left an unresolved verification obligation.
 	cutoff, generationPending := verificationTaskCutoff(baseline, service, mode, unresolved, generation)
+	matchesTask := verificationTaskMatcher(service.ServiceSpec.TaskTemplate, mode, cutoff, placementNodes)
+	replacementPending := service.Mode == globalServiceMode && globalReplacementPending(tasks, matchesTask)
 	if desired == 0 && (service.Mode != globalServiceMode || generationPending) {
-		return zeroDesiredProgress(progress, baseline, service, tasks, cutoff)
+		return zeroDesiredProgress(progress, baseline, service, tasks, replacementPending)
 	}
 
 	if generationPending {
@@ -80,38 +82,41 @@ func evaluateService(
 		return progress
 	}
 
-	return runningServiceProgress(progress, baseline, service, tasks, mode, cutoff, placementNodes)
+	return runningServiceProgress(progress, baseline, service, tasks, cutoff, matchesTask, replacementPending)
 }
 
 func runningServiceProgress(
 	progress ServiceProgress, baseline, service swarm.StackService, tasks []swarm.ServiceTask,
-	mode services.VerificationMode, cutoff time.Time, placementNodes map[string]*swarmkitapi.Node,
+	cutoff time.Time, matchesTask func(swarm.ServiceTask) bool, replacementPending bool,
 ) ServiceProgress {
-	progress.Running = countVerifiedRunningTasks(
-		tasks, service.ServiceSpec.TaskTemplate, mode, cutoff, placementNodes,
-	)
+	for _, task := range tasks {
+		if task.DesiredState == swarm.TaskStateRunning && task.CurrentState == swarm.TaskStateRunning && matchesTask(task) {
+			progress.Running++
+		}
+	}
 	if failed, terminal := services.TerminalServiceTaskFailure(service.ServiceSpec, tasks, cutoff); terminal {
 		progress.failTask(failed, "task failed with no restarts remaining")
 		return progress
 	}
 	if progress.Desired == 0 {
 		// Swarm's global desired count omits exhausted tasks and replacements in restart delay.
-		progress = zeroDesiredProgress(progress, baseline, service, tasks, cutoff)
+		progress = zeroDesiredProgress(progress, baseline, service, tasks, replacementPending)
 		if progress.State == ServicePending {
-			progress.pendingRegistryPullFaults(services.LatestUnrecoveredTaskAttempts(service.ServiceSpec, tasks, cutoff), nil)
+			attempts := services.LatestUnrecoveredTaskAttempts(service.ServiceSpec, tasks, cutoff, matchesTask)
+			progress.pendingRegistryPullFaults(attempts, nil)
 		}
 		return progress
 	}
 	updating := updatePending(service.UpdateStatus)
 	allRunning := !updating && progress.Running == progress.Desired && countDesiredTasks(tasks) == progress.Desired
-	if allRunning && !globalReplacementPending(service, tasks, cutoff) {
+	if allRunning && !replacementPending {
 		progress.State = ServiceReady
 		progress.Message = "service converged"
 		return progress
 	}
 
 	progress.pendingSchedulingFault(tasks, service.ServiceSpec.TaskTemplate, cutoff)
-	failed := progress.pendingFailureFaults(service.ServiceSpec, tasks, cutoff)
+	failed := progress.pendingFailureFaults(service.ServiceSpec, tasks, cutoff, matchesTask)
 	if updating {
 		progress.Message = updateProgressMessage(service.UpdateStatus)
 		return progress
@@ -129,14 +134,10 @@ func runningServiceProgress(
 	return progress
 }
 
-func globalReplacementPending(service swarm.StackService, tasks []swarm.ServiceTask, cutoff time.Time) bool {
-	if service.Mode != globalServiceMode {
-		return false
-	}
-	// Swarm counts only desired RUNNING tasks, omitting replacements in restart delay.
+func globalReplacementPending(tasks []swarm.ServiceTask, matchesTask func(swarm.ServiceTask) bool) bool {
+	// Swarm's desired count omits replacements in restart delay.
 	return slices.ContainsFunc(tasks, func(task swarm.ServiceTask) bool {
-		return task.DesiredState == swarm.TaskStateReady &&
-			!task.CreatedAt.Before(cutoff) && task.Spec.CompareServiceTemplate(service.ServiceSpec.TaskTemplate).Equal()
+		return task.DesiredState == swarm.TaskStateReady && matchesTask(task)
 	})
 }
 
@@ -190,14 +191,14 @@ func observedDesiredTasks(service swarm.StackService, tasks []swarm.ServiceTask)
 }
 
 func zeroDesiredProgress(
-	progress ServiceProgress, baseline, service swarm.StackService, tasks []swarm.ServiceTask, cutoff time.Time,
+	progress ServiceProgress, baseline, service swarm.StackService, tasks []swarm.ServiceTask, replacementPending bool,
 ) ServiceProgress {
 	if service.Mode == globalServiceMode && (baseline.ID != service.ID || baseline.DesiredTasks > 0 ||
 		!reflect.DeepEqual(baseline.ServiceSpec.TaskTemplate.Placement, service.ServiceSpec.TaskTemplate.Placement)) {
 		progress.Message = "waiting for global scheduler to create tasks"
 		return progress
 	}
-	if globalReplacementPending(service, tasks, cutoff) {
+	if replacementPending {
 		progress.Message = waitingForGlobalReplacement
 		return progress
 	}
@@ -395,73 +396,34 @@ func verificationTaskCutoff(
 	return service.UpdateStatus.StartedAt, false
 }
 
-func countVerifiedRunningTasks(
-	tasks []swarm.ServiceTask, template dockerswarm.TaskSpec, mode services.VerificationMode,
-	cutoff time.Time, nodes map[string]*swarmkitapi.Node,
-) uint64 {
-	switch mode {
-	case services.VerifyExistingTasks, services.VerifyPlacementCompatibleTasks:
-		return countPlacementCompatibleRunningTasks(tasks, template, nodes, mode == services.VerifyPlacementCompatibleTasks)
-	case services.VerifyNewGeneration:
-		return countMatchingCurrentRunningTasks(tasks, template, cutoff)
-	case services.VerifyUnspecified:
-		return 0
-	default:
-		return 0
-	}
-}
-
-func countMatchingCurrentRunningTasks(
-	tasks []swarm.ServiceTask,
-	template dockerswarm.TaskSpec,
-	cutoff time.Time,
-) uint64 {
-	var count uint64
-	for _, task := range tasks {
-		if task.DesiredState == swarm.TaskStateRunning && task.CurrentState == swarm.TaskStateRunning &&
-			!task.CreatedAt.Before(cutoff) && task.Spec.CompareServiceTemplate(template).Equal() {
-			count++
+func verificationTaskMatcher(
+	template dockerswarm.TaskSpec, mode services.VerificationMode, cutoff time.Time, nodes map[string]*swarmkitapi.Node,
+) func(swarm.ServiceTask) bool {
+	if mode == services.VerifyNewGeneration {
+		return func(task swarm.ServiceTask) bool {
+			return !task.CreatedAt.Before(cutoff) && task.Spec.CompareServiceTemplate(template).Equal()
 		}
 	}
-	return count
-}
-
-func countPlacementCompatibleRunningTasks(
-	tasks []swarm.ServiceTask,
-	template dockerswarm.TaskSpec,
-	nodes map[string]*swarmkitapi.Node,
-	requireNodeMatch bool,
-) uint64 {
+	if mode != services.VerifyExistingTasks && mode != services.VerifyPlacementCompatibleTasks {
+		return func(swarm.ServiceTask) bool { return false }
+	}
 	var constraints []constraint.Constraint
 	if template.Placement != nil {
 		parsed, err := constraint.Parse(template.Placement.Constraints)
 		if err != nil {
-			return 0
+			return func(swarm.ServiceTask) bool { return false }
 		}
 		constraints = parsed
 	}
-
-	var count uint64
-	for _, task := range tasks {
-		if task.DesiredState != swarm.TaskStateRunning || task.CurrentState != swarm.TaskStateRunning {
-			continue
-		}
+	return func(task swarm.ServiceTask) bool {
 		comparison := task.Spec.CompareServiceTemplate(template)
 		// Metadata-only writes can verify exact matches without a node lookup.
-		if comparison.Equal() && !requireNodeMatch {
-			count++
-			continue
+		if comparison.Equal() && mode == services.VerifyExistingTasks {
+			return true
 		}
-		if (comparison.Equal() || comparison.PlacementOnly()) &&
-			nodeMatchesConstraints(constraints, nodes[task.Node]) {
-			count++
-		}
+		node := nodes[task.Node]
+		return (comparison.Equal() || comparison.PlacementOnly()) && node != nil && constraint.NodeMatches(constraints, node)
 	}
-	return count
-}
-
-func nodeMatchesConstraints(constraints []constraint.Constraint, node *swarmkitapi.Node) bool {
-	return node != nil && constraint.NodeMatches(constraints, node)
 }
 
 func placementNodesByID(nodes []swarm.Node) map[string]*swarmkitapi.Node {

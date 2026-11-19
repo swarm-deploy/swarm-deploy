@@ -64,7 +64,7 @@ func TerminalServiceTaskFailure(
 		return swarm.ServiceTask{}, false
 	}
 	var failed swarm.ServiceTask
-	for _, history := range serviceTaskHistories(spec, tasks, since, false) {
+	for _, history := range serviceTaskHistories(spec, tasks, serviceRolloutMatcher(spec.TaskTemplate, since), false) {
 		task, exhausted := terminalExhaustedTask(history, policy)
 		if exhausted && (failed.ID == "" || task.UpdatedAt.After(failed.UpdatedAt)) {
 			failed = task
@@ -79,7 +79,7 @@ func UnreplacedServiceTaskFailures(
 	spec dockerswarm.ServiceSpec, tasks []swarm.ServiceTask, since time.Time,
 ) []swarm.ServiceTask {
 	var failed []swarm.ServiceTask
-	for _, history := range serviceTaskHistories(spec, tasks, since, false) {
+	for _, history := range serviceTaskHistories(spec, tasks, serviceRolloutMatcher(spec.TaskTemplate, since), false) {
 		task := latestServiceTask(history)
 		if task.CurrentState != swarm.TaskStateFailed && task.CurrentState != swarm.TaskStateRejected &&
 			task.CurrentState != swarm.TaskStateOrphaned {
@@ -102,10 +102,16 @@ func sortTaskFailures(failed []swarm.ServiceTask) {
 
 // LatestUnrecoveredTaskAttempts returns the latest matching attempt for each desired
 // slot or node without a running task, skipping replacements still in restart delay.
+// Global tasks use the convergence match so that placement-compatible attempts are included.
 func LatestUnrecoveredTaskAttempts(
 	spec dockerswarm.ServiceSpec, tasks []swarm.ServiceTask, since time.Time,
+	matchesGlobalTask func(swarm.ServiceTask) bool,
 ) []swarm.ServiceTask {
-	return latestUnrecoveredAttempts(serviceTaskHistories(spec, tasks, since, true))
+	matchesTask := serviceRolloutMatcher(spec.TaskTemplate, since)
+	if spec.Mode.Global != nil {
+		matchesTask = matchesGlobalTask
+	}
+	return latestUnrecoveredAttempts(serviceTaskHistories(spec, tasks, matchesTask, true))
 }
 
 func latestUnrecoveredAttempts(histories map[string][]swarm.ServiceTask) []swarm.ServiceTask {
@@ -158,16 +164,17 @@ func preparingReplacement(task swarm.ServiceTask) bool {
 
 // SwarmKit keys replicated restart history by slot and global history by node.
 func serviceTaskHistories(
-	spec dockerswarm.ServiceSpec, tasks []swarm.ServiceTask, since time.Time, includeRestartingNodes bool,
+	spec dockerswarm.ServiceSpec, tasks []swarm.ServiceTask,
+	matchesTask func(swarm.ServiceTask) bool, includeRestartingNodes bool,
 ) map[string][]swarm.ServiceTask {
 	byInstance := make(map[string][]swarm.ServiceTask)
-	desiredNodes := globalServiceTaskNodes(spec, tasks, since, includeRestartingNodes)
+	desiredNodes := globalServiceTaskNodes(spec, tasks, matchesTask, includeRestartingNodes)
 	replicas := uint64(1)
 	if spec.Mode.Replicated != nil && spec.Mode.Replicated.Replicas != nil {
 		replicas = *spec.Mode.Replicated.Replicas
 	}
 	for _, task := range tasks {
-		if !matchesServiceRollout(task, spec.TaskTemplate, since) {
+		if !matchesTask(task) {
 			continue
 		}
 		key := task.Node
@@ -185,12 +192,15 @@ func serviceTaskHistories(
 	return byInstance
 }
 
-func matchesServiceRollout(task swarm.ServiceTask, template dockerswarm.TaskSpec, since time.Time) bool {
-	return !task.CreatedAt.Before(since) && task.Spec.CompareServiceTemplate(template).Equal()
+func serviceRolloutMatcher(template dockerswarm.TaskSpec, since time.Time) func(swarm.ServiceTask) bool {
+	return func(task swarm.ServiceTask) bool {
+		return !task.CreatedAt.Before(since) && task.Spec.CompareServiceTemplate(template).Equal()
+	}
 }
 
 func globalServiceTaskNodes(
-	spec dockerswarm.ServiceSpec, tasks []swarm.ServiceTask, since time.Time, includeRestartingNodes bool,
+	spec dockerswarm.ServiceSpec, tasks []swarm.ServiceTask,
+	matchesTask func(swarm.ServiceTask) bool, includeRestartingNodes bool,
 ) map[string]bool {
 	if spec.Mode.Global == nil {
 		return nil
@@ -205,7 +215,7 @@ func globalServiceTaskNodes(
 	}
 	desired := make(map[string]bool)
 	for _, task := range tasks {
-		if globalTaskNodeEligible(task, spec.TaskTemplate, constraints, since, includeRestartingNodes) {
+		if globalTaskNodeEligible(task, constraints, matchesTask, includeRestartingNodes) {
 			desired[task.Node] = true
 		}
 	}
@@ -213,15 +223,15 @@ func globalServiceTaskNodes(
 }
 
 func globalTaskNodeEligible(
-	task swarm.ServiceTask, template dockerswarm.TaskSpec, constraints []constraint.Constraint,
-	since time.Time, includeRestartingNodes bool,
+	task swarm.ServiceTask, constraints []constraint.Constraint,
+	matchesTask func(swarm.ServiceTask) bool, includeRestartingNodes bool,
 ) bool {
 	active := task.DesiredState == swarm.TaskStateRunning ||
 		(includeRestartingNodes && task.DesiredState == swarm.TaskStateReady)
 	node := task.NodeInfo
 	if node == nil {
 		// A current task assigned by Swarm identifies the node for pending pull diagnostics.
-		return active && (len(constraints) == 0 || (includeRestartingNodes && matchesServiceRollout(task, template, since)))
+		return active && (len(constraints) == 0 || (includeRestartingNodes && matchesTask(task)))
 	}
 	if node.Availability == string(dockerswarm.NodeAvailabilityDrain) || node.Status == string(dockerswarm.NodeStateDown) {
 		return false
