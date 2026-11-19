@@ -217,6 +217,7 @@ func (s *Service) runAssistant(
 	}
 	answer, usage, err := s.graph.run(runCtx, conversationID, history, message, run.addActivity)
 	if err != nil {
+		s.persistConversation(ctx, conversationID, usage)
 		if errors.Is(err, errPromptInjection) {
 			rejectedPrompt := message
 			var promptErr *promptInjectionError
@@ -255,22 +256,31 @@ func (s *Service) runAssistant(
 		{Role: "assistant", Content: answer, Activity: run.activitySnapshot()},
 	}
 
-	if s.conversationHistory != nil {
-		persistCtx, persistCancel := context.WithTimeout(context.WithoutCancel(ctx), conversationPersistenceTimeout)
-		err = s.conversationHistory.SaveTurns(persistCtx, conversationID, usage, turns...)
-		persistCancel()
-		if err != nil {
-			slog.ErrorContext(
-				ctx,
-				"[assistant] failed to persist conversation history",
-				slog.String("conversation_id", conversationID),
-				slog.Any("err", err),
-			)
-		}
-	}
+	s.persistConversation(ctx, conversationID, usage, turns...)
 	s.conversationStorage.Append(conversationID, turns...)
 
 	run.finish(StatusCompleted, answer, "")
+}
+
+func (s *Service) persistConversation(
+	ctx context.Context,
+	conversationID string,
+	usage conversation.TokenUsage,
+	turns ...conversation.Turn,
+) {
+	if s.conversationHistory == nil || (usage.IsZero() && len(turns) == 0) {
+		return
+	}
+	persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), conversationPersistenceTimeout)
+	defer cancel()
+	if err := s.conversationHistory.SaveTurns(persistCtx, conversationID, usage, turns...); err != nil {
+		slog.ErrorContext(
+			ctx,
+			"[assistant] failed to persist conversation history",
+			slog.String("conversation_id", conversationID),
+			slog.Any("err", err),
+		)
+	}
 }
 
 func (s *Service) awaitRun(ctx context.Context, run *chatRun, waitTimeout time.Duration) ChatResponse {

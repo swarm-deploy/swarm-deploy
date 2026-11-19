@@ -70,7 +70,7 @@ func (s *IndexSubscriber) Handle(ctx context.Context, event events.Envelope) err
 		documents = append(documents, s.documents.Build(serviceInfo))
 	}
 
-	embeddings, err := s.embedder.Embed(ctx, s.modelName, documents)
+	embeddings, _, err := s.embedder.Embed(ctx, s.modelName, documents)
 	if err != nil {
 		s.recordRebuild("error", 0, startedAt, time.Now())
 		slog.WarnContext(ctx, "[assistant-rag] failed to rebuild index embeddings", slog.Any("err", err))

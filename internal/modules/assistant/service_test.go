@@ -89,6 +89,7 @@ func (f *fakeTools) Execute(_ context.Context, req routing.Request) (string, err
 func TestServiceChatReturnsCompletedResponse(t *testing.T) {
 	const organizationID = "org-test"
 	var chatCall atomic.Int64
+	var embeddingCall atomic.Int64
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, organizationID, r.Header.Get("OpenAI-Organization"), "expected organization header")
@@ -96,14 +97,20 @@ func TestServiceChatReturnsCompletedResponse(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
 		case "/embeddings":
+			data := []map[string]any{{"index": 0, "embedding": []float64{1, 0}}}
+			promptTokens := 7
+			switch embeddingCall.Add(1) {
+			case 1:
+				promptTokens = 400 // Background index rebuild.
+			case 3:
+				data = nil // Query falls back to lexical search, but the provider reported usage.
+			}
 			_ = json.MarshalWrite(w, map[string]any{
-				"data": []map[string]any{
-					{"index": 0, "embedding": []float64{1, 0}},
-					{"index": 1, "embedding": []float64{0.9, 0.1}},
-				},
+				"data":  data,
+				"usage": map[string]any{"prompt_tokens": promptTokens},
 			})
 		case "/chat/completions":
-			if chatCall.Add(1) == 1 {
+			if chatCall.Add(1)%2 == 1 {
 				_ = json.MarshalWrite(w, map[string]any{
 					"choices": []map[string]any{{"message": map[string]any{"content": "services"}}},
 					"usage": map[string]any{
@@ -130,6 +137,10 @@ func TestServiceChatReturnsCompletedResponse(t *testing.T) {
 	}))
 	defer server.Close()
 
+	var indexSubscriber dispatcher.Subscriber
+	eventDispatcher := dispatcher.NewMockDispatcher(gomock.NewController(t))
+	eventDispatcher.EXPECT().Subscribe(events.TypeNameServiceCatalogUpdated, "assistant-rag-index", gomock.Any()).
+		Do(func(_ events.TypeName, _ string, subscriber dispatcher.Subscriber) { indexSubscriber = subscriber })
 	serviceInstance, err := NewService(
 		Config{
 			Enabled:                 true,
@@ -141,13 +152,15 @@ func TestServiceChatReturnsCompletedResponse(t *testing.T) {
 			MaxTokens:               64,
 			SystemPrompt:            "debug helper",
 			ConversationInMemoryTTL: time.Hour,
+			ConversationHistory:     newSQLHistory(t),
 		},
 		serviceStore(t, []model.Info{{Name: "api", Stack: "app", Image: "example/api:v1"}}),
 		&fakeTools{},
-		&dispatcher.NopDispatcher{},
+		eventDispatcher,
 		&metrics.NopAssistant{},
 	)
 	require.NoError(t, err, "create assistant service")
+	require.NoError(t, indexSubscriber.Handle(t.Context(), events.Envelope{Event: &events.ServiceCatalogUpdated{}}))
 
 	response := serviceInstance.Chat(context.Background(), ChatRequest{
 		Message: "Is api healthy?",
@@ -158,6 +171,19 @@ func TestServiceChatReturnsCompletedResponse(t *testing.T) {
 	assert.NotEmpty(t, response.ConversationID, "expected conversation id")
 	assert.Contains(t, response.Activity, "Analyzing request")
 	assert.Contains(t, response.Activity, "Generating response")
+
+	chats, err := serviceInstance.ListChats(t.Context())
+	require.NoError(t, err)
+	require.Len(t, chats, 1)
+	assert.Equal(t, &conversation.TokenUsage{InputTokens: 54, OutputTokens: 9, TotalTokens: 63}, chats[0].Usage)
+
+	followup := serviceInstance.Chat(t.Context(), ChatRequest{ConversationID: response.ConversationID, Message: "Check api again"})
+	require.Equal(t, StatusCompleted, followup.Status)
+	chats, err = serviceInstance.ListChats(t.Context())
+	require.NoError(t, err)
+	require.Len(t, chats, 1)
+	assert.Equal(t, &conversation.TokenUsage{InputTokens: 108, OutputTokens: 18, TotalTokens: 126}, chats[0].Usage)
+	assert.EqualValues(t, 3, embeddingCall.Load())
 }
 
 func TestServiceChatRejectsPromptInjection(t *testing.T) {

@@ -51,6 +51,7 @@ type Router interface {
 }
 
 type modelCompleter interface {
+	// complete returns the model response, including any usage reported on error.
 	complete(ctx context.Context, req modelRequest) (modelResponse, error)
 }
 
@@ -75,7 +76,7 @@ func (r *llmRouter) Route(ctx context.Context, req RouteRequest) (RouteResult, e
 		Model: r.modelName, Temperature: 0, MaxTokens: routerMaxTokens, Messages: messages,
 	})
 	if err != nil {
-		return RouteResult{}, fmt.Errorf("router completion: %w", err)
+		return RouteResult{Usage: completion.Usage}, fmt.Errorf("router completion: %w", err)
 	}
 
 	decision, err := decodeRouteDecision(completion.Content)

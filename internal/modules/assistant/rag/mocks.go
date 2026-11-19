@@ -14,6 +14,7 @@ import (
 	reflect "reflect"
 	time "time"
 
+	conversation "github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/conversation"
 	model "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/model"
 	gomock "go.uber.org/mock/gomock"
 )
@@ -82,12 +83,13 @@ func (m *MockEmbedder) EXPECT() *MockEmbedderMockRecorder {
 }
 
 // Embed mocks base method.
-func (m *MockEmbedder) Embed(ctx context.Context, arg1 string, inputs []string) ([][]float64, error) {
+func (m *MockEmbedder) Embed(ctx context.Context, arg1 string, inputs []string) ([][]float64, conversation.TokenUsage, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Embed", ctx, arg1, inputs)
 	ret0, _ := ret[0].([][]float64)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
+	ret1, _ := ret[1].(conversation.TokenUsage)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
 }
 
 // Embed indicates an expected call of Embed.

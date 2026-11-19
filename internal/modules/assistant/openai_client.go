@@ -77,11 +77,17 @@ func (c *openAIClient) complete(ctx context.Context, req modelRequest) (modelRes
 		MaxTokens:   openai.Int(int64(req.MaxTokens)),
 		Tools:       tools,
 	})
+	var result modelResponse
+	if response != nil {
+		result.Usage = providerTokenUsage(
+			response.Usage.PromptTokens, response.Usage.CompletionTokens, response.Usage.TotalTokens,
+		)
+	}
 	if err != nil {
-		return modelResponse{}, safeChatCompletionError(err)
+		return result, safeChatCompletionError(err)
 	}
 	if response == nil || len(response.Choices) == 0 {
-		return modelResponse{}, fmt.Errorf("chat completion response does not contain choices")
+		return result, fmt.Errorf("chat completion response does not contain choices")
 	}
 
 	message := response.Choices[0].Message
@@ -98,20 +104,9 @@ func (c *openAIClient) complete(ctx context.Context, req modelRequest) (modelRes
 		})
 	}
 
-	usage := conversation.TokenUsage{
-		InputTokens:  response.Usage.PromptTokens,
-		OutputTokens: response.Usage.CompletionTokens,
-		TotalTokens:  response.Usage.TotalTokens,
-	}
-	if usage.TotalTokens == 0 && (usage.InputTokens != 0 || usage.OutputTokens != 0) {
-		usage.TotalTokens = usage.InputTokens + usage.OutputTokens
-	}
-
-	return modelResponse{
-		Content:   strings.TrimSpace(message.Content),
-		ToolCalls: toolCalls,
-		Usage:     usage,
-	}, nil
+	result.Content = strings.TrimSpace(message.Content)
+	result.ToolCalls = toolCalls
+	return result, nil
 }
 
 // Provider and transport errors can include arbitrary response content and URLs.
@@ -134,22 +129,28 @@ func safeChatCompletionError(err error) error {
 	}
 }
 
-func (c *openAIClient) Embed(ctx context.Context, model string, inputs []string) ([][]float64, error) {
+func (c *openAIClient) Embed(
+	ctx context.Context, model string, inputs []string,
+) ([][]float64, conversation.TokenUsage, error) {
 	response, err := c.client.Embeddings.New(ctx, openai.EmbeddingNewParams{
 		Model: strings.TrimSpace(model),
 		Input: openai.EmbeddingNewParamsInputUnion{
 			OfArrayOfStrings: inputs,
 		},
 	})
+	var usage conversation.TokenUsage
+	if response != nil {
+		usage = providerTokenUsage(response.Usage.PromptTokens, 0, response.Usage.TotalTokens)
+	}
 	if err != nil {
-		return nil, fmt.Errorf("embeddings request failed: %w", err)
+		return nil, usage, fmt.Errorf("embeddings request failed: %w", err)
 	}
 
 	if response == nil {
-		return nil, fmt.Errorf("unexpected embeddings size: got 0, expected %d", len(inputs))
+		return nil, usage, fmt.Errorf("unexpected embeddings size: got 0, expected %d", len(inputs))
 	}
 	if len(response.Data) != len(inputs) {
-		return nil, fmt.Errorf("unexpected embeddings size: got %d, expected %d", len(response.Data), len(inputs))
+		return nil, usage, fmt.Errorf("unexpected embeddings size: got %d, expected %d", len(response.Data), len(inputs))
 	}
 
 	slices.SortFunc(response.Data, func(left, right openai.Embedding) int {
@@ -159,15 +160,22 @@ func (c *openAIClient) Embed(ctx context.Context, model string, inputs []string)
 	vectors := make([][]float64, 0, len(response.Data))
 	for idx, item := range response.Data {
 		if int(item.Index) != idx {
-			return nil, fmt.Errorf("unexpected embeddings index %d at position %d", item.Index, idx)
+			return nil, usage, fmt.Errorf("unexpected embeddings index %d at position %d", item.Index, idx)
 		}
 		if len(item.Embedding) == 0 {
-			return nil, fmt.Errorf("empty embedding at index %d", idx)
+			return nil, usage, fmt.Errorf("empty embedding at index %d", idx)
 		}
 		vectors = append(vectors, item.Embedding)
 	}
 
-	return vectors, nil
+	return vectors, usage, nil
+}
+
+func providerTokenUsage(input, output, total int64) conversation.TokenUsage {
+	if total == 0 {
+		total = input + output
+	}
+	return conversation.TokenUsage{InputTokens: input, OutputTokens: output, TotalTokens: total}
 }
 
 func toOpenAIMessage(message modelMessage) (openai.ChatCompletionMessageParamUnion, error) {
