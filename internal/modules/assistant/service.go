@@ -217,7 +217,6 @@ func (s *Service) runAssistant(
 	}
 	answer, usage, err := s.graph.run(runCtx, conversationID, history, message, run.addActivity)
 	if err != nil {
-		s.persistConversation(ctx, conversationID, usage)
 		if errors.Is(err, errPromptInjection) {
 			rejectedPrompt := message
 			var promptErr *promptInjectionError
@@ -226,6 +225,7 @@ func (s *Service) runAssistant(
 			}
 
 			s.publishPromptRejection(runCtx, rejectedPrompt)
+			s.persistConversation(ctx, conversationID, usage)
 
 			run.finish(
 				StatusRejected,
@@ -235,6 +235,7 @@ func (s *Service) runAssistant(
 			return
 		}
 
+		s.persistConversation(ctx, conversationID, usage)
 		slog.ErrorContext(
 			runCtx,
 			"[assistant] failed to generate response",

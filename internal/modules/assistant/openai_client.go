@@ -1,9 +1,13 @@
 package assistant
 
 import (
+	"bytes"
 	"context"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
 	"slices"
 	"strings"
 	"time"
@@ -70,18 +74,21 @@ func (c *openAIClient) complete(ctx context.Context, req modelRequest) (modelRes
 		}
 	}
 
+	var httpResponse *http.Response
 	response, err := c.client.Chat.Completions.New(ctx, openai.ChatCompletionNewParams{
 		Model:       strings.TrimSpace(req.Model),
 		Messages:    messages,
 		Temperature: openai.Float(req.Temperature),
 		MaxTokens:   openai.Int(int64(req.MaxTokens)),
 		Tools:       tools,
-	})
+	}, option.WithResponseInto(&httpResponse))
 	var result modelResponse
 	if response != nil {
 		result.Usage = providerTokenUsage(
 			response.Usage.PromptTokens, response.Usage.CompletionTokens, response.Usage.TotalTokens,
 		)
+	} else if err != nil {
+		result.Usage = httpErrorTokenUsage(httpResponse)
 	}
 	if err != nil {
 		return result, safeChatCompletionError(err)
@@ -132,15 +139,18 @@ func safeChatCompletionError(err error) error {
 func (c *openAIClient) Embed(
 	ctx context.Context, model string, inputs []string,
 ) ([][]float64, conversation.TokenUsage, error) {
+	var httpResponse *http.Response
 	response, err := c.client.Embeddings.New(ctx, openai.EmbeddingNewParams{
 		Model: strings.TrimSpace(model),
 		Input: openai.EmbeddingNewParamsInputUnion{
 			OfArrayOfStrings: inputs,
 		},
-	})
+	}, option.WithResponseInto(&httpResponse))
 	var usage conversation.TokenUsage
 	if response != nil {
 		usage = providerTokenUsage(response.Usage.PromptTokens, 0, response.Usage.TotalTokens)
+	} else if err != nil {
+		usage = httpErrorTokenUsage(httpResponse)
 	}
 	if err != nil {
 		return nil, usage, fmt.Errorf("embeddings request failed: %w", err)
@@ -169,6 +179,28 @@ func (c *openAIClient) Embed(
 	}
 
 	return vectors, usage, nil
+}
+
+func httpErrorTokenUsage(response *http.Response) conversation.TokenUsage {
+	if response == nil || response.StatusCode < http.StatusBadRequest || response.Body == nil {
+		return conversation.TokenUsage{}
+	}
+
+	// The SDK replaces the HTTP error body with an in-memory copy before returning.
+	body, err := io.ReadAll(response.Body)
+	if err != nil {
+		return conversation.TokenUsage{}
+	}
+	response.Body = io.NopCloser(bytes.NewReader(body))
+
+	var payload struct {
+		Usage openai.CompletionUsage `json:"usage"`
+	}
+	if err = json.Unmarshal(body, &payload); err != nil {
+		return conversation.TokenUsage{}
+	}
+	usage := payload.Usage
+	return providerTokenUsage(usage.PromptTokens, usage.CompletionTokens, usage.TotalTokens)
 }
 
 func providerTokenUsage(input, output, total int64) conversation.TokenUsage {

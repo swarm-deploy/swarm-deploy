@@ -104,6 +104,13 @@ func TestServiceChatReturnsCompletedResponse(t *testing.T) {
 				promptTokens = 400 // Background index rebuild.
 			case 3:
 				data = nil // Query falls back to lexical search, but the provider reported usage.
+			case 4:
+				w.WriteHeader(http.StatusForbidden)
+				_ = json.MarshalWrite(w, map[string]any{
+					"error": map[string]any{"message": "Embedding blocked"},
+					"usage": map[string]any{"prompt_tokens": promptTokens},
+				})
+				return
 			}
 			_ = json.MarshalWrite(w, map[string]any{
 				"data":  data,
@@ -177,13 +184,18 @@ func TestServiceChatReturnsCompletedResponse(t *testing.T) {
 	require.Len(t, chats, 1)
 	assert.Equal(t, &conversation.TokenUsage{InputTokens: 54, OutputTokens: 9, TotalTokens: 63}, chats[0].Usage)
 
-	followup := serviceInstance.Chat(t.Context(), ChatRequest{ConversationID: response.ConversationID, Message: "Check api again"})
-	require.Equal(t, StatusCompleted, followup.Status)
-	chats, err = serviceInstance.ListChats(t.Context())
-	require.NoError(t, err)
-	require.Len(t, chats, 1)
-	assert.Equal(t, &conversation.TokenUsage{InputTokens: 108, OutputTokens: 18, TotalTokens: 126}, chats[0].Usage)
-	assert.EqualValues(t, 3, embeddingCall.Load())
+	for i, message := range []string{"Check api again", "Is api still healthy?"} {
+		followup := serviceInstance.Chat(t.Context(), ChatRequest{ConversationID: response.ConversationID, Message: message})
+		require.Equal(t, StatusCompleted, followup.Status)
+		chats, err = serviceInstance.ListChats(t.Context())
+		require.NoError(t, err)
+		require.Len(t, chats, 1)
+		exchanges := int64(i + 2)
+		assert.Equal(t, &conversation.TokenUsage{
+			InputTokens: 54 * exchanges, OutputTokens: 9 * exchanges, TotalTokens: 63 * exchanges,
+		}, chats[0].Usage)
+	}
+	assert.EqualValues(t, 4, embeddingCall.Load())
 }
 
 func TestServiceChatRejectsPromptInjection(t *testing.T) {

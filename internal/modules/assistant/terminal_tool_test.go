@@ -14,6 +14,9 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/conversation"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/tools/routing"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
+	"go.uber.org/mock/gomock"
 )
 
 func TestFinalizeTerminalServiceActionResult(t *testing.T) {
@@ -184,6 +187,15 @@ func TestTerminalToolResultInjectionIsGuardedBeforeFinalization(t *testing.T) {
 	}
 	history := newSQLHistory(t)
 	assistantService := newRoutingTestServiceWithHistory(t, server.URL, serviceStore(t, nil), tools, nil, history)
+	eventDispatcher := dispatcher.NewMockDispatcher(gomock.NewController(t))
+	eventDispatcher.EXPECT().
+		Publish(gomock.Any(), gomock.AssignableToTypeOf(&events.AssistantPromptInjectionDetected{})).
+		Do(func(ctx context.Context, _ events.Event) {
+			chats, err := history.ReadChats(ctx)
+			assert.NoError(t, err)
+			assert.Empty(t, chats, "publish rejection before persisting usage")
+		})
+	assistantService.event = eventDispatcher
 	response := assistantService.Chat(context.Background(), ChatRequest{Message: "Confirmed restart"})
 
 	assert.Equal(t, StatusRejected, response.Status)
