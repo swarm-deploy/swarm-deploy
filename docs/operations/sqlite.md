@@ -5,9 +5,25 @@ intentional breaking change: data from the previous JSON repositories is not mig
 
 At startup, swarm-deploy:
 
-1. creates or opens `<dataDir>/swarm-deploy.sqlite`;
+1. creates or opens `<dataDir>/swarm-deploy.sqlite` by default, or uses an optional SQLite DSN from `system.database.dsnPath`;
 2. applies embedded Goose migrations;
 3. initializes modules and workers against that database.
+
+## Optional SQLite DSN
+
+The optional `system.database.dsnPath` points to a **file containing the SQLite connection string**, not to the database file itself:
+
+```yaml
+system:
+  database:
+    dsnPath: /run/secrets/dsn
+```
+
+The file is loaded at startup; update the file and restart swarm-deploy to change the connection. An unreadable or empty file causes startup failure. The DSN value is not logged. When this setting is omitted, swarm-deploy retains the existing local database location and connection settings.
+
+A custom DSN is passed to the existing `modernc.org/sqlite` driver; it does **not** install a different driver or enable PostgreSQL, dqlite, automatic failover, or multiple active writers. The operator must supply the appropriate connection URI and SQLite PRAGMA options. The default local connection uses `busy_timeout(5000)`, `journal_mode(WAL)`, `foreign_keys(1)`, `synchronous(FULL)`, `_txlock=immediate`, `_time_integer_format=unix_nano`, and `_inttotime=1`. Preserve the required semantics when overriding the connection.
+
+Note that controller ownership is still guarded by a local lock file under `<dataDir>`. A custom database DSN does not coordinate reconcilers running on different nodes; fencing and single-controller ownership must be enforced separately. See [the optional HA experiments](../../example/05-ha/README.md).
 
 It does not inspect, parse, import, update or delete old files such as
 `controller.state.json`, `event-history.json`, `alerts.state.json`,

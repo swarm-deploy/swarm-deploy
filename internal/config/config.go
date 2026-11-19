@@ -122,6 +122,14 @@ type SystemSpec struct {
 	Log LogSpec `yaml:"log"`
 	// Tracing contains OpenTelemetry tracing settings. Nil disables tracing.
 	Tracing *TracingSpec `yaml:"tracing"`
+	// Database configures the application SQLite connection.
+	Database DatabaseSpec `yaml:"database"`
+}
+
+// DatabaseSpec configures the application SQLite database.
+type DatabaseSpec struct {
+	// DSN is an optional file containing the SQLite connection string.
+	DSN specw.File `yaml:"dsnPath,omitempty"`
 }
 
 type LogSpec struct {
@@ -720,6 +728,7 @@ func (c *Config) validate() error {
 	errs = append(errs, c.validateGitAuth()...)
 	errs = append(errs, c.validateWeb()...)
 	errs = append(errs, c.validateSecurity()...)
+	errs = append(errs, c.validateDatabase()...)
 	errs = append(errs, c.Spec.Notifications.validate()...)
 	errs = append(errs, c.validateAssistant()...)
 	errs = append(errs, c.validateTracing()...)
@@ -936,6 +945,14 @@ func (c *Config) validateSecurity() []error {
 		return []error{errors.New("web.security.authentication.basic.htpasswdFile contains empty credentials")}
 	}
 
+	return nil
+}
+
+func (c *Config) validateDatabase() []error {
+	dsnFile := c.Spec.System.Database.DSN
+	if dsnFile.Path != "" && strings.TrimSpace(string(dsnFile.Content)) == "" {
+		return []error{errors.New("system.database.dsnPath must reference a non-empty DSN file")}
+	}
 	return nil
 }
 

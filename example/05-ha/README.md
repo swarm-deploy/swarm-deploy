@@ -4,6 +4,20 @@ This directory is reserved for **experimental**, opt-in high availability deploy
 
 The default installation remains unchanged: swarm-deploy uses a local SQLite database, without extra services, libraries, or a mandatory HA layer. See [the basic example](../01-basic).
 
+## Database configuration
+
+For an optional, external SQLite storage arrangement, the application supports this startup configuration:
+
+```yaml
+system:
+  database:
+    dsnPath: /run/secrets/dsn
+```
+
+`dsnPath` is the path to a mounted file containing the **complete SQLite driver DSN**, not the path to the SQLite database file. This setting is optional; when absent, swarm-deploy continues to use its local database in the default data directory. File contents are read on startup. Provide the required SQLite PRAGMA options in a custom DSN (see [SQLite storage documentation](../../docs/operations/sqlite.md#optional-sqlite-dsn)).
+
+This setting alone does **not** implement replication, failover, shared controller ownership, or support for a different database driver. The existing controller lock remains tied to the local data directory.
+
 ## Constraints
 
 - HA infrastructure is provisioned and operated separately. No example in this directory is required for a standard swarm-deploy deployment.
