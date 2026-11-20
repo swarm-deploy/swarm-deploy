@@ -411,13 +411,13 @@ async function submitSuggestion(suggestion: AssistantSuggestion) {
   inputRef.value?.focus();
 }
 
-function handleComposerKeydown(event: KeyboardEvent) {
+function handleComposerKeydown(event: KeyboardEvent, submit: () => Promise<void>) {
   if (event.key !== "Enter" || event.shiftKey || event.isComposing || event.keyCode === 229) {
     return;
   }
 
   event.preventDefault();
-  void submitMessage();
+  void submit();
 }
 
 function renderMessageText(role: string, text: string): string {
@@ -700,6 +700,7 @@ function renderMessageText(role: string, text: string): string {
             aria-label="Ask the assistant"
             :readonly="pending"
             @input="historyMessage = ($event.target as HTMLTextAreaElement).value; historyError = ''"
+            @keydown="handleComposerKeydown($event, submitHistoryMessage)"
           />
           <button
             v-if="historyMessage.trim()"
@@ -726,7 +727,7 @@ function renderMessageText(role: string, text: string): string {
             placeholder="Ask the assistant…"
             aria-label="Ask the assistant"
             :disabled="pending"
-            @keydown="handleComposerKeydown"
+            @keydown="handleComposerKeydown($event, submitMessage)"
           />
           <button
             v-if="messageInput.trim()"

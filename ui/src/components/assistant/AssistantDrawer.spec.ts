@@ -303,6 +303,38 @@ describe("Assistant Drawer", () => {
     wrapper.unmount();
   });
 
+  it("sends the history draft on Enter but not on Shift+Enter or composition Enter", async () => {
+    const pinia = createPinia();
+    setActivePinia(pinia);
+    const router = createRouter({ history: createMemoryHistory(), routes });
+    await router.push("/?assistant=chats");
+    await router.isReady();
+    const assistantStore = useAssistantStore();
+    assistantStore.loadChats = vi.fn(async () => undefined);
+    const request = vi.spyOn(assistantStore, "requestAssistant").mockResolvedValue({
+      status: "completed", conversation_id: "created", request_id: "request-id", answer: "Answer",
+    });
+    const wrapper = mount(AssistantDrawer, { global: { plugins: [pinia, router] } });
+    await flushPromises();
+    const draft = wrapper.get<HTMLTextAreaElement>(".assistant-history-form textarea");
+    await draft.setValue("Hello");
+
+    const shiftEnter = new KeyboardEvent("keydown", { key: "Enter", shiftKey: true, bubbles: true, cancelable: true });
+    draft.element.dispatchEvent(shiftEnter);
+    const compositionEnter = new KeyboardEvent("keydown", { key: "Enter", isComposing: true, bubbles: true, cancelable: true });
+    draft.element.dispatchEvent(compositionEnter);
+    expect(shiftEnter.defaultPrevented).toBe(false);
+    expect(compositionEnter.defaultPrevented).toBe(false);
+    expect(request).not.toHaveBeenCalled();
+
+    const enter = new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true });
+    draft.element.dispatchEvent(enter);
+    expect(enter.defaultPrevented).toBe(true);
+    expect(request).toHaveBeenCalledWith(expect.objectContaining({ message: "Hello" }));
+    await flushPromises();
+    wrapper.unmount();
+  });
+
   it("updates the chat composer during composition without sending on composition Enter", async () => {
     const pinia = createPinia();
     setActivePinia(pinia);
