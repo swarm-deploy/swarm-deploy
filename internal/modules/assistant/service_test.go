@@ -60,7 +60,7 @@ func (f *fakeTools) Definitions() []routing.ToolDefinition {
 		{
 			Name:        "deploy_sync_trigger",
 			Description: "Trigger sync",
-			Mutating:    true,
+			Writeable:   true,
 			Terminal:    true,
 			ParametersJSONSchema: map[string]any{
 				"type":       "object",
