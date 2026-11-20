@@ -147,6 +147,7 @@ func TestServiceChatReturnsCompletedResponse(t *testing.T) {
 	defer server.Close()
 
 	eventDispatcher := dispatcher.NewMockDispatcher(gomock.NewController(t))
+	history := newSQLHistory(t)
 	serviceInstance, err := NewService(
 		Config{
 			Enabled:                 true,
@@ -158,7 +159,7 @@ func TestServiceChatReturnsCompletedResponse(t *testing.T) {
 			MaxTokens:               64,
 			SystemPrompt:            "debug helper",
 			ConversationInMemoryTTL: time.Hour,
-			ConversationHistory:     newSQLHistory(t),
+			ConversationHistory:     history,
 		},
 		serviceStore(t, []model.Info{{Name: "api", Stack: "app", Image: "example/api:v1"}}),
 		&fakeTools{},
@@ -171,7 +172,8 @@ func TestServiceChatReturnsCompletedResponse(t *testing.T) {
 	))
 
 	response := serviceInstance.Chat(context.Background(), ChatRequest{
-		Message: "Is api healthy?",
+		Message:   "Is api healthy?",
+		CreatedBy: "alice",
 	})
 	assert.Equal(t, StatusCompleted, response.Status, "expected completed response")
 	assert.Equal(t, "Service looks healthy.", response.Answer, "unexpected answer")
@@ -186,7 +188,9 @@ func TestServiceChatReturnsCompletedResponse(t *testing.T) {
 	assert.Equal(t, &conversation.TokenUsage{InputTokens: 54, OutputTokens: 9, TotalTokens: 63}, chats[0].Usage)
 
 	for i, message := range []string{"Check api again", "Is api still healthy?"} {
-		followup := serviceInstance.Chat(t.Context(), ChatRequest{ConversationID: response.ConversationID, Message: message})
+		followup := serviceInstance.Chat(t.Context(), ChatRequest{
+			ConversationID: response.ConversationID, Message: message, CreatedBy: "bob",
+		})
 		require.Equal(t, StatusCompleted, followup.Status)
 		chats, err = serviceInstance.ListChats(t.Context())
 		require.NoError(t, err)
@@ -196,6 +200,10 @@ func TestServiceChatReturnsCompletedResponse(t *testing.T) {
 			InputTokens: 54 * exchanges, OutputTokens: 9 * exchanges, TotalTokens: 63 * exchanges,
 		}, chats[0].Usage)
 	}
+	chat, exists, err := history.ReadChat(t.Context(), response.ConversationID)
+	require.NoError(t, err)
+	require.True(t, exists)
+	assert.Equal(t, "alice", chat.CreatedBy)
 	assert.EqualValues(t, 4, embeddingCall.Load())
 }
 

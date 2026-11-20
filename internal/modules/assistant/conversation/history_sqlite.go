@@ -43,7 +43,7 @@ func (s *SQLHistoryStorage) ReadChat(ctx context.Context, id string) (Chat, bool
 	found := false
 	err := s.db.WithinTransaction(ctx, func(ctx context.Context) error {
 		query, args, buildErr := s.db.Dialect().From("assistant_chats").Prepared(true).
-			Select(chatColumns...).Where(goqu.Ex{"id": id}).ToSQL()
+			Select(chatColumns...).SelectAppend("created_by").Where(goqu.Ex{"id": id}).ToSQL()
 		if buildErr != nil {
 			return buildErr
 		}
@@ -65,7 +65,7 @@ func (s *SQLHistoryStorage) ReadChat(ctx context.Context, id string) (Chat, bool
 		if err != nil {
 			return err
 		}
-		chat = Chat{ID: meta.ID, Title: meta.Title, CreatedAt: meta.CreatedAt,
+		chat = Chat{ID: meta.ID, Title: meta.Title, CreatedAt: meta.CreatedAt, CreatedBy: row.CreatedBy.String,
 			UpdatedAt: meta.UpdatedAt, Usage: meta.Usage, Turns: turns}
 		found = true
 		return nil
@@ -74,7 +74,8 @@ func (s *SQLHistoryStorage) ReadChat(ctx context.Context, id string) (Chat, bool
 }
 
 // SaveTurns appends turns and usage atomically, creating metadata lazily.
-func (s *SQLHistoryStorage) SaveTurns(ctx context.Context, id string, usage TokenUsage, turns ...Turn) error {
+// The creator is recorded only on the first insert.
+func (s *SQLHistoryStorage) SaveTurns(ctx context.Context, id, createdBy string, usage TokenUsage, turns ...Turn) error {
 	id = strings.TrimSpace(id)
 	if id == "" {
 		return fmt.Errorf("assistant conversation id is required")
@@ -89,7 +90,7 @@ func (s *SQLHistoryStorage) SaveTurns(ctx context.Context, id string, usage Toke
 		}
 		now := time.Now().UTC()
 		if !exists {
-			chat = Chat{ID: id, Title: defaultChatTitle, CreatedAt: now, UpdatedAt: now}
+			chat = Chat{ID: id, Title: defaultChatTitle, CreatedAt: now, CreatedBy: createdBy, UpdatedAt: now}
 		}
 		if !usage.IsZero() {
 			if chat.Usage == nil {
@@ -111,7 +112,7 @@ func (s *SQLHistoryStorage) SaveTurns(ctx context.Context, id string, usage Toke
 
 // Append appends turns without a usage sample.
 func (s *SQLHistoryStorage) Append(ctx context.Context, id string, turns ...Turn) error {
-	return s.SaveTurns(ctx, id, TokenUsage{}, turns...)
+	return s.SaveTurns(ctx, id, "", TokenUsage{}, turns...)
 }
 
 // Save atomically persists an entire chat, preserving timestamps during import.
@@ -142,9 +143,13 @@ func (s *SQLHistoryStorage) saveChatSummary(ctx context.Context, chat Chat) erro
 		return fmt.Errorf("assistant chat timestamps are required")
 	}
 	input, output, total := usageColumns(chat.Usage)
+	var createdBy any
+	if chat.CreatedBy != "" {
+		createdBy = chat.CreatedBy
+	}
 	query, args, err := s.db.Dialect().Insert("assistant_chats").Prepared(true).
 		Rows(goqu.Record{
-			"id": chat.ID, "title": chat.Title, "created_at": chat.CreatedAt.UTC(),
+			"id": chat.ID, "title": chat.Title, "created_at": chat.CreatedAt.UTC(), "created_by": createdBy,
 			"updated_at": chat.UpdatedAt.UTC(), "input_tokens": input,
 			"output_tokens": output, "total_tokens": total,
 		}).
@@ -195,13 +200,14 @@ var chatColumns = []any{
 }
 
 type chatRow struct {
-	ID           string        `db:"id"`
-	Title        string        `db:"title"`
-	CreatedAt    time.Time     `db:"created_at"`
-	UpdatedAt    time.Time     `db:"updated_at"`
-	InputTokens  sql.NullInt64 `db:"input_tokens"`
-	OutputTokens sql.NullInt64 `db:"output_tokens"`
-	TotalTokens  sql.NullInt64 `db:"total_tokens"`
+	ID           string         `db:"id"`
+	Title        string         `db:"title"`
+	CreatedAt    time.Time      `db:"created_at"`
+	CreatedBy    sql.NullString `db:"created_by"`
+	UpdatedAt    time.Time      `db:"updated_at"`
+	InputTokens  sql.NullInt64  `db:"input_tokens"`
+	OutputTokens sql.NullInt64  `db:"output_tokens"`
+	TotalTokens  sql.NullInt64  `db:"total_tokens"`
 }
 
 func (r chatRow) summary() ChatSummary {

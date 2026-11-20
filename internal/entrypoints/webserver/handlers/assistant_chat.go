@@ -8,6 +8,7 @@ import (
 
 	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant"
+	"github.com/swarm-deploy/swarm-deploy/internal/security"
 )
 
 const assistantChatRequestMaxBytes = 64 * 1024
@@ -29,6 +30,9 @@ func (h *handler) AssistantChat(
 		RequestID:      req.RequestID.Value,
 		Message:        req.Message.Value,
 		WaitTimeoutMS:  int(req.WaitTimeoutMs.Value),
+	}
+	if user, ok := security.UserFromContext(ctx); ok {
+		request.CreatedBy = user.Name
 	}
 
 	return toGeneratedAssistantChatResponse(h.assistant.Chat(ctx, request)), nil
