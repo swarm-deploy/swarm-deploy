@@ -35,6 +35,34 @@ func (g *graph) executeToolCall(
 	return result, nil
 }
 
+// Check all requested writes before collecting targets or asking for confirmation.
+func (g *graph) operationLimitation(result RouteResult) string {
+	if result.UnsupportedAction {
+		return "There is no matching executable operation for the requested change."
+	}
+	op := result.Operation
+	if op == nil {
+		return ""
+	}
+	required := []string{string(op.Type)}
+	if op.Type == OperationSyncPauseSet && op.Replicas != nil {
+		required = append(required, serviceReplicasSetTool)
+	}
+	definitions := g.tools.Definitions()
+	for _, name := range required {
+		registered := slices.ContainsFunc(definitions, func(def routing.ToolDefinition) bool {
+			return string(def.Name) == name
+		})
+		if !registered {
+			return "The requested operation is unavailable in this installation."
+		}
+		if _, allowed := g.allowedToolSet[name]; len(g.allowedToolSet) > 0 && !allowed {
+			return fmt.Sprintf("The assistant.tools setting disables %s in this installation.", name)
+		}
+	}
+	return ""
+}
+
 func (g *graph) effectiveToolDefinitions(effectiveToolSet map[string]struct{}) []routing.ToolDefinition {
 	definitions := g.tools.Definitions()
 	filtered := make([]routing.ToolDefinition, 0, len(definitions))

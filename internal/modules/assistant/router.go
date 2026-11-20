@@ -40,10 +40,11 @@ type RouteRequest struct {
 }
 
 type RouteResult struct {
-	Route        Route
-	Capabilities []Capability
-	Operation    *OperationIntent
-	Usage        conversation.TokenUsage
+	Route             Route
+	Capabilities      []Capability
+	Operation         *OperationIntent
+	UnsupportedAction bool
+	Usage             conversation.TokenUsage
 }
 
 type Router interface {
@@ -94,7 +95,7 @@ func (r *llmRouter) Route(ctx context.Context, req RouteRequest) (RouteResult, e
 	}
 
 	capabilities := decision.Capabilities
-	if capabilities == nil {
+	if capabilities == nil && decision.Operation == nil {
 		capabilities = defaultCapabilitiesForRoute(route)
 	}
 	normalizedCapabilities, ok := normalizeCapabilities(capabilities)
@@ -110,7 +111,8 @@ func (r *llmRouter) Route(ctx context.Context, req RouteRequest) (RouteResult, e
 		normalizedCapabilities = nil
 	}
 
-	if decision.Operation != nil && !operationAllowedForRoute(route, decision.Operation.Type) {
+	unsupportedAction := decision.Operation != nil && !operationAllowedForRoute(route, decision.Operation.Type)
+	if unsupportedAction {
 		decision.Operation = nil
 	}
 	if decision.Operation != nil {
@@ -125,7 +127,8 @@ func (r *llmRouter) Route(ctx context.Context, req RouteRequest) (RouteResult, e
 	}
 
 	return RouteResult{
-		Route: route, Capabilities: normalizedCapabilities, Operation: decision.Operation, Usage: completion.Usage,
+		Route: route, Capabilities: normalizedCapabilities, Operation: decision.Operation,
+		UnsupportedAction: unsupportedAction && route != RouteOutOfScope, Usage: completion.Usage,
 	}, nil
 }
 
@@ -221,11 +224,14 @@ Capabilities:
 For explanations and how-to questions choose platform with empty capabilities and null operation unless the answer needs actual environment data. An infrastructure task can be in scope without naming Docker or swarm-deploy. Decide by the requested outcome.
 Do not add capabilities merely because a route commonly uses them. Add only what this request needs.
 Date/time uses the cross-cutting date tool and needs no capability.
+For a how-to question use operation:null, even when describing a supported action. For an explicit request to change state select an operation only if its effect matches the request. If none matches (including creating a service, installing software, or editing a manifest), return {"type":"unsupported"} as operation. Use empty capabilities unless independent read-only evidence is also requested. A sync only queues reconciliation of existing desired state.
 For restart or replica changes, operation is {"type":"service_restart_trigger|service_replicas_set","target":"literal target or empty","replicas":number-or-null}; include service_operations.
 For a request to start synchronization, use the deployments route and operation {"type":"deploy_sync_trigger","target":"","replicas":null}; include deployment_sync.
 For Pause Sync mutations, use operation {"type":"sync_pause_set|sync_pause_resume","target":"stack or stack/service","scope":"stack|service","expires_at":"absolute RFC3339 time or null","replicas":number-or-null}; include pause_sync. A replicas value combines pause-first with scaling.
 Target is copied from the current user message. Never infer a missing operation target from history.
 Examples:
+"How do I restart a service?" -> {"route":"platform","capabilities":[],"operation":null}
+"Install a new log collector in Swarm" -> {"route":"platform","capabilities":[],"operation":{"type":"unsupported"}}
 "Привет" -> {"route":"general","capabilities":[],"operation":null}
 "Где находится Юпитер?" -> {"route":"out_of_scope","capabilities":[],"operation":null}
 "Покажи логи api" -> {"route":"services","capabilities":["service_context","service_runtime"],"operation":null}
