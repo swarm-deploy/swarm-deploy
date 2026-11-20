@@ -85,10 +85,10 @@ func (w *Worker) Run(ctx context.Context) error {
 	ticker := time.NewTicker(workerPollInterval)
 	defer ticker.Stop()
 
-	// Only the worker holding the token may claim a delivery. It passes it on
-	// after a claim succeeds, a delivery completes, or the next poll is due.
-	claimReady := make(chan struct{}, 1)
-	claimReady <- struct{}{}
+	// Only the worker holding the token may claim a delivery. The token is true
+	// when the worker should check for due deliveries before opening a write transaction.
+	claimReady := make(chan bool, 1)
+	claimReady <- true
 	deliveryDone := make(chan struct{}, 1)
 
 	var workers sync.WaitGroup
@@ -99,13 +99,14 @@ func (w *Worker) Run(ctx context.Context) error {
 	return nil
 }
 
-func (w *Worker) run(ctx context.Context, claimReady, deliveryDone chan struct{}, poll <-chan time.Time) {
-	wakeNext := func() { claimReady <- struct{}{} }
+func (w *Worker) run(ctx context.Context, claimReady chan bool, deliveryDone chan struct{}, poll <-chan time.Time) {
+	onClaim := func() { claimReady <- false }
 	for {
+		var checkDue bool
 		select {
 		case <-ctx.Done():
 			return
-		case <-claimReady:
+		case checkDue = <-claimReady:
 		}
 		if ctx.Err() != nil {
 			return
@@ -115,7 +116,7 @@ func (w *Worker) run(ctx context.Context, claimReady, deliveryDone chan struct{}
 		case <-deliveryDone:
 		default:
 		}
-		handled, err := w.processNext(ctx, wakeNext)
+		handled, err := w.processNext(ctx, checkDue, onClaim)
 		if err != nil && ctx.Err() == nil {
 			slog.ErrorContext(ctx, "outbox worker operation failed",
 				append([]any{"error_type", fmt.Sprintf("%T", err)}, safeDeliveryErrorFields(err)...)...)
@@ -135,20 +136,20 @@ func (w *Worker) run(ctx context.Context, claimReady, deliveryDone chan struct{}
 		case <-deliveryDone:
 		case <-poll:
 		}
-		wakeNext()
+		claimReady <- true
 	}
 }
 
 // ProcessNext claims and processes at most one delivery using distinct T2/T3.
 // It must be called outside any publishing or subscriber transaction.
 func (w *Worker) ProcessNext(ctx context.Context) (bool, error) {
-	return w.processNext(ctx, nil)
+	return w.processNext(ctx, true, nil)
 }
 
-func (w *Worker) processNext(ctx context.Context, onClaim func()) (bool, error) {
+func (w *Worker) processNext(ctx context.Context, checkDue bool, onClaim func()) (bool, error) {
 	// An empty poll should emit no spans, including the underlying SQLite calls.
 	startedAt := time.Now()
-	d, err := w.Claim(storage.WithoutSQLTracing(ctx))
+	d, err := w.claimNext(storage.WithoutSQLTracing(ctx), checkDue)
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, nil
 	}
@@ -184,6 +185,15 @@ func (w *Worker) processNext(ctx context.Context, onClaim func()) (bool, error) 
 		return true, errors.Join(err, retryErr)
 	}
 	return true, nil
+}
+
+func (w *Worker) claimNext(ctx context.Context, checkDue bool) (Delivery, error) {
+	if checkDue {
+		if err := w.repository.checkDueDelivery(ctx, w.now()); err != nil {
+			return Delivery{}, err
+		}
+	}
+	return w.Claim(ctx)
 }
 
 // Claim atomically leases at most one due delivery.

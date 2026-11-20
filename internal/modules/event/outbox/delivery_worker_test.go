@@ -110,6 +110,22 @@ func TestWorkerDrainsOneSubscriptionWithoutWaitingForPoll(t *testing.T) {
 	})
 }
 
+func TestProcessNextWithNoDueDeliveryDoesNotWaitForSQLiteWriter(t *testing.T) {
+	db := testutil.OpenSQLite(t)
+	worker := NewWorker(New(db), func(events.TypeName, string) (DeliveryHandler, bool) {
+		return DeliveryHandler{}, false
+	})
+	require.NoError(t, db.WithinTransaction(t.Context(), func(context.Context) error {
+		// Keep the write transaction open and poll on a separate connection.
+		ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+		defer cancel()
+		handled, err := worker.ProcessNext(ctx)
+		require.NoError(t, err)
+		require.False(t, handled)
+		return nil
+	}))
+}
+
 func TestProcessNextStartsDeliveryTrace(t *testing.T) {
 	recorder := tracetest.NewSpanRecorder()
 	provider := sdktrace.NewTracerProvider(
