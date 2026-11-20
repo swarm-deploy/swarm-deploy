@@ -451,6 +451,14 @@ func (s *Service) ListChats(ctx context.Context) ([]ChatSummary, error) {
 	return result, nil
 }
 
+// GetUsage returns recorded token consumption across chats.
+func (s *Service) GetUsage(ctx context.Context, from, to time.Time, interval UsageInterval) ([]UsageBucket, error) {
+	if s.conversationHistory == nil {
+		return []UsageBucket{}, nil
+	}
+	return s.conversationHistory.ReadUsage(ctx, from, to, interval)
+}
+
 // GetChat returns one persisted chat with messages.
 func (s *Service) GetChat(ctx context.Context, id string) (ChatHistory, bool, error) {
 	if s.conversationHistory == nil {

@@ -49,6 +49,12 @@ type Handler interface {
 	//
 	// GET /api/assistant/suggestions
 	GetAssistantSuggestions(ctx context.Context) (*AssistantSuggestionsResponse, error)
+	// GetAssistantUsage implements getAssistantUsage operation.
+	//
+	// Read recorded assistant token usage across chats.
+	//
+	// GET /api/v1/assistant/usage
+	GetAssistantUsage(ctx context.Context, params GetAssistantUsageParams) (*AssistantUsageResponse, error)
 	// GetConfig implements getConfig operation.
 	//
 	// GET /api/v1/config

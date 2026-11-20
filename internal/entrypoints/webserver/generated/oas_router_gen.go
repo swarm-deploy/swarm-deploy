@@ -32,7 +32,7 @@ var (
 	rn22AllowedHeaders = map[string]string{
 		"PUT": "Content-Type",
 	}
-	rn82AllowedHeaders = map[string]string{
+	rn84AllowedHeaders = map[string]string{
 		"PUT": "Content-Type",
 	}
 )
@@ -249,33 +249,21 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 						}
 
-					case 's': // Prefix: "ssistant/chat"
+					case 's': // Prefix: "ssistant/"
 
-						if l := len("ssistant/chat"); len(elem) >= l && elem[0:l] == "ssistant/chat" {
+						if l := len("ssistant/"); len(elem) >= l && elem[0:l] == "ssistant/" {
 							elem = elem[l:]
 						} else {
 							break
 						}
 
 						if len(elem) == 0 {
-							switch r.Method {
-							case "POST":
-								s.handleAssistantChatRequest([0]string{}, elemIsEscaped, w, r)
-							default:
-								s.notAllowed(w, r, notAllowedParams{
-									allowedMethods: "POST",
-									allowedHeaders: rn5AllowedHeaders,
-									acceptPost:     "application/json",
-									acceptPatch:    "",
-								})
-							}
-
-							return
+							break
 						}
 						switch elem[0] {
-						case 's': // Prefix: "s"
+						case 'c': // Prefix: "chat"
 
-							if l := len("s"); len(elem) >= l && elem[0:l] == "s" {
+							if l := len("chat"); len(elem) >= l && elem[0:l] == "chat" {
 								elem = elem[l:]
 							} else {
 								break
@@ -283,13 +271,13 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 							if len(elem) == 0 {
 								switch r.Method {
-								case "GET":
-									s.handleListAssistantChatsRequest([0]string{}, elemIsEscaped, w, r)
+								case "POST":
+									s.handleAssistantChatRequest([0]string{}, elemIsEscaped, w, r)
 								default:
 									s.notAllowed(w, r, notAllowedParams{
-										allowedMethods: "GET",
-										allowedHeaders: nil,
-										acceptPost:     "",
+										allowedMethods: "POST",
+										allowedHeaders: rn5AllowedHeaders,
+										acceptPost:     "application/json",
 										acceptPatch:    "",
 									})
 								}
@@ -297,30 +285,18 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 								return
 							}
 							switch elem[0] {
-							case '/': // Prefix: "/"
+							case 's': // Prefix: "s"
 
-								if l := len("/"); len(elem) >= l && elem[0:l] == "/" {
+								if l := len("s"); len(elem) >= l && elem[0:l] == "s" {
 									elem = elem[l:]
 								} else {
 									break
 								}
 
-								// Param: "conversationID"
-								// Leaf parameter, slashes are prohibited
-								idx := strings.IndexByte(elem, '/')
-								if idx >= 0 {
-									break
-								}
-								args[0] = elem
-								elem = ""
-
 								if len(elem) == 0 {
-									// Leaf node.
 									switch r.Method {
 									case "GET":
-										s.handleGetAssistantChatRequest([1]string{
-											args[0],
-										}, elemIsEscaped, w, r)
+										s.handleListAssistantChatsRequest([0]string{}, elemIsEscaped, w, r)
 									default:
 										s.notAllowed(w, r, notAllowedParams{
 											allowedMethods: "GET",
@@ -332,7 +308,70 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 									return
 								}
+								switch elem[0] {
+								case '/': // Prefix: "/"
 
+									if l := len("/"); len(elem) >= l && elem[0:l] == "/" {
+										elem = elem[l:]
+									} else {
+										break
+									}
+
+									// Param: "conversationID"
+									// Leaf parameter, slashes are prohibited
+									idx := strings.IndexByte(elem, '/')
+									if idx >= 0 {
+										break
+									}
+									args[0] = elem
+									elem = ""
+
+									if len(elem) == 0 {
+										// Leaf node.
+										switch r.Method {
+										case "GET":
+											s.handleGetAssistantChatRequest([1]string{
+												args[0],
+											}, elemIsEscaped, w, r)
+										default:
+											s.notAllowed(w, r, notAllowedParams{
+												allowedMethods: "GET",
+												allowedHeaders: nil,
+												acceptPost:     "",
+												acceptPatch:    "",
+											})
+										}
+
+										return
+									}
+
+								}
+
+							}
+
+						case 'u': // Prefix: "usage"
+
+							if l := len("usage"); len(elem) >= l && elem[0:l] == "usage" {
+								elem = elem[l:]
+							} else {
+								break
+							}
+
+							if len(elem) == 0 {
+								// Leaf node.
+								switch r.Method {
+								case "GET":
+									s.handleGetAssistantUsageRequest([0]string{}, elemIsEscaped, w, r)
+								default:
+									s.notAllowed(w, r, notAllowedParams{
+										allowedMethods: "GET",
+										allowedHeaders: nil,
+										acceptPost:     "",
+										acceptPatch:    "",
+									})
+								}
+
+								return
 							}
 
 						}
@@ -1645,7 +1684,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 												default:
 													s.notAllowed(w, r, notAllowedParams{
 														allowedMethods: "PUT",
-														allowedHeaders: rn82AllowedHeaders,
+														allowedHeaders: rn84AllowedHeaders,
 														acceptPost:     "",
 														acceptPatch:    "",
 													})
@@ -2065,33 +2104,21 @@ func (s *Server) FindPath(method string, u *url.URL) (r Route, _ bool) {
 
 						}
 
-					case 's': // Prefix: "ssistant/chat"
+					case 's': // Prefix: "ssistant/"
 
-						if l := len("ssistant/chat"); len(elem) >= l && elem[0:l] == "ssistant/chat" {
+						if l := len("ssistant/"); len(elem) >= l && elem[0:l] == "ssistant/" {
 							elem = elem[l:]
 						} else {
 							break
 						}
 
 						if len(elem) == 0 {
-							switch method {
-							case "POST":
-								r.name = AssistantChatOperation
-								r.summary = ""
-								r.operationID = "assistantChat"
-								r.operationGroup = ""
-								r.pathPattern = "/api/v1/assistant/chat"
-								r.args = args
-								r.count = 0
-								return r, true
-							default:
-								return
-							}
+							break
 						}
 						switch elem[0] {
-						case 's': // Prefix: "s"
+						case 'c': // Prefix: "chat"
 
-							if l := len("s"); len(elem) >= l && elem[0:l] == "s" {
+							if l := len("chat"); len(elem) >= l && elem[0:l] == "chat" {
 								elem = elem[l:]
 							} else {
 								break
@@ -2099,12 +2126,12 @@ func (s *Server) FindPath(method string, u *url.URL) (r Route, _ bool) {
 
 							if len(elem) == 0 {
 								switch method {
-								case "GET":
-									r.name = ListAssistantChatsOperation
+								case "POST":
+									r.name = AssistantChatOperation
 									r.summary = ""
-									r.operationID = "listAssistantChats"
+									r.operationID = "assistantChat"
 									r.operationGroup = ""
-									r.pathPattern = "/api/v1/assistant/chats"
+									r.pathPattern = "/api/v1/assistant/chat"
 									r.args = args
 									r.count = 0
 									return r, true
@@ -2113,40 +2140,91 @@ func (s *Server) FindPath(method string, u *url.URL) (r Route, _ bool) {
 								}
 							}
 							switch elem[0] {
-							case '/': // Prefix: "/"
+							case 's': // Prefix: "s"
 
-								if l := len("/"); len(elem) >= l && elem[0:l] == "/" {
+								if l := len("s"); len(elem) >= l && elem[0:l] == "s" {
 									elem = elem[l:]
 								} else {
 									break
 								}
 
-								// Param: "conversationID"
-								// Leaf parameter, slashes are prohibited
-								idx := strings.IndexByte(elem, '/')
-								if idx >= 0 {
-									break
-								}
-								args[0] = elem
-								elem = ""
-
 								if len(elem) == 0 {
-									// Leaf node.
 									switch method {
 									case "GET":
-										r.name = GetAssistantChatOperation
+										r.name = ListAssistantChatsOperation
 										r.summary = ""
-										r.operationID = "getAssistantChat"
+										r.operationID = "listAssistantChats"
 										r.operationGroup = ""
-										r.pathPattern = "/api/v1/assistant/chats/{conversationID}"
+										r.pathPattern = "/api/v1/assistant/chats"
 										r.args = args
-										r.count = 1
+										r.count = 0
 										return r, true
 									default:
 										return
 									}
 								}
+								switch elem[0] {
+								case '/': // Prefix: "/"
 
+									if l := len("/"); len(elem) >= l && elem[0:l] == "/" {
+										elem = elem[l:]
+									} else {
+										break
+									}
+
+									// Param: "conversationID"
+									// Leaf parameter, slashes are prohibited
+									idx := strings.IndexByte(elem, '/')
+									if idx >= 0 {
+										break
+									}
+									args[0] = elem
+									elem = ""
+
+									if len(elem) == 0 {
+										// Leaf node.
+										switch method {
+										case "GET":
+											r.name = GetAssistantChatOperation
+											r.summary = ""
+											r.operationID = "getAssistantChat"
+											r.operationGroup = ""
+											r.pathPattern = "/api/v1/assistant/chats/{conversationID}"
+											r.args = args
+											r.count = 1
+											return r, true
+										default:
+											return
+										}
+									}
+
+								}
+
+							}
+
+						case 'u': // Prefix: "usage"
+
+							if l := len("usage"); len(elem) >= l && elem[0:l] == "usage" {
+								elem = elem[l:]
+							} else {
+								break
+							}
+
+							if len(elem) == 0 {
+								// Leaf node.
+								switch method {
+								case "GET":
+									r.name = GetAssistantUsageOperation
+									r.summary = "Read recorded assistant token usage across chats"
+									r.operationID = "getAssistantUsage"
+									r.operationGroup = ""
+									r.pathPattern = "/api/v1/assistant/usage"
+									r.args = args
+									r.count = 0
+									return r, true
+								default:
+									return
+								}
 							}
 
 						}

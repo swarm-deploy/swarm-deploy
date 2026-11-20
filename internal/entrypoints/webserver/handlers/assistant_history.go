@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 
@@ -55,6 +56,30 @@ func (h *handler) GetAssistantChat(
 		TokenUsage: toGeneratedAssistantTokenUsage(chat.Usage),
 		Messages:   messages,
 	}, nil
+}
+
+// GetAssistantUsage returns recorded token usage across chats.
+func (h *handler) GetAssistantUsage(
+	ctx context.Context,
+	params generated.GetAssistantUsageParams,
+) (*generated.AssistantUsageResponse, error) {
+	if !params.From.Before(params.To) {
+		return nil, withStatusError(http.StatusBadRequest, errors.New("from must be before to"))
+	}
+
+	buckets, err := h.assistant.GetUsage(ctx, params.From, params.To, assistant.UsageInterval(params.Interval))
+	if err != nil {
+		return nil, fmt.Errorf("get assistant usage: %w", err)
+	}
+
+	items := make([]generated.AssistantUsageBucket, 0, len(buckets))
+	for _, bucket := range buckets {
+		items = append(items, generated.AssistantUsageBucket{
+			Start: bucket.Start, InputTokens: bucket.InputTokens,
+			OutputTokens: bucket.OutputTokens, TotalTokens: bucket.TotalTokens,
+		})
+	}
+	return &generated.AssistantUsageResponse{Buckets: items}, nil
 }
 
 func toGeneratedAssistantChatSummary(chat assistant.ChatSummary) generated.AssistantChatSummary {

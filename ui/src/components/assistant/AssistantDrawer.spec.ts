@@ -45,7 +45,9 @@ describe("Assistant Drawer", () => {
     expect(link.element.nextElementSibling?.getAttribute("aria-label")).toBe("Search chats");
 
     await link.trigger("click");
-    await vi.waitFor(() => expect(wrapper.find(".assistant-drawer .assistant-usage").exists()).toBe(true));
+    await flushPromises();
+    await vi.dynamicImportSettled();
+    expect(wrapper.find(".assistant-drawer .assistant-usage").exists()).toBe(true);
     expect(router.currentRoute.value.fullPath).toBe("/?assistant=usage&tab=alerts#active");
     expect(useUIStore().assistantDrawerOpen).toBe(true);
     expect(wrapper.get(".assistant-drawer-header h2").text()).toBe("Usage");
@@ -72,7 +74,9 @@ describe("Assistant Drawer", () => {
     await router.push("/?assistant=usage&tab=alerts#active");
 
     const wrapper = mount(AssistantDrawer, { global: { plugins: [pinia, router] } });
-    await vi.waitFor(() => expect(wrapper.find(".assistant-drawer .assistant-usage").exists()).toBe(true));
+    await flushPromises();
+    await vi.dynamicImportSettled();
+    expect(wrapper.find(".assistant-drawer .assistant-usage").exists()).toBe(true);
     expect(useUIStore().assistantDrawerOpen).toBe(true);
     expect(store.openChat).not.toHaveBeenCalled();
     expect(store.loadChats).not.toHaveBeenCalled();
