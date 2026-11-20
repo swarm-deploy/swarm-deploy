@@ -46,6 +46,32 @@ func TestPausedUpdateRemainsFailedWhenTaskDiagnosticsUnavailable(t *testing.T) {
 	assert.ErrorContains(t, err, "task diagnostics unavailable")
 }
 
+func TestServiceWaiterMasksRejectedTaskDiagnostic(t *testing.T) {
+	manager := swarm.NewMockServiceManager(gomock.NewController(t))
+	service := testReplicatedService("api", "api-id", 1, serviceWaitTestTime, "api:2")
+	service.UpdateStatus = &swarm.ServiceUpdateStatus{
+		State: "paused", Message: "update paused due to failure of task rejected-task", StartedAt: serviceWaitTestTime,
+	}
+	task := testTask("rejected-task", 1, swarm.TaskStateShutdown, swarm.TaskStateRejected, serviceWaitTestTime)
+	task.Error = "registry request failed: token=private-value"
+	manager.EXPECT().ListServices(gomock.Any(), gomock.Any()).Return([]swarm.StackService{service}, nil)
+	manager.EXPECT().ListTasks(gomock.Any(), service.ID).Return([]swarm.ServiceTask{task}, nil)
+
+	var progress []ServiceProgress
+	_, err := newTestServiceWaiter(manager).Wait(t.Context(), ServiceWaitRequest{
+		StackName: "app", ServiceNames: []string{service.Name},
+		Progress: func(update ServiceProgress) { progress = append(progress, update) },
+	})
+
+	require.ErrorIs(t, err, ErrConvergenceFailed)
+	assert.ErrorContains(t, err, "token=****")
+	assert.NotContains(t, err.Error(), "private-value")
+	require.Len(t, progress, 1)
+	assert.Equal(t, ServiceFailed, progress[0].State)
+	assert.Contains(t, progress[0].Message, "token=****")
+	assert.NotContains(t, progress[0].Message, "private-value")
+}
+
 func TestTerminalDiagnosticUsesTaskNamedByDockerIncludingEarlySuccessfulExit(t *testing.T) {
 	exit := 0
 	diagnostic := formatTaskDiagnostic(terminalFailureTask([]swarm.ServiceTask{
