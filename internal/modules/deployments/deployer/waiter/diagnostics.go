@@ -29,18 +29,19 @@ func (e placementConstraintError) FaultSummary() string { return e.summary }
 func (e placementConstraintError) Unwrap() error        { return e.Coded }
 
 func (w *ServiceWaiter) withPendingTaskFaults(
-	ctx context.Context, err error, progress map[string]ServiceProgress,
+	ctx context.Context, err error, progress map[string]ServiceProgress, includeRegistryPull bool,
 ) error {
 	causes := []error{err}
 	var nodes []swarm.Node
 	nodesLoaded := false
 	for _, name := range sortedProgressNames(progress) {
 		service := progress[name]
-		if service.State != ServicePending || len(service.pendingTaskFaults) == 0 {
+		taskFaults := service.pendingFaults(includeRegistryPull)
+		if service.State != ServicePending || len(taskFaults) == 0 {
 			continue
 		}
 		constraints := placementDiagnosticConstraints(service.placementConstraints)
-		for _, fault := range service.pendingTaskFaults {
+		for _, fault := range taskFaults {
 			if fault.FaultCode() == faults.CodeNoSuitableNode && len(constraints) != 0 && ctx.Err() == nil {
 				if !nodesLoaded {
 					nodes = w.listPlacementDiagnosticNodes(ctx)
@@ -59,6 +60,13 @@ func (w *ServiceWaiter) withPendingTaskFaults(
 		return err
 	}
 	return errors.Join(causes...)
+}
+
+func (p ServiceProgress) pendingFaults(includeRegistryPull bool) []faults.Coded {
+	if includeRegistryPull {
+		return slices.Concat(p.pendingTaskFaults, p.registryPullFaults)
+	}
+	return p.pendingTaskFaults
 }
 
 func placementDiagnosticConstraints(raw []string) []constraint.Constraint {
@@ -121,24 +129,55 @@ func (p *ServiceProgress) pendingSchedulingFault(
 }
 
 func (p *ServiceProgress) pendingFailureFaults(
-	spec dockerswarm.ServiceSpec, tasks []swarm.ServiceTask, cutoff time.Time,
+	spec dockerswarm.ServiceSpec, tasks []swarm.ServiceTask, cutoff time.Time, matchesTask func(swarm.ServiceTask) bool,
 ) swarm.ServiceTask {
 	failed := services.UnreplacedServiceTaskFailures(spec, tasks, cutoff)
-	if len(failed) == 0 {
-		return swarm.ServiceTask{}
+	var latest swarm.ServiceTask
+	if len(failed) != 0 {
+		latest = failed[0]
 	}
-	latest := failed[0]
+	reportedDenials := make(map[string]struct{})
 	if p.Running < p.Desired {
 		for i, task := range failed {
-			if fault := task.Fault(); fault != nil {
-				p.pendingTaskFaults = append(p.pendingTaskFaults, fault)
-				if i == 0 {
-					latest.Error = "" // The typed branch supplies the full technical text.
-				}
+			fault := task.Fault()
+			if fault == nil {
+				continue
+			}
+			if i == 0 {
+				latest.Error = "" // The typed branch supplies the full technical text.
+			}
+			if fault.FaultCode() == faults.CodeImagePullFailed {
+				continue
+			}
+			p.pendingTaskFaults = append(p.pendingTaskFaults, fault)
+			if fault.FaultCode() == faults.CodeImagePullDenied {
+				reportedDenials[task.ID] = struct{}{}
 			}
 		}
 	}
+	// Swarm's global desired count omits replacements waiting to start.
+	if p.Running < p.Desired || spec.Mode.Global != nil {
+		p.pendingRegistryPullFaults(services.LatestUnrecoveredTaskAttempts(spec, tasks, cutoff, matchesTask), reportedDenials)
+	}
 	return latest
+}
+
+func (p *ServiceProgress) pendingRegistryPullFaults(
+	attempts []swarm.ServiceTask, reportedDenials map[string]struct{},
+) {
+	for _, task := range attempts {
+		if _, reported := reportedDenials[task.ID]; reported || task.CurrentState != swarm.TaskStateRejected {
+			continue
+		}
+		if fault := task.Fault(); isImagePullFault(fault) {
+			p.registryPullFaults = append(p.registryPullFaults, fault)
+		}
+	}
+}
+
+func isImagePullFault(fault faults.Coded) bool {
+	return fault != nil &&
+		(fault.FaultCode() == faults.CodeImagePullFailed || fault.FaultCode() == faults.CodeImagePullDenied)
 }
 
 func terminalTaskCutoff(baseline, service swarm.StackService) time.Time {
@@ -205,20 +244,9 @@ func formatTaskDiagnostic(task swarm.ServiceTask) string {
 		diagnostic += fmt.Sprintf(" exit_code=%d", *task.ExitCode)
 	}
 	if task.Error != "" {
-		diagnostic += ": " + boundedDiagnostic(task.Error)
+		diagnostic += ": " + boundedDiagnostic(faults.SafeDiagnostic(errors.New(task.Error)))
 	}
 	return diagnostic
-}
-
-func (w *ServiceWaiter) waitInterruptedError(
-	ctx context.Context,
-	stackName string,
-	progress map[string]ServiceProgress,
-	cause error,
-	lastObservationError error,
-) error {
-	err := interruptionDiagnostic(stackName, progress, cause, lastObservationError)
-	return w.withPendingTaskFaults(ctx, err, progress)
 }
 
 func interruptionDiagnostic(

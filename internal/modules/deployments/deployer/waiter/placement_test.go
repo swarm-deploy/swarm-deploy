@@ -1,8 +1,10 @@
 package waiter
 
 import (
+	"context"
 	"errors"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/docker/docker/api/types/mount"
@@ -10,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/services"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	"go.uber.org/mock/gomock"
 )
@@ -202,6 +205,63 @@ func TestPlacementOnlyUpdateReusesCompatibleRunningTasks(t *testing.T) {
 				assert.Equal(t, "task-"+time.Duration(index+1).String(), task.ID)
 				assert.Equal(t, before.CreatedAt, task.CreatedAt)
 			}
+		})
+	}
+}
+
+func TestPlacementOnlyUpdateVerifiesGlobalReplacement(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		current     swarm.TaskState
+		eligible    bool
+		wantTimeout bool
+	}{
+		{name: "compatible replacement still preparing", current: swarm.TaskStatePreparing, eligible: true, wantTimeout: true},
+		{name: "compatible replacement rejected", current: swarm.TaskStateRejected, eligible: true, wantTimeout: true},
+		{name: "compatible replacement running", current: swarm.TaskStateRunning, eligible: true},
+		{name: "replacement on excluded node", current: swarm.TaskStateRejected},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				controller := gomock.NewController(t)
+				manager := swarm.NewMockServiceManager(controller)
+				nodes := swarm.NewMockNodeManager(controller)
+				before, after := placementUpdateServices(globalServiceMode, 1)
+				healthy := placementTasks(1, before.ServiceSpec.TaskTemplate, before.CreatedAt, "node-a")[0]
+				failed := testTask("rejected", 0, swarm.TaskStateShutdown, swarm.TaskStateRejected, before.CreatedAt)
+				failed.Node, failed.Spec, failed.Error = "node-b", healthy.Spec, "error from registry: backend unavailable"
+				replacement := testTask("replacement", 0, swarm.TaskStateReady, tc.current, before.CreatedAt.Add(time.Second))
+				replacement.Node, replacement.Spec = failed.Node, failed.Spec
+				if tc.current == swarm.TaskStateRejected {
+					replacement.Error = failed.Error
+				}
+				if tc.current == swarm.TaskStateRunning {
+					replacement.DesiredState = swarm.TaskStateRunning
+					after.DesiredTasks++
+				}
+				replacementNode := incompatiblePlacementNode(failed.Node)
+				if tc.eligible {
+					replacementNode = compatiblePlacementNode(failed.Node)
+				}
+				manager.EXPECT().ListServices(gomock.Any(), gomock.Any()).Return([]swarm.StackService{after}, nil).MinTimes(1)
+				manager.EXPECT().ListTasks(gomock.Any(), after.ID).Return([]swarm.ServiceTask{healthy, failed, replacement}, nil).MinTimes(1)
+				nodes.EXPECT().List(gomock.Any()).Return([]swarm.Node{compatiblePlacementNode(healthy.Node), replacementNode}, nil).MinTimes(1)
+
+				result, err := NewServiceWaiter(manager, nodes, time.Second, 3*time.Second).Wait(
+					t.Context(), placementWaitRequest(before, after, nil),
+				)
+				if !tc.wantTimeout {
+					require.NoError(t, err)
+					assert.Empty(t, result.UnresolvedServices)
+					return
+				}
+				require.ErrorIs(t, err, context.DeadlineExceeded)
+				assert.NotErrorIs(t, err, ErrConvergenceFailed)
+				assert.Equal(t, []string{"api"}, result.UnresolvedServices)
+				assert.Equal(t, []faults.Cause{{
+					Code: faults.CodeImagePullFailed, Summary: "Docker could not pull the image.", Temporary: true,
+				}}, faults.Causes(err))
+			})
 		})
 	}
 }

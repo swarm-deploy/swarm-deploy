@@ -1,6 +1,7 @@
 package services
 
 import (
+	"maps"
 	"slices"
 	"strconv"
 
@@ -57,8 +58,31 @@ func JobTaskFailure(
 	return failed, failed.ID != ""
 }
 
+// LatestUnrecoveredJobAttempts finds pending failure evidence by slot or node in the current job iteration.
+func LatestUnrecoveredJobAttempts(
+	spec dockerswarm.ServiceSpec, status *dockerswarm.JobStatus, tasks []swarm.ServiceTask,
+) []swarm.ServiceTask {
+	histories := make(map[string][]swarm.ServiceTask)
+	for _, task := range tasks {
+		key, relevant := jobTaskKey(spec, status, task)
+		if !relevant {
+			continue
+		}
+		histories[key] = append(histories[key], task)
+	}
+	if spec.Mode.GlobalJob != nil {
+		// A node with only shutdown history may have left the global job.
+		maps.DeleteFunc(histories, func(_ string, history []swarm.ServiceTask) bool {
+			return !slices.ContainsFunc(history, func(task swarm.ServiceTask) bool {
+				return task.DesiredState == swarm.TaskStateReady || task.DesiredState == swarm.TaskStateComplete
+			})
+		})
+	}
+	return latestUnrecoveredAttempts(histories)
+}
+
 func jobTaskKey(spec dockerswarm.ServiceSpec, status *dockerswarm.JobStatus, task swarm.ServiceTask) (string, bool) {
-	if task.JobIteration == nil || *task.JobIteration != status.JobIteration {
+	if status == nil || task.JobIteration == nil || *task.JobIteration != status.JobIteration {
 		return "", false
 	}
 	if job := spec.Mode.ReplicatedJob; job != nil {

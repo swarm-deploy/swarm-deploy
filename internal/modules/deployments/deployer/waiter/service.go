@@ -69,6 +69,7 @@ type ServiceProgress struct {
 	taskFault            faults.Coded
 	taskContext          string
 	pendingTaskFaults    []faults.Coded
+	registryPullFaults   []faults.Coded
 	placementConstraints []string
 	taskLookupFailed     bool
 }
@@ -225,8 +226,10 @@ func (w *ServiceWaiter) wait(
 }
 
 func (w *ServiceWaiter) finishInterruptedWait(ctx context.Context, stack string, state *waitState, cause error) error {
-	interrupted := w.waitInterruptedError(ctx, stack, state.last, cause, state.lastObservationError)
 	terminal := state.terminalError()
+	interrupted := interruptionDiagnostic(stack, state.last, cause, state.lastObservationError)
+	includeRegistryPull := cause == context.DeadlineExceeded && terminal == nil
+	interrupted = w.withPendingTaskFaults(ctx, interrupted, state.last, includeRegistryPull)
 	if terminal == nil {
 		return interrupted
 	}
@@ -237,7 +240,7 @@ func (w *ServiceWaiter) withObservationFailure(ctx context.Context, state *waitS
 	if terminal := state.terminalError(); terminal != nil {
 		cause = fmt.Errorf("%w; observation failed: %w", terminal, cause)
 	}
-	return w.withPendingTaskFaults(ctx, cause, state.last)
+	return w.withPendingTaskFaults(ctx, cause, state.last, false)
 }
 
 func (w *ServiceWaiter) poll(

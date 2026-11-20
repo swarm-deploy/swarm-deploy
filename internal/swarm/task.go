@@ -2,6 +2,7 @@ package swarm
 
 import (
 	"errors"
+	"strings"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
 )
@@ -17,10 +18,91 @@ func (t ServiceTask) Fault() faults.Coded {
 		return nil
 	}
 	code, summary := dockerFault(t.Error)
-	if code == "" || (t.CurrentState == TaskStatePending && code != faults.CodeNoSuitableNode) {
+	if t.CurrentState == TaskStatePending && code != faults.CodeNoSuitableNode {
+		return nil
+	}
+	// A wrapped containerd extraction failure retains its specific classification.
+	// Other Registry bodies take precedence over general Docker text patterns.
+	if code != faults.CodeImageExtractionFailed &&
+		t.CurrentState == TaskStateRejected && t.Spec.value.ContainerSpec != nil &&
+		strings.TrimSpace(t.Spec.value.ContainerSpec.Image) != "" {
+		// Registry bodies are arbitrary text. Recognize access refusals there
+		// only when the whole message is a standard refusal.
+		if message, found := strings.CutPrefix(t.Error, registryErrorPrefix); found {
+			return registryPullFault(t.Error, strings.TrimSpace(message))
+		}
+		// The classic image store can surface a Registry error code without the prefix.
+		switch t.Error {
+		case "unsupported", "unsupported: The operation is unsupported.":
+			return newRegistryPullError(t.Error, false)
+		case "denied", "unauthorized":
+			return &dockerFaultError{cause: errors.New(t.Error), code: faults.CodeImagePullDenied, summary: t.Error}
+		}
+	}
+	if code == "" {
 		return nil
 	}
 	return &dockerFaultError{cause: errors.New(t.Error), code: code, summary: summary}
+}
+
+const registryErrorPrefix = "error from registry:"
+
+type registryPullError struct {
+	dockerFaultError
+	temporary bool
+}
+
+func (e *registryPullError) Temporary() bool { return e.temporary }
+
+func registryPullFault(diagnostic, message string) faults.Coded {
+	if message == "" {
+		return nil
+	}
+	first, rest, _ := strings.Cut(message, "\n")
+	code, summary := registryResponseCode(first)
+	// Moby can join several Registry responses with independent detail strings.
+	if rest != "" {
+		for line := range strings.SplitSeq(rest, "\n") {
+			line = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), registryErrorPrefix))
+			if next, _ := registryResponseCode(line); next != code {
+				return newRegistryPullError(diagnostic, true)
+			}
+		}
+	}
+	if code == faults.CodeImagePullDenied {
+		return &dockerFaultError{cause: errors.New(diagnostic), code: code, summary: summary}
+	}
+	return newRegistryPullError(diagnostic, code == "")
+}
+
+// registryResponseCode recognizes explicit permanent responses. Other responses may be retried.
+func registryResponseCode(line string) (faults.Code, string) {
+	line = strings.TrimSpace(line)
+	// Docker can also repeat the diagnostic in a colon-separated error chain.
+	if head, tail, ok := strings.Cut(line, ": "); ok &&
+		head == strings.TrimSpace(strings.TrimPrefix(tail, registryErrorPrefix)) {
+		line = head
+	}
+	base, _, _ := strings.Cut(line, " - ")
+	switch strings.ToLower(base) {
+	case "unauthorized", "denied", "authentication required", "requested access to the resource is denied",
+		"unauthorized: authentication required", "denied: requested access to the resource is denied",
+		"no basic auth credentials", "insufficient_scope: authorization failed":
+		return faults.CodeImagePullDenied, base
+	case "unsupported", "the operation is unsupported.":
+		return faults.CodeImagePullFailed, base
+	default:
+		return "", ""
+	}
+}
+
+func newRegistryPullError(diagnostic string, temporary bool) *registryPullError {
+	return &registryPullError{
+		dockerFaultError: dockerFaultError{
+			cause: errors.New(diagnostic), code: faults.CodeImagePullFailed, summary: "Docker could not pull the image.",
+		},
+		temporary: temporary,
+	}
 }
 
 // TaskState represents the state of a task.

@@ -52,12 +52,7 @@ func (w *ServiceWaiter) observeService(
 	}
 	var placementNodes map[string]*swarmkitapi.Node
 	mode := serviceVerificationMode(baseline, service, unresolved, generation)
-	if (mode == services.VerifyExistingTasks || mode == services.VerifyPlacementCompatibleTasks) &&
-		slices.ContainsFunc(tasks, func(task swarm.ServiceTask) bool {
-			comparison := task.Spec.CompareServiceTemplate(service.ServiceSpec.TaskTemplate)
-			return task.DesiredState == swarm.TaskStateRunning && task.CurrentState == swarm.TaskStateRunning &&
-				(comparison.PlacementOnly() || (mode == services.VerifyPlacementCompatibleTasks && comparison.Equal()))
-		}) {
+	if !terminal && needsPlacementNodes(service, tasks, mode) {
 		nodes, listErr := w.nodes.List(ctx)
 		if listErr != nil {
 			progress.State = ServicePending
@@ -68,4 +63,20 @@ func (w *ServiceWaiter) observeService(
 		placementNodes = placementNodesByID(nodes)
 	}
 	return evaluateService(name, baseline, service, tasks, unresolved, expected, placementNodes, generation), nil
+}
+
+func needsPlacementNodes(service swarm.StackService, tasks []swarm.ServiceTask, mode services.VerificationMode) bool {
+	if mode != services.VerifyExistingTasks && mode != services.VerifyPlacementCompatibleTasks {
+		return false
+	}
+	return slices.ContainsFunc(tasks, func(task swarm.ServiceTask) bool {
+		running := task.DesiredState == swarm.TaskStateRunning && task.CurrentState == swarm.TaskStateRunning
+		globalAttempt := service.Mode == globalServiceMode && (task.DesiredState == swarm.TaskStateReady ||
+			(task.DesiredState == swarm.TaskStateRunning && task.CurrentState == swarm.TaskStateRejected))
+		if !running && !globalAttempt {
+			return false
+		}
+		comparison := task.Spec.CompareServiceTemplate(service.ServiceSpec.TaskTemplate)
+		return comparison.PlacementOnly() || (mode == services.VerifyPlacementCompatibleTasks && comparison.Equal())
+	})
 }

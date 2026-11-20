@@ -94,11 +94,11 @@ func (e *SyncEvaluator) failure(
 		alert.Message = fmt.Sprintf(fallbackFormat, stage)
 	}
 
-	findings, openAfter := classifySyncFailure(cause)
+	findings, openAfter := classifySyncFailure(cause, incoming.ErrorCode)
 	return []model.AlertAction{model.NewRecordFailureAction(alert, openAfter, true, findings...)}, nil
 }
 
-func classifySyncFailure(err error) ([]model.Finding, uint64) {
+func classifySyncFailure(err error, errorCode string) ([]model.Finding, uint64) {
 	causes := faults.Causes(err)
 	if len(causes) == 0 {
 		if classified, ok := errors.AsType[faults.Error](err); ok && classified.Temporary() {
@@ -108,9 +108,11 @@ func classifySyncFailure(err error) ([]model.Finding, uint64) {
 	}
 	findings := make([]model.Finding, 0, len(causes))
 	openAfter := temporaryFailureThreshold
+	convergenceFailed := errorCode == events.DeployErrorCodeConvergenceFailed
 	for _, cause := range causes {
 		findings = append(findings, model.Finding{Code: cause.Code, Summary: cause.Summary})
-		if !cause.Temporary {
+		// Terminal convergence failures will not be retried automatically.
+		if !cause.Temporary || (convergenceFailed && cause.Code == faults.CodeImagePullFailed) {
 			openAfter = openImmediately
 		}
 	}
