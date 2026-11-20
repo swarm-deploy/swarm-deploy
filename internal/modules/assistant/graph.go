@@ -68,25 +68,9 @@ var fastConversationResponses = map[string]string{
 	"спасибо":     "Пожалуйста.",
 }
 
-var (
-	errPromptInjection = errors.New("request rejected by prompt injection guard")
-)
-
-type promptInjectionError struct {
-	prompt string
-}
-
 type routerFallbackObserver interface {
 	// RecordRouterFallback tracks why the graph selected its fallback route profile.
 	RecordRouterFallback(reason string)
-}
-
-func (e *promptInjectionError) Error() string {
-	return errPromptInjection.Error()
-}
-
-func (e *promptInjectionError) Unwrap() error {
-	return errPromptInjection
 }
 
 type graph struct {
@@ -164,7 +148,7 @@ func (g *graph) run(
 	reportActivity func(string),
 ) (string, conversation.TokenUsage, error) {
 	if g.guard.Check(userMessage) {
-		return "", conversation.TokenUsage{}, &promptInjectionError{prompt: strings.TrimSpace(userMessage)}
+		return "", conversation.TokenUsage{}, &guard.PromptInjectionError{Prompt: strings.TrimSpace(userMessage)}
 	}
 	handled, pendingAnswer, pendingUsage, err := g.operations.handlePendingOperation(ctx, conversationID, userMessage)
 	if handled || err != nil {
@@ -186,9 +170,9 @@ func (g *graph) run(
 	}
 
 	if _, invokeErr := runnable.Invoke(ctx, nil); invokeErr != nil {
-		if errors.Is(invokeErr, errPromptInjection) {
-			return "", executionState.usage, &promptInjectionError{
-				prompt: strings.TrimSpace(executionState.rejectedPrompt),
+		if errors.Is(invokeErr, guard.ErrPromptInjection) {
+			return "", executionState.usage, &guard.PromptInjectionError{
+				Prompt: strings.TrimSpace(executionState.rejectedPrompt),
 			}
 		}
 
@@ -422,7 +406,7 @@ func (g *graph) prepareNode(
 			if contextMessage := buildServicesContextMessage(executionState.relevantServices); contextMessage != "" {
 				if g.guard.Check(contextMessage) {
 					executionState.rejectedPrompt = "prompt injection detected in retrieved service metadata"
-					return state, &promptInjectionError{prompt: executionState.rejectedPrompt}
+					return state, &guard.PromptInjectionError{Prompt: executionState.rejectedPrompt}
 				}
 				contextChars = textChars(contextMessage)
 				messages = append(messages, modelMessage{
@@ -626,8 +610,8 @@ func (g *graph) guardMCPResultsNode(
 				"tool %q result contained prompt injection markers",
 				toolResult.toolName,
 			)
-			return messages, &promptInjectionError{
-				prompt: strings.TrimSpace(executionState.rejectedPrompt),
+			return messages, &guard.PromptInjectionError{
+				Prompt: strings.TrimSpace(executionState.rejectedPrompt),
 			}
 		}
 

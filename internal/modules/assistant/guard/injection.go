@@ -1,6 +1,26 @@
 package guard
 
-import "regexp"
+import (
+	"errors"
+	"regexp"
+)
+
+// ErrPromptInjection indicates that the guard rejected a request.
+var ErrPromptInjection = errors.New("request rejected by prompt injection guard")
+
+// PromptInjectionError carries the prompt associated with a guard rejection.
+type PromptInjectionError struct {
+	// Prompt describes or contains the content that triggered the guard.
+	Prompt string
+}
+
+func (e *PromptInjectionError) Error() string {
+	return ErrPromptInjection.Error()
+}
+
+func (e *PromptInjectionError) Unwrap() error {
+	return ErrPromptInjection
+}
 
 type InjectionChecker struct {
 }

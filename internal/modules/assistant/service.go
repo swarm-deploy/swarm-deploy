@@ -220,11 +220,11 @@ func (s *Service) runAssistant(
 	}
 	answer, usage, err := s.graph.run(runCtx, conversationID, history, message, run.addActivity)
 	if err != nil {
-		if errors.Is(err, errPromptInjection) {
+		if errors.Is(err, guard.ErrPromptInjection) {
 			rejectedPrompt := message
-			var promptErr *promptInjectionError
-			if errors.As(err, &promptErr) && strings.TrimSpace(promptErr.prompt) != "" {
-				rejectedPrompt = promptErr.prompt
+			var promptErr *guard.PromptInjectionError
+			if errors.As(err, &promptErr) && strings.TrimSpace(promptErr.Prompt) != "" {
+				rejectedPrompt = promptErr.Prompt
 			}
 
 			s.publishPromptRejection(runCtx, rejectedPrompt)

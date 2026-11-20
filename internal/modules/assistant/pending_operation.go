@@ -441,7 +441,9 @@ func (f *operationFlow) executePendingOperation(
 		return fmt.Sprintf("Не удалось выполнить операцию: %s", strings.TrimSpace(err.Error())), nil
 	}
 	if f.guard.Check(result) {
-		return "", &promptInjectionError{prompt: fmt.Sprintf("tool %q result contained prompt injection markers", op.Type)}
+		return "", &guard.PromptInjectionError{
+			Prompt: fmt.Sprintf("tool %q result contained prompt injection markers", op.Type),
+		}
 	}
 	if op.Type == OperationSyncPauseSet && op.Replicas != nil {
 		return f.executeConfirmedPauseScale(ctx, conversationID, op, result)
@@ -559,7 +561,7 @@ func (f *operationFlow) executeConfirmedPauseScale(
 		), nil
 	}
 	if f.guard.Check(scaleResult) {
-		return "", &promptInjectionError{prompt: "replica tool result contained prompt injection markers"}
+		return "", &guard.PromptInjectionError{Prompt: "replica tool result contained prompt injection markers"}
 	}
 	scaleAnswer, err := finalizeTerminalToolResult(serviceReplicasSetTool, scaleResult)
 	if err != nil {
