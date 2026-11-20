@@ -12,8 +12,6 @@ import AppShell from "./AppShell.vue";
 const assistantStore = {
   enabled: false,
   conversationID: "",
-  messages: [],
-  historyOpen: false,
 };
 const currentUserStore = { displayName: "", loadCurrentUser: vi.fn() };
 const uiStore = {
@@ -37,6 +35,35 @@ function testRouter() {
     ],
   });
 }
+
+describe("assistant launcher", () => {
+  afterEach(() => {
+    assistantStore.enabled = false;
+    assistantStore.conversationID = "";
+  });
+
+  it.each([
+    { conversationID: "", destination: "new" },
+    { conversationID: "chat-1", destination: "chat-1" },
+  ])("opens $destination directly and preserves the page location", async ({ conversationID, destination }) => {
+    setActivePinia(createPinia());
+    assistantStore.enabled = true;
+    assistantStore.conversationID = conversationID;
+    const router = testRouter();
+    await router.push("/events?tab=alerts#active");
+    const push = vi.spyOn(router, "push");
+    const wrapper = shallowMount(AppShell, { global: { plugins: [router] } });
+
+    wrapper.getComponent({ name: "TopBar" }).vm.$emit("toggle-assistant");
+    await flushPromises();
+
+    expect(router.currentRoute.value.path).toBe("/events");
+    expect(router.currentRoute.value.query).toEqual({ tab: "alerts", assistant: destination });
+    expect(router.currentRoute.value.hash).toBe("#active");
+    expect(push).toHaveBeenCalledOnce();
+    wrapper.unmount();
+  });
+});
 
 describe("deployment details deep link", () => {
   beforeEach(() => {
