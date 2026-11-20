@@ -75,7 +75,12 @@ func (s *SQLHistoryStorage) ReadChat(ctx context.Context, id string) (Chat, bool
 
 // SaveTurns appends turns and usage atomically, creating metadata lazily.
 // The creator is recorded only on the first insert.
-func (s *SQLHistoryStorage) SaveTurns(ctx context.Context, id, createdBy string, usage TokenUsage, turns ...Turn) error {
+func (s *SQLHistoryStorage) SaveTurns(
+	ctx context.Context,
+	id, createdBy string,
+	usage TokenUsage,
+	turns ...Turn,
+) error {
 	id = strings.TrimSpace(id)
 	if id == "" {
 		return fmt.Errorf("assistant conversation id is required")
