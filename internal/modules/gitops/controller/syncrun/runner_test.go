@@ -22,6 +22,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackloop"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackqueue"
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/labelsdict"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
@@ -300,16 +301,68 @@ func TestPollWithoutChangesDoesNotRunSynchronization(t *testing.T) {
 	assert.Empty(t, state.LastSyncResult)
 }
 
-func TestRunPullFailureUpdatesSyncState(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	repository := gitx.NewMockRepository(ctrl)
-	repository.EXPECT().Pull(gomock.Any()).Return(gitx.PullResult{}, errors.New("git unavailable"))
-	runner, store, _ := newTestRunner(t, repository, stackloop.NewMockStackReconciler(ctrl), 1)
-	runner.Run(t.Context(), Task{Reason: TriggerStartup})
-	state := readSQLState(t, store)
-	assert.Equal(t, syncRunResultError, state.LastSyncResult)
-	assert.Equal(t, string(TriggerStartup), state.LastSyncReason)
-	assert.Equal(t, "Git pull failed", state.LastSyncError)
+func TestManualSyncRecordsSuccessfulGitPoll(t *testing.T) {
+	tests := []struct {
+		result string
+		pull   gitx.PullResult
+	}{
+		{result: syncRunResultNoChange, pull: gitx.PullResult{OldRevision: "old", NewRevision: "old"}},
+		{result: syncRunResultUpdated, pull: gitx.PullResult{OldRevision: "old", NewRevision: "new", Updated: true}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.result, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			repoDir := t.TempDir()
+			require.NoError(t, writeStacksFile(filepath.Join(repoDir, "stacks.yaml"), "app"))
+			repository := gitx.NewMockRepository(ctrl)
+			repository.EXPECT().Pull(gomock.Any()).Return(tt.pull, nil)
+			repository.EXPECT().WorkingDir().Return(repoDir)
+			if tt.pull.Updated {
+				repository.EXPECT().Diff(gomock.Any(), tt.pull.OldRevision, tt.pull.NewRevision).Return(nil, nil)
+			}
+			reconciler := stackloop.NewMockStackReconciler(ctrl)
+			reconciler.EXPECT().Reconcile(gomock.Any(), stackloop.ReconciliationRequest{
+				Stack: config.StackSpec{Name: "app", ComposeFile: "app.yaml"}, Commit: tt.pull.NewRevision, IsManual: true,
+			}).Return(nil)
+			runner, store, queue := newTestRunner(t, repository, reconciler, 1)
+			previousPollAt := time.Unix(1, 0)
+			require.NoError(t, store.Update(t.Context(), func(state *model.Runtime) {
+				state.LastPollAt = previousPollAt
+				state.LastPollResult = syncRunResultError
+				state.LastPollError = "Git pull failed"
+			}))
+
+			runner.Run(t.Context(), Task{Reason: TriggerManual})
+
+			waitIdle(t, queue)
+			state := readSQLState(t, store)
+			assert.True(t, state.LastPollAt.After(previousPollAt))
+			assert.Equal(t, tt.result, state.LastPollResult)
+			assert.Empty(t, state.LastPollError)
+			assert.Equal(t, syncRunResultSuccess, state.LastSyncResult)
+		})
+	}
+}
+
+func TestRunPullFailureUpdatesPollAndSyncState(t *testing.T) {
+	for _, reason := range []TriggerReason{TriggerStartup, TriggerWebhook, TriggerManual} {
+		t.Run(string(reason), func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			repository := gitx.NewMockRepository(ctrl)
+			repository.EXPECT().Pull(gomock.Any()).Return(gitx.PullResult{}, errors.New("git unavailable"))
+			runner, store, _ := newTestRunner(t, repository, stackloop.NewMockStackReconciler(ctrl), 1)
+
+			runner.Run(t.Context(), Task{Reason: reason})
+
+			state := readSQLState(t, store)
+			assert.False(t, state.LastPollAt.IsZero())
+			assert.Equal(t, syncRunResultError, state.LastPollResult)
+			assert.Equal(t, "Git pull failed", state.LastPollError)
+			assert.Equal(t, syncRunResultError, state.LastSyncResult)
+			assert.Equal(t, string(reason), state.LastSyncReason)
+			assert.Equal(t, "Git pull failed", state.LastSyncError)
+		})
+	}
 }
 
 func TestRunConfigurationReloadFailureKeepsDispatchedRevision(t *testing.T) {

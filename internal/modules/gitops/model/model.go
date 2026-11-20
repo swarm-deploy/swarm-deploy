@@ -68,11 +68,11 @@ type Runtime struct {
 	// GitPullFailure records the repository whose latest pull attempt failed.
 	// It is cleared atomically with publication of the recovery event.
 	GitPullFailure *GitPullFailure `json:"git_pull_failure,omitempty"`
-	// LastPollAt is the timestamp of the latest Git poll attempt.
+	// LastPollAt is the timestamp of the latest Git pull attempt.
 	LastPollAt time.Time `json:"last_poll_at"`
-	// LastPollResult stores the outcome of the latest Git poll attempt.
+	// LastPollResult stores the outcome of the latest Git pull attempt.
 	LastPollResult string `json:"last_poll_result"`
-	// LastPollError contains the latest Git poll error message.
+	// LastPollError contains the latest Git pull error message.
 	LastPollError string `json:"last_poll_error"`
 
 	// LastSyncAt is the timestamp of the latest Sync attempt.
