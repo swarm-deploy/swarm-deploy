@@ -262,6 +262,11 @@ async function newChat() {
     return;
   }
 
+  if (route.query.assistant === "new") {
+    assistantStore.newChat();
+    return;
+  }
+
   await router.push({ query: assistantQuery("new") });
 }
 
@@ -324,10 +329,13 @@ watch(
 
     if (value === "new") {
       assistantStore.newChat();
+      assistantStore.historyOpen = false;
       return;
     }
 
-    if (assistantStore.conversationID !== value || assistantStore.historyOpen) {
+    if (assistantStore.conversationID === value) {
+      assistantStore.historyOpen = false;
+    } else {
       await assistantStore.openChat(value);
     }
   },

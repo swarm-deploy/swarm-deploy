@@ -129,6 +129,8 @@ describe("Assistant Drawer", () => {
     const assistantStore = useAssistantStore();
     const uiStore = useUIStore();
     assistantStore.pending = true;
+    assistantStore.conversationID = "pending-chat";
+    assistantStore.pushMessage("user", "Check the cluster");
     assistantStore.loadChats = vi.fn(async () => undefined);
     uiStore.openAssistantDrawer();
     await wrapper.vm.$nextTick();
@@ -141,6 +143,12 @@ describe("Assistant Drawer", () => {
     expect(router.currentRoute.value.query.assistant).toBe("chats");
     expect(assistantStore.historyOpen).toBe(true);
     expect(assistantStore.loadChats).toHaveBeenCalledOnce();
+
+    await router.push("/?assistant=pending-chat");
+    await flushPromises();
+
+    expect(wrapper.find(".assistant-history").exists()).toBe(false);
+    expect(wrapper.text()).toContain("Check the cluster");
     wrapper.unmount();
   });
 
@@ -295,7 +303,7 @@ describe("Assistant Drawer", () => {
 
   it("shows API suggestions in an empty chat and submits the exact prompt", async () => {
     const prompt = "API-provided prompt\nwith exact context.";
-    const fetchMock = vi.fn().mockResolvedValue(
+    const fetchMock = vi.fn().mockImplementation(async () =>
       new Response(JSON.stringify({
         suggestions: [
           { id: "from-api", title: "API-provided title", prompt },
@@ -331,6 +339,12 @@ describe("Assistant Drawer", () => {
 
     expect(sendMessage).toHaveBeenCalledWith(prompt);
     expect(wrapper.find(".assistant-suggestions").exists()).toBe(false);
+
+    await wrapper.get('[aria-label="New chat"]').trigger("click");
+    await flushPromises();
+
+    expect(assistantStore.messages).toEqual([]);
+    expect(wrapper.text()).toContain("API-provided title");
     wrapper.unmount();
   });
 
