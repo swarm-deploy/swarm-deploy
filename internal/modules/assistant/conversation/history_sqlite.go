@@ -92,9 +92,6 @@ func (s *SQLHistoryStorage) SaveTurns(ctx context.Context, id string, usage Toke
 			chat = Chat{ID: id, Title: defaultChatTitle, CreatedAt: now, UpdatedAt: now}
 		}
 		if !usage.IsZero() {
-			if err = s.addDailyUsage(ctx, now, usage); err != nil {
-				return fmt.Errorf("record daily assistant usage: %w", err)
-			}
 			if chat.Usage == nil {
 				chat.Usage = &TokenUsage{}
 			}

@@ -87,7 +87,7 @@ func (UnimplementedHandler) GetAssistantSuggestions(ctx context.Context) (r *Ass
 
 // GetAssistantUsage implements getAssistantUsage operation.
 //
-// Read recorded assistant token usage across chats.
+// Read assistant token totals grouped by chat creation date.
 //
 // GET /api/v1/assistant/usage
 func (UnimplementedHandler) GetAssistantUsage(ctx context.Context, params GetAssistantUsageParams) (r *AssistantUsageResponse, _ error) {

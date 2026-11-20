@@ -51,7 +51,7 @@ type Handler interface {
 	GetAssistantSuggestions(ctx context.Context) (*AssistantSuggestionsResponse, error)
 	// GetAssistantUsage implements getAssistantUsage operation.
 	//
-	// Read recorded assistant token usage across chats.
+	// Read assistant token totals grouped by chat creation date.
 	//
 	// GET /api/v1/assistant/usage
 	GetAssistantUsage(ctx context.Context, params GetAssistantUsageParams) (*AssistantUsageResponse, error)

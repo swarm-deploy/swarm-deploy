@@ -71,11 +71,11 @@ Completed user/assistant turns are persisted in the `assistant_chats` and `assis
 
 ## Token usage
 
-The Usage screen shows recorded token consumption across chats. The usage endpoint takes required UTC dates in `YYYY-MM-DD` format and an `interval` of `daily`, `weekly`, or `monthly`. The range includes `from` and excludes `to`. Weeks start on Monday and months on the first. A partial bucket counts only days inside the requested range.
+The Usage screen groups each chat's accumulated token totals by its UTC creation date. It includes chats created before the Usage feature was introduced. Further activity in an existing chat increases the totals in its original bucket.
 
-The response contains ascending `buckets` with `start`, `input_tokens`, `output_tokens`, and provider-reported `total_tokens`. Empty intervals between recorded buckets are returned as zeros. A range without recorded usage returns an empty array.
+The usage endpoint takes required UTC dates in `YYYY-MM-DD` format and an `interval` of `daily`, `weekly`, or `monthly`. The range includes `from` and excludes `to`. Weeks start on Monday and months on the first. Each bucket counts chats created within the requested range.
 
-The assistant records daily usage in SQLite in the same transaction as the chat totals, including usage reported by failed requests. The chart starts with new recorded usage after upgrade. Earlier chat totals are still available in chat history.
+The response contains ascending `buckets` with `start`, `input_tokens`, `output_tokens`, and provider-reported `total_tokens`. Empty intervals between populated buckets are returned as zeros. A range without chats with token totals returns an empty array.
 
 ## Built-in tools
 

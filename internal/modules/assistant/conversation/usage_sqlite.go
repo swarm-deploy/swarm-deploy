@@ -2,7 +2,6 @@ package conversation
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"github.com/doug-martin/goqu/v9"
@@ -27,54 +26,28 @@ type UsageBucket struct {
 	TokenUsage
 }
 
-func (s *SQLHistoryStorage) addDailyUsage(ctx context.Context, at time.Time, usage TokenUsage) error {
-	query, args, err := s.db.Dialect().Insert("assistant_daily_usage").Prepared(true).
-		Rows(goqu.Record{
-			"day": at.UTC().Format(time.DateOnly), "input_tokens": usage.InputTokens,
-			"output_tokens": usage.OutputTokens, "total_tokens": usage.TotalTokens,
-		}).
-		OnConflict(goqu.DoUpdate("day", goqu.Record{
-			"input_tokens":  goqu.L("assistant_daily_usage.input_tokens + excluded.input_tokens"),
-			"output_tokens": goqu.L("assistant_daily_usage.output_tokens + excluded.output_tokens"),
-			"total_tokens":  goqu.L("assistant_daily_usage.total_tokens + excluded.total_tokens"),
-		})).ToSQL()
-	if err != nil {
-		return err
-	}
-	_, err = s.db.Exec(ctx, query, args...)
-	return err
-}
-
-// ReadUsage groups recorded consumption from inclusive from to exclusive to.
+// ReadUsage groups stored token totals by chat creation time in [from, to).
 func (s *SQLHistoryStorage) ReadUsage(
 	ctx context.Context,
 	from, to time.Time,
 	interval UsageInterval,
 ) ([]UsageBucket, error) {
-	query, args, err := s.db.Dialect().From("assistant_daily_usage").Prepared(true).
-		Select("day", "input_tokens", "output_tokens", "total_tokens").
-		Where(goqu.C("day").Gte(from.UTC().Format(time.DateOnly)), goqu.C("day").Lt(to.UTC().Format(time.DateOnly))).
-		Order(goqu.C("day").Asc()).ToSQL()
+	createdAt := goqu.C("created_at")
+	query, args, err := s.db.Dialect().From("assistant_chats").Prepared(true).
+		Select("created_at", "input_tokens", "output_tokens", "total_tokens").
+		Where(createdAt.Gte(from), createdAt.Lt(to), goqu.C("input_tokens").IsNotNull()).
+		Order(createdAt.Asc()).ToSQL()
 	if err != nil {
 		return nil, err
 	}
-	var rows []struct {
-		Day          string `db:"day"`
-		InputTokens  int64  `db:"input_tokens"`
-		OutputTokens int64  `db:"output_tokens"`
-		TotalTokens  int64  `db:"total_tokens"`
-	}
+	var rows []chatRow
 	if err = s.db.Select(ctx, &rows, query, args...); err != nil {
 		return nil, err
 	}
 
-	buckets := make([]UsageBucket, 0, len(rows))
+	buckets := []UsageBucket{}
 	for _, row := range rows {
-		day, parseErr := time.Parse(time.DateOnly, row.Day)
-		if parseErr != nil {
-			return nil, fmt.Errorf("parse assistant usage day: %w", parseErr)
-		}
-		start := interval.start(day)
+		start := interval.start(row.CreatedAt)
 		if len(buckets) == 0 {
 			buckets = append(buckets, UsageBucket{Start: start})
 		}
@@ -83,13 +56,15 @@ func (s *SQLHistoryStorage) ReadUsage(
 			buckets = append(buckets, UsageBucket{Start: cursor})
 		}
 		buckets[len(buckets)-1].Add(TokenUsage{
-			InputTokens: row.InputTokens, OutputTokens: row.OutputTokens, TotalTokens: row.TotalTokens,
+			InputTokens: row.InputTokens.Int64, OutputTokens: row.OutputTokens.Int64, TotalTokens: row.TotalTokens.Int64,
 		})
 	}
 	return buckets, nil
 }
 
-func (i UsageInterval) start(day time.Time) time.Time {
+func (i UsageInterval) start(createdAt time.Time) time.Time {
+	year, month, date := createdAt.UTC().Date()
+	day := time.Date(year, month, date, 0, 0, 0, 0, time.UTC)
 	switch i {
 	case UsageWeekly:
 		return day.AddDate(0, 0, -((int(day.Weekday()) + daysInWeek - 1) % daysInWeek))

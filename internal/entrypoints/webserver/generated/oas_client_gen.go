@@ -69,7 +69,7 @@ type Invoker interface {
 	GetAssistantSuggestions(ctx context.Context) (*AssistantSuggestionsResponse, error)
 	// GetAssistantUsage invokes getAssistantUsage operation.
 	//
-	// Read recorded assistant token usage across chats.
+	// Read assistant token totals grouped by chat creation date.
 	//
 	// GET /api/v1/assistant/usage
 	GetAssistantUsage(ctx context.Context, params GetAssistantUsageParams) (*AssistantUsageResponse, error)
@@ -1216,7 +1216,7 @@ func (c *Client) sendGetAssistantSuggestions(ctx context.Context) (res *Assistan
 
 // GetAssistantUsage invokes getAssistantUsage operation.
 //
-// Read recorded assistant token usage across chats.
+// Read assistant token totals grouped by chat creation date.
 //
 // GET /api/v1/assistant/usage
 func (c *Client) GetAssistantUsage(ctx context.Context, params GetAssistantUsageParams) (*AssistantUsageResponse, error) {

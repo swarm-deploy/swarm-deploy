@@ -1468,7 +1468,7 @@ func (s *Server) handleGetAssistantSuggestionsRequest(args [0]string, argsEscape
 
 // handleGetAssistantUsageRequest handles getAssistantUsage operation.
 //
-// Read recorded assistant token usage across chats.
+// Read assistant token totals grouped by chat creation date.
 //
 // GET /api/v1/assistant/usage
 func (s *Server) handleGetAssistantUsageRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -1560,7 +1560,7 @@ func (s *Server) handleGetAssistantUsageRequest(args [0]string, argsEscaped bool
 		mreq := middleware.Request{
 			Context:          ctx,
 			OperationName:    GetAssistantUsageOperation,
-			OperationSummary: "Read recorded assistant token usage across chats",
+			OperationSummary: "Read assistant token totals grouped by chat creation date",
 			OperationID:      "getAssistantUsage",
 			Body:             nil,
 			RawBody:          rawBody,

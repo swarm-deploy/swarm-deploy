@@ -2215,7 +2215,7 @@ func (s *Server) FindPath(method string, u *url.URL) (r Route, _ bool) {
 								switch method {
 								case "GET":
 									r.name = GetAssistantUsageOperation
-									r.summary = "Read recorded assistant token usage across chats"
+									r.summary = "Read assistant token totals grouped by chat creation date"
 									r.operationID = "getAssistantUsage"
 									r.operationGroup = ""
 									r.pathPattern = "/api/v1/assistant/usage"

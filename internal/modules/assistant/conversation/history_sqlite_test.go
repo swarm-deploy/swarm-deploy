@@ -3,6 +3,7 @@ package conversation
 import (
 	"context"
 	"database/sql"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -86,11 +87,6 @@ func TestSQLChatTransactionsAndRestart(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, exists)
 	assert.Equal(t, chat, unchanged)
-
-	buckets, err := repo.ReadUsage(ctx, chat.CreatedAt.UTC().AddDate(0, 0, -1), time.Now().UTC().AddDate(0, 0, 1), UsageDaily)
-	require.NoError(t, err)
-	require.Len(t, buckets, 1)
-	assert.Equal(t, *chat.Usage, buckets[0].TokenUsage)
 }
 
 func TestSQLChatConcurrentAppends(t *testing.T) {
@@ -130,17 +126,22 @@ func TestSQLAssistantUsageCalendarBuckets(t *testing.T) {
 		require.NoError(t, err)
 		return parsed
 	}
-	for _, sample := range []struct {
-		at    time.Time
-		usage TokenUsage
+	for i, sample := range []struct {
+		createdAt time.Time
+		usage     *TokenUsage
 	}{
-		{date("2026-11-01"), TokenUsage{InputTokens: 100}},
-		{date("2026-11-15").Add(23 * time.Hour).In(time.FixedZone("offset", 3*60*60)), TokenUsage{5, 2, 8}},
-		{date("2026-11-17"), TokenUsage{9, 3, 13}},
-		{date("2026-12-02"), TokenUsage{8, 2, 10}},
-		{date("2026-12-03"), TokenUsage{OutputTokens: 100}},
+		{date("2026-11-01"), &TokenUsage{InputTokens: 100}},
+		{date("2026-11-02"), nil},
+		{date("2026-11-15").Add(23 * time.Hour).In(time.FixedZone("offset", 3*60*60)), &TokenUsage{2, 1, 4}},
+		{date("2026-11-15"), &TokenUsage{3, 1, 4}},
+		{date("2026-11-17"), &TokenUsage{9, 3, 13}},
+		{date("2026-12-02"), &TokenUsage{8, 2, 10}},
+		{date("2026-12-03"), &TokenUsage{OutputTokens: 100}},
 	} {
-		require.NoError(t, repo.addDailyUsage(ctx, sample.at, sample.usage))
+		require.NoError(t, repo.Save(ctx, Chat{
+			ID: strconv.Itoa(i), Title: "Chat", CreatedAt: sample.createdAt,
+			UpdatedAt: date("2026-12-04"), Usage: sample.usage,
+		}))
 	}
 
 	for _, tc := range []struct {
@@ -164,7 +165,8 @@ func TestSQLAssistantUsageCalendarBuckets(t *testing.T) {
 			{date("2026-11-01"), TokenUsage{14, 5, 21}},
 			{date("2026-12-01"), TokenUsage{8, 2, 10}},
 		}},
-		{"before recorded usage", UsageWeekly, "2026-11-02", "2026-11-15", []UsageBucket{}},
+		{"only chats without usage", UsageWeekly, "2026-11-02", "2026-11-15", []UsageBucket{}},
+		{"only chat update dates in range", UsageDaily, "2026-12-04", "2026-12-05", []UsageBucket{}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			got, err := repo.ReadUsage(t.Context(), date(tc.from), date(tc.to), tc.interval)

@@ -1056,7 +1056,7 @@ type AssistantUsageBucket struct {
 	InputTokens  int64 `json:"input_tokens"`
 	OutputTokens int64 `json:"output_tokens"`
 	TotalTokens  int64 `json:"total_tokens"`
-	// UTC calendar bucket start. A partial bucket counts only usage inside the requested range.
+	// UTC calendar bucket start. A partial bucket counts only chats created within the requested range.
 	Start time.Time `json:"start"`
 }
 
@@ -1151,8 +1151,8 @@ func (s *AssistantUsageInterval) UnmarshalText(data []byte) error {
 
 // Ref: #/components/schemas/AssistantUsageResponse
 type AssistantUsageResponse struct {
-	// Ascending buckets with zeros between recorded buckets. Empty when the range contains no recorded
-	// usage.
+	// Ascending buckets with zeros between populated buckets. Empty when no chats with token totals were
+	// created in the range.
 	Buckets []AssistantUsageBucket `json:"buckets"`
 }
 

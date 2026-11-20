@@ -55,7 +55,7 @@ paths:
   /api/v1/assistant/usage:
     get:
       operationId: getAssistantUsage
-      summary: Read recorded assistant token usage across chats
+      summary: Read assistant token totals grouped by chat creation date
       parameters:
         - in: query
           name: from
@@ -79,7 +79,7 @@ paths:
             $ref: '#/components/schemas/AssistantUsageInterval'
       responses:
         '200':
-          description: Recorded token usage grouped by calendar interval.
+          description: Accumulated token totals grouped by the UTC creation dates of chats.
           content:
             application/json:
               schema:
@@ -228,13 +228,13 @@ components:
             start:
               type: string
               format: date
-              description: UTC calendar bucket start. A partial bucket counts only usage inside the requested range.
+              description: UTC calendar bucket start. A partial bucket counts only chats created within the requested range.
     AssistantUsageResponse:
       type: object
       required: [buckets]
       properties:
         buckets:
           type: array
-          description: Ascending buckets with zeros between recorded buckets. Empty when the range contains no recorded usage.
+          description: Ascending buckets with zeros between populated buckets. Empty when no chats with token totals were created in the range.
           items:
             $ref: '#/components/schemas/AssistantUsageBucket'
