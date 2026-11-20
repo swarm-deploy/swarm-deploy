@@ -241,7 +241,7 @@ func TestAssistantRejectsPromptInjectionInServiceMetadata(t *testing.T) {
 	}
 
 	_, err := g.prepareNode(state)(context.Background(), nil)
-	assert.ErrorIs(t, err, errPromptInjection)
+	assert.ErrorIs(t, err, guard.ErrPromptInjection)
 	assert.Equal(t, "prompt injection detected in retrieved service metadata", state.rejectedPrompt)
 }
 
