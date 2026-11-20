@@ -141,7 +141,11 @@ watch(
     }
 
     await nextTick();
-    if (chatOpen.value && route.query.assistant !== "chats") {
+    if (
+      chatOpen.value &&
+      route.query.assistant !== "chats" &&
+      !window.matchMedia("(pointer: coarse)").matches
+    ) {
       inputRef.value?.focus();
     }
     scrollToBottom();
