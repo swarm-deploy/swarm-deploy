@@ -16,6 +16,11 @@ type ToolDefinition struct {
 	ParametersJSONSchema map[string]any
 	// Request describes a typed request payload shape used by the tool.
 	Request any
+	// Mutating marks a tool that changes runtime or GitOps state. The assistant never exposes mutating tools
+	// to the model and runs them only through deterministic, user-confirmed pending operations.
+	Mutating bool
+	// Terminal marks a tool whose single successful result can finish a request without another model completion.
+	Terminal bool
 }
 
 // Request describes an input payload for tool execution.

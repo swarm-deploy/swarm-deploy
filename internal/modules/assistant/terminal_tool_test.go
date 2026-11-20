@@ -82,7 +82,9 @@ func TestPromptInjectionReportIsTerminalAndSuppressesOperationalTools(t *testing
 }
 
 func TestMutatingToolCallsAreRejectedBeforeExecutor(t *testing.T) {
-	for _, toolName := range []string{serviceRestartTriggerTool, serviceReplicasSetTool, deploySyncTriggerTool} {
+	for _, toolName := range []string{
+		serviceRestartTriggerTool, serviceReplicasSetTool, deploySyncTriggerTool, syncPauseSetTool, syncPauseResumeTool,
+	} {
 		t.Run(toolName, func(t *testing.T) {
 			var chatCalls atomic.Int64
 			server := newTerminalTestServer(t, &chatCalls, []map[string]any{
@@ -113,6 +115,18 @@ func TestMutatingToolsAreNotExposedToModel(t *testing.T) {
 		names = append(names, string(definition.Name))
 	}
 	assert.Equal(t, []string{"date"}, names)
+}
+
+func TestToolCallWithoutExecutorDefinitionIsRejected(t *testing.T) {
+	tools := &fakeTools{definitions: assistantTestToolDefinitions()}
+	g := &graph{tools: tools}
+
+	_, err := g.executeToolCall(t.Context(), modelToolCall{Name: "undeclared_tool"}, map[string]struct{}{
+		"undeclared_tool": {},
+	})
+
+	require.Error(t, err)
+	assert.Empty(t, tools.calls, "a tool without a declared definition must not reach the executor")
 }
 
 func TestTerminalToolFallbacksToGeneration(t *testing.T) {

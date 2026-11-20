@@ -771,8 +771,13 @@ func assistantTestToolDefinitions() []routing.ToolDefinition {
 		"self_metrics_list",
 		"assistant_prompt_injection_report",
 	}
+	mutating := map[string]struct{}{
+		deploySyncTriggerTool: {}, syncPauseSetTool: {}, syncPauseResumeTool: {},
+		serviceReplicasSetTool: {}, serviceRestartTriggerTool: {},
+	}
 	definitions := make([]routing.ToolDefinition, 0, len(names))
 	for _, name := range names {
+		_, isMutating := mutating[name]
 		definitions = append(definitions, routing.ToolDefinition{
 			Name:        config.AssistantToolName(name),
 			Description: name,
@@ -780,6 +785,8 @@ func assistantTestToolDefinitions() []routing.ToolDefinition {
 				"type":       "object",
 				"properties": map[string]any{},
 			},
+			Mutating: isMutating,
+			Terminal: isMutating || name == assistantPromptInjectionReportTool,
 		})
 	}
 	return definitions

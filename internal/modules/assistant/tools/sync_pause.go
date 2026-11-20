@@ -153,7 +153,8 @@ func NewSyncPauseSet(pauses syncPauseService) *SyncPauseSet { return &SyncPauseS
 func (t *SyncPauseSet) Definition() routing.ToolDefinition {
 	return routing.ToolDefinition{Name: config.AssistantToolNameSyncPauseSet,
 		Description:          "Creates or changes a direct Pause Sync policy after explicit confirmation.",
-		ParametersJSONSchema: pauseRequestSchema(true), Request: syncPauseRequest{}}
+		ParametersJSONSchema: pauseRequestSchema(true), Request: syncPauseRequest{},
+		Mutating: true, Terminal: true}
 }
 
 func (t *SyncPauseSet) Execute(ctx context.Context, request routing.Request) (routing.Response, error) {
@@ -188,7 +189,8 @@ func NewSyncPauseResume(pauses syncPauseService) *SyncPauseResume {
 func (t *SyncPauseResume) Definition() routing.ToolDefinition {
 	return routing.ToolDefinition{Name: config.AssistantToolNameSyncPauseResume,
 		Description:          "Removes one direct Pause Sync policy after explicit confirmation.",
-		ParametersJSONSchema: pauseRequestSchema(false), Request: syncPauseRequest{}}
+		ParametersJSONSchema: pauseRequestSchema(false), Request: syncPauseRequest{},
+		Mutating: true, Terminal: true}
 }
 
 func (t *SyncPauseResume) Execute(ctx context.Context, request routing.Request) (routing.Response, error) {

@@ -17,7 +17,11 @@ func (g *graph) executeToolCall(
 	modelToolCall modelToolCall,
 	effectiveToolSet map[string]struct{},
 ) (string, error) {
-	if isMutatingTool(modelToolCall.Name) {
+	definition, declared := g.toolDefinition(modelToolCall.Name)
+	if !declared {
+		return "", errors.New("tool is not available to the assistant")
+	}
+	if definition.Mutating {
 		return "", errors.New("mutating tools require deterministic confirmation")
 	}
 	if _, ok := effectiveToolSet[modelToolCall.Name]; !ok {
@@ -39,7 +43,7 @@ func (g *graph) effectiveToolDefinitions(effectiveToolSet map[string]struct{}) [
 	definitions := g.tools.Definitions()
 	filtered := make([]routing.ToolDefinition, 0, len(definitions))
 	for _, definition := range definitions {
-		if isMutatingTool(string(definition.Name)) {
+		if definition.Mutating {
 			continue
 		}
 		if _, ok := effectiveToolSet[string(definition.Name)]; ok {
@@ -57,7 +61,31 @@ func (g *graph) responseToolSet(route Route, capabilities []Capability) map[stri
 	return g.effectiveToolSet(capabilities)
 }
 
+// toolDefinition returns the executor-declared definition, including mutation and terminal behavior.
+func (g *graph) toolDefinition(toolName string) (routing.ToolDefinition, bool) {
+	for _, definition := range g.tools.Definitions() {
+		if string(definition.Name) == toolName {
+			return definition, true
+		}
+	}
+	return routing.ToolDefinition{}, false
+}
+
+// isTerminalToolResultCandidate reports whether one successful terminal tool result can finish the request.
+func (g *graph) isTerminalToolResultCandidate(results []toolExecutionResult) bool {
+	if len(results) != 1 || !results[0].success {
+		return false
+	}
+	definition, ok := g.toolDefinition(results[0].toolName)
+	return ok && definition.Terminal
+}
+
 func (g *graph) effectiveToolSet(capabilities []Capability) map[string]struct{} {
+	return capabilityToolSet(g.allowedToolSet, capabilities)
+}
+
+// capabilityToolSet returns capability tools permitted by assistant.tools plus always-available built-ins.
+func capabilityToolSet(allowedToolSet map[string]struct{}, capabilities []Capability) map[string]struct{} {
 	toolSet := make(map[string]struct{})
 	for _, capability := range capabilities {
 		profile, ok := capabilityProfile(capability)
@@ -65,8 +93,8 @@ func (g *graph) effectiveToolSet(capabilities []Capability) map[string]struct{} 
 			continue
 		}
 		for _, toolName := range profile.Tools {
-			if len(g.allowedToolSet) > 0 {
-				if _, allowed := g.allowedToolSet[toolName]; !allowed {
+			if len(allowedToolSet) > 0 {
+				if _, allowed := allowedToolSet[toolName]; !allowed {
 					continue
 				}
 			}
@@ -74,8 +102,8 @@ func (g *graph) effectiveToolSet(capabilities []Capability) map[string]struct{} 
 		}
 	}
 	for _, toolName := range assistantUtilityTools {
-		if len(g.allowedToolSet) > 0 {
-			if _, ok := g.allowedToolSet[toolName]; !ok {
+		if len(allowedToolSet) > 0 {
+			if _, ok := allowedToolSet[toolName]; !ok {
 				continue
 			}
 		}

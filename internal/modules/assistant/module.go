@@ -13,6 +13,8 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/tools"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/recommendations"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources"
@@ -99,9 +101,17 @@ func InitModule(_ context.Context, cfg *config.Config, cnt Container) (*Module, 
 		AllowedTools:            cfg.Spec.Assistant.Tools,
 		ConversationInMemoryTTL: cfg.Spec.Assistant.Conversation.Storage.InMemory.TTL.Value,
 		ConversationHistory:     conversation.NewSQLHistoryStorage(cnt.GetStorage()),
+		SyncPauses:              gitopsModule.SyncPauses,
 	}, resourcesModule.ServiceStore, toolExecutor, eventModule.Dispatcher, cnt.GetMetrics().Assistant)
 	if err != nil {
 		return nil, err
+	}
+
+	err = eventModule.Dispatcher.Subscribe(
+		events.TypeNameServiceCatalogUpdated, "assistant-rag-index", dispatcher.External(service.RAGIndexSubscriber()),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("subscribe assistant RAG index: %w", err)
 	}
 
 	return &Module{Service: service}, nil

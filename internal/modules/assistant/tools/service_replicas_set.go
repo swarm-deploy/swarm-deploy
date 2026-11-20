@@ -36,6 +36,8 @@ func NewSetServiceReplicas(manager swarm.ServiceManager, eventDispatcher dispatc
 func (s *SetServiceReplicas) Definition() routing.ToolDefinition {
 	return routing.ToolDefinition{
 		Name:        config.AssistantToolNameServiceReplicasSet,
+		Mutating:    true,
+		Terminal:    true,
 		Description: "Updates replicas count for a stack service.",
 		ParametersJSONSchema: map[string]any{
 			"type": "object",

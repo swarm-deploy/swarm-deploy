@@ -35,6 +35,8 @@ func NewRestartService(manager swarm.ServiceManager, eventDispatcher dispatcher.
 func (s *RestartService) Definition() routing.ToolDefinition {
 	return routing.ToolDefinition{
 		Name:        config.AssistantToolNameServiceRestartTrigger,
+		Mutating:    true,
+		Terminal:    true,
 		Description: "Restarts a stack service by scaling replicas to zero and restoring previous count.",
 		ParametersJSONSchema: map[string]any{
 			"type": "object",

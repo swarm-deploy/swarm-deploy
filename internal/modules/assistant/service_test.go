@@ -60,6 +60,8 @@ func (f *fakeTools) Definitions() []routing.ToolDefinition {
 		{
 			Name:        "deploy_sync_trigger",
 			Description: "Trigger sync",
+			Mutating:    true,
+			Terminal:    true,
 			ParametersJSONSchema: map[string]any{
 				"type":       "object",
 				"properties": map[string]any{},
@@ -144,10 +146,7 @@ func TestServiceChatReturnsCompletedResponse(t *testing.T) {
 	}))
 	defer server.Close()
 
-	var indexSubscriber dispatcher.Subscriber
 	eventDispatcher := dispatcher.NewMockDispatcher(gomock.NewController(t))
-	eventDispatcher.EXPECT().Subscribe(events.TypeNameServiceCatalogUpdated, "assistant-rag-index", gomock.Any()).
-		Do(func(_ events.TypeName, _ string, subscriber dispatcher.Subscriber) { indexSubscriber = subscriber })
 	serviceInstance, err := NewService(
 		Config{
 			Enabled:                 true,
@@ -167,7 +166,9 @@ func TestServiceChatReturnsCompletedResponse(t *testing.T) {
 		&metrics.NopAssistant{},
 	)
 	require.NoError(t, err, "create assistant service")
-	require.NoError(t, indexSubscriber.Handle(t.Context(), events.Envelope{Event: &events.ServiceCatalogUpdated{}}))
+	require.NoError(t, serviceInstance.RAGIndexSubscriber().Handle(
+		t.Context(), events.Envelope{Event: &events.ServiceCatalogUpdated{}},
+	))
 
 	response := serviceInstance.Chat(context.Background(), ChatRequest{
 		Message: "Is api healthy?",
@@ -214,7 +215,6 @@ func TestServiceChatRejectsPromptInjection(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			ctrl := gomock.NewController(t)
 			eventDispatcher := dispatcher.NewMockDispatcher(ctrl)
-			eventDispatcher.EXPECT().Subscribe(gomock.Any(), gomock.Any(), gomock.Any())
 			eventDispatcher.EXPECT().
 				Publish(gomock.Any(), gomock.AssignableToTypeOf(&events.AssistantPromptInjectionDetected{})).
 				Do(func(_ context.Context, event events.Event) {
