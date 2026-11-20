@@ -81,33 +81,46 @@ func NewWorker(repository *Repository, resolve HandlerResolver, options ...Worke
 // Run processes committed work until cancellation. Unfinished leases survive
 // shutdown and can be reclaimed after expiry by the next process.
 func (w *Worker) Run(ctx context.Context) error {
+	ticker := time.NewTicker(workerPollInterval)
+	defer ticker.Stop()
+
+	// Only the worker holding the token may claim a delivery. It passes the
+	// token on before handling the delivery or after waiting for the next poll.
+	claimReady := make(chan struct{}, 1)
+	claimReady <- struct{}{}
+
 	var workers sync.WaitGroup
 	for range w.workers {
-		workers.Go(func() { w.run(ctx) })
+		workers.Go(func() { w.run(ctx, claimReady, ticker.C) })
 	}
 	workers.Wait()
 	return nil
 }
 
-func (w *Worker) run(ctx context.Context) {
-	ticker := time.NewTicker(workerPollInterval)
-	defer ticker.Stop()
+func (w *Worker) run(ctx context.Context, claimReady chan struct{}, poll <-chan time.Time) {
+	wakeNext := func() { claimReady <- struct{}{} }
 	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-claimReady:
+		}
 		if ctx.Err() != nil {
 			return
 		}
-		handled, err := w.ProcessNext(ctx)
+		handled, err := w.processNext(ctx, wakeNext)
 		if err != nil && ctx.Err() == nil {
 			slog.ErrorContext(ctx, "outbox worker operation failed",
 				append([]any{"error_type", fmt.Sprintf("%T", err)}, safeDeliveryErrorFields(err)...)...)
 		}
-		if handled && err == nil {
+		if handled {
 			continue
 		}
 		select {
 		case <-ctx.Done():
 			return
-		case <-ticker.C:
+		case <-poll:
+			wakeNext()
 		}
 	}
 }
@@ -115,12 +128,23 @@ func (w *Worker) run(ctx context.Context) {
 // ProcessNext claims and processes at most one delivery using distinct T2/T3.
 // It must be called outside any publishing or subscriber transaction.
 func (w *Worker) ProcessNext(ctx context.Context) (bool, error) {
+	return w.processNext(ctx, nil)
+}
+
+func (w *Worker) processNext(ctx context.Context, onClaim func()) (bool, error) {
+	ctx, span := w.tracer.Start(ctx, "event.ProcessNext", trace.WithNewRoot())
+	defer span.End()
+
 	d, err := w.Claim(ctx)
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, nil
 	}
 	if err != nil {
+		tracing.FailSpan(span, err)
 		return false, err
+	}
+	if onClaim != nil {
+		onClaim()
 	}
 	err = w.Process(ctx, d)
 	if err == nil {
@@ -132,6 +156,7 @@ func (w *Worker) ProcessNext(ctx context.Context) (bool, error) {
 	if terminal {
 		code = invalid.code
 	}
+	tracing.FailSpan(span, errors.New(code))
 	slog.ErrorContext(ctx, "outbox delivery failed",
 		append([]any{
 			"event_id", d.EventID, "subscription_id", d.SubscriptionID,
@@ -162,7 +187,6 @@ func (w *Worker) Process(ctx context.Context, d Delivery) (err error) {
 		return loadErr
 	}
 	spanOptions := []trace.SpanStartOption{
-		trace.WithNewRoot(),
 		trace.WithSpanKind(trace.SpanKindConsumer),
 		trace.WithAttributes(
 			tracing.EventName.String(string(publication.Type)),
