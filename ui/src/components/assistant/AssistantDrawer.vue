@@ -10,6 +10,7 @@ import { renderAssistantMarkdown } from "../../utils/assistantMarkdown";
 import { escapeHtml } from "../../utils/escape";
 
 const AssistantUsage = defineAsyncComponent(() => import("./AssistantUsage.vue"));
+const tokenUsageIconPath = "M4 19V10M10 19V5M16 19v-7M22 19H2";
 
 const uiStore = useUIStore();
 const assistantStore = useAssistantStore();
@@ -487,8 +488,8 @@ function renderMessageText(role: string, text: string): string {
             aria-label="Assistant usage"
             title="Usage"
           >
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M5 20v-7m7 7V4m7 16V9" stroke-width="3" />
+            <svg class="assistant-usage-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path :d="tokenUsageIconPath" />
             </svg>
           </RouterLink>
           <button
@@ -591,7 +592,7 @@ function renderMessageText(role: string, text: string): string {
                 @click.stop="toggleChatUsage(chat.id)"
               >
                 <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <path d="M4 19V10M10 19V5M16 19v-7M22 19H2" />
+                  <path :d="tokenUsageIconPath" />
                 </svg>
               </button>
               <div v-if="usageOpenChatID === chat.id" class="assistant-history-usage-popover">
