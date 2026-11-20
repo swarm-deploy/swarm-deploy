@@ -176,6 +176,62 @@ describe("Assistant Drawer", () => {
     wrapper.unmount();
   });
 
+  it("updates search and the history composer during text composition", async () => {
+    const pinia = createPinia();
+    setActivePinia(pinia);
+    const router = createRouter({ history: createMemoryHistory(), routes: [{ path: "/", component: { template: "<div />" } }] });
+    await router.push("/?assistant=chats");
+    await router.isReady();
+    const assistantStore = useAssistantStore();
+    const date = new Date().toISOString();
+    assistantStore.chats = [
+      { id: "first", title: "Inspect proxy", created_at: date, updated_at: date },
+      { id: "second", title: "Check nodes", created_at: date, updated_at: date },
+    ];
+    assistantStore.loadChats = vi.fn(async () => undefined);
+    const wrapper = mount(AssistantDrawer, { global: { plugins: [pinia, router] } });
+    await flushPromises();
+
+    const draft = wrapper.get<HTMLTextAreaElement>(".assistant-history-form textarea");
+    await draft.trigger("compositionstart");
+    draft.element.value = "Hello";
+    await draft.trigger("input", { isComposing: true });
+    expect(wrapper.find('.assistant-history-form button[type="submit"]').exists()).toBe(true);
+
+    await wrapper.get('button[aria-label="Search chats"]').trigger("click");
+    const search = wrapper.get<HTMLInputElement>('input[type="search"]');
+    await search.trigger("compositionstart");
+    search.element.value = "proxy";
+    await search.trigger("input", { isComposing: true });
+    expect(wrapper.findAll(".assistant-history-title").map((item) => item.text())).toEqual(["Inspect proxy"]);
+    wrapper.unmount();
+  });
+
+  it("updates the chat composer during composition without sending on composition Enter", async () => {
+    const pinia = createPinia();
+    setActivePinia(pinia);
+    const router = createRouter({ history: createMemoryHistory(), routes: [{ path: "/", component: { template: "<div />" } }] });
+    await router.push("/?assistant=new");
+    await router.isReady();
+    const assistantStore = useAssistantStore();
+    const sendMessage = vi.spyOn(assistantStore, "sendMessage").mockResolvedValue();
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("unavailable")));
+    const wrapper = mount(AssistantDrawer, { global: { plugins: [pinia, router] } });
+    await flushPromises();
+
+    const input = wrapper.get<HTMLTextAreaElement>(".assistant-chat-form textarea");
+    await input.trigger("compositionstart");
+    input.element.value = "Hello";
+    await input.trigger("input", { isComposing: true });
+    expect(wrapper.find("#assistant-chat-send").exists()).toBe(true);
+    await input.trigger("keydown", { key: "Enter", isComposing: true });
+    expect(sendMessage).not.toHaveBeenCalled();
+    await input.trigger("compositionend");
+    await input.trigger("keydown", { key: "Enter" });
+    expect(sendMessage).toHaveBeenCalledWith("Hello");
+    wrapper.unmount();
+  });
+
   it("shows API suggestions in an empty chat and submits the exact prompt", async () => {
     const prompt = "API-provided prompt\nwith exact context.";
     const fetchMock = vi.fn().mockResolvedValue(

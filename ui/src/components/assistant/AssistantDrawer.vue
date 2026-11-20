@@ -387,7 +387,7 @@ async function submitSuggestion(suggestion: AssistantSuggestion) {
 }
 
 function handleComposerKeydown(event: KeyboardEvent) {
-  if (event.key !== "Enter" || event.shiftKey) {
+  if (event.key !== "Enter" || event.shiftKey || event.isComposing || event.keyCode === 229) {
     return;
   }
 
@@ -418,7 +418,8 @@ function renderMessageText(role: string, text: string): string {
           <div v-if="searchOpen" class="assistant-history-search">
             <input
               ref="searchRef"
-              v-model="searchQuery"
+              :value="searchQuery"
+              @input="searchQuery = ($event.target as HTMLInputElement).value"
               type="search"
               placeholder="Search chats"
               aria-label="Search chats"
@@ -652,12 +653,12 @@ function renderMessageText(role: string, text: string): string {
         <div class="assistant-composer">
           <textarea
             ref="historyMessageRef"
-            v-model="historyMessage"
+            :value="historyMessage"
             rows="1"
             placeholder="Ask the assistant…"
             aria-label="Ask the assistant"
             :readonly="pending"
-            @input="historyError = ''"
+            @input="historyMessage = ($event.target as HTMLTextAreaElement).value; historyError = ''"
           />
           <button
             v-if="historyMessage.trim()"
@@ -678,7 +679,8 @@ function renderMessageText(role: string, text: string): string {
         <div class="assistant-composer">
           <textarea
             ref="inputRef"
-            v-model="messageInput"
+            :value="messageInput"
+            @input="messageInput = ($event.target as HTMLTextAreaElement).value"
             rows="1"
             placeholder="Ask the assistant…"
             aria-label="Ask the assistant"
