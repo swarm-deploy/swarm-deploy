@@ -30,6 +30,33 @@ afterEach(() => {
 const routes = [{ path: "/", component: { template: "<div />" } }];
 
 describe("Assistant Drawer", () => {
+  it.each([
+    { device: "mobile", coarsePointer: true, autoFocus: false },
+    { device: "desktop", coarsePointer: false, autoFocus: true },
+  ])("sets composer focus on opening as expected on $device", async ({ coarsePointer, autoFocus }) => {
+    const mediaQuery = window.matchMedia("(pointer: coarse)");
+    vi.spyOn(window, "matchMedia").mockImplementation((query) => ({
+      ...mediaQuery,
+      media: query,
+      matches: query === "(pointer: coarse)" && coarsePointer,
+    }));
+    vi.spyOn(assistantApi, "getAssistantSuggestions").mockResolvedValue({ suggestions: [] });
+    const pinia = createPinia();
+    const router = createRouter({ history: createMemoryHistory(), routes });
+    await router.push("/");
+    const wrapper = mount(AssistantDrawer, {
+      attachTo: document.body,
+      global: { plugins: [pinia, router] },
+    });
+
+    await router.push("/?assistant=new");
+    await flushPromises();
+
+    const composer = wrapper.get<HTMLTextAreaElement>(".assistant-chat-form textarea").element;
+    expect(document.activeElement === composer).toBe(autoFocus);
+    wrapper.unmount();
+  });
+
   it("opens Usage inside the drawer and returns to the same chat list", async () => {
     const pinia = createPinia();
     setActivePinia(pinia);
