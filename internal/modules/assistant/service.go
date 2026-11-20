@@ -193,7 +193,7 @@ func (s *Service) Chat(ctx context.Context, request ChatRequest) ChatResponse {
 		case s.runSlots <- struct{}{}:
 			go func() {
 				defer func() { <-s.runSlots }()
-				s.runAssistant(context.WithoutCancel(ctx), conversationID, message, run)
+				s.runAssistant(context.WithoutCancel(ctx), conversationID, message, request.CreatedBy, run)
 			}()
 		default:
 			run.finish(StatusFailed, "", "Assistant is busy. Try again later.")
@@ -206,7 +206,8 @@ func (s *Service) Chat(ctx context.Context, request ChatRequest) ChatResponse {
 func (s *Service) runAssistant(
 	ctx context.Context,
 	conversationID,
-	message string,
+	message,
+	createdBy string,
 	run *chatRun,
 ) {
 	runCtx, cancel := context.WithTimeout(ctx, runExecutionTimeout)
@@ -228,7 +229,7 @@ func (s *Service) runAssistant(
 			}
 
 			s.publishPromptRejection(runCtx, rejectedPrompt)
-			s.persistConversation(ctx, conversationID, usage)
+			s.persistConversation(ctx, conversationID, createdBy, usage)
 
 			run.finish(
 				StatusRejected,
@@ -238,7 +239,7 @@ func (s *Service) runAssistant(
 			return
 		}
 
-		s.persistConversation(ctx, conversationID, usage)
+		s.persistConversation(ctx, conversationID, createdBy, usage)
 		slog.ErrorContext(
 			runCtx,
 			"[assistant] failed to generate response",
@@ -260,7 +261,7 @@ func (s *Service) runAssistant(
 		{Role: "assistant", Content: answer, Activity: run.activitySnapshot()},
 	}
 
-	s.persistConversation(ctx, conversationID, usage, turns...)
+	s.persistConversation(ctx, conversationID, createdBy, usage, turns...)
 	s.conversationStorage.Append(conversationID, turns...)
 
 	run.finish(StatusCompleted, answer, "")
@@ -269,6 +270,7 @@ func (s *Service) runAssistant(
 func (s *Service) persistConversation(
 	ctx context.Context,
 	conversationID string,
+	createdBy string,
 	usage conversation.TokenUsage,
 	turns ...conversation.Turn,
 ) {
@@ -277,7 +279,7 @@ func (s *Service) persistConversation(
 	}
 	persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), conversationPersistenceTimeout)
 	defer cancel()
-	if err := s.conversationHistory.SaveTurns(persistCtx, conversationID, usage, turns...); err != nil {
+	if err := s.conversationHistory.SaveTurns(persistCtx, conversationID, createdBy, usage, turns...); err != nil {
 		slog.ErrorContext(
 			ctx,
 			"[assistant] failed to persist conversation history",

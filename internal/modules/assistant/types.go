@@ -37,7 +37,7 @@ type ToolCall struct {
 	Error string
 }
 
-// ChatRequest is a chat API request payload for start/poll workflow.
+// ChatRequest holds input for starting or polling an assistant run.
 type ChatRequest struct {
 	// ConversationID identifies a multi-message conversation thread.
 	ConversationID string
@@ -45,6 +45,8 @@ type ChatRequest struct {
 	RequestID string
 	// Message is a user message for a new run.
 	Message string
+	// CreatedBy is the authenticated username to use if the chat is first persisted by this run.
+	CreatedBy string
 	// WaitTimeoutMS is a server-side long-poll wait timeout in milliseconds.
 	WaitTimeoutMS int
 }

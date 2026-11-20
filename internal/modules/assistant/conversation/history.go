@@ -45,6 +45,8 @@ type Chat struct {
 	Title string `json:"title"`
 	// CreatedAt is the timestamp when the chat was first persisted.
 	CreatedAt time.Time `json:"created_at"`
+	// CreatedBy is the username recorded on first persistence, or empty for a chat without an author.
+	CreatedBy string `json:"-"`
 	// UpdatedAt is the timestamp of the latest persisted message.
 	UpdatedAt time.Time `json:"updated_at"`
 	// Turns contains the full user-visible conversation history.
@@ -76,7 +78,8 @@ type HistoryStorage interface {
 	// ReadChat returns a persisted chat by conversation ID.
 	ReadChat(ctx context.Context, id string) (Chat, bool, error)
 	// SaveTurns appends turns and accumulates model token usage atomically. Turns may be omitted.
-	SaveTurns(ctx context.Context, id string, usage TokenUsage, turns ...Turn) error
+	// A nonempty createdBy is recorded when the chat is first inserted.
+	SaveTurns(ctx context.Context, id, createdBy string, usage TokenUsage, turns ...Turn) error
 }
 
 func buildChatTitle(turns []Turn) string {
