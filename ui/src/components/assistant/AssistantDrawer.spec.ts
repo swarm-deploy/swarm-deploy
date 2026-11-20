@@ -3,6 +3,7 @@ import { createPinia, setActivePinia } from "pinia";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createMemoryHistory, createRouter } from "vue-router";
 
+import * as assistantApi from "../../api/assistant";
 import { useAssistantStore } from "../../stores/assistant";
 import { useUIStore } from "../../stores/ui";
 import AssistantDrawer from "./AssistantDrawer.vue";
@@ -26,13 +27,73 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+const routes = [{ path: "/", component: { template: "<div />" } }];
+
 describe("Assistant Drawer", () => {
+  it("opens Usage inside the drawer and returns to the same chat list", async () => {
+    const pinia = createPinia();
+    setActivePinia(pinia);
+    const router = createRouter({ history: createMemoryHistory(), routes });
+    vi.spyOn(assistantApi, "getAssistantUsage").mockResolvedValue({ buckets: [] });
+    const store = useAssistantStore();
+    store.loadChats = vi.fn(async () => undefined);
+    await router.push("/?assistant=chats&tab=alerts#active");
+
+    const wrapper = mount(AssistantDrawer, { global: { plugins: [pinia, router] } });
+    const link = wrapper.get('[aria-label="Assistant usage"]');
+    expect(link.attributes("href")).toBe("/?assistant=usage&tab=alerts#active");
+    expect(link.element.previousElementSibling?.getAttribute("aria-label")).toBe("Search chats");
+
+    await link.trigger("click");
+    await flushPromises();
+    await vi.dynamicImportSettled();
+    expect(wrapper.find(".assistant-drawer .assistant-usage").exists()).toBe(true);
+    expect(router.currentRoute.value.fullPath).toBe("/?assistant=usage&tab=alerts#active");
+    expect(useUIStore().assistantDrawerOpen).toBe(true);
+    expect(wrapper.get(".assistant-drawer-header h2").text()).toBe("Usage");
+    expect(wrapper.find(".assistant-history").exists()).toBe(false);
+    expect(wrapper.find("textarea").exists()).toBe(false);
+
+    await wrapper.get('[aria-label="Back to chats"]').trigger("click");
+    await flushPromises();
+    expect(router.currentRoute.value.fullPath).toBe("/?assistant=chats&tab=alerts#active");
+    expect(wrapper.find(".assistant-history").exists()).toBe(true);
+    expect(useUIStore().assistantDrawerOpen).toBe(true);
+    expect(store.loadChats).toHaveBeenCalledOnce();
+    wrapper.unmount();
+  });
+
+  it("opens a direct Usage link without loading a chat and closes the drawer in place", async () => {
+    const pinia = createPinia();
+    setActivePinia(pinia);
+    const router = createRouter({ history: createMemoryHistory(), routes });
+    vi.spyOn(assistantApi, "getAssistantUsage").mockResolvedValue({ buckets: [] });
+    const store = useAssistantStore();
+    store.openChat = vi.fn(async () => undefined);
+    store.loadChats = vi.fn(async () => undefined);
+    await router.push("/?assistant=usage&tab=alerts#active");
+
+    const wrapper = mount(AssistantDrawer, { global: { plugins: [pinia, router] } });
+    await flushPromises();
+    await vi.dynamicImportSettled();
+    expect(wrapper.find(".assistant-drawer .assistant-usage").exists()).toBe(true);
+    expect(useUIStore().assistantDrawerOpen).toBe(true);
+    expect(store.openChat).not.toHaveBeenCalled();
+    expect(store.loadChats).not.toHaveBeenCalled();
+
+    await wrapper.get('[aria-label="Close assistant"]').trigger("click");
+    await flushPromises();
+    expect(router.currentRoute.value.fullPath).toBe("/?tab=alerts#active");
+    expect(useUIStore().assistantDrawerOpen).toBe(false);
+    wrapper.unmount();
+  });
+
   it("closes when it was opened without an assistant route query", async () => {
     const pinia = createPinia();
     setActivePinia(pinia);
     const router = createRouter({
       history: createMemoryHistory(),
-      routes: [{ path: "/", component: { template: "<div />" } }],
+      routes,
     });
     await router.push("/");
     await router.isReady();
@@ -57,7 +118,7 @@ describe("Assistant Drawer", () => {
     setActivePinia(pinia);
     const router = createRouter({
       history: createMemoryHistory(),
-      routes: [{ path: "/", component: { template: "<div />" } }],
+      routes,
     });
     await router.push("/");
     await router.isReady();
@@ -88,7 +149,7 @@ describe("Assistant Drawer", () => {
     setActivePinia(pinia);
     const router = createRouter({
       history: createMemoryHistory(),
-      routes: [{ path: "/", component: { template: "<div />" } }],
+      routes,
     });
     await router.push("/?assistant=chats&stack=demo");
     await router.isReady();
@@ -146,7 +207,7 @@ describe("Assistant Drawer", () => {
     setActivePinia(pinia);
     const router = createRouter({
       history: createMemoryHistory(),
-      routes: [{ path: "/", component: { template: "<div />" } }],
+      routes,
     });
     await router.push("/?assistant=chats");
     await router.isReady();
@@ -247,7 +308,7 @@ describe("Assistant Drawer", () => {
     setActivePinia(pinia);
     const router = createRouter({
       history: createMemoryHistory(),
-      routes: [{ path: "/", component: { template: "<div />" } }],
+      routes,
     });
     await router.push("/?assistant=new");
     await router.isReady();
@@ -280,7 +341,7 @@ describe("Assistant Drawer", () => {
     setActivePinia(pinia);
     const router = createRouter({
       history: createMemoryHistory(),
-      routes: [{ path: "/", component: { template: "<div />" } }],
+      routes,
     });
     await router.push("/?assistant=conversation-1");
     await router.isReady();
@@ -309,7 +370,7 @@ describe("Assistant Drawer", () => {
     setActivePinia(pinia);
     const router = createRouter({
       history: createMemoryHistory(),
-      routes: [{ path: "/", component: { template: "<div />" } }],
+      routes,
     });
     await router.push("/?assistant=new");
     await router.isReady();

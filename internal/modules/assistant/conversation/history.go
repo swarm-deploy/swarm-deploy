@@ -69,6 +69,8 @@ type ChatSummary struct {
 
 // HistoryStorage persists complete assistant chats independently from the in-memory context cache.
 type HistoryStorage interface {
+	// ReadUsage groups stored token totals by the UTC creation dates of chats.
+	ReadUsage(ctx context.Context, from, to time.Time, interval UsageInterval) ([]UsageBucket, error)
 	// ReadChats returns persisted chat metadata ordered by latest update first.
 	ReadChats(ctx context.Context) ([]ChatSummary, error)
 	// ReadChat returns a persisted chat by conversation ID.

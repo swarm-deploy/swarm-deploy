@@ -1,6 +1,9 @@
 package assistant
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 // Assistant provides chat execution and persisted chat history.
 type Assistant interface {
@@ -10,6 +13,8 @@ type Assistant interface {
 	ListChats(ctx context.Context) ([]ChatSummary, error)
 	// GetChat returns one persisted chat with messages.
 	GetChat(ctx context.Context, id string) (ChatHistory, bool, error)
+	// GetUsage returns recorded token consumption across chats.
+	GetUsage(ctx context.Context, from, to time.Time, interval UsageInterval) ([]UsageBucket, error)
 }
 
 // DisabledAssistant is used when assistant support is disabled.
@@ -33,4 +38,9 @@ func (*DisabledAssistant) ListChats(_ context.Context) ([]ChatSummary, error) {
 // GetChat returns no chat for a disabled assistant.
 func (*DisabledAssistant) GetChat(_ context.Context, _ string) (ChatHistory, bool, error) {
 	return ChatHistory{}, false, nil
+}
+
+// GetUsage returns no usage for a disabled assistant.
+func (*DisabledAssistant) GetUsage(_ context.Context, _, _ time.Time, _ UsageInterval) ([]UsageBucket, error) {
+	return []UsageBucket{}, nil
 }

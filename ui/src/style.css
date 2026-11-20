@@ -1150,6 +1150,7 @@ body {
   filter: none;
 }
 
+.assistant-icon-button .assistant-usage-icon,
 .assistant-history-stats svg {
   width: 16px;
   height: 16px;

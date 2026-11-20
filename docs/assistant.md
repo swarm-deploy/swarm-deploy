@@ -24,6 +24,7 @@ The assistant chat span records request-size diagnostics without recording promp
 - `POST /api/v1/assistant/chat`
 - `GET /api/v1/assistant/chats`
 - `GET /api/v1/assistant/chats/{conversation_id}`
+- `GET /api/v1/assistant/usage?from=2026-11-01&to=2026-12-01&interval=weekly`
 
 The chat endpoint supports start and poll with the same route. Chat history endpoints return persisted conversations ordered by latest activity and the full message history for a selected chat.
 
@@ -67,6 +68,14 @@ While a run is in progress, responses may include an `activity` array with safe 
 ## Chat history
 
 Completed user/assistant turns are persisted in the `assistant_chats` and `assistant_turns` tables of `<dataDir>/swarm-deploy.sqlite`. Assistant turns may also contain an optional `activity` array with the safe execution trace shown by the UI. The chat list reads metadata from SQLite without loading full message histories. The UI creates chats lazily on the first message, derives the title from the first user message, and can reopen older chats. When an older chat is continued after the in-memory context cache expires or the process restarts, recent turns are restored from the persisted SQLite history.
+
+## Token usage
+
+The Usage screen groups each chat's accumulated token totals by its UTC creation date. It includes chats created before the Usage feature was introduced. Further activity in an existing chat increases the totals in its original bucket.
+
+The usage endpoint takes required UTC dates in `YYYY-MM-DD` format and an `interval` of `daily`, `weekly`, or `monthly`. The range includes `from` and excludes `to`. Weeks start on Monday and months on the first. Each bucket counts chats created within the requested range.
+
+The response contains ascending `buckets` with `start`, `input_tokens`, `output_tokens`, and provider-reported `total_tokens`. Empty intervals between populated buckets are returned as zeros. A range without chats with token totals returns an empty array.
 
 ## Built-in tools
 

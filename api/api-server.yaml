@@ -44,6 +44,8 @@ paths:
     $ref: './assistant.yaml#/paths/~1api~1v1~1assistant~1chats'
   /api/v1/assistant/chats/{conversationID}:
     $ref: './assistant.yaml#/paths/~1api~1v1~1assistant~1chats~1{conversationID}'
+  /api/v1/assistant/usage:
+    $ref: './assistant.yaml#/paths/~1api~1v1~1assistant~1usage'
   /api/v1/events:
     $ref: './events.yaml#/paths/~1api~1v1~1events'
   /api/v1/events/{id}:

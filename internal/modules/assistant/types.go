@@ -80,6 +80,12 @@ type ChatMessage struct {
 // TokenUsage contains aggregate model token consumption for a chat.
 type TokenUsage = conversation.TokenUsage
 
+// UsageInterval is a UTC calendar grouping for assistant token consumption.
+type UsageInterval = conversation.UsageInterval
+
+// UsageBucket contains recorded token consumption for one calendar interval.
+type UsageBucket = conversation.UsageBucket
+
 // ChatSummary describes a persisted assistant chat without messages.
 type ChatSummary struct {
 	// ID identifies the chat.

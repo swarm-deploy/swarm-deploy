@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from "vue";
+import { computed, defineAsyncComponent, nextTick, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
 import { getAssistantSuggestions } from "../../api/assistant";
@@ -8,6 +8,9 @@ import { useAssistantStore } from "../../stores/assistant";
 import { useUIStore } from "../../stores/ui";
 import { renderAssistantMarkdown } from "../../utils/assistantMarkdown";
 import { escapeHtml } from "../../utils/escape";
+
+const AssistantUsage = defineAsyncComponent(() => import("./AssistantUsage.vue"));
+const tokenUsageIconPath = "M4 19V10M10 19V5M16 19v-7M22 19H2";
 
 const uiStore = useUIStore();
 const assistantStore = useAssistantStore();
@@ -25,6 +28,7 @@ const searchOpen = ref(false);
 const searchQuery = ref("");
 const searchRef = ref<HTMLInputElement | null>(null);
 const searchButtonRef = ref<HTMLButtonElement | null>(null);
+const backButtonRef = ref<HTMLButtonElement | null>(null);
 const viewportStyle = ref<Record<string, string>>();
 const bodyRef = ref<HTMLElement | null>(null);
 const suggestions = ref<AssistantSuggestion[]>([]);
@@ -35,8 +39,11 @@ const messages = computed(() => assistantStore.messages);
 const pending = computed(() => assistantStore.pending);
 const activity = computed(() => assistantStore.activity);
 const chats = computed(() => assistantStore.chats);
-const historyOpen = computed(() => assistantStore.historyOpen);
+const usageOpen = computed(() => isOpen.value && route.query.assistant === "usage");
+const historyOpen = computed(() => assistantStore.historyOpen && !usageOpen.value);
+const chatOpen = computed(() => !historyOpen.value && !usageOpen.value);
 const historyLoading = computed(() => assistantStore.historyLoading);
+const usageRoute = computed(() => ({ query: assistantQuery("usage"), hash: route.hash }));
 const usageOpenChatID = ref("");
 
 const existingChatLoading = computed(() => {
@@ -45,7 +52,7 @@ const existingChatLoading = computed(() => {
 });
 
 const emptyChatVisible = computed(
-  () => isOpen.value && !historyOpen.value && messages.value.length === 0 && !existingChatLoading.value,
+  () => isOpen.value && chatOpen.value && messages.value.length === 0 && !existingChatLoading.value,
 );
 
 const currentChatTitle = computed(() => {
@@ -134,12 +141,16 @@ watch(
     }
 
     await nextTick();
-    if (!historyOpen.value && route.query.assistant !== "chats") {
+    if (chatOpen.value && route.query.assistant !== "chats") {
       inputRef.value?.focus();
     }
     scrollToBottom();
   },
 );
+
+watch(usageOpen, (opened) => {
+  if (opened) backButtonRef.value?.focus();
+}, { flush: "post" });
 
 watch(isOpen, (opened, _, onCleanup) => {
   const viewport = window.visualViewport;
@@ -235,7 +246,7 @@ function assistantQuery(value: string | undefined) {
 }
 
 async function openHistory() {
-  await router.push({ query: assistantQuery("chats") });
+  await router.push({ query: assistantQuery("chats"), hash: route.hash });
 }
 
 async function openChat(chatID: string) {
@@ -257,7 +268,7 @@ async function newChat() {
 async function closeDrawer() {
   usageOpenChatID.value = "";
   uiStore.closeAssistantDrawer();
-  await router.push({ query: assistantQuery(undefined) });
+  await router.push({ query: assistantQuery(undefined), hash: route.hash });
 }
 
 async function toggleSearch() {
@@ -301,6 +312,8 @@ watch(
     }
 
     uiStore.openAssistantDrawer();
+
+    if (value === "usage") return;
 
     if (value === "chats") {
       if (!assistantStore.historyOpen) {
@@ -449,6 +462,7 @@ function renderMessageText(role: string, text: string): string {
         <template v-else>
           <div class="assistant-chat-heading">
             <button
+              ref="backButtonRef"
               type="button"
               class="assistant-icon-button"
               aria-label="Back to chats"
@@ -459,8 +473,11 @@ function renderMessageText(role: string, text: string): string {
                 <path d="m15 18-6-6 6-6" />
               </svg>
             </button>
-            <span class="assistant-avatar assistant-avatar-small" aria-hidden="true">AI</span>
-            <h2 class="assistant-chat-title" :title="currentChatTitle">{{ currentChatTitle }}</h2>
+            <h2 v-if="usageOpen" id="assistant-usage-title" class="assistant-chat-title">Usage</h2>
+            <template v-else>
+              <span class="assistant-avatar assistant-avatar-small" aria-hidden="true">AI</span>
+              <h2 class="assistant-chat-title" :title="currentChatTitle">{{ currentChatTitle }}</h2>
+            </template>
           </div>
         </template>
 
@@ -483,8 +500,19 @@ function renderMessageText(role: string, text: string): string {
               <path d="m15 15 4 4" />
             </svg>
           </button>
+          <RouterLink
+            v-if="historyOpen"
+            :to="usageRoute"
+            class="assistant-icon-button"
+            aria-label="Assistant usage"
+            title="Usage"
+          >
+            <svg class="assistant-usage-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path :d="tokenUsageIconPath" />
+            </svg>
+          </RouterLink>
           <button
-            v-if="!historyOpen"
+            v-if="chatOpen"
             type="button"
             class="assistant-icon-button"
             aria-label="New chat"
@@ -518,7 +546,8 @@ function renderMessageText(role: string, text: string): string {
         </div>
       </header>
 
-      <div v-if="historyOpen" class="assistant-history">
+      <AssistantUsage v-if="usageOpen" class="assistant-drawer-body" />
+      <div v-else-if="historyOpen" class="assistant-history">
         <button
           type="button"
           class="assistant-new-chat-row"
@@ -564,7 +593,7 @@ function renderMessageText(role: string, text: string): string {
                 @click.stop="toggleChatUsage(chat.id)"
               >
                 <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <path d="M4 19V10M10 19V5M16 19v-7M22 19H2" />
+                  <path :d="tokenUsageIconPath" />
                 </svg>
               </button>
               <div v-if="usageOpenChatID === chat.id" class="assistant-history-usage-popover">
@@ -675,7 +704,7 @@ function renderMessageText(role: string, text: string): string {
         </div>
       </form>
 
-      <form v-if="!historyOpen" class="assistant-chat-form" @submit.prevent="submitMessage">
+      <form v-if="chatOpen" class="assistant-chat-form" @submit.prevent="submitMessage">
         <div class="assistant-composer">
           <textarea
             ref="inputRef"

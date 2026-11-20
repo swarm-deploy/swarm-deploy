@@ -52,6 +52,38 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AssistantChatHistory'
+  /api/v1/assistant/usage:
+    get:
+      operationId: getAssistantUsage
+      summary: Read assistant token totals grouped by chat creation date
+      parameters:
+        - in: query
+          name: from
+          required: true
+          description: Inclusive start date in UTC.
+          schema:
+            type: string
+            format: date
+        - in: query
+          name: to
+          required: true
+          description: Exclusive end date in UTC.
+          schema:
+            type: string
+            format: date
+        - in: query
+          name: interval
+          required: true
+          description: Calendar bucket size in UTC. Weeks start on Monday.
+          schema:
+            $ref: '#/components/schemas/AssistantUsageInterval'
+      responses:
+        '200':
+          description: Accumulated token totals grouped by the UTC creation dates of chats.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssistantUsageResponse'
 components:
   schemas:
     AssistantSuggestion:
@@ -183,3 +215,26 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/AssistantChatMessage'
+
+    AssistantUsageInterval:
+      type: string
+      enum: [daily, weekly, monthly]
+    AssistantUsageBucket:
+      allOf:
+        - $ref: '#/components/schemas/AssistantTokenUsage'
+        - type: object
+          required: [start]
+          properties:
+            start:
+              type: string
+              format: date
+              description: UTC calendar bucket start. A partial bucket counts only chats created within the requested range.
+    AssistantUsageResponse:
+      type: object
+      required: [buckets]
+      properties:
+        buckets:
+          type: array
+          description: Ascending buckets with zeros between populated buckets. Empty when no chats with token totals were created in the range.
+          items:
+            $ref: '#/components/schemas/AssistantUsageBucket'

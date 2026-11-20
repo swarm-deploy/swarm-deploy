@@ -1050,6 +1050,122 @@ func (s *AssistantTokenUsage) SetTotalTokens(val int64) {
 	s.TotalTokens = val
 }
 
+// Merged schema.
+// Ref: #/components/schemas/AssistantUsageBucket
+type AssistantUsageBucket struct {
+	InputTokens  int64 `json:"input_tokens"`
+	OutputTokens int64 `json:"output_tokens"`
+	TotalTokens  int64 `json:"total_tokens"`
+	// UTC calendar bucket start. A partial bucket counts only chats created within the requested range.
+	Start time.Time `json:"start"`
+}
+
+// GetInputTokens returns the value of InputTokens.
+func (s *AssistantUsageBucket) GetInputTokens() int64 {
+	return s.InputTokens
+}
+
+// GetOutputTokens returns the value of OutputTokens.
+func (s *AssistantUsageBucket) GetOutputTokens() int64 {
+	return s.OutputTokens
+}
+
+// GetTotalTokens returns the value of TotalTokens.
+func (s *AssistantUsageBucket) GetTotalTokens() int64 {
+	return s.TotalTokens
+}
+
+// GetStart returns the value of Start.
+func (s *AssistantUsageBucket) GetStart() time.Time {
+	return s.Start
+}
+
+// SetInputTokens sets the value of InputTokens.
+func (s *AssistantUsageBucket) SetInputTokens(val int64) {
+	s.InputTokens = val
+}
+
+// SetOutputTokens sets the value of OutputTokens.
+func (s *AssistantUsageBucket) SetOutputTokens(val int64) {
+	s.OutputTokens = val
+}
+
+// SetTotalTokens sets the value of TotalTokens.
+func (s *AssistantUsageBucket) SetTotalTokens(val int64) {
+	s.TotalTokens = val
+}
+
+// SetStart sets the value of Start.
+func (s *AssistantUsageBucket) SetStart(val time.Time) {
+	s.Start = val
+}
+
+// Ref: #/components/schemas/AssistantUsageInterval
+type AssistantUsageInterval string
+
+const (
+	AssistantUsageIntervalDaily   AssistantUsageInterval = "daily"
+	AssistantUsageIntervalWeekly  AssistantUsageInterval = "weekly"
+	AssistantUsageIntervalMonthly AssistantUsageInterval = "monthly"
+)
+
+// AllValues returns all AssistantUsageInterval values.
+func (AssistantUsageInterval) AllValues() []AssistantUsageInterval {
+	return []AssistantUsageInterval{
+		AssistantUsageIntervalDaily,
+		AssistantUsageIntervalWeekly,
+		AssistantUsageIntervalMonthly,
+	}
+}
+
+// MarshalText implements encoding.TextMarshaler.
+func (s AssistantUsageInterval) MarshalText() ([]byte, error) {
+	switch s {
+	case AssistantUsageIntervalDaily:
+		return []byte(s), nil
+	case AssistantUsageIntervalWeekly:
+		return []byte(s), nil
+	case AssistantUsageIntervalMonthly:
+		return []byte(s), nil
+	default:
+		return nil, errors.Errorf("invalid value: %q", s)
+	}
+}
+
+// UnmarshalText implements encoding.TextUnmarshaler.
+func (s *AssistantUsageInterval) UnmarshalText(data []byte) error {
+	switch AssistantUsageInterval(data) {
+	case AssistantUsageIntervalDaily:
+		*s = AssistantUsageIntervalDaily
+		return nil
+	case AssistantUsageIntervalWeekly:
+		*s = AssistantUsageIntervalWeekly
+		return nil
+	case AssistantUsageIntervalMonthly:
+		*s = AssistantUsageIntervalMonthly
+		return nil
+	default:
+		return errors.Errorf("invalid value: %q", data)
+	}
+}
+
+// Ref: #/components/schemas/AssistantUsageResponse
+type AssistantUsageResponse struct {
+	// Ascending buckets with zeros between populated buckets. Empty when no chats with token totals were
+	// created in the range.
+	Buckets []AssistantUsageBucket `json:"buckets"`
+}
+
+// GetBuckets returns the value of Buckets.
+func (s *AssistantUsageResponse) GetBuckets() []AssistantUsageBucket {
+	return s.Buckets
+}
+
+// SetBuckets sets the value of Buckets.
+func (s *AssistantUsageResponse) SetBuckets(val []AssistantUsageBucket) {
+	s.Buckets = val
+}
+
 // Ref: #/components/schemas/CreateExternalSecretRequest
 type CreateExternalSecretRequest struct {
 	Path        string    `json:"path"`

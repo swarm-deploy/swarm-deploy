@@ -515,6 +515,38 @@ app.get("/api/v1/stacks/:stack/deployments/activity", (context) => {
   return context.json({ buckets: deploymentActivity(interval) });
 });
 
+app.get("/api/v1/assistant/usage", (context) => {
+  const { from, to, interval } = context.req.query();
+  const dayMs = 86_400_000;
+  const dateOnly = /^\d{4}-\d{2}-\d{2}$/;
+  const start = Date.parse(from);
+  const end = Date.parse(to);
+  if (!dateOnly.test(from) || !dateOnly.test(to) || !(end > start) ||
+      !["daily", "weekly", "monthly"].includes(interval)) {
+    return context.json({ error_message: "Invalid usage range or interval" }, 400);
+  }
+
+  const today = Date.parse(new Date().toISOString().slice(0, 10));
+  const buckets = new Map();
+  for (let time = Math.max(start, today - 399 * dayMs); time < Math.min(end, today + dayMs); time += dayMs) {
+    const bucketDate = new Date(time);
+    const daysAgo = (today - time) / dayMs;
+    const weekday = bucketDate.getUTCDay();
+    const input = (weekday === 0 || weekday === 6 ? 12_000 : 46_000) + (daysAgo * 19_813) % 75_000;
+    const output = Math.round(input * (0.12 + (daysAgo % 5) * 0.025));
+
+    if (interval === "weekly") bucketDate.setUTCDate(bucketDate.getUTCDate() - (weekday + 6) % 7);
+    if (interval === "monthly") bucketDate.setUTCDate(1);
+    const key = bucketDate.toISOString().slice(0, 10);
+    const bucket = buckets.get(key) ?? { start: key, input_tokens: 0, output_tokens: 0, total_tokens: 0 };
+    bucket.input_tokens += input;
+    bucket.output_tokens += output;
+    bucket.total_tokens += input + output;
+    buckets.set(key, bucket);
+  }
+  return context.json({ buckets: [...buckets.values()] });
+});
+
 app.route("/", openApiApp);
 
 serve(

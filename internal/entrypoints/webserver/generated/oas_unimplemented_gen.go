@@ -85,6 +85,15 @@ func (UnimplementedHandler) GetAssistantSuggestions(ctx context.Context) (r *Ass
 	return r, ht.ErrNotImplemented
 }
 
+// GetAssistantUsage implements getAssistantUsage operation.
+//
+// Read assistant token totals grouped by chat creation date.
+//
+// GET /api/v1/assistant/usage
+func (UnimplementedHandler) GetAssistantUsage(ctx context.Context, params GetAssistantUsageParams) (r *AssistantUsageResponse, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // GetConfig implements getConfig operation.
 //
 // GET /api/v1/config
