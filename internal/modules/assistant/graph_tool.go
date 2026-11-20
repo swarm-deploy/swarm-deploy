@@ -21,7 +21,7 @@ func (g *graph) executeToolCall(
 	if !declared {
 		return "", errors.New("tool is not available to the assistant")
 	}
-	if definition.Writeable {
+	if definition.Writable {
 		return "", errors.New("mutating tools require deterministic confirmation")
 	}
 	if _, ok := effectiveToolSet[modelToolCall.Name]; !ok {
@@ -43,7 +43,7 @@ func (g *graph) effectiveToolDefinitions(effectiveToolSet map[string]struct{}) [
 	definitions := g.tools.Definitions()
 	filtered := make([]routing.ToolDefinition, 0, len(definitions))
 	for _, definition := range definitions {
-		if definition.Writeable {
+		if definition.Writable {
 			continue
 		}
 		if _, ok := effectiveToolSet[string(definition.Name)]; ok {

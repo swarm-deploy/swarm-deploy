@@ -16,9 +16,9 @@ type ToolDefinition struct {
 	ParametersJSONSchema map[string]any
 	// Request describes a typed request payload shape used by the tool.
 	Request any
-	// Writeable marks a tool that changes runtime or GitOps state. The assistant never exposes writeable tools
+	// Writable marks a tool that changes runtime or GitOps state. The assistant never exposes writable tools
 	// to the model and runs them only through deterministic, user-confirmed pending operations.
-	Writeable bool
+	Writable bool
 	// Terminal marks a tool whose single successful result can finish a request without another model completion.
 	Terminal bool
 }

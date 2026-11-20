@@ -771,13 +771,13 @@ func assistantTestToolDefinitions() []routing.ToolDefinition {
 		"self_metrics_list",
 		"assistant_prompt_injection_report",
 	}
-	writeable := map[string]struct{}{
+	writable := map[string]struct{}{
 		deploySyncTriggerTool: {}, syncPauseSetTool: {}, syncPauseResumeTool: {},
 		serviceReplicasSetTool: {}, serviceRestartTriggerTool: {},
 	}
 	definitions := make([]routing.ToolDefinition, 0, len(names))
 	for _, name := range names {
-		_, isWriteable := writeable[name]
+		_, isWritable := writable[name]
 		definitions = append(definitions, routing.ToolDefinition{
 			Name:        config.AssistantToolName(name),
 			Description: name,
@@ -785,8 +785,8 @@ func assistantTestToolDefinitions() []routing.ToolDefinition {
 				"type":       "object",
 				"properties": map[string]any{},
 			},
-			Writeable: isWriteable,
-			Terminal:  isWriteable || name == assistantPromptInjectionReportTool,
+			Writable: isWritable,
+			Terminal: isWritable || name == assistantPromptInjectionReportTool,
 		})
 	}
 	return definitions

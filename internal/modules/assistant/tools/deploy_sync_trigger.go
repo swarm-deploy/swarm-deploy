@@ -21,7 +21,7 @@ func NewSync(control SyncTrigger) *Sync {
 func (s *Sync) Definition() routing.ToolDefinition {
 	return routing.ToolDefinition{
 		Name:        config.AssistantToolNameDeploySyncTrigger,
-		Writeable:   true,
+		Writable:    true,
 		Terminal:    true,
 		Description: "Triggers manual synchronization run.",
 		ParametersJSONSchema: map[string]any{
