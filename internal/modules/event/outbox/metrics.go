@@ -5,6 +5,7 @@ import (
 
 	"github.com/doug-martin/goqu/v9"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/swarm-deploy/swarm-deploy/internal/storage"
 )
 
 var deliveriesDesc = prometheus.NewDesc(
@@ -34,7 +35,7 @@ func (r *Repository) Collect(ch chan<- prometheus.Metric) {
 		return
 	}
 	var counts []deliveryCount
-	if err = r.db.Select(ctx, &counts, query, args...); err != nil {
+	if err = r.db.Select(storage.WithoutSQLTracing(ctx), &counts, query, args...); err != nil {
 		ch <- prometheus.NewInvalidMetric(deliveriesDesc, err)
 		return
 	}

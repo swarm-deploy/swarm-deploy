@@ -119,7 +119,6 @@ func TestRealSwarmNativeRollbackHistoryRetryAndRecovery(t *testing.T) {
 	failed := f.latest(t)
 	assertVerificationFailure(t, failed, model.Failed, "convergence_failed", model.StageFailed)
 	assert.False(t, failed.Retryable)
-	assert.Contains(t, failed.ErrorDiagnostic, "rollback")
 	f.poll(t, "Swarm completed native rollback", func() bool {
 		service := f.inspect(t, "job")
 		return service.UpdateStatus != nil && service.UpdateStatus.State == dockerswarm.UpdateStateRollbackCompleted

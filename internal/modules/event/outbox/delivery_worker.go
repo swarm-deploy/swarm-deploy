@@ -12,6 +12,7 @@ import (
 
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/tracing"
+	"github.com/swarm-deploy/swarm-deploy/internal/storage"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/propagation"
@@ -81,46 +82,85 @@ func NewWorker(repository *Repository, resolve HandlerResolver, options ...Worke
 // Run processes committed work until cancellation. Unfinished leases survive
 // shutdown and can be reclaimed after expiry by the next process.
 func (w *Worker) Run(ctx context.Context) error {
+	ticker := time.NewTicker(workerPollInterval)
+	defer ticker.Stop()
+
+	// Only the worker holding the token may claim a delivery. The token is true
+	// when the worker should check for due deliveries before opening a write transaction.
+	claimReady := make(chan bool, 1)
+	claimReady <- true
+	deliveryDone := make(chan struct{}, 1)
+
 	var workers sync.WaitGroup
 	for range w.workers {
-		workers.Go(func() { w.run(ctx) })
+		workers.Go(func() { w.run(ctx, claimReady, deliveryDone, ticker.C) })
 	}
 	workers.Wait()
 	return nil
 }
 
-func (w *Worker) run(ctx context.Context) {
-	ticker := time.NewTicker(workerPollInterval)
-	defer ticker.Stop()
+func (w *Worker) run(ctx context.Context, claimReady chan bool, deliveryDone chan struct{}, poll <-chan time.Time) {
+	onClaim := func() { claimReady <- false }
 	for {
+		var checkDue bool
+		select {
+		case <-ctx.Done():
+			return
+		case checkDue = <-claimReady:
+		}
 		if ctx.Err() != nil {
 			return
 		}
-		handled, err := w.ProcessNext(ctx)
+		// The claim can already see any delivery that finished before it began.
+		select {
+		case <-deliveryDone:
+		default:
+		}
+		handled, err := w.processNext(ctx, checkDue, onClaim)
 		if err != nil && ctx.Err() == nil {
 			slog.ErrorContext(ctx, "outbox worker operation failed",
 				append([]any{"error_type", fmt.Sprintf("%T", err)}, safeDeliveryErrorFields(err)...)...)
 		}
 		if handled && err == nil {
+			select {
+			case deliveryDone <- struct{}{}:
+			default:
+			}
+		}
+		if handled {
 			continue
 		}
 		select {
 		case <-ctx.Done():
 			return
-		case <-ticker.C:
+		case <-deliveryDone:
+		case <-poll:
 		}
+		claimReady <- true
 	}
 }
 
 // ProcessNext claims and processes at most one delivery using distinct T2/T3.
 // It must be called outside any publishing or subscriber transaction.
 func (w *Worker) ProcessNext(ctx context.Context) (bool, error) {
-	d, err := w.Claim(ctx)
+	return w.processNext(ctx, true, nil)
+}
+
+func (w *Worker) processNext(ctx context.Context, checkDue bool, onClaim func()) (bool, error) {
+	// An empty poll should emit no spans, including the underlying SQLite calls.
+	startedAt := time.Now()
+	d, err := w.claimNext(storage.WithoutSQLTracing(ctx), checkDue)
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, nil
 	}
+	ctx, span := w.tracer.Start(ctx, "event.ProcessNext", trace.WithNewRoot(), trace.WithTimestamp(startedAt))
+	defer span.End()
 	if err != nil {
+		tracing.FailSpan(span, err)
 		return false, err
+	}
+	if onClaim != nil {
+		onClaim()
 	}
 	err = w.Process(ctx, d)
 	if err == nil {
@@ -132,6 +172,7 @@ func (w *Worker) ProcessNext(ctx context.Context) (bool, error) {
 	if terminal {
 		code = invalid.code
 	}
+	tracing.FailSpan(span, errors.New(code))
 	slog.ErrorContext(ctx, "outbox delivery failed",
 		append([]any{
 			"event_id", d.EventID, "subscription_id", d.SubscriptionID,
@@ -144,6 +185,15 @@ func (w *Worker) ProcessNext(ctx context.Context) (bool, error) {
 		return true, errors.Join(err, retryErr)
 	}
 	return true, nil
+}
+
+func (w *Worker) claimNext(ctx context.Context, checkDue bool) (Delivery, error) {
+	if checkDue {
+		if err := w.repository.checkDueDelivery(ctx, w.now()); err != nil {
+			return Delivery{}, err
+		}
+	}
+	return w.Claim(ctx)
 }
 
 // Claim atomically leases at most one due delivery.
@@ -162,7 +212,6 @@ func (w *Worker) Process(ctx context.Context, d Delivery) (err error) {
 		return loadErr
 	}
 	spanOptions := []trace.SpanStartOption{
-		trace.WithNewRoot(),
 		trace.WithSpanKind(trace.SpanKindConsumer),
 		trace.WithAttributes(
 			tracing.EventName.String(string(publication.Type)),

@@ -74,5 +74,5 @@ func connectDB(driver, dsn string) (*sqlx.DB, error) {
 		return sqlx.Open(driver, dsn)
 	}
 
-	return otelsqlx.Connect(driver, dsn, otelsql.WithTracerProvider(tp))
+	return otelsqlx.Connect(driver, dsn, otelsql.WithTracerProvider(sqlTracerProvider{tp}))
 }
