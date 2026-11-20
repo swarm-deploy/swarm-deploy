@@ -6,7 +6,7 @@ import { fetchAlerts } from "../api/overview";
 import type { Alert, AlertStatus } from "../api/types";
 import AppButton from "../components/common/AppButton.vue";
 import AppFilterPanel from "../components/common/AppFilterPanel.vue";
-import AppSearchFilter from "../components/common/AppSearchFilter.vue";
+import AppSelect from "../components/common/AppSelect.vue";
 import AppStatusBadge from "../components/common/AppStatusBadge.vue";
 import AppTable from "../components/common/AppTable.vue";
 import AppTableEmpty from "../components/common/AppTableEmpty.vue";
@@ -20,13 +20,18 @@ const alerts = ref<Alert[]>([]);
 const loading = ref(false);
 const loadingError = ref("");
 const selectedStatus = ref<AlertStatus | "">("");
-const selectedType = ref("");
+const selectedType = ref<Alert["kind"] | "">("");
 const selectedResource = ref("");
 const newestFirst = ref(true);
 let requestID = 0;
 
+const statusOptions: { value: AlertStatus; label: string }[] = [
+  { value: "open", label: "Active" },
+  { value: "resolved", label: "Resolved" },
+];
 const activeFilterCount = computed(() => [selectedStatus.value, selectedType.value, selectedResource.value].filter(Boolean).length);
-const alertTypes = computed(() => [...new Set(alerts.value.map((alert) => alert.kind))].sort());
+const typeOptions = computed(() => [...new Set(alerts.value.map((alert) => alert.kind))].sort()
+  .map((value) => ({ value, label: value.replaceAll("_", " ") })));
 const resourceOptions = computed(() => {
   const resources = new Map<string, string>();
   for (const alert of alerts.value) {
@@ -90,36 +95,42 @@ onMounted(() => void loadAlerts());
 <template>
   <section class="services-page alerts-page">
     <AppFilterPanel panel-id="alerts-filter-panel" :active-count="activeFilterCount" :columns="3">
-      <label class="events-filter-field events-filter-field--select">
-        <svg class="events-filter-icon" viewBox="0 0 20 20" aria-hidden="true">
-          <circle cx="10" cy="10" r="6.5" />
-          <path d="m7.5 10 1.7 1.7 3.3-3.4" />
-        </svg>
-        <select v-model="selectedStatus" aria-label="Filter alerts by status">
-          <option value="">All statuses</option>
-          <option value="open">Active</option>
-          <option value="resolved">Resolved</option>
-        </select>
-      </label>
+      <AppSelect
+        v-model="selectedStatus"
+        :options="statusOptions"
+        :reset-option="{ value: '', label: 'All statuses' }"
+        label="Filter alerts by status"
+      >
+        <template #icon>
+          <svg class="events-filter-icon" viewBox="0 0 20 20" aria-hidden="true">
+            <circle cx="10" cy="10" r="6.5" />
+            <path d="m7.5 10 1.7 1.7 3.3-3.4" />
+          </svg>
+        </template>
+      </AppSelect>
 
-      <label class="events-filter-field events-filter-field--select">
-        <svg class="events-filter-icon" viewBox="0 0 20 20" aria-hidden="true">
-          <path d="M3.5 4.5v5.3l6.7 6.7 6.3-6.3-6.7-6.7H4.5a1 1 0 0 0-1 1Z" />
-          <circle cx="7" cy="7" r="1" />
-        </svg>
-        <select v-model="selectedType" aria-label="Filter alerts by type">
-          <option value="">All types</option>
-          <option v-for="type in alertTypes" :key="type" :value="type">{{ type.replaceAll("_", " ") }}</option>
-        </select>
-      </label>
+      <AppSelect
+        v-model="selectedType"
+        :options="typeOptions"
+        :reset-option="{ value: '', label: 'All types' }"
+        label="Filter alerts by type"
+      >
+        <template #icon>
+          <svg class="events-filter-icon" viewBox="0 0 20 20" aria-hidden="true">
+            <path d="M3.5 4.5v5.3l6.7 6.7 6.3-6.3-6.7-6.7H4.5a1 1 0 0 0-1 1Z" />
+            <circle cx="7" cy="7" r="1" />
+          </svg>
+        </template>
+      </AppSelect>
 
-      <AppSearchFilter
+      <AppSelect
         v-model="selectedResource"
-        class="alerts-resource-filter"
         :options="resourceOptions"
+        :reset-option="{ value: '', label: 'All resources' }"
         label="Filter alerts by resource"
-        placeholder="All resources"
+        searchable
         search-label="Search resources"
+        search-placeholder="Search resources"
         empty-message="No matching resources"
       >
         <template #icon>
@@ -128,7 +139,7 @@ onMounted(() => void loadAlerts());
             <path d="m3.8 6.5 6.2 3.4 6.2-3.4M10 9.9v7" />
           </svg>
         </template>
-      </AppSearchFilter>
+      </AppSelect>
 
       <template #after>
         <p v-if="stackFilter" class="meta">Stack: <strong>{{ stackFilter }}</strong> <AppButton variant="secondary" compact @click="clearStackFilter">Clear stack filter</AppButton></p>
@@ -180,10 +191,6 @@ onMounted(() => void loadAlerts());
 </template>
 
 <style scoped>
-.alerts-resource-filter :deep(.events-search-filter-menu) {
-  right: 0;
-  left: auto;
-}
 .alerts-updated-column {
   width: 160px;
 }

@@ -859,13 +859,6 @@ body {
   .events-filter-bar {
     justify-content: stretch;
   }
-
-  .events-filter-field,
-  .events-filter-field select,
-  .events-filter-field input {
-    width: 100%;
-    min-width: 0;
-  }
 }
 
 
