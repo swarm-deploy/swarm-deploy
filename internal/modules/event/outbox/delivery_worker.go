@@ -12,6 +12,7 @@ import (
 
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/tracing"
+	"github.com/swarm-deploy/swarm-deploy/internal/storage"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/propagation"
@@ -84,20 +85,21 @@ func (w *Worker) Run(ctx context.Context) error {
 	ticker := time.NewTicker(workerPollInterval)
 	defer ticker.Stop()
 
-	// Only the worker holding the token may claim a delivery. It passes the
-	// token on before handling the delivery or after waiting for the next poll.
+	// Only the worker holding the token may claim a delivery. It passes it on
+	// after a claim succeeds, a delivery completes, or the next poll is due.
 	claimReady := make(chan struct{}, 1)
 	claimReady <- struct{}{}
+	deliveryDone := make(chan struct{}, 1)
 
 	var workers sync.WaitGroup
 	for range w.workers {
-		workers.Go(func() { w.run(ctx, claimReady, ticker.C) })
+		workers.Go(func() { w.run(ctx, claimReady, deliveryDone, ticker.C) })
 	}
 	workers.Wait()
 	return nil
 }
 
-func (w *Worker) run(ctx context.Context, claimReady chan struct{}, poll <-chan time.Time) {
+func (w *Worker) run(ctx context.Context, claimReady, deliveryDone chan struct{}, poll <-chan time.Time) {
 	wakeNext := func() { claimReady <- struct{}{} }
 	for {
 		select {
@@ -108,10 +110,21 @@ func (w *Worker) run(ctx context.Context, claimReady chan struct{}, poll <-chan 
 		if ctx.Err() != nil {
 			return
 		}
+		// The claim can already see any delivery that finished before it began.
+		select {
+		case <-deliveryDone:
+		default:
+		}
 		handled, err := w.processNext(ctx, wakeNext)
 		if err != nil && ctx.Err() == nil {
 			slog.ErrorContext(ctx, "outbox worker operation failed",
 				append([]any{"error_type", fmt.Sprintf("%T", err)}, safeDeliveryErrorFields(err)...)...)
+		}
+		if handled && err == nil {
+			select {
+			case deliveryDone <- struct{}{}:
+			default:
+			}
 		}
 		if handled {
 			continue
@@ -119,9 +132,10 @@ func (w *Worker) run(ctx context.Context, claimReady chan struct{}, poll <-chan 
 		select {
 		case <-ctx.Done():
 			return
+		case <-deliveryDone:
 		case <-poll:
-			wakeNext()
 		}
+		wakeNext()
 	}
 }
 
@@ -132,13 +146,14 @@ func (w *Worker) ProcessNext(ctx context.Context) (bool, error) {
 }
 
 func (w *Worker) processNext(ctx context.Context, onClaim func()) (bool, error) {
-	ctx, span := w.tracer.Start(ctx, "event.ProcessNext", trace.WithNewRoot())
-	defer span.End()
-
-	d, err := w.Claim(ctx)
+	// An empty poll should emit no spans, including the underlying SQLite calls.
+	startedAt := time.Now()
+	d, err := w.Claim(storage.WithoutSQLTracing(ctx))
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, nil
 	}
+	ctx, span := w.tracer.Start(ctx, "event.ProcessNext", trace.WithNewRoot(), trace.WithTimestamp(startedAt))
+	defer span.End()
 	if err != nil {
 		tracing.FailSpan(span, err)
 		return false, err

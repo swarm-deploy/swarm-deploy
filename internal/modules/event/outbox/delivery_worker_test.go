@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"sync/atomic"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -20,15 +21,61 @@ import (
 
 func TestWorkerPoolPollsOnceWhileIdleAndScalesForDeliveries(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		recorder := tracetest.NewSpanRecorder()
-		provider := sdktrace.NewTracerProvider(
-			sdktrace.WithSampler(sdktrace.AlwaysSample()),
-			sdktrace.WithSpanProcessor(recorder),
-		)
-		t.Cleanup(func() { require.NoError(t, provider.Shutdown(context.Background())) })
 		repository := New(testutil.OpenSQLite(t))
 		subscriptions := []string{"first", "second", "third", "fourth", "fifth"}
 		started := make(chan struct{}, len(subscriptions))
+		release := make(chan struct{})
+		var clockCalls atomic.Int64
+		worker := NewWorker(repository, func(events.TypeName, string) (DeliveryHandler, bool) {
+			return DeliveryHandler{
+				External: true,
+				Handle: func(ctx context.Context, _ events.Envelope) error {
+					started <- struct{}{}
+					select {
+					case <-release:
+						return nil
+					case <-ctx.Done():
+						return ctx.Err()
+					}
+				},
+			}, true
+		}, WithClock(func() time.Time {
+			clockCalls.Add(1)
+			return time.Now()
+		}))
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+		done := make(chan error, 1)
+		go func() { done <- worker.Run(ctx) }()
+
+		synctest.Wait()
+		require.EqualValues(t, 1, clockCalls.Load())
+		time.Sleep(workerPollInterval)
+		synctest.Wait()
+		require.EqualValues(t, 2, clockCalls.Load())
+
+		require.NoError(t, repository.Publish(t.Context(), &events.NodeJoined{}, subscriptions, time.Now()))
+		time.Sleep(workerPollInterval)
+		synctest.Wait()
+		require.Len(t, started, defaultWorkerCount)
+
+		close(release)
+		synctest.Wait()
+		require.Len(t, started, len(subscriptions))
+		callsAfterDrain := clockCalls.Load()
+		time.Sleep(workerPollInterval)
+		synctest.Wait()
+		require.Equal(t, callsAfterDrain+1, clockCalls.Load())
+
+		cancel()
+		require.NoError(t, <-done)
+	})
+}
+
+func TestWorkerDrainsOneSubscriptionWithoutWaitingForPoll(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		repository := New(testutil.OpenSQLite(t))
+		started := make(chan struct{}, 2)
 		release := make(chan struct{})
 		worker := NewWorker(repository, func(events.TypeName, string) (DeliveryHandler, bool) {
 			return DeliveryHandler{
@@ -44,30 +91,19 @@ func TestWorkerPoolPollsOnceWhileIdleAndScalesForDeliveries(t *testing.T) {
 				},
 			}, true
 		})
-		worker.tracer = provider.Tracer("test.outbox")
+		for range cap(started) {
+			require.NoError(t, repository.Publish(t.Context(), &events.NodeJoined{}, []string{"subscriber"}, time.Now()))
+		}
 		ctx, cancel := context.WithCancel(t.Context())
 		defer cancel()
 		done := make(chan error, 1)
 		go func() { done <- worker.Run(ctx) }()
 
 		synctest.Wait()
-		require.Len(t, recorder.Started(), 1)
-		time.Sleep(workerPollInterval)
-		synctest.Wait()
-		require.Len(t, recorder.Started(), 2)
-
-		require.NoError(t, repository.Publish(t.Context(), &events.NodeJoined{}, subscriptions, time.Now()))
-		time.Sleep(workerPollInterval)
-		synctest.Wait()
-		require.Len(t, started, defaultWorkerCount)
-
+		require.Len(t, started, 1)
 		close(release)
 		synctest.Wait()
-		require.Len(t, started, len(subscriptions))
-		spansAfterDrain := len(recorder.Started())
-		time.Sleep(workerPollInterval)
-		synctest.Wait()
-		require.Len(t, recorder.Started(), spansAfterDrain+1)
+		require.Len(t, started, 2)
 
 		cancel()
 		require.NoError(t, <-done)
@@ -87,13 +123,18 @@ func TestProcessNextStartsDeliveryTrace(t *testing.T) {
 	})
 	worker.tracer = provider.Tracer("test.outbox")
 
+	handled, err := worker.ProcessNext(t.Context())
+	require.NoError(t, err)
+	require.False(t, handled)
+	require.Empty(t, recorder.Started())
+
 	ctx, publisher := worker.tracer.Start(t.Context(), "publish")
 	require.NoError(t, repository.Publish(ctx, &events.NodeJoined{
 		NodeID: "node-1", NodeName: "test-node", Role: "worker",
 	}, []string{"subscriber"}, time.Now()))
 	publisher.End()
 
-	handled, err := worker.ProcessNext(ctx)
+	handled, err = worker.ProcessNext(ctx)
 	require.NoError(t, err)
 	require.True(t, handled)
 	spans := recorder.Ended()
