@@ -29,7 +29,6 @@ const (
 )
 
 const (
-	graphNodeGuard            = "guard"
 	graphNodeRoute            = "route"
 	graphNodeRetrievePlan     = "retrieve_plan"
 	graphNodeRetrieveLexical  = "retrieve_lexical"
@@ -99,9 +98,7 @@ type graph struct {
 	tools          ToolExecutor
 	allowedToolSet map[string]struct{}
 	observer       routerFallbackObserver
-	store          ServiceStore
-	pauseTargets   syncPauseTargetResolver
-	pending        *pendingOperationStore
+	operations     *operationFlow
 }
 
 type graphExecutionState struct {
@@ -146,7 +143,6 @@ func newGraph(
 	observer routerFallbackObserver,
 	store ServiceStore,
 ) *graph {
-	pauseTargets, _ := tools.(syncPauseTargetResolver)
 	return &graph{
 		config:         config,
 		guard:          guard,
@@ -156,9 +152,7 @@ func newGraph(
 		tools:          tools,
 		allowedToolSet: allowedToolSet,
 		observer:       observer,
-		store:          store,
-		pauseTargets:   pauseTargets,
-		pending:        newPendingOperationStore(config.ConversationInMemoryTTL),
+		operations:     newOperationFlow(config, chat, store, tools, guard, allowedToolSet),
 	}
 }
 
@@ -172,8 +166,9 @@ func (g *graph) run(
 	if g.guard.Check(userMessage) {
 		return "", conversation.TokenUsage{}, &promptInjectionError{prompt: strings.TrimSpace(userMessage)}
 	}
-	if handled, answer, usage, err := g.handlePendingOperation(ctx, conversationID, userMessage); handled || err != nil {
-		return answer, usage, err
+	handled, pendingAnswer, pendingUsage, err := g.operations.handlePendingOperation(ctx, conversationID, userMessage)
+	if handled || err != nil {
+		return pendingAnswer, pendingUsage, err
 	}
 	if answer, ok := fastConversationResponse(userMessage); ok {
 		return answer, conversation.TokenUsage{}, nil
@@ -213,13 +208,12 @@ func (g *graph) compile(executionState *graphExecutionState) (*langgraph.Runnabl
 	messageGraph := langgraph.NewMessageGraph()
 	g.addGraphNodes(messageGraph, executionState)
 	g.addGraphEdges(messageGraph, executionState)
-	messageGraph.SetEntryPoint(graphNodeGuard)
+	messageGraph.SetEntryPoint(graphNodeRoute)
 
 	return messageGraph.Compile()
 }
 
 func (g *graph) addGraphNodes(messageGraph *langgraph.MessageGraph, executionState *graphExecutionState) {
-	messageGraph.AddNode(graphNodeGuard, g.guardNode(executionState))
 	messageGraph.AddNode(graphNodeRoute, g.routeNode(executionState))
 	messageGraph.AddNode(graphNodeRetrievePlan, g.retrievePlanNode(executionState))
 	messageGraph.AddNode(graphNodeRetrieveLexical, g.retrieveLexicalNode(executionState))
@@ -232,7 +226,6 @@ func (g *graph) addGraphNodes(messageGraph *langgraph.MessageGraph, executionSta
 }
 
 func (g *graph) addGraphEdges(messageGraph *langgraph.MessageGraph, executionState *graphExecutionState) {
-	messageGraph.AddEdge(graphNodeGuard, graphNodeRoute)
 	messageGraph.AddConditionalEdges(
 		graphNodeRoute,
 		func(_ context.Context, _ []llms.MessageContent) string {
@@ -292,7 +285,7 @@ func (g *graph) addGraphEdges(messageGraph *langgraph.MessageGraph, executionSta
 	messageGraph.AddConditionalEdges(
 		graphNodeGuardMCPResults,
 		func(_ context.Context, _ []llms.MessageContent) string {
-			if isTerminalToolResultCandidate(executionState.lastToolResults) {
+			if g.isTerminalToolResultCandidate(executionState.lastToolResults) {
 				return graphNodeFinalizeTerminal
 			}
 
@@ -358,26 +351,11 @@ func (g *graph) routeNode(
 		executionState.effectiveToolSet = g.responseToolSet(route, capabilities)
 		executionState.report("Route: " + string(route))
 		if executionState.operation != nil {
-			answer, usage := g.startPendingOperation(ctx, executionState.conversationID, *executionState.operation)
+			answer, usage := g.operations.startPendingOperation(ctx, executionState.conversationID, *executionState.operation)
 			executionState.answer = answer
 			executionState.usage.Add(usage)
 			executionState.operationHandled = true
 		}
-		return messages, nil
-	}
-}
-
-func (g *graph) guardNode(
-	executionState *graphExecutionState,
-) func(context.Context, []llms.MessageContent) ([]llms.MessageContent, error) {
-	return func(_ context.Context, messages []llms.MessageContent) ([]llms.MessageContent, error) {
-		if hasInjections := g.guard.Check(executionState.userMessage); hasInjections {
-			executionState.rejectedPrompt = executionState.userMessage
-			return messages, &promptInjectionError{
-				prompt: strings.TrimSpace(executionState.rejectedPrompt),
-			}
-		}
-
 		return messages, nil
 	}
 }
@@ -614,7 +592,7 @@ func (g *graph) finalizeTerminalResultNode(
 ) func(context.Context, []llms.MessageContent) ([]llms.MessageContent, error) {
 	return func(ctx context.Context, messages []llms.MessageContent) ([]llms.MessageContent, error) {
 		executionState.report("Preparing response")
-		if !isTerminalToolResultCandidate(executionState.lastToolResults) {
+		if !g.isTerminalToolResultCandidate(executionState.lastToolResults) {
 			return messages, nil
 		}
 

@@ -21,7 +21,6 @@ import (
 	deploymentstore "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/syncpause"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/logparser"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/tracing"
@@ -41,7 +40,6 @@ type Executor struct {
 	requests            map[string]any
 	metrics             metrics.MCP
 	tracer              trace.Tracer
-	syncPauses          *syncpause.Service
 	configToolAllowlist map[string]struct{}
 }
 
@@ -121,19 +119,8 @@ func NewExecutor(
 		requests:            requests,
 		metrics:             mcpMetrics,
 		tracer:              otel.Tracer("github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/tools"),
-		syncPauses:          gitopsModule.SyncPauses,
 		configToolAllowlist: allowed,
 	}
-}
-
-// StackSyncPause returns GitOps-owned stack pause state for confirmation warnings.
-func (e *Executor) StackSyncPause(ctx context.Context, stack string) (syncpause.StackState, error) {
-	return e.syncPauses.GetStack(ctx, stack)
-}
-
-// ServiceSyncPause revalidates a GitOps-owned service target.
-func (e *Executor) ServiceSyncPause(ctx context.Context, stack, service string) (syncpause.ServiceState, error) {
-	return e.syncPauses.GetService(ctx, stack, service)
 }
 
 // Definitions returns available assistant tool metadata.

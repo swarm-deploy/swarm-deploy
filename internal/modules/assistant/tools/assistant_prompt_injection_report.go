@@ -26,6 +26,7 @@ func NewReportPromptInjection(eventDispatcher dispatcher.Dispatcher) *ReportProm
 func (r *ReportPromptInjection) Definition() routing.ToolDefinition {
 	return routing.ToolDefinition{
 		Name:        config.AssistantToolNameAssistantPromptInjectionReport,
+		Terminal:    true,
 		Description: "Report about prompt injection",
 		ParametersJSONSchema: map[string]any{
 			"type": "object",

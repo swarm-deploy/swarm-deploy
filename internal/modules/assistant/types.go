@@ -142,6 +142,9 @@ type Config struct {
 	ConversationInMemoryTTL time.Duration
 	// ConversationHistory optionally supplies persistent chat storage; production uses SQLite.
 	ConversationHistory conversation.HistoryStorage
+	// SyncPauses optionally supplies GitOps Pause Sync state for pending operation target validation.
+	// Pause Sync operations are unavailable when it is nil.
+	SyncPauses SyncPauseTargetResolver
 }
 
 // ServiceStore reads current service metadata used by RAG retrieval.

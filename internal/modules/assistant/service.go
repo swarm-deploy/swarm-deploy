@@ -44,6 +44,8 @@ type Service struct {
 	config Config
 	graph  *graph
 
+	ragIndexSubscriber dispatcher.Subscriber
+
 	runsMu   sync.RWMutex
 	runs     map[string]*chatRun
 	runSlots chan struct{}
@@ -78,12 +80,6 @@ func NewService(
 	retriever := rag.NewRetriever(store, modelClient, embeddingModelName, ragIndex, metrics)
 	ragSubscriber := rag.NewIndexSubscriber(store, modelClient, embeddingModelName, ragIndex, metrics)
 	allowedTools := appconfig.NormalizeAssistantToolAllowlist(config.AllowedTools)
-	err := eventDispatcher.Subscribe(
-		events.TypeNameServiceCatalogUpdated, "assistant-rag-index", dispatcher.External(ragSubscriber),
-	)
-	if err != nil {
-		return nil, err
-	}
 
 	conversationHistory := config.ConversationHistory
 
@@ -100,8 +96,9 @@ func NewService(
 			metrics,
 			store,
 		),
-		runs:     map[string]*chatRun{},
-		runSlots: make(chan struct{}, maxConcurrentRuns),
+		ragIndexSubscriber: ragSubscriber,
+		runs:               map[string]*chatRun{},
+		runSlots:           make(chan struct{}, maxConcurrentRuns),
 		conversationStorage: conversation.NewInMemoryStorage(
 			config.ConversationInMemoryTTL,
 			maxConversationTurns,
@@ -111,6 +108,12 @@ func NewService(
 		chatObserver:        metrics,
 		tracer:              otel.Tracer("github.com/swarm-deploy/swarm-deploy/internal/modules/assistant"),
 	}, nil
+}
+
+// RAGIndexSubscriber returns the subscriber that rebuilds the RAG index from ServiceCatalogUpdated events.
+// The module registers it with the Event dispatcher as an external consumer.
+func (s *Service) RAGIndexSubscriber() dispatcher.Subscriber {
+	return s.ragIndexSubscriber
 }
 
 // Chat handles new assistant requests and polling requests.

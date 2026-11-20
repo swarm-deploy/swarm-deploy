@@ -20,60 +20,36 @@ const (
 	promptInjectionRejectedResponse    = "Request was rejected by prompt injection protection."
 )
 
-// ToolBehavior describes built-in assistant behavior that is not part of the assistant tool contract.
-type ToolBehavior struct {
-	// Terminal indicates that a successful single result can finish without another model completion.
-	Terminal bool
-}
-
-var toolBehaviors = map[string]ToolBehavior{
-	serviceRestartTriggerTool:          {Terminal: true},
-	serviceReplicasSetTool:             {Terminal: true},
-	deploySyncTriggerTool:              {Terminal: true},
-	syncPauseSetTool:                   {Terminal: true},
-	syncPauseResumeTool:                {Terminal: true},
-	assistantPromptInjectionReportTool: {Terminal: true},
-}
-
-func isMutatingTool(toolName string) bool {
-	return toolName == serviceRestartTriggerTool ||
-		toolName == serviceReplicasSetTool ||
-		toolName == deploySyncTriggerTool ||
-		toolName == syncPauseSetTool ||
-		toolName == syncPauseResumeTool
-}
-
-func isTerminalTool(toolName string) bool {
-	return toolBehaviors[toolName].Terminal
-}
-
-func isTerminalToolResultCandidate(results []toolExecutionResult) bool {
-	return len(results) == 1 && results[0].success && isTerminalTool(results[0].toolName)
-}
-
+// finalizeTerminalToolResult formats the user-facing answer for a successful terminal tool result.
 func finalizeTerminalToolResult(toolName, result string) (string, error) {
-	if !isTerminalTool(toolName) {
-		return "", fmt.Errorf("tool %q is not terminal", toolName)
-	}
-	if toolName == assistantPromptInjectionReportTool {
+	switch toolName {
+	case assistantPromptInjectionReportTool:
 		return promptInjectionRejectedResponse, nil
-	}
-	if toolName == deploySyncTriggerTool {
-		var syncResult struct {
-			Queued bool `json:"queued"`
-		}
-		if err := json.Unmarshal([]byte(result), &syncResult); err != nil {
-			return "", fmt.Errorf("decode terminal sync result: %w", err)
-		}
-		if !syncResult.Queued {
-			return "Synchronization request was not queued because another synchronization is already pending.", nil
-		}
-		return "Synchronization request queued successfully.", nil
-	}
-	if toolName == syncPauseSetTool || toolName == syncPauseResumeTool {
+	case deploySyncTriggerTool:
+		return finalizeSyncToolResult(result)
+	case syncPauseSetTool, syncPauseResumeTool:
 		return finalizePauseToolResult(toolName, result)
+	case serviceRestartTriggerTool, serviceReplicasSetTool:
+		return finalizeServiceActionResult(toolName, result)
+	default:
+		return "", fmt.Errorf("terminal formatter is not configured for tool %q", toolName)
 	}
+}
 
+func finalizeSyncToolResult(result string) (string, error) {
+	var syncResult struct {
+		Queued bool `json:"queued"`
+	}
+	if err := json.Unmarshal([]byte(result), &syncResult); err != nil {
+		return "", fmt.Errorf("decode terminal sync result: %w", err)
+	}
+	if !syncResult.Queued {
+		return "Synchronization request was not queued because another synchronization is already pending.", nil
+	}
+	return "Synchronization request queued successfully.", nil
+}
+
+func finalizeServiceActionResult(toolName, result string) (string, error) {
 	var actionResult tools.ServiceActionResult
 	if err := json.Unmarshal([]byte(result), &actionResult); err != nil {
 		return "", fmt.Errorf("decode terminal tool result: %w", err)
