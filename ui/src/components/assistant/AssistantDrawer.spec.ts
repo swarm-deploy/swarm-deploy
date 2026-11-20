@@ -42,7 +42,7 @@ describe("Assistant Drawer", () => {
     const wrapper = mount(AssistantDrawer, { global: { plugins: [pinia, router] } });
     const link = wrapper.get('[aria-label="Assistant usage"]');
     expect(link.attributes("href")).toBe("/?assistant=usage&tab=alerts#active");
-    expect(link.element.nextElementSibling?.getAttribute("aria-label")).toBe("Search chats");
+    expect(link.element.previousElementSibling?.getAttribute("aria-label")).toBe("Search chats");
 
     await link.trigger("click");
     await flushPromises();

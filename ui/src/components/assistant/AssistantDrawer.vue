@@ -481,17 +481,6 @@ function renderMessageText(role: string, text: string): string {
         </template>
 
         <div class="assistant-drawer-actions">
-          <RouterLink
-            v-if="historyOpen"
-            :to="usageRoute"
-            class="assistant-icon-button"
-            aria-label="Assistant usage"
-            title="Usage"
-          >
-            <svg class="assistant-usage-icon" viewBox="0 0 24 24" aria-hidden="true">
-              <path :d="tokenUsageIconPath" />
-            </svg>
-          </RouterLink>
           <button
             v-if="historyOpen"
             ref="searchButtonRef"
@@ -510,6 +499,17 @@ function renderMessageText(role: string, text: string): string {
               <path d="m15 15 4 4" />
             </svg>
           </button>
+          <RouterLink
+            v-if="historyOpen"
+            :to="usageRoute"
+            class="assistant-icon-button"
+            aria-label="Assistant usage"
+            title="Usage"
+          >
+            <svg class="assistant-usage-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path :d="tokenUsageIconPath" />
+            </svg>
+          </RouterLink>
           <button
             v-if="chatOpen"
             type="button"
