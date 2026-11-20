@@ -205,7 +205,7 @@ func formatTaskDiagnostic(task swarm.ServiceTask) string {
 		diagnostic += fmt.Sprintf(" exit_code=%d", *task.ExitCode)
 	}
 	if task.Error != "" {
-		diagnostic += ": " + boundedDiagnostic(task.Error)
+		diagnostic += ": " + boundedDiagnostic(faults.SafeDiagnostic(errors.New(task.Error)))
 	}
 	return diagnostic
 }
