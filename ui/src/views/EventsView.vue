@@ -6,7 +6,6 @@ import { fetchEventFilters, fetchEvents } from "../api/overview";
 import type { EventCategory, EventFilterOptions, EventFilterService, EventHistoryItem, EventSeverity } from "../api/types";
 import AppFilterPanel from "../components/common/AppFilterPanel.vue";
 import AppSelect from "../components/common/AppSelect.vue";
-import AppSearchFilter from "../components/common/AppSearchFilter.vue";
 import AppTable from "../components/common/AppTable.vue";
 import AppTableEmpty from "../components/common/AppTableEmpty.vue";
 import AppPagination from "../components/common/AppPagination.vue";
@@ -27,6 +26,10 @@ type SortKey = "time" | "severity";
 type SortDirection = "asc" | "desc";
 
 const categoryOptions: EventCategory[] = ["sync", "security", "swarm"];
+const severitySelectOptions = severityOptions.map((value) => ({ value, label: severityLabels[value] }));
+const categorySelectOptions = categoryOptions.map((value) => ({
+  value, label: value.charAt(0).toUpperCase() + value.slice(1),
+}));
 
 const route = useRoute();
 const router = useRouter();
@@ -44,10 +47,8 @@ const selectedService = ref(normalizeTextQuery(route.query.service_name));
 const sortKey = ref<SortKey>(normalizeSortQuery(route.query.sort));
 const sortDirection = ref<SortDirection>(normalizeSortDirectionQuery(route.query.order));
 const expandedKey = ref("");
-const stackFilter = ref<InstanceType<typeof AppSearchFilter> | null>(null);
-const serviceFilter = ref<HTMLDetailsElement | null>(null);
+const stackFilter = ref<{ close(): void } | null>(null);
 const filterOptions = ref<EventFilterOptions>({ stacks: [], services: [] });
-const serviceSearch = ref("");
 
 let requestID = 0;
 
@@ -98,11 +99,20 @@ const serviceFilterOptions = computed(() => {
   )) {
     options.push({ stack_name: "", service_name: selectedService.value });
   }
-  const search = serviceSearch.value.trim().toLocaleLowerCase();
   return options.sort((left, right) =>
     left.stack_name.localeCompare(right.stack_name) || left.service_name.localeCompare(right.service_name),
-  ).filter((service) => !search || `${service.stack_name} ${service.service_name}`.toLocaleLowerCase().includes(search));
+  );
 });
+
+const serviceSelectOptions = computed(() => serviceFilterOptions.value.map((service) => ({
+  value: serviceKey(service),
+  label: service.service_name,
+  description: selectedStack.value ? undefined : service.stack_name,
+  searchText: `${service.stack_name} ${service.service_name}`,
+})));
+const selectedServiceKey = computed(() => selectedService.value
+  ? serviceKey({ stack_name: selectedStack.value, service_name: selectedService.value })
+  : "");
 
 const selectedServiceLabel = computed(() => {
   if (!selectedService.value) return "All services";
@@ -111,6 +121,9 @@ const selectedServiceLabel = computed(() => {
   return matches.length === 1 ? `${matches[0].service_name} — ${matches[0].stack_name}` : selectedService.value;
 });
 
+function serviceKey(service: EventFilterService): string {
+  return JSON.stringify([service.stack_name, service.service_name]);
+}
 
 function firstQueryValue(value: unknown): unknown {
   return Array.isArray(value) ? value[0] : value;
@@ -198,15 +211,15 @@ function selectStack(stackName: string): void {
   selectedStack.value = stackName;
 }
 
-function selectService(service?: EventFilterService): void {
-  if (!service) {
+function selectService(value: string): void {
+  if (!value) {
     selectedService.value = "";
-  } else {
-    if (!selectedStack.value && service.stack_name) selectedStack.value = service.stack_name;
-    selectedService.value = service.service_name;
+    return;
   }
-  serviceSearch.value = "";
-  if (serviceFilter.value) serviceFilter.value.open = false;
+  const service = serviceFilterOptions.value.find((option) => serviceKey(option) === value);
+  if (!service) return;
+  if (!selectedStack.value && service.stack_name) selectedStack.value = service.stack_name;
+  selectedService.value = service.service_name;
 }
 
 function changeSort(key: SortKey): void {
@@ -410,90 +423,84 @@ onMounted(() => {
 <template>
   <section class="services-page events-page">
     <AppFilterPanel panel-id="events-filter-panel" :active-count="activeFilterCount" :columns="5">
-      <div class="events-filter-field">
-        <AppSelect
-          multiple
-          class="events-type-filter"
-          :model-value="selectedTypes"
-          :options="typeFilterOptions"
-          label="Filter events by type"
-          placeholder="All types"
-          heading="Event types"
-          :selection-label="selectedTypeSummary"
-          descriptive
-          @update:model-value="selectTypes"
-        >
-          <template #icon>
-            <svg class="events-filter-icon" viewBox="0 0 20 20" aria-hidden="true">
-              <path d="M3.5 5h13l-5 5.7v4.1l-3 1.5v-5.6L3.5 5Z" />
-            </svg>
-          </template>
-        </AppSelect>
-      </div>
+      <AppSelect
+        multiple
+        class="events-type-filter"
+        :model-value="selectedTypes"
+        :options="typeFilterOptions"
+        label="Filter events by type"
+        placeholder="All types"
+        heading="Event types"
+        :selection-label="selectedTypeSummary"
+        descriptive
+        @update:model-value="selectTypes"
+      >
+        <template #icon>
+          <svg class="events-filter-icon" viewBox="0 0 20 20" aria-hidden="true">
+            <path d="M3.5 5h13l-5 5.7v4.1l-3 1.5v-5.6L3.5 5Z" />
+          </svg>
+        </template>
+      </AppSelect>
 
-      <label class="events-filter-field events-filter-field--select">
-        <SeverityIcon class="events-filter-icon" />
-        <select v-model="selectedSeverity" aria-label="Filter events by severity">
-          <option value="">All severities</option>
-          <option v-for="severity in severityOptions" :key="severity" :value="severity">{{ severityLabels[severity] }}</option>
-        </select>
-      </label>
+      <AppSelect
+        v-model="selectedSeverity"
+        :options="severitySelectOptions"
+        :reset-option="{ value: '', label: 'All severities' }"
+        label="Filter events by severity"
+      >
+        <template #icon><SeverityIcon class="events-filter-icon" /></template>
+      </AppSelect>
 
-      <label class="events-filter-field events-filter-field--select">
-        <svg class="events-filter-icon" viewBox="0 0 20 20" aria-hidden="true">
-          <path d="M3.5 4.5v5.3l6.7 6.7 6.3-6.3-6.7-6.7H4.5a1 1 0 0 0-1 1Z" />
-          <circle cx="7" cy="7" r="1" />
-        </svg>
-        <select v-model="selectedCategory" aria-label="Filter events by category">
-          <option value="">All categories</option>
-          <option v-for="category in categoryOptions" :key="category" :value="category">
-            {{ category.charAt(0).toUpperCase() + category.slice(1) }}
-          </option>
-        </select>
-      </label>
+      <AppSelect
+        v-model="selectedCategory"
+        :options="categorySelectOptions"
+        :reset-option="{ value: '', label: 'All categories' }"
+        label="Filter events by category"
+      >
+        <template #icon>
+          <svg class="events-filter-icon" viewBox="0 0 20 20" aria-hidden="true">
+            <path d="M3.5 4.5v5.3l6.7 6.7 6.3-6.3-6.7-6.7H4.5a1 1 0 0 0-1 1Z" />
+            <circle cx="7" cy="7" r="1" />
+          </svg>
+        </template>
+      </AppSelect>
 
-      <AppSearchFilter
+      <AppSelect
         ref="stackFilter"
         :model-value="selectedStack"
         :options="stackFilterOptions"
+        :reset-option="{ value: '', label: 'All stacks' }"
         label="Filter events by stack"
-        placeholder="All stacks"
+        searchable
         search-label="Search stacks"
+        search-placeholder="Search stacks"
         empty-message="No matching stacks"
         @update:model-value="selectStack"
       >
         <template #icon>
           <SidebarIcon class="events-filter-icon" name="services" />
         </template>
-      </AppSearchFilter>
+      </AppSelect>
 
-      <div class="events-filter-field">
-        <details ref="serviceFilter" class="events-search-filter events-filter-dropdown">
-          <summary aria-label="Filter events by service">
-            <svg class="events-filter-icon" viewBox="0 0 20 20" aria-hidden="true">
-              <path d="m10 2.8 6.5 3.6v7.2L10 17.2l-6.5-3.6V6.4L10 2.8Z" />
-              <path d="m3.8 6.5 6.2 3.4 6.2-3.4M10 9.9v7" />
-            </svg>
-            <span class="events-filter-selection" :class="{ 'events-filter-placeholder': !selectedService }">{{ selectedServiceLabel }}</span>
-            <span class="events-filter-chevron" aria-hidden="true">⌄</span>
-          </summary>
-          <div class="events-search-filter-menu">
-            <input v-model="serviceSearch" type="search" placeholder="Search services" aria-label="Search services" />
-            <button type="button" :class="{ selected: !selectedService }" @click="selectService()">All services</button>
-            <button
-              v-for="service in serviceFilterOptions"
-              :key="`${service.stack_name}/${service.service_name}`"
-              type="button"
-              :class="{ selected: selectedService === service.service_name && (!selectedStack || selectedStack === service.stack_name) }"
-              @click="selectService(service)"
-            >
-              <span>{{ service.service_name }}</span>
-              <small v-if="!selectedStack && service.stack_name">{{ service.stack_name }}</small>
-            </button>
-            <p v-if="serviceFilterOptions.length === 0" class="events-filter-empty">No matching services</p>
-          </div>
-        </details>
-      </div>
+      <AppSelect
+        :model-value="selectedServiceKey"
+        :options="serviceSelectOptions"
+        :reset-option="{ value: '', label: 'All services' }"
+        :selection-label="selectedServiceLabel"
+        label="Filter events by service"
+        searchable
+        search-label="Search services"
+        search-placeholder="Search services"
+        empty-message="No matching services"
+        @update:model-value="selectService"
+      >
+        <template #icon>
+          <svg class="events-filter-icon" viewBox="0 0 20 20" aria-hidden="true">
+            <path d="m10 2.8 6.5 3.6v7.2L10 17.2l-6.5-3.6V6.4L10 2.8Z" />
+            <path d="m3.8 6.5 6.2 3.4 6.2-3.4M10 9.9v7" />
+          </svg>
+        </template>
+      </AppSelect>
     </AppFilterPanel>
 
     <AppTableEmpty v-if="loading && events.length === 0" message="Loading events..." />

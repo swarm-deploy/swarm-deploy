@@ -79,6 +79,10 @@ function renderedMessages(wrapper: ReturnType<typeof mount>): string[] {
   return wrapper.findAll("tbody tr:not(.events-details-row) td:nth-child(4)").map((cell) => cell.text());
 }
 
+function filter(wrapper: ReturnType<typeof mount>, name: string) {
+  return wrapper.get(`details:has(> summary[aria-label="Filter events by ${name}"])`);
+}
+
 describe("EventsView", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
@@ -199,7 +203,7 @@ describe("EventsView", () => {
     vi.mocked(fetchEvents).mockResolvedValueOnce({ events: [alertEvent] });
     const { wrapper } = await mountView();
 
-    expect(wrapper.find('select[aria-label="Filter events by severity"]').findAll("option").map((option) => option.text())).toEqual([
+    expect(filter(wrapper, "severity").findAll("button").map((option) => option.text())).toEqual([
       "All severities",
       "Info",
       "Warning",
@@ -211,7 +215,7 @@ describe("EventsView", () => {
 
   it("renders the five icon-led filters in the expected order", async () => {
     const { wrapper } = await mountView();
-    const controls = wrapper.findAll(".events-filter-bar summary, .events-filter-bar select");
+    const controls = wrapper.findAll(".events-filter-bar .app-select > summary");
 
     expect(controls.map((control) => control.attributes("aria-label"))).toEqual([
       "Filter events by type",
@@ -221,7 +225,7 @@ describe("EventsView", () => {
       "Filter events by service",
     ]);
     expect(wrapper.findAll(".events-filter-bar .events-filter-icon")).toHaveLength(5);
-    expect(wrapper.findAll(".events-filter-field > span")).toHaveLength(0);
+    expect(wrapper.findAll(".events-filter-bar select")).toHaveLength(0);
   });
 
   it("closes the type filter when clicking outside", async () => {
@@ -330,10 +334,11 @@ describe("EventsView", () => {
       "/events?category=swarm&stack_name=deleted-stack&service_name=deleted-service&severity=warn",
     );
 
-    expect((wrapper.find('select[aria-label="Filter events by category"]').element as HTMLSelectElement).value).toBe("swarm");
+    expect(filter(wrapper, "category").get("button[aria-pressed=true]").text()).toBe("Swarm");
     expect(wrapper.find('summary[aria-label="Filter events by stack"]').text()).toContain("deleted-stack");
     expect(wrapper.find('summary[aria-label="Filter events by service"]').text()).toContain("deleted-service");
-    expect(wrapper.findAll(".events-search-filter-menu button").map((button) => button.text())).toContain("deleted-stack");
+    expect(filter(wrapper, "stack").get("button[aria-pressed=true]").text()).toBe("deleted-stack");
+    expect(filter(wrapper, "service").get("button[aria-pressed=true]").text()).toBe("deleted-service");
     expect(fetchEvents).toHaveBeenLastCalledWith({
       types: [],
       severities: ["warn"],
@@ -370,27 +375,33 @@ describe("EventsView", () => {
 
   it("searches stacks and filters services by the selected stack", async () => {
     const { wrapper } = await mountView();
+    const stack = filter(wrapper, "stack");
+    const service = filter(wrapper, "service");
 
-    await wrapper.find('input[aria-label="Search stacks"]').setValue("pay");
-    expect(wrapper.findAll(".events-search-filter-menu")[0].findAll("button").map((button) => button.text()))
-      .toEqual(["All stacks", "payments"]);
+    await stack.get('input[aria-label="Search stacks"]').setValue("pay");
+    expect(stack.findAll("button").map((button) => button.text())).toEqual(["All stacks", "payments"]);
 
-    const payments = wrapper.findAll(".events-search-filter-menu")[0].findAll("button")
-      .find((button) => button.text() === "payments");
+    const payments = stack.findAll("button").find((button) => button.text() === "payments");
     await payments!.trigger("click");
     await flushPromises();
 
-    expect(wrapper.findAll(".events-search-filter-menu")[1].findAll("button").map((button) => button.text()))
-      .toEqual(["All services", "api", "worker"]);
+    expect(service.findAll("button").map((button) => button.text())).toEqual(["All services", "api", "worker"]);
 
-    await wrapper.find('input[aria-label="Search services"]').setValue("work");
-    expect(wrapper.findAll(".events-search-filter-menu")[1].findAll("button").map((button) => button.text()))
-      .toEqual(["All services", "worker"]);
+    await service.get('input[aria-label="Search services"]').setValue("work");
+    expect(service.findAll("button").map((button) => button.text())).toEqual(["All services", "worker"]);
+    await service.get('input[aria-label="Search services"]').setValue("payments");
+    expect(service.findAll("button").map((button) => button.text())).toEqual(["All services", "api", "worker"]);
+
+    await stack.get('input[aria-label="Search stacks"]').setValue("missing");
+    expect(stack.text()).toContain("No matching stacks");
+    await stack.get("button").trigger("click");
+    await flushPromises();
+    expect(stack.get("summary").text()).toBe("All stacks");
   });
 
   it("distinguishes duplicate service names by stack and selects an unambiguous pair", async () => {
     const { wrapper, router } = await mountView();
-    const serviceButtons = wrapper.findAll(".events-search-filter-menu")[1].findAll("button");
+    const serviceButtons = filter(wrapper, "service").findAll("button");
     expect(serviceButtons.map((button) => button.text())).toEqual([
       "All services", "apiarchive", "apipayments", "workerpayments",
     ]);
@@ -402,7 +413,7 @@ describe("EventsView", () => {
 
   it("resets an incompatible service when the stack changes", async () => {
     const { wrapper, router } = await mountView("/events?stack_name=payments&service_name=worker");
-    const archive = wrapper.findAll(".events-search-filter-menu")[0].findAll("button")
+    const archive = filter(wrapper, "stack").findAll("button")
       .find((button) => button.text() === "archive");
     await archive!.trigger("click");
     await flushPromises();
@@ -426,7 +437,7 @@ describe("EventsView", () => {
       .mockResolvedValueOnce({ events: [events[2]] });
     const { wrapper } = await mountView();
 
-    await wrapper.find('select[aria-label="Filter events by category"]').setValue("swarm");
+    await filter(wrapper, "category").findAll("button").find((button) => button.text() === "Swarm")!.trigger("click");
     await flushPromises();
 
     expect(fetchEvents).toHaveBeenLastCalledWith({

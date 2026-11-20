@@ -14,6 +14,7 @@ const props = withDefaults(defineProps<{
   modelValue: ModelValue;
   multiple?: Multiple & boolean;
   options: AppSelectOption[];
+  resetOption?: AppSelectOption;
   label: string;
   placeholder?: string;
   heading?: string;
@@ -48,12 +49,17 @@ const filteredOptions = computed(() => {
     option.searchText ?? `${option.label} ${option.description ?? ""}`
   ).toLocaleLowerCase().includes(query));
 });
+const menuOptions = computed(() => props.resetOption
+  ? [props.resetOption, ...filteredOptions.value]
+  : filteredOptions.value);
 
 const summary = computed(() => {
   if (props.selectionLabel) return props.selectionLabel;
   if (selectedValues.value.length === 0) return props.placeholder;
   const labels = selectedValues.value.map((value) => (
-    props.options.find((option) => option.value === value)?.label ?? value
+    props.resetOption?.value === value
+      ? props.resetOption.label
+      : props.options.find((option) => option.value === value)?.label ?? value
   ));
   return labels.length <= 2 ? labels.join(", ") : `${labels.length} selected`;
 });
@@ -131,7 +137,7 @@ function dismiss(): boolean {
   return true;
 }
 
-defineExpose({ dismiss });
+defineExpose({ close, dismiss });
 
 onMounted(() => document.addEventListener("click", handleDocumentClick));
 onBeforeUnmount(() => document.removeEventListener("click", handleDocumentClick));
@@ -167,7 +173,7 @@ onBeforeUnmount(() => document.removeEventListener("click", handleDocumentClick)
       />
       <component
         :is="multiple ? 'label' : 'button'"
-        v-for="option in filteredOptions"
+        v-for="option in menuOptions"
         :key="option.value"
         class="app-select-option"
         :type="multiple ? undefined : 'button'"
@@ -189,7 +195,7 @@ onBeforeUnmount(() => document.removeEventListener("click", handleDocumentClick)
           <small v-if="option.description">{{ option.description }}</small>
         </span>
       </component>
-      <p v-if="filteredOptions.length === 0" class="app-select-empty">{{ emptyMessage }}</p>
+      <p v-if="filteredOptions.length === 0 && (searchable || !resetOption)" class="app-select-empty">{{ emptyMessage }}</p>
     </div>
   </details>
 </template>
