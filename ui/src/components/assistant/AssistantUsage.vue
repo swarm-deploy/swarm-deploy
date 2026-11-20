@@ -1,19 +1,12 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
-import { useRouter } from "vue-router";
 
-import { getAssistantUsage } from "../api/assistant";
-import { ApiError } from "../api/client";
-import type { AssistantUsageInterval, AssistantUsageQuery, AssistantUsageResponse } from "../api/types";
-import AppButton from "../components/common/AppButton.vue";
-import AppStackedBarChart from "../components/common/AppStackedBarChart.vue";
-import AppTabs from "../components/common/AppTabs.vue";
-
-const router = useRouter();
-const previous = router.options.history.state.assistantChatsPath;
-const chatsRoute = typeof previous === "string" && previous.startsWith("/") && !previous.startsWith("//")
-  ? previous
-  : { name: "overview", query: { assistant: "chats" } };
+import { getAssistantUsage } from "../../api/assistant";
+import { ApiError } from "../../api/client";
+import type { AssistantUsageInterval, AssistantUsageQuery, AssistantUsageResponse } from "../../api/types";
+import AppButton from "../common/AppButton.vue";
+import AppStackedBarChart from "../common/AppStackedBarChart.vue";
+import AppTabs from "../common/AppTabs.vue";
 
 const periods = [
   { value: "daily", label: "Daily" },
@@ -132,15 +125,6 @@ function bucketLabels(long: boolean) {
 
 <template>
   <section class="assistant-usage" aria-labelledby="assistant-usage-title">
-    <header class="assistant-usage-heading">
-      <RouterLink :to="chatsRoute" class="assistant-icon-button" aria-label="Back to chats" title="Back to chats">
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M19 12H5m7 7-7-7 7-7" />
-        </svg>
-      </RouterLink>
-      <h1 id="assistant-usage-title">Usage</h1>
-    </header>
-
     <AppTabs v-model="period" :tabs="periods" label="Usage period" density="compact" />
     <div id="usage-period" class="assistant-usage-period" role="tabpanel" :aria-labelledby="`usage-${period}`">
       <form v-if="period === 'custom'" class="assistant-usage-dates" @submit.prevent="applyRange">
@@ -186,16 +170,14 @@ function bucketLabels(long: boolean) {
 .assistant-usage {
   display: grid;
   gap: 12px;
-  width: 100%;
-  max-width: 960px;
+  align-content: start;
+  padding: 12px 16px 16px;
   min-width: 0;
-  --stacked-chart-height: 230px;
+  --stacked-chart-height: 200px;
   --stacked-chart-height-mobile: 190px;
   --stacked-chart-summary-padding-mobile: 8px;
 }
 
-.assistant-usage-heading { display: flex; align-items: center; gap: 8px; }
-.assistant-usage-heading h1 { margin: 0; font-size: 1.25rem; }
 .assistant-usage-period { display: grid; gap: 14px; min-width: 0; }
 .assistant-usage-dates { display: flex; flex-wrap: wrap; gap: 8px; align-items: end; }
 .assistant-usage-dates label { display: grid; gap: 4px; min-width: 0; color: var(--muted); font-size: .75rem; }
