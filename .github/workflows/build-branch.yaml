@@ -26,7 +26,7 @@ jobs:
           fi
 
           branch="${GITHUB_REF#refs/heads/}"
-          tag="${branch//\//-}"
+          tag="branch-${branch//\//-}"
 
           if [[ ! "$tag" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]]; then
             echo "::error::Branch name '$branch' cannot be used as a Docker tag"
@@ -75,7 +75,7 @@ jobs:
           HUB_TOKEN: ${{ secrets.DOCKERHUB_PASSWORD }}
         run: |
           set -euo pipefail
-          tag="${BRANCH//\//-}"
+          tag="branch-${BRANCH//\//-}"
           response_file="$(mktemp)"
           trap 'rm -f "$response_file"' EXIT
           auth_code=$(curl --silent --show-error --output "$response_file" --write-out '%{http_code}' \
