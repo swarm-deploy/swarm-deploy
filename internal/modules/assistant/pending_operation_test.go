@@ -115,8 +115,8 @@ func TestPendingOperationDeterministicTurns(t *testing.T) {
 			expectedAnswer: "Операция отменена.", expectedPending: false,
 		},
 		{
-			name: "ambiguous confirmation", message: "возможно", expectedHandled: true,
-			expectedAnswer: "Ответьте явно", expectedPending: true,
+			name: "ambiguous confirmation returns to chat", message: "возможно", expectedHandled: false,
+			expectedPending: false,
 		},
 		{
 			name: "resource changed", message: "да", expectedHandled: true,
@@ -393,4 +393,73 @@ func (f *fakePauseTargets) StackSyncPause(context.Context, string) (syncpause.St
 
 func (f *fakePauseTargets) ServiceSyncPause(context.Context, string, string) (syncpause.ServiceState, error) {
 	return syncpause.ServiceState{}, nil
+}
+
+func TestChatCorrectionRetiresPendingOperation(t *testing.T) {
+	for _, tc := range []struct{ stage, target, correction string }{
+		{"collecting", "", "Ты че"},
+		{"confirmation", "core/api", "Я просил установить, а не перезапустить"},
+	} {
+		t.Run(tc.stage, func(t *testing.T) {
+			var requests []capturedChatRequest
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+				requests = append(requests, decodeCapturedChatRequest(t, req))
+				w.Header().Set("Content-Type", "application/json")
+				switch len(requests) {
+				case 1:
+					// Simulate a router that mistook installation for a restart.
+					writeChatResponse(t, w, `{"route":"services","operation":{"type":"service_restart_trigger","target":"`+tc.target+`"}}`, nil)
+				case 2, 4:
+					writeChatResponse(t, w, `{"route":"platform","capabilities":[]}`, nil)
+				case 3:
+					writeChatResponse(t, w, "Для установки добавьте новый сервис в Compose.", nil)
+				default:
+					writeChatResponse(t, w, "Установка описана выше.", nil)
+				}
+			}))
+			defer server.Close()
+			store, reads := observedServiceStore(t, []model.Info{{Stack: "core", Name: "api"}})
+			tools := &fakeTools{definitions: assistantTestToolDefinitions()}
+			svc := newRoutingTestService(t, server.URL, store, tools, nil)
+			const original = "Поставь компонент в Docker Swarm"
+			first := svc.Chat(t.Context(), ChatRequest{Message: original})
+			require.Equal(t, StatusCompleted, first.Status)
+			op, ok := svc.graph.pending.get(first.ConversationID)
+			require.True(t, ok)
+			require.Equal(t, tc.stage, string(op.Stage))
+			second := svc.Chat(t.Context(), ChatRequest{ConversationID: first.ConversationID, Message: tc.correction})
+			require.Equal(t, "Для установки добавьте новый сервис в Compose.", second.Answer)
+			require.Len(t, requests, 3)
+			assert.True(t, requestContains(requests[1], original))
+			assert.True(t, requestContains(requests[1], first.Answer))
+			assert.True(t, requestContains(requests[2], tc.correction))
+			_, ok = svc.graph.pending.get(first.ConversationID)
+			assert.False(t, ok)
+			third := svc.Chat(t.Context(), ChatRequest{ConversationID: first.ConversationID, Message: "да"})
+			require.Equal(t, StatusCompleted, third.Status)
+			assert.Len(t, requests, 5)
+			assert.EqualValues(t, 1, reads.Load())
+			assert.Empty(t, tools.calls)
+		})
+	}
+}
+
+func TestPendingCollectionAcceptsOnlyExpectedValue(t *testing.T) {
+	store := serviceStore(t, []model.Info{{Stack: "core", Name: "api"}})
+	g := newPendingTestGraph(store, &fakeTools{})
+	g.startPendingOperation(t.Context(), "chat", OperationIntent{Type: OperationServiceReplicasSet})
+	handled, answer, _, err := g.handlePendingOperation(t.Context(), "chat", "api")
+	require.NoError(t, err)
+	require.True(t, handled)
+	require.Contains(t, answer, "Сколько реплик")
+	handled, answer, _, err = g.handlePendingOperation(t.Context(), "chat", "3")
+	require.NoError(t, err)
+	require.True(t, handled)
+	require.Contains(t, answer, "3 реплик")
+	g.startPendingOperation(t.Context(), "chat", OperationIntent{Type: OperationServiceReplicasSet, Target: "core/api"})
+	handled, _, _, err = g.handlePendingOperation(t.Context(), "chat", "Это был вопрос")
+	require.NoError(t, err)
+	assert.False(t, handled)
+	_, ok := g.pending.get("chat")
+	assert.False(t, ok)
 }
