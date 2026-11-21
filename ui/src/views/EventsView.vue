@@ -33,12 +33,6 @@ const categorySelectOptions = categoryOptions.map((value) => ({
 
 const route = useRoute();
 const router = useRouter();
-const loading = ref(false);
-const loadingError = ref("");
-const events = ref<EventHistoryItem[]>([]);
-const nextCursor = ref("");
-const cursors = ref<string[]>([""]);
-const page = ref(0);
 const selectedTypes = ref<string[]>(normalizeTypesQuery(route.query.types));
 const selectedSeverity = ref(normalizeSeverityQuery(route.query.severity));
 const selectedCategory = ref(normalizeCategoryQuery(route.query.category));
@@ -49,8 +43,6 @@ const sortDirection = ref<SortDirection>(normalizeSortDirectionQuery(route.query
 const expandedKey = ref("");
 const stackFilter = ref<{ close(): void } | null>(null);
 const filterOptions = ref<EventFilterOptions>({ stacks: [], services: [] });
-
-let requestID = 0;
 
 const typeFilterOptions = computed(() => {
   const options = eventTypeMetadata.map((metadata) => ({ ...metadata }));
@@ -248,54 +240,21 @@ function sortIndicator(key: SortKey): string {
 
 const PAGE_SIZE = 50;
 
-function eventQuery(cursor?: string) {
-  return {
-    types: selectedTypes.value,
-    severities: selectedSeverity.value ? [selectedSeverity.value] : [],
-    ...(selectedCategory.value ? { categories: [selectedCategory.value] } : {}),
-    ...(selectedStack.value ? { stackNames: [selectedStack.value] } : {}),
-    ...(selectedService.value ? { serviceNames: [selectedService.value] } : {}),
-    limit: PAGE_SIZE,
-    sort: sortKey.value,
-    order: sortDirection.value,
-    ...(cursor ? { cursor } : {}),
-  };
-}
+const pageQuery = computed(() => ({
+  types: selectedTypes.value,
+  severities: selectedSeverity.value ? [selectedSeverity.value] : [],
+  ...(selectedCategory.value ? { categories: [selectedCategory.value] } : {}),
+  ...(selectedStack.value ? { stackNames: [selectedStack.value] } : {}),
+  ...(selectedService.value ? { serviceNames: [selectedService.value] } : {}),
+  limit: PAGE_SIZE,
+  sort: sortKey.value,
+  order: sortDirection.value,
+}));
 
-async function loadEvents() {
-  ++requestID;
-  page.value = 0;
-  cursors.value = [""];
-  events.value = [];
-  nextCursor.value = "";
-  await loadPage(0, "");
-}
-
-async function loadPage(index: number, cursor: string) {
-  const currentRequestID = ++requestID;
-  loading.value = true;
-  loadingError.value = "";
+async function loadEvents(filters: typeof pageQuery.value, cursor?: string) {
   expandedKey.value = "";
-
-  try {
-    const response = await fetchEvents(eventQuery(cursor));
-    if (currentRequestID !== requestID) {
-      return;
-    }
-    events.value = Array.isArray(response.events) ? response.events : [];
-    nextCursor.value = response.nextCursor ?? "";
-    page.value = index;
-    cursors.value[index] = cursor;
-  } catch (error) {
-    if (currentRequestID !== requestID) {
-      return;
-    }
-    loadingError.value = error instanceof Error ? error.message : "Failed to load events";
-  } finally {
-    if (currentRequestID === requestID) {
-      loading.value = false;
-    }
-  }
+  const response = await fetchEvents(cursor ? { ...filters, cursor } : filters);
+  return { items: Array.isArray(response.events) ? response.events : [], nextCursor: response.nextCursor };
 }
 
 async function loadFilterOptions() {
@@ -308,14 +267,6 @@ async function loadFilterOptions() {
   } catch {
     filterOptions.value = { stacks: [], services: [] };
   }
-}
-
-function nextPage(): void {
-  if (!loading.value && nextCursor.value) void loadPage(page.value + 1, nextCursor.value);
-}
-
-function previousPage(): void {
-  if (!loading.value && page.value > 0) void loadPage(page.value - 1, cursors.value[page.value - 1] ?? "");
 }
 
 async function persistFilters(): Promise<void> {
@@ -404,19 +355,11 @@ watch(
 );
 
 watch([selectedTypes, selectedSeverity, selectedCategory, selectedStack, selectedService], () => {
-  expandedKey.value = "";
   void persistFilters();
-  void loadEvents();
-});
-
-watch([sortKey, sortDirection], () => {
-  expandedKey.value = "";
-  void loadEvents();
 });
 
 onMounted(() => {
   void loadFilterOptions();
-  void loadEvents();
 });
 </script>
 
@@ -503,14 +446,22 @@ onMounted(() => {
       </AppSelect>
     </AppFilterPanel>
 
-    <AppTableEmpty v-if="loading && events.length === 0" message="Loading events..." />
+    <AppPagination
+      class="events-pagination"
+      label="Event pages"
+      :query="pageQuery"
+      :load-page="loadEvents"
+      hide-when-empty
+      v-slot="{ items: events, loading, error: loadingError }"
+    >
+      <AppTableEmpty v-if="loading && events.length === 0" message="Loading events..." />
 
-    <AppTableEmpty v-else-if="loadingError && events.length === 0">Failed to load events: {{ loadingError }}</AppTableEmpty>
+      <AppTableEmpty v-else-if="loadingError && events.length === 0">Failed to load events: {{ loadingError }}</AppTableEmpty>
 
-    <AppTableEmpty v-else-if="events.length === 0" message="No events match the selected filters." />
+      <AppTableEmpty v-else-if="events.length === 0" message="No events match the selected filters." />
 
-    <AppTable v-else fixed min-width="720px" table-class="events-table">
-      <template #head>
+      <AppTable v-else fixed min-width="720px" table-class="events-table">
+        <template #head>
           <tr>
             <th :aria-sort="ariaSort('time')">
               <button class="app-table-sort" type="button" @click="changeSort('time')">
@@ -525,52 +476,52 @@ onMounted(() => {
             <th>Type</th>
             <th>Message</th>
           </tr>
-      </template>
-          <template v-for="event in events" :key="event.id">
-            <tr
-              class="app-table-row--clickable"
-              tabindex="0"
-              role="button"
-              :aria-expanded="expandedKey === event.id"
-              :aria-label="`Toggle details for ${event.type || 'event'}`"
-              @click="toggleDetails(event)"
-              @keydown.enter="toggleDetails(event)"
-              @keydown.space.prevent="toggleDetails(event)"
-            >
-              <td>{{ formatDate(event.created_at) }}</td>
-              <td>
-                <span class="event-severity" :class="`event-severity-${normalizedSeverity(event)}`">
-                  {{ severityLabels[normalizedSeverity(event)] }}
-                </span>
-              </td>
-              <td>{{ event.type || "unknown" }}</td>
-              <td>{{ event.message || "No message" }}</td>
-            </tr>
-            <tr v-if="expandedKey === event.id" class="events-details-row">
-              <td colspan="4">
-                <ul v-if="sortedEventDetails(event).length > 0" class="event-details">
-                  <li v-for="[key, value] in sortedEventDetails(event)" :key="key" class="event-detail">
-                    <span class="event-detail-key">{{ key }}</span>
-                    <span class="event-detail-content">
-                      <code class="event-detail-value">{{ value }}</code>
-                      <button
-                        v-if="canFilterDetail(key)"
-                        class="event-detail-filter"
-                        type="button"
-                        :aria-label="`Filter by ${key} ${value}`"
-                        @click.stop="applyDetailFilter(key, value, event)"
-                      >
-                        Filter
-                      </button>
-                    </span>
-                  </li>
-                </ul>
-                <p v-else class="meta">details: n/a</p>
-              </td>
-            </tr>
-          </template>
-    </AppTable>
-    <p v-if="loadingError && events.length > 0" class="meta" role="alert">Failed to load events: {{ loadingError }}</p>
-    <AppPagination v-if="events.length > 0 || page > 0" class="events-pagination" label="Event pages" :page="page" :loading="loading" :has-next="Boolean(nextCursor)" @previous="previousPage" @next="nextPage" />
+        </template>
+        <template v-for="event in events" :key="event.id">
+          <tr
+            class="app-table-row--clickable"
+            tabindex="0"
+            role="button"
+            :aria-expanded="expandedKey === event.id"
+            :aria-label="`Toggle details for ${event.type || 'event'}`"
+            @click="toggleDetails(event)"
+            @keydown.enter="toggleDetails(event)"
+            @keydown.space.prevent="toggleDetails(event)"
+          >
+            <td>{{ formatDate(event.created_at) }}</td>
+            <td>
+              <span class="event-severity" :class="`event-severity-${normalizedSeverity(event)}`">
+                {{ severityLabels[normalizedSeverity(event)] }}
+              </span>
+            </td>
+            <td>{{ event.type || "unknown" }}</td>
+            <td>{{ event.message || "No message" }}</td>
+          </tr>
+          <tr v-if="expandedKey === event.id" class="events-details-row">
+            <td colspan="4">
+              <ul v-if="sortedEventDetails(event).length > 0" class="event-details">
+                <li v-for="[key, value] in sortedEventDetails(event)" :key="key" class="event-detail">
+                  <span class="event-detail-key">{{ key }}</span>
+                  <span class="event-detail-content">
+                    <code class="event-detail-value">{{ value }}</code>
+                    <button
+                      v-if="canFilterDetail(key)"
+                      class="event-detail-filter"
+                      type="button"
+                      :aria-label="`Filter by ${key} ${value}`"
+                      @click.stop="applyDetailFilter(key, value, event)"
+                    >
+                      Filter
+                    </button>
+                  </span>
+                </li>
+              </ul>
+              <p v-else class="meta">details: n/a</p>
+            </td>
+          </tr>
+        </template>
+      </AppTable>
+      <p v-if="loadingError && events.length > 0" class="meta" role="alert">Failed to load events: {{ loadingError }}</p>
+    </AppPagination>
   </section>
 </template>
