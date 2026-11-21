@@ -60,6 +60,8 @@ const existingChatLoading = computed(() => {
   return assistant !== "" && assistant !== "new" && assistant !== "chats" && assistantStore.conversationID !== assistant;
 });
 
+const composerDisabled = computed(() => pending.value || existingChatLoading.value);
+
 const emptyChatVisible = computed(
   () => isOpen.value && chatOpen.value && messages.value.length === 0 && !existingChatLoading.value,
 );
@@ -316,7 +318,7 @@ function handleEscape() {
 
 watch(
   () => route.query.assistant,
-  async (assistant) => {
+  async (assistant, _, onCleanup) => {
     const value = typeof assistant === "string" ? assistant : "";
 
     if (value !== "chats") {
@@ -349,7 +351,13 @@ watch(
     if (assistantStore.conversationID === value) {
       assistantStore.historyOpen = false;
     } else {
-      await assistantStore.openChat(value);
+      const controller = new AbortController();
+      onCleanup(() => controller.abort());
+      try {
+        await assistantStore.openChat(value, controller.signal);
+      } catch (error) {
+        if (!controller.signal.aborted) throw error;
+      }
     }
   },
   { immediate: true },
@@ -357,7 +365,7 @@ watch(
 
 async function submitHistoryMessage() {
   const message = historyMessage.value.trim();
-  if (!message || pending.value) {
+  if (!message || composerDisabled.value) {
     return;
   }
 
@@ -401,7 +409,7 @@ watch(
 
 async function submitMessage() {
   const text = messageInput.value.trim();
-  if (!text || pending.value) {
+  if (!text || composerDisabled.value) {
     return;
   }
 
@@ -412,7 +420,7 @@ async function submitMessage() {
 }
 
 async function submitSuggestion(suggestion: AssistantSuggestion) {
-  if (pending.value) {
+  if (composerDisabled.value) {
     return;
   }
 
@@ -699,7 +707,7 @@ function renderMessageText(role: string, text: string): string {
             rows="1"
             placeholder="Ask the assistant…"
             aria-label="Ask the assistant"
-            :readonly="pending"
+            :readonly="composerDisabled"
             @input="historyMessage = ($event.target as HTMLTextAreaElement).value; historyError = ''"
           />
           <button
@@ -707,7 +715,7 @@ function renderMessageText(role: string, text: string): string {
             class="assistant-send-button"
             type="submit"
             :aria-label="historySending ? 'Sending message' : 'Send message'"
-            :disabled="pending"
+            :disabled="composerDisabled"
           >
             <span v-if="historySending" class="assistant-activity-spinner" aria-hidden="true" />
             <svg v-else viewBox="0 0 24 24" aria-hidden="true">
@@ -726,7 +734,7 @@ function renderMessageText(role: string, text: string): string {
             rows="1"
             placeholder="Ask the assistant…"
             aria-label="Ask the assistant"
-            :disabled="pending"
+            :disabled="composerDisabled"
           />
           <button
             v-if="messageInput.trim()"
@@ -734,7 +742,7 @@ function renderMessageText(role: string, text: string): string {
             class="assistant-send-button"
             type="submit"
             aria-label="Send message"
-            :disabled="pending"
+            :disabled="composerDisabled"
           >
             <svg viewBox="0 0 24 24" aria-hidden="true">
               <path d="M12 19V5M6 11l6-6 6 6" />

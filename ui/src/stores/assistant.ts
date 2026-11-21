@@ -97,16 +97,13 @@ export const useAssistantStore = defineStore("assistant", {
       this.messages = [];
       this.historyOpen = false;
     },
-    async openChat(conversationID: string) {
-      if (this.pending) {
+    async openChat(conversationID: string, signal?: AbortSignal) {
+      const previousGeneration = this.chatGeneration;
+      const chat = await getAssistantChat(conversationID, signal);
+      if (signal?.aborted || !this.isCurrentChat(previousGeneration)) {
         return;
       }
-
       const generation = this.beginChatGeneration();
-      const chat = await getAssistantChat(conversationID);
-      if (!this.isCurrentChat(generation)) {
-        return;
-      }
       const active = chat.active_request;
       // Set pending together with the messages, so the chat never shows an unanswered question while a reply is running.
       this.pending = Boolean(active);

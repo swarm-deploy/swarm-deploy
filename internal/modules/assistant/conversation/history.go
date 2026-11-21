@@ -1,3 +1,5 @@
+//go:generate go run -mod=mod go.uber.org/mock/mockgen -source=$GOFILE -destination=mock_history.go -package=conversation
+
 package conversation
 
 import (

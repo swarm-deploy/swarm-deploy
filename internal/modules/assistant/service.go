@@ -53,6 +53,9 @@ type Service struct {
 	runs     map[string]*chatRun
 	runSlots chan struct{}
 
+	historyMu    sync.Mutex
+	historyLocks map[string]chan struct{}
+
 	conversationStorage conversation.Storage
 	conversationHistory conversation.HistoryStorage
 
@@ -102,6 +105,7 @@ func NewService(
 		ragIndexSubscriber: ragSubscriber,
 		runs:               map[string]*chatRun{},
 		runSlots:           make(chan struct{}, maxConcurrentRuns),
+		historyLocks:       make(map[string]chan struct{}),
 		conversationStorage: conversation.NewInMemoryStorage(
 			config.ConversationInMemoryTTL,
 			maxConversationTurns,
@@ -215,7 +219,6 @@ func (s *Service) startRun(ctx context.Context, run *chatRun, createdBy string) 
 	if run.newConversation {
 		s.chatObserver.RecordChatCreated()
 	}
-	run.markStarted()
 
 	go func() {
 		defer func() { <-s.runSlots }()
@@ -238,12 +241,20 @@ func (s *Service) prepareRun(ctx context.Context, run *chatRun, createdBy string
 		return nil, false
 	}
 
+	unlock, err := s.lockChatHistory(ctx, run.conversationID)
+	if err != nil {
+		run.finish(StatusFailed, "", "Failed to save assistant message")
+		return nil, false
+	}
+	defer unlock()
+
 	question := conversation.Turn{Role: "user", Content: run.message}
 	if err = s.persistConversation(ctx, run.conversationID, createdBy, conversation.TokenUsage{}, question); err != nil {
 		run.finish(StatusFailed, "", "Failed to save assistant message")
 		return nil, false
 	}
 
+	run.markStarted()
 	return history, true
 }
 
@@ -291,9 +302,12 @@ func (s *Service) runAssistant(ctx context.Context, createdBy string, history []
 
 	reply := conversation.Turn{Role: "assistant", Content: answer, Activity: run.activitySnapshot()}
 
-	// GetChat waits for this save, so it never returns the saved reply together with the active request.
-	run.beginSavingReply()
-	if err = s.persistConversation(ctx, conversationID, createdBy, usage, reply); err != nil {
+	unlock, err := s.lockChatHistory(ctx, conversationID)
+	if err == nil {
+		defer unlock()
+		err = s.persistConversation(ctx, conversationID, createdBy, usage, reply)
+	}
+	if err != nil {
 		// Keep the model context equal to the saved history: the question stays, the lost reply does not.
 		s.conversationStorage.Append(conversationID, question)
 		run.finish(StatusFailed, "", "Failed to save assistant response")
@@ -528,32 +542,49 @@ func (s *Service) GetUsage(ctx context.Context, from, to time.Time, interval Usa
 	return s.conversationHistory.ReadUsage(ctx, from, to, interval)
 }
 
+// lockChatHistory serializes a history snapshot with publishing a saved question or reply
+// for the same conversation. Idle chats retain no lock.
+func (s *Service) lockChatHistory(ctx context.Context, id string) (func(), error) {
+	for {
+		s.historyMu.Lock()
+		held := s.historyLocks[id]
+		if held == nil {
+			done := make(chan struct{})
+			s.historyLocks[id] = done
+			s.historyMu.Unlock()
+			return func() {
+				s.historyMu.Lock()
+				delete(s.historyLocks, id)
+				close(done)
+				s.historyMu.Unlock()
+			}, nil
+		}
+		s.historyMu.Unlock()
+		select {
+		case <-held:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+}
+
 // GetChat returns one persisted chat with messages.
 func (s *Service) GetChat(ctx context.Context, id string) (ChatHistory, bool, error) {
 	if s.conversationHistory == nil {
 		return ChatHistory{}, false, nil
 	}
 
-	// A run is exposed only after its question is saved. If its reply may already be in the
-	// snapshot, wait until the reply save ends and read again, so the reply and the active
-	// request are never returned together.
-	active := s.getStartedRun(id)
+	unlock, err := s.lockChatHistory(ctx, id)
+	if err != nil {
+		return ChatHistory{}, false, err
+	}
+	defer unlock()
+
 	chat, ok, err := s.conversationHistory.ReadChat(ctx, id)
 	if err != nil || !ok {
 		return ChatHistory{}, ok, err
 	}
-	if active != nil && active.isSavingReply() {
-		select {
-		case <-active.done:
-		case <-ctx.Done():
-			return ChatHistory{}, false, ctx.Err()
-		}
-		active = nil
-		chat, ok, err = s.conversationHistory.ReadChat(ctx, id)
-		if err != nil || !ok {
-			return ChatHistory{}, ok, err
-		}
-	}
+	active := s.getStartedRun(id)
 
 	messages := make([]ChatMessage, 0, len(chat.Turns))
 	for _, turn := range chat.Turns {
@@ -591,14 +622,13 @@ type chatRun struct {
 
 	done chan struct{}
 
-	mu          sync.RWMutex
-	status      Status
-	started     bool
-	savingReply bool
-	answer      string
-	error       string
-	finishedAt  time.Time
-	activity    []string
+	mu         sync.RWMutex
+	status     Status
+	started    bool
+	answer     string
+	error      string
+	finishedAt time.Time
+	activity   []string
 }
 
 func newChatRun(requestID, conversationID, message string, newConversation bool) *chatRun {
@@ -625,22 +655,6 @@ func (r *chatRun) isStarted() bool {
 	defer r.mu.RUnlock()
 
 	return r.started
-}
-
-// beginSavingReply records that the reply may be saved from now on. The run finishes right after the save ends.
-func (r *chatRun) beginSavingReply() {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	r.savingReply = true
-}
-
-// isSavingReply reports whether the reply may already be saved: the run is saving it or has finished.
-func (r *chatRun) isSavingReply() bool {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
-	return r.savingReply || r.status != StatusInProgress
 }
 
 func (r *chatRun) reject() {

@@ -602,6 +602,75 @@ describe("Assistant Drawer", () => {
     expect(wrapper.text()).not.toContain("Question A");
     wrapper.unmount();
   });
+
+  it("sends to the cached chat when returning to it during another history load", async () => {
+    const pinia = createPinia();
+    setActivePinia(pinia);
+    const store = useAssistantStore();
+    const router = createRouter({ history: createMemoryHistory(), routes });
+    const first = savedChat();
+    const second = { ...first, id: "chat-2", title: "Second chat" };
+    store.loadChats = vi.fn(async () => { store.chats = [first, second]; });
+    let loadSecond!: (chat: AssistantChatHistory) => void;
+    vi.spyOn(assistantApi, "getAssistantChat").mockResolvedValueOnce(first)
+      .mockImplementationOnce(() => new Promise((resolve) => { loadSecond = resolve; }));
+    const request = vi.spyOn(store, "requestAssistant").mockResolvedValue({
+      status: "completed", conversation_id: first.id, request_id: "request", answer: "Healthy",
+    });
+    await router.push({ query: { assistant: first.id } });
+    const wrapper = mount(AssistantDrawer, { global: { plugins: [pinia, router] } });
+    await flushPromises();
+    await wrapper.get('[aria-label="Back to chats"]').trigger("click");
+    await flushPromises();
+    await wrapper.get('button[title="Second chat"]').trigger("click");
+    await flushPromises();
+    await wrapper.get('button[title="Check the cluster"]').trigger("click");
+    await flushPromises();
+
+    loadSecond(second);
+    await flushPromises();
+    expect(router.currentRoute.value.query.assistant).toBe(first.id);
+    expect(store.conversationID).toBe(first.id);
+    const form = wrapper.get(".assistant-chat-form");
+    await form.get("textarea").setValue("Continue");
+    await form.trigger("submit");
+    expect(request).toHaveBeenCalledWith(expect.objectContaining({ conversation_id: first.id, message: "Continue" }));
+    await flushPromises();
+    wrapper.unmount();
+  });
+
+  it("enables the composer for a direct link only after that chat loads", async () => {
+    const pinia = createPinia();
+    setActivePinia(pinia);
+    const store = useAssistantStore();
+    const router = createRouter({ history: createMemoryHistory(), routes });
+    const chat = savedChat();
+    let finishLoad!: (result: AssistantChatHistory) => void;
+    vi.spyOn(assistantApi, "getAssistantChat").mockImplementationOnce(
+      () => new Promise((resolve) => { finishLoad = resolve; }),
+    );
+    store.loadChats = vi.fn(async () => undefined);
+    const request = vi.spyOn(store, "requestAssistant").mockResolvedValue({
+      status: "completed", conversation_id: chat.id, request_id: "request", answer: "Healthy",
+    });
+    await router.push({ query: { assistant: chat.id } });
+    const wrapper = mount(AssistantDrawer, { global: { plugins: [pinia, router] } });
+    const form = wrapper.get(".assistant-chat-form");
+    const input = form.get("textarea");
+    expect(input.element.disabled).toBe(true);
+    await input.setValue("Continue");
+    await form.trigger("submit");
+    expect(request).not.toHaveBeenCalled();
+
+    finishLoad(chat);
+    await flushPromises();
+    expect(input.element.disabled).toBe(false);
+    await input.setValue("Continue");
+    await form.trigger("submit");
+    expect(request).toHaveBeenCalledWith(expect.objectContaining({ conversation_id: chat.id, message: "Continue" }));
+    await flushPromises();
+    wrapper.unmount();
+  });
 });
 
 function savedChat(activeRequest?: AssistantChatHistory["active_request"]): AssistantChatHistory {

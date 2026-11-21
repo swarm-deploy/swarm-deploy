@@ -730,54 +730,52 @@ func TestServiceChatSavesQuestionBeforeReply(t *testing.T) {
 }
 
 func TestServiceGetChatReturnsConsistentSnapshot(t *testing.T) {
-	question := conversation.Turn{Role: "user", Content: "Check the cluster"}
-	reply := conversation.Turn{Role: "assistant", Content: "Cluster is healthy"}
-	for _, testCase := range []struct {
-		name         string
-		saved        []conversation.Turn
-		started      bool
-		savingReply  bool
-		wantActive   bool
-		wantMessages int
-	}{
-		{
-			name:  "question is not saved yet",
-			saved: []conversation.Turn{{Role: "user", Content: "Hello"}, {Role: "assistant", Content: "Hi"}},
-			// The run exists, but its question is not in the snapshot, so it must not be resumed.
-			wantMessages: 2,
-		},
-		{name: "reply is running", saved: []conversation.Turn{question}, started: true, wantActive: true, wantMessages: 1},
-		{
-			name: "reply is being saved", saved: []conversation.Turn{question, reply}, started: true, savingReply: true,
-			wantMessages: 2,
-		},
-	} {
-		t.Run(testCase.name, func(t *testing.T) {
+	for _, role := range []string{"user", "assistant"} {
+		t.Run(role, func(t *testing.T) {
 			history := newSQLHistory(t)
-			require.NoError(t, history.SaveTurns(t.Context(), "chat", "alice", conversation.TokenUsage{}, testCase.saved...))
-			service := newRoutingTestServiceWithHistory(
-				t, "http://127.0.0.1:1", serviceStore(t, nil), &fakeTools{}, nil, history,
-			)
-			run := newChatRun("request-1", "chat", question.Content, false)
-			if testCase.started {
-				run.markStarted()
-			}
-			if testCase.savingReply {
-				run.beginSavingReply()
-				time.AfterFunc(10*time.Millisecond, func() { run.finish(StatusCompleted, reply.Content, "") })
-			}
-			service.runs[run.requestID] = run
+			ctrl := gomock.NewController(t)
+			paused := conversation.NewMockHistoryStorage(ctrl)
+			paused.EXPECT().ReadChat(gomock.Any(), gomock.Any()).DoAndReturn(history.ReadChat).AnyTimes()
 
+			committed := make(chan struct{})
+			resume := make(chan struct{})
+			unblock := sync.OnceFunc(func() { close(resume) })
+			defer unblock()
+			paused.EXPECT().SaveTurns(gomock.Any(), "chat", gomock.Any(), gomock.Any(), gomock.Any()).
+				DoAndReturn(func(ctx context.Context, id, by string, usage conversation.TokenUsage, turns ...conversation.Turn) error {
+					err := history.SaveTurns(ctx, id, by, usage, turns...)
+					if err == nil && turns[0].Role == role {
+						close(committed)
+						<-resume
+					}
+					return err
+				}).Times(2)
+
+			tools := NewMockToolExecutor(ctrl)
+			tools.EXPECT().Definitions().AnyTimes()
+			service := newRoutingTestServiceWithHistory(t, "", serviceStore(t, nil), tools, nil, paused)
+			completed := make(chan ChatResponse, 1)
+			go func() {
+				completed <- service.Chat(t.Context(), ChatRequest{ConversationID: "chat", Message: "привет"})
+			}()
+			<-committed
+
+			// SQLite has committed the turn, but the writer has not yet published the matching run state.
+			_, found, err := service.GetChat(t.Context(), "unrelated")
+			require.NoError(t, err)
+			require.False(t, found)
+			ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
+			defer cancel()
+			_, _, err = service.GetChat(ctx, "chat")
+			require.ErrorIs(t, err, context.DeadlineExceeded)
+
+			unblock()
+			require.Equal(t, StatusCompleted, (<-completed).Status)
 			chat, found, err := service.GetChat(t.Context(), "chat")
 			require.NoError(t, err)
 			require.True(t, found)
-			assert.Len(t, chat.Messages, testCase.wantMessages)
-			if testCase.wantActive {
-				require.NotNil(t, chat.ActiveRequest)
-				assert.Equal(t, run.requestID, chat.ActiveRequest.RequestID)
-			} else {
-				assert.Nil(t, chat.ActiveRequest)
-			}
+			require.Len(t, chat.Messages, 2)
+			assert.Nil(t, chat.ActiveRequest)
 		})
 	}
 }
