@@ -98,10 +98,21 @@ export const useAssistantStore = defineStore("assistant", {
       this.historyOpen = false;
     },
     async openChat(conversationID: string, signal?: AbortSignal) {
+      // Selection takes effect even when the history read is slower than the previous chat's response.
+      this.beginChatGeneration();
+      if (this.pending) {
+        this.chatHistoryStale = true;
+        this.pending = false;
+        this.activeRequestID = "";
+        this.activity = [];
+      }
+      if (await this.refreshChat(conversationID, signal)) this.historyOpen = false;
+    },
+    async refreshChat(conversationID: string, signal?: AbortSignal, notice?: string) {
       const previousGeneration = this.chatGeneration;
       const chat = await getAssistantChat(conversationID, signal);
       if (signal?.aborted || !this.isCurrentChat(previousGeneration)) {
-        return;
+        return false;
       }
       const generation = this.beginChatGeneration();
       const active = chat.active_request;
@@ -116,16 +127,17 @@ export const useAssistantStore = defineStore("assistant", {
         text: message.content,
         activity: message.activity,
       }));
-      this.historyOpen = false;
+      if (notice) this.pushMessage("system", notice);
       if (active) {
         void this.resumeAssistantMessage(chat.id, active.request_id, generation);
       }
+      return true;
     },
     // Continues polling a reply that was started before the chat was opened, for example before a page reload.
     async resumeAssistantMessage(conversationID: string, requestID: string, generation: number) {
       this.pending = true;
       try {
-        const response = await this.pollAssistantMessage(
+        const response = await this.pollSelectedChat(
           { conversation_id: conversationID, request_id: requestID },
           generation,
         );
@@ -142,23 +154,26 @@ export const useAssistantStore = defineStore("assistant", {
         }
       }
     },
-    // Polls a request and applies progress only while its chat stays selected.
+    async pollSelectedChat(payload: AssistantChatRequest, generation: number) {
+      return this.pollAssistantMessage(payload, (response) => {
+        this.updateAssistantProgress(response);
+        return true;
+      }, () => this.isCurrentChat(generation));
+    },
+    // onResponse returns false once the caller has received what it needs from the request.
     async pollAssistantMessage(
       payload: AssistantChatRequest,
-      generation: number,
-      onProgress?: (response: AssistantChatResponse) => void,
+      onResponse: (response: AssistantChatResponse) => boolean,
+      isCurrent: () => boolean = () => true,
     ): Promise<AssistantChatResponse | undefined> {
-      const applyProgress = onProgress ?? ((response: AssistantChatResponse) => this.updateAssistantProgress(response));
       for (let attempt = 0; attempt < 150; attempt += 1) {
         // On a new chat, wait for the saved ID and start polling for the answer separately.
         const waitTimeout = attempt === 0 && payload.message && !payload.conversation_id ? 1 : 750;
         const response = await this.requestAssistant({ ...payload, wait_timeout_ms: waitTimeout });
-        if (!this.isCurrentChat(generation)) {
+        if (!isCurrent()) {
           return undefined;
         }
-        applyProgress(response);
-
-        if (response.status !== "in_progress") {
+        if (!onResponse(response) || response.status !== "in_progress") {
           return response;
         }
 
@@ -167,7 +182,7 @@ export const useAssistantStore = defineStore("assistant", {
           request_id: response.request_id || payload.request_id,
         };
         await sleep(Math.max(100, response.poll_after_ms || 1000));
-        if (!this.isCurrentChat(generation)) {
+        if (!isCurrent()) {
           return undefined;
         }
       }
@@ -206,49 +221,26 @@ export const useAssistantStore = defineStore("assistant", {
       const message = error instanceof Error ? error.message : "Unexpected assistant error";
       this.pushMessage("system", `Assistant failed: ${message}`);
     },
-    async sendFirstMessage(message: string, requestID: string, onStarted: (conversationID: string) => void) {
-      // The new chat replaces any chat that is still loading.
-      const generation = this.beginChatGeneration();
-      this.pending = true;
-      let started = false;
-      try {
-        const response = await this.pollAssistantMessage({ message, request_id: requestID }, generation, (progress) => {
-          if (!started) {
-            if (!progress.conversation_id || progress.status === "disabled") {
-              return;
-            }
-            started = true;
-            this.chatHistoryStale = false;
-            this.messages = [];
-            this.activity = [];
-            this.pushMessage("user", message);
-            this.updateAssistantProgress(progress);
-            onStarted(progress.conversation_id);
-            return;
-          }
-          this.updateAssistantProgress(progress);
+    // Return as soon as the server has accepted the first question and assigned a chat ID.
+    async createChat(message: string, requestID: string) {
+      const response = await this.pollAssistantMessage(
+        { message, request_id: requestID },
+        (progress) => !progress.conversation_id,
+      );
+      if (!response) throw new Error("Assistant request timeout. Try again.");
+      return response;
+    },
+    openCreatedChat(message: string, response: AssistantChatResponse) {
+      this.newChat();
+      this.pushMessage("user", message);
+      this.updateAssistantProgress(response);
+      const generation = this.chatGeneration;
+      if (response.status === "in_progress") {
+        void this.resumeAssistantMessage(response.conversation_id, response.request_id, generation);
+      } else {
+        void this.finishAssistantMessage(response).catch((error) => {
+          if (this.isCurrentChat(generation)) this.showRequestError(error);
         });
-        if (!this.isCurrentChat(generation)) {
-          return undefined;
-        }
-        if (!started) {
-          if (!response) {
-            throw new Error("Assistant request timeout. Try again.");
-          }
-          return response;
-        }
-        await this.finishAssistantMessage(response);
-      } catch (error) {
-        if (!started) {
-          throw error;
-        }
-        if (this.isCurrentChat(generation)) {
-          this.showRequestError(error);
-        }
-      } finally {
-        if (this.isCurrentChat(generation)) {
-          this.pending = false;
-        }
       }
     },
     async sendMessage(message: string) {
@@ -261,6 +253,7 @@ export const useAssistantStore = defineStore("assistant", {
         return;
       }
 
+      const conversationID = this.conversationID;
       // Sending keeps the shown chat and drops any chat that is still loading.
       const generation = this.beginChatGeneration();
       this.pushMessage("user", normalizedMessage);
@@ -268,11 +261,18 @@ export const useAssistantStore = defineStore("assistant", {
       this.pending = true;
 
       try {
-        const response = await this.pollAssistantMessage({
-          conversation_id: this.conversationID || undefined,
+        const response = await this.pollSelectedChat({
+          conversation_id: conversationID || undefined,
           message: normalizedMessage,
         }, generation);
-        if (this.isCurrentChat(generation)) {
+        if (!this.isCurrentChat(generation)) return;
+        if (conversationID && (response?.status === "failed" || response?.status === "rejected")) {
+          // Another client may own the running request, or the server may have rejected our optimistic turn.
+          this.chatHistoryStale = true;
+          const notice = response.error_message || `Assistant status: ${response.status}`;
+          this.pushMessage("system", notice);
+          await this.refreshChat(conversationID, undefined, notice);
+        } else {
           await this.finishAssistantMessage(response);
         }
       } catch (error) {

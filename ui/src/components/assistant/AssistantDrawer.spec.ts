@@ -6,6 +6,8 @@ import { createMemoryHistory, createRouter } from "vue-router";
 import * as assistantApi from "../../api/assistant";
 import type { AssistantChatHistory, AssistantChatResponse } from "../../api/types";
 import { useAssistantStore } from "../../stores/assistant";
+import { useOverviewStore } from "../../stores/overview";
+import CommitDetailsModal from "../overview/CommitDetailsModal.vue";
 import { useUIStore } from "../../stores/ui";
 import AssistantDrawer from "./AssistantDrawer.vue";
 
@@ -283,6 +285,104 @@ describe("Assistant Drawer", () => {
     expect(store.pending).toBe(false);
     expect(wrapper.findAll(".assistant-chat-message-user")).toHaveLength(1);
     expect(wrapper.get(".assistant-chat-message-assistant").text()).toContain("Healthy");
+    wrapper.unmount();
+  });
+
+  it("keeps the chat selected while a first message from the list is being accepted", async () => {
+    const pinia = createPinia();
+    setActivePinia(pinia);
+    const router = createRouter({ history: createMemoryHistory(), routes });
+    const chat = savedChat();
+    vi.spyOn(assistantApi, "getAssistantChat").mockResolvedValue(chat);
+    vi.spyOn(assistantApi, "listAssistantChats").mockResolvedValue({ chats: [chat] });
+    let accept!: (result: AssistantChatResponse) => void;
+    const request = vi.spyOn(assistantApi, "sendAssistantChat").mockImplementationOnce(
+      () => new Promise((resolve) => { accept = resolve; }),
+    );
+    await router.push({ query: { assistant: chat.id } });
+    const wrapper = mount(AssistantDrawer, { global: { plugins: [pinia, router] } });
+    await flushPromises();
+    await wrapper.get('[aria-label="Back to chats"]').trigger("click");
+    await flushPromises();
+    const form = wrapper.get(".assistant-history-form");
+    await form.get("textarea").setValue("Another question");
+    await form.trigger("submit");
+    await wrapper.get('button[title="Check the cluster"]').trigger("click");
+    await flushPromises();
+
+    accept({ status: "in_progress", conversation_id: "new-id", request_id: "new-request" });
+    await flushPromises();
+    expect(router.currentRoute.value.query.assistant).toBe(chat.id);
+    expect(wrapper.get(".assistant-chat-message-user").text()).toBe("Check the cluster");
+    expect(wrapper.get<HTMLTextAreaElement>(".assistant-chat-form textarea").element.disabled).toBe(false);
+    expect(request).toHaveBeenCalledOnce();
+    wrapper.unmount();
+  });
+
+  it.each(["/", "/?assistant=chat-1"])("opens an explanation from %s at its saved chat URL", async (path) => {
+    const pinia = createPinia();
+    setActivePinia(pinia);
+    const router = createRouter({ history: createMemoryHistory(), routes });
+    await router.push(path);
+    const overview = useOverviewStore();
+    vi.spyOn(assistantApi, "getAssistantChat").mockResolvedValue(savedChat());
+    vi.spyOn(assistantApi, "getAssistantSuggestions").mockResolvedValue({ suggestions: [] });
+    vi.spyOn(assistantApi, "listAssistantChats").mockResolvedValue({ chats: [] });
+    let finish!: (response: AssistantChatResponse) => void;
+    const send = vi.spyOn(assistantApi, "sendAssistantChat")
+      .mockResolvedValueOnce({ status: "in_progress", conversation_id: "explanation", request_id: "request", poll_after_ms: 1 })
+      .mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    const wrapper = mount({
+      components: { AssistantDrawer, CommitDetailsModal },
+      template: "<AssistantDrawer /><CommitDetailsModal />",
+    }, { attachTo: document.body, global: { plugins: [pinia, router] } });
+    await flushPromises();
+    if (path.includes("assistant")) useUIStore().toggleAssistantPinned();
+    overview.commitDetailsData = { full_hash: "abc123", author: "Developer", date: "2026-11-21T00:00:00Z", message: "Update", changed_files: [] };
+    overview.commitDetailsModalOpen = true;
+    await flushPromises();
+    await wrapper.get('[aria-label="Explain commit"]').trigger("click");
+    await flushPromises();
+
+    expect(router.currentRoute.value.query.assistant).toBe("explanation");
+    expect(send.mock.calls[0][0].conversation_id).toBeUndefined();
+    expect(wrapper.get(".assistant-chat-message-user").text()).toContain("abc123");
+    await vi.waitFor(() => expect(send).toHaveBeenCalledTimes(2));
+    finish({ status: "completed", conversation_id: "explanation", request_id: "request", answer: "Explanation" });
+    await flushPromises();
+    expect(wrapper.get<HTMLTextAreaElement>(".assistant-chat-form textarea").element.disabled).toBe(false);
+    wrapper.unmount();
+  });
+
+  it.each([false, true])("reconciles a conflicting send when the other request is still running: %s", async (running) => {
+    const pinia = createPinia();
+    setActivePinia(pinia);
+    const router = createRouter({ history: createMemoryHistory(), routes });
+    const chat = savedChat();
+    chat.messages.push({ role: "assistant", content: "Original answer" });
+    const current = { ...chat, messages: [...chat.messages, { role: "user" as const, content: "Other tab's question" }],
+      active_request: running ? { request_id: "other" } : undefined };
+    if (!running) current.messages.push({ role: "assistant", content: "Saved reply" });
+    const get = vi.spyOn(assistantApi, "getAssistantChat").mockResolvedValueOnce(chat).mockResolvedValueOnce(current);
+    vi.spyOn(assistantApi, "listAssistantChats").mockResolvedValue({ chats: [chat] });
+    const send = vi.spyOn(assistantApi, "sendAssistantChat")
+      .mockResolvedValueOnce({ status: "failed", conversation_id: chat.id, request_id: "declined", error_message: "Chat is busy" })
+      .mockResolvedValueOnce({ status: "completed", conversation_id: chat.id, request_id: "other", answer: "Saved reply" });
+    await router.push({ query: { assistant: chat.id } });
+    const wrapper = mount(AssistantDrawer, { global: { plugins: [pinia, router] } });
+    await flushPromises();
+    const form = wrapper.get(".assistant-chat-form");
+    await form.get("textarea").setValue("Declined question");
+    await form.trigger("submit");
+    await flushPromises();
+
+    expect(get).toHaveBeenCalledTimes(2);
+    expect(wrapper.text()).not.toContain("Declined question");
+    expect(wrapper.text()).toContain("Chat is busy");
+    expect(wrapper.text()).toContain("Other tab's question");
+    expect(wrapper.text()).toContain("Saved reply");
+    expect(send).toHaveBeenCalledTimes(running ? 2 : 1);
+    if (running) expect(send.mock.calls[1][0]).toMatchObject({ request_id: "other", conversation_id: chat.id });
     wrapper.unmount();
   });
 

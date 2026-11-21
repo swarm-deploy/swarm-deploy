@@ -2,6 +2,7 @@
 import { computed, defineAsyncComponent, nextTick, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
+import { openNewAssistantChat } from "../../router/assistant";
 import { getAssistantSuggestions } from "../../api/assistant";
 import type { AssistantSuggestion } from "../../api/types";
 import { useAssistantStore } from "../../stores/assistant";
@@ -279,12 +280,7 @@ async function newChat() {
     return;
   }
 
-  if (route.query.assistant === "new") {
-    assistantStore.newChat();
-    return;
-  }
-
-  await router.push({ query: assistantQuery("new") });
+  await openNewAssistantChat(router);
 }
 
 async function closeDrawer() {
@@ -373,7 +369,7 @@ watch(
 
 async function submitHistoryMessage() {
   const message = historyMessage.value.trim();
-  if (!message || composerDisabled.value) {
+  if (!message || historySending.value || composerDisabled.value) {
     return;
   }
 
@@ -388,16 +384,19 @@ async function submitHistoryMessage() {
 
   try {
     historySending.value = true;
-    const response = await assistantStore.sendFirstMessage(message, historyRequest.id, (conversationID) => {
-      historyRequest = undefined;
-      historyMessage.value = "";
-      if (route.query.assistant === "chats") {
-        void router.push({ query: assistantQuery(conversationID) });
-      }
-    });
+    const origin = router.currentRoute.value;
+    const response = await assistantStore.createChat(message, historyRequest.id);
     historyRequest = undefined;
-    if (response) {
+    if (!response.conversation_id || response.status === "disabled") {
       historyError.value = response.error_message || "Could not start a chat. Try again.";
+      return;
+    }
+    historyMessage.value = "";
+    if (router.currentRoute.value === origin) {
+      assistantStore.openCreatedChat(message, response);
+      await router.push({ query: assistantQuery(response.conversation_id), hash: route.hash });
+    } else if (historyOpen.value) {
+      await assistantStore.loadChats();
     }
   } catch (error) {
     historyError.value = error instanceof Error ? error.message : "Could not start a chat. Try again.";
@@ -715,7 +714,7 @@ function renderMessageText(role: string, text: string): string {
             rows="1"
             placeholder="Ask the assistant…"
             aria-label="Ask the assistant"
-            :readonly="composerDisabled"
+            :readonly="composerDisabled || historySending"
             @input="historyMessage = ($event.target as HTMLTextAreaElement).value; historyError = ''"
           />
           <button
@@ -723,7 +722,7 @@ function renderMessageText(role: string, text: string): string {
             class="assistant-send-button"
             type="submit"
             :aria-label="historySending ? 'Sending message' : 'Send message'"
-            :disabled="composerDisabled"
+            :disabled="composerDisabled || historySending"
           >
             <span v-if="historySending" class="assistant-activity-spinner" aria-hidden="true" />
             <svg v-else viewBox="0 0 24 24" aria-hidden="true">
