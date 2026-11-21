@@ -550,6 +550,7 @@ export interface AssistantChatResponse {
   request_id: string;
   conversation_id: string;
   answer?: string;
+  answer_sequence?: number;
   error_message?: string;
   poll_after_ms?: number;
   activity?: string[];
@@ -579,6 +580,7 @@ export interface AssistantUsageResponse {
 
 export interface AssistantChatSummary {
   id: string;
+  unread: boolean;
   title: string;
   created_at: string;
   updated_at: string;
@@ -600,6 +602,7 @@ export interface AssistantSuggestionsResponse {
 }
 
 export interface AssistantChatMessage {
+  sequence: number;
   role: "user" | "assistant" | "system";
   content: string;
   activity?: string[];

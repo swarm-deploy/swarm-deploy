@@ -1992,6 +1992,15 @@ func decodeListSwarmServicesResponse(resp *http.Response) (res *SwarmServicesRes
 	return res, validate.UnexpectedStatusCodeWithResponse(resp)
 }
 
+func decodeMarkAssistantChatReadResponse(resp *http.Response) (res *MarkAssistantChatReadNoContent, _ error) {
+	switch resp.StatusCode {
+	case 204:
+		// Code 204.
+		return &MarkAssistantChatReadNoContent{}, nil
+	}
+	return res, validate.UnexpectedStatusCodeWithResponse(resp)
+}
+
 func decodePutServiceSyncPauseResponse(resp *http.Response) (res *ServiceSyncPauseResponse, _ error) {
 	switch resp.StatusCode {
 	case 200:

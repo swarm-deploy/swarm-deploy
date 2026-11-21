@@ -4,6 +4,8 @@ import "time"
 
 // Turn describes one message in a conversation.
 type Turn struct {
+	// Sequence is assigned by the history repository and omitted from the stored payload.
+	Sequence int `json:"-"`
 	// Role is a participant role ("user", "assistant", or "system").
 	Role string `json:"role"`
 	// Content is a raw message text.

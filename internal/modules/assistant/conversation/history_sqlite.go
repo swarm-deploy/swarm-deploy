@@ -6,6 +6,7 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -48,7 +49,7 @@ func (s *SQLHistoryStorage) ReadChat(ctx context.Context, id string) (Chat, bool
 			return err
 		}
 		turnsQuery, turnsArgs, buildErr := s.db.Dialect().From("assistant_turns").Prepared(true).
-			Select("payload").Where(goqu.Ex{"chat_id": id}).Order(goqu.I("sequence").Asc()).ToSQL()
+			Select("sequence", "payload").Where(goqu.Ex{"chat_id": id}).Order(goqu.I("sequence").Asc()).ToSQL()
 		if buildErr != nil {
 			return buildErr
 		}
@@ -77,7 +78,22 @@ func (s *SQLHistoryStorage) readChatMetadata(ctx context.Context, id string) (Ch
 	}
 	meta := row.summary()
 	return Chat{ID: meta.ID, Title: meta.Title, CreatedAt: meta.CreatedAt, CreatedBy: row.CreatedBy.String,
-		UpdatedAt: meta.UpdatedAt, Usage: meta.Usage}, true, nil
+		UpdatedAt: meta.UpdatedAt, Unread: meta.Unread, Usage: meta.Usage}, true, nil
+}
+
+// MarkRead clears unread only when sequence still identifies the latest assistant reply.
+func (s *SQLHistoryStorage) MarkRead(ctx context.Context, id string, sequence int) error {
+	dialect := s.db.Dialect()
+	latestReply := dialect.From("assistant_turns").Select(goqu.MAX("sequence")).
+		Where(goqu.Ex{"chat_id": id}, goqu.L("json_extract(payload, '$.role')").Eq("assistant"))
+	query, args, err := dialect.Update("assistant_chats").Prepared(true).
+		Set(goqu.Record{"unread": false}).
+		Where(goqu.Ex{"id": id, "unread": true}, goqu.L("(?)", latestReply).Eq(sequence)).ToSQL()
+	if err != nil {
+		return err
+	}
+	_, err = s.db.Exec(ctx, query, args...)
+	return err
 }
 
 // SaveTurns appends turns and usage atomically, creating metadata lazily.
@@ -87,15 +103,16 @@ func (s *SQLHistoryStorage) SaveTurns(
 	id, createdBy string,
 	usage TokenUsage,
 	turns ...Turn,
-) error {
+) (int, error) {
 	id = strings.TrimSpace(id)
 	if id == "" {
-		return fmt.Errorf("assistant conversation id is required")
+		return -1, fmt.Errorf("assistant conversation id is required")
 	}
 	if len(turns) == 0 && usage.IsZero() {
-		return nil
+		return -1, nil
 	}
-	return s.db.WithinTransaction(ctx, func(ctx context.Context) error {
+	sequence := -1
+	err := s.db.WithinTransaction(ctx, func(ctx context.Context) error {
 		chat, exists, err := s.readChatMetadata(ctx, id)
 		if err != nil {
 			return err
@@ -119,16 +136,22 @@ func (s *SQLHistoryStorage) SaveTurns(
 			chat.Title = buildChatTitle(turns)
 		}
 		chat.UpdatedAt = now
+		chat.Unread = chat.Unread || slices.ContainsFunc(turns, func(turn Turn) bool {
+			return turn.Role == "assistant"
+		})
 		if err = s.saveChatSummary(ctx, chat); err != nil {
 			return err
 		}
+		sequence = next + len(turns) - 1
 		return s.insertTurns(ctx, id, next, turns)
 	})
+	return sequence, err
 }
 
 // Append appends turns without a usage sample.
 func (s *SQLHistoryStorage) Append(ctx context.Context, id string, turns ...Turn) error {
-	return s.SaveTurns(ctx, id, "", TokenUsage{}, turns...)
+	_, err := s.SaveTurns(ctx, id, "", TokenUsage{}, turns...)
+	return err
 }
 
 // Save atomically persists an entire chat, preserving timestamps during import.
@@ -162,12 +185,13 @@ func (s *SQLHistoryStorage) saveChatSummary(ctx context.Context, chat Chat) erro
 		Rows(goqu.Record{
 			"id": chat.ID, "title": chat.Title, "created_at": chat.CreatedAt.UTC(), "created_by": createdBy,
 			"updated_at": chat.UpdatedAt.UTC(), "input_tokens": input,
-			"output_tokens": output, "total_tokens": total,
+			"output_tokens": output, "total_tokens": total, "unread": chat.Unread,
 		}).
 		OnConflict(goqu.DoUpdate("id", goqu.Record{
 			"title": goqu.I("excluded.title"), "created_at": goqu.I("excluded.created_at"),
 			"updated_at": goqu.I("excluded.updated_at"), "input_tokens": goqu.I("excluded.input_tokens"),
 			"output_tokens": goqu.I("excluded.output_tokens"), "total_tokens": goqu.I("excluded.total_tokens"),
+			"unread": goqu.I("excluded.unread"),
 		})).ToSQL()
 	if err != nil {
 		return err
@@ -213,23 +237,27 @@ func (s *SQLHistoryStorage) saveTurn(ctx context.Context, chatID string, sequenc
 }
 
 func (s *SQLHistoryStorage) queryTurns(ctx context.Context, query string, args ...any) ([]Turn, error) {
-	var payloads [][]byte
-	if err := s.db.Select(ctx, &payloads, query, args...); err != nil {
+	var rows []struct {
+		Sequence int    `db:"sequence"`
+		Payload  []byte `db:"payload"`
+	}
+	if err := s.db.Select(ctx, &rows, query, args...); err != nil {
 		return nil, err
 	}
-	result := make([]Turn, 0, len(payloads))
-	for _, payload := range payloads {
+	result := make([]Turn, 0, len(rows))
+	for _, row := range rows {
 		var value Turn
-		if err := json.Unmarshal(payload, &value); err != nil {
+		if err := json.Unmarshal(row.Payload, &value); err != nil {
 			return nil, err
 		}
+		value.Sequence = row.Sequence
 		result = append(result, value)
 	}
 	return result, nil
 }
 
 var chatColumns = []any{
-	"id", "title", "created_at", "updated_at", "input_tokens", "output_tokens", "total_tokens",
+	"id", "title", "created_at", "updated_at", "unread", "input_tokens", "output_tokens", "total_tokens",
 }
 
 type chatRow struct {
@@ -238,6 +266,7 @@ type chatRow struct {
 	CreatedAt    time.Time      `db:"created_at"`
 	CreatedBy    sql.NullString `db:"created_by"`
 	UpdatedAt    time.Time      `db:"updated_at"`
+	Unread       bool           `db:"unread"`
 	InputTokens  sql.NullInt64  `db:"input_tokens"`
 	OutputTokens sql.NullInt64  `db:"output_tokens"`
 	TotalTokens  sql.NullInt64  `db:"total_tokens"`
@@ -245,7 +274,7 @@ type chatRow struct {
 
 func (r chatRow) summary() ChatSummary {
 	result := ChatSummary{
-		ID: r.ID, Title: r.Title, CreatedAt: r.CreatedAt.UTC(), UpdatedAt: r.UpdatedAt.UTC(),
+		ID: r.ID, Title: r.Title, CreatedAt: r.CreatedAt.UTC(), UpdatedAt: r.UpdatedAt.UTC(), Unread: r.Unread,
 	}
 	if r.InputTokens.Valid || r.OutputTokens.Valid || r.TotalTokens.Valid {
 		result.Usage = &TokenUsage{

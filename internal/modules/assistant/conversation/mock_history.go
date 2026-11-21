@@ -41,6 +41,20 @@ func (m *MockHistoryStorage) EXPECT() *MockHistoryStorageMockRecorder {
 	return m.recorder
 }
 
+// MarkRead mocks base method.
+func (m *MockHistoryStorage) MarkRead(ctx context.Context, id string, sequence int) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "MarkRead", ctx, id, sequence)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// MarkRead indicates an expected call of MarkRead.
+func (mr *MockHistoryStorageMockRecorder) MarkRead(ctx, id, sequence any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkRead", reflect.TypeOf((*MockHistoryStorage)(nil).MarkRead), ctx, id, sequence)
+}
+
 // ReadChat mocks base method.
 func (m *MockHistoryStorage) ReadChat(ctx context.Context, id string) (Chat, bool, error) {
 	m.ctrl.T.Helper()
@@ -88,15 +102,16 @@ func (mr *MockHistoryStorageMockRecorder) ReadUsage(ctx, from, to, interval any)
 }
 
 // SaveTurns mocks base method.
-func (m *MockHistoryStorage) SaveTurns(ctx context.Context, id, createdBy string, usage TokenUsage, turns ...Turn) error {
+func (m *MockHistoryStorage) SaveTurns(ctx context.Context, id, createdBy string, usage TokenUsage, turns ...Turn) (int, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, id, createdBy, usage}
 	for _, a := range turns {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "SaveTurns", varargs...)
-	ret0, _ := ret[0].(error)
-	return ret0
+	ret0, _ := ret[0].(int)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
 }
 
 // SaveTurns indicates an expected call of SaveTurns.

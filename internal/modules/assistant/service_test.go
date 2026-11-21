@@ -532,12 +532,12 @@ func TestServiceChatDeduplicatesAtRunCapacity(t *testing.T) {
 			)
 			require.NoError(t, err)
 			oldest := newChatRun("request-0", "conversation", "привет", false)
-			oldest.finish(StatusCompleted, "original answer", "")
+			oldest.finish(StatusCompleted, "original answer", "", nil)
 			oldest.finishedAt = time.Now().Add(-time.Minute)
 			serviceInstance.runs[oldest.requestID] = oldest
 			for index := 1; index < maxRetainedRuns; index++ {
 				run := newChatRun("request-"+strconv.Itoa(index), "conversation", "привет", false)
-				run.finish(StatusCompleted, "answer", "")
+				run.finish(StatusCompleted, "answer", "", nil)
 				serviceInstance.runs[run.requestID] = run
 			}
 
@@ -683,8 +683,8 @@ func TestServiceChatSavesQuestionBeforeReply(t *testing.T) {
 			conversationID := ""
 			if testCase.previous != nil {
 				conversationID = "existing"
-				require.NoError(t, history.SaveTurns(t.Context(), conversationID, "alice", conversation.TokenUsage{},
-					testCase.previous...))
+				_, err := history.SaveTurns(t.Context(), conversationID, "alice", conversation.TokenUsage{}, testCase.previous...)
+				require.NoError(t, err)
 			}
 			tools := NewMockToolExecutor(gomock.NewController(t))
 			tools.EXPECT().Definitions().AnyTimes()
@@ -703,7 +703,7 @@ func TestServiceChatSavesQuestionBeforeReply(t *testing.T) {
 			visible, found, err := service.GetChat(t.Context(), started.ConversationID)
 			require.NoError(t, err)
 			require.True(t, found)
-			assert.Equal(t, ChatMessage{Role: "user", Content: question}, visible.Messages[len(visible.Messages)-1])
+			assert.Equal(t, ChatMessage{Sequence: len(testCase.previous), Role: "user", Content: question}, visible.Messages[len(visible.Messages)-1])
 			assert.Len(t, visible.Messages, len(testCase.previous)+1)
 			require.NotNil(t, visible.ActiveRequest)
 			assert.Equal(t, started.RequestID, visible.ActiveRequest.RequestID)
@@ -720,6 +720,9 @@ func TestServiceChatSavesQuestionBeforeReply(t *testing.T) {
 			require.Len(t, final.Messages, len(testCase.previous)+2)
 			assert.Equal(t, question, final.Messages[len(final.Messages)-2].Content)
 			assert.Equal(t, "Cluster is healthy", final.Messages[len(final.Messages)-1].Content)
+			require.NotNil(t, completed.AnswerSequence)
+			assert.Equal(t, final.Messages[len(final.Messages)-1].Sequence, *completed.AnswerSequence)
+			assert.True(t, final.Unread)
 			chat, found, err := history.ReadChat(t.Context(), started.ConversationID)
 			require.NoError(t, err)
 			require.True(t, found)
@@ -742,13 +745,13 @@ func TestServiceGetChatReturnsConsistentSnapshot(t *testing.T) {
 			unblock := sync.OnceFunc(func() { close(resume) })
 			defer unblock()
 			paused.EXPECT().SaveTurns(gomock.Any(), "chat", gomock.Any(), gomock.Any(), gomock.Any()).
-				DoAndReturn(func(ctx context.Context, id, by string, usage conversation.TokenUsage, turns ...conversation.Turn) error {
-					err := history.SaveTurns(ctx, id, by, usage, turns...)
+				DoAndReturn(func(ctx context.Context, id, by string, usage conversation.TokenUsage, turns ...conversation.Turn) (int, error) {
+					sequence, err := history.SaveTurns(ctx, id, by, usage, turns...)
 					if err == nil && turns[0].Role == role {
 						close(committed)
 						<-resume
 					}
-					return err
+					return sequence, err
 				}).Times(2)
 
 			tools := NewMockToolExecutor(ctrl)
@@ -805,6 +808,8 @@ func TestServiceChatFailsWhenReplyCannotBeSaved(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, found)
 	assert.Equal(t, []ChatMessage{{Role: "user", Content: "Check the cluster"}}, chat.Messages)
+	assert.False(t, chat.Unread)
+	assert.Nil(t, response.AnswerSequence)
 	assert.Nil(t, chat.ActiveRequest)
 	modelHistory, ok := service.conversationStorage.Get(response.ConversationID)
 	require.True(t, ok)
@@ -875,4 +880,49 @@ func newSQLHistory(t *testing.T) *conversation.SQLHistoryStorage {
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	return conversation.NewSQLHistoryStorage(db)
+}
+
+func TestServiceChatGenerationFailurePreservesUnread(t *testing.T) {
+	for _, unread := range []bool{false, true} {
+		name := "read"
+		if unread {
+			name = "unread"
+		}
+		t.Run(name, func(t *testing.T) {
+			const chatID = "chat"
+			ctx := t.Context()
+			history := newSQLHistory(t)
+			sequence, err := history.SaveTurns(ctx, chatID, "", conversation.TokenUsage{},
+				conversation.Turn{Role: "user", Content: "Earlier question"},
+				conversation.Turn{Role: "assistant", Content: "Earlier reply"})
+			require.NoError(t, err)
+			if !unread {
+				require.NoError(t, history.MarkRead(ctx, chatID, sequence))
+			}
+
+			var routed atomic.Bool
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				if routed.CompareAndSwap(false, true) {
+					writeChatResponse(t, w, string(RouteGeneral), nil)
+					return
+				}
+				http.Error(w, "generation failed", http.StatusBadRequest)
+			}))
+			defer server.Close()
+			tools := NewMockToolExecutor(gomock.NewController(t))
+			tools.EXPECT().Definitions().AnyTimes()
+			service := newRoutingTestServiceWithHistory(t, server.URL, serviceStore(t, nil), tools, nil, history)
+
+			response := service.Chat(ctx, ChatRequest{ConversationID: chatID, Message: "Check the cluster"})
+			require.Equal(t, StatusFailed, response.Status)
+			assert.Equal(t, "Failed to generate assistant response", response.ErrorMessage)
+			assert.Nil(t, response.AnswerSequence)
+			chat, found, err := service.GetChat(ctx, chatID)
+			require.NoError(t, err)
+			require.True(t, found)
+			assert.Equal(t, unread, chat.Unread)
+			require.Len(t, chat.Messages, 3)
+			assert.Equal(t, "user", chat.Messages[2].Role)
+		})
+	}
 }

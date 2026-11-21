@@ -50,6 +50,7 @@ const (
 	ListStacksOperation                 OperationName = "ListStacks"
 	ListSwarmServiceTasksOperation      OperationName = "ListSwarmServiceTasks"
 	ListSwarmServicesOperation          OperationName = "ListSwarmServices"
+	MarkAssistantChatReadOperation      OperationName = "MarkAssistantChatRead"
 	PutServiceSyncPauseOperation        OperationName = "PutServiceSyncPause"
 	PutStackSyncPauseOperation          OperationName = "PutStackSyncPause"
 	RestartSwarmServiceOperation        OperationName = "RestartSwarmService"
