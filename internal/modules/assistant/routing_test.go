@@ -245,52 +245,94 @@ func TestAssistantRejectsPromptInjectionInServiceMetadata(t *testing.T) {
 	assert.Equal(t, "prompt injection detected in retrieved service metadata", state.rejectedPrompt)
 }
 
-func TestAssistantReconsidersScopeWithConversationHistory(t *testing.T) {
-	for _, tc := range []struct{ question, reply string }{
-		{"Как установить Prometheus?", "Добавьте сервис и файл конфигурации в Compose управляемого стека."},
-		{"Как приготовить борщ?", "Я помогаю с Docker Swarm и эксплуатацией инфраструктуры."},
+func TestAssistantScopeDecisionFinishesBeforeGeneration(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		question string
+		decision string
+		route    Route
+		reply    string
+	}{
+		{
+			name:     "clearly outside scope",
+			question: "Сделай HTML-страницу с кнопкой Download",
+			decision: `{"route":"out_of_scope","capabilities":["service_context","cluster"],"operation":{"type":"deploy_sync_trigger"},"language":"ru"}`,
+			route:    RouteOutOfScope,
+			reply:    "Я помогаю с эксплуатацией swarm-deploy, Docker Swarm и инфраструктуры.",
+		},
+		{
+			name:     "ambiguous goal",
+			question: "Can you help me configure it?",
+			decision: `{"route":"needs_clarification","capabilities":["configuration"],"operation":null,"language":"en"}`,
+			route:    RouteNeedsClarification,
+			reply:    "What swarm-deploy, Docker Swarm, or infrastructure task are you trying to solve?",
+		},
 	} {
-		t.Run(tc.question, func(t *testing.T) {
+		t.Run(tc.name, func(t *testing.T) {
 			store, reads := observedServiceStore(t, []model.Info{{Name: "api", Stack: "core"}})
 			tools := &fakeTools{definitions: assistantTestToolDefinitions()}
-			const previous = "Я помогаю только со swarm-deploy."
 			var requests []capturedChatRequest
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 				requests = append(requests, decodeCapturedChatRequest(t, req))
 				w.Header().Set("Content-Type", "application/json")
-				switch len(requests) {
-				case 1, 3:
-					// Even a contradictory capability selection cannot turn a scope check into a lookup.
-					writeChatResponse(t, w, `{"route":"out_of_scope","capabilities":["service_context","cluster"]}`, nil)
-				case 2:
-					writeChatResponse(t, w, previous, nil)
-				default:
-					writeChatResponse(t, w, tc.reply, nil)
-				}
+				writeChatResponse(t, w, tc.decision, nil)
 			}))
 			defer server.Close()
 
 			svc := newRoutingTestService(t, server.URL, store, tools, nil)
-			first := svc.Chat(t.Context(), ChatRequest{Message: tc.question})
-			require.Equal(t, previous, first.Answer)
-			second := svc.Chat(t.Context(), ChatRequest{ConversationID: first.ConversationID, Message: "Ты че"})
-			require.Equal(t, StatusCompleted, second.Status)
-			assert.Equal(t, tc.reply, second.Answer)
-			require.Len(t, requests, 4)
-			for _, req := range requests[2:] {
-				require.Len(t, req.Messages, 4)
-				assert.Equal(t, tc.question, req.Messages[1].Content)
-				assert.Equal(t, "assistant", req.Messages[2].Role)
-				assert.Equal(t, previous, req.Messages[2].Content)
-				assert.Equal(t, "Ты че", req.Messages[3].Content)
-			}
-			for _, req := range []capturedChatRequest{requests[1], requests[3]} {
-				assert.Equal(t, []string{assistantPromptInjectionReportTool}, capturedToolNames(req))
-			}
+			response := svc.Chat(t.Context(), ChatRequest{Message: tc.question})
+			require.Equal(t, StatusCompleted, response.Status)
+			assert.Equal(t, tc.reply, response.Answer)
+			assert.Contains(t, response.Activity, "Route: "+string(tc.route))
+			assert.NotContains(t, response.Activity, "Generating response")
+			require.Len(t, requests, 1)
+			assert.Empty(t, requests[0].Tools)
 			assert.Zero(t, reads.Load())
 			assert.Empty(t, tools.calls)
 		})
 	}
+}
+
+func TestAssistantRoutesMixedFollowUpUsingConversationHistory(t *testing.T) {
+	const firstQuestion = "Как установить Prometheus?"
+	const firstAnswer = "Добавьте Prometheus в Compose управляемого стека."
+	const followUp = "А какие настройки добавить? И сделай HTML-страницу с кнопкой Download."
+	const scopedRequest = "Какие настройки Prometheus добавить в Compose?"
+	const followUpAnswer = "Добавьте конфигурацию scrape в файл prometheus.yml."
+
+	replies := []string{
+		`{"route":"platform","capabilities":[],"operation":null}`,
+		firstAnswer,
+		`{"route":"platform","capabilities":[],"operation":null,"scoped_request":"Какие настройки Prometheus добавить в Compose?"}`,
+		followUpAnswer,
+	}
+	var requests []capturedChatRequest
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		requests = append(requests, decodeCapturedChatRequest(t, req))
+		w.Header().Set("Content-Type", "application/json")
+		require.LessOrEqual(t, len(requests), len(replies))
+		writeChatResponse(t, w, replies[len(requests)-1], nil)
+	}))
+	defer server.Close()
+
+	svc := newRoutingTestService(t, server.URL, serviceStore(t, nil), &fakeTools{}, nil)
+	first := svc.Chat(t.Context(), ChatRequest{Message: firstQuestion})
+	require.Equal(t, StatusCompleted, first.Status)
+	require.Equal(t, firstAnswer, first.Answer)
+	second := svc.Chat(t.Context(), ChatRequest{ConversationID: first.ConversationID, Message: followUp})
+	require.Equal(t, StatusCompleted, second.Status)
+	assert.Equal(t, followUpAnswer, second.Answer)
+
+	require.Len(t, requests, len(replies))
+	routerRequest, answerRequest := requests[2], requests[3]
+	for _, req := range []capturedChatRequest{routerRequest, answerRequest} {
+		require.Len(t, req.Messages, 4)
+		assert.Equal(t, firstQuestion, req.Messages[1].Content)
+		assert.Equal(t, firstAnswer, req.Messages[2].Content)
+	}
+	assert.Equal(t, followUp, routerRequest.Messages[3].Content)
+	assert.Equal(t, scopedRequest, answerRequest.Messages[3].Content)
+	assert.False(t, requestContains(answerRequest, "кнопкой Download"))
 }
 
 func TestAssistantGreetingFastPathUsesNoModelRAGOrTools(t *testing.T) {

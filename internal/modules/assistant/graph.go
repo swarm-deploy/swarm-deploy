@@ -40,20 +40,6 @@ const (
 	graphNodeFinalizeTerminal = "finalize_terminal_result"
 )
 
-var helloMessages = map[string]struct{}{
-	"hello":       {},
-	"hi":          {},
-	"hey":         {},
-	"thanks":      {},
-	"thank you":   {},
-	"привет":      {},
-	"здарова":     {},
-	"ку":          {},
-	"здравствуй":  {},
-	"добрый день": {},
-	"спасибо":     {},
-}
-
 var fastConversationResponses = map[string]string{
 	"hello":       "Hello! How can I help with swarm-deploy?",
 	"hi":          "Hi! How can I help with swarm-deploy?",
@@ -105,8 +91,7 @@ type graphExecutionState struct {
 	preparedSizes           preparedRequestSizes
 	terminalTool            string
 	securityReportAttempted bool
-	operation               *OperationIntent
-	operationHandled        bool
+	routeCompleted          bool
 	reportActivity          func(string)
 }
 
@@ -213,7 +198,7 @@ func (g *graph) addGraphEdges(messageGraph *langgraph.MessageGraph, executionSta
 	messageGraph.AddConditionalEdges(
 		graphNodeRoute,
 		func(_ context.Context, _ []llms.MessageContent) string {
-			if executionState.operationHandled {
+			if executionState.routeCompleted {
 				return langgraph.END
 			}
 			if capabilitiesNeedServiceContext(executionState.capabilities) {
@@ -301,44 +286,51 @@ func (g *graph) routeNode(
 ) func(context.Context, []llms.MessageContent) ([]llms.MessageContent, error) {
 	return func(ctx context.Context, messages []llms.MessageContent) ([]llms.MessageContent, error) {
 		executionState.report("Routing request")
-		route := RouteGeneral
-		var capabilities []Capability
-		if !isGreeting(executionState.userMessage) {
-			result, err := g.router.Route(ctx, RouteRequest{
-				Message:       executionState.userMessage,
-				RecentHistory: executionState.history,
-			})
-			executionState.usage.Add(result.Usage)
-			if err != nil {
-				reason := routerFallbackReason(err)
-				slog.ErrorContext(ctx, "[assistant] router failed",
-					slog.String("reason", reason),
-					slog.Any("err", err),
-				)
-				if g.observer != nil {
-					g.observer.RecordRouterFallback(reason)
-				}
-				return messages, fmt.Errorf("route assistant request: %w", err)
+		result, err := g.router.Route(ctx, RouteRequest{
+			Message:       executionState.userMessage,
+			RecentHistory: executionState.history,
+		})
+		executionState.usage.Add(result.Usage)
+		if err != nil {
+			reason := routerFallbackReason(err)
+			slog.ErrorContext(ctx, "[assistant] router failed",
+				slog.String("reason", reason),
+				slog.Any("err", err),
+			)
+			if g.observer != nil {
+				g.observer.RecordRouterFallback(reason)
 			}
-			route = result.Route
-			capabilities = result.Capabilities
-			executionState.operation = result.Operation
+			return messages, fmt.Errorf("route assistant request: %w", err)
+		}
+
+		route := result.Route
+		executionState.route = route
+		executionState.report("Route: " + string(route))
+		if result.ScopeReply != "" {
+			executionState.answer = result.ScopeReply
+			executionState.routeCompleted = true
+			return messages, nil
+		}
+		if result.ScopedRequest != "" {
+			if g.guard.Check(result.ScopedRequest) {
+				executionState.rejectedPrompt = "prompt injection detected in scoped request"
+				return messages, &guard.PromptInjectionError{Prompt: executionState.rejectedPrompt}
+			}
+			executionState.userMessage = result.ScopedRequest
 		}
 
 		profile, ok := routeProfile(route)
 		if !ok {
 			return messages, fmt.Errorf("profile for route %q is not configured", route)
 		}
-		executionState.route = route
 		executionState.profile = profile
-		executionState.capabilities = append([]Capability(nil), capabilities...)
-		executionState.effectiveToolSet = g.responseToolSet(route, capabilities)
-		executionState.report("Route: " + string(route))
-		if executionState.operation != nil {
-			answer, usage := executionState.operationTurn.startPendingOperation(ctx, *executionState.operation)
+		executionState.capabilities = append([]Capability(nil), result.Capabilities...)
+		executionState.effectiveToolSet = g.responseToolSet(route, result.Capabilities)
+		if result.Operation != nil {
+			answer, usage := executionState.operationTurn.startPendingOperation(ctx, *result.Operation)
 			executionState.answer = answer
 			executionState.usage.Add(usage)
-			executionState.operationHandled = true
+			executionState.routeCompleted = true
 		}
 		return messages, nil
 	}
@@ -623,16 +615,6 @@ func fastConversationResponse(userMessage string) (string, bool) {
 	normalized := strings.ToLower(strings.TrimSpace(userMessage))
 	answer, ok := fastConversationResponses[normalized]
 	return answer, ok
-}
-
-func isGreeting(userMessage string) bool {
-	normalized := strings.ToLower(strings.TrimSpace(userMessage))
-	if normalized == "" {
-		return true
-	}
-
-	_, ok := helloMessages[normalized]
-	return ok
 }
 
 func buildServicesContextMessage(services []model.Info) string {

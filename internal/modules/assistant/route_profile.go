@@ -17,11 +17,11 @@ type RouteProfile struct {
 	Prompt string
 }
 
+//nolint:exhaustive // Terminal scope decisions do not have a response profile.
 var routeProfiles = map[Route]RouteProfile{
 	RouteGeneral: {
 		Prompt: generalPrompt,
 	},
-	RouteOutOfScope: {Prompt: platformPrompt},
 	RoutePlatform: {
 		Prompt: platformPrompt,
 	},

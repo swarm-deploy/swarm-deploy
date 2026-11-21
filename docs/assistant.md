@@ -9,9 +9,11 @@ Assistant is available only when `assistant.enabled: true`.
 
 ## Request routing
 
-For a regular chat turn the configured model classifies the current message and up to six recent messages without calling tools. The selected profile is one of `general`, `platform`, `services`, `cluster`, `deployments`, `diagnostics`, `lookups`, or `out_of_scope`. Exact greetings and acknowledgements use a local fast path. An invalid router response fails the request.
+For a regular chat turn the configured model classifies the user's goal using the current message and up to six recent messages without calling tools. The assistant handles swarm-deploy usage and practical infrastructure tasks, including deployment, configuration, observability, operations, and troubleshooting. In-scope requests use the `general`, `platform`, `services`, `cluster`, `deployments`, `diagnostics`, or `lookups` profile. Exact greetings and acknowledgements use a local fast path. An invalid router response fails the request.
 
-`platform` covers stable infrastructure guidance as well as swarm-deploy itself. Questions about the actual installation can request the configuration capability. Capabilities select operational tools independently of the response profile; only `service_context` requests service catalog retrieval. Pure platform guidance and a preliminary `out_of_scope` decision reach the response model with conversation history and only the security-report tool. This lets the assistant correct a misunderstanding while keeping unrelated requests outside its specialization.
+An `out_of_scope` decision returns a brief description of the assistant's specialization. A `needs_clarification` decision asks which infrastructure task the user wants to solve. Both end the turn after routing, before retrieval, answer generation, or tool execution. For mixed requests, the router selects capabilities and passes the supported part of the current message on for processing. The original user message is stored in the conversation.
+
+`platform` covers stable infrastructure guidance as well as swarm-deploy itself. Questions about the actual installation can request the configuration capability. Capabilities select operational tools independently of the response profile. Only `service_context` requests service catalog retrieval. Pure platform guidance reaches the response model with conversation history and the security-report tool.
 
 ## Terminal service actions
 
