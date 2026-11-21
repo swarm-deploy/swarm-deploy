@@ -40,10 +40,13 @@ func buildSystemPrompt(customPrompt, routePrompt string) string {
 		prompt = fmt.Sprintf("%s\n\n%s", prompt, routePrompt)
 	}
 
-	customPrompt = strings.TrimSpace(customPrompt)
-	if customPrompt != "" {
-		prompt += customPromptHeading + customPrompt
-	}
+	return prompt + customPromptSuffix(customPrompt)
+}
 
-	return prompt
+func customPromptSuffix(customPrompt string) string {
+	customPrompt = strings.TrimSpace(customPrompt)
+	if customPrompt == "" {
+		return ""
+	}
+	return customPromptHeading + customPrompt
 }

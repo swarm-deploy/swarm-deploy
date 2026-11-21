@@ -76,7 +76,7 @@ func NewService(
 	eventDispatcher dispatcher.Dispatcher,
 	metrics metrics.Assistant,
 ) (*Service, error) {
-	modelClient := newOpenAIClient(config.BaseURL, config.APIToken, config.OrganizationID, config.SystemPrompt)
+	modelClient := newOpenAIClient(config.BaseURL, config.APIToken, config.OrganizationID, customPromptSuffix(config.SystemPrompt))
 	embeddingModelName := config.EmbeddingModelName
 	if embeddingModelName == "" {
 		embeddingModelName = config.ModelName

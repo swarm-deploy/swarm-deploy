@@ -24,7 +24,7 @@ type openAIClient struct {
 	client openai.Client
 }
 
-func newOpenAIClient(baseURL, token, organizationID, customPrompt string) *openAIClient {
+func newOpenAIClient(baseURL, token, organizationID, customPromptSuffix string) *openAIClient {
 	baseURL = strings.TrimSpace(baseURL)
 	token = strings.TrimSpace(token)
 	organizationID = strings.TrimSpace(organizationID)
@@ -40,7 +40,7 @@ func newOpenAIClient(baseURL, token, organizationID, customPrompt string) *openA
 		options = append(options, option.WithOrganization(organizationID))
 	}
 	if tracing.Enabled() {
-		options = append(options, option.WithMiddleware(newOpenAITracing(customPrompt)))
+		options = append(options, option.WithMiddleware(newOpenAITracing(customPromptSuffix)))
 	}
 
 	return &openAIClient{
