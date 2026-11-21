@@ -55,7 +55,7 @@ func (g *graph) effectiveToolDefinitions(effectiveToolSet map[string]struct{}) [
 
 // Guidance without live evidence only needs the built-in security report.
 func (g *graph) responseToolSet(route Route, capabilities []Capability) map[string]struct{} {
-	if route == RouteOutOfScope || (route == RoutePlatform && len(capabilities) == 0) {
+	if route == RoutePlatform && len(capabilities) == 0 {
 		return map[string]struct{}{assistantPromptInjectionReportTool: {}}
 	}
 	return g.effectiveToolSet(capabilities)

@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	routerMaxTokens     = 128
+	routerMaxTokens     = 256
 	routerHistoryTurns  = 6
 	routerExtraMessages = 2
 )
@@ -19,14 +19,15 @@ const (
 type Route string
 
 const (
-	RouteGeneral     Route = "general"
-	RouteOutOfScope  Route = "out_of_scope"
-	RoutePlatform    Route = "platform"
-	RouteServices    Route = "services"
-	RouteCluster     Route = "cluster"
-	RouteDeployments Route = "deployments"
-	RouteDiagnostics Route = "diagnostics"
-	RouteLookups     Route = "lookups"
+	RouteGeneral            Route = "general"
+	RouteOutOfScope         Route = "out_of_scope"
+	RouteNeedsClarification Route = "needs_clarification"
+	RoutePlatform           Route = "platform"
+	RouteServices           Route = "services"
+	RouteCluster            Route = "cluster"
+	RouteDeployments        Route = "deployments"
+	RouteDiagnostics        Route = "diagnostics"
+	RouteLookups            Route = "lookups"
 )
 
 var (
@@ -40,10 +41,33 @@ type RouteRequest struct {
 }
 
 type RouteResult struct {
-	Route        Route
+	// Route is the selected route.
+	Route Route
+	// Capabilities are the context and tool groups needed for the supported request.
 	Capabilities []Capability
-	Operation    *OperationIntent
-	Usage        conversation.TokenUsage
+	// Operation is the supported mutation to handle through the confirmation flow.
+	Operation *OperationIntent
+	// ScopedRequest contains the supported parts of a mixed request.
+	ScopedRequest string
+	// LocalReply completes the turn before answer generation.
+	LocalReply string
+	// Usage is the token usage of the routing completion.
+	Usage conversation.TokenUsage
+}
+
+// RouteDecision is the structured decision returned by the router model.
+type RouteDecision struct {
+	// Route is the selected route.
+	Route Route `json:"route"`
+	// Capabilities are the context and tool groups required by the supported request.
+	// Nil means the router omitted the field and route defaults should be used for compatibility.
+	Capabilities []Capability `json:"capabilities"`
+	// Operation is a supported mutating operation, when recognized.
+	Operation *OperationIntent `json:"operation"`
+	// ScopedRequest contains only the supported parts of a mixed request.
+	ScopedRequest string `json:"scoped_request"`
+	// Language selects the local reply for terminal routes.
+	Language string `json:"language"`
 }
 
 type Router interface {
@@ -86,7 +110,10 @@ func (r *llmRouter) Route(ctx context.Context, req RouteRequest) (RouteResult, e
 
 	rawRoute := strings.ToLower(strings.TrimSpace(string(decision.Route)))
 	route := Route(rawRoute)
-	if !isKnownRoute(route) {
+	if reply := localRouteReply(route, decision.Language); reply != "" {
+		return RouteResult{Route: route, LocalReply: reply, Usage: completion.Usage}, nil
+	}
+	if _, ok := routeProfiles[route]; !ok {
 		if rawRoute != "" && !strings.ContainsAny(rawRoute, " \t\r\n") {
 			return RouteResult{Usage: completion.Usage}, fmt.Errorf("%w: %q", errUnknownRoute, completion.Content)
 		}
@@ -106,10 +133,6 @@ func (r *llmRouter) Route(ctx context.Context, req RouteRequest) (RouteResult, e
 		)
 	}
 
-	if route == RouteOutOfScope {
-		normalizedCapabilities = nil
-	}
-
 	if decision.Operation != nil && !operationAllowedForRoute(route, decision.Operation.Type) {
 		decision.Operation = nil
 	}
@@ -125,8 +148,30 @@ func (r *llmRouter) Route(ctx context.Context, req RouteRequest) (RouteResult, e
 	}
 
 	return RouteResult{
-		Route: route, Capabilities: normalizedCapabilities, Operation: decision.Operation, Usage: completion.Usage,
+		Route:         route,
+		Capabilities:  normalizedCapabilities,
+		Operation:     decision.Operation,
+		ScopedRequest: strings.TrimSpace(decision.ScopedRequest),
+		Usage:         completion.Usage,
 	}, nil
+}
+
+func localRouteReply(route Route, language string) string {
+	russian := strings.EqualFold(strings.TrimSpace(language), "ru")
+	switch route { //nolint:exhaustive // Only terminal routes have a local reply.
+	case RouteGeneral, RouteOutOfScope:
+		if russian {
+			return "Я помогаю с эксплуатацией swarm-deploy, Docker Swarm и инфраструктуры."
+		}
+		return "I help with swarm-deploy, Docker Swarm, and infrastructure operations."
+	case RouteNeedsClarification:
+		if russian {
+			return "Какую задачу по swarm-deploy, Docker Swarm или инфраструктуре вы хотите решить?"
+		}
+		return "What swarm-deploy, Docker Swarm, or infrastructure task are you trying to solve?"
+	default:
+		return ""
+	}
 }
 
 func decodeRouteDecision(content string) (RouteDecision, error) {
@@ -185,19 +230,19 @@ func recentTurns(history []conversation.Turn, limit int) []conversation.Turn {
 	return history[len(history)-limit:]
 }
 
-func isKnownRoute(route Route) bool {
-	_, ok := routeProfiles[route]
-	return ok
-}
-
 //nolint:lll // Keeping prompt instructions on semantic lines makes the model-facing text easier to audit.
 const routerSystemPrompt = `Classify the user's request for the swarm-deploy assistant.
 Return compact JSON only: {"route":"<route>","capabilities":["<capability>"],"operation":null}.
-Choose exactly one primary route for response guidance. Capabilities are composable: include every context/tool group needed to complete the request, including cross-domain requests.
+First identify the requested outcome using the latest message and recent conversation. Supported goals are using swarm-deploy and deploying, configuring, observing, operating, or troubleshooting workloads and infrastructure. An infrastructure task can be supported without naming Docker or swarm-deploy.
+Choose a response profile only when the requested result directly serves a supported goal or a listed lookup. Classify the outcome the user actually asks for. A related term, product name, or earlier infrastructure topic does not make a new task supported.
+For a mixed request, choose the route, capabilities, and operation for its supported parts only. Add "scoped_request" containing those parts in the user's language, preserving exact resource names and relevant constraints. Omit it when the whole request is supported.
+For general, out_of_scope, or needs_clarification, return empty capabilities, a null operation, and "language": "ru" if replying in Russian or "en" otherwise.
+Capabilities are composable: include every context/tool group needed for the supported request.
 Routes:
-- general: greetings, acknowledgements, assistant identity, and short conversation with the assistant itself
-- out_of_scope: unrelated to swarm-deploy, Docker Swarm, deployment, runtime, observability, troubleshooting, or infrastructure operations
-- platform: product behavior, running global configuration, and practical infrastructure guidance: installing components, monitoring, deployment patterns, and Docker Swarm concepts
+- general: greetings, acknowledgements, and questions about this assistant's identity or remit
+- out_of_scope: clear requested outcome with no supported part
+- needs_clarification: the requested outcome or its connection to a supported goal remains unclear after considering the conversation
+- platform: how to use swarm-deploy and its built-in assistant, product behavior, running global configuration, and practical infrastructure guidance: installing components, monitoring, deployment patterns, and Docker Swarm concepts
 - services: service catalog or service-focused inspection/operations
 - cluster: nodes, Docker networks, plugins, or secrets
 - deployments: synchronization, deployment/event history, recommendations, git history, or commit diffs
@@ -218,7 +263,7 @@ Capabilities:
 - tls: live certificate, chain, expiry, or negotiated TLS checks for a specific endpoint. Use lookups for a focused check and diagnostics when investigating a failure.
 - metrics: application metrics lookup
 - configuration: read actual global swarm-deploy settings when asked how it is configured, what is enabled, or what limits apply. Combine with runtime capabilities for diagnoses that depend on both settings and live evidence.
-For explanations and how-to questions choose platform with empty capabilities and null operation unless the answer needs actual environment data. An infrastructure task can be in scope without naming Docker or swarm-deploy. Decide by the requested outcome.
+For supported explanations and how-to questions choose platform with empty capabilities and null operation unless the answer needs actual environment data.
 Do not add capabilities merely because a route commonly uses them. Add only what this request needs.
 Date/time uses the cross-cutting date tool and needs no capability.
 For restart or replica changes, operation is {"type":"service_restart_trigger|service_replicas_set","target":"literal target or empty","replicas":number-or-null}; include service_operations.
@@ -226,8 +271,8 @@ For a request to start synchronization, use the deployments route and operation 
 For Pause Sync mutations, use operation {"type":"sync_pause_set|sync_pause_resume","target":"stack or stack/service","scope":"stack|service","expires_at":"absolute RFC3339 time or null","replicas":number-or-null}; include pause_sync. A replicas value combines pause-first with scaling.
 Target is copied from the current user message. Never infer a missing operation target from history.
 Examples:
-"Привет" -> {"route":"general","capabilities":[],"operation":null}
-"Где находится Юпитер?" -> {"route":"out_of_scope","capabilities":[],"operation":null}
+"Привет" -> {"route":"general","capabilities":[],"operation":null,"language":"ru"}
+"Где находится Юпитер?" -> {"route":"out_of_scope","capabilities":[],"operation":null,"language":"ru"}
 "Покажи логи api" -> {"route":"services","capabilities":["service_context","service_runtime"],"operation":null}
 "Проверь DNS api.example.com" -> {"route":"lookups","capabilities":["dns"],"operation":null}
 "Когда истекает TLS-сертификат api.example.com?" -> {"route":"lookups","capabilities":["tls"],"operation":null}

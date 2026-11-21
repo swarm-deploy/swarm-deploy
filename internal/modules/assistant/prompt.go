@@ -14,9 +14,6 @@ const customPromptHeading = "\n\nProject-specific instructions:\n"
 //go:embed prompts/base.md
 var basePrompt string
 
-//go:embed prompts/general.md
-var generalPrompt string
-
 //go:embed prompts/platform.md
 var platformPrompt string
 

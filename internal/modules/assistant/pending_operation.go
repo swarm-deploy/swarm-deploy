@@ -107,17 +107,6 @@ type OperationIntent struct {
 	ExpiresAt *time.Time `json:"expires_at,omitempty"`
 }
 
-// RouteDecision is the structured decision returned by the router model.
-type RouteDecision struct {
-	// Route is the selected route.
-	Route Route `json:"route"`
-	// Capabilities are the composable context and tool groups required by this request.
-	// Nil means the router omitted the field and route defaults should be used for compatibility.
-	Capabilities []Capability `json:"capabilities"`
-	// Operation is a supported mutating operation, when recognized.
-	Operation *OperationIntent `json:"operation"`
-}
-
 // PendingOperation is conversation-scoped transient state for a mutating action.
 type PendingOperation struct {
 	// Type is the requested operation.
