@@ -411,15 +411,6 @@ async function submitSuggestion(suggestion: AssistantSuggestion) {
   inputRef.value?.focus();
 }
 
-function handleComposerKeydown(event: KeyboardEvent) {
-  if (event.key !== "Enter" || event.shiftKey || event.isComposing || event.keyCode === 229) {
-    return;
-  }
-
-  event.preventDefault();
-  void submitMessage();
-}
-
 function renderMessageText(role: string, text: string): string {
   if (role === "assistant") {
     return renderAssistantMarkdown(text);
@@ -726,7 +717,6 @@ function renderMessageText(role: string, text: string): string {
             placeholder="Ask the assistant…"
             aria-label="Ask the assistant"
             :disabled="pending"
-            @keydown="handleComposerKeydown"
           />
           <button
             v-if="messageInput.trim()"

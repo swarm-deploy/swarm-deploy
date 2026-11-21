@@ -285,6 +285,7 @@ describe("Assistant Drawer", () => {
       { id: "second", title: "Check nodes", created_at: date, updated_at: date },
     ];
     assistantStore.loadChats = vi.fn(async () => undefined);
+    vi.spyOn(assistantStore, "requestAssistant");
     const wrapper = mount(AssistantDrawer, { global: { plugins: [pinia, router] } });
     await flushPromises();
 
@@ -293,6 +294,10 @@ describe("Assistant Drawer", () => {
     draft.element.value = "Hello";
     await draft.trigger("input", { isComposing: true });
     expect(wrapper.find('.assistant-history-form button[type="submit"]').exists()).toBe(true);
+    const enter = new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true });
+    draft.element.dispatchEvent(enter);
+    expect(enter.defaultPrevented).toBe(false);
+    expect(assistantStore.requestAssistant).not.toHaveBeenCalled();
 
     await wrapper.get('button[aria-label="Search chats"]').trigger("click");
     const search = wrapper.get<HTMLInputElement>('input[type="search"]');
@@ -303,7 +308,7 @@ describe("Assistant Drawer", () => {
     wrapper.unmount();
   });
 
-  it("updates the chat composer during composition without sending on composition Enter", async () => {
+  it("does not send the chat composer on Enter and submits with the button", async () => {
     const pinia = createPinia();
     setActivePinia(pinia);
     const router = createRouter({ history: createMemoryHistory(), routes: [{ path: "/", component: { template: "<div />" } }] });
@@ -323,7 +328,11 @@ describe("Assistant Drawer", () => {
     await input.trigger("keydown", { key: "Enter", isComposing: true });
     expect(sendMessage).not.toHaveBeenCalled();
     await input.trigger("compositionend");
-    await input.trigger("keydown", { key: "Enter" });
+    const enter = new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true });
+    input.element.dispatchEvent(enter);
+    expect(enter.defaultPrevented).toBe(false);
+    expect(sendMessage).not.toHaveBeenCalled();
+    await wrapper.get(".assistant-chat-form").trigger("submit");
     expect(sendMessage).toHaveBeenCalledWith("Hello");
     wrapper.unmount();
   });
