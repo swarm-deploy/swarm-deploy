@@ -42,7 +42,13 @@ func OpenSQLite(ctx context.Context, dataDir string) (*SQLXDatabase, error) {
 	// DSN pragmas run on EVERY connection, including replacements in the pool.
 	u.RawQuery = "_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)" +
 		"&_pragma=synchronous(FULL)&_txlock=immediate&_time_integer_format=unix_nano&_inttotime=1"
-	db, err := connectDB("sqlite", u.String())
+	return OpenSQLiteDSN(ctx, u.String())
+}
+
+// OpenSQLiteDSN opens the SQLite database using a caller-supplied connection string.
+// The caller is responsible for providing any required SQLite PRAGMA options.
+func OpenSQLiteDSN(ctx context.Context, dsn string) (*SQLXDatabase, error) {
+	db, err := connectDB("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("open SQLite: %w", err)
 	}
