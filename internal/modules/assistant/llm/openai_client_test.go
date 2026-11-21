@@ -1,4 +1,4 @@
-package assistant
+package llm
 
 import (
 	"net/http"

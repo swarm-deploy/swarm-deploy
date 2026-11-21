@@ -14,6 +14,7 @@ import (
 
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/conversation"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/guard"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/llm"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/tools/routing"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/syncpause"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/model"
@@ -691,11 +692,11 @@ func (f *operationFlow) resolveOperationTarget(
 		candidates = append(candidates, serviceTarget(item))
 	}
 	slices.Sort(candidates)
-	completion, err := f.chat.complete(ctx, modelRequest{
+	completion, err := f.chat.Complete(ctx, llm.Request{
 		Model:       f.modelName,
 		Temperature: 0,
 		MaxTokens:   targetResolverMaxTokens,
-		Messages: []modelMessage{
+		Messages: []llm.Message{
 			{Role: "system", Content: targetResolverSystemPrompt},
 			{Role: "user", Content: "Target: " + strings.TrimSpace(target) + "\nCandidates:\n" + strings.Join(candidates, "\n")},
 		},

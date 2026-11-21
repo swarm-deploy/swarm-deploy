@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/conversation"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/llm"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/tools/routing"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
@@ -121,7 +122,7 @@ func TestToolCallWithoutExecutorDefinitionIsRejected(t *testing.T) {
 	tools := &fakeTools{definitions: assistantTestToolDefinitions()}
 	g := &graph{tools: tools}
 
-	_, err := g.executeToolCall(t.Context(), modelToolCall{Name: "undeclared_tool"}, map[string]struct{}{
+	_, err := g.executeToolCall(t.Context(), llm.ToolCall{Name: "undeclared_tool"}, map[string]struct{}{
 		"undeclared_tool": {},
 	})
 
@@ -237,8 +238,8 @@ func TestModelRequestDiagnosticsUseEffectiveRequestWithoutContent(t *testing.T) 
 			},
 		},
 	}
-	request := modelRequest{
-		Messages: []modelMessage{
+	request := llm.Request{
+		Messages: []llm.Message{
 			{Role: "system", Content: "system"},
 			{Role: "user", Content: sensitiveText},
 			{Role: "tool", Content: "runtime-result", Name: "service_logs_get", ToolCallID: "tool-1"},

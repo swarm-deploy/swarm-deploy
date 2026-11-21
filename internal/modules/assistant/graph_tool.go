@@ -8,29 +8,31 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/swarm-deploy/swarm-deploy/internal/config"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/llm"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/tools"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/tools/routing"
 )
 
 func (g *graph) executeToolCall(
 	ctx context.Context,
-	modelToolCall modelToolCall,
+	toolCall llm.ToolCall,
 	effectiveToolSet map[string]struct{},
 ) (string, error) {
-	definition, declared := g.toolDefinition(modelToolCall.Name)
+	definition, declared := g.toolDefinition(toolCall.Name)
 	if !declared {
 		return "", errors.New("tool is not available to the assistant")
 	}
 	if definition.Writable {
 		return "", errors.New("mutating tools require deterministic confirmation")
 	}
-	if _, ok := effectiveToolSet[modelToolCall.Name]; !ok {
+	if _, ok := effectiveToolSet[toolCall.Name]; !ok {
 		return "", errors.New("tool is not allowed by the selected assistant capabilities")
 	}
 
 	result, runErr := g.tools.Execute(ctx, routing.Request{
-		ToolName: modelToolCall.Name,
-		Payload:  modelToolCall.Arguments,
+		ToolName: toolCall.Name,
+		Payload:  toolCall.Arguments,
 	})
 	if runErr != nil {
 		return "", runErr
@@ -144,7 +146,7 @@ func formatToolCallError(toolName string, runErr error) string {
 }
 
 // Preserve the call ID needed to send an error result, without echoing invalid arguments.
-func toolCallsForModelHistory(calls []modelToolCall) []modelToolCall {
+func toolCallsForModelHistory(calls []llm.ToolCall) []llm.ToolCall {
 	history := slices.Clone(calls)
 	for i, call := range history {
 		if isConfigurationTool(call.Name) {
@@ -155,6 +157,8 @@ func toolCallsForModelHistory(calls []modelToolCall) []modelToolCall {
 	}
 	return history
 }
+
+const configurationToolName = string(config.AssistantToolNameSwarmDeployConfigGet)
 
 func isConfigurationTool(name string) bool {
 	return strings.TrimSpace(name) == configurationToolName

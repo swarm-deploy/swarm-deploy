@@ -14,6 +14,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/conversation"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/guard"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/llm"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/rag"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
@@ -68,7 +69,7 @@ type Service struct {
 // RAGObserver records RAG indexing and retrieval telemetry.
 type RAGObserver = rag.Observer
 
-// NewService creates assistant service with OpenAI-compatible clients.
+// NewService creates the assistant service with an OpenAI-compatible client.
 func NewService(
 	config Config,
 	store ServiceStore,
@@ -76,7 +77,9 @@ func NewService(
 	eventDispatcher dispatcher.Dispatcher,
 	metrics metrics.Assistant,
 ) (*Service, error) {
-	modelClient := newOpenAIClient(config.BaseURL, config.APIToken, config.OrganizationID, config.SystemPrompt)
+	modelClient := llm.NewOpenAIClient(
+		config.BaseURL, config.APIToken, config.OrganizationID, customPromptSuffix(config.SystemPrompt),
+	)
 	embeddingModelName := config.EmbeddingModelName
 	if embeddingModelName == "" {
 		embeddingModelName = config.ModelName

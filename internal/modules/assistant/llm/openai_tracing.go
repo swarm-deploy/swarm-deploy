@@ -1,4 +1,4 @@
-package assistant
+package llm
 
 import (
 	"encoding/json"
@@ -15,10 +15,8 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
 )
 
-const configurationToolName = string(config.AssistantToolNameSwarmDeployConfigGet)
-
-func newOpenAITracing(customPrompt string) option.Middleware {
-	extractor := configurationTraceExtractor{customPrompt: strings.TrimSpace(customPrompt)}
+func newOpenAITracing(customPromptSuffix string) option.Middleware {
+	extractor := configurationTraceExtractor{customPromptSuffix: customPromptSuffix}
 	chatTracer := otelhttp.New(otelhttp.Config{
 		TracerName: "github.com/langwatch/langwatch/sdks/go/instrumentation/openai",
 		Provider:   semconv.GenAIProviderNameOpenAI,
@@ -52,7 +50,7 @@ func newOpenAITracing(customPrompt string) option.Middleware {
 // the application still receive the original request and response respectively.
 type configurationTraceExtractor struct {
 	openaiformat.ChatExtractor
-	customPrompt string
+	customPromptSuffix string
 }
 
 func (e configurationTraceExtractor) ExtractRequest(
@@ -118,11 +116,11 @@ func (e configurationTraceExtractor) redactRequest(body otelhttp.JSONObject) boo
 }
 
 func (e configurationTraceExtractor) redactCustomPrompt(message otelhttp.JSONObject) bool {
-	if e.customPrompt == "" {
+	if e.customPromptSuffix == "" {
 		return false
 	}
 	content, _ := message["content"].(string)
-	if prefix, ok := strings.CutSuffix(content, customPromptHeading+e.customPrompt); ok {
+	if prefix, ok := strings.CutSuffix(content, e.customPromptSuffix); ok {
 		message["content"] = prefix
 		return true
 	}
@@ -147,7 +145,7 @@ func redactConfigurationCalls(message otelhttp.JSONObject, ids map[string]struct
 		call, _ := item.(otelhttp.JSONObject)
 		function, _ := call["function"].(otelhttp.JSONObject)
 		name, _ := function["name"].(string)
-		if !isConfigurationTool(name) {
+		if strings.TrimSpace(name) != string(config.AssistantToolNameSwarmDeployConfigGet) {
 			continue
 		}
 		function["arguments"] = "{}"
