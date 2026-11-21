@@ -6,6 +6,7 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -81,6 +82,21 @@ func (s *SQLHistoryStorage) SaveTurns(
 	usage TokenUsage,
 	turns ...Turn,
 ) error {
+	return s.saveTurns(ctx, id, createdBy, usage, false, turns...)
+}
+
+// CompleteFirstTurn saves the reply and usage together with the answered first turn.
+func (s *SQLHistoryStorage) CompleteFirstTurn(ctx context.Context, id string, usage TokenUsage, reply Turn) error {
+	return s.saveTurns(ctx, id, "", usage, true, reply)
+}
+
+func (s *SQLHistoryStorage) saveTurns(
+	ctx context.Context,
+	id, createdBy string,
+	usage TokenUsage,
+	completeFirstTurn bool,
+	turns ...Turn,
+) error {
 	id = strings.TrimSpace(id)
 	if id == "" {
 		return fmt.Errorf("assistant conversation id is required")
@@ -97,12 +113,17 @@ func (s *SQLHistoryStorage) SaveTurns(
 		if !exists {
 			chat = Chat{ID: id, Title: defaultChatTitle, CreatedAt: now, CreatedBy: createdBy, UpdatedAt: now}
 		}
-		if !usage.IsZero() {
-			if chat.Usage == nil {
-				chat.Usage = &TokenUsage{}
+		if completeFirstTurn {
+			index := slices.IndexFunc(chat.Turns, func(turn Turn) bool { return turn.Unanswered })
+			if index < 0 {
+				return fmt.Errorf("assistant conversation %q has no unanswered first turn", id)
 			}
-			chat.Usage.Add(usage)
+			first := chat.Turns[index]
+			first.Unanswered = false
+			// Keep the exchange together if another request completed while this one was running.
+			chat.Turns = append(slices.Delete(chat.Turns, index, index+1), first)
 		}
+		chat.addUsage(usage)
 		if len(turns) == 0 {
 			return s.saveChatSummary(ctx, chat)
 		}

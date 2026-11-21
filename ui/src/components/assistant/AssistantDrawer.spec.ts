@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createMemoryHistory, createRouter } from "vue-router";
 
 import * as assistantApi from "../../api/assistant";
+import type { AssistantChatResponse } from "../../api/types";
 import { useAssistantStore } from "../../stores/assistant";
 import { useUIStore } from "../../stores/ui";
 import AssistantDrawer from "./AssistantDrawer.vue";
@@ -234,6 +235,54 @@ describe("Assistant Drawer", () => {
     expect(router.currentRoute.value.query).toEqual({ assistant: "created", stack: "demo" });
     expect(wrapper.text()).toContain("Assistant answer");
     expect(assistantStore.historyOpen).toBe(false);
+    wrapper.unmount();
+  });
+
+  it.each(["chats", "new"])("opens a saved conversation from %s before the reply arrives", async (from) => {
+    const pinia = createPinia();
+    setActivePinia(pinia);
+    const router = createRouter({ history: createMemoryHistory(), routes });
+    const store = useAssistantStore();
+    store.loadChats = vi.fn(async () => undefined);
+    vi.spyOn(assistantApi, "getAssistantSuggestions").mockResolvedValue({ suggestions: [] });
+    await router.push(`/?assistant=${from}&stack=demo`);
+
+    let finish!: (response: AssistantChatResponse) => void;
+    const request = vi.spyOn(store, "requestAssistant")
+      .mockResolvedValueOnce({
+        status: "in_progress",
+        conversation_id: "created",
+        request_id: "request-id",
+        activity: ["Routing request"],
+        poll_after_ms: 1,
+      })
+      .mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    const wrapper = mount(AssistantDrawer, { global: { plugins: [pinia, router] } });
+    await flushPromises();
+    const form = wrapper.get(from === "chats" ? ".assistant-history-form" : ".assistant-chat-form");
+    await form.get("textarea").setValue("Check the cluster");
+    await form.trigger("submit");
+    await flushPromises();
+
+    expect(router.currentRoute.value.query).toEqual({ assistant: "created", stack: "demo" });
+    expect(store.pending).toBe(true);
+    expect(wrapper.get(".assistant-chat-message-user").text()).toBe("Check the cluster");
+    expect(wrapper.text()).toContain("Routing request");
+    expect(wrapper.find(".assistant-chat-message-assistant").exists()).toBe(false);
+    expect(request.mock.calls[0][0].wait_timeout_ms).toBe(1);
+
+    await vi.waitFor(() => expect(request).toHaveBeenCalledTimes(2));
+    expect(request.mock.calls[1][0]).toEqual({
+      conversation_id: "created",
+      request_id: "request-id",
+      wait_timeout_ms: 750,
+    });
+    finish({ status: "completed", conversation_id: "created", request_id: "request-id", answer: "Healthy" });
+    await flushPromises();
+
+    expect(store.pending).toBe(false);
+    expect(wrapper.findAll(".assistant-chat-message-user")).toHaveLength(1);
+    expect(wrapper.get(".assistant-chat-message-assistant").text()).toContain("Healthy");
     wrapper.unmount();
   });
 

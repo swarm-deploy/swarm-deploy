@@ -254,7 +254,7 @@ async function openHistory() {
 }
 
 async function openChat(chatID: string) {
-  if (pending.value) {
+  if (pending.value && assistantStore.conversationID !== chatID) {
     return;
   }
 
@@ -363,24 +363,16 @@ async function submitHistoryMessage() {
 
   try {
     historySending.value = true;
-    const response = await assistantStore.sendFirstMessage(message, historyRequest.id);
+    const response = await assistantStore.sendFirstMessage(message, historyRequest.id, (conversationID) => {
+      historyRequest = undefined;
+      historyMessage.value = "";
+      if (route.query.assistant === "chats") {
+        void router.push({ query: assistantQuery(conversationID) });
+      }
+    });
     historyRequest = undefined;
-    if (response.status !== "completed" || !response.conversation_id) {
+    if (response) {
       historyError.value = response.error_message || "Could not start a chat. Try again.";
-      return;
-    }
-
-    historyMessage.value = "";
-    if (route.query.assistant === "chats") {
-      assistantStore.newChat();
-      assistantStore.conversationID = response.conversation_id;
-      assistantStore.pushMessage("user", message);
-      assistantStore.pushMessage(
-        "assistant",
-        response.answer || "Assistant returned empty answer.",
-        response.activity?.length ? response.activity : undefined,
-      );
-      await router.push({ query: assistantQuery(response.conversation_id) });
     }
   } catch (error) {
     historyError.value = error instanceof Error ? error.message : "Could not start a chat. Try again.";
@@ -388,6 +380,15 @@ async function submitHistoryMessage() {
     historySending.value = false;
   }
 }
+
+watch(
+  () => assistantStore.conversationID,
+  (conversationID, previousID) => {
+    if (conversationID && !previousID && pending.value && route.query.assistant === "new") {
+      void router.replace({ query: assistantQuery(conversationID), hash: route.hash });
+    }
+  },
+);
 
 async function submitMessage() {
   const text = messageInput.value.trim();

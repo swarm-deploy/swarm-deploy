@@ -242,6 +242,7 @@ func TestServiceChatRejectsPromptInjection(t *testing.T) {
 					MaxTokens:               64,
 					SystemPrompt:            "debug helper",
 					ConversationInMemoryTTL: time.Hour,
+					ConversationHistory:     newSQLHistory(t),
 				},
 				serviceStore(t, nil),
 				tools,
@@ -255,8 +256,79 @@ func TestServiceChatRejectsPromptInjection(t *testing.T) {
 			assert.Contains(t, response.ErrorMessage, "prompt injection", "expected rejection reason")
 			assert.NotContains(t, response.Answer, "Identity and global rules")
 			assert.Empty(t, tools.calls, "operational tools must not run")
+			assert.Empty(t, response.ConversationID)
+			chats, err := serviceInstance.ListChats(t.Context())
+			require.NoError(t, err)
+			assert.Empty(t, chats)
 		})
 	}
+}
+
+func TestServiceChatPersistsFirstMessageBeforeAnswer(t *testing.T) {
+	const message = "Check the cluster"
+	release := make(chan struct{})
+	unblock := sync.OnceFunc(func() { close(release) })
+	var calls atomic.Int64
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		request := decodeCapturedChatRequest(t, req)
+		w.Header().Set("Content-Type", "application/json")
+		if calls.Add(1) == 1 {
+			writeChatResponse(t, w, string(RouteGeneral), nil)
+			return
+		}
+		userMessages := 0
+		for _, turn := range request.Messages {
+			if turn.Role == "user" && turn.Content == message {
+				userMessages++
+			}
+		}
+		assert.Equal(t, 1, userMessages)
+		select {
+		case <-release:
+			writeChatResponse(t, w, "Cluster is healthy", nil)
+		case <-req.Context().Done():
+		}
+	}))
+	defer server.Close()
+	defer unblock()
+
+	history := newSQLHistory(t)
+	tools := NewMockToolExecutor(gomock.NewController(t))
+	tools.EXPECT().Definitions().AnyTimes()
+	service := newRoutingTestServiceWithHistory(t, server.URL, serviceStore(t, nil), tools, nil, history)
+	request := ChatRequest{Message: message, RequestID: "first", CreatedBy: "alice", WaitTimeoutMS: 1}
+	started := service.Chat(t.Context(), request)
+	require.Equal(t, StatusInProgress, started.Status)
+	require.NotEmpty(t, started.ConversationID)
+	retried := service.Chat(t.Context(), request)
+	assert.Equal(t, started.ConversationID, retried.ConversationID)
+
+	chats, err := service.ListChats(t.Context())
+	require.NoError(t, err)
+	require.Len(t, chats, 1)
+	assert.Equal(t, message, chats[0].Title)
+	assert.Nil(t, chats[0].Usage)
+	initial, found, err := history.ReadChat(t.Context(), started.ConversationID)
+	require.NoError(t, err)
+	require.True(t, found)
+	assert.Equal(t, "alice", initial.CreatedBy)
+	assert.Equal(t, []conversation.Turn{{Role: "user", Content: message, Unanswered: true}}, initial.Turns)
+	visible, found, err := service.GetChat(t.Context(), started.ConversationID)
+	require.NoError(t, err)
+	require.True(t, found)
+	assert.Equal(t, []ChatMessage{{Role: "user", Content: message}}, visible.Messages)
+
+	unblock()
+	completed := service.Chat(t.Context(), ChatRequest{RequestID: started.RequestID})
+	require.Equal(t, StatusCompleted, completed.Status)
+	final, found, err := history.ReadChat(t.Context(), started.ConversationID)
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Len(t, final.Turns, 2)
+	assert.Equal(t, conversation.Turn{Role: "user", Content: message}, final.Turns[0])
+	assert.Equal(t, "Cluster is healthy", final.Turns[1].Content)
+	assert.Equal(t, initial.CreatedAt, final.CreatedAt)
+	assert.Equal(t, &conversation.TokenUsage{InputTokens: 6, OutputTokens: 2, TotalTokens: 8}, final.Usage)
 }
 
 func TestServiceChatAllowsOrdinaryImperatives(t *testing.T) {

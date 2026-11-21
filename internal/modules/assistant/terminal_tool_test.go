@@ -206,8 +206,9 @@ func TestTerminalToolResultInjectionIsGuardedBeforeFinalization(t *testing.T) {
 		Publish(gomock.Any(), gomock.AssignableToTypeOf(&events.AssistantPromptInjectionDetected{})).
 		Do(func(ctx context.Context, _ events.Event) {
 			chats, err := history.ReadChats(ctx)
-			assert.NoError(t, err)
-			assert.Empty(t, chats, "publish rejection before persisting usage")
+			require.NoError(t, err)
+			require.Len(t, chats, 1)
+			assert.Nil(t, chats[0].Usage, "publish rejection before persisting usage")
 		})
 	assistantService.event = eventDispatcher
 	response := assistantService.Chat(context.Background(), ChatRequest{Message: "Confirmed restart"})
@@ -219,8 +220,11 @@ func TestTerminalToolResultInjectionIsGuardedBeforeFinalization(t *testing.T) {
 	chat, found, err := history.ReadChat(t.Context(), response.ConversationID)
 	require.NoError(t, err)
 	require.True(t, found)
-	assert.Empty(t, chat.Turns)
+	assert.Equal(t, []conversation.Turn{{Role: "user", Content: "Confirmed restart", Unanswered: true}}, chat.Turns)
 	assert.Equal(t, &conversation.TokenUsage{InputTokens: 6, OutputTokens: 2, TotalTokens: 8}, chat.Usage)
+	modelHistory, err := assistantService.getConversation(t.Context(), response.ConversationID)
+	require.NoError(t, err)
+	assert.Empty(t, modelHistory)
 }
 
 func TestModelRequestDiagnosticsUseEffectiveRequestWithoutContent(t *testing.T) {

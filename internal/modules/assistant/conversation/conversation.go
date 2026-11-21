@@ -10,6 +10,8 @@ type Turn struct {
 	Content string `json:"content"`
 	// Activity contains safe execution trace metadata for assistant turns.
 	Activity []string `json:"activity,omitempty"`
+	// Unanswered keeps the first user turn out of model history until its reply is saved.
+	Unanswered bool `json:"unanswered,omitzero"`
 }
 
 // Conversation contains conversation messages and metadata.

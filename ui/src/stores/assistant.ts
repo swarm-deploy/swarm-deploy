@@ -107,7 +107,9 @@ export const useAssistantStore = defineStore("assistant", {
       onProgress?: (response: AssistantChatResponse) => void,
     ): Promise<AssistantChatResponse | undefined> {
       for (let attempt = 0; attempt < 150; attempt += 1) {
-        const response = await this.requestAssistant({ ...payload, wait_timeout_ms: 750 });
+        // On a new chat, wait for the saved ID and start polling for the answer separately.
+        const waitTimeout = attempt === 0 && payload.message && !payload.conversation_id ? 1 : 750;
+        const response = await this.requestAssistant({ ...payload, wait_timeout_ms: waitTimeout });
         onProgress?.(response);
 
         if (response.status !== "in_progress") {
@@ -121,16 +123,20 @@ export const useAssistantStore = defineStore("assistant", {
         await sleep(Math.max(100, response.poll_after_ms || 1000));
       }
     },
+    updateAssistantProgress(response: AssistantChatResponse) {
+      this.conversationID = response.conversation_id || this.conversationID;
+      this.activeRequestID = response.request_id || this.activeRequestID;
+      this.activity = response.activity || this.activity;
+    },
     async runAssistantMessage(message: string) {
       const response = await this.pollAssistantMessage({
         conversation_id: this.conversationID || undefined,
         message,
-      }, (response) => {
-        this.conversationID = response.conversation_id || this.conversationID;
-        this.activeRequestID = response.request_id || this.activeRequestID;
-        this.activity = response.activity || this.activity;
-      });
+      }, (response) => this.updateAssistantProgress(response));
 
+      await this.finishAssistantMessage(response);
+    },
+    async finishAssistantMessage(response?: AssistantChatResponse) {
       this.activeRequestID = "";
       if (response?.status === "completed") {
         this.pushMessage(
@@ -152,14 +158,43 @@ export const useAssistantStore = defineStore("assistant", {
         ? response.error_message || `Assistant status: ${response.status}`
         : "Assistant request timeout. Try again.");
     },
-    async sendFirstMessage(message: string, requestID: string) {
+    showRequestError(error: unknown) {
+      this.activeRequestID = "";
+      this.activity = [];
+      const message = error instanceof Error ? error.message : "Unexpected assistant error";
+      this.pushMessage("system", `Assistant failed: ${message}`);
+    },
+    async sendFirstMessage(message: string, requestID: string, onStarted: (conversationID: string) => void) {
       this.pending = true;
+      let started = false;
       try {
-        const response = await this.pollAssistantMessage({ message, request_id: requestID });
-        if (!response) {
-          throw new Error("Assistant request timeout. Try again.");
+        const response = await this.pollAssistantMessage({ message, request_id: requestID }, (progress) => {
+          if (!started) {
+            if (!progress.conversation_id || progress.status === "disabled") {
+              return;
+            }
+            started = true;
+            this.messages = [];
+            this.activity = [];
+            this.pushMessage("user", message);
+            this.updateAssistantProgress(progress);
+            onStarted(progress.conversation_id);
+            return;
+          }
+          this.updateAssistantProgress(progress);
+        });
+        if (!started) {
+          if (!response) {
+            throw new Error("Assistant request timeout. Try again.");
+          }
+          return response;
         }
-        return response;
+        await this.finishAssistantMessage(response);
+      } catch (error) {
+        if (!started) {
+          throw error;
+        }
+        this.showRequestError(error);
       } finally {
         this.pending = false;
       }
@@ -181,10 +216,7 @@ export const useAssistantStore = defineStore("assistant", {
       try {
         await this.runAssistantMessage(normalizedMessage);
       } catch (error) {
-        this.activeRequestID = "";
-        this.activity = [];
-        const messageText = error instanceof Error ? error.message : "Unexpected assistant error";
-        this.pushMessage("system", `Assistant failed: ${messageText}`);
+        this.showRequestError(error);
       } finally {
         this.pending = false;
       }
