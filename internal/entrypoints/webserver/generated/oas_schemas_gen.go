@@ -541,14 +541,43 @@ func (s *AlertsResponse) SetAlerts(val []Alert) {
 	s.Alerts = val
 }
 
+// Reply that is still being generated. Poll it with request_id to continue the chat after a page
+// reload.
+// Ref: #/components/schemas/AssistantActiveChatRequest
+type AssistantActiveChatRequest struct {
+	RequestID string   `json:"request_id"`
+	Activity  []string `json:"activity"`
+}
+
+// GetRequestID returns the value of RequestID.
+func (s *AssistantActiveChatRequest) GetRequestID() string {
+	return s.RequestID
+}
+
+// GetActivity returns the value of Activity.
+func (s *AssistantActiveChatRequest) GetActivity() []string {
+	return s.Activity
+}
+
+// SetRequestID sets the value of RequestID.
+func (s *AssistantActiveChatRequest) SetRequestID(val string) {
+	s.RequestID = val
+}
+
+// SetActivity sets the value of Activity.
+func (s *AssistantActiveChatRequest) SetActivity(val []string) {
+	s.Activity = val
+}
+
 // Ref: #/components/schemas/AssistantChatHistory
 type AssistantChatHistory struct {
-	ID         string                 `json:"id"`
-	Title      string                 `json:"title"`
-	CreatedAt  time.Time              `json:"created_at"`
-	UpdatedAt  time.Time              `json:"updated_at"`
-	TokenUsage OptAssistantTokenUsage `json:"token_usage"`
-	Messages   []AssistantChatMessage `json:"messages"`
+	ID            string                        `json:"id"`
+	Title         string                        `json:"title"`
+	CreatedAt     time.Time                     `json:"created_at"`
+	UpdatedAt     time.Time                     `json:"updated_at"`
+	TokenUsage    OptAssistantTokenUsage        `json:"token_usage"`
+	Messages      []AssistantChatMessage        `json:"messages"`
+	ActiveRequest OptAssistantActiveChatRequest `json:"active_request"`
 }
 
 // GetID returns the value of ID.
@@ -581,6 +610,11 @@ func (s *AssistantChatHistory) GetMessages() []AssistantChatMessage {
 	return s.Messages
 }
 
+// GetActiveRequest returns the value of ActiveRequest.
+func (s *AssistantChatHistory) GetActiveRequest() OptAssistantActiveChatRequest {
+	return s.ActiveRequest
+}
+
 // SetID sets the value of ID.
 func (s *AssistantChatHistory) SetID(val string) {
 	s.ID = val
@@ -609,6 +643,11 @@ func (s *AssistantChatHistory) SetTokenUsage(val OptAssistantTokenUsage) {
 // SetMessages sets the value of Messages.
 func (s *AssistantChatHistory) SetMessages(val []AssistantChatMessage) {
 	s.Messages = val
+}
+
+// SetActiveRequest sets the value of ActiveRequest.
+func (s *AssistantChatHistory) SetActiveRequest(val OptAssistantActiveChatRequest) {
+	s.ActiveRequest = val
 }
 
 // Ref: #/components/schemas/AssistantChatMessage
@@ -4559,6 +4598,52 @@ func (o OptAlertStatus) Get() (v AlertStatus, ok bool) {
 
 // Or returns value if set, or given parameter if does not.
 func (o OptAlertStatus) Or(d AlertStatus) AlertStatus {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptAssistantActiveChatRequest returns new OptAssistantActiveChatRequest with value set to v.
+func NewOptAssistantActiveChatRequest(v AssistantActiveChatRequest) OptAssistantActiveChatRequest {
+	return OptAssistantActiveChatRequest{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptAssistantActiveChatRequest is optional AssistantActiveChatRequest.
+type OptAssistantActiveChatRequest struct {
+	Value AssistantActiveChatRequest
+	Set   bool
+}
+
+// IsSet returns true if OptAssistantActiveChatRequest was set.
+func (o OptAssistantActiveChatRequest) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptAssistantActiveChatRequest) Reset() {
+	var v AssistantActiveChatRequest
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptAssistantActiveChatRequest) SetTo(v AssistantActiveChatRequest) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptAssistantActiveChatRequest) Get() (v AssistantActiveChatRequest, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptAssistantActiveChatRequest) Or(d AssistantActiveChatRequest) AssistantActiveChatRequest {
 	if v, ok := o.Get(); ok {
 		return v
 	}
