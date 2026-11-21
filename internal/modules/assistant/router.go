@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/conversation"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/llm"
 )
 
 const (
@@ -75,8 +76,8 @@ type Router interface {
 }
 
 type modelCompleter interface {
-	// complete returns the model response, including any usage reported on error.
-	complete(ctx context.Context, req modelRequest) (modelResponse, error)
+	// Complete returns the model response, including any usage reported on error.
+	Complete(ctx context.Context, req llm.Request) (llm.Response, error)
 }
 
 type llmRouter struct {
@@ -89,14 +90,14 @@ func newLLMRouter(chat modelCompleter, modelName string) *llmRouter {
 }
 
 func (r *llmRouter) Route(ctx context.Context, req RouteRequest) (RouteResult, error) {
-	messages := make([]modelMessage, 0, len(req.RecentHistory)+routerExtraMessages)
-	messages = append(messages, modelMessage{Role: "system", Content: routerSystemPrompt})
+	messages := make([]llm.Message, 0, len(req.RecentHistory)+routerExtraMessages)
+	messages = append(messages, llm.Message{Role: "system", Content: routerSystemPrompt})
 	for _, turn := range recentTurns(req.RecentHistory, routerHistoryTurns) {
-		messages = append(messages, modelMessage{Role: turn.Role, Content: turn.Content})
+		messages = append(messages, llm.Message{Role: turn.Role, Content: turn.Content})
 	}
-	messages = append(messages, modelMessage{Role: "user", Content: strings.TrimSpace(req.Message)})
+	messages = append(messages, llm.Message{Role: "user", Content: strings.TrimSpace(req.Message)})
 
-	completion, err := r.chat.complete(ctx, modelRequest{
+	completion, err := r.chat.Complete(ctx, llm.Request{
 		Model: r.modelName, Temperature: 0, MaxTokens: routerMaxTokens, Messages: messages,
 	})
 	if err != nil {

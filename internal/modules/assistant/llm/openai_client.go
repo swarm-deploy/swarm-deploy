@@ -1,4 +1,4 @@
-package assistant
+package llm
 
 import (
 	"bytes"
@@ -20,11 +20,13 @@ import (
 
 const defaultOpenAIRequestTimeout = 60 * time.Second
 
-type openAIClient struct {
+// OpenAIClient calls OpenAI-compatible chat completion and embedding endpoints.
+type OpenAIClient struct {
 	client openai.Client
 }
 
-func newOpenAIClient(baseURL, token, organizationID, customPromptSuffix string) *openAIClient {
+// NewOpenAIClient configures the provider client. The exact custom prompt suffix is omitted from traces.
+func NewOpenAIClient(baseURL, token, organizationID, customPromptSuffix string) *OpenAIClient {
 	baseURL = strings.TrimSpace(baseURL)
 	token = strings.TrimSpace(token)
 	organizationID = strings.TrimSpace(organizationID)
@@ -43,17 +45,18 @@ func newOpenAIClient(baseURL, token, organizationID, customPromptSuffix string) 
 		options = append(options, option.WithMiddleware(newOpenAITracing(customPromptSuffix)))
 	}
 
-	return &openAIClient{
+	return &OpenAIClient{
 		client: openai.NewClient(options...),
 	}
 }
 
-func (c *openAIClient) complete(ctx context.Context, req modelRequest) (modelResponse, error) {
+// Complete returns a chat completion and any usage reported by the provider, including on error.
+func (c *OpenAIClient) Complete(ctx context.Context, req Request) (Response, error) {
 	messages := make([]openai.ChatCompletionMessageParamUnion, 0, len(req.Messages))
 	for _, message := range req.Messages {
 		converted, err := toOpenAIMessage(message)
 		if err != nil {
-			return modelResponse{}, err
+			return Response{}, err
 		}
 		messages = append(messages, converted)
 	}
@@ -82,7 +85,7 @@ func (c *openAIClient) complete(ctx context.Context, req modelRequest) (modelRes
 		MaxTokens:   openai.Int(int64(req.MaxTokens)),
 		Tools:       tools,
 	}, option.WithResponseInto(&httpResponse))
-	var result modelResponse
+	var result Response
 	if response != nil {
 		result.Usage = providerTokenUsage(
 			response.Usage.PromptTokens, response.Usage.CompletionTokens, response.Usage.TotalTokens,
@@ -98,13 +101,13 @@ func (c *openAIClient) complete(ctx context.Context, req modelRequest) (modelRes
 	}
 
 	message := response.Choices[0].Message
-	toolCalls := make([]modelToolCall, 0, len(message.ToolCalls))
+	toolCalls := make([]ToolCall, 0, len(message.ToolCalls))
 	for _, toolCall := range message.ToolCalls {
 		functionCall, ok := toolCall.AsAny().(openai.ChatCompletionMessageFunctionToolCall)
 		if !ok {
 			continue
 		}
-		toolCalls = append(toolCalls, modelToolCall{
+		toolCalls = append(toolCalls, ToolCall{
 			ID:        functionCall.ID,
 			Name:      functionCall.Function.Name,
 			Arguments: functionCall.Function.Arguments,
@@ -136,7 +139,8 @@ func safeChatCompletionError(err error) error {
 	}
 }
 
-func (c *openAIClient) Embed(
+// Embed returns vectors in input order and any usage reported by the provider, including on error.
+func (c *OpenAIClient) Embed(
 	ctx context.Context, model string, inputs []string,
 ) ([][]float64, conversation.TokenUsage, error) {
 	var httpResponse *http.Response
@@ -210,7 +214,7 @@ func providerTokenUsage(input, output, total int64) conversation.TokenUsage {
 	return conversation.TokenUsage{InputTokens: input, OutputTokens: output, TotalTokens: total}
 }
 
-func toOpenAIMessage(message modelMessage) (openai.ChatCompletionMessageParamUnion, error) {
+func toOpenAIMessage(message Message) (openai.ChatCompletionMessageParamUnion, error) {
 	switch strings.ToLower(strings.TrimSpace(message.Role)) {
 	case "system":
 		return openai.SystemMessage(message.Content), nil

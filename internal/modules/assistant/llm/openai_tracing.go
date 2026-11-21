@@ -1,4 +1,4 @@
-package assistant
+package llm
 
 import (
 	"encoding/json"
@@ -14,8 +14,6 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
 )
-
-const configurationToolName = string(config.AssistantToolNameSwarmDeployConfigGet)
 
 func newOpenAITracing(customPromptSuffix string) option.Middleware {
 	extractor := configurationTraceExtractor{customPromptSuffix: customPromptSuffix}
@@ -147,7 +145,7 @@ func redactConfigurationCalls(message otelhttp.JSONObject, ids map[string]struct
 		call, _ := item.(otelhttp.JSONObject)
 		function, _ := call["function"].(otelhttp.JSONObject)
 		name, _ := function["name"].(string)
-		if !isConfigurationTool(name) {
+		if strings.TrimSpace(name) != string(config.AssistantToolNameSwarmDeployConfigGet) {
 			continue
 		}
 		function["arguments"] = "{}"

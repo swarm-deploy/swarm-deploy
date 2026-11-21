@@ -14,6 +14,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/conversation"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/guard"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/llm"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/tools/routing"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/syncpause"
@@ -349,7 +350,7 @@ func TestPendingOperationResolvesLiteralStackTarget(t *testing.T) {
 
 func TestPendingOperationFindItYourselfUsesOriginalTarget(t *testing.T) {
 	store := serviceStore(t, []model.Info{{Stack: "infra-postgres-mcp", Name: "postgres-mcp-core"}})
-	resolver := &recordingCompleter{response: modelResponse{
+	resolver := &recordingCompleter{response: llm.Response{
 		Content: `{"status":"exact","candidate":"infra-postgres-mcp/postgres-mcp-core"}`,
 		Usage:   conversation.TokenUsage{InputTokens: 10, OutputTokens: 3, TotalTokens: 13},
 	}}
@@ -372,7 +373,7 @@ func TestPendingOperationFindItYourselfUsesOriginalTarget(t *testing.T) {
 
 func TestTargetResolverRejectsCandidateMissingFromStore(t *testing.T) {
 	services := []model.Info{{Stack: "core", Name: "api"}}
-	resolver := &recordingCompleter{response: modelResponse{
+	resolver := &recordingCompleter{response: llm.Response{
 		Content: `{"status":"exact","candidate":"prod/admin"}`,
 	}}
 	flow := newPendingTestFlow(serviceStore(t, services), &fakeTools{})
@@ -384,11 +385,11 @@ func TestTargetResolverRejectsCandidateMissingFromStore(t *testing.T) {
 }
 
 type recordingCompleter struct {
-	response modelResponse
-	requests []modelRequest
+	response llm.Response
+	requests []llm.Request
 }
 
-func (c *recordingCompleter) complete(_ context.Context, request modelRequest) (modelResponse, error) {
+func (c *recordingCompleter) Complete(_ context.Context, request llm.Request) (llm.Response, error) {
 	c.requests = append(c.requests, request)
 	return c.response, nil
 }

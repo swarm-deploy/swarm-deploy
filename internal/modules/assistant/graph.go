@@ -10,6 +10,7 @@ import (
 
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/conversation"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/guard"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/llm"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/rag"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/tools/routing"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/model"
@@ -81,8 +82,8 @@ type graphExecutionState struct {
 	effectiveToolSet        map[string]struct{}
 	retrievalPlan           *rag.RetrievalPlan
 	relevantServices        []model.Info
-	modelMessages           []modelMessage
-	pendingToolCalls        []modelToolCall
+	modelMessages           []llm.Message
+	pendingToolCalls        []llm.ToolCall
 	lastToolResults         []toolExecutionResult
 	toolIterations          int
 	answer                  string
@@ -386,9 +387,9 @@ func (g *graph) prepareNode(
 	executionState *graphExecutionState,
 ) func(context.Context, []llms.MessageContent) ([]llms.MessageContent, error) {
 	return func(_ context.Context, state []llms.MessageContent) ([]llms.MessageContent, error) {
-		messages := make([]modelMessage, 0, len(executionState.history)+prepareMessagesExtraCapacity)
+		messages := make([]llm.Message, 0, len(executionState.history)+prepareMessagesExtraCapacity)
 		systemPrompt := buildSystemPrompt(g.config.SystemPrompt, executionState.profile.Prompt)
-		messages = append(messages, modelMessage{
+		messages = append(messages, llm.Message{
 			Role:    "system",
 			Content: systemPrompt,
 		})
@@ -401,7 +402,7 @@ func (g *graph) prepareNode(
 					return state, &guard.PromptInjectionError{Prompt: executionState.rejectedPrompt}
 				}
 				contextChars = textChars(contextMessage)
-				messages = append(messages, modelMessage{
+				messages = append(messages, llm.Message{
 					Role:    "user",
 					Content: contextMessage,
 				})
@@ -411,13 +412,13 @@ func (g *graph) prepareNode(
 		historyChars := 0
 		for _, turn := range executionState.history {
 			historyChars += textChars(turn.Content)
-			messages = append(messages, modelMessage{
+			messages = append(messages, llm.Message{
 				Role:    turn.Role,
 				Content: turn.Content,
 			})
 		}
 		userMessage := strings.TrimSpace(executionState.userMessage)
-		messages = append(messages, modelMessage{
+		messages = append(messages, llm.Message{
 			Role:    "user",
 			Content: userMessage,
 		})
@@ -448,14 +449,14 @@ func (g *graph) generateAnswerNode(
 		toolLimitReached := executionState.toolIterations >= maxToolIterations
 		var requestTools []routing.ToolDefinition
 		if toolLimitReached {
-			requestMessages = append(append([]modelMessage(nil), requestMessages...), modelMessage{
+			requestMessages = append(append([]llm.Message(nil), requestMessages...), llm.Message{
 				Role:    "system",
 				Content: toolLimitFinalAnswer,
 			})
 		} else {
 			requestTools = g.effectiveToolDefinitions(executionState.effectiveToolSet)
 		}
-		request := modelRequest{
+		request := llm.Request{
 			Model:       g.config.ModelName,
 			Temperature: g.config.Temperature,
 			MaxTokens:   g.config.MaxTokens,
@@ -468,7 +469,7 @@ func (g *graph) generateAnswerNode(
 			calculateModelRequestDiagnostics(request, executionState.preparedSizes),
 		)
 
-		completion, completionErr := g.chat.complete(ctx, request)
+		completion, completionErr := g.chat.Complete(ctx, request)
 		executionState.usage.Add(completion.Usage)
 		if completionErr != nil {
 			return messages, fmt.Errorf("chat completion: %w", completionErr)
@@ -483,7 +484,7 @@ func (g *graph) generateAnswerNode(
 			return messages, nil
 		}
 
-		executionState.modelMessages = append(executionState.modelMessages, modelMessage{
+		executionState.modelMessages = append(executionState.modelMessages, llm.Message{
 			Role:      "assistant",
 			Content:   completion.Content,
 			ToolCalls: toolCallsForModelHistory(completion.ToolCalls),
@@ -511,38 +512,38 @@ func (g *graph) executeMCPNode(
 				continue
 			}
 
-			toolCalls = []modelToolCall{toolCall}
+			toolCalls = []llm.ToolCall{toolCall}
 			executionState.securityReportAttempted = true
 			selectedSecurityReport = true
 			break
 		}
-		for _, modelToolCall := range toolCalls {
-			if modelToolCall.Name == assistantPromptInjectionReportTool && !selectedSecurityReport {
+		for _, toolCall := range toolCalls {
+			if toolCall.Name == assistantPromptInjectionReportTool && !selectedSecurityReport {
 				continue
 			}
-			slog.InfoContext(ctx, "[graph] running mcp tool", slog.String("tool.name", modelToolCall.Name))
-			executionState.report("Running tool: " + modelToolCall.Name)
+			slog.InfoContext(ctx, "[graph] running mcp tool", slog.String("tool.name", toolCall.Name))
+			executionState.report("Running tool: " + toolCall.Name)
 			startedAt := time.Now()
 
-			toolResultMessage, err := g.executeToolCall(ctx, modelToolCall, executionState.effectiveToolSet)
+			toolResultMessage, err := g.executeToolCall(ctx, toolCall, executionState.effectiveToolSet)
 			success := err == nil
-			reportToolActivity(executionState, modelToolCall.Name, time.Since(startedAt), err)
+			reportToolActivity(executionState, toolCall.Name, time.Since(startedAt), err)
 			if err != nil {
-				toolResultMessage = toolCallFailure(ctx, modelToolCall.Name, err)
+				toolResultMessage = toolCallFailure(ctx, toolCall.Name, err)
 			}
 
 			if strings.TrimSpace(toolResultMessage) == "" {
 				toolResultMessage = "MCP tool returned empty content."
 			}
 
-			executionState.modelMessages = append(executionState.modelMessages, modelMessage{
+			executionState.modelMessages = append(executionState.modelMessages, llm.Message{
 				Role:       "tool",
-				Name:       modelToolCall.Name,
-				ToolCallID: modelToolCall.ID,
+				Name:       toolCall.Name,
+				ToolCallID: toolCall.ID,
 				Content:    strings.TrimSpace(toolResultMessage),
 			})
 			executionState.lastToolResults = append(executionState.lastToolResults, toolExecutionResult{
-				toolName: modelToolCall.Name,
+				toolName: toolCall.Name,
 				content:  strings.TrimSpace(toolResultMessage),
 				success:  success,
 			})
