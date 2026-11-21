@@ -35,7 +35,11 @@
 - Before implementing, identify unclear or conflicting requirements, scope, expected behavior, acceptance criteria, and implementation constraints.
 - For each ambiguity, propose concrete, actionable solutions with their pros, cons, and trade-offs. Recommend a preferred option with rationale and request an explicit maintainer decision. If only one viable solution exists, explain why.
 - Do not guess, silently choose an interpretation, or expand scope. If an ambiguity emerges during implementation, pause the affected work until it is resolved.
-- Preserve existing architecture, component boundaries, and established patterns.
+- Preserve documented architectural boundaries and contracts, but do not treat existing implementations or patterns as inherently correct.
+- Identify the root cause before choosing a solution.
+- Prefer fixing problems at the layer responsible for them rather than introducing workarounds, duplicated logic, or special cases.
+- Do not preserve flawed implementations merely to minimize the diff or avoid refactoring. Keep the scope focused on the task, not the number of changed lines.
+- If the proper solution requires an architectural change, explain the alternatives and trade-offs and obtain explicit maintainer approval before implementation. Do not substitute a workaround solely to avoid seeking approval.
 - Respect the responsibilities and dependency directions documented in `.cursor/rules/architecture.md`; reuse existing components, interfaces, and interaction patterns before introducing abstractions.
 - Do not introduce cross-module dependencies, transfer responsibilities, or change architectural contracts without explicit maintainer approval.
 - If an implementation conflicts with an established boundary, stop the conflicting work, explain the conflict, motivation, alternatives, and trade-offs, recommend a solution, and request explicit maintainer approval before proceeding. Do not resolve documented architectural ambiguities by inventing a rule.
