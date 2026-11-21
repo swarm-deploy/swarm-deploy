@@ -32,6 +32,11 @@ const searchButtonRef = ref<HTMLButtonElement | null>(null);
 const backButtonRef = ref<HTMLButtonElement | null>(null);
 const viewportStyle = ref<Record<string, string>>();
 const bodyRef = ref<HTMLElement | null>(null);
+const pageVisible = ref(document.visibilityState === "visible");
+const newReplySequence = ref<number>();
+const latestReplySequence = computed(
+  () => messages.value.filter((message) => message.role === "assistant").at(-1)?.sequence,
+);
 const suggestions = ref<AssistantSuggestion[]>([]);
 let suggestionsGeneration = 0;
 
@@ -162,7 +167,7 @@ watch(
     ) {
       inputRef.value?.focus();
     }
-    scrollToBottom();
+    if (chatOpen.value && bodyRef.value) scrollToBottom(bodyRef.value);
   },
 );
 
@@ -205,12 +210,69 @@ watch([historyMessage, historyMessageRef], () => {
   }
 }, { flush: "post" });
 
+watch(bodyRef, (body) => {
+  if (body) scrollToBottom(body);
+}, { flush: "post" });
+
+watch([isOpen, chatOpen, () => route.query.assistant], () => {
+  newReplySequence.value = undefined;
+});
+
 watch(
-  () => messages.value.length,
-  async () => {
-    await nextTick();
-    scrollToBottom();
+  [() => assistantStore.conversationID, messages, () => messages.value.length],
+  async ([id, current, length], [previousID, previous, previousLength]) => {
+    const body = bodyRef.value;
+    if (!body) return;
+
+    const atBottom = body.scrollHeight - body.clientHeight - body.scrollTop <= 1;
+    const latest = current.at(-1);
+    if (current === previous && id === previousID && length > previousLength && latest?.role === "assistant" && !atBottom) {
+      newReplySequence.value = latest.sequence;
+    }
+    if (id !== previousID || atBottom) {
+      await nextTick();
+      if (body === bodyRef.value && current === messages.value) scrollToBottom(body);
+    }
   },
+);
+
+watch(isOpen, (opened, _, onCleanup) => {
+  if (!opened) return;
+  const update = () => { pageVisible.value = document.visibilityState === "visible"; };
+  update();
+  document.addEventListener("visibilitychange", update);
+  onCleanup(() => document.removeEventListener("visibilitychange", update));
+}, { immediate: true });
+
+const showingConversationID = computed(() => {
+  const id = assistantStore.conversationID;
+  return isOpen.value && chatOpen.value && !existingChatLoading.value && route.query.assistant === id ? id : "";
+});
+
+watch(
+  [bodyRef, showingConversationID, latestReplySequence, pageVisible],
+  ([body, id, sequence], _, onCleanup) => {
+    if (!body || !id || sequence === undefined || !globalThis.IntersectionObserver) return;
+    const reply = findReply(body, sequence);
+    if (!reply) return;
+
+    let observing = true;
+    const observer = new IntersectionObserver(([entry]) => {
+      if (!observing || !entry?.isIntersecting || entry.intersectionRatio <= 0 ||
+          id !== showingConversationID.value || sequence !== latestReplySequence.value) return;
+
+      if (newReplySequence.value === sequence) newReplySequence.value = undefined;
+      if (document.visibilityState === "visible" && assistantStore.unreadReplySequence === sequence) {
+        void assistantStore.markReplyRead(id, sequence);
+      }
+    }, { root: body, threshold: Number.EPSILON });
+    observer.observe(reply);
+    onCleanup(() => {
+      observing = false;
+      observer.disconnect();
+    });
+  },
+  { flush: "post" },
 );
 
 watch(
@@ -234,11 +296,21 @@ watch(
   { immediate: true },
 );
 
-function scrollToBottom() {
-  bodyRef.value?.scrollTo({
-    top: bodyRef.value.scrollHeight,
-    behavior: "smooth",
-  });
+function scrollToBottom(body: HTMLElement) {
+  body.scrollTop = body.scrollHeight;
+}
+
+function findReply(body: HTMLElement, sequence: number) {
+  return body.querySelector<HTMLElement>(`[data-reply-sequence="${sequence}"]`);
+}
+
+function scrollToNewReply() {
+  const body = bodyRef.value;
+  const sequence = newReplySequence.value;
+  if (!body || sequence === undefined) return;
+  const reply = findReply(body, sequence);
+  if (!reply) return;
+  body.scrollTop += reply.getBoundingClientRect().top - body.getBoundingClientRect().top;
 }
 
 function toggleChatUsage(chatID: string) {
@@ -336,6 +408,8 @@ watch(
     if (value === "chats") {
       if (!assistantStore.historyOpen) {
         await assistantStore.toggleHistory();
+      } else {
+        await assistantStore.loadChats();
       }
       return;
     }
@@ -346,7 +420,9 @@ watch(
       return;
     }
 
-    if (assistantStore.conversationID === value && !assistantStore.chatHistoryStale) {
+    // An unread row may refer to a newer answer generated while this chat was cached.
+    const unreadInList = historyOpen.value && !pending.value && chats.value.some((chat) => chat.id === value && chat.unread);
+    if (assistantStore.conversationID === value && !assistantStore.chatHistoryStale && !unreadInList) {
       assistantStore.historyOpen = false;
     } else {
       const controller = new AbortController();
@@ -606,9 +682,11 @@ function renderMessageText(role: string, text: string): string {
               type="button"
               class="assistant-history-open"
               :title="chat.title"
+              :aria-label="chat.unread ? `${chat.title} (unread)` : undefined"
               @click="openChat(chat.id)"
             >
-              <span class="assistant-history-title">{{ chat.title }}</span>
+              <span v-if="chat.unread" class="assistant-history-unread-dot" aria-hidden="true" />
+              <span class="assistant-history-title" :class="{ unread: chat.unread }">{{ chat.title }}</span>
             </button>
             <div class="assistant-history-usage">
               <button
@@ -676,7 +754,11 @@ function renderMessageText(role: string, text: string): string {
           <div v-if="currentChatDateLabel" class="assistant-chat-date">{{ currentChatDateLabel }}</div>
           <template v-for="(message, index) in messages" :key="`${message.role}-${index}`">
             <article class="assistant-chat-message" :class="`assistant-chat-message-${message.role}`">
-              <div class="assistant-chat-markdown" v-html="renderMessageText(message.role, message.text)" />
+              <div
+                class="assistant-chat-markdown"
+                :data-reply-sequence="message.role === 'assistant' ? message.sequence : undefined"
+                v-html="renderMessageText(message.role, message.text)"
+              />
               <details v-if="message.activity?.length" class="assistant-activity-details">
                 <summary>Activity</summary>
                 <ol>
@@ -733,6 +815,14 @@ function renderMessageText(role: string, text: string): string {
       </form>
 
       <form v-if="chatOpen" class="assistant-chat-form" @submit.prevent="submitMessage">
+        <button
+          v-if="newReplySequence !== undefined && showingConversationID"
+          type="button"
+          class="assistant-new-reply"
+          @click="scrollToNewReply"
+        >
+          New reply
+        </button>
         <div class="assistant-composer">
           <textarea
             ref="inputRef"

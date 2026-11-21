@@ -25,8 +25,10 @@ func TestAssistantUsageHTTP(t *testing.T) {
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	history := conversation.NewSQLHistoryStorage(db)
 	now := time.Now().UTC()
-	require.NoError(t, history.SaveTurns(ctx, "first-chat", "", conversation.TokenUsage{InputTokens: 12, OutputTokens: 3, TotalTokens: 16}))
-	require.NoError(t, history.SaveTurns(ctx, "second-chat", "", conversation.TokenUsage{InputTokens: 6, OutputTokens: 2, TotalTokens: 8}))
+	_, err = history.SaveTurns(ctx, "first-chat", "", conversation.TokenUsage{InputTokens: 12, OutputTokens: 3, TotalTokens: 16})
+	require.NoError(t, err)
+	_, err = history.SaveTurns(ctx, "second-chat", "", conversation.TokenUsage{InputTokens: 6, OutputTokens: 2, TotalTokens: 8})
+	require.NoError(t, err)
 	service, err := assistant.NewService(assistant.Config{
 		Enabled: true, ConversationInMemoryTTL: time.Hour, ConversationHistory: history,
 	}, nil, nil, dispatcher.NewOutboxDispatcher(outbox.New(db)), &metrics.NopAssistant{})

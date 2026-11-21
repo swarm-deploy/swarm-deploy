@@ -13,6 +13,8 @@ type Assistant interface {
 	ListChats(ctx context.Context) ([]ChatSummary, error)
 	// GetChat returns one persisted chat with messages.
 	GetChat(ctx context.Context, id string) (ChatHistory, bool, error)
+	// MarkChatRead clears unread if sequence identifies the latest assistant reply.
+	MarkChatRead(ctx context.Context, id string, sequence int) error
 	// GetUsage returns recorded token consumption across chats.
 	GetUsage(ctx context.Context, from, to time.Time, interval UsageInterval) ([]UsageBucket, error)
 }
@@ -38,6 +40,11 @@ func (*DisabledAssistant) ListChats(_ context.Context) ([]ChatSummary, error) {
 // GetChat returns no chat for a disabled assistant.
 func (*DisabledAssistant) GetChat(_ context.Context, _ string) (ChatHistory, bool, error) {
 	return ChatHistory{}, false, nil
+}
+
+// MarkChatRead does nothing when the assistant is disabled.
+func (*DisabledAssistant) MarkChatRead(_ context.Context, _ string, _ int) error {
+	return nil
 }
 
 // GetUsage returns no usage for a disabled assistant.

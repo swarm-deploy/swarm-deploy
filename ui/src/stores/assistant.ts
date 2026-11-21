@@ -1,6 +1,6 @@
 import { defineStore } from "pinia";
 
-import { getAssistantChat, listAssistantChats, sendAssistantChat } from "../api/assistant";
+import { getAssistantChat, listAssistantChats, markAssistantChatRead, sendAssistantChat } from "../api/assistant";
 import type {
   AssistantChatRequest,
   AssistantChatResponse,
@@ -20,6 +20,7 @@ export interface AssistantMessage {
   role: AssistantMessageRole;
   text: string;
   activity?: string[];
+  sequence?: number;
 }
 
 interface AssistantState {
@@ -33,6 +34,9 @@ interface AssistantState {
   historyOpen: boolean;
   historyLoading: boolean;
   chatGeneration: number;
+  listGeneration: number;
+  unreadReplySequence?: number;
+  readRequests: Set<string>;
   chatHistoryStale: boolean;
 }
 
@@ -48,6 +52,9 @@ export const useAssistantStore = defineStore("assistant", {
     historyOpen: false,
     historyLoading: false,
     chatGeneration: 0,
+    listGeneration: 0,
+    unreadReplySequence: undefined,
+    readRequests: new Set(),
     chatHistoryStale: false,
   }),
   actions: {
@@ -58,19 +65,41 @@ export const useAssistantStore = defineStore("assistant", {
         uiStore.closeAssistantDrawer();
       }
     },
-    pushMessage(role: AssistantMessageRole, text: string, activity?: string[]) {
-      this.messages.push({ role, text, activity });
+    pushMessage(role: AssistantMessageRole, text: string, activity?: string[], sequence?: number) {
+      this.messages.push({ role, text, activity, sequence });
     },
     async requestAssistant(payload: AssistantChatRequest): Promise<AssistantChatResponse> {
       return sendAssistantChat(payload);
     },
-    async loadChats() {
-      this.historyLoading = true;
+    async loadChats(showLoading = true) {
+      const generation = ++this.listGeneration;
+      this.historyLoading = showLoading;
       try {
         const response = await listAssistantChats();
-        this.chats = response.chats || [];
+        if (generation === this.listGeneration) {
+          this.chats = response.chats || [];
+        }
       } finally {
-        this.historyLoading = false;
+        if (generation === this.listGeneration) {
+          this.historyLoading = false;
+        }
+      }
+    },
+    async markReplyRead(conversationID: string, sequence: number) {
+      const key = JSON.stringify([conversationID, sequence]);
+      if (this.readRequests.has(key)) return;
+      this.readRequests.add(key);
+      try {
+        await markAssistantChatRead(conversationID, sequence);
+        if (this.conversationID === conversationID && this.unreadReplySequence === sequence) {
+          this.unreadReplySequence = undefined;
+        }
+        // The server can ignore a stale acknowledgement. Refresh instead of clearing the dot locally.
+        if (this.historyOpen) await this.loadChats(false);
+      } catch {
+        // Keep the reply eligible for acknowledgement on the next visibility change.
+      } finally {
+        this.readRequests.delete(key);
       }
     },
     async toggleHistory() {
@@ -95,6 +124,7 @@ export const useAssistantStore = defineStore("assistant", {
       this.activeRequestID = "";
       this.activity = [];
       this.messages = [];
+      this.unreadReplySequence = undefined;
       this.historyOpen = false;
     },
     async openChat(conversationID: string, signal?: AbortSignal) {
@@ -126,7 +156,11 @@ export const useAssistantStore = defineStore("assistant", {
         role: message.role,
         text: message.content,
         activity: message.activity,
+        sequence: message.sequence,
       }));
+      this.unreadReplySequence = chat.unread
+        ? chat.messages.filter((message) => message.role === "assistant").at(-1)?.sequence
+        : undefined;
       if (notice) this.pushMessage("system", notice);
       if (active) {
         void this.resumeAssistantMessage(chat.id, active.request_id, generation);
@@ -199,9 +233,11 @@ export const useAssistantStore = defineStore("assistant", {
           "assistant",
           response.answer || "Assistant returned empty answer.",
           this.activity.length > 0 ? [...this.activity] : undefined,
+          response.answer_sequence,
         );
+        this.unreadReplySequence = response.answer_sequence;
         this.activity = [];
-        await this.loadChats();
+        await this.loadChats(false);
         return;
       }
 

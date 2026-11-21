@@ -3,14 +3,17 @@ package conversation
 import (
 	"context"
 	"database/sql"
+	"path/filepath"
 	"strconv"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/pressly/goose/v3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/storage"
+	sqlitemigrations "github.com/swarm-deploy/swarm-deploy/migrations/sqlite"
 )
 
 func TestSQLChatUsageDistinguishesMissingAndZero(t *testing.T) {
@@ -55,14 +58,17 @@ func TestSQLChatTransactionsAndRestart(t *testing.T) {
 	require.NoError(t, err)
 	repo := NewSQLHistoryStorage(db)
 	for _, id := range []string{"", "  "} {
-		require.Error(t, repo.SaveTurns(ctx, id, "", TokenUsage{}, Turn{Role: "user", Content: "hello"}))
+		_, err = repo.SaveTurns(ctx, id, "", TokenUsage{}, Turn{Role: "user", Content: "hello"})
+		require.Error(t, err)
 	}
 	_, exists, err := repo.ReadChat(ctx, "missing")
 	require.NoError(t, err)
 	assert.False(t, exists)
-	require.NoError(t, repo.SaveTurns(ctx, "chat", "", TokenUsage{InputTokens: 2, TotalTokens: 2}, Turn{Role: "user", Content: "Hello"}))
+	_, err = repo.SaveTurns(ctx, "chat", "", TokenUsage{InputTokens: 2, TotalTokens: 2}, Turn{Role: "user", Content: "Hello"})
+	require.NoError(t, err)
 	require.ErrorIs(t, db.WithinTransaction(ctx, func(ctx context.Context) error {
-		require.NoError(t, repo.SaveTurns(ctx, "chat", "", TokenUsage{OutputTokens: 5, TotalTokens: 5}, Turn{Role: "assistant", Content: "rollback"}))
+		_, err = repo.SaveTurns(ctx, "chat", "", TokenUsage{OutputTokens: 5, TotalTokens: 5}, Turn{Role: "assistant", Content: "rollback"})
+		require.NoError(t, err)
 		return assert.AnError
 	}), assert.AnError)
 	require.NoError(t, db.Close())
@@ -82,7 +88,8 @@ func TestSQLChatTransactionsAndRestart(t *testing.T) {
 	// Failure after metadata was updated must also restore metadata and original turns.
 	_, err = db.Exec(ctx, "CREATE TRIGGER reject_turn BEFORE INSERT ON assistant_turns BEGIN SELECT RAISE(ABORT, 'injected turn failure'); END")
 	require.NoError(t, err)
-	require.Error(t, repo.SaveTurns(ctx, "chat", "", TokenUsage{TotalTokens: 100}, Turn{Role: "assistant", Content: "lost"}))
+	_, err = repo.SaveTurns(ctx, "chat", "", TokenUsage{TotalTokens: 100}, Turn{Role: "assistant", Content: "lost"})
+	require.Error(t, err)
 	unchanged, exists, err := repo.ReadChat(ctx, "chat")
 	require.NoError(t, err)
 	require.True(t, exists)
@@ -101,8 +108,9 @@ func TestSQLChatAppendsAfterLastSequenceWithoutReplacingHistory(t *testing.T) {
 	_, err = db.Exec(ctx, "CREATE TRIGGER keep_history BEFORE DELETE ON assistant_turns BEGIN SELECT RAISE(ABORT, 'unexpected delete'); END")
 	require.NoError(t, err)
 
-	require.NoError(t, repo.SaveTurns(ctx, "chat", "", TokenUsage{TotalTokens: 2},
-		Turn{Role: "assistant", Content: "First reply"}, Turn{Role: "user", Content: "Follow-up"}))
+	_, err = repo.SaveTurns(ctx, "chat", "", TokenUsage{TotalTokens: 2},
+		Turn{Role: "assistant", Content: "First reply"}, Turn{Role: "user", Content: "Follow-up"})
+	require.NoError(t, err)
 	var sequences []int
 	require.NoError(t, db.Select(ctx, &sequences, "SELECT sequence FROM assistant_turns WHERE chat_id = ? ORDER BY sequence", "chat"))
 	assert.Equal(t, []int{5, 6, 7}, sequences)
@@ -123,7 +131,8 @@ func TestSQLChatConcurrentAppends(t *testing.T) {
 	errs := make(chan error, 8)
 	for range 8 {
 		group.Go(func() {
-			errs <- repo.SaveTurns(ctx, "chat", "", TokenUsage{TotalTokens: 1}, Turn{Role: "user", Content: "hello"})
+			_, err := repo.SaveTurns(ctx, "chat", "", TokenUsage{TotalTokens: 1}, Turn{Role: "user", Content: "hello"})
+			errs <- err
 		})
 	}
 	group.Wait()
@@ -154,8 +163,10 @@ func TestSQLChatPreservesCreatorFromFirstInsert(t *testing.T) {
 		{id: "anonymous"},
 	} {
 		t.Run(tc.id, func(t *testing.T) {
-			require.NoError(t, repo.SaveTurns(ctx, tc.id, tc.createdBy, TokenUsage{InputTokens: 1, TotalTokens: 1}))
-			require.NoError(t, repo.SaveTurns(ctx, tc.id, "bob", TokenUsage{}, Turn{Role: "user", Content: "hello"}))
+			_, err = repo.SaveTurns(ctx, tc.id, tc.createdBy, TokenUsage{InputTokens: 1, TotalTokens: 1})
+			require.NoError(t, err)
+			_, err = repo.SaveTurns(ctx, tc.id, "bob", TokenUsage{}, Turn{Role: "user", Content: "hello"})
+			require.NoError(t, err)
 
 			var createdBy sql.NullString
 			require.NoError(t, db.Get(ctx, &createdBy, "SELECT created_by FROM assistant_chats WHERE id = ?", tc.id))
@@ -224,4 +235,80 @@ func TestSQLAssistantUsageCalendarBuckets(t *testing.T) {
 			assert.Equal(t, tc.want, got)
 		})
 	}
+}
+
+func TestSQLChatUnread(t *testing.T) {
+	ctx := t.Context()
+	db, err := storage.OpenSQLite(ctx, t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	repo := NewSQLHistoryStorage(db)
+
+	for _, step := range []struct {
+		name string
+		role string
+		mark *int
+		want bool
+	}{
+		{name: "first question", role: "user"},
+		{name: "first reply", role: "assistant", want: true},
+		{name: "later question preserves unread", role: "user", want: true},
+		{name: "user sequence cannot clear unread", mark: new(2), want: true},
+		{name: "mark latest assistant reply even after a newer question", mark: new(1)},
+		{name: "repeat acknowledgement", mark: new(1)},
+		{name: "second reply", role: "assistant", want: true},
+		{name: "delayed acknowledgement", mark: new(1), want: true},
+		{name: "future sequence cannot clear unread", mark: new(4), want: true},
+		{name: "mark second reply", mark: new(3)},
+		{name: "later question preserves read", role: "user"},
+	} {
+		t.Run(step.name, func(t *testing.T) {
+			if step.mark == nil {
+				require.NoError(t, repo.Append(ctx, "chat", Turn{Role: step.role, Content: step.name}))
+			} else {
+				before, found, err := repo.ReadChat(ctx, "chat")
+				require.NoError(t, err)
+				require.True(t, found)
+				require.NoError(t, repo.MarkRead(ctx, "chat", *step.mark))
+				after, found, err := repo.ReadChat(ctx, "chat")
+				require.NoError(t, err)
+				require.True(t, found)
+				assert.Equal(t, before.UpdatedAt, after.UpdatedAt)
+				assert.Equal(t, before.Turns, after.Turns)
+			}
+			chats, err := repo.ReadChats(ctx)
+			require.NoError(t, err)
+			require.Len(t, chats, 1)
+			assert.Equal(t, step.want, chats[0].Unread)
+		})
+	}
+}
+
+func TestSQLChatUnreadMigration(t *testing.T) {
+	ctx := t.Context()
+	dir := t.TempDir()
+	legacy, err := sql.Open("sqlite", filepath.Join(dir, "swarm-deploy.sqlite"))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = legacy.Close() })
+	migrations, err := goose.NewProvider(goose.DialectSQLite3, legacy, sqlitemigrations.Files)
+	require.NoError(t, err)
+	_, err = migrations.UpTo(ctx, 8)
+	require.NoError(t, err)
+	now := time.Now().UnixNano()
+	_, err = legacy.ExecContext(ctx, "INSERT INTO assistant_chats (id, title, created_at, updated_at) VALUES ('old', 'Old', ?, ?)", now, now)
+	require.NoError(t, err)
+	_, err = legacy.ExecContext(ctx, `INSERT INTO assistant_turns (chat_id, sequence, payload) VALUES ('old', 7, '{"role":"assistant","content":"Existing reply"}')`)
+	require.NoError(t, err)
+	require.NoError(t, legacy.Close())
+
+	db, err := storage.OpenSQLite(ctx, dir)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	chat, found, err := NewSQLHistoryStorage(db).ReadChat(ctx, "old")
+	require.NoError(t, err)
+	require.True(t, found)
+	assert.False(t, chat.Unread)
+	require.Len(t, chat.Turns, 1)
+	assert.Equal(t, 7, chat.Turns[0].Sequence)
+	assert.Equal(t, "Existing reply", chat.Turns[0].Content)
 }

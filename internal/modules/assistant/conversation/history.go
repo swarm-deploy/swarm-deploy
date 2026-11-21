@@ -53,6 +53,8 @@ type Chat struct {
 	UpdatedAt time.Time `json:"updated_at"`
 	// Turns contains the full user-visible conversation history.
 	Turns []Turn `json:"messages"`
+	// Unread indicates that the latest persisted assistant reply is unread.
+	Unread bool `json:"unread"`
 	// Usage contains aggregate token consumption for chat requests.
 	Usage *TokenUsage `json:"token_usage,omitempty"`
 }
@@ -78,6 +80,8 @@ type ChatSummary struct {
 	CreatedAt time.Time `json:"created_at"`
 	// UpdatedAt is the timestamp of the latest persisted message.
 	UpdatedAt time.Time `json:"updated_at"`
+	// Unread indicates that the latest persisted assistant reply is unread.
+	Unread bool `json:"unread"`
 	// Usage contains aggregate token consumption for the chat.
 	Usage *TokenUsage `json:"token_usage,omitempty"`
 }
@@ -90,9 +94,12 @@ type HistoryStorage interface {
 	ReadChats(ctx context.Context) ([]ChatSummary, error)
 	// ReadChat returns a persisted chat by conversation ID.
 	ReadChat(ctx context.Context, id string) (Chat, bool, error)
+	// MarkRead clears unread if sequence identifies the latest assistant reply.
+	MarkRead(ctx context.Context, id string, sequence int) error
 	// SaveTurns appends turns and accumulates model token usage atomically. Turns may be omitted.
 	// A nonempty createdBy is recorded when the chat is first inserted.
-	SaveTurns(ctx context.Context, id, createdBy string, usage TokenUsage, turns ...Turn) error
+	// On success it returns the last appended turn sequence, or -1 when no turns were appended.
+	SaveTurns(ctx context.Context, id, createdBy string, usage TokenUsage, turns ...Turn) (int, error)
 }
 
 func buildChatTitle(turns []Turn) string {

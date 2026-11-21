@@ -185,6 +185,10 @@ type Handler interface {
 	//
 	// GET /api/v1/swarm/services
 	ListSwarmServices(ctx context.Context) (*SwarmServicesResponse, error)
+	// MarkAssistantChatRead implements markAssistantChatRead operation.
+	//
+	// PUT /api/v1/assistant/chats/{conversationID}/read
+	MarkAssistantChatRead(ctx context.Context, req *AssistantChatReadRequest, params MarkAssistantChatReadParams) error
 	// PutServiceSyncPause implements putServiceSyncPause operation.
 	//
 	// PUT /api/v1/stacks/{stack}/services/{service}/sync-pause
