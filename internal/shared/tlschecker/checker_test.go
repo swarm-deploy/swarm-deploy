@@ -1,4 +1,4 @@
-package tools
+package tlschecker
 
 import (
 	"context"
@@ -18,7 +18,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/tools/routing"
 )
 
 const tlsTestName = "api.internal"
@@ -94,9 +93,10 @@ func TestTLSCertificateCheckValidation(t *testing.T) {
 				config.Certificates = nil // Always invoke GetCertificate, including when the client sends no SNI.
 			}
 			port := serveTLSFixture(t, config)
-			tool := NewTLSCertificateCheck()
-			tool.roots = roots
-			result := executeTLSFixture(t, tool, t.Context(), port, tt.serverName)
+			checker := New()
+			checker.roots = roots
+			result, err := checker.Check(t.Context(), Target{Host: "127.0.0.1", Port: &port, ServerName: tt.serverName})
+			require.NoError(t, err)
 			assert.True(t, result.Connection.TCPConnected)
 			require.NotNil(t, result.Connection.HandshakeOK)
 			assert.True(t, *result.Connection.HandshakeOK)
@@ -223,11 +223,12 @@ func TestTLSCertificateCheckNetworkFailures(t *testing.T) {
 			if tt.cancel {
 				cancel()
 			}
-			tool := NewTLSCertificateCheck()
+			checker := New()
 			if tt.timeout != 0 {
-				tool.timeout = tt.timeout
+				checker.timeout = tt.timeout
 			}
-			result := executeTLSFixture(t, tool, ctx, port, "")
+			result, err := checker.Check(ctx, Target{Host: "127.0.0.1", Port: &port})
+			require.NoError(t, err)
 			assert.Equal(t, tt.stage == "handshake", result.Connection.TCPConnected)
 			if result.Connection.TCPConnected {
 				require.NotNil(t, result.Connection.HandshakeOK)
@@ -260,10 +261,11 @@ func TestTLSCertificateCheckKeepsCertificateAfterHandshakeFailure(t *testing.T) 
 		MinVersion:   tls.VersionTLS12,
 		MaxVersion:   tls.VersionTLS12,
 	})
-	tool := NewTLSCertificateCheck()
-	tool.roots = x509.NewCertPool()
-	tool.roots.AddCert(root.cert)
-	result := executeTLSFixture(t, tool, t.Context(), port, tlsTestName)
+	checker := New()
+	checker.roots = x509.NewCertPool()
+	checker.roots.AddCert(root.cert)
+	result, err := checker.Check(t.Context(), Target{Host: "127.0.0.1", Port: &port, ServerName: tlsTestName})
+	require.NoError(t, err)
 	require.NotNil(t, result.Connection.HandshakeOK)
 	assert.False(t, *result.Connection.HandshakeOK)
 	require.NotNil(t, result.Certificate)
@@ -274,33 +276,34 @@ func TestTLSCertificateCheckKeepsCertificateAfterHandshakeFailure(t *testing.T) 
 }
 
 func TestParseTLSTarget(t *testing.T) {
-	zero, high := 0, tlsMaxPort+1
+	zero, high := 0, MaxPort+1
 	tests := []struct {
 		name, wantHost, wantIdentity string
-		args                         tlsCertificateCheckRequest
+		args                         Target
 	}{
-		{name: "DNS", args: tlsCertificateCheckRequest{Host: " api.internal "}, wantHost: "api.internal", wantIdentity: "api.internal"},
-		{name: "IPv6", args: tlsCertificateCheckRequest{Host: "[fd00::1]"}, wantHost: "fd00::1", wantIdentity: "fd00::1"},
-		{name: "scoped IPv6", args: tlsCertificateCheckRequest{Host: "fe80::1%eth0"},
+		{name: "DNS", args: Target{Host: " api.internal "}, wantHost: "api.internal", wantIdentity: "api.internal"},
+		{name: "IPv6", args: Target{Host: "[fd00::1]"}, wantHost: "fd00::1", wantIdentity: "fd00::1"},
+		{name: "scoped IPv6", args: Target{Host: "fe80::1%eth0"},
 			wantHost: "fe80::1%eth0", wantIdentity: "fe80::1"},
-		{name: "internal DNS", args: tlsCertificateCheckRequest{Host: "stack_service"},
+		{name: "internal DNS", args: Target{Host: "stack_service"},
 			wantHost: "stack_service", wantIdentity: "stack_service"},
-		{name: "loopback DNS", args: tlsCertificateCheckRequest{Host: "localhost"},
+		{name: "loopback DNS", args: Target{Host: "localhost"},
 			wantHost: "localhost", wantIdentity: "localhost"},
 		{name: "missing host"},
-		{name: "URL", args: tlsCertificateCheckRequest{Host: "https://api.internal"}},
-		{name: "embedded port", args: tlsCertificateCheckRequest{Host: "api.internal:8443"}},
-		{name: "zero port", args: tlsCertificateCheckRequest{Host: "api.internal", Port: &zero}},
-		{name: "port too large", args: tlsCertificateCheckRequest{Host: "api.internal", Port: &high}},
-		{name: "invalid server name", args: tlsCertificateCheckRequest{Host: "api.internal", ServerName: "*.internal"}},
+		{name: "URL", args: Target{Host: "https://api.internal"}},
+		{name: "embedded port", args: Target{Host: "api.internal:8443"}},
+		{name: "zero port", args: Target{Host: "api.internal", Port: &zero}},
+		{name: "port too large", args: Target{Host: "api.internal", Port: &high}},
+		{name: "invalid server name", args: Target{Host: "api.internal", ServerName: "*.internal"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := parseTLSTarget(tt.args)
 			if tt.wantHost == "" {
+				_, err := New().Check(t.Context(), tt.args)
 				require.Error(t, err)
 				return
 			}
+			got, err := parseTLSTarget(tt.args)
 			require.NoError(t, err)
 			assert.Equal(t, tlsDefaultPort, got.Port)
 			assert.Equal(t, tt.wantHost, got.Host)
@@ -358,15 +361,4 @@ func serveTLSFixture(t *testing.T, config *tls.Config) int {
 		<-done
 	})
 	return listener.Addr().(*net.TCPAddr).Port
-}
-
-func executeTLSFixture(t *testing.T, tool *TLSCertificateCheck, ctx context.Context, port int, serverName string) tlsCheckResult {
-	t.Helper()
-	response, err := tool.Execute(ctx, routing.Request{
-		Payload: tlsCertificateCheckRequest{Host: "127.0.0.1", Port: &port, ServerName: serverName},
-	})
-	require.NoError(t, err)
-	result, ok := response.Payload.(tlsCheckResult)
-	require.True(t, ok)
-	return result
 }
