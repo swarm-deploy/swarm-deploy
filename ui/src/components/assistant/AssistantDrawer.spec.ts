@@ -19,10 +19,6 @@ vi.hoisted(() => {
       addEventListener: vi.fn(),
     }),
   });
-  Object.defineProperty(HTMLElement.prototype, "scrollTo", {
-    configurable: true,
-    value: vi.fn(),
-  });
 });
 
 afterEach(() => {
@@ -60,7 +56,7 @@ describe("Assistant Drawer", () => {
     wrapper.unmount();
   });
 
-  it("opens Usage inside the drawer and returns to the same chat list", async () => {
+  it("opens Usage inside the drawer and refreshes the chat list on return", async () => {
     const pinia = createPinia();
     setActivePinia(pinia);
     const router = createRouter({ history: createMemoryHistory(), routes });
@@ -89,7 +85,7 @@ describe("Assistant Drawer", () => {
     expect(router.currentRoute.value.fullPath).toBe("/?assistant=chats&tab=alerts#active");
     expect(wrapper.find(".assistant-history").exists()).toBe(true);
     expect(useUIStore().assistantDrawerOpen).toBe(true);
-    expect(store.loadChats).toHaveBeenCalledOnce();
+    expect(store.loadChats).toHaveBeenCalledTimes(2);
     wrapper.unmount();
   });
 
@@ -359,10 +355,10 @@ describe("Assistant Drawer", () => {
     setActivePinia(pinia);
     const router = createRouter({ history: createMemoryHistory(), routes });
     const chat = savedChat();
-    chat.messages.push({ role: "assistant", content: "Original answer" });
-    const current = { ...chat, messages: [...chat.messages, { role: "user" as const, content: "Other tab's question" }],
+    chat.messages.push({ role: "assistant", content: "Original answer", sequence: 1 });
+    const current = { ...chat, messages: [...chat.messages, { role: "user" as const, content: "Other tab's question", sequence: 2 }],
       active_request: running ? { request_id: "other" } : undefined };
-    if (!running) current.messages.push({ role: "assistant", content: "Saved reply" });
+    if (!running) current.messages.push({ role: "assistant", content: "Saved reply", sequence: 3 });
     const get = vi.spyOn(assistantApi, "getAssistantChat").mockResolvedValueOnce(chat).mockResolvedValueOnce(current);
     vi.spyOn(assistantApi, "listAssistantChats").mockResolvedValue({ chats: [chat] });
     const send = vi.spyOn(assistantApi, "sendAssistantChat")
@@ -399,8 +395,8 @@ describe("Assistant Drawer", () => {
     const assistantStore = useAssistantStore();
     const date = new Date().toISOString();
     assistantStore.chats = [
-      { id: "first", title: "Inspect proxy", created_at: date, updated_at: date },
-      { id: "second", title: "Check worker nodes", created_at: date, updated_at: date },
+      { id: "first", title: "Inspect proxy", created_at: date, updated_at: date, unread: false },
+      { id: "second", title: "Check worker nodes", created_at: date, updated_at: date, unread: false },
     ];
     assistantStore.loadChats = vi.fn(async () => undefined);
     const wrapper = mount(AssistantDrawer, { global: { plugins: [pinia, router] } });
@@ -430,8 +426,8 @@ describe("Assistant Drawer", () => {
     const assistantStore = useAssistantStore();
     const date = new Date().toISOString();
     assistantStore.chats = [
-      { id: "first", title: "Inspect proxy", created_at: date, updated_at: date },
-      { id: "second", title: "Check nodes", created_at: date, updated_at: date },
+      { id: "first", title: "Inspect proxy", created_at: date, updated_at: date, unread: false },
+      { id: "second", title: "Check nodes", created_at: date, updated_at: date, unread: false },
     ];
     assistantStore.loadChats = vi.fn(async () => undefined);
     vi.spyOn(assistantStore, "requestAssistant");
@@ -632,14 +628,14 @@ describe("Assistant Drawer", () => {
   it.each([
     {
       name: "the last question",
-      messages: [{ role: "user" as const, content: "Check the cluster" }],
+      messages: [{ role: "user" as const, content: "Check the cluster", sequence: 0 }],
     },
     {
       name: "a question followed by another exchange",
       messages: [
-        { role: "user" as const, content: "Check the cluster" },
-        { role: "user" as const, content: "List services" },
-        { role: "assistant" as const, content: "api, worker" },
+        { role: "user" as const, content: "Check the cluster", sequence: 0 },
+        { role: "user" as const, content: "List services", sequence: 1 },
+        { role: "assistant" as const, content: "api, worker", sequence: 2 },
       ],
     },
   ])("marks $name that has no reply and no running request", async ({ messages }) => {
@@ -677,7 +673,7 @@ describe("Assistant Drawer", () => {
       return Promise.resolve({
         ...savedChat(),
         id: "chat-b",
-        messages: [{ role: "user", content: "Question B" }, { role: "assistant", content: "Answer B" }],
+        messages: [{ role: "user", content: "Question B", sequence: 0 }, { role: "assistant", content: "Answer B", sequence: 1 }],
       });
     });
     const request = vi.spyOn(store, "requestAssistant");
@@ -690,7 +686,7 @@ describe("Assistant Drawer", () => {
     loadFirst({
       ...savedChat({ request_id: "request-a", activity: ["Routing request"] }),
       id: "chat-a",
-      messages: [{ role: "user", content: "Question A" }],
+      messages: [{ role: "user", content: "Question A", sequence: 0 }],
     });
     await flushPromises();
 
@@ -817,7 +813,7 @@ describe("Assistant Drawer", () => {
     const store = useAssistantStore();
     const running = savedChat({ request_id: "running" });
     const completed = savedChat();
-    completed.messages.push({ role: "assistant", content: "Recovered answer" });
+    completed.messages.push({ role: "assistant", content: "Recovered answer", sequence: 1 });
     store.loadChats = vi.fn(async () => { store.chats = [running]; });
     let reload!: (chat: AssistantChatHistory) => void;
     const get = vi.spyOn(assistantApi, "getAssistantChat").mockResolvedValueOnce(running)
@@ -847,10 +843,209 @@ describe("Assistant Drawer", () => {
 function savedChat(activeRequest?: AssistantChatHistory["active_request"]): AssistantChatHistory {
   return {
     id: "chat-1",
+    unread: false,
     title: "Check the cluster",
     created_at: "2026-11-21T10:00:00Z",
     updated_at: "2026-11-21T10:00:00Z",
-    messages: [{ role: "user", content: "Check the cluster" }],
+    messages: [{ role: "user", content: "Check the cluster", sequence: 0 }],
     active_request: activeRequest,
   };
+}
+
+describe("Assistant unread replies", () => {
+  it("acknowledges the latest reply only when visible in the foreground and refreshes the list", async () => {
+    const observers = mockReplyObserver();
+    const visibility = vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+    const chat = { ...savedChat(), unread: true };
+    chat.messages.push({ role: "assistant", content: "Saved reply", sequence: 1 });
+    chat.messages.push({ role: "user", content: "Follow-up question", sequence: 2 });
+    const getChat = vi.spyOn(assistantApi, "getAssistantChat").mockImplementation(async () => chat);
+    const listChats = vi.spyOn(assistantApi, "listAssistantChats").mockImplementation(async () => ({ chats: [{ ...chat }] }));
+    let finishRead!: () => void;
+    const markRead = vi.spyOn(assistantApi, "markAssistantChatRead").mockImplementation(() =>
+      new Promise<void>((resolve) => { finishRead = resolve; }));
+    const { wrapper, router } = await mountDrawer("/?assistant=chats");
+    expect(wrapper.get(".assistant-history-title").classes()).toContain("unread");
+    expect(wrapper.find(".assistant-history-unread-dot").exists()).toBe(true);
+    expect(wrapper.find(".assistant-history-stats").exists()).toBe(true);
+
+    await wrapper.get(".assistant-history-open").trigger("click");
+    await flushPromises();
+    const background = observers.at(-1)!;
+    expect(background.root).toBe(wrapper.get(".assistant-drawer-body").element);
+    expect(background.target.getAttribute("data-reply-sequence")).toBe("1");
+    background.emit(1);
+    expect(markRead).not.toHaveBeenCalled();
+
+    visibility.mockReturnValue("visible");
+    document.dispatchEvent(new Event("visibilitychange"));
+    await flushPromises();
+    const foreground = observers.at(-1)!;
+    expect(foreground).not.toBe(background);
+    foreground.emit(0);
+    expect(markRead).not.toHaveBeenCalled();
+    foreground.emit(0.01);
+    foreground.emit(0.5);
+    expect(markRead).toHaveBeenCalledExactlyOnceWith(chat.id, 1);
+
+    // A list GET that took its snapshot before the read update must not restore the dot.
+    let resolveStaleList!: (result: { chats: AssistantChatHistory[] }) => void;
+    listChats.mockImplementationOnce(() => new Promise((resolve) => { resolveStaleList = resolve; }));
+    await router.push("/?assistant=chats");
+    await flushPromises();
+    chat.unread = false;
+    finishRead();
+    await flushPromises();
+    expect(wrapper.find(".assistant-history-unread-dot").exists()).toBe(false);
+    expect(wrapper.get(".assistant-history-title").classes()).not.toContain("unread");
+    resolveStaleList({ chats: [{ ...chat, unread: true }] });
+    await flushPromises();
+    expect(wrapper.find(".assistant-history-unread-dot").exists()).toBe(false);
+
+    await wrapper.get(".assistant-history-open").trigger("click");
+    await flushPromises();
+    observers.at(-1)!.emit(1);
+    expect(markRead).toHaveBeenCalledTimes(1);
+    expect(getChat).toHaveBeenCalledOnce();
+
+    // A newer reply can be generated elsewhere while the drawer is on the list.
+    chat.unread = true;
+    chat.messages.push({ role: "assistant", content: "Newer saved reply", sequence: 3 });
+    await router.push("/?assistant=chats");
+    await flushPromises();
+    expect(wrapper.find(".assistant-history-unread-dot").exists()).toBe(true);
+    await wrapper.get(".assistant-history-open").trigger("click");
+    await flushPromises();
+    expect(getChat).toHaveBeenCalledTimes(2);
+    expect(observers.at(-1)!.target.getAttribute("data-reply-sequence")).toBe("3");
+    wrapper.unmount();
+  });
+
+  it.each([
+    { position: "bottom", scrollTop: 400, newScrollTop: 700, button: false },
+    { position: "older messages", scrollTop: 120, newScrollTop: 120, button: true },
+  ])("handles a new reply while reading $position", async ({ scrollTop, newScrollTop, button }) => {
+    const observers = mockReplyObserver();
+    vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+    const chat = savedChat();
+    vi.spyOn(assistantApi, "getAssistantChat").mockResolvedValue(chat);
+    vi.spyOn(assistantApi, "listAssistantChats").mockResolvedValue({ chats: [] });
+    const markRead = vi.spyOn(assistantApi, "markAssistantChatRead").mockResolvedValue(undefined);
+    const { wrapper, store } = await mountDrawer(`/?assistant=${chat.id}`);
+    const body = wrapper.get<HTMLElement>(".assistant-drawer-body").element;
+    let top = scrollTop;
+    Object.defineProperties(body, {
+      clientHeight: { value: 200 },
+      scrollHeight: { get: () => body.querySelector("[data-reply-sequence]") ? 900 : 600 },
+      scrollTop: {
+        get: () => top,
+        set: (value: number) => { top = Math.min(value, body.scrollHeight - body.clientHeight); },
+      },
+    });
+
+    await store.finishAssistantMessage({
+      status: "completed", conversation_id: chat.id, request_id: "request", answer: "New answer", answer_sequence: 1,
+    });
+    await flushPromises();
+    expect(body.scrollTop).toBe(newScrollTop);
+    expect(wrapper.find(".assistant-new-reply").exists()).toBe(button);
+    const reply = observers.at(-1)!;
+    expect(reply.target.textContent).toContain("New answer");
+
+    if (button) {
+      reply.emit(0);
+      expect(markRead).not.toHaveBeenCalled();
+      expect(wrapper.get(".assistant-new-reply").text()).toBe("New reply");
+      vi.spyOn(reply.target, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 580, 100, 200));
+      await wrapper.get(".assistant-new-reply").trigger("click");
+      expect(body.scrollTop).toBe(700);
+      expect(markRead).not.toHaveBeenCalled();
+    }
+
+    reply.emit(0.1);
+    await flushPromises();
+    expect(wrapper.find(".assistant-new-reply").exists()).toBe(false);
+    expect(markRead).toHaveBeenCalledExactlyOnceWith(chat.id, 1);
+    wrapper.unmount();
+  });
+
+  it("clears the button on manual scroll or chat switch and ignores an observer from the previous chat", async () => {
+    const observers = mockReplyObserver();
+    vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+    const chat = savedChat();
+    const other = { ...savedChat(), id: "other", unread: true };
+    other.messages.push({ role: "assistant", content: "Other chat reply", sequence: 1 });
+    const getChat = vi.spyOn(assistantApi, "getAssistantChat");
+    getChat.mockResolvedValueOnce(chat).mockResolvedValueOnce(other);
+    vi.spyOn(assistantApi, "listAssistantChats").mockResolvedValue({ chats: [] });
+    let finishRead!: () => void;
+    const markRead = vi.spyOn(assistantApi, "markAssistantChatRead").mockImplementationOnce(() =>
+      new Promise<void>((resolve) => { finishRead = resolve; })).mockResolvedValue(undefined);
+    const { wrapper, router, store } = await mountDrawer(`/?assistant=${chat.id}`);
+    const body = wrapper.get<HTMLElement>(".assistant-drawer-body").element;
+    Object.defineProperties(body, {
+      clientHeight: { value: 200 },
+      scrollHeight: { value: 800 },
+    });
+    body.scrollTop = 80;
+
+    for (const sequence of [1, 2]) {
+      await store.finishAssistantMessage({
+        status: "completed", conversation_id: chat.id, request_id: String(sequence), answer: "Reply", answer_sequence: sequence,
+      });
+      await flushPromises();
+      expect(wrapper.find(".assistant-new-reply").exists()).toBe(true);
+      if (sequence === 1) {
+        observers.at(-1)!.emit(0.1);
+        await flushPromises();
+        expect(wrapper.find(".assistant-new-reply").exists()).toBe(false);
+      }
+    }
+
+    const previous = observers.at(-1)!;
+    await router.push("/?assistant=other");
+    await flushPromises();
+    expect(wrapper.find(".assistant-new-reply").exists()).toBe(false);
+    previous.emit(1);
+    finishRead();
+    await flushPromises();
+    expect(store.conversationID).toBe(other.id);
+    expect(store.unreadReplySequence).toBe(1);
+    expect(markRead).toHaveBeenCalledExactlyOnceWith(chat.id, 1);
+    observers.at(-1)!.emit(1);
+    expect(markRead).toHaveBeenLastCalledWith(other.id, 1);
+    wrapper.unmount();
+  });
+});
+
+async function mountDrawer(path: string) {
+  const pinia = createPinia();
+  const router = createRouter({ history: createMemoryHistory(), routes });
+  await router.push(path);
+  const wrapper = mount(AssistantDrawer, { global: { plugins: [pinia, router] } });
+  await flushPromises();
+  return { wrapper, router, store: useAssistantStore(pinia) };
+}
+
+function mockReplyObserver() {
+  const observers: Array<{ root: IntersectionObserverInit["root"]; target: Element; emit: (ratio: number) => void }> = [];
+  vi.stubGlobal("IntersectionObserver", class {
+    constructor(
+      readonly callback: IntersectionObserverCallback,
+      readonly options: IntersectionObserverInit,
+    ) {}
+
+    observe(target: Element) {
+      observers.push({
+        root: this.options.root,
+        target,
+        emit: (ratio) => this.callback([{
+          target, isIntersecting: ratio > 0, intersectionRatio: ratio,
+        } as IntersectionObserverEntry], this as unknown as IntersectionObserver),
+      });
+    }
+
+    disconnect() {}
+  });
+  return observers;
 }

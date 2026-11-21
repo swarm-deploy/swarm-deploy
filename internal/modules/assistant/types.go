@@ -61,6 +61,8 @@ type ChatResponse struct {
 	RequestID string
 	// Answer is a final assistant answer for completed runs.
 	Answer string
+	// AnswerSequence identifies the stored reply when a completed run has persistent history.
+	AnswerSequence *int
 	// ErrorMessage contains a user-safe error when run failed or was rejected.
 	ErrorMessage string
 	// PollAfterMS is a suggested delay before next poll request.
@@ -71,6 +73,8 @@ type ChatResponse struct {
 
 // ChatMessage is a user-visible persisted chat message.
 type ChatMessage struct {
+	// Sequence identifies this persisted turn within its chat.
+	Sequence int `json:"sequence"`
 	// Role is a participant role.
 	Role string `json:"role"`
 	// Content is the message text.
@@ -98,6 +102,8 @@ type ChatSummary struct {
 	CreatedAt time.Time `json:"created_at"`
 	// UpdatedAt is the timestamp of the latest message.
 	UpdatedAt time.Time `json:"updated_at"`
+	// Unread indicates that the latest persisted assistant reply is unread.
+	Unread bool `json:"unread"`
 	// Usage contains aggregate token consumption when reported by the model provider.
 	Usage *TokenUsage `json:"token_usage,omitempty"`
 }
@@ -112,6 +118,8 @@ type ChatHistory struct {
 	CreatedAt time.Time `json:"created_at"`
 	// UpdatedAt is the timestamp of the latest message.
 	UpdatedAt time.Time `json:"updated_at"`
+	// Unread indicates that the latest persisted assistant reply is unread.
+	Unread bool `json:"unread"`
 	// Usage contains aggregate token consumption when reported by the model provider.
 	Usage *TokenUsage `json:"token_usage,omitempty"`
 	// Messages contains the full persisted user-visible history.

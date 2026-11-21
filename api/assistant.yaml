@@ -52,6 +52,25 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AssistantChatHistory'
+  /api/v1/assistant/chats/{conversationID}/read:
+    put:
+      operationId: markAssistantChatRead
+      parameters:
+        - in: path
+          name: conversationID
+          required: true
+          schema:
+            type: string
+            minLength: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AssistantChatReadRequest'
+      responses:
+        '204':
+          description: Read state updated if the viewed reply is still the latest.
   /api/v1/assistant/usage:
     get:
       operationId: getAssistantUsage
@@ -132,6 +151,10 @@ components:
           type: string
         answer:
           type: string
+        answer_sequence:
+          type: integer
+          minimum: 0
+          description: Persisted sequence of the completed answer, when available.
         error_message:
           type: string
         poll_after_ms:
@@ -160,7 +183,7 @@ components:
           minimum: 0
     AssistantChatSummary:
       type: object
-      required: [id, title, created_at, updated_at]
+      required: [id, title, created_at, updated_at, unread]
       properties:
         id:
           type: string
@@ -172,6 +195,8 @@ components:
         updated_at:
           type: string
           format: date-time
+        unread:
+          type: boolean
         token_usage:
           $ref: '#/components/schemas/AssistantTokenUsage'
     AssistantChatsResponse:
@@ -182,10 +207,21 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/AssistantChatSummary'
+    AssistantChatReadRequest:
+      type: object
+      required: [sequence]
+      properties:
+        sequence:
+          type: integer
+          minimum: 0
+          description: Persisted sequence of the assistant reply that was viewed.
     AssistantChatMessage:
       type: object
-      required: [role, content]
+      required: [role, content, sequence]
       properties:
+        sequence:
+          type: integer
+          minimum: 0
         role:
           type: string
           enum: [user, assistant, system]
@@ -197,7 +233,7 @@ components:
             type: string
     AssistantChatHistory:
       type: object
-      required: [id, title, created_at, updated_at, messages]
+      required: [id, title, created_at, updated_at, unread, messages]
       properties:
         id:
           type: string
@@ -209,6 +245,8 @@ components:
         updated_at:
           type: string
           format: date-time
+        unread:
+          type: boolean
         token_usage:
           $ref: '#/components/schemas/AssistantTokenUsage'
         messages:

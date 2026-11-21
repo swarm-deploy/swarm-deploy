@@ -331,6 +331,13 @@ func (UnimplementedHandler) ListSwarmServices(ctx context.Context) (r *SwarmServ
 	return r, ht.ErrNotImplemented
 }
 
+// MarkAssistantChatRead implements markAssistantChatRead operation.
+//
+// PUT /api/v1/assistant/chats/{conversationID}/read
+func (UnimplementedHandler) MarkAssistantChatRead(ctx context.Context, req *AssistantChatReadRequest, params MarkAssistantChatReadParams) error {
+	return ht.ErrNotImplemented
+}
+
 // PutServiceSyncPause implements putServiceSyncPause operation.
 //
 // PUT /api/v1/stacks/{stack}/services/{service}/sync-pause

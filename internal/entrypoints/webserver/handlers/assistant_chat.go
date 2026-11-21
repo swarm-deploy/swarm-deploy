@@ -47,6 +47,9 @@ func toGeneratedAssistantChatResponse(resp assistant.ChatResponse) *generated.As
 		ErrorMessage:   toOptString(resp.ErrorMessage),
 		Activity:       append([]string(nil), resp.Activity...),
 	}
+	if resp.AnswerSequence != nil {
+		generatedResp.AnswerSequence = generated.NewOptInt(*resp.AnswerSequence)
+	}
 	if resp.PollAfterMS > 0 {
 		pollAfterMS := resp.PollAfterMS
 		if pollAfterMS > math.MaxInt32 {

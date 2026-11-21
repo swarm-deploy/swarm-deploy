@@ -575,6 +575,7 @@ type AssistantChatHistory struct {
 	Title         string                        `json:"title"`
 	CreatedAt     time.Time                     `json:"created_at"`
 	UpdatedAt     time.Time                     `json:"updated_at"`
+	Unread        bool                          `json:"unread"`
 	TokenUsage    OptAssistantTokenUsage        `json:"token_usage"`
 	Messages      []AssistantChatMessage        `json:"messages"`
 	ActiveRequest OptAssistantActiveChatRequest `json:"active_request"`
@@ -598,6 +599,11 @@ func (s *AssistantChatHistory) GetCreatedAt() time.Time {
 // GetUpdatedAt returns the value of UpdatedAt.
 func (s *AssistantChatHistory) GetUpdatedAt() time.Time {
 	return s.UpdatedAt
+}
+
+// GetUnread returns the value of Unread.
+func (s *AssistantChatHistory) GetUnread() bool {
+	return s.Unread
 }
 
 // GetTokenUsage returns the value of TokenUsage.
@@ -635,6 +641,11 @@ func (s *AssistantChatHistory) SetUpdatedAt(val time.Time) {
 	s.UpdatedAt = val
 }
 
+// SetUnread sets the value of Unread.
+func (s *AssistantChatHistory) SetUnread(val bool) {
+	s.Unread = val
+}
+
 // SetTokenUsage sets the value of TokenUsage.
 func (s *AssistantChatHistory) SetTokenUsage(val OptAssistantTokenUsage) {
 	s.TokenUsage = val
@@ -652,9 +663,15 @@ func (s *AssistantChatHistory) SetActiveRequest(val OptAssistantActiveChatReques
 
 // Ref: #/components/schemas/AssistantChatMessage
 type AssistantChatMessage struct {
+	Sequence int                      `json:"sequence"`
 	Role     AssistantChatMessageRole `json:"role"`
 	Content  string                   `json:"content"`
 	Activity []string                 `json:"activity"`
+}
+
+// GetSequence returns the value of Sequence.
+func (s *AssistantChatMessage) GetSequence() int {
+	return s.Sequence
 }
 
 // GetRole returns the value of Role.
@@ -670,6 +687,11 @@ func (s *AssistantChatMessage) GetContent() string {
 // GetActivity returns the value of Activity.
 func (s *AssistantChatMessage) GetActivity() []string {
 	return s.Activity
+}
+
+// SetSequence sets the value of Sequence.
+func (s *AssistantChatMessage) SetSequence(val int) {
+	s.Sequence = val
 }
 
 // SetRole sets the value of Role.
@@ -735,6 +757,22 @@ func (s *AssistantChatMessageRole) UnmarshalText(data []byte) error {
 	}
 }
 
+// Ref: #/components/schemas/AssistantChatReadRequest
+type AssistantChatReadRequest struct {
+	// Persisted sequence of the assistant reply that was viewed.
+	Sequence int `json:"sequence"`
+}
+
+// GetSequence returns the value of Sequence.
+func (s *AssistantChatReadRequest) GetSequence() int {
+	return s.Sequence
+}
+
+// SetSequence sets the value of Sequence.
+func (s *AssistantChatReadRequest) SetSequence(val int) {
+	s.Sequence = val
+}
+
 // Ref: #/components/schemas/AssistantChatRequest
 type AssistantChatRequest struct {
 	ConversationID OptString `json:"conversation_id"`
@@ -789,9 +827,11 @@ type AssistantChatResponse struct {
 	RequestID      string                      `json:"request_id"`
 	ConversationID string                      `json:"conversation_id"`
 	Answer         OptString                   `json:"answer"`
-	ErrorMessage   OptString                   `json:"error_message"`
-	PollAfterMs    OptInt32                    `json:"poll_after_ms"`
-	Activity       []string                    `json:"activity"`
+	// Persisted sequence of the completed answer, when available.
+	AnswerSequence OptInt    `json:"answer_sequence"`
+	ErrorMessage   OptString `json:"error_message"`
+	PollAfterMs    OptInt32  `json:"poll_after_ms"`
+	Activity       []string  `json:"activity"`
 }
 
 // GetStatus returns the value of Status.
@@ -812,6 +852,11 @@ func (s *AssistantChatResponse) GetConversationID() string {
 // GetAnswer returns the value of Answer.
 func (s *AssistantChatResponse) GetAnswer() OptString {
 	return s.Answer
+}
+
+// GetAnswerSequence returns the value of AnswerSequence.
+func (s *AssistantChatResponse) GetAnswerSequence() OptInt {
+	return s.AnswerSequence
 }
 
 // GetErrorMessage returns the value of ErrorMessage.
@@ -847,6 +892,11 @@ func (s *AssistantChatResponse) SetConversationID(val string) {
 // SetAnswer sets the value of Answer.
 func (s *AssistantChatResponse) SetAnswer(val OptString) {
 	s.Answer = val
+}
+
+// SetAnswerSequence sets the value of AnswerSequence.
+func (s *AssistantChatResponse) SetAnswerSequence(val OptInt) {
+	s.AnswerSequence = val
 }
 
 // SetErrorMessage sets the value of ErrorMessage.
@@ -932,6 +982,7 @@ type AssistantChatSummary struct {
 	Title      string                 `json:"title"`
 	CreatedAt  time.Time              `json:"created_at"`
 	UpdatedAt  time.Time              `json:"updated_at"`
+	Unread     bool                   `json:"unread"`
 	TokenUsage OptAssistantTokenUsage `json:"token_usage"`
 }
 
@@ -953,6 +1004,11 @@ func (s *AssistantChatSummary) GetCreatedAt() time.Time {
 // GetUpdatedAt returns the value of UpdatedAt.
 func (s *AssistantChatSummary) GetUpdatedAt() time.Time {
 	return s.UpdatedAt
+}
+
+// GetUnread returns the value of Unread.
+func (s *AssistantChatSummary) GetUnread() bool {
+	return s.Unread
 }
 
 // GetTokenUsage returns the value of TokenUsage.
@@ -978,6 +1034,11 @@ func (s *AssistantChatSummary) SetCreatedAt(val time.Time) {
 // SetUpdatedAt sets the value of UpdatedAt.
 func (s *AssistantChatSummary) SetUpdatedAt(val time.Time) {
 	s.UpdatedAt = val
+}
+
+// SetUnread sets the value of Unread.
+func (s *AssistantChatSummary) SetUnread(val bool) {
+	s.Unread = val
 }
 
 // SetTokenUsage sets the value of TokenUsage.
@@ -4033,6 +4094,9 @@ func (s *LastWebhookStatus) SetAt(val OptDateTime) {
 func (s *LastWebhookStatus) SetQueued(val OptBool) {
 	s.Queued = val
 }
+
+// MarkAssistantChatReadNoContent is response for MarkAssistantChatRead operation.
+type MarkAssistantChatReadNoContent struct{}
 
 // Ref: #/components/schemas/NetworkInfo
 type NetworkInfo struct {

@@ -31,6 +31,14 @@ export function getAssistantChat(conversationID: string, signal?: AbortSignal): 
   return apiRequest<AssistantChatHistory>(`/api/v1/assistant/chats/${encodeURIComponent(conversationID)}`, { signal });
 }
 
+export function markAssistantChatRead(conversationID: string, sequence: number): Promise<void> {
+  return apiRequest<void>(`/api/v1/assistant/chats/${encodeURIComponent(conversationID)}/read`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ sequence }),
+  });
+}
+
 export function getAssistantUsage(
   query: AssistantUsageQuery,
   signal?: AbortSignal,

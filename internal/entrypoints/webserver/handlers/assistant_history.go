@@ -42,6 +42,7 @@ func (h *handler) GetAssistantChat(
 	messages := make([]generated.AssistantChatMessage, 0, len(chat.Messages))
 	for _, message := range chat.Messages {
 		messages = append(messages, generated.AssistantChatMessage{
+			Sequence: message.Sequence,
 			Role:     toGeneratedAssistantChatMessageRole(message.Role),
 			Content:  message.Content,
 			Activity: append([]string(nil), message.Activity...),
@@ -53,10 +54,22 @@ func (h *handler) GetAssistantChat(
 		Title:         chat.Title,
 		CreatedAt:     chat.CreatedAt,
 		UpdatedAt:     chat.UpdatedAt,
+		Unread:        chat.Unread,
 		TokenUsage:    toGeneratedAssistantTokenUsage(chat.Usage),
 		Messages:      messages,
 		ActiveRequest: toGeneratedAssistantActiveChatRequest(chat.ActiveRequest),
 	}, nil
+}
+
+func (h *handler) MarkAssistantChatRead(
+	ctx context.Context,
+	request *generated.AssistantChatReadRequest,
+	params generated.MarkAssistantChatReadParams,
+) error {
+	if err := h.assistant.MarkChatRead(ctx, params.ConversationID, request.Sequence); err != nil {
+		return fmt.Errorf("mark assistant chat read: %w", err)
+	}
+	return nil
 }
 
 func toGeneratedAssistantActiveChatRequest(
@@ -102,6 +115,7 @@ func toGeneratedAssistantChatSummary(chat assistant.ChatSummary) generated.Assis
 		Title:      chat.Title,
 		CreatedAt:  chat.CreatedAt,
 		UpdatedAt:  chat.UpdatedAt,
+		Unread:     chat.Unread,
 		TokenUsage: toGeneratedAssistantTokenUsage(chat.Usage),
 	}
 }
