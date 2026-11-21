@@ -1,6 +1,0 @@
-vendor
-.cache
-.gopath
-.idea
-ui/node_modules
-ui/dist

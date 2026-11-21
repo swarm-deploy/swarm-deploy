@@ -1,5 +1,0 @@
-stacks:
-  - name: testenv-whoami
-    composeFile: whoami.yaml
-  - name: testenv-valkey
-    composeFile: valkey.yaml
