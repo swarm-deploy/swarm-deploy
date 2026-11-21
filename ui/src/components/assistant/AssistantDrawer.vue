@@ -38,8 +38,15 @@ const isOpen = computed(() => uiStore.assistantDrawerOpen && assistantStore.enab
 const messages = computed(() => assistantStore.messages);
 const pending = computed(() => assistantStore.pending);
 const activity = computed(() => assistantStore.activity);
-// A saved question without a reply or an active request: the reply failed or the server restarted.
-const replyMissing = computed(() => !pending.value && messages.value[messages.value.length - 1]?.role === "user");
+// A question followed by another question has no reply; the last question has none unless a reply is running.
+// Client errors are shown as system messages, so they are not marked again.
+function replyMissing(index: number): boolean {
+  if (messages.value[index]?.role !== "user") {
+    return false;
+  }
+  const next = messages.value[index + 1];
+  return next ? next.role === "user" : !pending.value;
+}
 const chats = computed(() => assistantStore.chats);
 const usageOpen = computed(() => isOpen.value && route.query.assistant === "usage");
 const historyOpen = computed(() => assistantStore.historyOpen && !usageOpen.value);
@@ -652,25 +659,22 @@ function renderMessageText(role: string, text: string): string {
 
         <div v-else class="assistant-chat-list">
           <div v-if="currentChatDateLabel" class="assistant-chat-date">{{ currentChatDateLabel }}</div>
-          <article
-            v-for="(message, index) in messages"
-            :key="`${message.role}-${index}`"
-            class="assistant-chat-message"
-            :class="`assistant-chat-message-${message.role}`"
-          >
-            <div class="assistant-chat-markdown" v-html="renderMessageText(message.role, message.text)" />
-            <details v-if="message.activity?.length" class="assistant-activity-details">
-              <summary>Activity</summary>
-              <ol>
-                <li v-for="(item, activityIndex) in message.activity" :key="activityIndex + '-' + item">
-                  {{ item }}
-                </li>
-              </ol>
-            </details>
-          </article>
-          <article v-if="replyMissing" class="assistant-chat-message assistant-chat-message-system" role="status">
-            <p class="assistant-chat-text">No reply received. Send your message again.</p>
-          </article>
+          <template v-for="(message, index) in messages" :key="`${message.role}-${index}`">
+            <article class="assistant-chat-message" :class="`assistant-chat-message-${message.role}`">
+              <div class="assistant-chat-markdown" v-html="renderMessageText(message.role, message.text)" />
+              <details v-if="message.activity?.length" class="assistant-activity-details">
+                <summary>Activity</summary>
+                <ol>
+                  <li v-for="(item, activityIndex) in message.activity" :key="activityIndex + '-' + item">
+                    {{ item }}
+                  </li>
+                </ol>
+              </details>
+            </article>
+            <article v-if="replyMissing(index)" class="assistant-chat-message assistant-chat-message-system">
+              <p class="assistant-chat-text">No reply received. Send your message again.</p>
+            </article>
+          </template>
           <div v-if="pending" class="assistant-activity-live" role="status" aria-live="polite">
             <span class="assistant-activity-spinner" aria-hidden="true" />
             <div>

@@ -291,8 +291,14 @@ func (s *Service) runAssistant(ctx context.Context, createdBy string, history []
 
 	reply := conversation.Turn{Role: "assistant", Content: answer, Activity: run.activitySnapshot()}
 
-	// The reply is saved before the run finishes, so GetChat never misses both the reply and the active request.
-	_ = s.persistConversation(ctx, conversationID, createdBy, usage, reply)
+	// GetChat waits for this save, so it never returns the saved reply together with the active request.
+	run.beginSavingReply()
+	if err = s.persistConversation(ctx, conversationID, createdBy, usage, reply); err != nil {
+		// Keep the model context equal to the saved history: the question stays, the lost reply does not.
+		s.conversationStorage.Append(conversationID, question)
+		run.finish(StatusFailed, "", "Failed to save assistant response")
+		return
+	}
 	s.conversationStorage.Append(conversationID, question, reply)
 
 	run.finish(StatusCompleted, answer, "")
@@ -397,11 +403,16 @@ func (s *Service) activeRunLocked(conversationID string) *chatRun {
 	return nil
 }
 
-func (s *Service) getActiveRun(conversationID string) *chatRun {
+// getStartedRun returns the active run whose question is already saved.
+func (s *Service) getStartedRun(conversationID string) *chatRun {
 	s.runsMu.RLock()
 	defer s.runsMu.RUnlock()
 
-	return s.activeRunLocked(conversationID)
+	run := s.activeRunLocked(conversationID)
+	if run == nil || !run.isStarted() {
+		return nil
+	}
+	return run
 }
 
 func (s *Service) isConversationNewLocked(ctx context.Context, conversationID string) (bool, error) {
@@ -418,8 +429,9 @@ func (s *Service) isConversationNewLocked(ctx context.Context, conversationID st
 		}
 	}
 
+	// Only a started run has saved its question; a failed attempt does not create the conversation.
 	for _, run := range s.runs {
-		if run.conversationID == conversationID {
+		if run.conversationID == conversationID && run.isStarted() {
 			return false, nil
 		}
 	}
@@ -522,14 +534,20 @@ func (s *Service) GetChat(ctx context.Context, id string) (ChatHistory, bool, er
 		return ChatHistory{}, false, nil
 	}
 
-	// Look up the run before reading history: a reply is saved before its run finishes,
-	// so re-reading after a finished run always includes the reply.
-	active := s.getActiveRun(id)
+	// A run is exposed only after its question is saved. If its reply may already be in the
+	// snapshot, wait until the reply save ends and read again, so the reply and the active
+	// request are never returned together.
+	active := s.getStartedRun(id)
 	chat, ok, err := s.conversationHistory.ReadChat(ctx, id)
 	if err != nil || !ok {
 		return ChatHistory{}, ok, err
 	}
-	if active != nil && active.isFinished() {
+	if active != nil && active.isSavingReply() {
+		select {
+		case <-active.done:
+		case <-ctx.Done():
+			return ChatHistory{}, false, ctx.Err()
+		}
 		active = nil
 		chat, ok, err = s.conversationHistory.ReadChat(ctx, id)
 		if err != nil || !ok {
@@ -573,13 +591,14 @@ type chatRun struct {
 
 	done chan struct{}
 
-	mu         sync.RWMutex
-	status     Status
-	started    bool
-	answer     string
-	error      string
-	finishedAt time.Time
-	activity   []string
+	mu          sync.RWMutex
+	status      Status
+	started     bool
+	savingReply bool
+	answer      string
+	error       string
+	finishedAt  time.Time
+	activity    []string
 }
 
 func newChatRun(requestID, conversationID, message string, newConversation bool) *chatRun {
@@ -599,6 +618,29 @@ func (r *chatRun) markStarted() {
 	defer r.mu.Unlock()
 
 	r.started = true
+}
+
+func (r *chatRun) isStarted() bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	return r.started
+}
+
+// beginSavingReply records that the reply may be saved from now on. The run finishes right after the save ends.
+func (r *chatRun) beginSavingReply() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.savingReply = true
+}
+
+// isSavingReply reports whether the reply may already be saved: the run is saving it or has finished.
+func (r *chatRun) isSavingReply() bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	return r.savingReply || r.status != StatusInProgress
 }
 
 func (r *chatRun) reject() {

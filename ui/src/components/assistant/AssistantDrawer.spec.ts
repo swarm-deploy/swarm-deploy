@@ -529,12 +529,25 @@ describe("Assistant Drawer", () => {
     wrapper.unmount();
   });
 
-  it("marks a saved question that has no reply and no running request", async () => {
+  it.each([
+    {
+      name: "the last question",
+      messages: [{ role: "user" as const, content: "Check the cluster" }],
+    },
+    {
+      name: "a question followed by another exchange",
+      messages: [
+        { role: "user" as const, content: "Check the cluster" },
+        { role: "user" as const, content: "List services" },
+        { role: "assistant" as const, content: "api, worker" },
+      ],
+    },
+  ])("marks $name that has no reply and no running request", async ({ messages }) => {
     const pinia = createPinia();
     setActivePinia(pinia);
     const router = createRouter({ history: createMemoryHistory(), routes });
     const store = useAssistantStore();
-    vi.spyOn(assistantApi, "getAssistantChat").mockResolvedValue(savedChat());
+    vi.spyOn(assistantApi, "getAssistantChat").mockResolvedValue({ ...savedChat(), messages });
     const request = vi.spyOn(store, "requestAssistant");
     await router.push("/?assistant=chat-1");
 
@@ -543,7 +556,50 @@ describe("Assistant Drawer", () => {
 
     expect(store.pending).toBe(false);
     expect(request).not.toHaveBeenCalled();
-    expect(wrapper.get(".assistant-chat-message-system").text()).toBe("No reply received. Send your message again.");
+    const hints = wrapper.findAll(".assistant-chat-message-system");
+    expect(hints).toHaveLength(1);
+    expect(hints[0].text()).toBe("No reply received. Send your message again.");
+    expect(hints[0].element.previousElementSibling?.textContent).toContain("Check the cluster");
+    wrapper.unmount();
+  });
+
+  it("keeps the selected chat when an earlier chat finishes loading later", async () => {
+    const pinia = createPinia();
+    setActivePinia(pinia);
+    const router = createRouter({ history: createMemoryHistory(), routes });
+    const store = useAssistantStore();
+    store.loadChats = vi.fn(async () => undefined);
+    let loadFirst!: (chat: AssistantChatHistory) => void;
+    vi.spyOn(assistantApi, "getAssistantChat").mockImplementation((conversationID) => {
+      if (conversationID === "chat-a") {
+        return new Promise((resolve) => { loadFirst = resolve; });
+      }
+      return Promise.resolve({
+        ...savedChat(),
+        id: "chat-b",
+        messages: [{ role: "user", content: "Question B" }, { role: "assistant", content: "Answer B" }],
+      });
+    });
+    const request = vi.spyOn(store, "requestAssistant");
+    await router.push("/?assistant=chat-a");
+
+    const wrapper = mount(AssistantDrawer, { global: { plugins: [pinia, router] } });
+    await flushPromises();
+    await router.push("/?assistant=chat-b");
+    await flushPromises();
+    loadFirst({
+      ...savedChat({ request_id: "request-a", activity: ["Routing request"] }),
+      id: "chat-a",
+      messages: [{ role: "user", content: "Question A" }],
+    });
+    await flushPromises();
+
+    expect(router.currentRoute.value.query.assistant).toBe("chat-b");
+    expect(store.conversationID).toBe("chat-b");
+    expect(store.pending).toBe(false);
+    expect(request).not.toHaveBeenCalled();
+    expect(wrapper.text()).toContain("Question B");
+    expect(wrapper.text()).not.toContain("Question A");
     wrapper.unmount();
   });
 });

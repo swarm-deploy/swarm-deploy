@@ -32,6 +32,7 @@ interface AssistantState {
   chats: AssistantChatSummary[];
   historyOpen: boolean;
   historyLoading: boolean;
+  chatGeneration: number;
 }
 
 export const useAssistantStore = defineStore("assistant", {
@@ -45,6 +46,7 @@ export const useAssistantStore = defineStore("assistant", {
     chats: [],
     historyOpen: false,
     historyLoading: false,
+    chatGeneration: 0,
   }),
   actions: {
     setEnabled(enabled: boolean) {
@@ -75,11 +77,20 @@ export const useAssistantStore = defineStore("assistant", {
         await this.loadChats();
       }
     },
+    // Starts a new chat selection. Results of older loads and polls are ignored, so they never reach another chat.
+    beginChatGeneration(): number {
+      this.chatGeneration += 1;
+      return this.chatGeneration;
+    },
+    isCurrentChat(generation: number): boolean {
+      return generation === this.chatGeneration;
+    },
     newChat() {
       if (this.pending) {
         return;
       }
 
+      this.beginChatGeneration();
       this.conversationID = "";
       this.activeRequestID = "";
       this.activity = [];
@@ -91,7 +102,11 @@ export const useAssistantStore = defineStore("assistant", {
         return;
       }
 
+      const generation = this.beginChatGeneration();
       const chat = await getAssistantChat(conversationID);
+      if (!this.isCurrentChat(generation)) {
+        return;
+      }
       const active = chat.active_request;
       // Set pending together with the messages, so the chat never shows an unanswered question while a reply is running.
       this.pending = Boolean(active);
@@ -105,33 +120,44 @@ export const useAssistantStore = defineStore("assistant", {
       }));
       this.historyOpen = false;
       if (active) {
-        void this.resumeAssistantMessage(chat.id, active.request_id);
+        void this.resumeAssistantMessage(chat.id, active.request_id, generation);
       }
     },
     // Continues polling a reply that was started before the chat was opened, for example before a page reload.
-    async resumeAssistantMessage(conversationID: string, requestID: string) {
+    async resumeAssistantMessage(conversationID: string, requestID: string, generation: number) {
       this.pending = true;
       try {
         const response = await this.pollAssistantMessage(
           { conversation_id: conversationID, request_id: requestID },
-          (progress) => this.updateAssistantProgress(progress),
+          generation,
         );
-        await this.finishAssistantMessage(response);
+        if (this.isCurrentChat(generation)) {
+          await this.finishAssistantMessage(response);
+        }
       } catch (error) {
-        this.showRequestError(error);
+        if (this.isCurrentChat(generation)) {
+          this.showRequestError(error);
+        }
       } finally {
-        this.pending = false;
+        if (this.isCurrentChat(generation)) {
+          this.pending = false;
+        }
       }
     },
+    // Polls a request and applies progress only while its chat stays selected.
     async pollAssistantMessage(
       payload: AssistantChatRequest,
-      onProgress?: (response: AssistantChatResponse) => void,
+      generation: number,
+      onProgress: (response: AssistantChatResponse) => void = (response) => this.updateAssistantProgress(response),
     ): Promise<AssistantChatResponse | undefined> {
       for (let attempt = 0; attempt < 150; attempt += 1) {
         // On a new chat, wait for the saved ID and start polling for the answer separately.
         const waitTimeout = attempt === 0 && payload.message && !payload.conversation_id ? 1 : 750;
         const response = await this.requestAssistant({ ...payload, wait_timeout_ms: waitTimeout });
-        onProgress?.(response);
+        if (!this.isCurrentChat(generation)) {
+          return undefined;
+        }
+        onProgress(response);
 
         if (response.status !== "in_progress") {
           return response;
@@ -142,20 +168,15 @@ export const useAssistantStore = defineStore("assistant", {
           request_id: response.request_id || payload.request_id,
         };
         await sleep(Math.max(100, response.poll_after_ms || 1000));
+        if (!this.isCurrentChat(generation)) {
+          return undefined;
+        }
       }
     },
     updateAssistantProgress(response: AssistantChatResponse) {
       this.conversationID = response.conversation_id || this.conversationID;
       this.activeRequestID = response.request_id || this.activeRequestID;
       this.activity = response.activity || this.activity;
-    },
-    async runAssistantMessage(message: string) {
-      const response = await this.pollAssistantMessage({
-        conversation_id: this.conversationID || undefined,
-        message,
-      }, (response) => this.updateAssistantProgress(response));
-
-      await this.finishAssistantMessage(response);
     },
     async finishAssistantMessage(response?: AssistantChatResponse) {
       this.activeRequestID = "";
@@ -186,10 +207,12 @@ export const useAssistantStore = defineStore("assistant", {
       this.pushMessage("system", `Assistant failed: ${message}`);
     },
     async sendFirstMessage(message: string, requestID: string, onStarted: (conversationID: string) => void) {
+      // The new chat replaces any chat that is still loading.
+      const generation = this.beginChatGeneration();
       this.pending = true;
       let started = false;
       try {
-        const response = await this.pollAssistantMessage({ message, request_id: requestID }, (progress) => {
+        const response = await this.pollAssistantMessage({ message, request_id: requestID }, generation, (progress) => {
           if (!started) {
             if (!progress.conversation_id || progress.status === "disabled") {
               return;
@@ -204,6 +227,9 @@ export const useAssistantStore = defineStore("assistant", {
           }
           this.updateAssistantProgress(progress);
         });
+        if (!this.isCurrentChat(generation)) {
+          return undefined;
+        }
         if (!started) {
           if (!response) {
             throw new Error("Assistant request timeout. Try again.");
@@ -215,9 +241,13 @@ export const useAssistantStore = defineStore("assistant", {
         if (!started) {
           throw error;
         }
-        this.showRequestError(error);
+        if (this.isCurrentChat(generation)) {
+          this.showRequestError(error);
+        }
       } finally {
-        this.pending = false;
+        if (this.isCurrentChat(generation)) {
+          this.pending = false;
+        }
       }
     },
     async sendMessage(message: string) {
@@ -230,16 +260,28 @@ export const useAssistantStore = defineStore("assistant", {
         return;
       }
 
+      // Sending keeps the shown chat and drops any chat that is still loading.
+      const generation = this.beginChatGeneration();
       this.pushMessage("user", normalizedMessage);
       this.activity = [];
       this.pending = true;
 
       try {
-        await this.runAssistantMessage(normalizedMessage);
+        const response = await this.pollAssistantMessage({
+          conversation_id: this.conversationID || undefined,
+          message: normalizedMessage,
+        }, generation);
+        if (this.isCurrentChat(generation)) {
+          await this.finishAssistantMessage(response);
+        }
       } catch (error) {
-        this.showRequestError(error);
+        if (this.isCurrentChat(generation)) {
+          this.showRequestError(error);
+        }
       } finally {
-        this.pending = false;
+        if (this.isCurrentChat(generation)) {
+          this.pending = false;
+        }
       }
     },
   },
