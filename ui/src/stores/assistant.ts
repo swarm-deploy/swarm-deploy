@@ -148,8 +148,9 @@ export const useAssistantStore = defineStore("assistant", {
     async pollAssistantMessage(
       payload: AssistantChatRequest,
       generation: number,
-      onProgress: (response: AssistantChatResponse) => void = (response) => this.updateAssistantProgress(response),
+      onProgress?: (response: AssistantChatResponse) => void,
     ): Promise<AssistantChatResponse | undefined> {
+      const applyProgress = onProgress ?? ((response: AssistantChatResponse) => this.updateAssistantProgress(response));
       for (let attempt = 0; attempt < 150; attempt += 1) {
         // On a new chat, wait for the saved ID and start polling for the answer separately.
         const waitTimeout = attempt === 0 && payload.message && !payload.conversation_id ? 1 : 750;
@@ -157,7 +158,7 @@ export const useAssistantStore = defineStore("assistant", {
         if (!this.isCurrentChat(generation)) {
           return undefined;
         }
-        onProgress(response);
+        applyProgress(response);
 
         if (response.status !== "in_progress") {
           return response;
