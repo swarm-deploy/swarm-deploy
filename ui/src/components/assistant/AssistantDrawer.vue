@@ -2,6 +2,7 @@
 import { computed, defineAsyncComponent, nextTick, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
+import { openNewAssistantChat } from "../../router/assistant";
 import { getAssistantSuggestions } from "../../api/assistant";
 import type { AssistantSuggestion } from "../../api/types";
 import { useAssistantStore } from "../../stores/assistant";
@@ -38,6 +39,15 @@ const isOpen = computed(() => uiStore.assistantDrawerOpen && assistantStore.enab
 const messages = computed(() => assistantStore.messages);
 const pending = computed(() => assistantStore.pending);
 const activity = computed(() => assistantStore.activity);
+// A question followed by another question has no reply; the last question has none unless a reply is running.
+// Client errors are shown as system messages, so they are not marked again.
+function replyMissing(index: number): boolean {
+  if (messages.value[index]?.role !== "user") {
+    return false;
+  }
+  const next = messages.value[index + 1];
+  return next ? next.role === "user" : !pending.value;
+}
 const chats = computed(() => assistantStore.chats);
 const usageOpen = computed(() => isOpen.value && route.query.assistant === "usage");
 const historyOpen = computed(() => assistantStore.historyOpen && !usageOpen.value);
@@ -46,10 +56,14 @@ const historyLoading = computed(() => assistantStore.historyLoading);
 const usageRoute = computed(() => ({ query: assistantQuery("usage"), hash: route.hash }));
 const usageOpenChatID = ref("");
 
+const loadingChatID = ref("");
 const existingChatLoading = computed(() => {
   const assistant = typeof route.query.assistant === "string" ? route.query.assistant : "";
-  return assistant !== "" && assistant !== "new" && assistant !== "chats" && assistantStore.conversationID !== assistant;
+  return assistant !== "" && assistant !== "new" && assistant !== "chats" &&
+    (assistantStore.conversationID !== assistant || loadingChatID.value === assistant);
 });
+
+const composerDisabled = computed(() => pending.value || existingChatLoading.value);
 
 const emptyChatVisible = computed(
   () => isOpen.value && chatOpen.value && messages.value.length === 0 && !existingChatLoading.value,
@@ -254,7 +268,7 @@ async function openHistory() {
 }
 
 async function openChat(chatID: string) {
-  if (pending.value) {
+  if (pending.value && assistantStore.conversationID !== chatID) {
     return;
   }
 
@@ -266,12 +280,7 @@ async function newChat() {
     return;
   }
 
-  if (route.query.assistant === "new") {
-    assistantStore.newChat();
-    return;
-  }
-
-  await router.push({ query: assistantQuery("new") });
+  await openNewAssistantChat(router);
 }
 
 async function closeDrawer() {
@@ -307,7 +316,7 @@ function handleEscape() {
 
 watch(
   () => route.query.assistant,
-  async (assistant) => {
+  async (assistant, _, onCleanup) => {
     const value = typeof assistant === "string" ? assistant : "";
 
     if (value !== "chats") {
@@ -337,10 +346,22 @@ watch(
       return;
     }
 
-    if (assistantStore.conversationID === value) {
+    if (assistantStore.conversationID === value && !assistantStore.chatHistoryStale) {
       assistantStore.historyOpen = false;
     } else {
-      await assistantStore.openChat(value);
+      const controller = new AbortController();
+      loadingChatID.value = value;
+      onCleanup(() => {
+        controller.abort();
+        loadingChatID.value = "";
+      });
+      try {
+        await assistantStore.openChat(value, controller.signal);
+      } catch (error) {
+        if (!controller.signal.aborted) throw error;
+      } finally {
+        if (!controller.signal.aborted) loadingChatID.value = "";
+      }
     }
   },
   { immediate: true },
@@ -348,7 +369,7 @@ watch(
 
 async function submitHistoryMessage() {
   const message = historyMessage.value.trim();
-  if (!message || pending.value) {
+  if (!message || historySending.value || composerDisabled.value) {
     return;
   }
 
@@ -363,24 +384,19 @@ async function submitHistoryMessage() {
 
   try {
     historySending.value = true;
-    const response = await assistantStore.sendFirstMessage(message, historyRequest.id);
+    const origin = router.currentRoute.value;
+    const response = await assistantStore.createChat(message, historyRequest.id);
     historyRequest = undefined;
-    if (response.status !== "completed" || !response.conversation_id) {
+    if (!response.conversation_id || response.status === "disabled") {
       historyError.value = response.error_message || "Could not start a chat. Try again.";
       return;
     }
-
     historyMessage.value = "";
-    if (route.query.assistant === "chats") {
-      assistantStore.newChat();
-      assistantStore.conversationID = response.conversation_id;
-      assistantStore.pushMessage("user", message);
-      assistantStore.pushMessage(
-        "assistant",
-        response.answer || "Assistant returned empty answer.",
-        response.activity?.length ? response.activity : undefined,
-      );
-      await router.push({ query: assistantQuery(response.conversation_id) });
+    if (router.currentRoute.value === origin) {
+      assistantStore.openCreatedChat(message, response);
+      await router.push({ query: assistantQuery(response.conversation_id), hash: route.hash });
+    } else if (historyOpen.value) {
+      await assistantStore.loadChats();
     }
   } catch (error) {
     historyError.value = error instanceof Error ? error.message : "Could not start a chat. Try again.";
@@ -389,9 +405,18 @@ async function submitHistoryMessage() {
   }
 }
 
+watch(
+  () => assistantStore.conversationID,
+  (conversationID, previousID) => {
+    if (conversationID && !previousID && pending.value && route.query.assistant === "new") {
+      void router.replace({ query: assistantQuery(conversationID), hash: route.hash });
+    }
+  },
+);
+
 async function submitMessage() {
   const text = messageInput.value.trim();
-  if (!text || pending.value) {
+  if (!text || composerDisabled.value) {
     return;
   }
 
@@ -402,7 +427,7 @@ async function submitMessage() {
 }
 
 async function submitSuggestion(suggestion: AssistantSuggestion) {
-  if (pending.value) {
+  if (composerDisabled.value) {
     return;
   }
 
@@ -649,22 +674,22 @@ function renderMessageText(role: string, text: string): string {
 
         <div v-else class="assistant-chat-list">
           <div v-if="currentChatDateLabel" class="assistant-chat-date">{{ currentChatDateLabel }}</div>
-          <article
-            v-for="(message, index) in messages"
-            :key="`${message.role}-${index}`"
-            class="assistant-chat-message"
-            :class="`assistant-chat-message-${message.role}`"
-          >
-            <div class="assistant-chat-markdown" v-html="renderMessageText(message.role, message.text)" />
-            <details v-if="message.activity?.length" class="assistant-activity-details">
-              <summary>Activity</summary>
-              <ol>
-                <li v-for="(item, activityIndex) in message.activity" :key="activityIndex + '-' + item">
-                  {{ item }}
-                </li>
-              </ol>
-            </details>
-          </article>
+          <template v-for="(message, index) in messages" :key="`${message.role}-${index}`">
+            <article class="assistant-chat-message" :class="`assistant-chat-message-${message.role}`">
+              <div class="assistant-chat-markdown" v-html="renderMessageText(message.role, message.text)" />
+              <details v-if="message.activity?.length" class="assistant-activity-details">
+                <summary>Activity</summary>
+                <ol>
+                  <li v-for="(item, activityIndex) in message.activity" :key="activityIndex + '-' + item">
+                    {{ item }}
+                  </li>
+                </ol>
+              </details>
+            </article>
+            <article v-if="replyMissing(index)" class="assistant-chat-message assistant-chat-message-system">
+              <p class="assistant-chat-text">No reply received. Send your message again.</p>
+            </article>
+          </template>
           <div v-if="pending" class="assistant-activity-live" role="status" aria-live="polite">
             <span class="assistant-activity-spinner" aria-hidden="true" />
             <div>
@@ -689,7 +714,7 @@ function renderMessageText(role: string, text: string): string {
             rows="1"
             placeholder="Ask the assistant…"
             aria-label="Ask the assistant"
-            :readonly="pending"
+            :readonly="composerDisabled || historySending"
             @input="historyMessage = ($event.target as HTMLTextAreaElement).value; historyError = ''"
           />
           <button
@@ -697,7 +722,7 @@ function renderMessageText(role: string, text: string): string {
             class="assistant-send-button"
             type="submit"
             :aria-label="historySending ? 'Sending message' : 'Send message'"
-            :disabled="pending"
+            :disabled="composerDisabled || historySending"
           >
             <span v-if="historySending" class="assistant-activity-spinner" aria-hidden="true" />
             <svg v-else viewBox="0 0 24 24" aria-hidden="true">
@@ -716,7 +741,7 @@ function renderMessageText(role: string, text: string): string {
             rows="1"
             placeholder="Ask the assistant…"
             aria-label="Ask the assistant"
-            :disabled="pending"
+            :disabled="composerDisabled"
           />
           <button
             v-if="messageInput.trim()"
@@ -724,7 +749,7 @@ function renderMessageText(role: string, text: string): string {
             class="assistant-send-button"
             type="submit"
             aria-label="Send message"
-            :disabled="pending"
+            :disabled="composerDisabled"
           >
             <svg viewBox="0 0 24 24" aria-hidden="true">
               <path d="M12 19V5M6 11l6-6 6 6" />

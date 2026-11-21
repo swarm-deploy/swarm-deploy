@@ -32,6 +32,8 @@ interface AssistantState {
   chats: AssistantChatSummary[];
   historyOpen: boolean;
   historyLoading: boolean;
+  chatGeneration: number;
+  chatHistoryStale: boolean;
 }
 
 export const useAssistantStore = defineStore("assistant", {
@@ -45,6 +47,8 @@ export const useAssistantStore = defineStore("assistant", {
     chats: [],
     historyOpen: false,
     historyLoading: false,
+    chatGeneration: 0,
+    chatHistoryStale: false,
   }),
   actions: {
     setEnabled(enabled: boolean) {
@@ -75,42 +79,101 @@ export const useAssistantStore = defineStore("assistant", {
         await this.loadChats();
       }
     },
+    // Starts a new chat selection. Results of older loads and polls are ignored, so they never reach another chat.
+    beginChatGeneration(): number {
+      this.chatGeneration += 1;
+      return this.chatGeneration;
+    },
+    isCurrentChat(generation: number): boolean {
+      return generation === this.chatGeneration;
+    },
     newChat() {
-      if (this.pending) {
-        return;
-      }
-
+      this.beginChatGeneration();
+      this.pending = false;
+      this.chatHistoryStale = false;
       this.conversationID = "";
       this.activeRequestID = "";
       this.activity = [];
       this.messages = [];
       this.historyOpen = false;
     },
-    async openChat(conversationID: string) {
+    async openChat(conversationID: string, signal?: AbortSignal) {
+      // Selection takes effect even when the history read is slower than the previous chat's response.
+      this.beginChatGeneration();
       if (this.pending) {
-        return;
+        this.chatHistoryStale = true;
+        this.pending = false;
+        this.activeRequestID = "";
+        this.activity = [];
       }
-
-      const chat = await getAssistantChat(conversationID);
+      if (await this.refreshChat(conversationID, signal)) this.historyOpen = false;
+    },
+    async refreshChat(conversationID: string, signal?: AbortSignal, notice?: string) {
+      const previousGeneration = this.chatGeneration;
+      const chat = await getAssistantChat(conversationID, signal);
+      if (signal?.aborted || !this.isCurrentChat(previousGeneration)) {
+        return false;
+      }
+      const generation = this.beginChatGeneration();
+      const active = chat.active_request;
+      // Set pending together with the messages, so the chat never shows an unanswered question while a reply is running.
+      this.pending = Boolean(active);
+      this.chatHistoryStale = false;
       this.conversationID = chat.id;
-      this.activeRequestID = "";
-      this.activity = [];
+      this.activeRequestID = active?.request_id || "";
+      this.activity = active?.activity || [];
       this.messages = chat.messages.map((message) => ({
         role: message.role,
         text: message.content,
         activity: message.activity,
       }));
-      this.historyOpen = false;
+      if (notice) this.pushMessage("system", notice);
+      if (active) {
+        void this.resumeAssistantMessage(chat.id, active.request_id, generation);
+      }
+      return true;
     },
+    // Continues polling a reply that was started before the chat was opened, for example before a page reload.
+    async resumeAssistantMessage(conversationID: string, requestID: string, generation: number) {
+      this.pending = true;
+      try {
+        const response = await this.pollSelectedChat(
+          { conversation_id: conversationID, request_id: requestID },
+          generation,
+        );
+        if (this.isCurrentChat(generation)) {
+          await this.finishAssistantMessage(response);
+        }
+      } catch (error) {
+        if (this.isCurrentChat(generation)) {
+          this.showRequestError(error);
+        }
+      } finally {
+        if (this.isCurrentChat(generation)) {
+          this.pending = false;
+        }
+      }
+    },
+    async pollSelectedChat(payload: AssistantChatRequest, generation: number) {
+      return this.pollAssistantMessage(payload, (response) => {
+        this.updateAssistantProgress(response);
+        return true;
+      }, () => this.isCurrentChat(generation));
+    },
+    // onResponse returns false once the caller has received what it needs from the request.
     async pollAssistantMessage(
       payload: AssistantChatRequest,
-      onProgress?: (response: AssistantChatResponse) => void,
+      onResponse: (response: AssistantChatResponse) => boolean,
+      isCurrent: () => boolean = () => true,
     ): Promise<AssistantChatResponse | undefined> {
       for (let attempt = 0; attempt < 150; attempt += 1) {
-        const response = await this.requestAssistant({ ...payload, wait_timeout_ms: 750 });
-        onProgress?.(response);
-
-        if (response.status !== "in_progress") {
+        // On a new chat, wait for the saved ID and start polling for the answer separately.
+        const waitTimeout = attempt === 0 && payload.message && !payload.conversation_id ? 1 : 750;
+        const response = await this.requestAssistant({ ...payload, wait_timeout_ms: waitTimeout });
+        if (!isCurrent()) {
+          return undefined;
+        }
+        if (!onResponse(response) || response.status !== "in_progress") {
           return response;
         }
 
@@ -119,18 +182,17 @@ export const useAssistantStore = defineStore("assistant", {
           request_id: response.request_id || payload.request_id,
         };
         await sleep(Math.max(100, response.poll_after_ms || 1000));
+        if (!isCurrent()) {
+          return undefined;
+        }
       }
     },
-    async runAssistantMessage(message: string) {
-      const response = await this.pollAssistantMessage({
-        conversation_id: this.conversationID || undefined,
-        message,
-      }, (response) => {
-        this.conversationID = response.conversation_id || this.conversationID;
-        this.activeRequestID = response.request_id || this.activeRequestID;
-        this.activity = response.activity || this.activity;
-      });
-
+    updateAssistantProgress(response: AssistantChatResponse) {
+      this.conversationID = response.conversation_id || this.conversationID;
+      this.activeRequestID = response.request_id || this.activeRequestID;
+      this.activity = response.activity || this.activity;
+    },
+    async finishAssistantMessage(response?: AssistantChatResponse) {
       this.activeRequestID = "";
       if (response?.status === "completed") {
         this.pushMessage(
@@ -152,16 +214,33 @@ export const useAssistantStore = defineStore("assistant", {
         ? response.error_message || `Assistant status: ${response.status}`
         : "Assistant request timeout. Try again.");
     },
-    async sendFirstMessage(message: string, requestID: string) {
-      this.pending = true;
-      try {
-        const response = await this.pollAssistantMessage({ message, request_id: requestID });
-        if (!response) {
-          throw new Error("Assistant request timeout. Try again.");
-        }
-        return response;
-      } finally {
-        this.pending = false;
+    showRequestError(error: unknown) {
+      this.chatHistoryStale = true;
+      this.activeRequestID = "";
+      this.activity = [];
+      const message = error instanceof Error ? error.message : "Unexpected assistant error";
+      this.pushMessage("system", `Assistant failed: ${message}`);
+    },
+    // Return as soon as the server has accepted the first question and assigned a chat ID.
+    async createChat(message: string, requestID: string) {
+      const response = await this.pollAssistantMessage(
+        { message, request_id: requestID },
+        (progress) => !progress.conversation_id,
+      );
+      if (!response) throw new Error("Assistant request timeout. Try again.");
+      return response;
+    },
+    openCreatedChat(message: string, response: AssistantChatResponse) {
+      this.newChat();
+      this.pushMessage("user", message);
+      this.updateAssistantProgress(response);
+      const generation = this.chatGeneration;
+      if (response.status === "in_progress") {
+        void this.resumeAssistantMessage(response.conversation_id, response.request_id, generation);
+      } else {
+        void this.finishAssistantMessage(response).catch((error) => {
+          if (this.isCurrentChat(generation)) this.showRequestError(error);
+        });
       }
     },
     async sendMessage(message: string) {
@@ -174,19 +253,36 @@ export const useAssistantStore = defineStore("assistant", {
         return;
       }
 
+      const conversationID = this.conversationID;
+      // Sending keeps the shown chat and drops any chat that is still loading.
+      const generation = this.beginChatGeneration();
       this.pushMessage("user", normalizedMessage);
       this.activity = [];
       this.pending = true;
 
       try {
-        await this.runAssistantMessage(normalizedMessage);
+        const response = await this.pollSelectedChat({
+          conversation_id: conversationID || undefined,
+          message: normalizedMessage,
+        }, generation);
+        if (!this.isCurrentChat(generation)) return;
+        if (conversationID && (response?.status === "failed" || response?.status === "rejected")) {
+          // Another client may own the running request, or the server may have rejected our optimistic turn.
+          this.chatHistoryStale = true;
+          const notice = response.error_message || `Assistant status: ${response.status}`;
+          this.pushMessage("system", notice);
+          await this.refreshChat(conversationID, undefined, notice);
+        } else {
+          await this.finishAssistantMessage(response);
+        }
       } catch (error) {
-        this.activeRequestID = "";
-        this.activity = [];
-        const messageText = error instanceof Error ? error.message : "Unexpected assistant error";
-        this.pushMessage("system", `Assistant failed: ${messageText}`);
+        if (this.isCurrentChat(generation)) {
+          this.showRequestError(error);
+        }
       } finally {
-        this.pending = false;
+        if (this.isCurrentChat(generation)) {
+          this.pending = false;
+        }
       }
     },
   },

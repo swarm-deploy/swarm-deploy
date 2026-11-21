@@ -218,9 +218,26 @@ func equalOptionalUint64(left, right *uint64) bool {
 	return *left == *right
 }
 
-func (f *operationFlow) startPendingOperation(
+// An operationTurn stages the next prompt's operation until its reply is saved.
+// Claims and cancellations still consume the previously published operation immediately.
+type operationTurn struct {
+	*operationFlow
+	conversationID string
+	next           *PendingOperation
+}
+
+func (f *operationFlow) beginTurn(conversationID string) *operationTurn {
+	return &operationTurn{operationFlow: f, conversationID: conversationID}
+}
+
+func (t *operationTurn) publish() {
+	if t.next != nil {
+		t.pending.set(t.conversationID, *t.next)
+	}
+}
+
+func (t *operationTurn) startPendingOperation(
 	ctx context.Context,
-	conversationID string,
 	intent OperationIntent,
 ) (string, conversation.TokenUsage) {
 	op := PendingOperation{
@@ -233,40 +250,39 @@ func (f *operationFlow) startPendingOperation(
 	}
 	if op.Type == OperationDeploySync {
 		op.Stage = PendingOperationConfirmation
-		f.pending.set(conversationID, op)
+		t.next = &op
 		return confirmationMessage(op), conversation.TokenUsage{}
 	}
 	if op.Type == OperationSyncPauseSet || op.Type == OperationSyncPauseResume {
-		return f.startPauseOperation(ctx, conversationID, op)
+		return t.startPauseOperation(ctx, op)
 	}
-	services, err := f.store.ReadAll(ctx)
+	services, err := t.store.ReadAll(ctx)
 	if err != nil {
 		return "Не удалось прочитать каталог сервисов. Повторите запрос.", conversation.TokenUsage{}
 	}
-	resolution, usage := f.resolveOperationTarget(ctx, services, op.Target)
+	resolution, usage := t.resolveOperationTarget(ctx, services, op.Target)
 	if resolution.ok {
 		op.Stack, op.Service = resolution.stack, resolution.service
 	}
 	if !resolution.ok {
-		f.pending.set(conversationID, op)
+		t.next = &op
 		return resolution.message, usage
 	}
 	if op.Type == OperationServiceReplicasSet && op.Replicas == nil {
-		f.pending.set(conversationID, op)
+		t.next = &op
 		return fmt.Sprintf("Сколько реплик установить для `%s` в стеке `%s`?", op.Service, op.Stack), usage
 	}
 	op.Stage = PendingOperationConfirmation
-	f.pending.set(conversationID, op)
+	t.next = &op
 	return confirmationMessage(op), usage
 }
 
 //nolint:nestif // Scope-specific target revalidation keeps stack and service warnings explicit.
-func (f *operationFlow) startPauseOperation(
+func (t *operationTurn) startPauseOperation(
 	ctx context.Context,
-	conversationID string,
 	op PendingOperation,
 ) (string, conversation.TokenUsage) {
-	if f.pauseTargets == nil {
+	if t.pauseTargets == nil {
 		return "Pause Sync is unavailable.", conversation.TokenUsage{}
 	}
 	target := strings.Trim(strings.TrimSpace(op.Target), "/")
@@ -282,7 +298,7 @@ func (f *operationFlow) startPauseOperation(
 	}
 	if op.Scope == string(syncpause.ScopeStack) {
 		op.Stack = target
-		state, err := f.pauseTargets.GetStack(ctx, op.Stack)
+		state, err := t.pauseTargets.GetStack(ctx, op.Stack)
 		if err != nil {
 			return "Стек не найден в состоянии GitOps. Уточните имя стека.", conversation.TokenUsage{}
 		}
@@ -295,78 +311,75 @@ func (f *operationFlow) startPauseOperation(
 			return "Укажите GitOps-сервис в формате `stack/service`.", conversation.TokenUsage{}
 		}
 		op.Stack, op.Service = strings.TrimSpace(stack), strings.TrimSpace(service)
-		if _, err := f.pauseTargets.GetService(ctx, op.Stack, op.Service); err != nil {
+		if _, err := t.pauseTargets.GetService(ctx, op.Stack, op.Service); err != nil {
 			return "Сервис не найден в состоянии GitOps. Уточните цель `stack/service`.", conversation.TokenUsage{}
 		}
 	}
 	op.Stage = PendingOperationConfirmation
-	f.pending.set(conversationID, op)
+	t.next = &op
 	return confirmationMessage(op), conversation.TokenUsage{}
 }
 
-func (f *operationFlow) handlePendingOperation(
+func (t *operationTurn) handlePendingOperation(
 	ctx context.Context,
-	conversationID string,
 	message string,
 ) (bool, string, conversation.TokenUsage, error) {
-	op, ok := f.pending.get(conversationID)
+	op, ok := t.pending.get(t.conversationID)
 	if !ok {
 		return false, "", conversation.TokenUsage{}, nil
 	}
 
 	switch op.Stage {
 	case PendingOperationConfirmation:
-		return f.handlePendingConfirmation(ctx, conversationID, message, op)
+		return t.handlePendingConfirmation(ctx, message, op)
 	case PendingOperationCollecting:
-		return f.handlePendingCollection(ctx, conversationID, message, op)
+		return t.handlePendingCollection(ctx, message, op)
 	default:
-		f.pending.delete(conversationID)
+		t.pending.delete(t.conversationID)
 		return false, "", conversation.TokenUsage{}, nil
 	}
 }
 
-func (f *operationFlow) handlePendingConfirmation(
+func (t *operationTurn) handlePendingConfirmation(
 	ctx context.Context,
-	conversationID string,
 	message string,
 	op PendingOperation,
 ) (bool, string, conversation.TokenUsage, error) {
 	switch parseConfirmation(message) {
 	case confirmationAffirmative:
-		answer, err := f.executePendingOperation(ctx, conversationID, op)
+		answer, err := t.executePendingOperation(ctx, op)
 		return true, answer, conversation.TokenUsage{}, err
 	case confirmationNegative:
-		f.pending.delete(conversationID)
+		t.pending.delete(t.conversationID)
 		return true, "Операция отменена.", conversation.TokenUsage{}, nil
 	case confirmationUnknown:
 		if isUnrelatedPendingMessage(message) {
-			f.pending.delete(conversationID)
+			t.pending.delete(t.conversationID)
 			return false, "", conversation.TokenUsage{}, nil
 		}
 		return true, "Ответьте явно: `да` для подтверждения или `нет` для отмены.", conversation.TokenUsage{}, nil
 	default:
-		f.pending.delete(conversationID)
+		t.pending.delete(t.conversationID)
 		return false, "", conversation.TokenUsage{}, nil
 	}
 }
 
-func (f *operationFlow) handlePendingCollection(
+func (t *operationTurn) handlePendingCollection(
 	ctx context.Context,
-	conversationID string,
 	message string,
 	op PendingOperation,
 ) (bool, string, conversation.TokenUsage, error) {
 	if isUnrelatedPendingMessage(message) {
-		f.pending.delete(conversationID)
+		t.pending.delete(t.conversationID)
 		return false, "", conversation.TokenUsage{}, nil
 	}
 
 	var usage conversation.TokenUsage
 	if op.Stack == "" || op.Service == "" {
-		resolution, resolutionUsage := f.resolvePendingTarget(ctx, message, &op)
+		resolution, resolutionUsage := t.resolvePendingTarget(ctx, message, &op)
 		usage.Add(resolutionUsage)
 		if !resolution.ok {
-			f.pending.set(conversationID, op)
+			t.next = &op
 			return true, resolution.message, usage, nil
 		}
 		op.Stack, op.Service = resolution.stack, resolution.service
@@ -374,7 +387,7 @@ func (f *operationFlow) handlePendingCollection(
 	if op.Type == OperationServiceReplicasSet && op.Replicas == nil {
 		replicas, replicasOK := parseReplicas(message)
 		if !replicasOK {
-			f.pending.set(conversationID, op)
+			t.next = &op
 			question := fmt.Sprintf(
 				"Сколько реплик установить для `%s` в стеке `%s`?",
 				op.Service,
@@ -385,7 +398,7 @@ func (f *operationFlow) handlePendingCollection(
 		op.Replicas = &replicas
 	}
 	op.Stage = PendingOperationConfirmation
-	f.pending.set(conversationID, op)
+	t.next = &op
 	return true, confirmationMessage(op), usage, nil
 }
 
@@ -409,15 +422,14 @@ func (f *operationFlow) resolvePendingTarget(
 	return f.resolveOperationTarget(ctx, services, target)
 }
 
-func (f *operationFlow) executePendingOperation(
+func (t *operationTurn) executePendingOperation(
 	ctx context.Context,
-	conversationID string,
 	op PendingOperation,
 ) (string, error) {
-	if !f.pending.claim(conversationID, op) {
+	if !t.pending.claim(t.conversationID, op) {
 		return "Операция уже обрабатывается или больше не ожидает подтверждения.", nil
 	}
-	capability, arguments, aborted, err := f.pendingOperationArguments(ctx, op)
+	capability, arguments, aborted, err := t.pendingOperationArguments(ctx, op)
 	if err != nil {
 		return "", err
 	}
@@ -425,7 +437,7 @@ func (f *operationFlow) executePendingOperation(
 		return aborted, nil
 	}
 
-	effectiveTools := f.toolSet([]Capability{capability})
+	effectiveTools := t.toolSet([]Capability{capability})
 	if _, ok := effectiveTools[string(op.Type)]; !ok {
 		return "Эта операция запрещена настройкой `assistant.tools`.", nil
 	}
@@ -436,17 +448,17 @@ func (f *operationFlow) executePendingOperation(
 	if err != nil {
 		return "", fmt.Errorf("encode pending operation arguments: %w", err)
 	}
-	result, err := f.tools.Execute(ctx, routing.Request{ToolName: string(op.Type), Payload: string(payload)})
+	result, err := t.tools.Execute(ctx, routing.Request{ToolName: string(op.Type), Payload: string(payload)})
 	if err != nil {
 		return fmt.Sprintf("Не удалось выполнить операцию: %s", strings.TrimSpace(err.Error())), nil
 	}
-	if f.guard.Check(result) {
+	if t.guard.Check(result) {
 		return "", &guard.PromptInjectionError{
 			Prompt: fmt.Sprintf("tool %q result contained prompt injection markers", op.Type),
 		}
 	}
 	if op.Type == OperationSyncPauseSet && op.Replicas != nil {
-		return f.executeConfirmedPauseScale(ctx, conversationID, op, result)
+		return t.executeConfirmedPauseScale(ctx, op, result)
 	}
 	answer, err := finalizeTerminalToolResult(string(op.Type), result)
 	if err != nil {
@@ -522,9 +534,8 @@ func (f *operationFlow) servicePauseTargetValid(ctx context.Context, stack, serv
 	return err == nil
 }
 
-func (f *operationFlow) executeConfirmedPauseScale(
+func (t *operationTurn) executeConfirmedPauseScale(
 	ctx context.Context,
-	conversationID string,
 	op PendingOperation,
 	pauseResult string,
 ) (string, error) {
@@ -538,9 +549,9 @@ func (f *operationFlow) executeConfirmedPauseScale(
 	}
 	retry := PendingOperation{Type: OperationServiceReplicasSet, Stage: PendingOperationConfirmation,
 		Target: op.Stack + "/" + op.Service, Stack: op.Stack, Service: op.Service, Replicas: op.Replicas}
-	serviceTools := f.toolSet([]Capability{CapabilityServiceOperations})
+	serviceTools := t.toolSet([]Capability{CapabilityServiceOperations})
 	if _, ok := serviceTools[serviceReplicasSetTool]; !ok {
-		f.pending.set(conversationID, retry)
+		t.next = &retry
 		return pauseAnswer + " Scaling is forbidden by `assistant.tools`. The pause remains active; " +
 			"confirm if scaling becomes allowed and should be retried.", nil
 	}
@@ -550,17 +561,17 @@ func (f *operationFlow) executeConfirmedPauseScale(
 	if err != nil {
 		return "", err
 	}
-	scaleResult, scaleErr := f.tools.Execute(ctx, routing.Request{
+	scaleResult, scaleErr := t.tools.Execute(ctx, routing.Request{
 		ToolName: serviceReplicasSetTool, Payload: string(scalePayload),
 	})
 	if scaleErr != nil {
-		f.pending.set(conversationID, retry)
+		t.next = &retry
 		return fmt.Sprintf(
 			"%s Scaling failed: %s. The pause remains active. Retry only scaling?",
 			pauseAnswer, strings.TrimSpace(scaleErr.Error()),
 		), nil
 	}
-	if f.guard.Check(scaleResult) {
+	if t.guard.Check(scaleResult) {
 		return "", &guard.PromptInjectionError{Prompt: "replica tool result contained prompt injection markers"}
 	}
 	scaleAnswer, err := finalizeTerminalToolResult(serviceReplicasSetTool, scaleResult)

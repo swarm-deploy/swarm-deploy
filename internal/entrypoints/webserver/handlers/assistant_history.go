@@ -49,13 +49,27 @@ func (h *handler) GetAssistantChat(
 	}
 
 	return &generated.AssistantChatHistory{
-		ID:         chat.ID,
-		Title:      chat.Title,
-		CreatedAt:  chat.CreatedAt,
-		UpdatedAt:  chat.UpdatedAt,
-		TokenUsage: toGeneratedAssistantTokenUsage(chat.Usage),
-		Messages:   messages,
+		ID:            chat.ID,
+		Title:         chat.Title,
+		CreatedAt:     chat.CreatedAt,
+		UpdatedAt:     chat.UpdatedAt,
+		TokenUsage:    toGeneratedAssistantTokenUsage(chat.Usage),
+		Messages:      messages,
+		ActiveRequest: toGeneratedAssistantActiveChatRequest(chat.ActiveRequest),
 	}, nil
+}
+
+func toGeneratedAssistantActiveChatRequest(
+	request *assistant.ActiveChatRequest,
+) generated.OptAssistantActiveChatRequest {
+	if request == nil {
+		return generated.OptAssistantActiveChatRequest{}
+	}
+
+	return generated.NewOptAssistantActiveChatRequest(generated.AssistantActiveChatRequest{
+		RequestID: request.RequestID,
+		Activity:  append([]string(nil), request.Activity...),
+	})
 }
 
 // GetAssistantUsage returns recorded token usage across chats.

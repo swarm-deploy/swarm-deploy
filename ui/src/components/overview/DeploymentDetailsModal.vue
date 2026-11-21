@@ -9,7 +9,7 @@ import { fetchDeploymentInitJobLogs } from "../../api/overview";
 import type { DeploymentAttempt, DeploymentChange, DeploymentInitJobExecution } from "../../api/types";
 import { useAssistantStore } from "../../stores/assistant";
 import { useOverviewStore } from "../../stores/overview";
-import { useUIStore } from "../../stores/ui";
+import { openNewAssistantChat } from "../../router/assistant";
 import { formatDate, shortCommitHash } from "../../utils/format";
 import AppTabs from "../common/AppTabs.vue";
 import DeploymentIcon from "./DeploymentIcon.vue";
@@ -32,7 +32,6 @@ type ResourceSection = {
 const store = useOverviewStore();
 const router = useRouter();
 const assistantStore = useAssistantStore();
-const uiStore = useUIStore();
 const modal = ref<InstanceType<typeof AppModal> | null>(null);
 function defaultTab(status?: string): DetailsTab {
   return status === "succeeded" ? "changes" : "attempts";
@@ -361,9 +360,8 @@ async function explainAttempt(attempt: DeploymentAttempt) {
   ].join("\n");
 
   modal.value?.forgetReturnFocus();
+  if (!await openNewAssistantChat(router, { ...router.currentRoute.value.query, deployment_id: undefined })) return;
   close();
-  assistantStore.newChat();
-  uiStore.openAssistantDrawer();
   await assistantStore.sendMessage(message);
 }
 function onEscape(event: KeyboardEvent) {

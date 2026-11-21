@@ -27,8 +27,8 @@ export function listAssistantChats(): Promise<AssistantChatsResponse> {
   return apiRequest<AssistantChatsResponse>("/api/v1/assistant/chats");
 }
 
-export function getAssistantChat(conversationID: string): Promise<AssistantChatHistory> {
-  return apiRequest<AssistantChatHistory>(`/api/v1/assistant/chats/${encodeURIComponent(conversationID)}`);
+export function getAssistantChat(conversationID: string, signal?: AbortSignal): Promise<AssistantChatHistory> {
+  return apiRequest<AssistantChatHistory>(`/api/v1/assistant/chats/${encodeURIComponent(conversationID)}`, { signal });
 }
 
 export function getAssistantUsage(

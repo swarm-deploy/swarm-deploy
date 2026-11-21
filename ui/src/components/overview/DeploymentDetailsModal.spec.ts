@@ -13,13 +13,10 @@ const apiMocks = vi.hoisted(() => ({ fetchDeploymentInitJobLogs: vi.fn() }));
 const assistantStore = vi.hoisted(() => ({
   enabled: true,
   pending: false,
-  newChat: vi.fn(),
   sendMessage: vi.fn(async () => undefined),
 }));
-const uiStore = vi.hoisted(() => ({ openAssistantDrawer: vi.fn() }));
 
 vi.mock("../../stores/assistant", () => ({ useAssistantStore: () => assistantStore }));
-vi.mock("../../stores/ui", () => ({ useUIStore: () => uiStore }));
 vi.mock("../../api/overview", () => ({ fetchDeploymentInitJobLogs: apiMocks.fetchDeploymentInitJobLogs }));
 
 const ModalHost = defineComponent({
@@ -71,9 +68,7 @@ describe("Deployment Details modal", () => {
     config.global.plugins = [router];
     assistantStore.enabled = true;
     assistantStore.pending = false;
-    assistantStore.newChat.mockClear();
     assistantStore.sendMessage.mockClear();
-    uiStore.openAssistantDrawer.mockClear();
     apiMocks.fetchDeploymentInitJobLogs.mockReset();
   });
   afterEach(() => { config.global.plugins = []; });
@@ -259,6 +254,7 @@ describe("Deployment Details modal", () => {
   });
 
   it("starts a new assistant chat with deployment and diagnostic context", async () => {
+    await router.push("/deployments?deployment_id=one&tab=recent#details");
     const store = useOverviewStore();
     const details = deployment("failed");
     details.services = [
@@ -274,8 +270,7 @@ describe("Deployment Details modal", () => {
     await flushPromises();
 
     expect(store.deploymentDetailsModalOpen).toBe(false);
-    expect(assistantStore.newChat).toHaveBeenCalledOnce();
-    expect(uiStore.openAssistantDrawer).toHaveBeenCalledOnce();
+    expect(router.currentRoute.value.fullPath).toBe("/deployments?tab=recent&assistant=new#details");
     expect(assistantStore.sendMessage).toHaveBeenCalledWith([
       "Explain this deployment error.",
       "",
@@ -285,9 +280,6 @@ describe("Deployment Details modal", () => {
       "error:",
       "update service api: image not found",
     ].join("\n"));
-    expect(assistantStore.newChat.mock.invocationCallOrder[0]).toBeLessThan(
-      assistantStore.sendMessage.mock.invocationCallOrder[0],
-    );
     wrapper.unmount();
   });
 

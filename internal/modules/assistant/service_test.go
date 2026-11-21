@@ -242,6 +242,7 @@ func TestServiceChatRejectsPromptInjection(t *testing.T) {
 					MaxTokens:               64,
 					SystemPrompt:            "debug helper",
 					ConversationInMemoryTTL: time.Hour,
+					ConversationHistory:     newSQLHistory(t),
 				},
 				serviceStore(t, nil),
 				tools,
@@ -255,6 +256,10 @@ func TestServiceChatRejectsPromptInjection(t *testing.T) {
 			assert.Contains(t, response.ErrorMessage, "prompt injection", "expected rejection reason")
 			assert.NotContains(t, response.Answer, "Identity and global rules")
 			assert.Empty(t, tools.calls, "operational tools must not run")
+			assert.Empty(t, response.ConversationID, "a rejected chat is not saved, so it must not be opened")
+			chats, err := serviceInstance.ListChats(t.Context())
+			require.NoError(t, err)
+			assert.Empty(t, chats, "a rejected question must not be saved")
 		})
 	}
 }
@@ -526,12 +531,12 @@ func TestServiceChatDeduplicatesAtRunCapacity(t *testing.T) {
 				&metrics.NopAssistant{},
 			)
 			require.NoError(t, err)
-			oldest := newChatRun("request-0", "conversation", "привет")
+			oldest := newChatRun("request-0", "conversation", "привет", false)
 			oldest.finish(StatusCompleted, "original answer", "")
 			oldest.finishedAt = time.Now().Add(-time.Minute)
 			serviceInstance.runs[oldest.requestID] = oldest
 			for index := 1; index < maxRetainedRuns; index++ {
-				run := newChatRun("request-"+strconv.Itoa(index), "conversation", "привет")
+				run := newChatRun("request-"+strconv.Itoa(index), "conversation", "привет", false)
 				run.finish(StatusCompleted, "answer", "")
 				serviceInstance.runs[run.requestID] = run
 			}
@@ -610,26 +615,258 @@ func TestServiceChatLimitsConcurrentRuns(t *testing.T) {
 	assert.Contains(t, overloaded.ErrorMessage, "busy")
 }
 
-func TestServiceChatCompletesWhenHistoryPersistenceFails(t *testing.T) {
+func TestServiceChatFailsWhenQuestionCannotBeSaved(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		t.Fatalf("model must not run when the question is not saved: %s", r.URL.Path)
+	}))
+	defer server.Close()
+
 	db, err := storage.OpenSQLite(context.Background(), t.TempDir())
 	require.NoError(t, err)
 	history := conversation.NewSQLHistoryStorage(db)
-	serviceInstance, err := NewService(
-		Config{Enabled: true, ConversationInMemoryTTL: time.Hour, ConversationHistory: history},
-		serviceStore(t, nil),
-		&fakeTools{},
-		&dispatcher.NopDispatcher{},
-		&metrics.NopAssistant{},
-	)
-	require.NoError(t, err)
+	tools := NewMockToolExecutor(gomock.NewController(t))
+	tools.EXPECT().Definitions().AnyTimes()
+	serviceInstance := newRoutingTestServiceWithHistory(t, server.URL, serviceStore(t, nil), tools, nil, history)
 	serviceInstance.conversationStorage.Append("conversation", conversation.Turn{Role: "user", Content: "earlier"})
 	require.NoError(t, db.Close())
 
 	response := serviceInstance.Chat(context.Background(), ChatRequest{
-		ConversationID: "conversation", Message: "привет",
+		ConversationID: "conversation", Message: "Check the cluster",
 	})
-	assert.Equal(t, StatusCompleted, response.Status)
-	assert.NotEmpty(t, response.Answer)
+	assert.Equal(t, StatusFailed, response.Status)
+	assert.Equal(t, "Failed to save assistant message", response.ErrorMessage)
+	assert.Equal(t, "conversation", response.ConversationID)
+}
+
+func TestServiceChatSavesQuestionBeforeReply(t *testing.T) {
+	const question = "Check the cluster"
+	for _, testCase := range []struct {
+		name     string
+		previous []conversation.Turn
+	}{
+		{name: "new chat"},
+		{name: "follow-up", previous: []conversation.Turn{
+			{Role: "user", Content: "Hello"}, {Role: "assistant", Content: "Hi"},
+		}},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			release := make(chan struct{})
+			unblock := sync.OnceFunc(func() { close(release) })
+			var calls atomic.Int64
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+				request := decodeCapturedChatRequest(t, req)
+				call := calls.Add(1)
+				// Block from the first model call: the question must be saved before routing.
+				select {
+				case <-release:
+				case <-req.Context().Done():
+					return
+				}
+				w.Header().Set("Content-Type", "application/json")
+				if call == 1 {
+					writeChatResponse(t, w, string(RouteGeneral), nil)
+					return
+				}
+				userMessages := 0
+				for _, message := range request.Messages {
+					if message.Role == "user" && message.Content == question {
+						userMessages++
+					}
+				}
+				assert.Equal(t, 1, userMessages, "the saved question must reach the model once")
+				writeChatResponse(t, w, "Cluster is healthy", nil)
+			}))
+			defer server.Close()
+			defer unblock()
+
+			history := newSQLHistory(t)
+			conversationID := ""
+			if testCase.previous != nil {
+				conversationID = "existing"
+				require.NoError(t, history.SaveTurns(t.Context(), conversationID, "alice", conversation.TokenUsage{},
+					testCase.previous...))
+			}
+			tools := NewMockToolExecutor(gomock.NewController(t))
+			tools.EXPECT().Definitions().AnyTimes()
+			service := newRoutingTestServiceWithHistory(t, server.URL, serviceStore(t, nil), tools, nil, history)
+
+			started := service.Chat(t.Context(), ChatRequest{
+				ConversationID: conversationID, Message: question, CreatedBy: "alice", WaitTimeoutMS: 1,
+			})
+			require.Equal(t, StatusInProgress, started.Status)
+			require.NotEmpty(t, started.ConversationID)
+
+			busy := service.Chat(t.Context(), ChatRequest{ConversationID: started.ConversationID, Message: "Another"})
+			assert.Equal(t, StatusFailed, busy.Status)
+			assert.Contains(t, busy.ErrorMessage, "still answering")
+
+			visible, found, err := service.GetChat(t.Context(), started.ConversationID)
+			require.NoError(t, err)
+			require.True(t, found)
+			assert.Equal(t, ChatMessage{Role: "user", Content: question}, visible.Messages[len(visible.Messages)-1])
+			assert.Len(t, visible.Messages, len(testCase.previous)+1)
+			require.NotNil(t, visible.ActiveRequest)
+			assert.Equal(t, started.RequestID, visible.ActiveRequest.RequestID)
+
+			unblock()
+			completed := service.Chat(t.Context(), ChatRequest{RequestID: started.RequestID})
+			require.Equal(t, StatusCompleted, completed.Status)
+			assert.Equal(t, "Cluster is healthy", completed.Answer)
+
+			final, found, err := service.GetChat(t.Context(), started.ConversationID)
+			require.NoError(t, err)
+			require.True(t, found)
+			assert.Nil(t, final.ActiveRequest)
+			require.Len(t, final.Messages, len(testCase.previous)+2)
+			assert.Equal(t, question, final.Messages[len(final.Messages)-2].Content)
+			assert.Equal(t, "Cluster is healthy", final.Messages[len(final.Messages)-1].Content)
+			chat, found, err := history.ReadChat(t.Context(), started.ConversationID)
+			require.NoError(t, err)
+			require.True(t, found)
+			assert.Equal(t, "alice", chat.CreatedBy)
+			assert.Equal(t, &conversation.TokenUsage{InputTokens: 6, OutputTokens: 2, TotalTokens: 8}, chat.Usage)
+		})
+	}
+}
+
+func TestServiceGetChatReturnsConsistentSnapshot(t *testing.T) {
+	for _, role := range []string{"user", "assistant"} {
+		t.Run(role, func(t *testing.T) {
+			history := newSQLHistory(t)
+			ctrl := gomock.NewController(t)
+			paused := conversation.NewMockHistoryStorage(ctrl)
+			paused.EXPECT().ReadChat(gomock.Any(), gomock.Any()).DoAndReturn(history.ReadChat).AnyTimes()
+
+			committed := make(chan struct{})
+			resume := make(chan struct{})
+			unblock := sync.OnceFunc(func() { close(resume) })
+			defer unblock()
+			paused.EXPECT().SaveTurns(gomock.Any(), "chat", gomock.Any(), gomock.Any(), gomock.Any()).
+				DoAndReturn(func(ctx context.Context, id, by string, usage conversation.TokenUsage, turns ...conversation.Turn) error {
+					err := history.SaveTurns(ctx, id, by, usage, turns...)
+					if err == nil && turns[0].Role == role {
+						close(committed)
+						<-resume
+					}
+					return err
+				}).Times(2)
+
+			tools := NewMockToolExecutor(ctrl)
+			tools.EXPECT().Definitions().AnyTimes()
+			service := newRoutingTestServiceWithHistory(t, "", serviceStore(t, nil), tools, nil, paused)
+			completed := make(chan ChatResponse, 1)
+			go func() {
+				completed <- service.Chat(t.Context(), ChatRequest{ConversationID: "chat", Message: "привет"})
+			}()
+			<-committed
+
+			// SQLite has committed the turn, but the writer has not yet published the matching run state.
+			_, found, err := service.GetChat(t.Context(), "unrelated")
+			require.NoError(t, err)
+			require.False(t, found)
+			ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
+			defer cancel()
+			_, _, err = service.GetChat(ctx, "chat")
+			require.ErrorIs(t, err, context.DeadlineExceeded)
+
+			unblock()
+			require.Equal(t, StatusCompleted, (<-completed).Status)
+			chat, found, err := service.GetChat(t.Context(), "chat")
+			require.NoError(t, err)
+			require.True(t, found)
+			require.Len(t, chat.Messages, 2)
+			assert.Nil(t, chat.ActiveRequest)
+		})
+	}
+}
+
+func TestServiceChatFailsWhenReplyCannotBeSaved(t *testing.T) {
+	var calls atomic.Int64
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if calls.Add(1) == 1 {
+			writeChatResponse(t, w, string(RouteGeneral), nil)
+			return
+		}
+		writeChatResponse(t, w, "Cluster is healthy", nil)
+	}))
+	defer server.Close()
+
+	history := newHistoryFailingTurnWrites(t, `NEW.payload LIKE '%"role":"assistant"%'`)
+	service := newRoutingTestServiceWithHistory(t, server.URL, serviceStore(t, nil), &fakeTools{}, nil, history)
+
+	response := service.Chat(t.Context(), ChatRequest{Message: "Check the cluster"})
+	assert.Equal(t, StatusFailed, response.Status)
+	assert.Equal(t, "Failed to save assistant response", response.ErrorMessage)
+	assert.Empty(t, response.Answer)
+	require.NotEmpty(t, response.ConversationID, "the question was saved, so the chat can be opened")
+
+	chat, found, err := service.GetChat(t.Context(), response.ConversationID)
+	require.NoError(t, err)
+	require.True(t, found)
+	assert.Equal(t, []ChatMessage{{Role: "user", Content: "Check the cluster"}}, chat.Messages)
+	assert.Nil(t, chat.ActiveRequest)
+	modelHistory, ok := service.conversationStorage.Get(response.ConversationID)
+	require.True(t, ok)
+	assert.Equal(t, []conversation.Turn{{Role: "user", Content: "Check the cluster"}}, modelHistory.Turns,
+		"the model context must match the saved history")
+}
+
+func TestServiceChatDiscardsUnpublishedConfirmation(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		writeChatResponse(t, w, `{"route":"deployments","capabilities":["deployment_sync"],"operation":{"type":"deploy_sync_trigger"}}`, nil)
+	}))
+	defer server.Close()
+
+	history := newHistoryFailingTurnWrites(t, `NEW.payload LIKE '%"role":"assistant"%'`)
+	tools := NewMockToolExecutor(gomock.NewController(t))
+	tools.EXPECT().Definitions().AnyTimes()
+	service := newRoutingTestServiceWithHistory(t, server.URL, serviceStore(t, nil), tools, nil, history)
+
+	response := service.Chat(t.Context(), ChatRequest{Message: "Run sync now"})
+	require.Equal(t, StatusFailed, response.Status)
+	require.Equal(t, "Failed to save assistant response", response.ErrorMessage)
+	chat, found, err := history.ReadChat(t.Context(), response.ConversationID)
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, []conversation.Turn{{Role: "user", Content: "Run sync now"}}, chat.Turns)
+	_, pending := service.graph.operations.pending.get(chat.ID)
+	assert.False(t, pending, "only a saved reply can offer an operation for confirmation")
+}
+
+func TestServiceChatHidesConversationWhoseQuestionWasNeverSaved(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		t.Fatalf("model must not run when the question is not saved: %s", r.URL.Path)
+	}))
+	defer server.Close()
+
+	history := newHistoryFailingTurnWrites(t, "1")
+	service := newRoutingTestServiceWithHistory(t, server.URL, serviceStore(t, nil), &fakeTools{}, nil, history)
+
+	for _, requestID := range []string{"first", "retry"} {
+		response := service.Chat(t.Context(), ChatRequest{
+			ConversationID: "client-chat", RequestID: requestID, Message: "Check the cluster",
+		})
+		assert.Equal(t, StatusFailed, response.Status, requestID)
+		assert.Equal(t, "Failed to save assistant message", response.ErrorMessage, requestID)
+		assert.Empty(t, response.ConversationID, "%s: the chat was never saved", requestID)
+	}
+	_, found, err := service.GetChat(t.Context(), "client-chat")
+	require.NoError(t, err)
+	assert.False(t, found)
+}
+
+// newHistoryFailingTurnWrites returns SQLite history whose turn inserts fail when condition matches.
+func newHistoryFailingTurnWrites(t *testing.T, condition string) *conversation.SQLHistoryStorage {
+	t.Helper()
+	db, err := storage.OpenSQLite(context.Background(), t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	_, err = db.Exec(t.Context(), "CREATE TRIGGER fail_assistant_turns BEFORE INSERT ON assistant_turns WHEN "+
+		condition+" BEGIN SELECT RAISE(ABORT, 'turn write failed'); END")
+	require.NoError(t, err)
+	return conversation.NewSQLHistoryStorage(db)
 }
 
 func newSQLHistory(t *testing.T) *conversation.SQLHistoryStorage {

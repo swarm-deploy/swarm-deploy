@@ -1,3 +1,5 @@
+//go:generate go run -mod=mod go.uber.org/mock/mockgen -source=$GOFILE -destination=mock_history.go -package=conversation
+
 package conversation
 
 import (
@@ -53,6 +55,17 @@ type Chat struct {
 	Turns []Turn `json:"messages"`
 	// Usage contains aggregate token consumption for chat requests.
 	Usage *TokenUsage `json:"token_usage,omitempty"`
+}
+
+// addUsage leaves usage absent until a provider supplies a sample.
+func (c *Chat) addUsage(usage TokenUsage) {
+	if usage.IsZero() {
+		return
+	}
+	if c.Usage == nil {
+		c.Usage = &TokenUsage{}
+	}
+	c.Usage.Add(usage)
 }
 
 // ChatSummary contains metadata required to render the chat list.

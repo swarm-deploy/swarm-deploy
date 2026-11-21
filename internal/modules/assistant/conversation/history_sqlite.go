@@ -42,35 +42,42 @@ func (s *SQLHistoryStorage) ReadChat(ctx context.Context, id string) (Chat, bool
 	var chat Chat
 	found := false
 	err := s.db.WithinTransaction(ctx, func(ctx context.Context) error {
-		query, args, buildErr := s.db.Dialect().From("assistant_chats").Prepared(true).
-			Select(chatColumns...).SelectAppend("created_by").Where(goqu.Ex{"id": id}).ToSQL()
-		if buildErr != nil {
-			return buildErr
-		}
-		var row chatRow
-		err := s.db.Get(ctx, &row, query, args...)
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil
-		}
-		if err != nil {
+		var err error
+		chat, found, err = s.readChatMetadata(ctx, id)
+		if err != nil || !found {
 			return err
 		}
-		meta := row.summary()
 		turnsQuery, turnsArgs, buildErr := s.db.Dialect().From("assistant_turns").Prepared(true).
 			Select("payload").Where(goqu.Ex{"chat_id": id}).Order(goqu.I("sequence").Asc()).ToSQL()
 		if buildErr != nil {
 			return buildErr
 		}
-		turns, err := s.queryTurns(ctx, turnsQuery, turnsArgs...)
-		if err != nil {
-			return err
-		}
-		chat = Chat{ID: meta.ID, Title: meta.Title, CreatedAt: meta.CreatedAt, CreatedBy: row.CreatedBy.String,
-			UpdatedAt: meta.UpdatedAt, Usage: meta.Usage, Turns: turns}
-		found = true
-		return nil
+		chat.Turns, err = s.queryTurns(ctx, turnsQuery, turnsArgs...)
+		return err
 	})
-	return chat, found, err
+	if err != nil {
+		return Chat{}, false, err
+	}
+	return chat, found, nil
+}
+
+func (s *SQLHistoryStorage) readChatMetadata(ctx context.Context, id string) (Chat, bool, error) {
+	query, args, err := s.db.Dialect().From("assistant_chats").Prepared(true).
+		Select(chatColumns...).SelectAppend("created_by").Where(goqu.Ex{"id": id}).ToSQL()
+	if err != nil {
+		return Chat{}, false, err
+	}
+	var row chatRow
+	err = s.db.Get(ctx, &row, query, args...)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Chat{}, false, nil
+	}
+	if err != nil {
+		return Chat{}, false, err
+	}
+	meta := row.summary()
+	return Chat{ID: meta.ID, Title: meta.Title, CreatedAt: meta.CreatedAt, CreatedBy: row.CreatedBy.String,
+		UpdatedAt: meta.UpdatedAt, Usage: meta.Usage}, true, nil
 }
 
 // SaveTurns appends turns and usage atomically, creating metadata lazily.
@@ -89,7 +96,7 @@ func (s *SQLHistoryStorage) SaveTurns(
 		return nil
 	}
 	return s.db.WithinTransaction(ctx, func(ctx context.Context) error {
-		chat, exists, err := s.ReadChat(ctx, id)
+		chat, exists, err := s.readChatMetadata(ctx, id)
 		if err != nil {
 			return err
 		}
@@ -97,21 +104,25 @@ func (s *SQLHistoryStorage) SaveTurns(
 		if !exists {
 			chat = Chat{ID: id, Title: defaultChatTitle, CreatedAt: now, CreatedBy: createdBy, UpdatedAt: now}
 		}
-		if !usage.IsZero() {
-			if chat.Usage == nil {
-				chat.Usage = &TokenUsage{}
-			}
-			chat.Usage.Add(usage)
-		}
+		chat.addUsage(usage)
 		if len(turns) == 0 {
 			return s.saveChatSummary(ctx, chat)
 		}
-		if len(chat.Turns) == 0 && chat.Title == defaultChatTitle {
+		next := 0
+		if exists {
+			next, err = s.nextTurnSequence(ctx, id)
+			if err != nil {
+				return err
+			}
+		}
+		if next == 0 && chat.Title == defaultChatTitle {
 			chat.Title = buildChatTitle(turns)
 		}
 		chat.UpdatedAt = now
-		chat.Turns = append(chat.Turns, turns...)
-		return s.Save(ctx, chat)
+		if err = s.saveChatSummary(ctx, chat); err != nil {
+			return err
+		}
+		return s.insertTurns(ctx, id, next, turns)
 	})
 }
 
@@ -134,12 +145,7 @@ func (s *SQLHistoryStorage) Save(ctx context.Context, chat Chat) error {
 		if _, err = s.db.Exec(ctx, deleteQuery, deleteArgs...); err != nil {
 			return err
 		}
-		for i, turn := range chat.Turns {
-			if err = s.saveTurn(ctx, chat.ID, i, turn); err != nil {
-				return err
-			}
-		}
-		return nil
+		return s.insertTurns(ctx, chat.ID, 0, chat.Turns)
 	})
 }
 
@@ -168,6 +174,28 @@ func (s *SQLHistoryStorage) saveChatSummary(ctx context.Context, chat Chat) erro
 	}
 	_, err = s.db.Exec(ctx, query, args...)
 	return err
+}
+
+func (s *SQLHistoryStorage) nextTurnSequence(ctx context.Context, chatID string) (int, error) {
+	query, args, err := s.db.Dialect().From("assistant_turns").Prepared(true).
+		Select(goqu.COALESCE(goqu.MAX("sequence"), -1)).Where(goqu.Ex{"chat_id": chatID}).ToSQL()
+	if err != nil {
+		return 0, err
+	}
+	var last int
+	if err = s.db.Get(ctx, &last, query, args...); err != nil {
+		return 0, err
+	}
+	return last + 1, nil
+}
+
+func (s *SQLHistoryStorage) insertTurns(ctx context.Context, chatID string, next int, turns []Turn) error {
+	for i, turn := range turns {
+		if err := s.saveTurn(ctx, chatID, next+i, turn); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *SQLHistoryStorage) saveTurn(ctx context.Context, chatID string, sequence int, turn Turn) error {

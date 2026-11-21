@@ -607,22 +607,28 @@ func TestAssistantRouterFailureStopsMainRequest(t *testing.T) {
 
 			chat, found, err := history.ReadChat(t.Context(), response.ConversationID)
 			require.NoError(t, err)
+			require.True(t, found, "the question is saved before the router runs")
+			question := conversation.Turn{Role: "user", Content: "Inspect runtime"}
+			assert.Equal(t, []conversation.Turn{question}, chat.Turns)
 			if testCase.missingUsage {
-				assert.False(t, found)
-				return
+				assert.Nil(t, chat.Usage)
+			} else {
+				assert.Equal(t, &conversation.TokenUsage{InputTokens: 3, OutputTokens: 1, TotalTokens: 4}, chat.Usage)
 			}
-			require.True(t, found)
-			assert.Empty(t, chat.Turns)
-			assert.Equal(t, &conversation.TokenUsage{InputTokens: 3, OutputTokens: 1, TotalTokens: 4}, chat.Usage)
 
 			followup := assistantService.Chat(t.Context(), ChatRequest{ConversationID: chat.ID, Message: "привет"})
 			require.Equal(t, StatusCompleted, followup.Status)
 			updated, found, err := history.ReadChat(t.Context(), chat.ID)
 			require.NoError(t, err)
 			require.True(t, found)
-			assert.Equal(t, "привет", updated.Title)
+			assert.Equal(t, "Inspect runtime", updated.Title)
 			assert.Equal(t, chat.Usage, updated.Usage)
-			assert.Len(t, updated.Turns, 2)
+			require.Len(t, updated.Turns, 3)
+			assert.Equal(t, question, updated.Turns[0])
+			modelHistory, ok := assistantService.conversationStorage.Get(chat.ID)
+			require.True(t, ok)
+			require.Len(t, modelHistory.Turns, 3)
+			assert.Equal(t, question, modelHistory.Turns[0], "the unanswered question stays in model history")
 		})
 	}
 }

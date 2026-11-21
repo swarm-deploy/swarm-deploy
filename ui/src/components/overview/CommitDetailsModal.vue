@@ -1,16 +1,17 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 
+import { useRouter } from "vue-router";
 import AppModal from "../common/AppModal.vue";
 import AppTable from "../common/AppTable.vue";
 import { useAssistantStore } from "../../stores/assistant";
 import { useOverviewStore } from "../../stores/overview";
-import { useUIStore } from "../../stores/ui";
+import { openNewAssistantChat } from "../../router/assistant";
 import { formatDate, shortCommitHash } from "../../utils/format";
 
+const router = useRouter();
 const overviewStore = useOverviewStore();
 const assistantStore = useAssistantStore();
-const uiStore = useUIStore();
 const modal = ref<InstanceType<typeof AppModal> | null>(null);
 
 const commitDetails = computed(() => overviewStore.commitDetailsData);
@@ -64,9 +65,8 @@ async function explainWithAI() {
   }
 
   modal.value?.forgetReturnFocus();
+  if (!await openNewAssistantChat(router)) return;
   closeCommitDetailsModal();
-  assistantStore.newChat();
-  uiStore.openAssistantDrawer();
   await assistantStore.sendMessage(`Explain changes in git commit: ${commitHash}`);
 }
 </script>
