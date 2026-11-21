@@ -281,7 +281,7 @@ func TestServiceChatAllowsOrdinaryImperatives(t *testing.T) {
 				requests = append(requests, decodeCapturedChatRequest(t, req))
 				w.Header().Set("Content-Type", "application/json")
 				if len(requests) == 1 {
-					writeChatResponse(t, w, string(RouteGeneral), nil)
+					writeChatResponse(t, w, string(RoutePlatform), nil)
 					return
 				}
 				writeChatResponse(t, w, "done", nil)
@@ -664,7 +664,7 @@ func TestServiceChatSavesQuestionBeforeReply(t *testing.T) {
 				}
 				w.Header().Set("Content-Type", "application/json")
 				if call == 1 {
-					writeChatResponse(t, w, string(RouteGeneral), nil)
+					writeChatResponse(t, w, string(RoutePlatform), nil)
 					return
 				}
 				userMessages := 0
@@ -788,7 +788,7 @@ func TestServiceChatFailsWhenReplyCannotBeSaved(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		if calls.Add(1) == 1 {
-			writeChatResponse(t, w, string(RouteGeneral), nil)
+			writeChatResponse(t, w, string(RoutePlatform), nil)
 			return
 		}
 		writeChatResponse(t, w, "Cluster is healthy", nil)
@@ -903,7 +903,7 @@ func TestServiceChatGenerationFailurePreservesUnread(t *testing.T) {
 			var routed atomic.Bool
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				if routed.CompareAndSwap(false, true) {
-					writeChatResponse(t, w, string(RouteGeneral), nil)
+					writeChatResponse(t, w, string(RoutePlatform), nil)
 					return
 				}
 				http.Error(w, "generation failed", http.StatusBadRequest)

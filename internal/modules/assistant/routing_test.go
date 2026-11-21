@@ -56,9 +56,14 @@ func TestAssistantRoutingProfiles(t *testing.T) {
 		expectRAG      bool
 	}{
 		{
-			name:           "general assistant identity",
-			message:        "Кто ты?",
-			routerDecision: `{"route":"general","capabilities":[],"operation":null}`,
+			name:           "platform built-in assistant usage",
+			message:        "Как настроить встроенного ассистента swarm-deploy?",
+			routerDecision: `{"route":"platform","capabilities":[],"operation":null}`,
+		},
+		{
+			name:           "platform Redis deployment",
+			message:        "Как развернуть Redis в Docker Swarm?",
+			routerDecision: `{"route":"platform","capabilities":[],"operation":null}`,
 		},
 		{
 			name:           "platform rolling update",
@@ -245,7 +250,7 @@ func TestAssistantRejectsPromptInjectionInServiceMetadata(t *testing.T) {
 	assert.Equal(t, "prompt injection detected in retrieved service metadata", state.rejectedPrompt)
 }
 
-func TestAssistantScopeDecisionFinishesBeforeGeneration(t *testing.T) {
+func TestAssistantLocalRoutesFinishBeforeGeneration(t *testing.T) {
 	for _, tc := range []struct {
 		name     string
 		question string
@@ -253,6 +258,20 @@ func TestAssistantScopeDecisionFinishesBeforeGeneration(t *testing.T) {
 		route    Route
 		reply    string
 	}{
+		{
+			name:     "assistant identity",
+			question: "Кто ты?",
+			decision: `{"route":"general","capabilities":[],"operation":null,"language":"ru"}`,
+			route:    RouteGeneral,
+			reply:    "Я помогаю с эксплуатацией swarm-deploy, Docker Swarm и инфраструктуры.",
+		},
+		{
+			name:     "unrelated task misclassified as general",
+			question: "Сделай промт для ИИ-ассисинта redis",
+			decision: `{"route":"general","capabilities":[],"operation":null,"language":"ru"}`,
+			route:    RouteGeneral,
+			reply:    "Я помогаю с эксплуатацией swarm-deploy, Docker Swarm и инфраструктуры.",
+		},
 		{
 			name:     "clearly outside scope",
 			question: "Сделай HTML-страницу с кнопкой Download",

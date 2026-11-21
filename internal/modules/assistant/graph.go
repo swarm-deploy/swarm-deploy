@@ -306,8 +306,8 @@ func (g *graph) routeNode(
 		route := result.Route
 		executionState.route = route
 		executionState.report("Route: " + string(route))
-		if result.ScopeReply != "" {
-			executionState.answer = result.ScopeReply
+		if result.LocalReply != "" {
+			executionState.answer = result.LocalReply
 			executionState.routeCompleted = true
 			return messages, nil
 		}
