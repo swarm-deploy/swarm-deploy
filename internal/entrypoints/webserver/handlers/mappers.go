@@ -173,6 +173,11 @@ func toGeneratedServiceSpec(
 		Secrets:           toGeneratedServiceSpecSecrets(resolvedSecrets),
 		Network:           toGeneratedServiceSpecNetworks(spec.Network),
 	}
+	for _, config := range spec.Configs {
+		mapped.Configs = append(mapped.Configs, generated.ServiceSpecResponseConfigsItem{
+			ConfigID: toOptString(config.ConfigID), ConfigName: config.ConfigName, Target: toOptString(config.Target),
+		})
+	}
 
 	if len(spec.Labels) > 0 { //nolint:nestif // nn
 		dockerLabels := make(generated.ServiceSpecLabelGroupResponse)
@@ -496,6 +501,11 @@ func toGeneratedNetworks(networks []swarm.Network) []generated.NetworkInfo {
 		}
 		if len(network.Options) > 0 {
 			item.Options = generated.NewOptNetworkInfoOptions(cloneStringMap(network.Options))
+		}
+		for _, pool := range network.IPAM {
+			item.Ipam = append(item.Ipam, generated.NetworkInfoIpamItem{
+				Subnet: toOptString(pool.Subnet), Gateway: toOptString(pool.Gateway),
+			})
 		}
 
 		mapped = append(mapped, item)

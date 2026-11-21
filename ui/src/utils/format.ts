@@ -51,3 +51,15 @@ export function shortCommitHash(raw: string | undefined, length = 6): string {
   const normalizedLength = Number.isFinite(length) ? Math.max(1, Math.floor(length)) : 6;
   return value.slice(0, normalizedLength);
 }
+
+export function formatRelativeTime(raw: string | undefined): string {
+  if (!raw) return "n/a";
+  const timestamp = new Date(raw).valueOf();
+  if (Number.isNaN(timestamp)) return raw;
+
+  const elapsedSeconds = Math.max(0, Math.floor((Date.now() - timestamp) / 1_000));
+  if (elapsedSeconds < 60) return "now";
+  if (elapsedSeconds < 3_600) return `${Math.floor(elapsedSeconds / 60)}m ago`;
+  if (elapsedSeconds < 86_400) return `${Math.floor(elapsedSeconds / 3_600)}h ago`;
+  return `${Math.floor(elapsedSeconds / 86_400)}d ago`;
+}

@@ -4111,6 +4111,7 @@ type NetworkInfo struct {
 	Options    OptNetworkInfoOptions `json:"options"`
 	StackName  OptString             `json:"stack_name"`
 	Managed    bool                  `json:"managed"`
+	Ipam       []NetworkInfoIpamItem `json:"ipam"`
 }
 
 // GetID returns the value of ID.
@@ -4168,6 +4169,11 @@ func (s *NetworkInfo) GetManaged() bool {
 	return s.Managed
 }
 
+// GetIpam returns the value of Ipam.
+func (s *NetworkInfo) GetIpam() []NetworkInfoIpamItem {
+	return s.Ipam
+}
+
 // SetID sets the value of ID.
 func (s *NetworkInfo) SetID(val string) {
 	s.ID = val
@@ -4221,6 +4227,36 @@ func (s *NetworkInfo) SetStackName(val OptString) {
 // SetManaged sets the value of Managed.
 func (s *NetworkInfo) SetManaged(val bool) {
 	s.Managed = val
+}
+
+// SetIpam sets the value of Ipam.
+func (s *NetworkInfo) SetIpam(val []NetworkInfoIpamItem) {
+	s.Ipam = val
+}
+
+type NetworkInfoIpamItem struct {
+	Subnet  OptString `json:"subnet"`
+	Gateway OptString `json:"gateway"`
+}
+
+// GetSubnet returns the value of Subnet.
+func (s *NetworkInfoIpamItem) GetSubnet() OptString {
+	return s.Subnet
+}
+
+// GetGateway returns the value of Gateway.
+func (s *NetworkInfoIpamItem) GetGateway() OptString {
+	return s.Gateway
+}
+
+// SetSubnet sets the value of Subnet.
+func (s *NetworkInfoIpamItem) SetSubnet(val OptString) {
+	s.Subnet = val
+}
+
+// SetGateway sets the value of Gateway.
+func (s *NetworkInfoIpamItem) SetGateway(val OptString) {
+	s.Gateway = val
 }
 
 type NetworkInfoLabels map[string]string
@@ -7426,16 +7462,17 @@ func (s *ServiceSpecNetworkResponse) SetAliases(val []string) {
 
 // Ref: #/components/schemas/ServiceSpecResponse
 type ServiceSpecResponse struct {
-	Image             string                       `json:"image"`
-	Mode              string                       `json:"mode"`
-	Replicas          int64                        `json:"replicas"`
-	RequestedRAMBytes int64                        `json:"requested_ram_bytes"`
-	RequestedCPUNano  int64                        `json:"requested_cpu_nano"`
-	LimitRAMBytes     int64                        `json:"limit_ram_bytes"`
-	LimitCPUNano      int64                        `json:"limit_cpu_nano"`
-	Labels            OptServiceSpecLabelsResponse `json:"labels"`
-	Secrets           []ServiceSpecSecretResponse  `json:"secrets"`
-	Network           []ServiceSpecNetworkResponse `json:"network"`
+	Image             string                           `json:"image"`
+	Mode              string                           `json:"mode"`
+	Replicas          int64                            `json:"replicas"`
+	RequestedRAMBytes int64                            `json:"requested_ram_bytes"`
+	RequestedCPUNano  int64                            `json:"requested_cpu_nano"`
+	LimitRAMBytes     int64                            `json:"limit_ram_bytes"`
+	LimitCPUNano      int64                            `json:"limit_cpu_nano"`
+	Labels            OptServiceSpecLabelsResponse     `json:"labels"`
+	Secrets           []ServiceSpecSecretResponse      `json:"secrets"`
+	Network           []ServiceSpecNetworkResponse     `json:"network"`
+	Configs           []ServiceSpecResponseConfigsItem `json:"configs"`
 }
 
 // GetImage returns the value of Image.
@@ -7488,6 +7525,11 @@ func (s *ServiceSpecResponse) GetNetwork() []ServiceSpecNetworkResponse {
 	return s.Network
 }
 
+// GetConfigs returns the value of Configs.
+func (s *ServiceSpecResponse) GetConfigs() []ServiceSpecResponseConfigsItem {
+	return s.Configs
+}
+
 // SetImage sets the value of Image.
 func (s *ServiceSpecResponse) SetImage(val string) {
 	s.Image = val
@@ -7536,6 +7578,47 @@ func (s *ServiceSpecResponse) SetSecrets(val []ServiceSpecSecretResponse) {
 // SetNetwork sets the value of Network.
 func (s *ServiceSpecResponse) SetNetwork(val []ServiceSpecNetworkResponse) {
 	s.Network = val
+}
+
+// SetConfigs sets the value of Configs.
+func (s *ServiceSpecResponse) SetConfigs(val []ServiceSpecResponseConfigsItem) {
+	s.Configs = val
+}
+
+type ServiceSpecResponseConfigsItem struct {
+	ConfigID   OptString `json:"config_id"`
+	ConfigName string    `json:"config_name"`
+	Target     OptString `json:"target"`
+}
+
+// GetConfigID returns the value of ConfigID.
+func (s *ServiceSpecResponseConfigsItem) GetConfigID() OptString {
+	return s.ConfigID
+}
+
+// GetConfigName returns the value of ConfigName.
+func (s *ServiceSpecResponseConfigsItem) GetConfigName() string {
+	return s.ConfigName
+}
+
+// GetTarget returns the value of Target.
+func (s *ServiceSpecResponseConfigsItem) GetTarget() OptString {
+	return s.Target
+}
+
+// SetConfigID sets the value of ConfigID.
+func (s *ServiceSpecResponseConfigsItem) SetConfigID(val OptString) {
+	s.ConfigID = val
+}
+
+// SetConfigName sets the value of ConfigName.
+func (s *ServiceSpecResponseConfigsItem) SetConfigName(val string) {
+	s.ConfigName = val
+}
+
+// SetTarget sets the value of Target.
+func (s *ServiceSpecResponseConfigsItem) SetTarget(val OptString) {
+	s.Target = val
 }
 
 // Ref: #/components/schemas/ServiceSpecSecretResponse
@@ -8042,8 +8125,15 @@ type SwarmService struct {
 	Mode     string               `json:"mode"`
 	Replicas SwarmServiceReplicas `json:"replicas"`
 	// Configured ServiceSpec replica count, present only for replicated services.
-	ConfiguredReplicas OptInt64  `json:"configured_replicas"`
-	UpdatedAt          time.Time `json:"updated_at"`
+	ConfiguredReplicas OptInt64                         `json:"configured_replicas"`
+	UpdatedAt          time.Time                        `json:"updated_at"`
+	CreatedAt          OptDateTime                      `json:"created_at"`
+	EndpointMode       OptString                        `json:"endpoint_mode"`
+	PublishedPorts     []SwarmServicePublishedPortsItem `json:"published_ports"`
+	UpdateParallelism  OptInt64                         `json:"update_parallelism"`
+	UpdateState        OptString                        `json:"update_state"`
+	UpdateCompletedAt  OptDateTime                      `json:"update_completed_at"`
+	NetworkTargets     []string                         `json:"network_targets"`
 }
 
 // GetID returns the value of ID.
@@ -8091,6 +8181,41 @@ func (s *SwarmService) GetUpdatedAt() time.Time {
 	return s.UpdatedAt
 }
 
+// GetCreatedAt returns the value of CreatedAt.
+func (s *SwarmService) GetCreatedAt() OptDateTime {
+	return s.CreatedAt
+}
+
+// GetEndpointMode returns the value of EndpointMode.
+func (s *SwarmService) GetEndpointMode() OptString {
+	return s.EndpointMode
+}
+
+// GetPublishedPorts returns the value of PublishedPorts.
+func (s *SwarmService) GetPublishedPorts() []SwarmServicePublishedPortsItem {
+	return s.PublishedPorts
+}
+
+// GetUpdateParallelism returns the value of UpdateParallelism.
+func (s *SwarmService) GetUpdateParallelism() OptInt64 {
+	return s.UpdateParallelism
+}
+
+// GetUpdateState returns the value of UpdateState.
+func (s *SwarmService) GetUpdateState() OptString {
+	return s.UpdateState
+}
+
+// GetUpdateCompletedAt returns the value of UpdateCompletedAt.
+func (s *SwarmService) GetUpdateCompletedAt() OptDateTime {
+	return s.UpdateCompletedAt
+}
+
+// GetNetworkTargets returns the value of NetworkTargets.
+func (s *SwarmService) GetNetworkTargets() []string {
+	return s.NetworkTargets
+}
+
 // SetID sets the value of ID.
 func (s *SwarmService) SetID(val string) {
 	s.ID = val
@@ -8134,6 +8259,77 @@ func (s *SwarmService) SetConfiguredReplicas(val OptInt64) {
 // SetUpdatedAt sets the value of UpdatedAt.
 func (s *SwarmService) SetUpdatedAt(val time.Time) {
 	s.UpdatedAt = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *SwarmService) SetCreatedAt(val OptDateTime) {
+	s.CreatedAt = val
+}
+
+// SetEndpointMode sets the value of EndpointMode.
+func (s *SwarmService) SetEndpointMode(val OptString) {
+	s.EndpointMode = val
+}
+
+// SetPublishedPorts sets the value of PublishedPorts.
+func (s *SwarmService) SetPublishedPorts(val []SwarmServicePublishedPortsItem) {
+	s.PublishedPorts = val
+}
+
+// SetUpdateParallelism sets the value of UpdateParallelism.
+func (s *SwarmService) SetUpdateParallelism(val OptInt64) {
+	s.UpdateParallelism = val
+}
+
+// SetUpdateState sets the value of UpdateState.
+func (s *SwarmService) SetUpdateState(val OptString) {
+	s.UpdateState = val
+}
+
+// SetUpdateCompletedAt sets the value of UpdateCompletedAt.
+func (s *SwarmService) SetUpdateCompletedAt(val OptDateTime) {
+	s.UpdateCompletedAt = val
+}
+
+// SetNetworkTargets sets the value of NetworkTargets.
+func (s *SwarmService) SetNetworkTargets(val []string) {
+	s.NetworkTargets = val
+}
+
+type SwarmServicePublishedPortsItem struct {
+	PublishedPort int64  `json:"published_port"`
+	TargetPort    int64  `json:"target_port"`
+	Protocol      string `json:"protocol"`
+}
+
+// GetPublishedPort returns the value of PublishedPort.
+func (s *SwarmServicePublishedPortsItem) GetPublishedPort() int64 {
+	return s.PublishedPort
+}
+
+// GetTargetPort returns the value of TargetPort.
+func (s *SwarmServicePublishedPortsItem) GetTargetPort() int64 {
+	return s.TargetPort
+}
+
+// GetProtocol returns the value of Protocol.
+func (s *SwarmServicePublishedPortsItem) GetProtocol() string {
+	return s.Protocol
+}
+
+// SetPublishedPort sets the value of PublishedPort.
+func (s *SwarmServicePublishedPortsItem) SetPublishedPort(val int64) {
+	s.PublishedPort = val
+}
+
+// SetTargetPort sets the value of TargetPort.
+func (s *SwarmServicePublishedPortsItem) SetTargetPort(val int64) {
+	s.TargetPort = val
+}
+
+// SetProtocol sets the value of Protocol.
+func (s *SwarmServicePublishedPortsItem) SetProtocol(val string) {
+	s.Protocol = val
 }
 
 // Ref: #/components/schemas/SwarmServiceReplicas

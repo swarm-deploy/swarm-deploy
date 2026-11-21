@@ -286,6 +286,8 @@ type StackService struct {
 	UpdateStatus *ServiceUpdateStatus
 	// ServiceSpec is raw Docker service specification snapshot.
 	ServiceSpec dockerswarm.ServiceSpec
+	// PublishedPorts contains the runtime port bindings, including ports allocated by Swarm.
+	PublishedPorts []dockerswarm.PortConfig
 	// PreviousSpec is the previous raw Docker service specification used by Swarm rollback.
 	PreviousSpec *dockerswarm.ServiceSpec
 	// Labels contains Docker service annotations labels.

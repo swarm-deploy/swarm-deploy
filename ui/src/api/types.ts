@@ -121,6 +121,13 @@ export interface SwarmService {
   replicas: SwarmServiceReplicas;
   configured_replicas?: number;
   updated_at: string;
+  created_at?: string;
+  endpoint_mode?: string;
+  published_ports?: Array<{ published_port: number; target_port: number; protocol: string }>;
+  update_parallelism?: number;
+  update_state?: string;
+  update_completed_at?: string;
+  network_targets?: string[];
 }
 
 export interface SwarmServicesResponse {
@@ -305,6 +312,7 @@ export interface ServiceSpecLabelsResponse {
 export interface ServiceSpecResponse {
   image: string;
   mode: string;
+  configs?: Array<{ config_id?: string; config_name: string; target?: string }>;
   replicas: number;
   requested_ram_bytes: number;
   requested_cpu_nano: number;
@@ -360,7 +368,7 @@ export interface TaskLogCountsEvent {
   counts: Partial<Record<TaskLogLevel, number>>;
 }
 
-export type ServiceDeploymentStatus = "running" | "succeeded" | "failed" | "interrupted";
+export type ServiceDeploymentStatus = "running" | "succeeded" | "failed" | "interrupted" | "superseded";
 
 export interface ServiceDeploymentResponse {
   id: string;
@@ -414,6 +422,7 @@ export interface NetworkInfo {
   options?: Record<string, string>;
   stack_name?: string;
   managed: boolean;
+  ipam?: Array<{ subnet?: string; gateway?: string }>;
 }
 
 export interface NetworksResponse {
