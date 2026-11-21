@@ -33,6 +33,7 @@ interface AssistantState {
   historyOpen: boolean;
   historyLoading: boolean;
   chatGeneration: number;
+  chatHistoryStale: boolean;
 }
 
 export const useAssistantStore = defineStore("assistant", {
@@ -47,6 +48,7 @@ export const useAssistantStore = defineStore("assistant", {
     historyOpen: false,
     historyLoading: false,
     chatGeneration: 0,
+    chatHistoryStale: false,
   }),
   actions: {
     setEnabled(enabled: boolean) {
@@ -86,11 +88,9 @@ export const useAssistantStore = defineStore("assistant", {
       return generation === this.chatGeneration;
     },
     newChat() {
-      if (this.pending) {
-        return;
-      }
-
       this.beginChatGeneration();
+      this.pending = false;
+      this.chatHistoryStale = false;
       this.conversationID = "";
       this.activeRequestID = "";
       this.activity = [];
@@ -107,6 +107,7 @@ export const useAssistantStore = defineStore("assistant", {
       const active = chat.active_request;
       // Set pending together with the messages, so the chat never shows an unanswered question while a reply is running.
       this.pending = Boolean(active);
+      this.chatHistoryStale = false;
       this.conversationID = chat.id;
       this.activeRequestID = active?.request_id || "";
       this.activity = active?.activity || [];
@@ -199,6 +200,7 @@ export const useAssistantStore = defineStore("assistant", {
         : "Assistant request timeout. Try again.");
     },
     showRequestError(error: unknown) {
+      this.chatHistoryStale = true;
       this.activeRequestID = "";
       this.activity = [];
       const message = error instanceof Error ? error.message : "Unexpected assistant error";
@@ -216,6 +218,7 @@ export const useAssistantStore = defineStore("assistant", {
               return;
             }
             started = true;
+            this.chatHistoryStale = false;
             this.messages = [];
             this.activity = [];
             this.pushMessage("user", message);

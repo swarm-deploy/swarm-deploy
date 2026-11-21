@@ -671,6 +671,77 @@ describe("Assistant Drawer", () => {
     await flushPromises();
     wrapper.unmount();
   });
+
+  it("starts a separate chat when Back returns to new during a running reply", async () => {
+    const pinia = createPinia();
+    setActivePinia(pinia);
+    const router = createRouter({ history: createMemoryHistory(), routes });
+    const store = useAssistantStore();
+    const chat = savedChat({ request_id: "running" });
+    store.loadChats = vi.fn(async () => { store.chats = [chat]; });
+    vi.spyOn(assistantApi, "getAssistantSuggestions").mockResolvedValue({ suggestions: [] });
+    vi.spyOn(assistantApi, "getAssistantChat").mockResolvedValue(chat);
+    let finish!: (response: AssistantChatResponse) => void;
+    const request = vi.spyOn(store, "requestAssistant")
+      .mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }))
+      .mockResolvedValueOnce({ status: "completed", conversation_id: "separate", request_id: "second", answer: "New answer" });
+    await router.push("/?assistant=new");
+    const wrapper = mount(AssistantDrawer, { global: { plugins: [pinia, router] } });
+    await flushPromises();
+    await wrapper.get('[aria-label="Back to chats"]').trigger("click");
+    await flushPromises();
+    await wrapper.get('button[title="Check the cluster"]').trigger("click");
+    await flushPromises();
+    expect(store.pending).toBe(true);
+
+    router.go(-2);
+    await vi.waitFor(() => expect(router.currentRoute.value.query.assistant).toBe("new"));
+    expect(store.pending).toBe(false);
+    const form = wrapper.get(".assistant-chat-form");
+    await form.get("textarea").setValue("New question");
+    await form.trigger("submit");
+    await flushPromises();
+    expect(request.mock.calls[1][0].conversation_id).toBeUndefined();
+    finish({ status: "completed", conversation_id: chat.id, request_id: "running", answer: "Old answer" });
+    await flushPromises();
+    expect(router.currentRoute.value.query.assistant).toBe("separate");
+    expect(wrapper.get(".assistant-chat-message-assistant").text()).toContain("New answer");
+    expect(wrapper.text()).not.toContain("Old answer");
+    wrapper.unmount();
+  });
+
+  it.each(["completed", "running"])("reloads a %s reply after polling lost its connection", async (status) => {
+    const pinia = createPinia();
+    setActivePinia(pinia);
+    const router = createRouter({ history: createMemoryHistory(), routes });
+    const store = useAssistantStore();
+    const running = savedChat({ request_id: "running" });
+    const completed = savedChat();
+    completed.messages.push({ role: "assistant", content: "Recovered answer" });
+    store.loadChats = vi.fn(async () => { store.chats = [running]; });
+    let reload!: (chat: AssistantChatHistory) => void;
+    const get = vi.spyOn(assistantApi, "getAssistantChat").mockResolvedValueOnce(running)
+      .mockImplementationOnce(() => new Promise((resolve) => { reload = resolve; }));
+    const request = vi.spyOn(store, "requestAssistant").mockRejectedValueOnce(new TypeError("Connection lost"))
+      .mockResolvedValueOnce({ status: "completed", conversation_id: running.id, request_id: "running", answer: "Recovered answer" });
+    await router.push({ query: { assistant: running.id } });
+    const wrapper = mount(AssistantDrawer, { global: { plugins: [pinia, router] } });
+    await flushPromises();
+    expect(wrapper.text()).toContain("Connection lost");
+
+    await wrapper.get('[aria-label="Back to chats"]').trigger("click");
+    await flushPromises();
+    await wrapper.get('button[title="Check the cluster"]').trigger("click");
+    await flushPromises();
+    expect(get).toHaveBeenCalledTimes(2);
+    expect(wrapper.get("textarea").element.readOnly).toBe(true);
+    reload(status === "running" ? running : completed);
+    await flushPromises();
+    expect(request).toHaveBeenCalledTimes(status === "running" ? 2 : 1);
+    expect(wrapper.get(".assistant-chat-message-assistant").text()).toContain("Recovered answer");
+    expect(wrapper.text()).not.toContain("Connection lost");
+    wrapper.unmount();
+  });
 });
 
 function savedChat(activeRequest?: AssistantChatHistory["active_request"]): AssistantChatHistory {

@@ -89,6 +89,30 @@ func TestSQLChatTransactionsAndRestart(t *testing.T) {
 	assert.Equal(t, chat, unchanged)
 }
 
+func TestSQLChatAppendsAfterLastSequenceWithoutReplacingHistory(t *testing.T) {
+	ctx := t.Context()
+	db, err := storage.OpenSQLite(ctx, t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	repo := NewSQLHistoryStorage(db)
+	require.NoError(t, repo.Append(ctx, "chat", Turn{Role: "user", Content: "Original title"}))
+	_, err = db.Exec(ctx, "UPDATE assistant_turns SET sequence = 5 WHERE chat_id = 'chat'")
+	require.NoError(t, err)
+	_, err = db.Exec(ctx, "CREATE TRIGGER keep_history BEFORE DELETE ON assistant_turns BEGIN SELECT RAISE(ABORT, 'unexpected delete'); END")
+	require.NoError(t, err)
+
+	require.NoError(t, repo.SaveTurns(ctx, "chat", "", TokenUsage{TotalTokens: 2},
+		Turn{Role: "assistant", Content: "First reply"}, Turn{Role: "user", Content: "Follow-up"}))
+	var sequences []int
+	require.NoError(t, db.Select(ctx, &sequences, "SELECT sequence FROM assistant_turns WHERE chat_id = ? ORDER BY sequence", "chat"))
+	assert.Equal(t, []int{5, 6, 7}, sequences)
+	chat, found, err := repo.ReadChat(ctx, "chat")
+	require.NoError(t, err)
+	require.True(t, found)
+	assert.Equal(t, "Original title", chat.Title)
+	assert.Equal(t, &TokenUsage{TotalTokens: 2}, chat.Usage)
+}
+
 func TestSQLChatConcurrentAppends(t *testing.T) {
 	ctx := context.Background()
 	db, err := storage.OpenSQLite(ctx, t.TempDir())

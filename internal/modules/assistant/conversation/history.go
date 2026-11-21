@@ -57,6 +57,17 @@ type Chat struct {
 	Usage *TokenUsage `json:"token_usage,omitempty"`
 }
 
+// addUsage leaves usage absent until a provider supplies a sample.
+func (c *Chat) addUsage(usage TokenUsage) {
+	if usage.IsZero() {
+		return
+	}
+	if c.Usage == nil {
+		c.Usage = &TokenUsage{}
+	}
+	c.Usage.Add(usage)
+}
+
 // ChatSummary contains metadata required to render the chat list.
 type ChatSummary struct {
 	// ID identifies the conversation.

@@ -55,9 +55,11 @@ const historyLoading = computed(() => assistantStore.historyLoading);
 const usageRoute = computed(() => ({ query: assistantQuery("usage"), hash: route.hash }));
 const usageOpenChatID = ref("");
 
+const loadingChatID = ref("");
 const existingChatLoading = computed(() => {
   const assistant = typeof route.query.assistant === "string" ? route.query.assistant : "";
-  return assistant !== "" && assistant !== "new" && assistant !== "chats" && assistantStore.conversationID !== assistant;
+  return assistant !== "" && assistant !== "new" && assistant !== "chats" &&
+    (assistantStore.conversationID !== assistant || loadingChatID.value === assistant);
 });
 
 const composerDisabled = computed(() => pending.value || existingChatLoading.value);
@@ -348,15 +350,21 @@ watch(
       return;
     }
 
-    if (assistantStore.conversationID === value) {
+    if (assistantStore.conversationID === value && !assistantStore.chatHistoryStale) {
       assistantStore.historyOpen = false;
     } else {
       const controller = new AbortController();
-      onCleanup(() => controller.abort());
+      loadingChatID.value = value;
+      onCleanup(() => {
+        controller.abort();
+        loadingChatID.value = "";
+      });
       try {
         await assistantStore.openChat(value, controller.signal);
       } catch (error) {
         if (!controller.signal.aborted) throw error;
+      } finally {
+        if (!controller.signal.aborted) loadingChatID.value = "";
       }
     }
   },

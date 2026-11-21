@@ -266,7 +266,8 @@ func (s *Service) runAssistant(ctx context.Context, createdBy string, history []
 	question := conversation.Turn{Role: "user", Content: run.message}
 
 	run.addActivity("Analyzing request")
-	answer, usage, err := s.graph.run(runCtx, conversationID, history, run.message, run.addActivity)
+	turn := s.graph.operations.beginTurn(conversationID)
+	answer, usage, err := s.graph.run(runCtx, turn, history, run.message, run.addActivity)
 	if err != nil {
 		// The saved question stays in history, so the model sees what the user sees.
 		s.conversationStorage.Append(conversationID, question)
@@ -313,6 +314,7 @@ func (s *Service) runAssistant(ctx context.Context, createdBy string, history []
 		run.finish(StatusFailed, "", "Failed to save assistant response")
 		return
 	}
+	turn.publish()
 	s.conversationStorage.Append(conversationID, question, reply)
 
 	run.finish(StatusCompleted, answer, "")

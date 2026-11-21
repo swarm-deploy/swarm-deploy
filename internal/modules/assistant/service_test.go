@@ -812,6 +812,29 @@ func TestServiceChatFailsWhenReplyCannotBeSaved(t *testing.T) {
 		"the model context must match the saved history")
 }
 
+func TestServiceChatDiscardsUnpublishedConfirmation(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		writeChatResponse(t, w, `{"route":"deployments","capabilities":["deployment_sync"],"operation":{"type":"deploy_sync_trigger"}}`, nil)
+	}))
+	defer server.Close()
+
+	history := newHistoryFailingTurnWrites(t, `NEW.payload LIKE '%"role":"assistant"%'`)
+	tools := NewMockToolExecutor(gomock.NewController(t))
+	tools.EXPECT().Definitions().AnyTimes()
+	service := newRoutingTestServiceWithHistory(t, server.URL, serviceStore(t, nil), tools, nil, history)
+
+	response := service.Chat(t.Context(), ChatRequest{Message: "Run sync now"})
+	require.Equal(t, StatusFailed, response.Status)
+	require.Equal(t, "Failed to save assistant response", response.ErrorMessage)
+	chat, found, err := history.ReadChat(t.Context(), response.ConversationID)
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, []conversation.Turn{{Role: "user", Content: "Run sync now"}}, chat.Turns)
+	_, pending := service.graph.operations.pending.get(chat.ID)
+	assert.False(t, pending, "only a saved reply can offer an operation for confirmation")
+}
+
 func TestServiceChatHidesConversationWhoseQuestionWasNeverSaved(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
 		t.Fatalf("model must not run when the question is not saved: %s", r.URL.Path)

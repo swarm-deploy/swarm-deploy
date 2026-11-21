@@ -86,7 +86,7 @@ type graph struct {
 }
 
 type graphExecutionState struct {
-	conversationID          string
+	operationTurn           *operationTurn
 	history                 []conversation.Turn
 	userMessage             string
 	route                   Route
@@ -142,7 +142,7 @@ func newGraph(
 
 func (g *graph) run(
 	ctx context.Context,
-	conversationID string,
+	turn *operationTurn,
 	history []conversation.Turn,
 	userMessage string,
 	reportActivity func(string),
@@ -150,7 +150,7 @@ func (g *graph) run(
 	if g.guard.Check(userMessage) {
 		return "", conversation.TokenUsage{}, &guard.PromptInjectionError{Prompt: strings.TrimSpace(userMessage)}
 	}
-	handled, pendingAnswer, pendingUsage, err := g.operations.handlePendingOperation(ctx, conversationID, userMessage)
+	handled, pendingAnswer, pendingUsage, err := turn.handlePendingOperation(ctx, userMessage)
 	if handled || err != nil {
 		return pendingAnswer, pendingUsage, err
 	}
@@ -158,7 +158,7 @@ func (g *graph) run(
 		return answer, conversation.TokenUsage{}, nil
 	}
 	executionState := &graphExecutionState{
-		conversationID: conversationID,
+		operationTurn:  turn,
 		history:        history,
 		userMessage:    userMessage,
 		reportActivity: reportActivity,
@@ -335,7 +335,7 @@ func (g *graph) routeNode(
 		executionState.effectiveToolSet = g.responseToolSet(route, capabilities)
 		executionState.report("Route: " + string(route))
 		if executionState.operation != nil {
-			answer, usage := g.operations.startPendingOperation(ctx, executionState.conversationID, *executionState.operation)
+			answer, usage := executionState.operationTurn.startPendingOperation(ctx, *executionState.operation)
 			executionState.answer = answer
 			executionState.usage.Add(usage)
 			executionState.operationHandled = true
