@@ -23,7 +23,7 @@ func (h *handler) ListSwarmServices(ctx context.Context) (*generated.SwarmServic
 	for _, service := range services {
 		networks := service.ServiceSpec.TaskTemplate.Networks
 		if len(networks) == 0 {
-			networks = service.ServiceSpec.Networks //nolint:staticcheck // Older Docker services can use the service-level field.
+			networks = service.ServiceSpec.Networks //nolint:staticcheck // Legacy service-level attachments.
 		}
 		item := generated.SwarmService{
 			ID:       service.ID,
