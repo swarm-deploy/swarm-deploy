@@ -1,4 +1,4 @@
-package tools
+package tlschecker
 
 import (
 	"bytes"
@@ -27,7 +27,8 @@ const (
 	tlsDirectChainLength   = 2 // Leaf and trust anchor only.
 )
 
-type tlsCheckValidation struct {
+// Validation reports the individual and overall certificate checks.
+type Validation struct {
 	// Status is valid, invalid, or not_checked when validation could not reach a verdict.
 	Status string `json:"status"`
 	// ValidityPeriodOK reports whether the leaf is currently within its validity period.
@@ -38,16 +39,18 @@ type tlsCheckValidation struct {
 	ServerAuthOK *bool `json:"server_auth_ok,omitempty"`
 }
 
-type tlsCheckChain struct {
+// Chain describes the presented certificates and trust path verification.
+type Chain struct {
 	// Presented lists summaries from the wire in peer order, starting with the leaf.
-	Presented []tlsCertificateSummary `json:"presented"`
+	Presented []CertificateSummary `json:"presented"`
 	// PresentedCount counts every certificate the peer sent.
 	PresentedCount int `json:"presented_count"`
 	// Status is verified, unverified, or unavailable for system path verification independent of name and EKU.
 	Status string `json:"status"`
 }
 
-type tlsCertificateSummary struct {
+// CertificateSummary identifies a certificate and describes its validity period.
+type CertificateSummary struct {
 	// Subject is the certificate's distinguished name.
 	Subject string `json:"subject"`
 	// Issuer is the issuing certificate's distinguished name.
@@ -60,8 +63,10 @@ type tlsCertificateSummary struct {
 	SHA256Fingerprint string `json:"sha256_fingerprint"`
 }
 
-type tlsLeafCertificate struct {
-	tlsCertificateSummary
+// LeafCertificate describes the endpoint certificate.
+type LeafCertificate struct {
+	// CertificateSummary contains the identity, validity period, and fingerprint.
+	CertificateSummary
 
 	// DNSSANs are the leaf certificate's DNS subject alternative names.
 	DNSSANs []string `json:"dns_sans,omitempty"`
@@ -75,10 +80,10 @@ type tlsLeafCertificate struct {
 	SelfSigned bool `json:"self_signed"`
 }
 
-func (r *tlsCheckResult) inspectCertificates(peer []*x509.Certificate, roots *x509.CertPool, now time.Time) {
+func (r *Result) inspectCertificates(peer []*x509.Certificate, roots *x509.CertPool, now time.Time) {
 	leaf := peer[0]
 	r.Certificate = describeTLSLeaf(leaf, now)
-	r.Chain = &tlsCheckChain{PresentedCount: len(peer), Status: "unverified"}
+	r.Chain = &Chain{PresentedCount: len(peer), Status: "unverified"}
 	for _, cert := range peer[:min(len(peer), tlsMaxPresentedDetails)] {
 		r.Chain.Presented = append(r.Chain.Presented, summarizeTLSCertificate(cert))
 	}
@@ -87,7 +92,7 @@ func (r *tlsCheckResult) inspectCertificates(peer []*x509.Certificate, roots *x5
 	periodOK := periodCode == ""
 	r.Validation.ValidityPeriodOK = &periodOK
 	if periodOK && leaf.NotAfter.Sub(now) <= tlsExpiryWarningWindow {
-		r.Warnings = append(r.Warnings, tlsCheckIssue{
+		r.Warnings = append(r.Warnings, Issue{
 			Stage: tlsStageValidation, Code: "certificate_expiring_soon",
 			Message: "The server certificate expires within 30 days.",
 		})
@@ -113,7 +118,7 @@ func (r *tlsCheckResult) inspectCertificates(peer []*x509.Certificate, roots *x5
 	}
 }
 
-func (r *tlsCheckResult) verifyTLSPath(
+func (r *Result) verifyTLSPath(
 	peer []*x509.Certificate, roots *x509.CertPool, now time.Time,
 ) string {
 	leaf := peer[0]
@@ -158,7 +163,7 @@ func (r *tlsCheckResult) verifyTLSPath(
 		r.Validation.ServerAuthOK = &authOK
 	}
 	if tlsMissingIntermediate(chains, peer) {
-		r.Warnings = append(r.Warnings, tlsCheckIssue{
+		r.Warnings = append(r.Warnings, Issue{
 			Stage: tlsStageValidation, Code: "incomplete_chain",
 			Message: "Every verified path uses an intermediate certificate the server did not send.",
 		})
@@ -166,8 +171,8 @@ func (r *tlsCheckResult) verifyTLSPath(
 	return authCode
 }
 
-func (r *tlsCheckResult) addTLSValidationError(code, message string) {
-	r.Errors = append(r.Errors, tlsCheckIssue{Stage: tlsStageValidation, Code: code, Message: tlsBoundText(message)})
+func (r *Result) addTLSValidationError(code, message string) {
+	r.Errors = append(r.Errors, Issue{Stage: tlsStageValidation, Code: code, Message: tlsBoundText(message)})
 }
 
 func tlsCertificatePeriodCode(cert *x509.Certificate, now time.Time) string {
@@ -222,10 +227,10 @@ func tlsMissingIntermediate(chains [][]*x509.Certificate, peer []*x509.Certifica
 	return len(chains) > 0
 }
 
-func describeTLSLeaf(cert *x509.Certificate, now time.Time) *tlsLeafCertificate {
-	leaf := &tlsLeafCertificate{
-		tlsCertificateSummary: summarizeTLSCertificate(cert),
-		RemainingSeconds:      int64(cert.NotAfter.Sub(now) / time.Second),
+func describeTLSLeaf(cert *x509.Certificate, now time.Time) *LeafCertificate {
+	leaf := &LeafCertificate{
+		CertificateSummary: summarizeTLSCertificate(cert),
+		RemainingSeconds:   int64(cert.NotAfter.Sub(now) / time.Second),
 		SelfSigned: bytes.Equal(cert.RawSubject, cert.RawIssuer) &&
 			cert.CheckSignature(cert.SignatureAlgorithm, cert.RawTBSCertificate, cert.Signature) == nil,
 		SANsTruncated: len(cert.DNSNames) > tlsMaxSANDetails || len(cert.IPAddresses) > tlsMaxSANDetails,
@@ -241,9 +246,9 @@ func describeTLSLeaf(cert *x509.Certificate, now time.Time) *tlsLeafCertificate 
 	return leaf
 }
 
-func summarizeTLSCertificate(cert *x509.Certificate) tlsCertificateSummary {
+func summarizeTLSCertificate(cert *x509.Certificate) CertificateSummary {
 	fingerprint := sha256.Sum256(cert.Raw)
-	return tlsCertificateSummary{
+	return CertificateSummary{
 		Subject:           tlsBoundText(cert.Subject.String()),
 		Issuer:            tlsBoundText(cert.Issuer.String()),
 		NotBefore:         cert.NotBefore.UTC(),
