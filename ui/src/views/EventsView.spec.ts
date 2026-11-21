@@ -104,6 +104,32 @@ describe("EventsView", () => {
     });
   });
 
+  it.each(["success", "error"])("ignores stale cursor %s after a filter change", async (outcome) => {
+    let resolveOld!: (value: { events: EventHistoryItem[] }) => void;
+    let rejectOld!: (reason: Error) => void;
+    const old = new Promise<{ events: EventHistoryItem[] }>((resolve, reject) => {
+      resolveOld = resolve;
+      rejectOld = reject;
+    });
+    vi.mocked(fetchEvents)
+      .mockResolvedValueOnce({ events: [events[0]], nextCursor: "old-next" })
+      .mockReturnValueOnce(old)
+      .mockResolvedValueOnce({ events: [events[2]] });
+    const { wrapper, router } = await mountView();
+    await wrapper.get(".events-pagination button:last-child").trigger("click");
+    expect(fetchEvents).toHaveBeenLastCalledWith(expect.objectContaining({ cursor: "old-next" }));
+    await router.replace("/events?severity=warn");
+    await flushPromises();
+    if (outcome === "success") resolveOld({ events: [events[3]] });
+    else rejectOld(new Error("stale error"));
+    await flushPromises();
+    expect(renderedMessages(wrapper)).toEqual(["Warning"]);
+    expect(wrapper.get(".events-pagination").text()).toContain("Page 1");
+    expect(wrapper.text()).not.toContain("stale error");
+    expect(fetchEvents).toHaveBeenCalledTimes(3);
+    wrapper.unmount();
+  });
+
   it("restores multiple event types from the URL and keeps them selected", async () => {
     const { wrapper } = await mountView("/events?types=DeploySuccess&types=SyncManualStarted");
 
