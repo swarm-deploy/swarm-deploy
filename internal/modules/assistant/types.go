@@ -116,6 +116,16 @@ type ChatHistory struct {
 	Usage *TokenUsage `json:"token_usage,omitempty"`
 	// Messages contains the full persisted user-visible history.
 	Messages []ChatMessage `json:"messages"`
+	// ActiveRequest describes a reply that is still being generated, so clients can resume polling.
+	ActiveRequest *ActiveChatRequest `json:"active_request,omitempty"`
+}
+
+// ActiveChatRequest describes an unfinished assistant request of a chat.
+type ActiveChatRequest struct {
+	// RequestID identifies the run to poll.
+	RequestID string `json:"request_id"`
+	// Activity contains safe user-visible execution progress of the run.
+	Activity []string `json:"activity,omitempty"`
 }
 
 // Config contains runtime assistant settings.

@@ -55,16 +55,6 @@ type Chat struct {
 	Usage *TokenUsage `json:"token_usage,omitempty"`
 }
 
-func (c *Chat) addUsage(usage TokenUsage) {
-	if usage.IsZero() {
-		return
-	}
-	if c.Usage == nil {
-		c.Usage = &TokenUsage{}
-	}
-	c.Usage.Add(usage)
-}
-
 // ChatSummary contains metadata required to render the chat list.
 type ChatSummary struct {
 	// ID identifies the conversation.
@@ -90,8 +80,6 @@ type HistoryStorage interface {
 	// SaveTurns appends turns and accumulates model token usage atomically. Turns may be omitted.
 	// A nonempty createdBy is recorded when the chat is first inserted.
 	SaveTurns(ctx context.Context, id, createdBy string, usage TokenUsage, turns ...Turn) error
-	// CompleteFirstTurn stores the first reply and its usage and admits the question to model history.
-	CompleteFirstTurn(ctx context.Context, id string, usage TokenUsage, reply Turn) error
 }
 
 func buildChatTitle(turns []Turn) string {

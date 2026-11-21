@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createMemoryHistory, createRouter } from "vue-router";
 
 import * as assistantApi from "../../api/assistant";
-import type { AssistantChatResponse } from "../../api/types";
+import type { AssistantChatHistory, AssistantChatResponse } from "../../api/types";
 import { useAssistantStore } from "../../stores/assistant";
 import { useUIStore } from "../../stores/ui";
 import AssistantDrawer from "./AssistantDrawer.vue";
@@ -496,4 +496,65 @@ describe("Assistant Drawer", () => {
     expect(fetchMock).toHaveBeenCalledOnce();
     wrapper.unmount();
   });
+
+  it("resumes a running reply when the chat is reopened", async () => {
+    const pinia = createPinia();
+    setActivePinia(pinia);
+    const router = createRouter({ history: createMemoryHistory(), routes });
+    const store = useAssistantStore();
+    store.loadChats = vi.fn(async () => undefined);
+    vi.spyOn(assistantApi, "getAssistantChat").mockResolvedValue(savedChat({
+      request_id: "request-id",
+      activity: ["Routing request"],
+    }));
+    let finish!: (response: AssistantChatResponse) => void;
+    const request = vi.spyOn(store, "requestAssistant")
+      .mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    await router.push("/?assistant=chat-1");
+
+    const wrapper = mount(AssistantDrawer, { global: { plugins: [pinia, router] } });
+    await flushPromises();
+
+    expect(store.pending).toBe(true);
+    expect(wrapper.text()).toContain("Routing request");
+    expect(wrapper.text()).not.toContain("No reply received");
+    expect(request).toHaveBeenCalledWith({ conversation_id: "chat-1", request_id: "request-id", wait_timeout_ms: 750 });
+
+    finish({ status: "completed", conversation_id: "chat-1", request_id: "request-id", answer: "Healthy" });
+    await flushPromises();
+
+    expect(store.pending).toBe(false);
+    expect(wrapper.findAll(".assistant-chat-message-user")).toHaveLength(1);
+    expect(wrapper.get(".assistant-chat-message-assistant").text()).toContain("Healthy");
+    wrapper.unmount();
+  });
+
+  it("marks a saved question that has no reply and no running request", async () => {
+    const pinia = createPinia();
+    setActivePinia(pinia);
+    const router = createRouter({ history: createMemoryHistory(), routes });
+    const store = useAssistantStore();
+    vi.spyOn(assistantApi, "getAssistantChat").mockResolvedValue(savedChat());
+    const request = vi.spyOn(store, "requestAssistant");
+    await router.push("/?assistant=chat-1");
+
+    const wrapper = mount(AssistantDrawer, { global: { plugins: [pinia, router] } });
+    await flushPromises();
+
+    expect(store.pending).toBe(false);
+    expect(request).not.toHaveBeenCalled();
+    expect(wrapper.get(".assistant-chat-message-system").text()).toBe("No reply received. Send your message again.");
+    wrapper.unmount();
+  });
 });
+
+function savedChat(activeRequest?: AssistantChatHistory["active_request"]): AssistantChatHistory {
+  return {
+    id: "chat-1",
+    title: "Check the cluster",
+    created_at: "2026-11-21T10:00:00Z",
+    updated_at: "2026-11-21T10:00:00Z",
+    messages: [{ role: "user", content: "Check the cluster" }],
+    active_request: activeRequest,
+  };
+}

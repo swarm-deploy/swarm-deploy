@@ -126,6 +126,8 @@ components:
       $ref: './assistant.yaml#/components/schemas/AssistantChatMessage'
     AssistantChatHistory:
       $ref: './assistant.yaml#/components/schemas/AssistantChatHistory'
+    AssistantActiveChatRequest:
+      $ref: './assistant.yaml#/components/schemas/AssistantActiveChatRequest'
     QueueResponse:
       $ref: './gitops.yaml#/components/schemas/QueueResponse'
     EventHistoryResponse:

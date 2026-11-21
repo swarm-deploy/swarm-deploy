@@ -92,15 +92,36 @@ export const useAssistantStore = defineStore("assistant", {
       }
 
       const chat = await getAssistantChat(conversationID);
+      const active = chat.active_request;
+      // Set pending together with the messages, so the chat never shows an unanswered question while a reply is running.
+      this.pending = Boolean(active);
       this.conversationID = chat.id;
-      this.activeRequestID = "";
-      this.activity = [];
+      this.activeRequestID = active?.request_id || "";
+      this.activity = active?.activity || [];
       this.messages = chat.messages.map((message) => ({
         role: message.role,
         text: message.content,
         activity: message.activity,
       }));
       this.historyOpen = false;
+      if (active) {
+        void this.resumeAssistantMessage(chat.id, active.request_id);
+      }
+    },
+    // Continues polling a reply that was started before the chat was opened, for example before a page reload.
+    async resumeAssistantMessage(conversationID: string, requestID: string) {
+      this.pending = true;
+      try {
+        const response = await this.pollAssistantMessage(
+          { conversation_id: conversationID, request_id: requestID },
+          (progress) => this.updateAssistantProgress(progress),
+        );
+        await this.finishAssistantMessage(response);
+      } catch (error) {
+        this.showRequestError(error);
+      } finally {
+        this.pending = false;
+      }
     },
     async pollAssistantMessage(
       payload: AssistantChatRequest,

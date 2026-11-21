@@ -67,7 +67,9 @@ While a run is in progress, responses may include an `activity` array with safe 
 
 ## Chat history
 
-Completed user/assistant turns are persisted in the `assistant_chats` and `assistant_turns` tables of `<dataDir>/swarm-deploy.sqlite`. Assistant turns may also contain an optional `activity` array with the safe execution trace shown by the UI. The chat list reads metadata from SQLite without loading full message histories. The UI creates chats lazily on the first message, derives the title from the first user message, and can reopen older chats. When an older chat is continued after the in-memory context cache expires or the process restarts, recent turns are restored from the persisted SQLite history.
+User/assistant turns are persisted in the `assistant_chats` and `assistant_turns` tables of `<dataDir>/swarm-deploy.sqlite`. A user question is saved before the model is called, and the reply is appended when it is ready; a chat therefore appears in history as soon as its first question is accepted. If the question cannot be saved, the request fails without calling the model. Questions rejected by prompt injection protection before generation are not saved. A question whose reply failed stays in the chat and in subsequent model context, and the UI marks it as having no reply. Assistant turns may also contain an optional `activity` array with the safe execution trace shown by the UI. The chat list reads metadata from SQLite without loading full message histories. The UI derives the title from the first user message and can reopen older chats.
+
+A chat accepts one request at a time: a new message while a reply is being generated fails with an error. While a reply is running, the chat history endpoint returns `active_request` with its `request_id` and activity, so the UI continues polling after a page reload. Active requests are kept in process memory, so a reply that was running during a restart is lost and its question stays unanswered. When an older chat is continued after the in-memory context cache expires or the process restarts, recent turns are restored from the persisted SQLite history.
 
 ## Token usage
 

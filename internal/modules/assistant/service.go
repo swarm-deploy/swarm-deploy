@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"log/slog"
-	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -38,7 +37,10 @@ const (
 
 const maxRunActivity = 32
 
-var errRequestIDConflict = errors.New("request_id is already bound to another assistant request")
+var (
+	errRequestIDConflict = errors.New("request_id is already bound to another assistant request")
+	errConversationBusy  = errors.New("assistant conversation already has an active request")
+)
 
 // Service provides assistant chat workflow with start/poll semantics.
 type Service struct {
@@ -177,63 +179,88 @@ func (s *Service) Chat(ctx context.Context, request ChatRequest) ChatResponse {
 
 	run, created, readErr := s.getOrCreateRun(ctx, requestID, conversationID, message)
 	if readErr != nil {
-		if errors.Is(readErr, errRequestIDConflict) {
+		switch {
+		case errors.Is(readErr, errRequestIDConflict):
 			return ChatResponse{Status: StatusFailed, ConversationID: conversationID, RequestID: requestID,
 				ErrorMessage: readErr.Error()}
+		case errors.Is(readErr, errConversationBusy):
+			return ChatResponse{Status: StatusFailed, ConversationID: conversationID, RequestID: requestID,
+				ErrorMessage: "Assistant is still answering in this chat. Wait for the reply."}
 		}
 		return ChatResponse{Status: StatusFailed, ConversationID: conversationID, RequestID: requestID,
 			ErrorMessage: "Failed to read conversation history"}
 	}
-	conversationID = run.conversationID
-	span.SetAttributes(tracing.GenAIConversationID.String(conversationID))
+	span.SetAttributes(tracing.GenAIConversationID.String(run.conversationID))
 	if created {
-		select {
-		case s.runSlots <- struct{}{}:
-			go func() {
-				defer func() { <-s.runSlots }()
-				s.runAssistant(context.WithoutCancel(ctx), request.CreatedBy, run)
-			}()
-		default:
-			run.finish(StatusFailed, "", "Assistant is busy. Try again later.")
-		}
+		s.startRun(ctx, run, request.CreatedBy)
 	}
 
 	return s.awaitRun(ctx, run, waitTimeout)
 }
 
-func (s *Service) runAssistant(ctx context.Context, createdBy string, run *chatRun) {
-	runCtx, cancel := context.WithTimeout(ctx, runExecutionTimeout)
-	defer cancel()
+// startRun saves the question before generation starts, so the chat survives page reloads and failed replies.
+func (s *Service) startRun(ctx context.Context, run *chatRun, createdBy string) {
+	select {
+	case s.runSlots <- struct{}{}:
+	default:
+		run.finish(StatusFailed, "", "Assistant is busy. Try again later.")
+		return
+	}
 
-	conversationID, message := run.conversationID, run.message
-	savedFirstTurn := run.newConversation && s.conversationHistory != nil
-	if savedFirstTurn {
-		if s.graph.guard.Check(message) {
-			s.publishPromptRejection(runCtx, message)
-			run.reject()
-			return
-		}
-		firstTurn := conversation.Turn{Role: "user", Content: message, Unanswered: true}
-		if err := s.persistConversation(ctx, conversationID, createdBy, conversation.TokenUsage{}, firstTurn); err != nil {
-			run.finish(StatusFailed, "", "Failed to save new chat")
-			return
-		}
+	history, ok := s.prepareRun(ctx, run, createdBy)
+	if !ok {
+		<-s.runSlots
+		return
 	}
 	if run.newConversation {
 		s.chatObserver.RecordChatCreated()
 	}
-	close(run.ready)
+	run.markStarted()
 
-	run.addActivity("Analyzing request")
-	history, err := s.getConversation(runCtx, conversationID)
+	go func() {
+		defer func() { <-s.runSlots }()
+		s.runAssistant(context.WithoutCancel(ctx), createdBy, history, run)
+	}()
+}
+
+// prepareRun rejects prompt injection, reads model history and saves the question.
+// History is read first, so the saved question is passed to the model only once.
+func (s *Service) prepareRun(ctx context.Context, run *chatRun, createdBy string) ([]conversation.Turn, bool) {
+	if s.graph.guard.Check(run.message) {
+		s.publishPromptRejection(ctx, run.message)
+		run.reject()
+		return nil, false
+	}
+
+	history, err := s.getConversation(ctx, run.conversationID)
 	if err != nil {
 		run.finish(StatusFailed, "", "Failed to read conversation history")
-		return
+		return nil, false
 	}
-	answer, usage, err := s.graph.run(runCtx, conversationID, history, message, run.addActivity)
+
+	question := conversation.Turn{Role: "user", Content: run.message}
+	if err = s.persistConversation(ctx, run.conversationID, createdBy, conversation.TokenUsage{}, question); err != nil {
+		run.finish(StatusFailed, "", "Failed to save assistant message")
+		return nil, false
+	}
+
+	return history, true
+}
+
+func (s *Service) runAssistant(ctx context.Context, createdBy string, history []conversation.Turn, run *chatRun) {
+	runCtx, cancel := context.WithTimeout(ctx, runExecutionTimeout)
+	defer cancel()
+
+	conversationID := run.conversationID
+	question := conversation.Turn{Role: "user", Content: run.message}
+
+	run.addActivity("Analyzing request")
+	answer, usage, err := s.graph.run(runCtx, conversationID, history, run.message, run.addActivity)
 	if err != nil {
+		// The saved question stays in history, so the model sees what the user sees.
+		s.conversationStorage.Append(conversationID, question)
 		if errors.Is(err, guard.ErrPromptInjection) {
-			rejectedPrompt := message
+			rejectedPrompt := run.message
 			var promptErr *guard.PromptInjectionError
 			if errors.As(err, &promptErr) && strings.TrimSpace(promptErr.Prompt) != "" {
 				rejectedPrompt = promptErr.Prompt
@@ -262,15 +289,10 @@ func (s *Service) runAssistant(ctx context.Context, createdBy string, run *chatR
 		answer = "No answer generated by model."
 	}
 
-	question := conversation.Turn{Role: "user", Content: message}
 	reply := conversation.Turn{Role: "assistant", Content: answer, Activity: run.activitySnapshot()}
-	if savedFirstTurn {
-		_ = s.writeConversation(ctx, conversationID, func(ctx context.Context) error {
-			return s.conversationHistory.CompleteFirstTurn(ctx, conversationID, usage, reply)
-		})
-	} else {
-		_ = s.persistConversation(ctx, conversationID, createdBy, usage, question, reply)
-	}
+
+	// The reply is saved before the run finishes, so GetChat never misses both the reply and the active request.
+	_ = s.persistConversation(ctx, conversationID, createdBy, usage, reply)
 	s.conversationStorage.Append(conversationID, question, reply)
 
 	run.finish(StatusCompleted, answer, "")
@@ -286,19 +308,9 @@ func (s *Service) persistConversation(
 	if s.conversationHistory == nil || (usage.IsZero() && len(turns) == 0) {
 		return nil
 	}
-	return s.writeConversation(ctx, conversationID, func(ctx context.Context) error {
-		return s.conversationHistory.SaveTurns(ctx, conversationID, createdBy, usage, turns...)
-	})
-}
-
-func (s *Service) writeConversation(
-	ctx context.Context,
-	conversationID string,
-	write func(context.Context) error,
-) error {
 	persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), conversationPersistenceTimeout)
 	defer cancel()
-	if err := write(persistCtx); err != nil {
+	if err := s.conversationHistory.SaveTurns(persistCtx, conversationID, createdBy, usage, turns...); err != nil {
 		slog.ErrorContext(
 			ctx,
 			"[assistant] failed to persist conversation history",
@@ -314,9 +326,7 @@ func (s *Service) awaitRun(ctx context.Context, run *chatRun, waitTimeout time.D
 	select {
 	case <-run.done:
 		return run.snapshot()
-	case <-ctx.Done():
-		return run.snapshot()
-	case <-run.ready:
+	default:
 	}
 
 	timer := time.NewTimer(waitTimeout)
@@ -362,6 +372,8 @@ func (s *Service) getOrCreateRun(
 	}
 	if conversationID == "" {
 		conversationID = uuid.NewString()
+	} else if s.activeRunLocked(conversationID) != nil {
+		return nil, false, errConversationBusy
 	}
 
 	conversationCreated, err := s.isConversationNewLocked(ctx, conversationID)
@@ -370,10 +382,26 @@ func (s *Service) getOrCreateRun(
 	}
 
 	s.makeRoomForRunLocked()
-	run := newChatRun(requestID, conversationID, message)
-	run.newConversation = conversationCreated
+	run := newChatRun(requestID, conversationID, message, conversationCreated)
 	s.runs[requestID] = run
 	return run, true, nil
+}
+
+// activeRunLocked returns the unfinished run of a conversation. Only one run per conversation can be active.
+func (s *Service) activeRunLocked(conversationID string) *chatRun {
+	for _, run := range s.runs {
+		if run.conversationID == conversationID && !run.isFinished() {
+			return run
+		}
+	}
+	return nil
+}
+
+func (s *Service) getActiveRun(conversationID string) *chatRun {
+	s.runsMu.RLock()
+	defer s.runsMu.RUnlock()
+
+	return s.activeRunLocked(conversationID)
 }
 
 func (s *Service) isConversationNewLocked(ctx context.Context, conversationID string) (bool, error) {
@@ -391,7 +419,7 @@ func (s *Service) isConversationNewLocked(ctx context.Context, conversationID st
 	}
 
 	for _, run := range s.runs {
-		if run.conversationID == conversationID && (s.conversationHistory == nil || !run.isFinished()) {
+		if run.conversationID == conversationID {
 			return false, nil
 		}
 	}
@@ -451,11 +479,7 @@ func (s *Service) getConversation(ctx context.Context, conversationID string) ([
 		return nil, err
 	}
 
-	turns := slices.DeleteFunc(persisted.Turns, func(turn conversation.Turn) bool { return turn.Unanswered })
-	if len(turns) == 0 {
-		return nil, nil
-	}
-	s.conversationStorage.Append(conversationID, turns...)
+	s.conversationStorage.Append(conversationID, persisted.Turns...)
 	conversationData, ok = s.conversationStorage.Get(conversationID)
 	if !ok {
 		return nil, nil
@@ -498,9 +522,19 @@ func (s *Service) GetChat(ctx context.Context, id string) (ChatHistory, bool, er
 		return ChatHistory{}, false, nil
 	}
 
+	// Look up the run before reading history: a reply is saved before its run finishes,
+	// so re-reading after a finished run always includes the reply.
+	active := s.getActiveRun(id)
 	chat, ok, err := s.conversationHistory.ReadChat(ctx, id)
 	if err != nil || !ok {
 		return ChatHistory{}, ok, err
+	}
+	if active != nil && active.isFinished() {
+		active = nil
+		chat, ok, err = s.conversationHistory.ReadChat(ctx, id)
+		if err != nil || !ok {
+			return ChatHistory{}, ok, err
+		}
 	}
 
 	messages := make([]ChatMessage, 0, len(chat.Turns))
@@ -510,10 +544,14 @@ func (s *Service) GetChat(ctx context.Context, id string) (ChatHistory, bool, er
 		})
 	}
 
-	return ChatHistory{
+	history := ChatHistory{
 		ID: chat.ID, Title: chat.Title, CreatedAt: chat.CreatedAt, UpdatedAt: chat.UpdatedAt,
 		Usage: chat.Usage, Messages: messages,
-	}, true, nil
+	}
+	if active != nil {
+		history.ActiveRequest = &ActiveChatRequest{RequestID: active.requestID, Activity: active.activitySnapshot()}
+	}
+	return history, true, nil
 }
 
 func sanitizeWaitTimeout(timeoutMS int) time.Duration {
@@ -533,26 +571,38 @@ type chatRun struct {
 	message         string
 	newConversation bool
 
-	ready chan struct{}
-	done  chan struct{}
+	done chan struct{}
 
 	mu         sync.RWMutex
 	status     Status
+	started    bool
 	answer     string
 	error      string
 	finishedAt time.Time
 	activity   []string
 }
 
-func newChatRun(requestID, conversationID, message string) *chatRun {
+func newChatRun(requestID, conversationID, message string, newConversation bool) *chatRun {
 	return &chatRun{
-		requestID:      requestID,
-		conversationID: conversationID,
-		message:        message,
-		ready:          make(chan struct{}),
-		done:           make(chan struct{}),
-		status:         StatusInProgress,
+		requestID:       requestID,
+		conversationID:  conversationID,
+		message:         message,
+		newConversation: newConversation,
+		done:            make(chan struct{}),
+		status:          StatusInProgress,
 	}
+}
+
+// markStarted records that the question was accepted and saved, so a new conversation ID can be exposed.
+func (r *chatRun) markStarted() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.started = true
+}
+
+func (r *chatRun) reject() {
+	r.finish(StatusRejected, "", "Request was rejected by prompt injection protection. Rephrase your debugging question.")
 }
 
 func (r *chatRun) addActivity(message string) {
@@ -589,10 +639,6 @@ func (r *chatRun) isFinished() bool {
 	return r.status != StatusInProgress
 }
 
-func (r *chatRun) reject() {
-	r.finish(StatusRejected, "", "Request was rejected by prompt injection protection. Rephrase your debugging question.")
-}
-
 func (r *chatRun) finish(status Status, answer string, errorMessage string) {
 	r.mu.Lock()
 	if r.status != StatusInProgress {
@@ -614,12 +660,9 @@ func (r *chatRun) snapshot() ChatResponse {
 	defer r.mu.RUnlock()
 
 	conversationID := r.conversationID
-	if r.newConversation {
-		select {
-		case <-r.ready:
-		default:
-			conversationID = ""
-		}
+	if r.newConversation && !r.started {
+		// The conversation was never saved, so clients must not open it.
+		conversationID = ""
 	}
 	return ChatResponse{
 		Status:         r.status,

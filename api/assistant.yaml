@@ -215,6 +215,19 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/AssistantChatMessage'
+        active_request:
+          $ref: '#/components/schemas/AssistantActiveChatRequest'
+    AssistantActiveChatRequest:
+      type: object
+      description: Reply that is still being generated. Poll it with request_id to continue the chat after a page reload.
+      required: [request_id]
+      properties:
+        request_id:
+          type: string
+        activity:
+          type: array
+          items:
+            type: string
 
     AssistantUsageInterval:
       type: string

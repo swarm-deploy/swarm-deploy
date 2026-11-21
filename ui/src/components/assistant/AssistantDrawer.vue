@@ -38,6 +38,8 @@ const isOpen = computed(() => uiStore.assistantDrawerOpen && assistantStore.enab
 const messages = computed(() => assistantStore.messages);
 const pending = computed(() => assistantStore.pending);
 const activity = computed(() => assistantStore.activity);
+// A saved question without a reply or an active request: the reply failed or the server restarted.
+const replyMissing = computed(() => !pending.value && messages.value[messages.value.length - 1]?.role === "user");
 const chats = computed(() => assistantStore.chats);
 const usageOpen = computed(() => isOpen.value && route.query.assistant === "usage");
 const historyOpen = computed(() => assistantStore.historyOpen && !usageOpen.value);
@@ -665,6 +667,9 @@ function renderMessageText(role: string, text: string): string {
                 </li>
               </ol>
             </details>
+          </article>
+          <article v-if="replyMissing" class="assistant-chat-message assistant-chat-message-system" role="status">
+            <p class="assistant-chat-text">No reply received. Send your message again.</p>
           </article>
           <div v-if="pending" class="assistant-activity-live" role="status" aria-live="polite">
             <span class="assistant-activity-spinner" aria-hidden="true" />

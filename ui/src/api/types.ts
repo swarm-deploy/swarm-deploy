@@ -605,8 +605,14 @@ export interface AssistantChatMessage {
   activity?: string[];
 }
 
+export interface AssistantActiveChatRequest {
+  request_id: string;
+  activity?: string[];
+}
+
 export interface AssistantChatHistory extends AssistantChatSummary {
   messages: AssistantChatMessage[];
+  active_request?: AssistantActiveChatRequest;
 }
 export type DeploymentStatus = "running" | "succeeded" | "failed" | "interrupted" | "superseded";
 export type DeploymentPhase = "apply" | "verification" | "cleanup" | "completed";
