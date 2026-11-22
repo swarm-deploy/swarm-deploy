@@ -170,13 +170,15 @@ describe("ServiceView", () => {
     { running: 0, desired: 3, variant: "error" },
     { running: 2, desired: 3, variant: "warning" },
     { running: 4, desired: 3, variant: "warning" },
-  ])("colors the single replica badge for $running / $desired", async ({ running, desired, variant }) => {
+  ])("uses the same replicas and color on desktop and mobile for $running / $desired", async ({ running, desired, variant }) => {
     api.fetchSwarmServices.mockResolvedValueOnce({ services: [{ ...liveAPI, replicas: { running, desired } }] });
     const wrapper = await mountPage();
-    const badges = wrapper.get(".service-heading").findAll(".app-status-badge");
-
-    expect(badges.map((badge) => badge.text())).toEqual([`${running} / ${desired} replicas`]);
-    expect(badges[0].classes()).toContain(`app-status-badge--${variant}`);
+    const desktopBadge = wrapper.get(".service-heading .service-replica-badge--desktop");
+    const mobileBadge = wrapper.get(".service-metadata-header .service-replica-badge--mobile");
+    for (const badge of [desktopBadge, mobileBadge]) {
+      expect(badge.text()).toBe(`${running} / ${desired} replicas`);
+      expect(badge.classes()).toContain(`app-status-badge--${variant}`);
+    }
   });
 
   it("copies the exact image reference and full label", async () => {

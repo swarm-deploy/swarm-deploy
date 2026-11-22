@@ -51,6 +51,11 @@ const spec = computed(() => serviceStatus.value?.spec);
 const liveService = computed(() => swarmServices.value?.find((service) =>
   service.stack === stackName.value && service.name === serviceName.value));
 const replicaCounts = computed(() => liveService.value?.replicas);
+const replicaBadgeText = computed(() => {
+  if (!replicaCounts.value) return swarmServices.value ? "Unavailable" : "Unknown";
+  const { running, desired } = replicaCounts.value;
+  return `${running} / ${desired} replicas`;
+});
 const replicaBadgeVariant = computed(() => {
   if (!replicaCounts.value) return swarmServices.value ? "error" : "neutral";
   const { running, desired } = replicaCounts.value;
@@ -182,9 +187,14 @@ watch([stackName, serviceName], ([stack, service], _, onCleanup) => {
         <RouterLink :to="stackRoute" class="service-inline-link service-stack-link">{{ stackName }}</RouterLink>
         <div class="service-heading-summary">
           <h2>{{ serviceName }}</h2>
-          <AppStatusBadge v-if="!loading || replicaCounts" :variant="replicaBadgeVariant" filled>
-            <template v-if="replicaCounts">{{ replicaCounts.running }} / {{ replicaCounts.desired }} replicas</template>
-            <template v-else>{{ swarmServices ? "Unavailable" : "Unknown" }}</template>
+          <AppStatusBadge
+            v-if="!loading || replicaCounts"
+            class="service-replica-badge"
+            :class="{ 'service-replica-badge--desktop': !loading && serviceStatus }"
+            :variant="replicaBadgeVariant"
+            filled
+          >
+            {{ replicaBadgeText }}
           </AppStatusBadge>
         </div>
       </div>
@@ -208,8 +218,13 @@ watch([stackName, serviceName], ([stack, service], _, onCleanup) => {
       <p v-if="loadingError || runtimeError" class="meta" role="status">{{ loadingError || runtimeError }}</p>
       <div class="service-dossier">
         <div class="service-primary">
-          <AppPanel tag="section" class="service-section service-metadata" aria-labelledby="service-metadata-title">
-            <template #header><h3 id="service-metadata-title">Service</h3></template>
+          <AppPanel tag="section" class="service-section service-metadata" header-class="service-metadata-header" aria-labelledby="service-metadata-title">
+            <template #header>
+              <h3 id="service-metadata-title">Service</h3>
+              <AppStatusBadge class="service-replica-badge service-replica-badge--mobile" :variant="replicaBadgeVariant" filled>
+                {{ replicaBadgeText }}
+              </AppStatusBadge>
+            </template>
             <AppTable summary fixed aria-label="Service">
               <template #colgroup><colgroup><col class="service-metadata-label" /><col /></colgroup></template>
               <tr><th scope="row">Type</th><td>{{ serviceInfo?.type_title || serviceInfo?.type || "n/a" }}</td></tr>
@@ -412,8 +427,12 @@ watch([stackName, serviceName], ([stack, service], _, onCleanup) => {
   overflow-wrap: anywhere;
 }
 
-.service-heading-summary :deep(.app-status-badge) {
+.service-replica-badge {
   white-space: nowrap;
+}
+
+.service-replica-badge--mobile {
+  display: none;
 }
 
 .service-links {
@@ -795,6 +814,26 @@ button.service-entity {
 }
 
 @media (max-width: 650px) {
+  .service-replica-badge--desktop {
+    display: none;
+  }
+
+  .service-replica-badge--mobile {
+    display: inline-flex;
+  }
+
+  .service-metadata :deep(.service-metadata-header) {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-block-end: 8px;
+  }
+
+  .service-metadata h3 {
+    margin: 0;
+  }
+
   .service-labels-list-item {
     position: relative;
     grid-template-columns: minmax(0, 1fr);
