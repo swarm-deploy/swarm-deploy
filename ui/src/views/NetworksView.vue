@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { plural, t } from "../i18n";
 import { computed, onMounted, ref } from "vue";
 
 import { fetchNetworks } from "../api/cluster";
@@ -26,9 +27,9 @@ const stackOptions = computed(() => {
     .map((stack) => ({ value: stack, label: stack }));
 });
 const selectedStackSummary = computed(() => {
-  if (selectedStacks.value.length === 0) return "All stacks";
+  if (selectedStacks.value.length === 0) return t("networks.allStacks");
   if (selectedStacks.value.length <= 2) return selectedStacks.value.join(", ");
-  return `${selectedStacks.value.length} stacks selected`;
+  return plural("common.stacksSelected", selectedStacks.value.length);
 });
 
 const filteredNetworks = computed(() => {
@@ -44,7 +45,7 @@ const filteredNetworks = computed(() => {
     const options = Object.entries(network.options ?? {})
       .map(([key, value]) => `${key}=${value}`)
       .join(" ");
-    const managed = boolText(network.managed);
+    const managed = `${network.managed} ${boolText(network.managed)}`;
 
     return `${network.name} ${network.stack_name ?? ""} ${network.scope} ${network.driver} ${network.id} ${managed} ${labels} ${options}`
       .toLowerCase()
@@ -73,7 +74,7 @@ async function loadNetworks() {
     }
   } catch (error) {
     if (current === request) {
-      loadingError.value = error instanceof Error ? error.message : "Failed to load networks";
+      loadingError.value = error instanceof Error ? error.message : t("networks.loadNetworksFailed");
       networks.value = [];
     }
   } finally {
@@ -87,13 +88,13 @@ function selectStacks(stacks: string[]): void {
 }
 
 function boolText(value: boolean): string {
-  return value ? "true" : "false";
+  return value ? t("networks.true") : t("networks.false");
 }
 
 function mapText(values?: Record<string, string>): string {
   const entries = Object.entries(values ?? {});
   if (entries.length === 0) {
-    return "n/a";
+    return t("common.notApplicable");
   }
 
   return entries
@@ -103,13 +104,13 @@ function mapText(values?: Record<string, string>): string {
 }
 
 function vxlanIDText(options?: Record<string, string>): string {
-  return options?.[VXLAN_ID_OPTION] || "n/a";
+  return options?.[VXLAN_ID_OPTION] || t("common.notApplicable");
 }
 
 function optionsText(options?: Record<string, string>): string {
   const entries = Object.entries(options ?? {}).filter(([key]) => key !== VXLAN_ID_OPTION);
   if (entries.length === 0) {
-    return "n/a";
+    return t("common.notApplicable");
   }
 
   return entries
@@ -126,20 +127,20 @@ onMounted(() => {
 <template>
   <section class="services-page networks-page">
     <header class="services-header">
-      <h2>Networks</h2>
+      <h2>{{ t('common.networks') }}</h2>
     </header>
 
-    <div class="networks-filters" aria-label="Network filters">
+    <div class="networks-filters" :aria-label="t('networks.filters')">
       <label class="networks-search">
         <svg class="networks-filter-icon" viewBox="0 0 20 20" aria-hidden="true">
           <circle cx="8.5" cy="8.5" r="5.5" />
           <path d="m12.5 12.5 4 4" />
         </svg>
-        <span class="sr-only">Search networks</span>
+        <span class="sr-only">{{ t('networks.search') }}</span>
         <input
           v-model="searchQuery"
           type="search"
-          placeholder="Search by name, stack, scope, driver, labels..."
+          :placeholder="t('networks.searchPlaceholder')"
         />
       </label>
       <div class="networks-filter-field">
@@ -148,14 +149,14 @@ onMounted(() => {
           class="networks-stack-filter"
           :model-value="selectedStacks"
           :options="stackOptions"
-          label="Filter networks by stack"
-          placeholder="All stacks"
-          heading="Stacks"
+          :label="t('networks.filterStack')"
+          :placeholder="t('networks.allStacks')"
+          :heading="t('common.stacks')"
           :selection-label="selectedStackSummary"
           searchable
-          search-label="Search stacks"
-          search-placeholder="Search stacks"
-          empty-message="No matching stacks"
+          :search-label="t('common.searchStacks')"
+          :search-placeholder="t('common.searchStacks')"
+          :empty-message="t('common.noMatchingStacks')"
           @update:model-value="selectStacks"
         >
           <template #icon>
@@ -165,33 +166,33 @@ onMounted(() => {
       </div>
     </div>
 
-    <AppTableEmpty v-if="loading && networks.length === 0" message="Loading..." />
+    <AppTableEmpty v-if="loading && networks.length === 0" :message="t('common.loading')" />
 
-    <AppTableEmpty v-else-if="loadingError">Failed to load networks: {{ loadingError }}</AppTableEmpty>
+    <AppTableEmpty v-else-if="loadingError">{{ t('networks.loadError', { error: loadingError }) }}</AppTableEmpty>
 
-    <AppTableEmpty v-else-if="networks.length === 0" message="No networks found." />
+    <AppTableEmpty v-else-if="networks.length === 0" :message="t('networks.empty')" />
 
-    <AppTableEmpty v-else-if="filteredNetworks.length === 0" message="No networks match the current filters." />
+    <AppTableEmpty v-else-if="filteredNetworks.length === 0" :message="t('networks.noFilterMatches')" />
 
     <AppTable v-else min-width="960px">
       <template #head>
           <tr>
-            <th>Name</th>
-            <th>Stack</th>
-            <th>Driver</th>
+            <th>{{ t('common.name') }}</th>
+            <th>{{ t('common.stack') }}</th>
+            <th>{{ t('common.driver') }}</th>
             <th>VXLAN ID</th>
-            <th>Attachable</th>
-            <th>Internal</th>
-            <th>Ingress</th>
-            <th>Managed</th>
-            <th>Labels</th>
-            <th v-if="hasOptionsColumn">Options</th>
+            <th>{{ t('networks.attachable') }}</th>
+            <th>{{ t('networks.internal') }}</th>
+            <th>{{ t('networks.ingress') }}</th>
+            <th>{{ t('networks.managed') }}</th>
+            <th>{{ t('common.labels') }}</th>
+            <th v-if="hasOptionsColumn">{{ t('networks.options') }}</th>
           </tr>
       </template>
           <tr v-for="network in filteredNetworks" :key="network.id">
-            <td>{{ network.name || "n/a" }}</td>
-            <td>{{ network.stack_name || "n/a" }}</td>
-            <td>{{ network.driver || "n/a" }}</td>
+            <td>{{ network.name || t('common.notApplicable') }}</td>
+            <td>{{ network.stack_name || t('common.notApplicable') }}</td>
+            <td>{{ network.driver || t('common.notApplicable') }}</td>
             <td>{{ vxlanIDText(network.options) }}</td>
             <td>{{ boolText(network.attachable) }}</td>
             <td>{{ boolText(network.internal) }}</td>

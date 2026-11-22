@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { deploymentStatus } from "../utils/deployments";
+import { plural, t } from "../i18n";
 import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { fetchDeploymentFilters, fetchDeployments } from "../api/overview";
@@ -53,8 +55,8 @@ const serviceSelectOptions = computed(() => {
       };
     });
 });
-const stackSelectionLabel = computed(() => selectionLabel(selectedStacks.value, "All stacks", "stacks"));
-const serviceSelectionLabel = computed(() => selectionLabel(selectedServices.value, "All services", "services"));
+const stackSelectionLabel = computed(() => selectionLabel(selectedStacks.value, t("deployments.allStacks"), "common.stacksSelected"));
+const serviceSelectionLabel = computed(() => selectionLabel(selectedServices.value, t("deployments.allServices"), "common.servicesSelected"));
 
 function normalizeQueryValues(value: unknown): string[] {
   const values = Array.isArray(value) ? value : [value];
@@ -62,10 +64,10 @@ function normalizeQueryValues(value: unknown): string[] {
     .map((item) => item.trim()).filter(Boolean))];
 }
 
-function selectionLabel(values: string[], placeholder: string, noun: string): string {
+function selectionLabel(values: string[], placeholder: string, countKey: string): string {
   if (values.length === 0) return placeholder;
   if (values.length <= 2) return values.join(", ");
-  return `${values.length} ${noun} selected`;
+  return plural(countKey, values.length);
 }
 
 function sameValues(left: string[], right: string[]): boolean {
@@ -138,12 +140,6 @@ function statusVariant(status: unknown): "success" | "error" | "info" | "neutral
   }
 }
 
-function statusLabel(status: unknown): string {
-  const value = typeof status === "string" ? status.trim() : "";
-  if (!value) return "Unknown";
-  return value.charAt(0).toUpperCase() + value.slice(1);
-}
-
 function openDeployment(deploymentID: string): void {
   store.openDeploymentDetailsModal(deploymentID);
 }
@@ -167,22 +163,22 @@ onMounted(() => {
 
 <template>
   <section class="services-page deployments-page">
-    <header class="services-header"><h2>Deployments</h2></header>
-    <p class="meta deployments-description">Desired-state deployments and their execution attempts. Service convergence is not verified.</p>
-    <div class="deployments-filter-bar" aria-label="Deployment filters">
+    <header class="services-header"><h2>{{ t('deployments.title') }}</h2></header>
+    <p class="meta deployments-description">{{ t('deployments.description') }}</p>
+    <div class="deployments-filter-bar" :aria-label="t('deployments.filters')">
       <div class="deployments-filter-field">
         <AppSelect
           multiple
           :model-value="selectedStacks"
           :options="stackSelectOptions"
-          label="Filter deployments by stack"
-          placeholder="All stacks"
-          heading="Stacks"
+          :label="t('deployments.filterStack')"
+          :placeholder="t('deployments.allStacks')"
+          :heading="t('common.stacks')"
           :selection-label="stackSelectionLabel"
           searchable
-          search-label="Search stacks"
-          search-placeholder="Search stacks"
-          empty-message="No matching stacks"
+          :search-label="t('common.searchStacks')"
+          :search-placeholder="t('common.searchStacks')"
+          :empty-message="t('common.noMatchingStacks')"
           @update:model-value="selectStacks"
         >
           <template #icon><SidebarIcon class="deployments-filter-icon" name="services" /></template>
@@ -193,14 +189,14 @@ onMounted(() => {
           multiple
           :model-value="selectedServices"
           :options="serviceSelectOptions"
-          label="Filter deployments by service"
-          placeholder="All services"
-          heading="Services"
+          :label="t('deployments.filterService')"
+          :placeholder="t('deployments.allServices')"
+          :heading="t('common.services')"
           :selection-label="serviceSelectionLabel"
           searchable
-          search-label="Search services"
-          search-placeholder="Search services"
-          empty-message="No matching services"
+          :search-label="t('common.searchServices')"
+          :search-placeholder="t('common.searchServices')"
+          :empty-message="t('common.noMatchingServices')"
           @update:model-value="selectServices"
         >
           <template #icon><DeploymentIcon class="deployments-filter-icon" name="service" /></template>
@@ -209,22 +205,22 @@ onMounted(() => {
     </div>
     <AppPagination
       class="deployment-pages"
-      label="Deployment pages"
+      :label="t('deployments.pages')"
       :query="pageQuery"
       :load-page="loadDeployments"
       v-slot="{ items: deployments, loading, error, retry }"
     >
-      <p v-if="loading" role="status">Loading deployments...</p>
-      <p v-else-if="error" role="alert">{{ error }} <AppButton compact @click="retry">Retry</AppButton></p>
-      <p v-else-if="!deployments.length">No deployments on this page.</p>
+      <p v-if="loading" role="status">{{ t('deployments.loading') }}</p>
+      <p v-else-if="error" role="alert">{{ error }} <AppButton compact @click="retry">{{ t('common.retry') }}</AppButton></p>
+      <p v-else-if="!deployments.length">{{ t('deployments.emptyPage') }}</p>
       <AppTable v-else fixed min-width="620px" table-class="deployments-table" wrap-class="deployments-table-wrap">
-        <template #head><tr><th>Stack</th><th>Status</th><th>Started</th><th>Commit</th></tr></template>
+        <template #head><tr><th>{{ t('common.stack') }}</th><th>{{ t('common.status') }}</th><th>{{ t('common.started') }}</th><th>{{ t('common.commit') }}</th></tr></template>
         <tr
           v-for="deployment in deployments"
           :key="deployment.id"
           class="app-table-row--clickable deployment-row"
           tabindex="0"
-          :aria-label="`Open deployment details for ${deployment.stack}`"
+          :aria-label="t('deployments.openDetails', { stack: deployment.stack })"
           @click="openDeployment(deployment.id)"
           @keydown="openDeploymentFromKeyboard($event, deployment.id)"
         >
@@ -236,7 +232,7 @@ onMounted(() => {
               :variant="statusVariant(deployment.status)"
               filled
             >
-              {{ statusLabel(deployment.status) }}<small v-if="deployment.attempt_count > 1">{{ deployment.attempt_count }} attempts</small>
+              {{ deploymentStatus(deployment.status) }}<small v-if="deployment.attempt_count > 1">{{ plural('deployments.attemptCount', deployment.attempt_count) }}</small>
             </AppStatusBadge>
           </td>
           <td class="deployment-started"><time :datetime="deployment.started_at">{{ formatDate(deployment.started_at) }}</time></td>
@@ -245,7 +241,7 @@ onMounted(() => {
               v-if="deployment.commit"
               class="deployment-commit-link"
               href="#"
-              :aria-label="`Open Git commit ${deployment.commit}`"
+              :aria-label="t('common.openGitCommit', { commit: deployment.commit })"
               :title="deployment.commit"
               @click.prevent.stop="openCommit(deployment.commit)"
               @keydown.enter.stop

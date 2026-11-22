@@ -128,7 +128,7 @@ describe("Stack Details", () => {
     expect(wrapper.find('[aria-label="Breadcrumb"]').exists()).toBe(false);
     expect(wrapper.get('[data-summary="health"] strong').text()).toBe("2 / 3");
     expect(wrapper.get('[data-summary="out-of-sync"] dd').text()).toBe("1");
-    expect(["networks", "secrets", "configs"].map((key) => wrapper.get(`[data-summary="${key}"] strong`).text())).toEqual(["1", "1", "1"]);
+    expect(["networks", "secrets", "configs"].map((key) => wrapper.get(`[data-summary="${key}"] strong`).text())).toEqual(["1 network", "1 secret", "1 config"]);
     expect(wrapper.findAll(".services-stack-table th").map((item) => item.text())).toEqual(["Name", "Version", "Type", "Status"]);
     expect(wrapper.find(".services-stack-table .deployment-icon").exists()).toBe(false);
     expect(wrapper.get(".services-cell-image").text()).toBe("2");

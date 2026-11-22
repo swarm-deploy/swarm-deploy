@@ -71,7 +71,7 @@ type Spec struct {
 	Deployments DeploymentsSpec `yaml:"deployments"`
 	// Event contains event module settings.
 	Event EventSpec `yaml:"event"`
-	// System contains process-wide logging and tracing settings.
+	// System contains installation-wide language, logging, and tracing settings.
 	System SystemSpec `yaml:"system"`
 	// Notifications contains notification channel configuration.
 	Notifications NotificationSpec `yaml:"notifications"`
@@ -118,6 +118,8 @@ type SecretsSpec struct {
 }
 
 type SystemSpec struct {
+	// Language selects the web interface language. Defaults to English.
+	Language Language `yaml:"language"`
 	// Log contains log level settings.
 	Log LogSpec `yaml:"log"`
 	// Tracing contains OpenTelemetry tracing settings. Nil disables tracing.

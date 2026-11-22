@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { enumLabel, formatNumber, plural, t } from "../i18n";
 import { computed, ref, watch } from "vue";
 import { useRoute } from "vue-router";
 
@@ -59,9 +60,9 @@ const liveService = computed(() => swarmServices.value?.find((service) =>
   service.stack === stackName.value && service.name === serviceName.value));
 const replicaCounts = computed(() => liveService.value?.replicas);
 const replicaBadgeText = computed(() => {
-  if (!replicaCounts.value) return swarmServices.value ? "Unavailable" : "Unknown";
+  if (!replicaCounts.value) return swarmServices.value ? t("common.unavailable") : t("common.unknown");
   const { running, desired } = replicaCounts.value;
-  return `${running} / ${desired} replicas`;
+  return t("service.replicaCount", { running: formatNumber(running), desired: formatNumber(desired) });
 });
 const replicaBadgeVariant = computed(() => {
   if (!replicaCounts.value) return swarmServices.value ? "error" : "neutral";
@@ -91,11 +92,11 @@ const links = computed(() => serviceStatus.value?.links ?? []);
 const webRoutes = computed(() => serviceInfo.value?.web_routes ?? []);
 
 const deploymentBadges = {
-  succeeded: { label: "Succeeded", variant: "success" },
-  failed: { label: "Failed", variant: "error" },
-  running: { label: "Running", variant: "info" },
-  interrupted: { label: "Interrupted", variant: "neutral" },
-  superseded: { label: "Superseded", variant: "neutral" },
+  succeeded: { label: t("common.succeeded"), variant: "success" },
+  failed: { label: t("common.failed"), variant: "error" },
+  running: { label: t("common.running"), variant: "info" },
+  interrupted: { label: t("common.interrupted"), variant: "neutral" },
+  superseded: { label: t("common.superseded"), variant: "neutral" },
 } as const;
 function deploymentBadge(status: ServiceDeploymentStatus) {
   return deploymentBadges[status] ?? { label: status, variant: "neutral" as const };
@@ -103,26 +104,36 @@ function deploymentBadge(status: ServiceDeploymentStatus) {
 
 const labelGroups = computed(() => {
   const groups = {
-    Custom: new Map<string, string>(),
+    custom: new Map<string, string>(),
     Docker: new Map(Object.entries(spec.value?.labels?.docker ?? {})),
     "Swarm Deploy": new Map(Object.entries(spec.value?.labels?.swarm_deploy ?? {})),
-    Other: new Map<string, string>(),
+    other: new Map<string, string>(),
   };
   for (const [key, value] of Object.entries(spec.value?.labels?.custom ?? {})) {
     if (key.startsWith("com.docker.")) groups.Docker.set(key, value);
     else if (key.startsWith("org.swarm-deploy.") || key.startsWith("swarm-deploy.")) groups["Swarm Deploy"].set(key, value);
-    else if (key === "prometheus.port") groups.Other.set(key, value);
-    else groups.Custom.set(key, value);
+    else if (key === "prometheus.port") groups.other.set(key, value);
+    else groups.custom.set(key, value);
   }
   return Object.entries(groups).map(([name, labels]) => ({
     name,
+    label: name === "custom" ? t("service.custom") : name === "other" ? t("service.labelGroupOther") : name,
     labels: [...labels].sort(([left], [right]) => left.localeCompare(right)),
   })).filter((group) => group.labels.length);
 });
 const labelPreview = computed(() => {
-  const group = labelGroups.value.find(({ name }) => name === "Custom") ?? labelGroups.value.at(-1);
+  const group = labelGroups.value.find(({ name }) => name === "custom") ?? labelGroups.value.at(-1);
   return group?.labels.at(-1);
 });
+function modeLabel(mode: string | undefined): string {
+  switch (mode) {
+    case "replicated": return t("service.replicated");
+    case "global": return t("service.global");
+    case "replicated-job": return t("service.replicatedJob");
+    case "global-job": return t("service.globalJob");
+    default: return mode || t("common.notApplicable");
+  }
+}
 function previewKey(key: string): string {
   return key.replace(/^swarm-deploy\./, "");
 }
@@ -171,31 +182,31 @@ watch([stackName, serviceName], ([stack, service], _, onCleanup) => {
   void fetchServiceStatus(stack, service).then((status) => {
     if (current) serviceStatus.value = status;
   }).catch((error) => {
-    if (current) loadingError.value = errorMessage(error, "Failed to load service details");
+    if (current) loadingError.value = errorMessage(error, t("service.loadDetailsFailed"));
   }).finally(() => {
     if (current) loading.value = false;
   });
   void fetchServices().then((response) => {
     if (current) serviceInfo.value = response.services.find((item) => item.stack === stack && item.name === service) ?? null;
   }).catch((error) => {
-    if (current && !loadingError.value) loadingError.value = errorMessage(error, "Failed to load service metadata");
+    if (current && !loadingError.value) loadingError.value = errorMessage(error, t("service.loadMetadataFailed"));
   });
   void fetchSwarmServices().then((response) => {
     if (current) swarmServices.value = response.services;
   }).catch((error) => {
-    if (current) runtimeError.value = errorMessage(error, "Failed to load Swarm service state");
+    if (current) runtimeError.value = errorMessage(error, t("service.loadSwarmFailed"));
   });
   void fetchNetworks().then((response) => {
     if (current) networks.value = response.networks;
   }).catch((error) => {
-    if (current) networksError.value = errorMessage(error, "Failed to load network details");
+    if (current) networksError.value = errorMessage(error, t("service.loadNetworkFailed"));
   }).finally(() => {
     if (current) networksLoading.value = false;
   });
   void fetchServiceDeployments(stack, service, 4).then((response) => {
     if (current) deployments.value = response.deployments;
   }).catch((error) => {
-    if (current) deploymentsError.value = errorMessage(error, "Failed to load deployments");
+    if (current) deploymentsError.value = errorMessage(error, t("service.loadDeploymentsFailed"));
   }).finally(() => {
     if (current) deploymentsLoading.value = false;
   });
@@ -222,20 +233,20 @@ watch([stackName, serviceName], ([stack, service], _, onCleanup) => {
         </div>
       </div>
       <div class="service-heading-actions">
-        <AppButton :to="realtimeRoute" variant="secondary" compact class="service-realtime-link" :aria-label="`Open ${serviceName} in Realtime`" title="Realtime">
-          <SidebarIcon name="realtime" /><span>Realtime</span>
+        <AppButton :to="realtimeRoute" variant="secondary" compact class="service-realtime-link" :aria-label="t('service.openRealtime', { service: serviceName })" :title="t('common.realtime')">
+          <SidebarIcon name="realtime" /><span>{{ t('common.realtime') }}</span>
         </AppButton>
         <details v-if="serviceStatus" ref="menu" class="service-actions" @keydown.esc="menu && (menu.open = false)">
-          <summary aria-label="Service actions" title="Service actions">⋯</summary>
+          <summary :aria-label="t('service.actions')" :title="t('service.actions')">⋯</summary>
           <div class="service-actions-items">
-            <button type="button" @click="openPause">Pause sync</button>
+            <button type="button" @click="openPause">{{ t('common.pauseSync') }}</button>
           </div>
         </details>
       </div>
     </header>
 
-    <AppTableEmpty v-if="loading" message="Loading service details..." />
-    <AppTableEmpty v-else-if="!serviceStatus" role="alert">Failed to load service details: {{ loadingError }}</AppTableEmpty>
+    <AppTableEmpty v-if="loading" :message="t('service.loadingDetails')" />
+    <AppTableEmpty v-else-if="!serviceStatus" role="alert">{{ t('service.loadError', { error: loadingError }) }}</AppTableEmpty>
 
     <template v-else>
       <p v-if="loadingError || runtimeError" class="meta" role="status">{{ loadingError || runtimeError }}</p>
@@ -243,33 +254,33 @@ watch([stackName, serviceName], ([stack, service], _, onCleanup) => {
         <div class="service-primary">
           <AppPanel tag="section" class="service-section service-metadata" header-class="service-metadata-header" aria-labelledby="service-metadata-title">
             <template #header>
-              <h3 id="service-metadata-title">Service</h3>
+              <h3 id="service-metadata-title">{{ t('common.service') }}</h3>
               <AppStatusBadge class="service-replica-badge service-replica-badge--mobile" :variant="replicaBadgeVariant" filled>
                 {{ replicaBadgeText }}
               </AppStatusBadge>
             </template>
-            <AppTable summary fixed aria-label="Service">
+            <AppTable summary fixed :aria-label="t('common.service')">
               <template #colgroup><colgroup><col class="service-metadata-label" /><col /></colgroup></template>
-              <tr><th scope="row">Type</th><td>{{ serviceInfo?.type_title || serviceInfo?.type || "n/a" }}</td></tr>
-              <tr><th scope="row">Description</th><td>{{ serviceInfo?.description || "n/a" }}</td></tr>
-              <tr><th scope="row">Mode</th><td class="service-mode">{{ liveService?.mode || spec?.mode || "n/a" }}</td></tr>
+              <tr><th scope="row">{{ t('common.type') }}</th><td>{{ enumLabel('serviceTypes', serviceInfo?.type ?? '', serviceInfo?.type_title || serviceInfo?.type || t('common.notApplicable')) }}</td></tr>
+              <tr><th scope="row">{{ t('common.description') }}</th><td>{{ serviceInfo?.description || t('common.notApplicable') }}</td></tr>
+              <tr><th scope="row">{{ t('common.mode') }}</th><td class="service-mode">{{ modeLabel(liveService?.mode || spec?.mode) }}</td></tr>
               <tr>
-                <th scope="row">Published port</th>
-                <td>{{ liveService?.published_ports?.map(({ published_port, target_port, protocol }) => `${published_port} → ${target_port}/${protocol}`).join(", ") || "n/a" }}</td>
+                <th scope="row">{{ t('service.publishedPort') }}</th>
+                <td>{{ liveService?.published_ports?.map(({ published_port, target_port, protocol }) => `${published_port} → ${target_port}/${protocol}`).join(", ") || t('common.notApplicable') }}</td>
               </tr>
-              <tr><th scope="row">Update strategy</th><td>{{ liveService?.update_parallelism == null ? "n/a" : liveService.update_parallelism === 0 ? "Rolling / all at once" : `Rolling / parallelism ${liveService.update_parallelism}` }}</td></tr>
+              <tr><th scope="row">{{ t('service.updateStrategy') }}</th><td>{{ liveService?.update_parallelism == null ? t('common.notApplicable') : liveService.update_parallelism === 0 ? t('service.updateAllAtOnce') : plural('service.rollingParallelism', liveService.update_parallelism) }}</td></tr>
               <tr>
-                <th scope="row">Image</th>
+                <th scope="row">{{ t('common.image') }}</th>
                 <td>
                   <span v-if="image" class="service-copy-value">
                     <span>{{ image }}</span>
-                    <AppCopyButton class="service-image-copy-button" :value="image" color="var(--text)" label="Copy image reference" copied-label="Image reference copied" />
+                    <AppCopyButton class="service-image-copy-button" :value="image" color="var(--text)" :label="t('service.copyImage')" :copied-label="t('common.imageReferenceCopied')" />
                   </span>
-                  <span v-else>n/a</span>
+                  <span v-else>{{ t('common.notApplicable') }}</span>
                 </td>
               </tr>
               <tr v-if="repository">
-                <th scope="row">Repository</th>
+                <th scope="row">{{ t('service.repository') }}</th>
                 <td>
                   <a :href="repository.href" :title="repository.href" class="service-inline-link service-repository-link" target="_blank" rel="noopener noreferrer">
                     <svg v-if="repository.iconPath" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
@@ -280,7 +291,7 @@ watch([stackName, serviceName], ([stack, service], _, onCleanup) => {
                 </td>
               </tr>
               <tr v-if="links.length">
-                <th scope="row">Links</th>
+                <th scope="row">{{ t('service.links') }}</th>
                 <td>
                   <div class="service-links">
                     <a
@@ -298,7 +309,7 @@ watch([stackName, serviceName], ([stack, service], _, onCleanup) => {
                 </td>
               </tr>
               <tr v-if="webRoutes.length">
-                <th scope="row">Web Routes</th>
+                <th scope="row">{{ t('service.webRoutes') }}</th>
                 <td>
                   <ul class="service-web-routes">
                     <li v-for="item in webRoutes" :key="`${item.domain}-${item.address}-${item.port}`">
@@ -307,66 +318,66 @@ watch([stackName, serviceName], ([stack, service], _, onCleanup) => {
                   </ul>
                 </td>
               </tr>
-              <tr><th scope="row">Created</th><td><time :datetime="liveService?.created_at">{{ formatDate(liveService?.created_at) }}</time></td></tr>
+              <tr><th scope="row">{{ t('common.created') }}</th><td><time :datetime="liveService?.created_at">{{ formatDate(liveService?.created_at) }}</time></td></tr>
               <tr>
-                <th scope="row">Labels</th>
+                <th scope="row">{{ t('common.labels') }}</th>
                 <td>
                   <div v-if="labelPreview" class="service-labels-preview">
                     <code class="service-label-token" :title="labelPreview.join('=')">{{ previewKey(labelPreview[0]) }}<span>={{ labelPreview[1] }}</span></code>
-                    <AppButton variant="secondary" compact class="service-labels-show" aria-haspopup="dialog" @click="labelsModalOpen = true">Show all</AppButton>
+                    <AppButton variant="secondary" compact class="service-labels-show" aria-haspopup="dialog" @click="labelsModalOpen = true">{{ t('service.showAll') }}</AppButton>
                   </div>
-                  <span v-else class="meta">No labels.</span>
+                  <span v-else class="meta">{{ t('common.noLabels') }}</span>
                 </td>
               </tr>
             </AppTable>
           </AppPanel>
 
           <AppPanel v-if="spec" tag="section" class="service-section" aria-labelledby="service-resources-title">
-            <template #header><h3 id="service-resources-title">Resources</h3></template>
-            <AppTable summary fixed aria-label="Service resources">
-              <tr><th scope="row">Requested / limited RAM</th><td>{{ spec.requested_ram_bytes ? formatBytes(spec.requested_ram_bytes) : 0 }} / {{ spec.limit_ram_bytes ? formatBytes(spec.limit_ram_bytes) : "∞" }}</td></tr>
-              <tr><th scope="row">Requested / limited CPU</th><td>{{ spec.requested_cpu_nano ? formatNanoCPU(spec.requested_cpu_nano) : 0 }} / {{ spec.limit_cpu_nano ? formatNanoCPU(spec.limit_cpu_nano) : "∞" }}</td></tr>
+            <template #header><h3 id="service-resources-title">{{ t('common.resources') }}</h3></template>
+            <AppTable summary fixed :aria-label="t('service.resources')">
+              <tr><th scope="row">{{ t('service.memory') }}</th><td>{{ spec.requested_ram_bytes ? formatBytes(spec.requested_ram_bytes) : 0 }} / {{ spec.limit_ram_bytes ? formatBytes(spec.limit_ram_bytes) : "∞" }}</td></tr>
+              <tr><th scope="row">{{ t('service.cpu') }}</th><td>{{ spec.requested_cpu_nano ? formatNanoCPU(spec.requested_cpu_nano) : 0 }} / {{ spec.limit_cpu_nano ? formatNanoCPU(spec.limit_cpu_nano) : "∞" }}</td></tr>
             </AppTable>
           </AppPanel>
         </div>
 
         <div class="service-related">
           <AppPanel tag="section" class="service-section" aria-labelledby="service-related-title">
-            <template #header><h3 id="service-related-title">Related entities</h3></template>
+            <template #header><h3 id="service-related-title">{{ t('service.related') }}</h3></template>
             <ul v-if="attachedNetworks.length || secrets.length || configs.length" class="service-entities">
               <li v-for="{ target, info } in attachedNetworks" :key="`network-${target}`">
                 <button class="service-entity" type="button" aria-haspopup="dialog" @click="selectedNetworkTarget = target">
-                  <DeploymentIcon name="network" /><span>Network</span><strong>{{ info?.name || target }}</strong><span aria-hidden="true">›</span>
+                  <DeploymentIcon name="network" /><span>{{ t('common.network') }}</span><strong>{{ info?.name || target }}</strong><span aria-hidden="true">›</span>
                 </button>
               </li>
               <li v-for="secret in secrets" :key="`secret-${secret.secret_id || secret.secret_name}-${secret.target}`">
                 <button class="service-entity" type="button" aria-haspopup="dialog" @click="secretDetailsStore.openSecretDetails(secret.secret?.name || secret.secret_name)">
-                  <DeploymentIcon name="secret" /><span>Secret</span><strong>{{ secret.secret?.name || secret.secret_name }}</strong><span aria-hidden="true">›</span>
+                  <DeploymentIcon name="secret" /><span>{{ t('common.secret') }}</span><strong>{{ secret.secret?.name || secret.secret_name }}</strong><span aria-hidden="true">›</span>
                 </button>
               </li>
               <li v-for="config in configs" :key="`config-${config.config_id || config.config_name}-${config.target}`">
                 <RouterLink class="service-entity" :to="{ name: 'service-config', params: { stack: stackName, service: serviceName, config: config.config_id || config.config_name }, query: config.target ? { target: config.target } : undefined }">
-                  <DeploymentIcon name="config" /><span>Config</span><strong>{{ config.config_name }}</strong><span aria-hidden="true">›</span>
+                  <DeploymentIcon name="config" /><span>{{ t('common.config') }}</span><strong>{{ config.config_name }}</strong><span aria-hidden="true">›</span>
                 </RouterLink>
               </li>
             </ul>
-            <AppTableEmpty v-else message="No related entities." />
+            <AppTableEmpty v-else :message="t('service.noRelated')" />
           </AppPanel>
 
           <AppPanel tag="section" class="service-section service-deployments" aria-labelledby="service-deployments-title">
             <template #header>
-              <h3 id="service-deployments-title"><RouterLink :to="{ name: 'deployments', query: { stack_name: stackName, service_name: serviceName } }">Deployments</RouterLink></h3>
+              <h3 id="service-deployments-title"><RouterLink :to="{ name: 'deployments', query: { stack_name: stackName, service_name: serviceName } }">{{ t('service.deployments') }}</RouterLink></h3>
             </template>
-            <AppTableEmpty v-if="deploymentsLoading" message="Loading deployments..." />
+            <AppTableEmpty v-if="deploymentsLoading" :message="t('service.loadingDeployments')" />
             <AppTableEmpty v-else-if="deploymentsError" role="alert">{{ deploymentsError }}</AppTableEmpty>
-            <AppTableEmpty v-else-if="!deployments.length" message="No deployments yet." />
-            <AppTable v-else fixed aria-label="Deployment history">
-              <template #head><tr><th scope="col">Version</th><th scope="col">Status</th><th scope="col">Started</th><th scope="col"><span class="sr-only">Details</span></th></tr></template>
+            <AppTableEmpty v-else-if="!deployments.length" :message="t('service.noDeployments')" />
+            <AppTable v-else fixed :aria-label="t('service.deploymentHistory')">
+              <template #head><tr><th scope="col">{{ t('common.version') }}</th><th scope="col">{{ t('common.status') }}</th><th scope="col">{{ t('common.started') }}</th><th scope="col"><span class="sr-only">{{ t('common.details') }}</span></th></tr></template>
               <tr v-for="deployment in deployments" :key="deployment.id" class="app-table-row--clickable" @click="overviewStore.openDeploymentDetailsModal(deployment.id)">
-                <td><strong :title="deployment.image">{{ deployment.image_version || "n/a" }}</strong></td>
+                <td><strong :title="deployment.image">{{ deployment.image_version || t('common.notApplicable') }}</strong></td>
                 <td><AppStatusBadge :variant="deploymentBadge(deployment.status).variant" filled>{{ deploymentBadge(deployment.status).label }}</AppStatusBadge></td>
                 <td><time :datetime="deployment.created_at">{{ formatDate(deployment.created_at) }}</time></td>
-                <td><button class="service-deployment-open" type="button" :aria-label="`Open deployment ${deployment.image_version || deployment.id} details`" @click.stop="overviewStore.openDeploymentDetailsModal(deployment.id)"><span aria-hidden="true">›</span></button></td>
+                <td><button class="service-deployment-open" type="button" :aria-label="t('service.openDeployment', { deployment: deployment.image_version || deployment.id })" @click.stop="overviewStore.openDeploymentDetailsModal(deployment.id)"><span aria-hidden="true">›</span></button></td>
               </tr>
             </AppTable>
           </AppPanel>
@@ -382,13 +393,13 @@ watch([stackName, serviceName], ([stack, service], _, onCleanup) => {
       @close="labelsModalOpen = false"
     >
       <template #title>
-        <h2 id="service-labels-title">Service labels</h2>
+        <h2 id="service-labels-title">{{ t('service.labels') }}</h2>
       </template>
       <div class="modal-body service-labels-modal-body">
         <section v-for="group in labelGroups" :key="group.name" class="service-labels-group">
           <header class="service-labels-group-header">
-            <h3>{{ group.name }}</h3>
-            <span :aria-label="`${group.labels.length} labels`">{{ group.labels.length }}</span>
+            <h3>{{ group.label }}</h3>
+            <span :aria-label="plural('service.labelCount', group.labels.length)">{{ formatNumber(group.labels.length) }}</span>
           </header>
           <dl class="service-labels-list">
             <div v-for="[key, value] in group.labels" :key="key" class="service-labels-list-item">
@@ -397,8 +408,8 @@ watch([stackName, serviceName], ([stack, service], _, onCleanup) => {
                 <span>{{ value }}</span>
                 <AppCopyButton
                   :value="`${key}=${value}`"
-                  :label="`Copy ${key} label`"
-                  copied-label="Label copied"
+                  :label="t('service.copyLabel', { name: key })"
+                  :copied-label="t('common.labelCopied')"
                   color="var(--muted)"
                 />
               </dd>
@@ -644,6 +655,7 @@ watch([stackName, serviceName], ([stack, service], _, onCleanup) => {
 
 .service-section :deep(.app-table--summary tbody th) {
   padding-inline-end: 8px;
+  overflow-wrap: anywhere;
 }
 
 .service-section :deep(.app-table tr:last-child > *) {
@@ -714,7 +726,6 @@ watch([stackName, serviceName], ([stack, service], _, onCleanup) => {
 
 .service-entity {
   display: grid;
-  grid-template-columns: 18px 56px minmax(0, 1fr) auto;
   align-items: center;
   width: 100%;
   gap: 8px;
@@ -722,6 +733,19 @@ watch([stackName, serviceName], ([stack, service], _, onCleanup) => {
   font-size: .83rem;
   text-align: left;
   text-decoration: none;
+}
+
+.service-entities {
+  display: grid;
+  grid-template-columns: 18px max-content minmax(0, 1fr) auto;
+  column-gap: 8px;
+}
+
+.service-entities li,
+.service-entity {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
 }
 
 a.service-entity {
@@ -934,7 +958,7 @@ button.service-entity {
   }
 
   .service-metadata-label {
-    width: 94px;
+    width: clamp(94px, 35%, 126px);
   }
 
   .service-heading-actions {

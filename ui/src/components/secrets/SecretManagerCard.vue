@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { formatNumber, plural, t } from "../../i18n";
 import { computed } from "vue";
 
 import type { SecretManagerInfo } from "../../api/types";
@@ -24,7 +25,7 @@ const emit = defineEmits<{
   sync: [];
 }>();
 
-const title = computed(() => props.manager.provider?.name?.trim() || "cloud-secrets Secret Manager");
+const title = computed(() => props.manager.provider?.name?.trim() || t("secrets.cloudSecretsManager"));
 
 const docLink = computed(() => safeExternalLink(props.manager.provider?.links?.doc));
 const managerLink = computed(() => safeExternalLink(props.manager.provider?.links?.manager));
@@ -47,10 +48,10 @@ const status = computed<ManagerStatus>(() => {
 });
 
 const statusLabel = computed(() => ({
-  healthy: "Healthy",
-  syncing: "Syncing…",
-  error: "Error",
-  unavailable: "Unavailable",
+  healthy: t("secrets.healthy"),
+  syncing: t("secrets.syncing"),
+  error: t("common.error"),
+  unavailable: t("common.unavailable"),
 })[status.value]);
 
 const statusVariant = computed(() => ({
@@ -60,37 +61,37 @@ const statusVariant = computed(() => ({
   unavailable: "neutral",
 } as const)[status.value]);
 
-const statusMessage = computed(() => props.syncError.trim() || props.manager.error?.trim() || "");
+const statusMessage = computed(() => props.syncError || props.manager.error || "");
 
 const relativeSyncTime = computed(() => {
   if (!props.manager.last_sync_at) {
-    return "Never synced";
+    return "";
   }
 
   const timestamp = new Date(props.manager.last_sync_at).valueOf();
   if (Number.isNaN(timestamp)) {
-    return "Never synced";
+    return "";
   }
 
   const elapsedMinutes = Math.max(0, Math.floor((Date.now() - timestamp) / 60000));
   if (elapsedMinutes < 1) {
-    return "just now";
+    return t("secrets.justNow");
   }
   if (elapsedMinutes < 60) {
-    return `${elapsedMinutes} min ago`;
+    return t("secrets.agoMinutes", { count: formatNumber(elapsedMinutes) });
   }
 
   const elapsedHours = Math.floor(elapsedMinutes / 60);
   if (elapsedHours < 24) {
-    return `${elapsedHours} ${elapsedHours === 1 ? "hour" : "hours"} ago`;
+    return plural("secrets.agoHours", elapsedHours);
   }
 
   const elapsedDays = Math.floor(elapsedHours / 24);
-  return `${elapsedDays} ${elapsedDays === 1 ? "day" : "days"} ago`;
+  return plural("secrets.agoDays", elapsedDays);
 });
 
 const desktopSyncTime = computed(() => (
-  relativeSyncTime.value === "Never synced" ? relativeSyncTime.value : `Last synced ${relativeSyncTime.value}`
+  relativeSyncTime.value ? t("secrets.lastSynced", { time: relativeSyncTime.value }) : t("secrets.neverSynced")
 ));
 
 const relativeNextSyncTime = computed(() => {
@@ -105,23 +106,23 @@ const relativeNextSyncTime = computed(() => {
 
   const remainingMinutes = Math.ceil((timestamp - Date.now()) / 60000);
   if (remainingMinutes <= 0) {
-    return "due now";
+    return t("secrets.dueNow");
   }
   if (remainingMinutes < 60) {
-    return `in ${remainingMinutes} min`;
+    return t("secrets.inMinutes", { count: formatNumber(remainingMinutes) });
   }
 
   const remainingHours = Math.ceil(remainingMinutes / 60);
   if (remainingHours < 24) {
-    return `in ${remainingHours} ${remainingHours === 1 ? "hour" : "hours"}`;
+    return plural("secrets.inHours", remainingHours);
   }
 
   const remainingDays = Math.ceil(remainingHours / 24);
-  return `in ${remainingDays} ${remainingDays === 1 ? "day" : "days"}`;
+  return plural("secrets.inDays", remainingDays);
 });
 
 const managedSecretsLabel = computed(() => (
-  `${props.managedCount} ${props.managedCount === 1 ? "secret" : "secrets"}`
+  plural("common.secretCount", props.managedCount)
 ));
 
 const syncDisabled = computed(() => (
@@ -146,8 +147,8 @@ const syncDisabled = computed(() => (
             :href="docLink"
             target="_blank"
             rel="noopener noreferrer"
-            aria-label="Open provider documentation"
-            title="Documentation"
+            :aria-label="t('secrets.openProviderDocs')"
+            :title="t('secrets.documentation')"
           >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
               <path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H11v16H6.5A2.5 2.5 0 0 0 4 21.5Z" />
@@ -155,7 +156,7 @@ const syncDisabled = computed(() => (
             </svg>
           </a>
         </h3>
-        <p>Provides externally managed secrets</p>
+        <p>{{ t('secrets.providesExternalSecrets') }}</p>
       </div>
       <AppStatusBadge
         class="secret-manager-badge"
@@ -185,7 +186,7 @@ const syncDisabled = computed(() => (
             <path d="M12 8v4l2.5 1.5" />
           </svg>
           <span class="secret-manager-sync-time-desktop">{{ desktopSyncTime }}</span>
-          <span class="secret-manager-sync-time-mobile">{{ relativeSyncTime }}</span>
+          <span class="secret-manager-sync-time-mobile">{{ relativeSyncTime || t('secrets.neverSynced') }}</span>
         </span>
         <span v-if="relativeNextSyncTime" class="secret-manager-metadata-separator" aria-hidden="true">·</span>
         <span v-if="relativeNextSyncTime" class="secret-manager-metadata-item secret-manager-next-sync-time">
@@ -194,8 +195,8 @@ const syncDisabled = computed(() => (
             <path d="M4 17v-5h5" />
             <path d="M6.1 9a7 7 0 0 1 11.5-2L20 9M4 15l2.4 2a7 7 0 0 0 11.5-2" />
           </svg>
-          <span class="secret-manager-sync-time-desktop">Next sync {{ relativeNextSyncTime }}</span>
-          <span class="secret-manager-sync-time-mobile">Next {{ relativeNextSyncTime }}</span>
+          <span class="secret-manager-sync-time-desktop">{{ t('secrets.nextFull', { time: relativeNextSyncTime }) }}</span>
+          <span class="secret-manager-sync-time-mobile">{{ t('secrets.nextShort', { time: relativeNextSyncTime }) }}</span>
         </span>
       </div>
 
@@ -207,7 +208,7 @@ const syncDisabled = computed(() => (
           target="_blank"
           rel="noopener noreferrer"
         >
-          Manage
+          {{ t('secrets.manage') }}
           <svg class="secret-manager-external-link" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
             <path d="M14 5h5v5" />
             <path d="m19 5-9 9" />
@@ -218,7 +219,7 @@ const syncDisabled = computed(() => (
           type="button"
           class="secret-manager-action secret-manager-sync"
           :disabled="syncDisabled"
-          :aria-label="syncing ? 'Synchronizing secrets' : 'Synchronize secrets'"
+          :aria-label="syncing ? t('secrets.synchronizingSecrets') : t('secrets.synchronizeSecrets')"
           @click="emit('sync')"
         >
           <span v-if="syncing" class="secret-manager-spinner" aria-hidden="true" />
@@ -227,7 +228,7 @@ const syncDisabled = computed(() => (
             <path d="M4 17v-5h5" />
             <path d="M6.1 9a7 7 0 0 1 11.5-2L20 9M4 15l2.4 2a7 7 0 0 0 11.5-2" />
           </svg>
-          {{ syncing ? "Syncing…" : "Sync" }}
+          {{ syncing ? t('secrets.syncing') : t('secrets.sync') }}
         </button>
       </div>
     </footer>

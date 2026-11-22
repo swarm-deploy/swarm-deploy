@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t } from "../../i18n";
 import { computed, nextTick, ref, watch } from "vue";
 
 const props = withDefaults(defineProps<{
@@ -10,7 +11,7 @@ const props = withDefaults(defineProps<{
 }>(), {
   disabled: false,
   required: false,
-  placeholder: "Path to secret",
+  placeholder: t("secrets.pathToSecret"),
   icon: "path",
 });
 
@@ -85,7 +86,7 @@ watch(() => props.modelValue, (value) => {
 
 <template>
   <div ref="root" class="create-secret-control path-input" :class="{ 'path-input--disabled': disabled }" @click.self="focusInput()">
-    <span class="path-input-icon" :title="icon === 'key' ? 'Key' : 'Path'" aria-hidden="true">
+    <span class="path-input-icon" :title="icon === 'key' ? t('common.key') : t('secrets.path')" aria-hidden="true">
       <svg v-if="icon === 'key'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="8.5" cy="15.5" r="4" /><path d="m11.5 12.5 8-8m-2 2 2 2m-5 1 2 2" /></svg>
       <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3.5 6.5h6l2 2h9v10h-17z" /></svg>
     </span>
@@ -100,7 +101,7 @@ watch(() => props.modelValue, (value) => {
           type="text"
           autocomplete="off"
           spellcheck="false"
-          aria-label="Path"
+          :aria-label="t('secrets.path')"
           :placeholder="parts.length === 1 ? placeholder : ''"
           :disabled="disabled"
           :required="required && canonicalValue === ''"
@@ -111,7 +112,7 @@ watch(() => props.modelValue, (value) => {
           v-else
           type="button"
           class="path-input-segment"
-          :aria-label="`Edit path segment ${part || 'empty'}`"
+          :aria-label="t('secrets.editPathSegment', { segment: part || t('secrets.emptySegment') })"
           :disabled="disabled"
           @click="editSegment(index)"
         >{{ part }}</button>

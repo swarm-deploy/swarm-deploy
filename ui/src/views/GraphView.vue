@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { enumLabel, plural, t } from "../i18n";
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 
 import { fetchGraph } from "../api/graph";
@@ -137,7 +138,7 @@ async function loadGraph() {
     graph.value = await fetchGraph();
     resetLayout();
   } catch (error) {
-    loadingError.value = error instanceof Error ? error.message : "Failed to load dependency graph";
+    loadingError.value = error instanceof Error ? error.message : t("graph.loadFailed");
 
     if (!graph.value) {
       positions.value = {};
@@ -173,7 +174,7 @@ async function downloadGraphImage() {
 
       const context = canvas.getContext("2d");
       if (!context) {
-        throw new Error("Canvas context is unavailable");
+        throw new Error(t("graph.canvasUnavailable"));
       }
 
       context.scale(scale, scale);
@@ -185,7 +186,7 @@ async function downloadGraphImage() {
       URL.revokeObjectURL(svgUrl);
     }
   } catch (error) {
-    exportError.value = error instanceof Error ? error.message : "Failed to export dependency graph";
+    exportError.value = error instanceof Error ? error.message : t("graph.exportFailed");
   } finally {
     exportingImage.value = false;
   }
@@ -364,12 +365,13 @@ function resolveLayer(kind: string): GraphLayer {
 }
 
 function formatNodeKind(kind: string): string {
-  return kind
+  const fallback = kind
     .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
     .split(" ")
     .filter((word) => word.length > 0)
     .map((word) => word[0].toUpperCase() + word.slice(1))
     .join(" ");
+  return enumLabel("serviceTypes", kind, fallback);
 }
 
 function buildExportSvg(
@@ -415,7 +417,7 @@ function buildExportSvg(
                 ].join("");
               })
               .join("")
-          : `<text x="14" y="${endpointsY}" class="graph-export-empty-text">No public endpoints</text>`;
+          : `<text x="14" y="${endpointsY}" class="graph-export-empty-text">${escapeXml(t("graph.noEndpoints"))}</text>`;
 
       return [
         `<g transform="translate(${node.x} ${node.y})">`,
@@ -477,7 +479,7 @@ function loadImage(url: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const image = new Image();
     image.onload = () => resolve(image);
-    image.onerror = () => reject(new Error("Failed to render graph image"));
+    image.onerror = () => reject(new Error(t("graph.renderFailed")));
     image.src = url;
   });
 }
@@ -486,7 +488,7 @@ function canvasToBlob(canvas: HTMLCanvasElement): Promise<Blob> {
   return new Promise((resolve, reject) => {
     canvas.toBlob((blob) => {
       if (!blob) {
-        reject(new Error("Failed to build PNG image"));
+        reject(new Error(t("graph.pngFailed")));
         return;
       }
 
@@ -584,13 +586,13 @@ onBeforeUnmount(() => {
   <section class="services-page graph-page">
     <header class="services-header graph-header">
       <div>
-        <h2>Dependency Graph</h2>
-        <p class="meta">Drag nodes to inspect service dependencies built from collected metadata.</p>
+        <h2>{{ t('graph.title') }}</h2>
+        <p class="meta">{{ t('graph.description') }}</p>
       </div>
 
       <div class="graph-actions">
         <AppButton variant="secondary" class="graph-action-button" :disabled="!hasGraph" @click="resetLayout">
-          Reset layout
+          {{ t('graph.resetLayout') }}
         </AppButton>
         <AppButton
           variant="secondary"
@@ -598,34 +600,32 @@ onBeforeUnmount(() => {
           :disabled="!hasGraph || exportingImage"
           @click="downloadGraphImage"
         >
-          {{ exportingImage ? "Downloading..." : "Download PNG" }}
+          {{ exportingImage ? t('graph.downloading') : t('graph.downloadPng') }}
         </AppButton>
         <AppButton class="graph-action-button" :disabled="loading" @click="loadGraph">
-          {{ loading ? "Loading..." : "Reload" }}
+          {{ loading ? t('common.loading') : t('graph.reload') }}
         </AppButton>
       </div>
     </header>
 
     <section class="graph-summary-panel">
       <div class="graph-summary-chip">
-        <strong>{{ graphNodeCount }}</strong>
-        <span>nodes</span>
+        {{ plural('graph.nodeCount', graphNodeCount) }}
       </div>
       <div class="graph-summary-chip">
-        <strong>{{ graphEdgeCount }}</strong>
-        <span>edges</span>
+        {{ plural('graph.edgeCount', graphEdgeCount) }}
       </div>
-      <p v-if="loadingError" class="meta graph-inline-state">Failed to load graph: {{ loadingError }}</p>
-      <p v-else-if="exportError" class="meta graph-inline-state">Failed to export graph: {{ exportError }}</p>
-      <p v-else class="meta graph-inline-state">Dependencies are inferred from service environment variables and web routes.</p>
+      <p v-if="loadingError" class="meta graph-inline-state">{{ t('graph.loadError', { error: loadingError }) }}</p>
+      <p v-else-if="exportError" class="meta graph-inline-state">{{ t('graph.exportError', { error: exportError }) }}</p>
+      <p v-else class="meta graph-inline-state">{{ t('graph.inferenceHint') }}</p>
     </section>
 
     <div v-if="loading && !hasGraph" class="services-empty">
-      <p class="meta">Loading dependency graph...</p>
+      <p class="meta">{{ t('graph.loadingGraph') }}</p>
     </div>
 
     <div v-else-if="!hasGraph" class="services-empty">
-      <p class="meta">No services available to build a dependency graph.</p>
+      <p class="meta">{{ t('graph.noServices') }}</p>
     </div>
 
     <section v-else class="graph-canvas-card">
@@ -692,7 +692,7 @@ onBeforeUnmount(() => {
               </li>
             </ul>
 
-            <p v-else class="graph-node-empty">No public endpoints</p>
+            <p v-else class="graph-node-empty">{{ t('graph.noEndpoints') }}</p>
           </article>
         </div>
       </div>
@@ -741,17 +741,8 @@ onBeforeUnmount(() => {
   border-radius: 8px;
   background: var(--surface-card-muted);
   padding: 8px 10px;
-  display: grid;
-  gap: 2px;
-}
-
-.graph-summary-chip strong {
-  font-size: 1rem;
-}
-
-.graph-summary-chip span {
-  color: var(--muted);
-  font-size: 0.8rem;
+  font-size: 0.875rem;
+  font-weight: 600;
 }
 
 .graph-inline-state {

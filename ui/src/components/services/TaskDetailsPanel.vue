@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { enumLabel, formatNumber, plural, t } from "../../i18n";
 import { computed, ref, watch } from "vue";
 
 import type { EnvironmentVariable, SwarmTaskDetails, SwarmTaskResources } from "../../api/types";
@@ -25,8 +26,8 @@ const revealed = ref(new Set<string>());
 const activeTab = ref("overview");
 
 const tabs = [
-  { value: "overview", label: "Overview", id: "task-overview-tab", panelId: "task-overview-panel" },
-  { value: "environment", label: "Environment", id: "task-environment-tab", panelId: "task-environment-panel" },
+  { value: "overview", label: t("common.overview"), id: "task-overview-tab", panelId: "task-overview-panel" },
+  { value: "environment", label: t("realtime.environment"), id: "task-environment-tab", panelId: "task-environment-panel" },
 ] as const;
 
 interface ImageReferenceParts {
@@ -37,10 +38,10 @@ interface ImageReferenceParts {
 
 const imageReference = computed(() => parseImageReference(props.task?.image ?? ""));
 const identifiers = computed(() => [
-  { key: "task-id", label: "Task ID", value: props.task?.id ?? "" },
-  { key: "service-id", label: "Service ID", value: props.task?.service_id ?? "" },
-  { key: "node-id", label: "Node ID", value: props.task?.node_id ?? "" },
-  { key: "container-id", label: "Container ID", value: props.task?.container_id ?? "" },
+  { key: "task-id", label: t("realtime.taskId"), value: props.task?.id ?? "" },
+  { key: "service-id", label: t("realtime.serviceId"), value: props.task?.service_id ?? "" },
+  { key: "node-id", label: t("realtime.nodeId"), value: props.task?.node_id ?? "" },
+  { key: "container-id", label: t("realtime.containerId"), value: props.task?.container_id ?? "" },
 ]);
 
 const filteredEnvironment = computed(() => {
@@ -86,10 +87,10 @@ function shortenedDigest(digest: string): string {
   return value.length > 18 ? `${algorithm}:${value.slice(0, 8)}...${value.slice(-7)}` : digest;
 }
 
-function displayedExitCode(task: SwarmTaskDetails): number | string {
+function displayedExitCode(task: SwarmTaskDetails): string {
   const state = task.current_state.trim().toLowerCase();
   const finished = ["complete", "completed", "failed", "rejected", "shutdown"].includes(state);
-  return finished && task.exit_code !== undefined && task.exit_code !== null ? task.exit_code : "—";
+  return finished && task.exit_code !== undefined && task.exit_code !== null ? formatNumber(task.exit_code) : "—";
 }
 
 function toggleReveal(variable: EnvironmentVariable): void {
@@ -106,7 +107,7 @@ function decodedValue(variable: EnvironmentVariable): string | null {
 function displayedValue(variable: EnvironmentVariable): string {
   if (variable.encoded && !revealed.value.has(variable.name)) return "••••••••••••";
   const decoded = decodedValue(variable);
-  if (decoded === null) return "Unable to decode value";
+  if (decoded === null) return t("realtime.decodeFailure");
   return decoded === "" ? "(empty)" : decoded;
 }
 
@@ -116,34 +117,34 @@ function hasResources(resources: SwarmTaskResources | undefined): boolean {
 </script>
 
 <template>
-  <AppPanel class="realtime-task-panel" aria-label="Task details">
+  <AppPanel class="realtime-task-panel" :aria-label="t('realtime.taskDetails')">
     <template #header>
       <div class="realtime-task-panel-header">
         <div>
-          <span class="realtime-task-panel-eyebrow">Task details</span>
-          <h3>{{ task ? `Slot ${task.slot}` : "Task" }}</h3>
+          <span class="realtime-task-panel-eyebrow">{{ t('realtime.taskDetails') }}</span>
+          <h3>{{ task ? t('realtime.slotNumber', { slot: formatNumber(task.slot) }) : t('realtime.task') }}</h3>
         </div>
-        <button type="button" class="realtime-icon-button" aria-label="Close task details" @click="emit('close')">
+        <button type="button" class="realtime-icon-button" :aria-label="t('realtime.closeTaskDetails')" @click="emit('close')">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 7 10 10M17 7 7 17" /></svg>
         </button>
       </div>
     </template>
 
-    <AppTabs v-model="activeTab" class="realtime-task-tabs" :tabs="tabs" label="Task details sections" density="compact">
+    <AppTabs v-model="activeTab" class="realtime-task-tabs" :tabs="tabs" :label="t('realtime.taskSections')" density="compact">
       <template #tab="{ tab }">
         <span>{{ tab.label }}</span>
-        <span v-if="tab.value === 'environment'" class="realtime-task-tab-count" :aria-label="`${task?.environment.length ?? 0} variables`">
-          {{ task?.environment.length ?? 0 }}
+        <span v-if="tab.value === 'environment'" class="realtime-task-tab-count" :aria-label="plural('realtime.variableCount', task?.environment.length ?? 0)">
+          {{ formatNumber(task?.environment.length ?? 0) }}
         </span>
       </template>
     </AppTabs>
 
     <div class="realtime-task-panel-scroll">
-      <AppTableEmpty v-if="loading && !task" message="Loading task details..." />
-      <AppTableEmpty v-else-if="error && !task" role="alert">Failed to load task: {{ error }}</AppTableEmpty>
+      <AppTableEmpty v-if="loading && !task" :message="t('realtime.loadingTaskDetails')" />
+      <AppTableEmpty v-else-if="error && !task" role="alert">{{ t('realtime.loadTaskError', { error }) }}</AppTableEmpty>
 
       <template v-if="task">
-        <p v-if="error" class="realtime-inline-error" role="alert">Refresh failed: {{ error }}</p>
+        <p v-if="error" class="realtime-inline-error" role="alert">{{ t('realtime.refreshError', { error }) }}</p>
 
         <div
           v-if="activeTab === 'overview'"
@@ -153,22 +154,22 @@ function hasResources(resources: SwarmTaskResources | undefined): boolean {
           aria-labelledby="task-overview-tab"
         >
         <section class="realtime-task-section" aria-labelledby="task-runtime-title">
-          <h4 id="task-runtime-title">Runtime</h4>
+          <h4 id="task-runtime-title">{{ t('realtime.runtime') }}</h4>
           <dl class="realtime-task-runtime">
             <div>
-              <dt>State</dt>
+              <dt>{{ t('common.state') }}</dt>
               <dd><TaskStatusBadge :state="task.current_state" /></dd>
             </div>
-            <div><dt>Desired</dt><dd>{{ task.desired_state || "—" }}</dd></div>
-            <div><dt>Exit code</dt><dd>{{ displayedExitCode(task) }}</dd></div>
+            <div><dt>{{ t('realtime.desired') }}</dt><dd>{{ enumLabel('taskStates', task.desired_state || '') || "—" }}</dd></div>
+            <div><dt>{{ t('realtime.exitCode') }}</dt><dd>{{ displayedExitCode(task) }}</dd></div>
           </dl>
           <dl v-if="task.error" class="realtime-task-runtime-error">
-            <div><dt>Runtime error</dt><dd>{{ task.error }}</dd></div>
+            <div><dt>{{ t('realtime.runtimeError') }}</dt><dd>{{ task.error }}</dd></div>
           </dl>
         </section>
 
         <section class="realtime-task-section" aria-labelledby="task-image-title">
-          <h4 id="task-image-title">Image</h4>
+          <h4 id="task-image-title">{{ t('common.image') }}</h4>
           <div v-if="task.image" class="realtime-task-image">
             <div class="realtime-task-image-primary">
               <code :title="imageReference.name">{{ imageReference.name }}</code>
@@ -176,8 +177,8 @@ function hasResources(resources: SwarmTaskResources | undefined): boolean {
                 :key="task.id"
                 :value="task.image"
                 color="var(--muted)"
-                label="Copy full image reference"
-                copied-label="Image reference copied"
+                :label="t('realtime.copyFullImage')"
+                :copied-label="t('common.imageReferenceCopied')"
               />
             </div>
             <div v-if="imageReference.tag || imageReference.digest" class="realtime-task-image-meta">
@@ -189,7 +190,7 @@ function hasResources(resources: SwarmTaskResources | undefined): boolean {
         </section>
 
         <section class="realtime-task-section" aria-labelledby="task-identifiers-title">
-          <h4 id="task-identifiers-title">Identifiers</h4>
+          <h4 id="task-identifiers-title">{{ t('realtime.identifiers') }}</h4>
           <dl class="realtime-task-identifiers">
             <div v-for="identifier in identifiers" :key="identifier.key">
               <dt>{{ identifier.label }}</dt>
@@ -202,31 +203,31 @@ function hasResources(resources: SwarmTaskResources | undefined): boolean {
                 :key="task.id"
                 :value="identifier.value"
                 color="var(--muted)"
-                :label="`Copy ${identifier.label.toLowerCase()}`"
-                :title="`Copy ${identifier.label}`"
-                :copied-label="`${identifier.label} copied`"
+                :label="t('realtime.copyIdentifier', { identifier: identifier.label.toLowerCase() })"
+                :title="t('realtime.copyIdentifier', { identifier: identifier.label })"
+                :copied-label="t('realtime.identifierCopied', { identifier: identifier.label })"
               />
             </div>
           </dl>
         </section>
 
         <section class="realtime-task-section" aria-labelledby="task-timestamps-title">
-          <h4 id="task-timestamps-title">Timestamps</h4>
+          <h4 id="task-timestamps-title">{{ t('realtime.timestamps') }}</h4>
           <dl class="realtime-task-timestamps">
-            <div><dt>Created</dt><dd><time :datetime="task.created_at">{{ formatDate(task.created_at) }}</time></dd></div>
-            <div><dt>Updated</dt><dd><time :datetime="task.updated_at">{{ formatDate(task.updated_at) }}</time></dd></div>
+            <div><dt>{{ t('common.created') }}</dt><dd><time :datetime="task.created_at">{{ formatDate(task.created_at) }}</time></dd></div>
+            <div><dt>{{ t('common.updated') }}</dt><dd><time :datetime="task.updated_at">{{ formatDate(task.updated_at) }}</time></dd></div>
           </dl>
         </section>
 
         <section v-if="hasResources(task.reservations) || hasResources(task.limits)" class="realtime-task-section" aria-labelledby="task-resources-title">
-          <h4 id="task-resources-title">Resources</h4>
+          <h4 id="task-resources-title">{{ t('common.resources') }}</h4>
           <dl class="realtime-task-resources">
             <div v-if="hasResources(task.reservations)">
-              <dt>Reservations</dt>
+              <dt>{{ t('realtime.reservations') }}</dt>
               <dd><span v-if="task.reservations?.nano_cpus">{{ formatNanoCPU(task.reservations.nano_cpus) }}</span><span v-if="task.reservations?.memory_bytes">{{ formatBytes(task.reservations.memory_bytes) }}</span></dd>
             </div>
             <div v-if="hasResources(task.limits)">
-              <dt>Limits</dt>
+              <dt>{{ t('realtime.limits') }}</dt>
               <dd><span v-if="task.limits?.nano_cpus">{{ formatNanoCPU(task.limits.nano_cpus) }}</span><span v-if="task.limits?.memory_bytes">{{ formatBytes(task.limits.memory_bytes) }}</span></dd>
             </div>
           </dl>
@@ -242,14 +243,14 @@ function hasResources(resources: SwarmTaskResources | undefined): boolean {
         >
           <div class="realtime-task-section-title realtime-environment-title">
             <label class="realtime-env-search">
-              <span class="sr-only">Search environment variables</span>
+              <span class="sr-only">{{ t('realtime.searchEnvironment') }}</span>
               <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5" /><path d="m16 16 4 4" /></svg>
-              <input v-model="environmentSearch" type="search" placeholder="Search variables..." />
+              <input v-model="environmentSearch" type="search" :placeholder="t('realtime.searchVariables')" />
             </label>
           </div>
 
-          <AppTableEmpty v-if="task.environment.length === 0" message="No environment variables." />
-          <AppTableEmpty v-else-if="filteredEnvironment.length === 0" message="No variables match the search." />
+          <AppTableEmpty v-if="task.environment.length === 0" :message="t('realtime.noEnvironment')" />
+          <AppTableEmpty v-else-if="filteredEnvironment.length === 0" :message="t('realtime.noMatchingVariables')" />
           <ul v-else class="realtime-environment-list">
             <li v-for="variable in filteredEnvironment" :key="variable.name" class="realtime-environment-row">
               <div class="realtime-environment-content">
@@ -261,8 +262,8 @@ function hasResources(resources: SwarmTaskResources | undefined): boolean {
                   v-if="variable.encoded"
                   type="button"
                   class="realtime-environment-action"
-                  :aria-label="`${revealed.has(variable.name) ? 'Hide' : 'Show'} value for ${variable.name}`"
-                  :title="revealed.has(variable.name) ? 'Hide value' : 'Show value'"
+                  :aria-label="t(revealed.has(variable.name) ? 'realtime.hideValueFor' : 'realtime.showValueFor', { name: variable.name })"
+                  :title="revealed.has(variable.name) ? t('realtime.hideValue') : t('realtime.showValue')"
                   @click="toggleReveal(variable)"
                 >
                   <svg v-if="revealed.has(variable.name)" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3 21 21M10.6 10.7a2 2 0 0 0 2.7 2.7M9.9 4.2A10.4 10.4 0 0 1 12 4c5.2 0 8.5 4.2 9.5 5.8a4 4 0 0 1 .5 1.2M6.6 6.6A14 14 0 0 0 2.5 11.8C3.5 13.4 6.8 17.6 12 17.6a10 10 0 0 0 4.1-.9" /></svg>
@@ -271,9 +272,9 @@ function hasResources(resources: SwarmTaskResources | undefined): boolean {
                 <AppCopyButton
                   :value="decodedValue(variable)"
                   color="var(--muted)"
-                  :label="`Copy value for ${variable.name}`"
-                  title="Copy value"
-                  :copied-label="`Value copied for ${variable.name}`"
+                  :label="t('realtime.copyValueFor', { name: variable.name })"
+                  :title="t('realtime.copyValue')"
+                  :copied-label="t('realtime.valueCopiedFor', { name: variable.name })"
                 />
               </div>
             </li>

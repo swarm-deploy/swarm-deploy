@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t } from "../../i18n";
 import { onBeforeUnmount, ref, watch } from "vue";
 
 import { copyText } from "../../utils/clipboard";
@@ -43,8 +44,8 @@ onBeforeUnmount(resetCopied);
     class="app-copy-button"
     :style="{ color }"
     :disabled="value === null"
-    :aria-label="copied ? (copiedLabel ?? 'Copied') : label"
-    :title="copied ? 'Copied' : (title ?? label)"
+    :aria-label="copied ? (copiedLabel ?? t('common.copied')) : label"
+    :title="copied ? t('common.copied') : (title ?? label)"
     @click="copyValue"
   >
     <svg v-if="copied" class="app-copy-button-check" viewBox="0 0 24 24" aria-hidden="true" focusable="false">

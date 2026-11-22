@@ -33,6 +33,7 @@ func newTestApplication(t *testing.T, webConfig config.WebSpec) *Application {
 
 	app, err := NewApplication(
 		webConfig,
+		config.LanguageEnglish,
 		nil,
 		&gitops.Module{GitRepository: gitRepository},
 		&deployments.Module{},
@@ -207,7 +208,7 @@ func TestBuildRouterSupportsBasePath(t *testing.T) {
 				"index.html":    &fstest.MapFile{Data: []byte("<html><head></head><body>app</body></html>")},
 				"assets/app.js": &fstest.MapFile{Data: []byte("console.log('app')")},
 			}
-			handler := buildRouter(testCase.basePath, apiHandler, uiFS)
+			handler := buildRouter(testCase.basePath, "en", apiHandler, uiFS)
 
 			rec := httptest.NewRecorder()
 			req := httptest.NewRequest(http.MethodGet, testCase.requestPath, nil)
@@ -227,7 +228,7 @@ func TestBuildSPAFallbackRejectsNonReadRequests(t *testing.T) {
 	uiFS := fstest.MapFS{
 		"index.html": &fstest.MapFile{Data: []byte("<html><head></head><body>app</body></html>")},
 	}
-	handler := buildSPAFallbackHandler(fs.FS(uiFS), "/")
+	handler := buildSPAFallbackHandler(fs.FS(uiFS), "/", "en")
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/overview", nil))
 
@@ -239,20 +240,24 @@ func TestEmbeddedUIWithBasePath(t *testing.T) {
 		name     string
 		basePath string
 		prefix   string
+		locale   string
 	}{
-		{name: "root", basePath: "/", prefix: ""},
-		{name: "nested", basePath: "/infrastructure/swarm", prefix: "/infrastructure/swarm"},
+		{name: "root", basePath: "/", prefix: "", locale: "en"},
+		{name: "nested", basePath: "/infrastructure/swarm", prefix: "/infrastructure/swarm", locale: "ru"},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
-			handler := buildRouter(testCase.basePath, http.NotFoundHandler(), ui.FS)
+			handler := buildRouter(testCase.basePath, testCase.locale, http.NotFoundHandler(), ui.FS)
 			rec := httptest.NewRecorder()
 			req := httptest.NewRequest(http.MethodGet, testCase.prefix+"/services/my-stack/my-service", nil)
+			req.Header.Set("Accept-Language", "en-US,en;q=0.9")
 			handler.ServeHTTP(rec, req)
 
 			require.Equal(t, http.StatusOK, rec.Code)
 			assert.Contains(t, rec.Header().Get("Content-Type"), "text/html")
 			assert.Contains(t, rec.Body.String(), `<base href="`+testCase.prefix+`/">`)
 			assert.Contains(t, rec.Body.String(), `"basePath":"`+testCase.basePath+`"`)
+			assert.Contains(t, rec.Body.String(), `"locale":"`+testCase.locale+`"`)
+			assert.Contains(t, rec.Body.String(), `<html lang="`+testCase.locale+`">`)
 		})
 	}
 }

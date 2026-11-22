@@ -207,6 +207,7 @@ func main() {
 
 	webApplication, err := webserver.NewApplication(
 		cfg.Spec.Web,
+		cfg.Spec.System.Language,
 		cnt.ConfigStore,
 		cnt.GitOps,
 		cnt.Deployments,

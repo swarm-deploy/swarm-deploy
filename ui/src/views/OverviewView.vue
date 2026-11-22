@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { deploymentStatus } from "../utils/deployments";
+import { plural, t } from "../i18n";
 import { computed, onMounted, onUnmounted, ref } from "vue";
 
 import { fetchAlerts, fetchDeployments, fetchEvent, fetchRecommendations } from "../api/overview";
@@ -65,10 +67,10 @@ function serviceCount(stackName: string): number {
 }
 
 function deploymentChangeState(item: DeploymentSummary): string {
-  if (item.comparison_basis === "none") return "Initial snapshot";
-  if (!item.diff_available) return "Changes unavailable";
+  if (item.comparison_basis === "none") return t("overview.initialSnapshot");
+  if (!item.diff_available) return t("overview.changesUnavailable");
   const total = item.summary.added + item.summary.changed + item.summary.removed;
-  return total === 0 ? "No configuration changes" : `${total} desired-state field changes`;
+  return total === 0 ? t("overview.noConfigChanges") : plural("overview.fieldChanges", total);
 }
 
 function deploymentResultClass(item: DeploymentSummary): string {
@@ -85,17 +87,14 @@ function deploymentResultClass(item: DeploymentSummary): string {
 }
 
 function formatTime(raw: string | undefined): string {
-  if (!raw) {
-    return "n/a";
-  }
+  return formatDate(raw, { hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+}
 
-  const parsed = new Date(raw);
-  if (Number.isNaN(parsed.valueOf())) {
-    return raw;
-  }
-
-  const pad = (value: number) => String(value).padStart(2, "0");
-  return `${pad(parsed.getHours())}:${pad(parsed.getMinutes())}`;
+function pollResult(result: "updated" | "no_change" | "error" | undefined): string {
+  if (result === "updated") return t("overview.pollUpdated");
+  if (result === "no_change") return t("overview.pollNoChange");
+  if (result === "error") return t("overview.pollError");
+  return t("common.unknown");
 }
 
 function formatRelativeTime(raw: string | undefined): string {
@@ -166,7 +165,7 @@ async function openWebhookDetails() {
   } catch (error) {
     eventDetailsError.value = error instanceof ApiError && error.status === 404
       ? "This event is no longer available because it was removed by event history retention."
-      : `Failed to load event details: ${error instanceof Error ? error.message : "Unknown error"}`;
+      : `Failed to load event details: ${error instanceof Error ? error.message : t("common.unknownError")}`;
   } finally {
     eventDetailsLoading.value = false;
   }
@@ -211,14 +210,14 @@ async function refreshOverview() {
   ]);
 
   if (overviewResult.status === "rejected") {
-    overviewStore.loadingError = overviewResult.reason instanceof Error ? overviewResult.reason.message : "Failed to load state";
+    overviewStore.loadingError = overviewResult.reason instanceof Error ? overviewResult.reason.message : t("overview.loadStateFailed");
   }
   if (deploymentsResult.status === "fulfilled") {
     deployments.value = Array.isArray(deploymentsResult.value.deployments) ? deploymentsResult.value.deployments : [];
   } else {
     deployments.value = [];
     overviewEventsError.value =
-      deploymentsResult.reason instanceof Error ? deploymentsResult.reason.message : "Failed to load latest deployments";
+      deploymentsResult.reason instanceof Error ? deploymentsResult.reason.message : t("overview.loadLatestDeploymentsFailed");
   }
   if (alertsResult.status === "fulfilled") {
     alerts.value = Array.isArray(alertsResult.value.alerts) ? alertsResult.value.alerts : [];
@@ -259,14 +258,14 @@ onUnmounted(() => {
     <section class="status-panel overview-sync-panel">
       <div class="overview-sync-items">
         <div v-if="hasLastPoll" class="overview-sync-item">
-          <span class="overview-sync-label">Last poll:</span>
+          <span class="overview-sync-label">{{ t('overview.lastPoll') }}</span>
           <template v-if="syncInfo?.last_poll?.at">
             <span
               v-if="pollIndicator()"
               class="overview-sync-indicator"
               :class="pollIndicatorClass()"
-              :title="syncInfo.last_poll.error || `Poll result: ${syncInfo.last_poll.result}`"
-              :aria-label="syncInfo.last_poll.error || `Poll result: ${syncInfo.last_poll.result}`"
+              :title="syncInfo.last_poll.error || t('overview.pollResult', { result: pollResult(syncInfo.last_poll.result) })"
+              :aria-label="syncInfo.last_poll.error || t('overview.pollResult', { result: pollResult(syncInfo.last_poll.result) })"
             >{{ pollIndicator() }}</span>
             <time :datetime="syncInfo.last_poll.at">{{ formatDate(syncInfo.last_poll.at) }}</time>
           </template>
@@ -274,14 +273,14 @@ onUnmounted(() => {
         </div>
         <span v-if="hasLastPoll && hasLastWebhook" class="overview-sync-separator" aria-hidden="true"></span>
         <div v-if="hasLastWebhook" class="overview-sync-item">
-          <span class="overview-sync-label">Last webhook:</span>
+          <span class="overview-sync-label">{{ t('overview.lastWebhook') }}</span>
           <template v-if="syncInfo?.last_webhook?.at">
             <span
               v-if="webhookIndicator()"
               class="overview-sync-indicator"
               :class="webhookIndicatorClass()"
-              :title="syncInfo.last_webhook.queued ? 'Accepted for scheduling' : 'Received but not queued'"
-              :aria-label="syncInfo.last_webhook.queued ? 'Accepted for scheduling' : 'Received but not queued'"
+              :title="syncInfo.last_webhook.queued ? t('overview.webhookQueued') : t('overview.webhookNotQueued')"
+              :aria-label="syncInfo.last_webhook.queued ? t('overview.webhookQueued') : t('overview.webhookNotQueued')"
             >{{ webhookIndicator() }}</span>
             <button
               v-if="syncInfo.last_webhook.event_id"
@@ -297,12 +296,12 @@ onUnmounted(() => {
         </div>
         <span v-if="hasLastRevision && (hasLastPoll || hasLastWebhook)" class="overview-sync-separator" aria-hidden="true"></span>
         <div v-if="hasLastRevision" class="overview-sync-item">
-          <span class="overview-sync-label">Last revision:</span>
+          <span class="overview-sync-label">{{ t('overview.lastRevision') }}</span>
           <button
             v-if="syncRevision"
             type="button"
             class="overview-commit-badge overview-sync-commit-badge"
-            :aria-label="`Open Git commit ${syncRevision}`"
+            :aria-label="t('common.openGitCommit', { commit: syncRevision })"
             @click="openCommitDetails(syncRevision)"
           >
             {{ shortCommitHash(syncRevision) }}
@@ -311,7 +310,7 @@ onUnmounted(() => {
         </div>
       </div>
       <p v-if="overviewStore.loadingError" class="meta overview-sync-error" role="alert">
-        Failed to load state: {{ overviewStore.loadingError }}
+        {{ t('overview.stateError', { error: overviewStore.loadingError }) }}
       </p>
     </section>
     <button
@@ -320,23 +319,23 @@ onUnmounted(() => {
       :disabled="overviewStore.syncPending"
       @click="overviewStore.triggerManualSync()"
     >
-      {{ overviewStore.syncPending ? "Syncing..." : "Sync now" }}
+      {{ overviewStore.syncPending ? t('overview.syncing') : t('overview.syncNow') }}
     </button>
   </div>
 
-  <section class="overview-summary-grid" aria-label="Overview highlights">
+  <section class="overview-summary-grid" :aria-label="t('overview.highlights')">
     <SummaryPanel
-      title="Latest Deployments"
+      :title="t('overview.latestDeployments')"
       icon="deployments"
       to="/deployments"
     >
       <p v-if="overviewEventsError && deployments.length === 0" class="meta">
-        Failed to load latest deployments: {{ overviewEventsError }}
+        {{ t('overview.deploymentsError', { error: overviewEventsError }) }}
       </p>
       <div v-else-if="deployments.length === 0" class="overview-summary-empty">
         <span class="overview-summary-empty-icon" aria-hidden="true">↓</span>
-        <strong>No deployments yet</strong>
-        <span>Recent deployments will appear here</span>
+        <strong>{{ t('overview.noDeployments') }}</strong>
+        <span>{{ t('overview.deploymentsEmptyDescription') }}</span>
       </div>
       <div v-else class="overview-deployment-list">
         <div
@@ -345,23 +344,23 @@ onUnmounted(() => {
           class="overview-summary-row overview-deployment-row"
         >
           <button type="button" class="overview-deployment-details"
-            :aria-label="`Open ${event.status} deployment details for ${event.stack || 'unknown stack'}. ${deploymentChangeState(event)}`"
+            :aria-label="t('overview.openDeployment', { status: deploymentStatus(event.status, true), stack: event.stack || t('overview.unknownStack'), changes: deploymentChangeState(event) })"
             :title="deploymentChangeState(event)"
             @click="overviewStore.openDeploymentDetailsModal(event.id)" />
           <span
             class="overview-summary-severity overview-deployment-result"
             :class="deploymentResultClass(event)"
-            :aria-label="`Deployment ${event.status}. ${deploymentChangeState(event)}`"
-            :title="`${event.status} · ${deploymentChangeState(event)}`"
+            :aria-label="t('overview.deploymentStatus', { status: deploymentStatus(event.status, true), changes: deploymentChangeState(event) })"
+            :title="t('overview.deploymentTooltip', { status: deploymentStatus(event.status, true), changes: deploymentChangeState(event) })"
             role="img"
           ></span>
-          <span class="overview-deployment-stack">{{ event.stack || "unknown stack" }}</span>
+          <span class="overview-deployment-stack">{{ event.stack || t('overview.unknownStack') }}</span>
           <time class="overview-deployment-time" :datetime="event.started_at">{{ formatTime(event.started_at) }}</time>
           <button v-if="event.commit" type="button" class="overview-commit-badge overview-summary-sha-badge"
-            :aria-label="`Open Git commit ${event.commit}`" @click.stop="openCommitDetails(event.commit)">
+            :aria-label="t('common.openGitCommit', { commit: event.commit })" @click.stop="openCommitDetails(event.commit)">
             {{ shortCommitHash(event.commit) }}
           </button>
-          <span v-else class="overview-summary-value-empty">n/a</span>
+          <span v-else class="overview-summary-value-empty">{{ t('common.notApplicable') }}</span>
         </div>
       </div>
     </SummaryPanel>
@@ -385,7 +384,7 @@ onUnmounted(() => {
           <span class="overview-summary-row-copy">
             <span class="overview-alert-message">{{ alert.title }}</span>
             <span class="overview-summary-secondary">
-              {{ alert.resourceId || "unknown stack" }} · {{ formatRelativeTime(alert.updatedAt) }}
+              {{ alert.resourceId || 'unknown stack' }} · {{ formatRelativeTime(alert.updatedAt) }}
             </span>
           </span>
         </SummaryRow>
@@ -426,13 +425,13 @@ onUnmounted(() => {
   <section>
     <div v-if="overviewStore.loading && overviewStore.stacks.length === 0" class="stack-grid">
       <article class="stack-card">
-        <p class="meta">Loading...</p>
+        <p class="meta">{{ t('common.loading') }}</p>
       </article>
     </div>
 
     <div v-else-if="overviewStore.stacks.length === 0" class="stack-grid">
       <article class="stack-card">
-        <p class="meta">No stacks configured.</p>
+        <p class="meta">{{ t('overview.noStacks') }}</p>
       </article>
     </div>
 

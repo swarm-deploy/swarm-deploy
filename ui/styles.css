@@ -3261,6 +3261,15 @@ button.app-copy-button.service-image-copy-button {
   font: 500 11px var(--log-mono);
 }
 
+.modal-card.task-logs-modal-card:lang(ru) {
+  --log-level-width: clamp(84px, 28vw, 112px);
+}
+
+.task-log-level-label {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 .task-log-level .task-log-dot {
   width: 6px;
   height: 6px;

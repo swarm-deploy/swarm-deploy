@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { formatNumber, t } from "../../i18n";
 import { BarChart } from "echarts/charts";
 import { GridComponent, TooltipComponent } from "echarts/components";
 import { init, use, type EChartsCoreOption } from "echarts/core";
@@ -25,7 +26,7 @@ const props = defineProps<{
 const chartElement = ref<HTMLElement | null>(null);
 
 function format(value: number): string {
-  return props.formatValue?.(value) ?? String(value);
+  return props.formatValue?.(value) ?? formatNumber(value);
 }
 
 const chartOption = computed<EChartsCoreOption>(() => ({
@@ -43,11 +44,11 @@ const chartOption = computed<EChartsCoreOption>(() => ({
       const index = items[0]?.dataIndex;
       if (index === undefined) return "";
       const title = escapeHtml(props.tooltipLabels[index]);
-      const total = escapeHtml(format(props.totals[index]));
+      const total = escapeHtml(t("common.chartTotal", { total: format(props.totals[index]) }));
       const breakdown = props.series.map(({ label, values }) =>
-        `${escapeHtml(label)}: ${escapeHtml(format(values[index]))}`
+        escapeHtml(t("common.chartSeries", { label, value: format(values[index]) }))
       );
-      return [`<strong>${title}</strong>`, `Total: ${total}`, ...breakdown].join("<br />");
+      return [`<strong>${title}</strong>`, total, ...breakdown].join("<br />");
     },
   },
   xAxis: {
@@ -60,7 +61,7 @@ const chartOption = computed<EChartsCoreOption>(() => ({
   yAxis: {
     type: "value",
     minInterval: 1,
-    axisLabel: { color: "var(--muted)", fontSize: 11, formatter: props.formatAxisValue },
+    axisLabel: { color: "var(--muted)", fontSize: 11, formatter: props.formatAxisValue ?? ((value: number) => formatNumber(value)) },
     splitLine: { lineStyle: { color: "var(--border-subtle)" } },
   },
   series: props.series.map(({ label, color, values }) => ({

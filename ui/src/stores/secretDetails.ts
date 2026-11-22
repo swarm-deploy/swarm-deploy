@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 import { defineStore } from "pinia";
 
 import { fetchSecretByName } from "../api/secrets";
@@ -29,7 +30,7 @@ export const useSecretDetailsStore = defineStore("secretDetails", {
       try {
         this.secret = await fetchSecretByName(name);
       } catch (error) {
-        this.error = error instanceof Error ? error.message : "Failed to load secret details";
+        this.error = error instanceof Error ? error.message : t("secrets.loadDetailsFallback");
         this.secret = null;
       } finally {
         this.loading = false;

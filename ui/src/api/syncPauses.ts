@@ -34,11 +34,11 @@ export function removeServiceSyncPause(stack: string, service: string): Promise<
 }
 
 export const syncPauseDurations = [
-  { value: "1", label: "1 hour", milliseconds: 60 * 60 * 1000 },
-  { value: "2", label: "2 hours", milliseconds: 2 * 60 * 60 * 1000 },
-  { value: "4", label: "4 hours", milliseconds: 4 * 60 * 60 * 1000 },
+  { value: "1", milliseconds: 60 * 60 * 1000 },
+  { value: "2", milliseconds: 2 * 60 * 60 * 1000 },
+  { value: "4", milliseconds: 4 * 60 * 60 * 1000 },
   { value: "24", label: "24 hours", milliseconds: 24 * 60 * 60 * 1000 },
-  { value: "none", label: "No expiration", milliseconds: null },
+  { value: "none", milliseconds: null },
 ] as const;
 
 export function expirationForDuration(value: string, now = Date.now()): string | null {

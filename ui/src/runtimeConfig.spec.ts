@@ -2,14 +2,14 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { apiRequest } from "./api/client";
 import { openTaskLogsStream } from "./api/overview";
-import { getWebBasePath, withWebBasePath } from "./runtimeConfig";
+import { getLocale, getWebBasePath, withWebBasePath } from "./runtimeConfig";
 import { renderAssistantMarkdown } from "./utils/assistantMarkdown";
 
-function setRuntimeBasePath(basePath: string): void {
+function setRuntimeBasePath(basePath: string, locale?: string): void {
   const element = document.createElement("script");
   element.id = "swarm-deploy-runtime-config";
   element.type = "application/json";
-  element.textContent = JSON.stringify({ basePath });
+  element.textContent = JSON.stringify({ basePath, locale });
   document.head.append(element);
 }
 
@@ -83,5 +83,22 @@ describe("runtime web base path", () => {
   it("resolves relative assistant links at root for backward compatibility", () => {
     const html = renderAssistantMarkdown("[Services](services)");
     expect(html).toContain(`href="${window.location.origin}/services"`);
+  });
+});
+
+describe("runtime locale", () => {
+  it("defaults to English in Vite without an injected configuration", () => {
+    expect(getLocale()).toBe("en");
+  });
+
+  it.each([
+    [undefined, "en"],
+    ["en", "en"],
+    ["ru", "ru"],
+    ["unsupported", "en"],
+  ])("uses the injected locale %s alongside a nested base path", (configured, expected) => {
+    setRuntimeBasePath("/infrastructure/swarm", configured);
+    expect(getLocale()).toBe(expected);
+    expect(getWebBasePath()).toBe("/infrastructure/swarm");
   });
 });
