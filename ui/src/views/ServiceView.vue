@@ -74,7 +74,6 @@ const deploymentBadges = {
 function deploymentBadge(status: ServiceDeploymentStatus) {
   return deploymentBadges[status] ?? { label: status, variant: "neutral" as const };
 }
-const latestDeployment = computed(() => deployments.value[0]);
 const convergence = computed(() => {
   switch (liveService.value?.update_state) {
     case "updating": return "Update in progress";
@@ -106,6 +105,7 @@ const labelGroups = computed(() => {
     labels: [...labels].sort(([left], [right]) => left.localeCompare(right)),
   })).filter((group) => group.labels.length);
 });
+const labelCount = computed(() => labelGroups.value.reduce((total, group) => total + group.labels.length, 0));
 const labelPreview = computed(() => labelGroups.value.flatMap((group) => group.labels).slice(-3));
 function previewKey(key: string): string {
   return key.replace(/^swarm-deploy\./, "");
@@ -200,11 +200,6 @@ watch([stackName, serviceName], ([stack, service], _, onCleanup) => {
             </AppStatusBadge>
             <AppStatusBadge v-if="liveService" filled>{{ liveService.replicas.running }} / {{ liveService.replicas.desired }} replicas</AppStatusBadge>
           </template>
-          <span v-if="latestDeployment" class="service-last-deployment">
-            Last deployment <AppStatusBadge :variant="deploymentBadge(latestDeployment.status).variant">
-              {{ deploymentBadge(latestDeployment.status).label }}
-            </AppStatusBadge>
-          </span>
         </div>
       </div>
       <div class="service-heading-actions">
@@ -350,17 +345,40 @@ watch([stackName, serviceName], ([stack, service], _, onCleanup) => {
       </AppPanel>
     </template>
 
-    <AppModal :open="labelsModalOpen" labelledby="service-labels-title" card-class="service-labels-modal-card" @close="labelsModalOpen = false">
-      <template #title><h2 id="service-labels-title">Service labels</h2></template>
+    <AppModal
+      :open="labelsModalOpen"
+      class="service-labels-modal"
+      labelledby="service-labels-title"
+      card-class="service-labels-modal-card"
+      close-label="Close labels"
+      @close="labelsModalOpen = false"
+    >
+      <template #title>
+        <div>
+          <p class="service-labels-context">Service metadata</p>
+          <div class="service-labels-title">
+            <h2 id="service-labels-title">All labels</h2>
+            <span class="service-labels-count" :aria-label="`${labelCount} labels`">{{ labelCount }}</span>
+          </div>
+        </div>
+      </template>
       <div class="modal-body service-labels-modal-body">
         <section v-for="group in labelGroups" :key="group.name" class="service-labels-group">
-          <h3>{{ group.name }}</h3>
+          <header class="service-labels-group-header">
+            <h3>{{ group.name }}</h3>
+            <span :aria-label="`${group.labels.length} labels`">{{ group.labels.length }}</span>
+          </header>
           <dl class="service-labels-list">
-            <div v-for="[key, value] in group.labels" :key="key" class="service-labels-list-item service-labels-copy-row">
-              <dt><code>{{ key }}</code></dt>
+            <div v-for="[key, value] in group.labels" :key="key" class="service-labels-list-item">
+              <dt>{{ key }}</dt>
               <dd>
-                <code>{{ value }}</code>
-                <AppCopyButton :value="`${key}=${value}`" :label="`Copy ${key} label`" copied-label="Label copied" color="var(--text)" />
+                <span>{{ value }}</span>
+                <AppCopyButton
+                  :value="`${key}=${value}`"
+                  :label="`Copy ${key} label`"
+                  copied-label="Label copied"
+                  color="var(--muted)"
+                />
               </dd>
             </div>
           </dl>
@@ -416,11 +434,6 @@ watch([stackName, serviceName], ([stack, service], _, onCleanup) => {
 
 .service-heading-summary :deep(.app-status-badge) {
   white-space: nowrap;
-}
-
-.service-last-deployment {
-  color: var(--muted);
-  font-size: .8rem;
 }
 
 .service-heading-actions {
@@ -708,11 +721,181 @@ button.service-entity {
   max-width: 720px;
 }
 
-.service-labels-copy-row dd {
+.service-labels-modal {
+  display: grid;
+  place-items: center;
+}
+
+.service-labels-modal :deep(.modal-overlay) {
+  backdrop-filter: blur(2px);
+}
+
+.service-labels-modal :deep(.service-labels-modal-card) {
+  display: flex;
+  flex-direction: column;
+  width: min(720px, calc(100% - 40px));
+  max-height: calc(100dvh - 48px);
+  margin: 0;
+  overflow: hidden;
+  border-radius: 12px;
+  box-shadow: 0 24px 80px var(--backdrop-soft);
+}
+
+.service-labels-modal :deep(.modal-header) {
+  flex: none;
+  min-height: 92px;
+  padding: 20px 68px 17px 22px;
+}
+
+.service-labels-modal :deep(.modal-close) {
+  top: 20px;
+  right: 22px;
+  width: 38px;
+  height: 38px;
+  border: 1px solid var(--border-default);
+  color: var(--text);
+}
+
+.service-labels-context,
+.service-labels-group-header {
+  color: var(--muted);
+  font-weight: 700;
+  letter-spacing: .055em;
+  text-transform: uppercase;
+}
+
+.service-labels-context {
+  margin: 0 0 4px;
+  font-size: .75rem;
+}
+
+.service-labels-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.service-labels-title h2 {
+  font-size: 1.375rem;
+}
+
+.service-labels-count {
+  display: inline-grid;
+  place-items: center;
+  min-width: 23px;
+  min-height: 20px;
+  padding-inline: 6px;
+  border-radius: 999px;
+  background: var(--surface-muted);
+  color: var(--muted);
+  font-size: .7rem;
+  font-weight: 700;
+  text-align: center;
+}
+
+.service-labels-modal-body {
+  min-height: 0;
+  gap: 14px;
+  padding: 18px 22px 22px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.service-labels-group-header {
   display: flex;
   justify-content: space-between;
+  gap: 8px;
+  min-height: 25px;
+  padding: 0 2px 5px;
+  border-bottom: 1px solid var(--border-subtle);
+  font-size: .6875rem;
+}
+
+.service-labels-group-header h3 {
+  margin: 0;
+  font-size: inherit;
+}
+
+.service-labels-list {
+  margin: 0;
+}
+
+.service-labels-list-item,
+.service-labels-list-item dd {
+  display: grid;
   align-items: center;
-  gap: 4px;
+  gap: 8px;
+  min-width: 0;
+}
+
+.service-labels-list-item {
+  grid-template-columns: minmax(0, 34%) minmax(0, 1fr);
+  min-height: 36px;
+  padding-block: 3px;
+  border-bottom: 1px solid var(--border-subtle);
+  font-size: .75rem;
+  overflow-wrap: anywhere;
+}
+
+.service-labels-list-item dt,
+.service-labels-list-item dd > span {
+  white-space: pre-wrap;
+}
+
+.service-labels-list-item dt {
+  color: var(--muted);
+}
+
+.service-labels-list-item dd {
+  grid-template-columns: minmax(0, 1fr) 28px;
+  margin: 0;
+}
+
+@media (max-width: 820px) {
+  .service-labels-modal {
+    align-items: end;
+  }
+
+  .service-labels-modal :deep(.service-labels-modal-card) {
+    width: 100%;
+    max-width: none;
+    max-height: 88dvh;
+    border-width: 1px 0 0;
+    border-radius: 16px 16px 0 0;
+  }
+
+  .service-labels-modal :deep(.modal-header) {
+    min-height: 88px;
+    padding: 18px 62px 14px 16px;
+  }
+
+  .service-labels-modal :deep(.modal-close) {
+    top: 18px;
+    right: 16px;
+  }
+
+  .service-labels-modal-body {
+    padding: 16px 16px 22px;
+  }
+
+  .service-labels-list-item {
+    position: relative;
+    grid-template-columns: minmax(0, 1fr);
+    align-content: center;
+    gap: 3px;
+    min-height: 53px;
+    padding: 7px 36px 7px 0;
+  }
+
+  .service-labels-list-item dd {
+    display: block;
+  }
+
+  .service-labels-list-item :deep(.app-copy-button) {
+    position: absolute;
+    inset: 50% 0 auto auto;
+    translate: 0 -50%;
+  }
 }
 
 @container service-details-page (max-width: 900px) {
@@ -764,10 +947,6 @@ button.service-entity {
 
   .service-heading-actions {
     align-self: start;
-  }
-
-  .service-last-deployment {
-    flex-basis: 100%;
   }
 
   .service-label-token {

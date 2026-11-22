@@ -2887,51 +2887,6 @@ button.app-copy-button.service-image-copy-button {
   border-radius: 8px;
 }
 
-.service-labels-modal-card {
-  width: min(760px, 94vw);
-}
-
-.service-labels-modal-body,
-.service-labels-group,
-.service-labels-list {
-  min-width: 0;
-}
-
-.service-labels-group h3 {
-  margin: 0 0 8px;
-  font-size: 0.9rem;
-}
-
-.service-labels-list {
-  margin: 0;
-  display: grid;
-  gap: 6px;
-}
-
-.service-labels-list-item {
-  min-width: 0;
-  display: grid;
-  grid-template-columns: minmax(140px, 0.8fr) minmax(0, 1.2fr);
-  gap: 8px;
-  align-items: start;
-}
-
-.service-labels-list-item dt,
-.service-labels-list-item dd {
-  min-width: 0;
-  margin: 0;
-  border: 1px solid var(--border-default);
-  border-radius: 6px;
-  background: var(--surface-muted);
-  padding: 6px 8px;
-}
-
-.service-labels-list-item code {
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  word-break: break-word;
-}
-
 .modal-card.task-logs-modal-card {
   --log-gutter: 24px;
   --log-time-width: 120px;
@@ -3670,17 +3625,6 @@ button.app-copy-button.service-image-copy-button {
 
   .modal-body {
     padding: 10px 12px 12px;
-  }
-
-  .service-labels-modal-card {
-    width: calc(100vw - 16px);
-    max-width: calc(100vw - 16px);
-    margin: 8px auto;
-    max-height: calc(100dvh - 16px);
-  }
-
-  .service-labels-list-item {
-    grid-template-columns: minmax(0, 1fr);
   }
 
   .secret-manager-card {

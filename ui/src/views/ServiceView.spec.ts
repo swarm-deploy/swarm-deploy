@@ -125,7 +125,7 @@ describe("ServiceView", () => {
     const header = wrapper.get(".service-heading");
     expect(header.text()).toContain("Available");
     expect(header.text()).toContain("2 / 2 replicas");
-    expect(header.text()).toContain("Succeeded");
+    expect(header.text()).not.toMatch(/Last deployment|Succeeded/i);
     expect(header.text()).not.toContain("Application");
     expect(header.get('a[aria-label="Open api in Realtime"]').attributes("href")).toBe("/realtime?stack=infra&service=api");
     const table = wrapper.get('table[aria-label="Service metadata"]');
@@ -158,6 +158,9 @@ describe("ServiceView", () => {
     ]);
     await wrapper.get(".service-labels-show").trigger("click");
     const labels = wrapper.get('.modal[aria-hidden="false"] [role="dialog"][aria-labelledby="service-labels-title"]');
+    expect(labels.get("h2").text()).toBe("All labels");
+    expect(labels.get(".service-labels-count").text()).toBe("4");
+    expect(labels.findAll(".service-labels-group-header span").map((item) => item.text())).toEqual(["1", "1", "2"]);
     expect(labels.findAll("h3").map((item) => item.text())).toEqual(["Docker", "Swarm Deploy", "Custom"]);
     expect(labels.text()).toContain("com.docker.stack.namespace");
     expect(labels.text()).toContain("swarm-deploy.gitops");
