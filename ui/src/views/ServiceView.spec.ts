@@ -1,489 +1,301 @@
 import { createPinia } from "pinia";
 import { flushPromises, mount } from "@vue/test-utils";
-import { nextTick } from "vue";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createMemoryHistory, createRouter } from "vue-router";
 
+import DeploymentDetailsModal from "../components/overview/DeploymentDetailsModal.vue";
+import SecretDetailsModal from "../components/secrets/SecretDetailsModal.vue";
+import ServiceConfigView from "./ServiceConfigView.vue";
 import ServiceView from "./ServiceView.vue";
-import { useOverviewStore } from "../stores/overview";
 
-const apiMocks = vi.hoisted(() => ({
+vi.hoisted(() => {
+  window.matchMedia = () => ({ matches: false }) as MediaQueryList;
+});
+
+const api = vi.hoisted(() => ({
+  fetchDeployment: vi.fn(),
+  fetchNetworks: vi.fn(),
+  fetchSecretByName: vi.fn(),
   fetchServiceDeployments: vi.fn(),
-  fetchServiceRealtime: vi.fn(),
   fetchServiceStatus: vi.fn(),
   fetchServices: vi.fn(),
-  fetchSwarmTask: vi.fn(),
-  openTaskLogsStream: vi.fn(),
+  fetchSwarmServices: vi.fn(),
+  getServiceSyncPause: vi.fn(),
+  setServiceSyncPause: vi.fn(),
 }));
 
-vi.mock("vue-router", () => ({
-  useRoute: () => ({ params: { stack: "infra", service: "api" } }),
+vi.mock("../api/cluster", () => ({ fetchNetworks: api.fetchNetworks }));
+vi.mock("../api/overview", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../api/overview")>(),
+  fetchDeployment: api.fetchDeployment,
+  fetchServiceDeployments: api.fetchServiceDeployments,
+  fetchServiceStatus: api.fetchServiceStatus,
 }));
-
-vi.mock("../api/overview", () => ({
-  fetchServiceDeployments: apiMocks.fetchServiceDeployments,
-  fetchServiceRealtime: apiMocks.fetchServiceRealtime,
-  fetchServiceStatus: apiMocks.fetchServiceStatus,
-  openTaskLogsStream: apiMocks.openTaskLogsStream,
-}));
-
+vi.mock("../api/secrets", () => ({ fetchSecretByName: api.fetchSecretByName }));
 vi.mock("../api/services", () => ({
-  fetchServices: apiMocks.fetchServices,
-  fetchSwarmTask: apiMocks.fetchSwarmTask,
+  fetchServices: api.fetchServices,
+  fetchSwarmServices: api.fetchSwarmServices,
+}));
+vi.mock("../api/syncPauses", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../api/syncPauses")>(),
+  getServiceSyncPause: api.getServiceSyncPause,
+  setServiceSyncPause: api.setServiceSyncPause,
 }));
 
-async function mountServiceView() {
-  const wrapper = mount(ServiceView, {
-    global: {
-      plugins: [createPinia()],
-      stubs: { RouterLink: { name: "RouterLink", props: ["to"], template: "<a><slot /></a>" } },
-    },
+const date = "2026-10-04T18:00:00Z";
+const image = "registry.example.test/infra/api:v2.3.1";
+const liveAPI = {
+  id: "service-id", name: "api", full_name: "infra_api", stack: "infra", mode: "replicated",
+  replicas: { running: 2, desired: 2 },
+  created_at: date, endpoint_mode: "vip",
+  published_ports: [{ published_port: 8080, target_port: 80, protocol: "tcp" }],
+  update_parallelism: 1,
+  network_targets: ["overlay-id"],
+};
+const liveWorker = {
+  ...liveAPI, id: "worker-id", name: "worker", full_name: "infra_worker",
+  replicas: { running: 1, desired: 1 },
+};
+const storedSpec = {
+  image,
+  mode: "replicated",
+  replicas: 2,
+  labels: {
+    docker: { "com.docker.stack.namespace": "infra" },
+    custom: { "swarm-deploy.gitops": "true", environment: "production", team: "platform" },
+  },
+  network: [{ target: "overlay-id" }],
+  secrets: [{ secret_name: "api-token" }],
+  configs: [{ config_id: "config-id", config_name: "api-config", target: "/etc/api.yaml" }],
+};
+const blank = { template: "<div />" };
+
+async function mountPage(path = "/services/infra/api") {
+  const router = createRouter({
+    history: createMemoryHistory(),
+    routes: [
+      { path: "/services/:stack/:service", name: "service-details", component: ServiceView },
+      { path: "/services/:stack/:service/configs/:config", name: "service-config", component: ServiceConfigView },
+      { path: "/stacks/:stack", name: "stack-details", component: blank },
+      { path: "/realtime", name: "realtime", component: blank },
+      { path: "/deployments", name: "deployments", component: blank },
+    ],
   });
+  await router.push(path);
+  const wrapper = mount({
+    components: { DeploymentDetailsModal, SecretDetailsModal },
+    template: "<RouterView /><DeploymentDetailsModal /><SecretDetailsModal />",
+  }, { attachTo: document.body, global: { plugins: [createPinia(), router] } });
+  cleanup.push(() => wrapper.unmount());
   await flushPromises();
   return wrapper;
 }
 
-class FakeEventSource {
-  private listeners = new Map<string, Array<(event: MessageEvent<string>) => void>>();
-  onerror: ((event: Event) => void) | null = null;
-  closed = false;
-
-  addEventListener(type: string, listener: EventListenerOrEventListenerObject): void {
-    const callback = listener as (event: MessageEvent<string>) => void;
-    this.listeners.set(type, [...(this.listeners.get(type) ?? []), callback]);
-  }
-
-  emit(type: string, payload: unknown): void {
-    const data = typeof payload === "string" ? payload : JSON.stringify(payload);
-    for (const listener of this.listeners.get(type) ?? []) {
-      listener(new MessageEvent(type, { data }));
-    }
-  }
-
-  close(): void {
-    this.closed = true;
-  }
-}
+const cleanup: Array<() => void> = [];
+beforeEach(() => {
+  vi.clearAllMocks();
+  api.fetchServices.mockResolvedValue({
+    services: [{
+      name: "api", stack: "infra", image, type_title: "Application",
+      description: "Serves the API", repository_url: "https://github.com/example/api",
+      web_routes: [{ domain: "api.example.test", address: "10.0.0.12", port: "443" }],
+    }],
+  });
+  api.fetchServiceStatus.mockResolvedValue({
+    stack: "infra",
+    service: "api",
+    links: [{ type: "Dashboard", url: "https://monitoring.example.test/api" }],
+    spec: storedSpec,
+  });
+  api.fetchSwarmServices.mockResolvedValue({ services: [liveAPI, liveWorker, { ...liveWorker, id: "unrelated", full_name: "infra_other", network_targets: ["unrelated"] }] });
+  api.fetchNetworks.mockResolvedValue({
+    networks: [{
+      id: "overlay-id", name: "infra-overlay", scope: "swarm", driver: "overlay", attachable: true,
+      internal: false, ingress: false, ipam: [{ subnet: "10.0.4.0/24", gateway: "10.0.4.1" }],
+    }],
+  });
+  api.fetchServiceDeployments.mockResolvedValue({
+    deployments: [
+      { id: "latest", image, image_version: "v2.3.1", status: "succeeded", created_at: date },
+      { id: "older", image_version: "v2.3.0", status: "superseded", created_at: date },
+    ],
+  });
+  api.fetchDeployment.mockResolvedValue({
+    id: "latest", stack: "infra", status: "succeeded", started_at: date,
+    resources: { services: 1, configs: 1, secrets: 1, networks: 1, volumes: 0 },
+    summary: { added: 0, changed: 1, removed: 0, redacted: 0 },
+  });
+  api.fetchSecretByName.mockResolvedValue({ id: "secret-id", name: "api-token", labels: {}, used_by: [] });
+});
+afterEach(() => {
+  cleanup.splice(0).forEach((dispose) => dispose());
+  vi.unstubAllGlobals();
+});
 
 describe("ServiceView", () => {
-  beforeEach(() => {
-    apiMocks.fetchServices.mockResolvedValue({
-      services: [{
-        name: "api",
-        stack: "infra",
-        sync_status: "Synced",
-        type: "application",
-        type_title: "Application",
-        image: "registry.example.com/infra/api:latest",
-        image_version: "latest",
-        web_routes: [],
-      }],
-    });
-    apiMocks.fetchServiceStatus.mockResolvedValue({
-      stack: "infra",
-      service: "api",
-      links: [],
-      spec: {
-        image: "registry.example.com/infra/api:latest",
-        mode: "replicated",
-        replicas: 1,
-        requested_ram_bytes: 0,
-        requested_cpu_nano: 0,
-        limit_ram_bytes: 0,
-        limit_cpu_nano: 0,
-        labels: {
-          custom: {
-            "team.owner": "platform",
-            "prometheus.port": "8080",
-            "com.docker.extra": "generated",
-          },
-          docker: { "com.docker.stack.namespace": "infra" },
-          swarm_deploy: { "org.swarm-deploy.service.type": "application" },
-        },
-        secrets: [],
-        network: [],
-      },
-    });
-    apiMocks.fetchServiceDeployments.mockResolvedValue({ deployments: [] });
-    apiMocks.fetchServiceRealtime.mockResolvedValue({
-      tasks: [{
-        id: "task-id",
-        node: "node-id",
-        node_name: "manager-1",
-        current_state: "running",
-        created_at: "2026-10-04T18:00:00Z",
-        updated_at: "2026-10-04T18:01:00Z",
-        error: "",
-      }],
-    });
-    apiMocks.fetchSwarmTask.mockResolvedValue({
-      id: "task-id",
-      service_id: "service-id",
-      node_id: "node-id",
-      slot: 1,
-      desired_state: "running",
-      current_state: "running",
-      created_at: "2026-10-04T18:00:00Z",
-      updated_at: "2026-10-04T18:01:00Z",
-      container_id: "container-id",
-      image: "registry.example.com/infra/api:latest",
-      environment: [],
-    });
+  it("shows service metadata and the live status with a scoped Realtime link", async () => {
+    const wrapper = await mountPage();
+    const header = wrapper.get(".service-heading");
+    expect(header.get(".service-actions-items").text()).toBe("Pause sync");
+    expect(header.find(".service-actions-items a").exists()).toBe(false);
+    expect(header.findAll(".app-status-badge").map((badge) => badge.text())).toEqual(["2 / 2 replicas"]);
+    expect(header.get(".app-status-badge").classes()).toContain("app-status-badge--success");
+    expect(header.get('a[href="/stacks/infra"]').text()).toBe("infra");
+    expect(header.text()).not.toContain("Dashboard");
+    expect(header.text()).not.toMatch(/Last deployment|Succeeded/i);
+    expect(header.text()).not.toContain("Application");
+    expect(header.get('a[aria-label="Open api in Realtime"]').attributes("href")).toBe("/realtime?stack=infra&service=api");
+    expect(wrapper.get("#service-metadata-title").text()).toBe("Service");
+    const table = wrapper.get('table[aria-label="Service"]');
+    const repository = table.get('a[href="https://github.com/example/api"]');
+    expect(repository.text()).toBe("example/api");
+    expect(repository.attributes("target")).toBe("_blank");
+    expect(repository.find("svg").exists()).toBe(true);
+    expect(table.findAll("th").map((th) => th.text())).toEqual([
+      "Type", "Description", "Mode", "Published port",
+      "Update strategy", "Image", "Repository", "Links", "Web Routes", "Created", "Labels",
+    ]);
+    for (const value of ["Application", "Serves the API", "replicated", "8080 → 80/tcp", "Rolling / parallelism 1", image, "api.example.test (10.0.0.12:443)"]) {
+      expect(table.text()).toContain(value);
+    }
+    const link = table.get('a[href="https://monitoring.example.test/api"]');
+    expect(link.get(".app-status-badge").classes()).toContain("app-status-badge--filled");
+    expect(link.text()).toBe("Dashboard");
+    expect(link.attributes("target")).toBe("_blank");
+    expect(table.get("time").attributes("datetime")).toBe(date);
+    expect(wrapper.get('table[aria-label="Service resources"]').findAll("th").map((th) => th.text())).toEqual([
+      "Requested / limited RAM", "Requested / limited CPU",
+    ]);
   });
 
-  describe("image copying", () => {
+  it.each([undefined, "", " "])("hides the Repository row for %j", async (repositoryURL) => {
+    api.fetchServices.mockResolvedValueOnce({ services: [{ name: "api", stack: "infra", repository_url: repositoryURL }] });
+    const wrapper = await mountPage();
+    const table = wrapper.get('table[aria-label="Service"]');
+
+    expect(table.findAll("th").map((heading) => heading.text())).not.toContain("Repository");
+  });
+
+  it.each([
+    { href: "https://gitlab.com/org/team/repo.git?ref=main#readme", label: "org/team/repo.git", icon: true },
+    { href: "https://bitbucket.org/org/repo", label: "org/repo", icon: true },
+    { href: "https://git.example.test:8443/org/repo", label: "org/repo", icon: false },
+  ])("displays the repository path for $href", async ({ href, label, icon }) => {
+    api.fetchServices.mockResolvedValueOnce({ services: [{ name: "api", stack: "infra", repository_url: href }] });
+    const wrapper = await mountPage();
+    const link = wrapper.get(".service-repository-link");
+
+    expect(link.text()).toBe(label);
+    expect(link.attributes("href")).toBe(href);
+    expect(link.find("svg").exists()).toBe(icon);
+  });
+
+  it.each([
+    { running: 0, desired: 0, variant: "success" },
+    { running: 0, desired: 3, variant: "error" },
+    { running: 2, desired: 3, variant: "warning" },
+    { running: 4, desired: 3, variant: "warning" },
+  ])("uses the same replicas and color on desktop and mobile for $running / $desired", async ({ running, desired, variant }) => {
+    api.fetchSwarmServices.mockResolvedValueOnce({ services: [{ ...liveAPI, replicas: { running, desired } }] });
+    const wrapper = await mountPage();
+    const desktopBadge = wrapper.get(".service-heading .service-replica-badge--desktop");
+    const mobileBadge = wrapper.get(".service-metadata-header .service-replica-badge--mobile");
+    for (const badge of [desktopBadge, mobileBadge]) {
+      expect(badge.text()).toBe(`${running} / ${desired} replicas`);
+      expect(badge.classes()).toContain(`app-status-badge--${variant}`);
+    }
+  });
+
+  it("copies the exact image reference and full label", async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
-
-    beforeEach(() => {
-      writeText.mockClear();
-      vi.stubGlobal("isSecureContext", true);
-      vi.stubGlobal("navigator", { clipboard: { writeText } });
-    });
-
-    afterEach(() => {
-      vi.unstubAllGlobals();
-    });
-
-    it.each([
-      "registry.example.com:5000/infra/api:v1.2.3",
-      `registry.example.com/infra/api:v1.2.3@sha256:${"a".repeat(64)}`,
-    ])("copies the exact serviceInfo image %s instead of the spec image", async (image) => {
-      apiMocks.fetchServices.mockResolvedValue({ services: [{ name: "api", stack: "infra", image }] });
-      const wrapper = await mountServiceView();
-      const button = wrapper.get('button[aria-label="Copy image reference"]');
-
-      expect(button.element.parentElement?.textContent).toContain(image);
-      expect(button.classes()).toContain("service-image-copy-button");
-      await button.trigger("click");
-
-      expect(writeText).toHaveBeenCalledExactlyOnceWith(image);
-      wrapper.unmount();
-    });
-
-    it("copies the spec image when serviceInfo has no image", async () => {
-      apiMocks.fetchServices.mockResolvedValue({ services: [{ name: "api", stack: "infra", image: "" }] });
-      const wrapper = await mountServiceView();
-
-      await wrapper.get('button[aria-label="Copy image reference"]').trigger("click");
-
-      expect(writeText).toHaveBeenCalledExactlyOnceWith("registry.example.com/infra/api:latest");
-      wrapper.unmount();
-    });
-
-    it.each(["", undefined])("hides the copy button when both images are %s", async (image) => {
-      apiMocks.fetchServices.mockResolvedValue({ services: [{ name: "api", stack: "infra", image }] });
-      apiMocks.fetchServiceStatus.mockResolvedValue({ spec: { image } });
-      const wrapper = await mountServiceView();
-      const row = wrapper.findAll("tr").find((item) => item.find("th").text() === "Image")!;
-
-      expect(row.get("td").text()).toBe("n/a");
-      expect(row.find("button").exists()).toBe(false);
-      expect(writeText).not.toHaveBeenCalled();
-      wrapper.unmount();
-    });
+    vi.stubGlobal("isSecureContext", true);
+    vi.stubGlobal("navigator", { clipboard: { writeText } });
+    const wrapper = await mountPage();
+    await wrapper.get('button[aria-label="Copy image reference"]').trigger("click");
+    await wrapper.get(".service-labels-show").trigger("click");
+    await wrapper.get('button[aria-label="Copy swarm-deploy.gitops label"]').trigger("click");
+    expect(writeText.mock.calls).toEqual([[image], ["swarm-deploy.gitops=true"]]);
   });
 
-  it("shows only custom labels inline and groups every label in the modal", async () => {
-    const wrapper = await mountServiceView();
-
-    expect(wrapper.findAll(".service-label-chip").map((item) => item.text())).toEqual([
-      "team.owner=platform",
-    ]);
-    expect(wrapper.get(".service-labels-show-all").text()).toBe("Show all (5)");
-
-    await wrapper.get(".service-labels-show-all").trigger("click");
-
-    const modal = wrapper.get(".service-labels-modal-card");
-    expect(modal.findAll(".service-labels-group h3").map((item) => item.text())).toEqual([
-      "Custom",
-      "Docker",
-      "Swarm Deploy",
-      "Other",
-    ]);
-    expect(modal.text()).toContain("com.docker.extra");
-    expect(modal.text()).toContain("com.docker.stack.namespace");
-    expect(modal.text()).toContain("org.swarm-deploy.service.type");
-    expect(modal.text()).toContain("prometheus.port");
-
-    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
-    await nextTick();
-    expect(wrapper.get(".service-labels-modal-card").element.parentElement?.classList.contains("hidden")).toBe(true);
-  });
-
-  it("does not show No labels when only system labels are available", async () => {
-    apiMocks.fetchServiceStatus.mockResolvedValue({
-      stack: "infra",
-      service: "api",
-      links: [],
-      spec: {
-        image: "registry.example.com/infra/api:latest",
-        mode: "replicated",
-        replicas: 1,
-        requested_ram_bytes: 0,
-        requested_cpu_nano: 0,
-        limit_ram_bytes: 0,
-        limit_cpu_nano: 0,
-        labels: {
-          docker: { "com.docker.stack.namespace": "infra" },
-          swarm_deploy: { "org.swarm-deploy.service.type": "application" },
-        },
-      },
-    });
-
-    const wrapper = await mountServiceView();
-
-    expect(wrapper.findAll(".service-label-chip")).toHaveLength(0);
-    expect(wrapper.get(".service-labels-show-all").text()).toBe("Show all (2)");
-    expect(wrapper.get(".service-labels-row").text()).not.toContain("No labels.");
-  });
-
-  it("renders a compact mobile task view without the copy action", async () => {
-    const wrapper = await mountServiceView();
-    const mobileTask = wrapper.get(".service-realtime-mobile-item");
-
-    expect(mobileTask.text()).toContain("manager-1");
-    expect(mobileTask.get(".app-status-badge").text()).toBe("Running");
-    expect(mobileTask.get(".app-status-badge").classes()).toContain("app-status-badge--success");
-    expect(mobileTask.text()).toContain("Updated");
-    expect(mobileTask.text()).not.toContain("Created");
-    expect(mobileTask.find("dl").exists()).toBe(false);
-    const actions = mobileTask.findAll(".service-realtime-action-button");
-    expect(actions).toHaveLength(2);
-    expect(actions.every((button) => button.text() === "")).toBe(true);
-    expect(actions[0].attributes("aria-label")).toBe("Open details for task task-id");
-    expect(actions[1].attributes("aria-label")).toBe("Open logs for task task-id");
-    expect(mobileTask.find('button[aria-label^="Copy task ID"]').exists()).toBe(false);
-    const copyButton = wrapper.get('.service-realtime-desktop button[aria-label="Copy task ID task-id"]');
-    expect(copyButton.text()).toBe("");
-    expect(copyButton.attributes("title")).toBe("Copy task ID");
-  });
-
-  it("uses the stack services table presentation for realtime tasks", async () => {
-    const wrapper = await mountServiceView();
-    const realtimeCard = wrapper.get(".service-realtime-card");
-
-    expect(apiMocks.fetchServiceRealtime).toHaveBeenCalledWith("infra_api");
-
-    expect(realtimeCard.get(".service-panel-content").classes()).toContain("service-realtime-table-content");
-    expect(realtimeCard.get(".service-realtime-table").classes()).toContain("app-table--fixed");
-    expect(realtimeCard.get(".service-realtime-table").attributes("style")).toBeUndefined();
-    expect(realtimeCard.findAll(".service-realtime-table th").map((item) => item.text())).toEqual([
-      "ID",
-      "Node Name",
-      "Current State",
-      "Created At",
-      "Updated At",
-      "Error",
-      "Actions",
-    ]);
-    expect(realtimeCard.findAll(".service-realtime-desktop .service-realtime-action-button")).toHaveLength(2);
-    expect(realtimeCard.get(".service-realtime-table .app-status-badge").classes()).toContain("app-status-badge--success");
-    expect(realtimeCard.get(".service-realtime-table .app-status-badge").text()).toBe("Running");
-  });
-
-  it("opens task details from the icon action", async () => {
-    const wrapper = await mountServiceView();
-    const detailsButton = wrapper.get(".service-realtime-desktop .service-task-details-button");
-
-    expect(wrapper.find(".service-resources-card").exists()).toBe(true);
-    expect(wrapper.find(".service-deployments-card").exists()).toBe(true);
-    expect(detailsButton.text()).toBe("");
-    expect(detailsButton.attributes("title")).toBe("Task details");
-    await detailsButton.trigger("click");
+  it("cancels Pause Sync without submitting the form", async () => {
+    api.getServiceSyncPause.mockResolvedValue({ effective_paused: false });
+    const wrapper = await mountPage();
+    await wrapper.get(".service-actions button").trigger("click");
     await flushPromises();
 
-    expect(apiMocks.fetchSwarmTask).toHaveBeenCalledWith("task-id");
-    expect(wrapper.get(".realtime-task-panel").text()).toContain("Task details");
-    expect(wrapper.get(".realtime-task-panel").text()).toContain("Slot 1");
-    expect(wrapper.get(".service-details-side").classes()).toContain("service-details-side--task-details");
-    expect(wrapper.find(".service-resources-card").exists()).toBe(false);
-    expect(wrapper.find(".service-deployments-card").exists()).toBe(false);
+    const dialog = wrapper.get('form[aria-labelledby="service-pause-title"]');
+    expect(dialog.get('button[type="submit"]').text()).toBe("Pause sync");
+    await dialog.get(".app-button--secondary").trigger("click");
 
-    await wrapper.get('.realtime-task-panel button[aria-label="Close task details"]').trigger("click");
-    expect(wrapper.find(".realtime-task-panel").exists()).toBe(false);
-    expect(wrapper.get(".service-details-side").classes()).not.toContain("service-details-side--task-details");
-    expect(wrapper.find(".service-resources-card").exists()).toBe(true);
-    expect(wrapper.find(".service-deployments-card").exists()).toBe(true);
+    expect(wrapper.find('form[aria-labelledby="service-pause-title"]').exists()).toBe(false);
+    expect(api.setServiceSyncPause).not.toHaveBeenCalled();
   });
 
-  it("parses and filters task logs through backend streams", async () => {
-    const rawStream = new FakeEventSource();
-    const initialStream = new FakeEventSource();
-    const parsedStream = new FakeEventSource();
-    const filteredStream = new FakeEventSource();
-    apiMocks.openTaskLogsStream
-      .mockReturnValueOnce(initialStream as unknown as EventSource)
-      .mockReturnValueOnce(rawStream as unknown as EventSource)
-      .mockReturnValueOnce(parsedStream as unknown as EventSource)
-      .mockReturnValueOnce(filteredStream as unknown as EventSource);
-
-    const wrapper = await mountServiceView();
-    await wrapper.get(".service-task-logs-button").trigger("click");
-
-    const logHeader = wrapper.get(".task-logs-modal-header");
-    expect(logHeader.get("#task-logs-title").text()).toBe("task-id");
-    expect(logHeader.find(".app-copy-button").exists()).toBe(false);
-
-    const wrap = wrapper.get('.task-log-message-column button[aria-label="Wrap lines"]');
-    expect(wrap.attributes("aria-pressed")).toBe("false");
-    expect(wrap.attributes("data-tooltip")).toBe("Wrap lines");
-    await wrap.trigger("click");
-    expect(wrap.attributes("aria-pressed")).toBe("true");
-    expect(wrap.attributes("data-tooltip")).toBe("Wrap lines");
-    expect(wrapper.get(".task-logs-table").classes()).toContain("task-logs-table--wrap");
-
-    expect(apiMocks.openTaskLogsStream).toHaveBeenLastCalledWith("task-id", {
-      follow: true,
-      tail: 200,
-      parse: true,
-      levels: ["TRACE", "DEBUG", "INFO", "WARN", "ERROR", "FATAL"],
-    });
-    const logMode = wrapper.get('button[aria-label="Parsed logs"]');
-    expect(logMode.attributes("aria-pressed")).toBe("true");
-    expect(logMode.attributes("data-tooltip")).toBe("Parsed");
-    await logMode.trigger("click");
-    expect(logMode.attributes("aria-pressed")).toBe("false");
-    expect(logMode.attributes("data-tooltip")).toBe("Raw");
-    expect(initialStream.closed).toBe(true);
-    expect(apiMocks.openTaskLogsStream).toHaveBeenLastCalledWith("task-id", {
-      follow: true,
-      tail: 200,
-      parse: false,
-      levels: undefined,
-    });
-    expect(wrapper.find(".task-logs-level-select").exists()).toBe(false);
-
-    rawStream.emit("log", {
-      timestamp: "2026-10-19T18:00:00Z",
-      stream: "stderr",
-      message: "raw line",
-    });
-    rawStream.emit("log", {
-      timestamp: "2026-10-19T18:00:00.123456Z",
-      stream: "stdout",
-      message: "health check passed",
-    });
-    await nextTick();
-    expect(wrapper.findAll(".task-log-message").map((message) => message.text())).toEqual([
-      "raw line",
-      "health check passed",
-    ]);
-    expect(wrapper.findAll(".task-log-time")[1].text()).toBe("18:00:00.123");
-    expect(wrapper.find(".task-log-stream").exists()).toBe(false);
-
-    const search = wrapper.get<HTMLInputElement>('.task-logs-search input[type="search"]');
-    const streamCallsBeforeSearch = apiMocks.openTaskLogsStream.mock.calls.length;
-    await search.setValue("health");
-    expect(wrapper.findAll(".task-log-message").map((message) => message.text())).toEqual(["health check passed"]);
-    expect(apiMocks.openTaskLogsStream).toHaveBeenCalledTimes(streamCallsBeforeSearch);
-    await search.setValue("");
-
-    await logMode.trigger("click");
-    expect(logMode.attributes("aria-pressed")).toBe("true");
-    expect(logMode.attributes("data-tooltip")).toBe("Parsed");
-    expect(rawStream.closed).toBe(true);
-    expect(apiMocks.openTaskLogsStream).toHaveBeenLastCalledWith("task-id", {
-      follow: true,
-      tail: 200,
-      parse: true,
-      levels: ["TRACE", "DEBUG", "INFO", "WARN", "ERROR", "FATAL"],
-    });
-
-    parsedStream.emit("counts", { counts: { INFO: 2, ERROR: 1 } });
-    parsedStream.emit("log", {
-      timestamp: "2026-10-19T18:00:01Z",
-      stream: "stderr",
-      level: "ERROR",
-      message: "request failed",
-      attributes: { request_id: "req-1", context: { tenant: "acme" } },
-      raw_message: `level=error msg="request failed" request_id=req-1`,
-    });
-    parsedStream.emit("log", {
-      timestamp: "2026-10-19T18:00:02Z",
-      stream: "stdout",
-      level: "INFO",
-      message: "worker ready",
-      attributes: { worker: 12 },
-      raw_message: "raw-only-token worker=12",
-    });
-    await nextTick();
-
-    const levels = wrapper.get(".task-logs-level-select");
-    expect(levels.get(".app-select-selection").text()).toBe("All levels");
-    expect(levels.findAll(".app-select-option").map((option) => option.text())).toEqual([
-      "Error (1)", "Warn (0)", "Info (2)", "Debug (0)", "Other (0)",
-    ]);
-    expect(wrapper.get(".task-log-level").text()).toBe("ERROR");
-    expect(wrapper.get(".task-log-message").text()).toBe("request failed");
-    expect(wrapper.find(".task-log-stream").exists()).toBe(false);
-    const firstLog = wrapper.get(".task-log-summary");
-    expect(firstLog.text()).not.toContain("req-1");
-    await firstLog.trigger("click");
-    expect(firstLog.attributes("aria-expanded")).toBe("true");
-    const details = wrapper.get(".task-log-detail-panel");
-    expect(details.get(".task-log-attributes").text()).toContain("request_idreq-1");
-    const detailModes = details.get('[role="tablist"]');
-    expect(detailModes.findAll('[role="tab"]').map((tab) => tab.text())).toEqual(["Fields", "JSON", "Raw"]);
-    expect(detailModes.get('[aria-selected="true"]').text()).toBe("Fields");
-    await detailModes.get("#task-log-fields-tab").trigger("keydown", { key: "ArrowRight" });
-    expect(details.get('[role="tabpanel"]').attributes("aria-labelledby")).toBe("task-log-json-tab");
-    expect(details.get("pre").text()).toContain('"tenant": "acme"');
-    await detailModes.get("#task-log-raw-tab").trigger("click");
-    expect(details.get("pre").text()).toContain("level=error");
-
-    expect(search.attributes("placeholder")).toBe("Search logs");
-    await search.setValue("level:error");
-    expect(wrapper.get(".task-logs-viewer").text()).toContain("No logs match your search.");
-    await search.setValue("raw-only-token");
-    expect(wrapper.findAll(".task-log-message").map((message) => message.text())).toEqual(["worker ready"]);
-    await search.setValue("acme");
-    expect(wrapper.findAll(".task-log-message").map((message) => message.text())).toEqual(["request failed"]);
-    await search.setValue("");
-
-    await levels.get<HTMLInputElement>('input[value="info"]').setValue(true);
-    expect(parsedStream.closed).toBe(true);
-    expect(apiMocks.openTaskLogsStream).toHaveBeenLastCalledWith("task-id", {
-      follow: true,
-      tail: 200,
-      parse: true,
-      levels: ["INFO"],
-    });
+  it("previews one label and opens all exact labels with Custom first", async () => {
+    const wrapper = await mountPage();
+    expect(wrapper.findAll(".service-label-token").map((item) => item.text())).toEqual(["team=platform"]);
+    await wrapper.get(".service-labels-show").trigger("click");
+    const labels = wrapper.get('.modal[aria-hidden="false"] [role="dialog"][aria-labelledby="service-labels-title"]');
+    expect(labels.get("h2").text()).toBe("Service labels");
+    expect(labels.findAll(".service-labels-group-header span").map((item) => item.text())).toEqual(["2", "1", "1"]);
+    expect(labels.findAll("h3").map((item) => item.text())).toEqual(["Custom", "Docker", "Swarm Deploy"]);
+    expect(labels.text()).toContain("com.docker.stack.namespace");
+    expect(labels.text()).toContain("swarm-deploy.gitops");
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    await flushPromises();
+    expect(wrapper.find('.modal[aria-hidden="false"] [role="dialog"][aria-labelledby="service-labels-title"]').exists()).toBe(false);
   });
 
-  it("reuses the recent deployment timeline and opens details by ID", async () => {
-    apiMocks.fetchServiceDeployments.mockResolvedValue({ deployments: [
-      { id: "deployment-1", created_at: "2026-10-10T10:00:00Z", status: "succeeded",
-        image: "registry.example.com/api:v2", image_version: "v2", commit: "abc123456" },
-      { id: "deployment-2", created_at: "2026-10-09T10:00:00Z", status: "failed",
-        image: "registry.example.com/api:v2", image_version: "v2", commit: "def123456" },
-      { id: "deployment-3", created_at: "2026-10-08T10:00:00Z", status: "running",
-        image: "registry.example.com/api:v2", image_version: "v2" },
-      { id: "deployment-4", created_at: "2026-10-07T10:00:00Z", status: "interrupted",
-        image: "registry.example.com/api:v2", image_version: "v2" },
-    ] });
-    const wrapper = await mountServiceView();
-    expect(wrapper.findAll(".service-panel")).toHaveLength(4);
-    expect(wrapper.getComponent({ name: "RouterLink" }).props("to")).toEqual({
-      name: "deployments",
-      query: { stack_name: "infra", service_name: "api" },
-    });
-    expect(apiMocks.fetchServiceDeployments).toHaveBeenCalledWith("infra", "api", 4);
-    const rows = wrapper.findAll(".stack-deployment");
-    expect(rows).toHaveLength(4);
-    expect(rows[0].text()).toContain("Deploy completed");
-    expect(rows.every((row) => row.text().includes("Image v2"))).toBe(true);
-    expect(rows[0].text()).not.toContain("infra/api");
-    expect(rows[0].classes()).toContain("stack-deployment--success");
-    expect(rows[1].classes()).toContain("stack-deployment--failed");
-    expect(rows[2].classes()).toContain("stack-deployment--running");
-    expect(rows[3].classes()).toContain("stack-deployment--unknown");
+  it("opens the Network details dialog with subnet, gateway and connected services", async () => {
+    const wrapper = await mountPage();
+    const buttons = wrapper.findAll("button.service-entity");
+    await buttons.find((button) => button.text().includes("infra-overlay"))!.trigger("click");
+    const dialog = wrapper.get('.modal[aria-hidden="false"] [role="dialog"][aria-labelledby="network-details-title"]');
+    for (const value of ["10.0.4.0/24", "10.0.4.1", "infra_worker", "infra_api"]) {
+      expect(dialog.text()).toContain(value);
+    }
+    expect(dialog.text()).not.toContain("infra_other");
+  });
 
-    const store = useOverviewStore();
-    const openDeployment = vi.spyOn(store, "openDeploymentDetailsModal").mockResolvedValue(undefined);
-    const openCommit = vi.spyOn(store, "openCommitDetailsModal").mockResolvedValue(undefined);
-    await rows[0].trigger("click");
-    expect(openDeployment).toHaveBeenCalledWith("deployment-1");
-    await rows[0].get(".stack-commit-button").trigger("click");
-    expect(openCommit).toHaveBeenCalledWith("abc123456");
-    expect(openDeployment).toHaveBeenCalledTimes(1);
+  it("opens the existing Secret details dialog", async () => {
+    const wrapper = await mountPage();
+    await wrapper.findAll("button.service-entity").find((button) => button.text().includes("api-token"))!.trigger("click");
+    await flushPromises();
+    expect(api.fetchSecretByName).toHaveBeenCalledExactlyOnceWith("api-token");
+    expect(wrapper.findAll('.modal[aria-hidden="false"] [role="dialog"]').some((dialog) => dialog.isVisible() && dialog.text().includes("api-token"))).toBe(true);
+  });
+
+  it("links to the Config page with the service mount path", async () => {
+    const wrapper = await mountPage();
+    const link = wrapper.get("a.service-entity");
+    expect(link.attributes("href")).toBe("/services/infra/api/configs/config-id?target=/etc/api.yaml");
+    await link.trigger("click");
+    await flushPromises();
+    expect(wrapper.get('table[aria-label="Config details"]').text()).toContain("/etc/api.yaml");
+    expect(wrapper.findAll('.modal[aria-hidden="false"] [role="dialog"]').some((dialog) => dialog.isVisible())).toBe(false);
+  });
+
+  it("opens real Deployment details and shows the original status vocabulary", async () => {
+    const wrapper = await mountPage();
+    const history = wrapper.get('table[aria-label="Deployment history"]');
+    expect(history.findAll("th").map((item) => item.text())).toEqual(["Version", "Status", "Started", "Details"]);
+    expect(history.text()).toContain("Superseded");
+    expect(wrapper.get(".service-deployments .app-panel-header").text()).toBe("Deployments");
+    expect(wrapper.get(".service-deployments").text()).not.toMatch(/Current|Git sync healthy/);
+    expect(history.find(".app-status-badge-dot").exists()).toBe(false);
+    await history.get("tbody tr").trigger("click");
+    await flushPromises();
+    expect(api.fetchDeployment).toHaveBeenCalledExactlyOnceWith("latest");
+    expect(wrapper.findAll('.modal[aria-hidden="false"] [role="dialog"]').some((dialog) => dialog.isVisible() && dialog.text().includes("Succeeded"))).toBe(true);
+    await history.get('button[aria-label="Open deployment v2.3.0 details"]').trigger("click");
+    expect(api.fetchDeployment).toHaveBeenLastCalledWith("older");
+  });
+
+  it("keeps the metadata visible when the live service cannot be loaded", async () => {
+    api.fetchSwarmServices.mockRejectedValueOnce(new Error("Swarm unavailable"));
+    const wrapper = await mountPage();
+    expect(wrapper.get(".service-heading").text()).toContain("Unknown");
+    expect(wrapper.get(".service-metadata").text()).toContain("Application");
+    expect(wrapper.get('[role="status"]').text()).toBe("Swarm unavailable");
   });
 });

@@ -34,6 +34,8 @@ type Network struct {
 	Labels map[string]string `json:"labels"`
 	// Options contains driver-specific network options.
 	Options map[string]string `json:"options"`
+	// IPAM describes the network subnets and gateways.
+	IPAM []dockernetwork.IPAMConfig `json:"ipam,omitempty"`
 	// Stack name of stack, computed from labels,
 	Stack string `json:"stack,omitempty"`
 }

@@ -134,6 +134,7 @@ func (*networkManager) mapNetwork(network dockernetwork.Summary) Network {
 		Ingress:    network.Ingress,
 		Labels:     network.Labels,
 		Options:    network.Options,
+		IPAM:       network.IPAM.Config,
 		Stack:      labelsdict.GetStackName(network.Labels),
 	}
 }

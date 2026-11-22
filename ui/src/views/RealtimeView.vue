@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
+import { useRoute } from "vue-router";
 
 import AppModal from "../components/common/AppModal.vue";
 import { ApiError } from "../api/client";
@@ -21,7 +22,7 @@ import TaskDetailsPanel from "../components/services/TaskDetailsPanel.vue";
 import TaskStatusBadge from "../components/services/TaskStatusBadge.vue";
 import TaskLogsModal from "../components/services/TaskLogsModal.vue";
 import { copyText } from "../utils/clipboard";
-import { formatDate } from "../utils/format";
+import { formatDate, formatRelativeTime } from "../utils/format";
 import { serviceRuntimeState, type RuntimeState } from "../utils/realtime";
 
 interface TaskListState {
@@ -56,6 +57,9 @@ function readRefreshInterval(): RefreshInterval {
   }
 }
 
+const route = useRoute();
+const linkedService = computed(() => typeof route.query.service === "string" ? route.query.service : "");
+const linkedStack = computed(() => typeof route.query.stack === "string" ? route.query.stack : "");
 const services = ref<SwarmService[]>([]);
 const initialLoading = ref(true);
 const refreshing = ref(false);
@@ -310,6 +314,7 @@ const selectedStackSummary = computed(() => {
 const filteredServices = computed(() => {
   const query = searchQuery.value.trim().toLocaleLowerCase();
   return services.value.filter((service) => {
+    if (linkedService.value && (service.name !== linkedService.value || service.stack !== linkedStack.value)) return false;
     if (selectedStacks.value.length > 0 && !selectedStacks.value.includes(service.stack)) return false;
     if (stateFilter.value !== "all" && serviceRuntimeState(service) !== stateFilter.value) return false;
     if (!query) return true;
@@ -350,18 +355,6 @@ function shortID(id: string): string {
   if (!id) return "n/a";
   if (id.length <= 18) return id;
   return `${id.slice(0, 10)}…${id.slice(-6)}`;
-}
-
-function formatRelativeTime(raw: string | undefined): string {
-  if (!raw) return "n/a";
-  const timestamp = new Date(raw).valueOf();
-  if (Number.isNaN(timestamp)) return raw;
-
-  const elapsedSeconds = Math.max(0, Math.floor((Date.now() - timestamp) / 1_000));
-  if (elapsedSeconds < 60) return "now";
-  if (elapsedSeconds < 3_600) return `${Math.floor(elapsedSeconds / 60)}m ago`;
-  if (elapsedSeconds < 86_400) return `${Math.floor(elapsedSeconds / 3_600)}h ago`;
-  return `${Math.floor(elapsedSeconds / 86_400)}d ago`;
 }
 
 function isFailedTask(state: string): boolean {
@@ -528,6 +521,13 @@ function handleRefreshMenuKeydown(event: KeyboardEvent): void {
 
 watch(refreshInterval, startPolling);
 
+watch([linkedService, linkedStack, services], ([name, stack], previous) => {
+  if (!name) return;
+  const service = services.value.find((item) => item.name === name && item.stack === stack);
+  if (service && (name !== previous?.[0] || stack !== previous?.[1] || !previous?.[2]?.length)
+      && !expandedServiceIDs.value.has(service.id)) toggleService(service);
+});
+
 onMounted(() => {
   document.addEventListener("visibilitychange", handleVisibilityChange);
   document.addEventListener("click", handleDocumentClick, true);
@@ -595,6 +595,10 @@ onUnmounted(() => {
 
     <p v-if="refreshError && services.length > 0" class="realtime-stale-warning" role="status">
       Live data may be stale: {{ refreshError }}
+    </p>
+    <p v-if="linkedService" class="meta">
+      {{ linkedStack ? `${linkedStack}/${linkedService}` : linkedService }} ·
+      <RouterLink class="assistant-md-link" :to="{ name: 'realtime' }">Show all services</RouterLink>
     </p>
 
     <div class="realtime-filters" aria-label="Service filters">

@@ -13,6 +13,7 @@ import RealtimeView from "../views/RealtimeView.vue";
 import SecretsView from "../views/SecretsView.vue";
 import StackView from "../views/StackView.vue";
 import ServiceView from "../views/ServiceView.vue";
+import ServiceConfigView from "../views/ServiceConfigView.vue";
 
 export const router = createRouter({
   history: createWebHistory(getWebBasePath()),
@@ -57,6 +58,11 @@ export const router = createRouter({
       path: "/services/:stack/:service",
       name: "service-details",
       component: ServiceView,
+    },
+    {
+      path: "/services/:stack/:service/configs/:config",
+      name: "service-config",
+      component: ServiceConfigView,
     },
     {
       path: "/cluster",

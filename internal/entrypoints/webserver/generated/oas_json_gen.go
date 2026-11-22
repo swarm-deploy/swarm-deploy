@@ -8872,9 +8872,19 @@ func (s *NetworkInfo) encodeFields(e *jx.Encoder) {
 		e.FieldStart("managed")
 		e.Bool(s.Managed)
 	}
+	{
+		if s.Ipam != nil {
+			e.FieldStart("ipam")
+			e.ArrStart()
+			for _, elem := range s.Ipam {
+				elem.Encode(e)
+			}
+			e.ArrEnd()
+		}
+	}
 }
 
-var jsonFieldsNameOfNetworkInfo = [11]string{
+var jsonFieldsNameOfNetworkInfo = [12]string{
 	0:  "id",
 	1:  "name",
 	2:  "scope",
@@ -8886,6 +8896,7 @@ var jsonFieldsNameOfNetworkInfo = [11]string{
 	8:  "options",
 	9:  "stack_name",
 	10: "managed",
+	11: "ipam",
 }
 
 // Decode decodes NetworkInfo from json.
@@ -9023,6 +9034,23 @@ func (s *NetworkInfo) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"managed\"")
 			}
+		case "ipam":
+			if err := func() error {
+				s.Ipam = make([]NetworkInfoIpamItem, 0)
+				if err := d.Arr(func(d *jx.Decoder) error {
+					var elem NetworkInfoIpamItem
+					if err := elem.Decode(d); err != nil {
+						return err
+					}
+					s.Ipam = append(s.Ipam, elem)
+					return nil
+				}); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"ipam\"")
+			}
 		default:
 			return d.Skip()
 		}
@@ -9076,6 +9104,86 @@ func (s *NetworkInfo) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON implements stdjson.Unmarshaler.
 func (s *NetworkInfo) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode implements json.Marshaler.
+func (s *NetworkInfoIpamItem) Encode(e *jx.Encoder) {
+	e.ObjStart()
+	s.encodeFields(e)
+	e.ObjEnd()
+}
+
+// encodeFields encodes fields.
+func (s *NetworkInfoIpamItem) encodeFields(e *jx.Encoder) {
+	{
+		if s.Subnet.Set {
+			e.FieldStart("subnet")
+			s.Subnet.Encode(e)
+		}
+	}
+	{
+		if s.Gateway.Set {
+			e.FieldStart("gateway")
+			s.Gateway.Encode(e)
+		}
+	}
+}
+
+var jsonFieldsNameOfNetworkInfoIpamItem = [2]string{
+	0: "subnet",
+	1: "gateway",
+}
+
+// Decode decodes NetworkInfoIpamItem from json.
+func (s *NetworkInfoIpamItem) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode NetworkInfoIpamItem to nil")
+	}
+
+	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
+		switch string(k) {
+		case "subnet":
+			if err := func() error {
+				s.Subnet.Reset()
+				if err := s.Subnet.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"subnet\"")
+			}
+		case "gateway":
+			if err := func() error {
+				s.Gateway.Reset()
+				if err := s.Gateway.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"gateway\"")
+			}
+		default:
+			return d.Skip()
+		}
+		return nil
+	}); err != nil {
+		return errors.Wrap(err, "decode NetworkInfoIpamItem")
+	}
+
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *NetworkInfoIpamItem) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *NetworkInfoIpamItem) UnmarshalJSON(data []byte) error {
 	d := jx.DecodeBytes(data)
 	return s.Decode(d)
 }
@@ -15110,19 +15218,30 @@ func (s *ServiceSpecResponse) encodeFields(e *jx.Encoder) {
 			e.ArrEnd()
 		}
 	}
+	{
+		if s.Configs != nil {
+			e.FieldStart("configs")
+			e.ArrStart()
+			for _, elem := range s.Configs {
+				elem.Encode(e)
+			}
+			e.ArrEnd()
+		}
+	}
 }
 
-var jsonFieldsNameOfServiceSpecResponse = [10]string{
-	0: "image",
-	1: "mode",
-	2: "replicas",
-	3: "requested_ram_bytes",
-	4: "requested_cpu_nano",
-	5: "limit_ram_bytes",
-	6: "limit_cpu_nano",
-	7: "labels",
-	8: "secrets",
-	9: "network",
+var jsonFieldsNameOfServiceSpecResponse = [11]string{
+	0:  "image",
+	1:  "mode",
+	2:  "replicas",
+	3:  "requested_ram_bytes",
+	4:  "requested_cpu_nano",
+	5:  "limit_ram_bytes",
+	6:  "limit_cpu_nano",
+	7:  "labels",
+	8:  "secrets",
+	9:  "network",
+	10: "configs",
 }
 
 // Decode decodes ServiceSpecResponse from json.
@@ -15262,6 +15381,23 @@ func (s *ServiceSpecResponse) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"network\"")
 			}
+		case "configs":
+			if err := func() error {
+				s.Configs = make([]ServiceSpecResponseConfigsItem, 0)
+				if err := d.Arr(func(d *jx.Decoder) error {
+					var elem ServiceSpecResponseConfigsItem
+					if err := elem.Decode(d); err != nil {
+						return err
+					}
+					s.Configs = append(s.Configs, elem)
+					return nil
+				}); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"configs\"")
+			}
 		default:
 			return d.Skip()
 		}
@@ -15315,6 +15451,136 @@ func (s *ServiceSpecResponse) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON implements stdjson.Unmarshaler.
 func (s *ServiceSpecResponse) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode implements json.Marshaler.
+func (s *ServiceSpecResponseConfigsItem) Encode(e *jx.Encoder) {
+	e.ObjStart()
+	s.encodeFields(e)
+	e.ObjEnd()
+}
+
+// encodeFields encodes fields.
+func (s *ServiceSpecResponseConfigsItem) encodeFields(e *jx.Encoder) {
+	{
+		if s.ConfigID.Set {
+			e.FieldStart("config_id")
+			s.ConfigID.Encode(e)
+		}
+	}
+	{
+		e.FieldStart("config_name")
+		e.Str(s.ConfigName)
+	}
+	{
+		if s.Target.Set {
+			e.FieldStart("target")
+			s.Target.Encode(e)
+		}
+	}
+}
+
+var jsonFieldsNameOfServiceSpecResponseConfigsItem = [3]string{
+	0: "config_id",
+	1: "config_name",
+	2: "target",
+}
+
+// Decode decodes ServiceSpecResponseConfigsItem from json.
+func (s *ServiceSpecResponseConfigsItem) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode ServiceSpecResponseConfigsItem to nil")
+	}
+	var requiredBitSet [1]uint8
+
+	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
+		switch string(k) {
+		case "config_id":
+			if err := func() error {
+				s.ConfigID.Reset()
+				if err := s.ConfigID.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"config_id\"")
+			}
+		case "config_name":
+			requiredBitSet[0] |= 1 << 1
+			if err := func() error {
+				v, err := d.Str()
+				s.ConfigName = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"config_name\"")
+			}
+		case "target":
+			if err := func() error {
+				s.Target.Reset()
+				if err := s.Target.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"target\"")
+			}
+		default:
+			return d.Skip()
+		}
+		return nil
+	}); err != nil {
+		return errors.Wrap(err, "decode ServiceSpecResponseConfigsItem")
+	}
+	// Validate required fields.
+	var failures []validate.FieldError
+	for i, mask := range [1]uint8{
+		0b00000010,
+	} {
+		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
+			// Mask only required fields and check equality to mask using XOR.
+			//
+			// If XOR result is not zero, result is not equal to expected, so some fields are missed.
+			// Bits of fields which would be set are actually bits of missed fields.
+			missed := bits.OnesCount8(result)
+			for bitN := 0; bitN < missed; bitN++ {
+				bitIdx := bits.TrailingZeros8(result)
+				fieldIdx := i*8 + bitIdx
+				var name string
+				if fieldIdx < len(jsonFieldsNameOfServiceSpecResponseConfigsItem) {
+					name = jsonFieldsNameOfServiceSpecResponseConfigsItem[fieldIdx]
+				} else {
+					name = strconv.Itoa(fieldIdx)
+				}
+				failures = append(failures, validate.FieldError{
+					Name:  name,
+					Error: validate.ErrFieldRequired,
+				})
+				// Reset bit.
+				result &^= 1 << bitIdx
+			}
+		}
+	}
+	if len(failures) > 0 {
+		return &validate.Error{Fields: failures}
+	}
+
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *ServiceSpecResponseConfigsItem) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *ServiceSpecResponseConfigsItem) UnmarshalJSON(data []byte) error {
 	d := jx.DecodeBytes(data)
 	return s.Decode(d)
 }
@@ -16963,18 +17229,61 @@ func (s *SwarmService) encodeFields(e *jx.Encoder) {
 		e.FieldStart("updated_at")
 		json.EncodeDateTime(e, s.UpdatedAt)
 	}
+	{
+		if s.CreatedAt.Set {
+			e.FieldStart("created_at")
+			s.CreatedAt.Encode(e, json.EncodeDateTime)
+		}
+	}
+	{
+		if s.EndpointMode.Set {
+			e.FieldStart("endpoint_mode")
+			s.EndpointMode.Encode(e)
+		}
+	}
+	{
+		if s.PublishedPorts != nil {
+			e.FieldStart("published_ports")
+			e.ArrStart()
+			for _, elem := range s.PublishedPorts {
+				elem.Encode(e)
+			}
+			e.ArrEnd()
+		}
+	}
+	{
+		if s.UpdateParallelism.Set {
+			e.FieldStart("update_parallelism")
+			s.UpdateParallelism.Encode(e)
+		}
+	}
+	{
+		if s.NetworkTargets != nil {
+			e.FieldStart("network_targets")
+			e.ArrStart()
+			for _, elem := range s.NetworkTargets {
+				e.Str(elem)
+			}
+			e.ArrEnd()
+		}
+	}
 }
 
-var jsonFieldsNameOfSwarmService = [9]string{
-	0: "id",
-	1: "name",
-	2: "full_name",
-	3: "stack",
-	4: "image",
-	5: "mode",
-	6: "replicas",
-	7: "configured_replicas",
-	8: "updated_at",
+var jsonFieldsNameOfSwarmService = [14]string{
+	0:  "id",
+	1:  "name",
+	2:  "full_name",
+	3:  "stack",
+	4:  "image",
+	5:  "mode",
+	6:  "replicas",
+	7:  "configured_replicas",
+	8:  "updated_at",
+	9:  "created_at",
+	10: "endpoint_mode",
+	11: "published_ports",
+	12: "update_parallelism",
+	13: "network_targets",
 }
 
 // Decode decodes SwarmService from json.
@@ -17090,6 +17399,72 @@ func (s *SwarmService) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"updated_at\"")
 			}
+		case "created_at":
+			if err := func() error {
+				s.CreatedAt.Reset()
+				if err := s.CreatedAt.Decode(d, json.DecodeDateTime); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"created_at\"")
+			}
+		case "endpoint_mode":
+			if err := func() error {
+				s.EndpointMode.Reset()
+				if err := s.EndpointMode.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"endpoint_mode\"")
+			}
+		case "published_ports":
+			if err := func() error {
+				s.PublishedPorts = make([]SwarmServicePublishedPortsItem, 0)
+				if err := d.Arr(func(d *jx.Decoder) error {
+					var elem SwarmServicePublishedPortsItem
+					if err := elem.Decode(d); err != nil {
+						return err
+					}
+					s.PublishedPorts = append(s.PublishedPorts, elem)
+					return nil
+				}); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"published_ports\"")
+			}
+		case "update_parallelism":
+			if err := func() error {
+				s.UpdateParallelism.Reset()
+				if err := s.UpdateParallelism.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"update_parallelism\"")
+			}
+		case "network_targets":
+			if err := func() error {
+				s.NetworkTargets = make([]string, 0)
+				if err := d.Arr(func(d *jx.Decoder) error {
+					var elem string
+					v, err := d.Str()
+					elem = string(v)
+					if err != nil {
+						return err
+					}
+					s.NetworkTargets = append(s.NetworkTargets, elem)
+					return nil
+				}); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"network_targets\"")
+			}
 		default:
 			return d.Skip()
 		}
@@ -17143,6 +17518,136 @@ func (s *SwarmService) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON implements stdjson.Unmarshaler.
 func (s *SwarmService) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode implements json.Marshaler.
+func (s *SwarmServicePublishedPortsItem) Encode(e *jx.Encoder) {
+	e.ObjStart()
+	s.encodeFields(e)
+	e.ObjEnd()
+}
+
+// encodeFields encodes fields.
+func (s *SwarmServicePublishedPortsItem) encodeFields(e *jx.Encoder) {
+	{
+		e.FieldStart("published_port")
+		e.Int64(s.PublishedPort)
+	}
+	{
+		e.FieldStart("target_port")
+		e.Int64(s.TargetPort)
+	}
+	{
+		e.FieldStart("protocol")
+		e.Str(s.Protocol)
+	}
+}
+
+var jsonFieldsNameOfSwarmServicePublishedPortsItem = [3]string{
+	0: "published_port",
+	1: "target_port",
+	2: "protocol",
+}
+
+// Decode decodes SwarmServicePublishedPortsItem from json.
+func (s *SwarmServicePublishedPortsItem) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode SwarmServicePublishedPortsItem to nil")
+	}
+	var requiredBitSet [1]uint8
+
+	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
+		switch string(k) {
+		case "published_port":
+			requiredBitSet[0] |= 1 << 0
+			if err := func() error {
+				v, err := d.Int64()
+				s.PublishedPort = int64(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"published_port\"")
+			}
+		case "target_port":
+			requiredBitSet[0] |= 1 << 1
+			if err := func() error {
+				v, err := d.Int64()
+				s.TargetPort = int64(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"target_port\"")
+			}
+		case "protocol":
+			requiredBitSet[0] |= 1 << 2
+			if err := func() error {
+				v, err := d.Str()
+				s.Protocol = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"protocol\"")
+			}
+		default:
+			return d.Skip()
+		}
+		return nil
+	}); err != nil {
+		return errors.Wrap(err, "decode SwarmServicePublishedPortsItem")
+	}
+	// Validate required fields.
+	var failures []validate.FieldError
+	for i, mask := range [1]uint8{
+		0b00000111,
+	} {
+		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
+			// Mask only required fields and check equality to mask using XOR.
+			//
+			// If XOR result is not zero, result is not equal to expected, so some fields are missed.
+			// Bits of fields which would be set are actually bits of missed fields.
+			missed := bits.OnesCount8(result)
+			for bitN := 0; bitN < missed; bitN++ {
+				bitIdx := bits.TrailingZeros8(result)
+				fieldIdx := i*8 + bitIdx
+				var name string
+				if fieldIdx < len(jsonFieldsNameOfSwarmServicePublishedPortsItem) {
+					name = jsonFieldsNameOfSwarmServicePublishedPortsItem[fieldIdx]
+				} else {
+					name = strconv.Itoa(fieldIdx)
+				}
+				failures = append(failures, validate.FieldError{
+					Name:  name,
+					Error: validate.ErrFieldRequired,
+				})
+				// Reset bit.
+				result &^= 1 << bitIdx
+			}
+		}
+	}
+	if len(failures) > 0 {
+		return &validate.Error{Fields: failures}
+	}
+
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *SwarmServicePublishedPortsItem) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *SwarmServicePublishedPortsItem) UnmarshalJSON(data []byte) error {
 	d := jx.DecodeBytes(data)
 	return s.Decode(d)
 }
