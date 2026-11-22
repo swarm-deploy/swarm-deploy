@@ -164,7 +164,6 @@ onMounted(() => {
 <template>
   <section class="services-page deployments-page">
     <header class="services-header"><h2>{{ t('deployments.title') }}</h2></header>
-    <p class="meta deployments-description">{{ t('deployments.description') }}</p>
     <div class="deployments-filter-bar" :aria-label="t('deployments.filters')">
       <div class="deployments-filter-field">
         <AppSelect
@@ -257,7 +256,6 @@ onMounted(() => {
 
 <style scoped>
 .deployments-page { gap: 16px; min-width: 0; }
-.deployments-description { margin: 0; }
 .deployments-filter-bar {
   min-width: 0;
   display: grid;
