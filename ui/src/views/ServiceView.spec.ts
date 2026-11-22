@@ -20,6 +20,8 @@ const api = vi.hoisted(() => ({
   fetchServiceStatus: vi.fn(),
   fetchServices: vi.fn(),
   fetchSwarmServices: vi.fn(),
+  getServiceSyncPause: vi.fn(),
+  setServiceSyncPause: vi.fn(),
 }));
 
 vi.mock("../api/cluster", () => ({ fetchNetworks: api.fetchNetworks }));
@@ -33,6 +35,11 @@ vi.mock("../api/secrets", () => ({ fetchSecretByName: api.fetchSecretByName }));
 vi.mock("../api/services", () => ({
   fetchServices: api.fetchServices,
   fetchSwarmServices: api.fetchSwarmServices,
+}));
+vi.mock("../api/syncPauses", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../api/syncPauses")>(),
+  getServiceSyncPause: api.getServiceSyncPause,
+  setServiceSyncPause: api.setServiceSyncPause,
 }));
 
 const date = "2026-10-04T18:00:00Z";
@@ -165,6 +172,20 @@ describe("ServiceView", () => {
     await wrapper.get(".service-labels-show").trigger("click");
     await wrapper.get('button[aria-label="Copy swarm-deploy.gitops label"]').trigger("click");
     expect(writeText.mock.calls).toEqual([[image], ["swarm-deploy.gitops=true"]]);
+  });
+
+  it("cancels Pause Sync without submitting the form", async () => {
+    api.getServiceSyncPause.mockResolvedValue({ effective_paused: false });
+    const wrapper = await mountPage();
+    await wrapper.get(".service-actions button").trigger("click");
+    await flushPromises();
+
+    const dialog = wrapper.get('form[aria-labelledby="service-pause-title"]');
+    expect(dialog.get('button[type="submit"]').text()).toBe("Pause sync");
+    await dialog.get(".app-button--secondary").trigger("click");
+
+    expect(wrapper.find('form[aria-labelledby="service-pause-title"]').exists()).toBe(false);
+    expect(api.setServiceSyncPause).not.toHaveBeenCalled();
   });
 
   it("previews one label and opens all exact labels with Custom first", async () => {

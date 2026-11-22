@@ -212,76 +212,86 @@ watch([stackName, serviceName], ([stack, service], _, onCleanup) => {
     <template v-else>
       <p v-if="loadingError || runtimeError" class="meta" role="status">{{ loadingError || runtimeError }}</p>
       <div class="service-dossier">
-        <AppPanel tag="section" class="service-section service-metadata" aria-labelledby="service-metadata-title">
-          <template #header><h3 id="service-metadata-title">Service</h3></template>
-          <AppTable summary fixed aria-label="Service">
-            <template #colgroup><colgroup><col class="service-metadata-label" /><col /></colgroup></template>
-            <tr><th scope="row">Type</th><td>{{ serviceInfo?.type_title || serviceInfo?.type || "n/a" }}</td></tr>
-            <tr><th scope="row">Description</th><td>{{ serviceInfo?.description || "n/a" }}</td></tr>
-            <tr><th scope="row">Mode</th><td class="service-mode">{{ liveService?.mode || spec?.mode || "n/a" }}</td></tr>
-            <tr>
-              <th scope="row">Published port</th>
-              <td>{{ liveService?.published_ports?.map(({ published_port, target_port, protocol }) => `${published_port} → ${target_port}/${protocol}`).join(", ") || "n/a" }}</td>
-            </tr>
-            <tr><th scope="row">Update strategy</th><td>{{ liveService?.update_parallelism == null ? "n/a" : liveService.update_parallelism === 0 ? "Rolling / all at once" : `Rolling / parallelism ${liveService.update_parallelism}` }}</td></tr>
-            <tr>
-              <th scope="row">Image</th>
-              <td>
-                <span v-if="image" class="service-copy-value">
-                  <span>{{ image }}</span>
-                  <AppCopyButton class="service-image-copy-button" :value="image" color="var(--text)" label="Copy image reference" copied-label="Image reference copied" />
-                </span>
-                <span v-else>n/a</span>
-              </td>
-            </tr>
-            <tr>
-              <th scope="row">Repository</th>
-              <td>
-                <a v-if="serviceInfo?.repository_url" :href="serviceInfo.repository_url" class="service-inline-link" target="_blank" rel="noopener noreferrer">{{ serviceInfo.repository_url }}</a>
-                <span v-else>n/a</span>
-              </td>
-            </tr>
-            <tr v-if="links.length">
-              <th scope="row">Links</th>
-              <td>
-                <div class="service-links">
-                  <a
-                    v-for="link in links"
-                    :key="`${link.type}-${link.url}`"
-                    :href="link.url"
-                    :title="link.url"
-                    class="service-link-badge"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    <AppStatusBadge filled>{{ link.type }}</AppStatusBadge>
-                  </a>
-                </div>
-              </td>
-            </tr>
-            <tr v-if="webRoutes.length">
-              <th scope="row">Web Routes</th>
-              <td>
-                <ul class="service-web-routes">
-                  <li v-for="item in webRoutes" :key="`${item.domain}-${item.address}-${item.port}`">
-                    {{ item.domain }} ({{ item.address }}:{{ item.port }})
-                  </li>
-                </ul>
-              </td>
-            </tr>
-            <tr><th scope="row">Created</th><td><time :datetime="liveService?.created_at">{{ formatDate(liveService?.created_at) }}</time></td></tr>
-            <tr>
-              <th scope="row">Labels</th>
-              <td>
-                <div v-if="labelPreview" class="service-labels-preview">
-                  <code class="service-label-token" :title="labelPreview.join('=')">{{ previewKey(labelPreview[0]) }}<span>={{ labelPreview[1] }}</span></code>
-                  <AppButton variant="secondary" compact class="service-labels-show" aria-haspopup="dialog" @click="labelsModalOpen = true">Show all</AppButton>
-                </div>
-                <span v-else class="meta">No labels.</span>
-              </td>
-            </tr>
-          </AppTable>
-        </AppPanel>
+        <div class="service-primary">
+          <AppPanel tag="section" class="service-section service-metadata" aria-labelledby="service-metadata-title">
+            <template #header><h3 id="service-metadata-title">Service</h3></template>
+            <AppTable summary fixed aria-label="Service">
+              <template #colgroup><colgroup><col class="service-metadata-label" /><col /></colgroup></template>
+              <tr><th scope="row">Type</th><td>{{ serviceInfo?.type_title || serviceInfo?.type || "n/a" }}</td></tr>
+              <tr><th scope="row">Description</th><td>{{ serviceInfo?.description || "n/a" }}</td></tr>
+              <tr><th scope="row">Mode</th><td class="service-mode">{{ liveService?.mode || spec?.mode || "n/a" }}</td></tr>
+              <tr>
+                <th scope="row">Published port</th>
+                <td>{{ liveService?.published_ports?.map(({ published_port, target_port, protocol }) => `${published_port} → ${target_port}/${protocol}`).join(", ") || "n/a" }}</td>
+              </tr>
+              <tr><th scope="row">Update strategy</th><td>{{ liveService?.update_parallelism == null ? "n/a" : liveService.update_parallelism === 0 ? "Rolling / all at once" : `Rolling / parallelism ${liveService.update_parallelism}` }}</td></tr>
+              <tr>
+                <th scope="row">Image</th>
+                <td>
+                  <span v-if="image" class="service-copy-value">
+                    <span>{{ image }}</span>
+                    <AppCopyButton class="service-image-copy-button" :value="image" color="var(--text)" label="Copy image reference" copied-label="Image reference copied" />
+                  </span>
+                  <span v-else>n/a</span>
+                </td>
+              </tr>
+              <tr>
+                <th scope="row">Repository</th>
+                <td>
+                  <a v-if="serviceInfo?.repository_url" :href="serviceInfo.repository_url" class="service-inline-link" target="_blank" rel="noopener noreferrer">{{ serviceInfo.repository_url }}</a>
+                  <span v-else>n/a</span>
+                </td>
+              </tr>
+              <tr v-if="links.length">
+                <th scope="row">Links</th>
+                <td>
+                  <div class="service-links">
+                    <a
+                      v-for="link in links"
+                      :key="`${link.type}-${link.url}`"
+                      :href="link.url"
+                      :title="link.url"
+                      class="service-link-badge"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      <AppStatusBadge filled>{{ link.type }}</AppStatusBadge>
+                    </a>
+                  </div>
+                </td>
+              </tr>
+              <tr v-if="webRoutes.length">
+                <th scope="row">Web Routes</th>
+                <td>
+                  <ul class="service-web-routes">
+                    <li v-for="item in webRoutes" :key="`${item.domain}-${item.address}-${item.port}`">
+                      {{ item.domain }} ({{ item.address }}:{{ item.port }})
+                    </li>
+                  </ul>
+                </td>
+              </tr>
+              <tr><th scope="row">Created</th><td><time :datetime="liveService?.created_at">{{ formatDate(liveService?.created_at) }}</time></td></tr>
+              <tr>
+                <th scope="row">Labels</th>
+                <td>
+                  <div v-if="labelPreview" class="service-labels-preview">
+                    <code class="service-label-token" :title="labelPreview.join('=')">{{ previewKey(labelPreview[0]) }}<span>={{ labelPreview[1] }}</span></code>
+                    <AppButton variant="secondary" compact class="service-labels-show" aria-haspopup="dialog" @click="labelsModalOpen = true">Show all</AppButton>
+                  </div>
+                  <span v-else class="meta">No labels.</span>
+                </td>
+              </tr>
+            </AppTable>
+          </AppPanel>
+
+          <AppPanel v-if="spec" tag="section" class="service-section" aria-labelledby="service-resources-title">
+            <template #header><h3 id="service-resources-title">Resources</h3></template>
+            <AppTable summary fixed aria-label="Service resources">
+              <tr><th scope="row">Requested / limited RAM</th><td>{{ spec.requested_ram_bytes ? formatBytes(spec.requested_ram_bytes) : 0 }} / {{ spec.limit_ram_bytes ? formatBytes(spec.limit_ram_bytes) : "∞" }}</td></tr>
+              <tr><th scope="row">Requested / limited CPU</th><td>{{ spec.requested_cpu_nano ? formatNanoCPU(spec.requested_cpu_nano) : 0 }} / {{ spec.limit_cpu_nano ? formatNanoCPU(spec.limit_cpu_nano) : "∞" }}</td></tr>
+            </AppTable>
+          </AppPanel>
+        </div>
 
         <div class="service-related">
           <AppPanel tag="section" class="service-section" aria-labelledby="service-related-title">
@@ -325,14 +335,6 @@ watch([stackName, serviceName], ([stack, service], _, onCleanup) => {
           </AppPanel>
         </div>
       </div>
-
-      <AppPanel v-if="spec" tag="section" class="service-section service-supplementary" aria-labelledby="service-resources-title">
-        <template #header><h3 id="service-resources-title">Resources</h3></template>
-        <AppTable summary fixed aria-label="Service resources">
-          <tr><th scope="row">Requested / limited RAM</th><td>{{ spec.requested_ram_bytes ? formatBytes(spec.requested_ram_bytes) : 0 }} / {{ spec.limit_ram_bytes ? formatBytes(spec.limit_ram_bytes) : "∞" }}</td></tr>
-          <tr><th scope="row">Requested / limited CPU</th><td>{{ spec.requested_cpu_nano ? formatNanoCPU(spec.requested_cpu_nano) : 0 }} / {{ spec.limit_cpu_nano ? formatNanoCPU(spec.limit_cpu_nano) : "∞" }}</td></tr>
-        </AppTable>
-      </AppPanel>
     </template>
 
     <AppModal
@@ -526,15 +528,18 @@ watch([stackName, serviceName], ([stack, service], _, onCleanup) => {
 .service-dossier {
   display: grid;
   grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
-  align-items: start;
   gap: 24px;
 }
 
+.service-primary,
 .service-related {
   min-width: 0;
   display: grid;
   align-content: start;
   gap: 18px;
+}
+
+.service-related {
   border-inline-start: 1px solid var(--border-subtle);
   padding-inline-start: 24px;
 }
@@ -731,10 +736,6 @@ button.service-entity {
 .service-deployment-open {
   padding: 1px 5px;
   font-size: 1rem;
-}
-
-.service-supplementary {
-  max-width: 720px;
 }
 
 .service-labels-modal-body {

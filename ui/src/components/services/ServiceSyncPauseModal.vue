@@ -48,18 +48,43 @@ async function submit() {
 </script>
 
 <template>
-  <AppModal open labelledby="service-pause-title" as="form" :busy="pending" :close-disabled="pending"
-    @submit.prevent="submit" @close="emit('close')">
+  <AppModal
+    open
+    labelledby="service-pause-title"
+    card-class="service-pause-modal-card"
+    as="form"
+    :busy="pending"
+    :close-disabled="pending"
+    @submit.prevent="submit"
+    @close="emit('close')"
+  >
     <template #title><h2 id="service-pause-title">Pause Sync — {{ service }}</h2></template>
-    <div class="modal-body">
+    <div class="modal-body service-pause-modal-body">
       <p v-if="loading" class="meta" role="status">Loading Pause Sync state...</p>
       <p v-if="state?.stack_pause" class="meta">A stack-level pause also applies to this service.</p>
       <p v-if="servicePause">Service pause expires {{ servicePause.expires_at ? formatDate(servicePause.expires_at) : "never" }}.</p>
       <AppSelect v-else-if="state" v-model="duration" :options="options" label="Pause duration" />
       <p v-if="error" role="alert" class="error">{{ error }}</p>
-    </div>
-    <div class="modal-footer">
-      <AppButton type="submit" :disabled="!state || pending">{{ servicePause ? "Remove service pause" : "Pause sync" }}</AppButton>
+      <div class="service-pause-actions">
+        <AppButton variant="secondary" type="button" :disabled="pending" @click="emit('close')">Cancel</AppButton>
+        <AppButton type="submit" :disabled="!state || pending">{{ servicePause ? "Remove service pause" : "Pause sync" }}</AppButton>
+      </div>
     </div>
   </AppModal>
 </template>
+
+<style scoped>
+:deep(.service-pause-modal-card) {
+  width: min(680px, 94vw);
+}
+
+.service-pause-modal-body {
+  gap: 14px;
+}
+
+.service-pause-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+</style>
