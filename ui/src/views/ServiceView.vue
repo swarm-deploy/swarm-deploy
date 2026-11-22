@@ -187,6 +187,17 @@ watch([stackName, serviceName], ([stack, service], _, onCleanup) => {
             </AppStatusBadge>
             <AppStatusBadge v-if="liveService" filled>{{ liveService.replicas.running }} / {{ liveService.replicas.desired }} replicas</AppStatusBadge>
           </template>
+          <a
+            v-for="link in links"
+            :key="`${link.type}-${link.url}`"
+            :href="link.url"
+            :title="link.url"
+            class="service-heading-link"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            <AppStatusBadge filled>{{ link.type }}</AppStatusBadge>
+          </a>
         </div>
       </div>
       <div class="service-heading-actions">
@@ -227,7 +238,6 @@ watch([stackName, serviceName], ([stack, service], _, onCleanup) => {
                 <span v-else>n/a</span>
               </td>
             </tr>
-            <tr><th scope="row">Endpoint mode</th><td>{{ liveService?.endpoint_mode?.toUpperCase() || "n/a" }}</td></tr>
             <tr>
               <th scope="row">Published port</th>
               <td>{{ liveService?.published_ports?.map(({ published_port, target_port, protocol }) => `${published_port} → ${target_port}/${protocol}`).join(", ") || "n/a" }}</td>
@@ -248,6 +258,16 @@ watch([stackName, serviceName], ([stack, service], _, onCleanup) => {
               <td>
                 <a v-if="serviceInfo?.repository_url" :href="serviceInfo.repository_url" class="service-inline-link" target="_blank" rel="noopener noreferrer">{{ serviceInfo.repository_url }}</a>
                 <span v-else>n/a</span>
+              </td>
+            </tr>
+            <tr v-if="webRoutes.length">
+              <th scope="row">Web Routes</th>
+              <td>
+                <ul class="service-web-routes">
+                  <li v-for="item in webRoutes" :key="`${item.domain}-${item.address}-${item.port}`">
+                    {{ item.domain }} ({{ item.address }}:{{ item.port }})
+                  </li>
+                </ul>
               </td>
             </tr>
             <tr><th scope="row">Created</th><td><time :datetime="liveService?.created_at">{{ formatDate(liveService?.created_at) }}</time></td></tr>
@@ -309,19 +329,11 @@ watch([stackName, serviceName], ([stack, service], _, onCleanup) => {
         </div>
       </div>
 
-      <AppPanel v-if="links.length || webRoutes.length || spec" tag="section" class="service-section service-supplementary" aria-labelledby="service-resources-title">
+      <AppPanel v-if="spec" tag="section" class="service-section service-supplementary" aria-labelledby="service-resources-title">
         <template #header><h3 id="service-resources-title">Resources</h3></template>
         <AppTable summary fixed aria-label="Service resources">
-          <tr v-if="spec"><th scope="row">Requested / limited RAM</th><td>{{ spec.requested_ram_bytes ? formatBytes(spec.requested_ram_bytes) : 0 }} / {{ spec.limit_ram_bytes ? formatBytes(spec.limit_ram_bytes) : "∞" }}</td></tr>
-          <tr v-if="spec"><th scope="row">Requested / limited CPU</th><td>{{ spec.requested_cpu_nano ? formatNanoCPU(spec.requested_cpu_nano) : 0 }} / {{ spec.limit_cpu_nano ? formatNanoCPU(spec.limit_cpu_nano) : "∞" }}</td></tr>
-          <tr v-if="webRoutes.length">
-            <th scope="row">Web Routes</th>
-            <td><ul><li v-for="item in webRoutes" :key="`${item.domain}-${item.address}-${item.port}`">{{ item.domain }} ({{ item.address }}:{{ item.port }})</li></ul></td>
-          </tr>
-          <tr v-if="links.length">
-            <th scope="row">Links</th>
-            <td><ul><li v-for="link in links" :key="`${link.type}-${link.url}`"><a :href="link.url" class="service-inline-link" target="_blank" rel="noopener noreferrer">{{ link.type }}</a></li></ul></td>
-          </tr>
+          <tr><th scope="row">Requested / limited RAM</th><td>{{ spec.requested_ram_bytes ? formatBytes(spec.requested_ram_bytes) : 0 }} / {{ spec.limit_ram_bytes ? formatBytes(spec.limit_ram_bytes) : "∞" }}</td></tr>
+          <tr><th scope="row">Requested / limited CPU</th><td>{{ spec.requested_cpu_nano ? formatNanoCPU(spec.requested_cpu_nano) : 0 }} / {{ spec.limit_cpu_nano ? formatNanoCPU(spec.limit_cpu_nano) : "∞" }}</td></tr>
         </AppTable>
       </AppPanel>
     </template>
@@ -408,6 +420,29 @@ watch([stackName, serviceName], ([stack, service], _, onCleanup) => {
 
 .service-heading-summary :deep(.app-status-badge) {
   white-space: nowrap;
+}
+
+.service-heading-link {
+  display: inline-flex;
+  max-width: 100%;
+  border-radius: 999px;
+  text-decoration: none;
+}
+
+.service-heading-link :deep(.app-status-badge) {
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.service-heading-link:hover :deep(.app-status-badge) {
+  color: var(--accent-strong);
+  border-color: var(--accent-border);
+}
+
+.service-heading-link:focus-visible {
+  outline: 2px solid var(--accent-focus);
+  outline-offset: 2px;
 }
 
 .service-heading-actions {
@@ -606,7 +641,7 @@ watch([stackName, serviceName], ([stack, service], _, onCleanup) => {
 }
 
 .service-entities,
-.service-supplementary ul {
+.service-web-routes {
   padding: 0;
   margin: 0;
   list-style: none;

@@ -91,9 +91,15 @@ beforeEach(() => {
     services: [{
       name: "api", stack: "infra", image, type_title: "Application",
       description: "Serves the API", repository_url: "https://github.com/example/api",
+      web_routes: [{ domain: "api.example.test", address: "10.0.0.12", port: "443" }],
     }],
   });
-  api.fetchServiceStatus.mockResolvedValue({ stack: "infra", service: "api", links: [], spec: storedSpec });
+  api.fetchServiceStatus.mockResolvedValue({
+    stack: "infra",
+    service: "api",
+    links: [{ type: "Dashboard", url: "https://monitoring.example.test/api" }],
+    spec: storedSpec,
+  });
   api.fetchSwarmServices.mockResolvedValue({ services: [liveAPI, liveWorker, { ...liveWorker, id: "unrelated", full_name: "infra_other", network_targets: ["unrelated"] }] });
   api.fetchNetworks.mockResolvedValue({
     networks: [{
@@ -124,19 +130,27 @@ describe("ServiceView", () => {
     const wrapper = await mountPage();
     const header = wrapper.get(".service-heading");
     expect(header.text()).toContain("Available");
-    expect(header.text()).toContain("2 / 2 replicas");
+    const replicas = header.findAll(".app-status-badge").find((badge) => badge.text() === "2 / 2 replicas");
+    expect(replicas).toBeDefined();
+    const link = header.get('a[href="https://monitoring.example.test/api"]');
+    expect(link.get(".app-status-badge").classes()).toEqual(replicas?.classes());
+    expect(link.text()).toBe("Dashboard");
+    expect(link.attributes("target")).toBe("_blank");
     expect(header.text()).not.toMatch(/Last deployment|Succeeded/i);
     expect(header.text()).not.toContain("Application");
     expect(header.get('a[aria-label="Open api in Realtime"]').attributes("href")).toBe("/realtime?stack=infra&service=api");
     const table = wrapper.get('table[aria-label="Service metadata"]');
     expect(table.findAll("th").map((th) => th.text())).toEqual([
-      "Stack", "Type", "Description", "Mode", "Service ID", "Endpoint mode", "Published port",
-      "Update strategy", "Image", "Repository", "Created", "Labels",
+      "Stack", "Type", "Description", "Mode", "Service ID", "Published port",
+      "Update strategy", "Image", "Repository", "Web Routes", "Created", "Labels",
     ]);
-    for (const value of ["Application", "Serves the API", "replicated", "service-id", "VIP", "8080 → 80/tcp", "Rolling / parallelism 1", image]) {
+    for (const value of ["Application", "Serves the API", "replicated", "service-id", "8080 → 80/tcp", "Rolling / parallelism 1", image, "api.example.test (10.0.0.12:443)"]) {
       expect(table.text()).toContain(value);
     }
     expect(table.get("time").attributes("datetime")).toBe(date);
+    expect(wrapper.get('table[aria-label="Service resources"]').findAll("th").map((th) => th.text())).toEqual([
+      "Requested / limited RAM", "Requested / limited CPU",
+    ]);
   });
 
   it("copies the exact image reference, service ID and full label", async () => {
