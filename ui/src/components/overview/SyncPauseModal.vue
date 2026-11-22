@@ -138,7 +138,16 @@ watch(() => [props.open, props.stack] as const, ([open]) => {
             <tr v-for="pause in servicePauses" :key="pause.service">
               <td>{{ pause.service }}</td>
               <td>{{ pauseUntil(pause.expires_at) }}</td>
-              <td class="sync-pause-table-action"><AppButton variant="secondary" compact type="button" :disabled="pending" @click="removeService(pause.service ?? '')">{{ t('syncPause.removeServicePause') }}</AppButton></td>
+              <td class="sync-pause-table-action">
+                <AppButton
+                  variant="secondary"
+                  compact
+                  type="button"
+                  :aria-label="t('syncPause.removeServicePause')"
+                  :disabled="pending"
+                  @click="removeService(pause.service ?? '')"
+                >{{ t('syncPause.removeServicePauseShort') }}</AppButton>
+              </td>
             </tr>
           </AppTable>
         </section>

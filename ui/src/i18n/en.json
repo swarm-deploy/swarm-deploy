@@ -778,6 +778,7 @@
     "pauseUntil": "Pause until",
     "removeServiceFailed": "Failed to remove service pause",
     "removeServicePause": "Remove service pause",
+    "removeServicePauseShort": "Remove service pause",
     "resumeStack": "Resume stack sync",
     "resumeStackHint": "Removing the stack pause does not remove independent service pauses. Listed services remain paused.",
     "serviceExpires": "Service pause expires {expiration}.",
