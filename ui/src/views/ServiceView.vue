@@ -459,15 +459,38 @@ watch([stackName, serviceName], ([stack, service], _, onCleanup) => {
   right: 0;
   display: grid;
   width: max-content;
+  min-width: 150px;
   padding: 4px;
   border: 1px solid var(--border-default);
   border-radius: 8px;
-  background: var(--surface-card);
+  background: var(--shell-chrome-bg);
 }
 
-.service-actions-items > * {
-  padding: 7px 10px;
+.service-actions-items > :is(button, a) {
+  display: flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text);
+  font: inherit;
+  font-size: .8rem;
   text-align: left;
+  text-decoration: none;
+}
+
+.service-actions-items > :is(button, a):hover {
+  background: var(--surface-hover);
+  transform: none;
+  filter: none;
+}
+
+.service-actions-items > :is(button, a):focus-visible {
+  outline: 2px solid var(--accent-focus);
+  outline-offset: -2px;
 }
 
 .service-dossier {
@@ -630,7 +653,6 @@ a.service-entity {
 }
 
 .service-deployment-open,
-.service-actions-items button,
 button.service-entity {
   border: 0;
   border-radius: 0;
@@ -640,8 +662,7 @@ button.service-entity {
 }
 
 .service-entity:hover,
-.service-deployment-open:hover,
-.service-actions-items > *:hover {
+.service-deployment-open:hover {
   color: var(--accent-strong);
   background: var(--surface-muted);
   transform: none;
