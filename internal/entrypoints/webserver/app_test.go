@@ -20,11 +20,10 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/logparser"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	"github.com/swarm-deploy/swarm-deploy/internal/testutil"
-	"github.com/swarm-deploy/swarm-deploy/ui"
 	"go.uber.org/mock/gomock"
 )
 
-func newTestApplication(t *testing.T, webConfig config.WebSpec) *Application {
+func newTestApplication(t *testing.T, webConfig config.WebSpec, language config.Language) *Application {
 	t.Helper()
 	ctrl := gomock.NewController(t)
 	gitRepository := gitx.NewMockRepository(ctrl)
@@ -33,7 +32,7 @@ func newTestApplication(t *testing.T, webConfig config.WebSpec) *Application {
 
 	app, err := NewApplication(
 		webConfig,
-		config.LanguageEnglish,
+		language,
 		nil,
 		&gitops.Module{GitRepository: gitRepository},
 		&deployments.Module{},
@@ -71,7 +70,7 @@ func TestGetUIConfig(t *testing.T) {
 				Address:  ":0",
 				BasePath: "/swarm-deploy",
 				UI:       config.WebUISpec{LogViewer: config.LogViewerSpec{LinkFields: tc.linkFields}},
-			})
+			}, config.LanguageEnglish)
 			rec := httptest.NewRecorder()
 			app.server.Handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/swarm-deploy/api/v1/config", nil))
 
@@ -82,7 +81,7 @@ func TestGetUIConfig(t *testing.T) {
 }
 
 func TestUIRoutes(t *testing.T) {
-	app := newTestApplication(t, config.WebSpec{Address: ":0", BasePath: "/"})
+	app := newTestApplication(t, config.WebSpec{Address: ":0", BasePath: "/"}, config.LanguageEnglish)
 
 	testCases := []struct {
 		name           string
@@ -240,17 +239,18 @@ func TestEmbeddedUIWithBasePath(t *testing.T) {
 		name     string
 		basePath string
 		prefix   string
+		language config.Language
 		locale   string
 	}{
-		{name: "root", basePath: "/", prefix: "", locale: "en"},
-		{name: "nested", basePath: "/infrastructure/swarm", prefix: "/infrastructure/swarm", locale: "ru"},
+		{name: "root", basePath: "/", prefix: "", language: config.LanguageEnglish, locale: "en"},
+		{name: "nested", basePath: "/infrastructure/swarm", prefix: "/infrastructure/swarm", language: config.LanguageRussian, locale: "ru"},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
-			handler := buildRouter(testCase.basePath, testCase.locale, http.NotFoundHandler(), ui.FS)
+			app := newTestApplication(t, config.WebSpec{Address: ":0", BasePath: testCase.basePath}, testCase.language)
 			rec := httptest.NewRecorder()
 			req := httptest.NewRequest(http.MethodGet, testCase.prefix+"/services/my-stack/my-service", nil)
 			req.Header.Set("Accept-Language", "en-US,en;q=0.9")
-			handler.ServeHTTP(rec, req)
+			app.server.Handler.ServeHTTP(rec, req)
 
 			require.Equal(t, http.StatusOK, rec.Code)
 			assert.Contains(t, rec.Header().Get("Content-Type"), "text/html")

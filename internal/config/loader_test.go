@@ -74,19 +74,19 @@ func TestLoadSystemLanguage(t *testing.T) {
 		want Language
 	}{
 		{name: "absent", want: LanguageEnglish},
-		{name: "english", yaml: "system: {language: english}\n", want: LanguageEnglish},
-		{name: "russian", yaml: "system: {language: russian}\n", want: LanguageRussian},
-		{name: "typo", yaml: "system: {language: russain}\n"},
+		{name: "English", yaml: "system: {language: en}\n", want: LanguageEnglish},
+		{name: "Russian", yaml: "system: {language: ru}\n", want: LanguageRussian},
+		{name: "old English value", yaml: "system: {language: english}\n"},
+		{name: "old Russian value", yaml: "system: {language: russian}\n"},
+		{name: "unsupported", yaml: "system: {language: fr}\n"},
 		{name: "empty", yaml: "system: {language: ''}\n"},
-		{name: "mapping", yaml: "system: {language: {name: russian}}\n"},
+		{name: "mapping", yaml: "system: {language: {name: ru}}\n"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg, err := Load(writeRuntimeYAML(t, minimalRuntimeYAML+tt.yaml))
 			if tt.want == "" {
-				require.ErrorContains(t, err, "system.language")
-				assert.ErrorContains(t, err, "english")
-				assert.ErrorContains(t, err, "russian")
+				require.ErrorContains(t, err, `system.language must be "en" or "ru"`)
 				return
 			}
 			require.NoError(t, err)

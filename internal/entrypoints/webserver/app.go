@@ -206,11 +206,7 @@ func NewApplication(
 		return nil, fmt.Errorf("build ogen api server: %w", err)
 	}
 
-	locale := "en"
-	if language == config.LanguageRussian {
-		locale = "ru"
-	}
-	handler := buildRouter(webConfig.BasePath, locale, apiHandler, ui.FS)
+	handler := buildRouter(webConfig.BasePath, string(language), apiHandler, ui.FS)
 	auth, err := authenticator.Create(webConfig.Security.Authentication)
 	if err != nil {
 		return nil, fmt.Errorf("build authenticator: %w", err)
