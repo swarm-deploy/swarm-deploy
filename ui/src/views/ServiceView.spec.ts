@@ -136,9 +136,8 @@ describe("ServiceView", () => {
   it("shows service metadata and the live status with a scoped Realtime link", async () => {
     const wrapper = await mountPage();
     const header = wrapper.get(".service-heading");
-    expect(header.text()).toContain("Available");
-    const replicas = header.findAll(".app-status-badge").find((badge) => badge.text() === "2 / 2 replicas");
-    expect(replicas).toBeDefined();
+    expect(header.findAll(".app-status-badge").map((badge) => badge.text())).toEqual(["2 / 2 replicas"]);
+    expect(header.get(".app-status-badge").classes()).toContain("app-status-badge--success");
     expect(header.get('a[href="/stacks/infra"]').text()).toBe("infra");
     expect(header.text()).not.toContain("Dashboard");
     expect(header.text()).not.toMatch(/Last deployment|Succeeded/i);
@@ -154,13 +153,27 @@ describe("ServiceView", () => {
       expect(table.text()).toContain(value);
     }
     const link = table.get('a[href="https://monitoring.example.test/api"]');
-    expect(link.get(".app-status-badge").classes()).toEqual(replicas?.classes());
+    expect(link.get(".app-status-badge").classes()).toContain("app-status-badge--filled");
     expect(link.text()).toBe("Dashboard");
     expect(link.attributes("target")).toBe("_blank");
     expect(table.get("time").attributes("datetime")).toBe(date);
     expect(wrapper.get('table[aria-label="Service resources"]').findAll("th").map((th) => th.text())).toEqual([
       "Requested / limited RAM", "Requested / limited CPU",
     ]);
+  });
+
+  it.each([
+    { running: 0, desired: 0, variant: "success" },
+    { running: 0, desired: 3, variant: "error" },
+    { running: 2, desired: 3, variant: "warning" },
+    { running: 4, desired: 3, variant: "warning" },
+  ])("colors the single replica badge for $running / $desired", async ({ running, desired, variant }) => {
+    api.fetchSwarmServices.mockResolvedValueOnce({ services: [{ ...liveAPI, replicas: { running, desired } }] });
+    const wrapper = await mountPage();
+    const badges = wrapper.get(".service-heading").findAll(".app-status-badge");
+
+    expect(badges.map((badge) => badge.text())).toEqual([`${running} / ${desired} replicas`]);
+    expect(badges[0].classes()).toContain(`app-status-badge--${variant}`);
   });
 
   it("copies the exact image reference and full label", async () => {

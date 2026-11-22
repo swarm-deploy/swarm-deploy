@@ -20,7 +20,6 @@ import ServiceSyncPauseModal from "../components/services/ServiceSyncPauseModal.
 import { useOverviewStore } from "../stores/overview";
 import { useSecretDetailsStore } from "../stores/secretDetails";
 import { formatBytes, formatDate, formatNanoCPU } from "../utils/format";
-import { serviceRuntimeState } from "../utils/realtime";
 
 const route = useRoute();
 const overviewStore = useOverviewStore();
@@ -51,14 +50,13 @@ const selectedNetworkTarget = ref("");
 const spec = computed(() => serviceStatus.value?.spec);
 const liveService = computed(() => swarmServices.value?.find((service) =>
   service.stack === stackName.value && service.name === serviceName.value));
-const available = computed(() => {
-  if (!liveService.value) return swarmServices.value ? "Unavailable" : "Unknown";
-  return {
-    running: "Available",
-    degraded: liveService.value.replicas.running > 0 ? "Degraded" : "Unavailable",
-    "scaled-down": "Scaled down",
-    unknown: "Unknown",
-  }[serviceRuntimeState(liveService.value)];
+const replicaCounts = computed(() => liveService.value?.replicas);
+const replicaBadgeVariant = computed(() => {
+  if (!replicaCounts.value) return swarmServices.value ? "error" : "neutral";
+  const { running, desired } = replicaCounts.value;
+  if (running === desired) return "success";
+  if (desired > 0 && running === 0) return "error";
+  return "warning";
 });
 const image = computed(() => serviceInfo.value?.image || spec.value?.image);
 const links = computed(() => serviceStatus.value?.links ?? []);
@@ -184,12 +182,10 @@ watch([stackName, serviceName], ([stack, service], _, onCleanup) => {
         <RouterLink :to="stackRoute" class="service-inline-link service-stack-link">{{ stackName }}</RouterLink>
         <div class="service-heading-summary">
           <h2>{{ serviceName }}</h2>
-          <template v-if="!loading || liveService">
-            <AppStatusBadge :variant="available === 'Available' ? 'success' : available === 'Unavailable' ? 'error' : available === 'Degraded' ? 'warning' : 'neutral'" dot filled>
-              {{ available }}
-            </AppStatusBadge>
-            <AppStatusBadge v-if="liveService" filled>{{ liveService.replicas.running }} / {{ liveService.replicas.desired }} replicas</AppStatusBadge>
-          </template>
+          <AppStatusBadge v-if="!loading || replicaCounts" :variant="replicaBadgeVariant" filled>
+            <template v-if="replicaCounts">{{ replicaCounts.running }} / {{ replicaCounts.desired }} replicas</template>
+            <template v-else>{{ swarmServices ? "Unavailable" : "Unknown" }}</template>
+          </AppStatusBadge>
         </div>
       </div>
       <div class="service-heading-actions">
@@ -614,6 +610,10 @@ watch([stackName, serviceName], ([stack, service], _, onCleanup) => {
   align-items: center;
   gap: 5px;
   min-width: 0;
+}
+
+.service-image-copy-button {
+  margin-inline-start: auto;
 }
 
 .service-labels-preview {
