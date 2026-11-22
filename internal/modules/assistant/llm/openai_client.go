@@ -121,21 +121,25 @@ func (c *OpenAIClient) Complete(ctx context.Context, req Request) (Response, err
 
 // Provider and transport errors can include arbitrary response content and URLs.
 func safeChatCompletionError(err error) error {
+	return safeProviderError("chat completion", err)
+}
+
+func safeProviderError(operation string, err error) error {
 	var apiError *openai.Error
 	switch {
 	case errors.As(err, &apiError):
 		switch apiError.Code {
 		case "model_not_found", "unsupported_parameter", "unsupported_value", "context_length_exceeded",
 			"invalid_api_key", "insufficient_quota", "rate_limit_exceeded":
-			return fmt.Errorf("chat completion request failed with HTTP status %d (%s)", apiError.StatusCode, apiError.Code)
+			return fmt.Errorf("%s request failed with HTTP status %d (%s)", operation, apiError.StatusCode, apiError.Code)
 		}
-		return fmt.Errorf("chat completion request failed with HTTP status %d", apiError.StatusCode)
+		return fmt.Errorf("%s request failed with HTTP status %d", operation, apiError.StatusCode)
 	case errors.Is(err, context.Canceled):
-		return fmt.Errorf("chat completion request failed: %w", context.Canceled)
+		return fmt.Errorf("%s request failed: %w", operation, context.Canceled)
 	case errors.Is(err, context.DeadlineExceeded):
-		return fmt.Errorf("chat completion request failed: %w", context.DeadlineExceeded)
+		return fmt.Errorf("%s request failed: %w", operation, context.DeadlineExceeded)
 	default:
-		return errors.New("chat completion request failed")
+		return fmt.Errorf("%s request failed", operation)
 	}
 }
 
@@ -157,7 +161,7 @@ func (c *OpenAIClient) Embed(
 		usage = httpErrorTokenUsage(httpResponse)
 	}
 	if err != nil {
-		return nil, usage, fmt.Errorf("embeddings request failed: %w", err)
+		return nil, usage, safeProviderError("embeddings", err)
 	}
 
 	if response == nil {
