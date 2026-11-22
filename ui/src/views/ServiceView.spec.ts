@@ -147,7 +147,10 @@ describe("ServiceView", () => {
     expect(header.get('a[aria-label="Open api in Realtime"]').attributes("href")).toBe("/realtime?stack=infra&service=api");
     expect(wrapper.get("#service-metadata-title").text()).toBe("Service");
     const table = wrapper.get('table[aria-label="Service"]');
-    expect(table.get('a[href="https://github.com/example/api"]').attributes("target")).toBe("_blank");
+    const repository = table.get('a[href="https://github.com/example/api"]');
+    expect(repository.text()).toBe("example/api");
+    expect(repository.attributes("target")).toBe("_blank");
+    expect(repository.find("svg").exists()).toBe(true);
     expect(table.findAll("th").map((th) => th.text())).toEqual([
       "Type", "Description", "Mode", "Published port",
       "Update strategy", "Image", "Repository", "Links", "Web Routes", "Created", "Labels",
@@ -163,6 +166,28 @@ describe("ServiceView", () => {
     expect(wrapper.get('table[aria-label="Service resources"]').findAll("th").map((th) => th.text())).toEqual([
       "Requested / limited RAM", "Requested / limited CPU",
     ]);
+  });
+
+  it.each([undefined, "", " "])("hides the Repository row for %j", async (repositoryURL) => {
+    api.fetchServices.mockResolvedValueOnce({ services: [{ name: "api", stack: "infra", repository_url: repositoryURL }] });
+    const wrapper = await mountPage();
+    const table = wrapper.get('table[aria-label="Service"]');
+
+    expect(table.findAll("th").map((heading) => heading.text())).not.toContain("Repository");
+  });
+
+  it.each([
+    { href: "https://gitlab.com/org/team/repo.git?ref=main#readme", label: "org/team/repo.git", icon: true },
+    { href: "https://bitbucket.org/org/repo", label: "org/repo", icon: true },
+    { href: "https://git.example.test:8443/org/repo", label: "org/repo", icon: false },
+  ])("displays the repository path for $href", async ({ href, label, icon }) => {
+    api.fetchServices.mockResolvedValueOnce({ services: [{ name: "api", stack: "infra", repository_url: href }] });
+    const wrapper = await mountPage();
+    const link = wrapper.get(".service-repository-link");
+
+    expect(link.text()).toBe(label);
+    expect(link.attributes("href")).toBe(href);
+    expect(link.find("svg").exists()).toBe(icon);
   });
 
   it.each([

@@ -21,6 +21,13 @@ import { useOverviewStore } from "../stores/overview";
 import { useSecretDetailsStore } from "../stores/secretDetails";
 import { formatBytes, formatDate, formatNanoCPU } from "../utils/format";
 
+const repositoryIcons = new Map([
+  ["github.com", "M12 2a10 10 0 0 0-3.16 19.49c.5.09.68-.22.68-.48v-1.88c-2.78.6-3.37-1.18-3.37-1.18-.45-1.16-1.11-1.47-1.11-1.47-.91-.62.07-.61.07-.61 1 .07 1.53 1.03 1.53 1.03.9 1.53 2.35 1.09 2.92.83.09-.65.35-1.09.64-1.34-2.22-.25-4.55-1.11-4.55-4.94 0-1.09.39-1.98 1.03-2.68-.1-.25-.45-1.27.1-2.64 0 0 .84-.27 2.75 1.02A9.58 9.58 0 0 1 12 6.52c.85 0 1.69.11 2.48.33 1.91-1.29 2.75-1.02 2.75-1.02.55 1.37.2 2.39.1 2.64.64.7 1.03 1.59 1.03 2.68 0 3.84-2.34 4.68-4.57 4.93.36.31.68.92.68 1.85v3.08c0 .27.18.58.69.48A10 10 0 0 0 12 2Z"],
+  // GitLab and Bitbucket icon paths from Simple Icons.
+  ["gitlab.com", "m23.6004 9.5927-.0337-.0862L20.3.9814a.851.851 0 0 0-.3362-.405.8748.8748 0 0 0-.9997.0539.8748.8748 0 0 0-.29.4399l-2.2055 6.748H7.5375l-2.2057-6.748a.8573.8573 0 0 0-.29-.4412.8748.8748 0 0 0-.9997-.0537.8585.8585 0 0 0-.3362.4049L.4332 9.5015l-.0325.0862a6.0657 6.0657 0 0 0 2.0119 7.0105l.0113.0087.03.0213 4.976 3.7264 2.462 1.8633 1.4995 1.1321a1.0085 1.0085 0 0 0 1.2197 0l1.4995-1.1321 2.4619-1.8633 5.006-3.7489.0125-.01a6.0682 6.0682 0 0 0 2.0094-7.003z"],
+  ["bitbucket.org", "M.778 1.213a.768.768 0 00-.768.892l3.263 19.81c.084.5.515.868 1.022.873H19.95a.772.772 0 00.77-.646l3.27-20.03a.768.768 0 00-.768-.891zM14.52 15.53H9.522L8.17 8.466h7.561z"],
+]);
+
 const route = useRoute();
 const overviewStore = useOverviewStore();
 const secretDetailsStore = useSecretDetailsStore();
@@ -64,6 +71,22 @@ const replicaBadgeVariant = computed(() => {
   return "warning";
 });
 const image = computed(() => serviceInfo.value?.image || spec.value?.image);
+const repository = computed(() => {
+  const href = serviceInfo.value?.repository_url;
+  const value = href?.trim();
+  if (!href || !value) return;
+
+  try {
+    const url = new URL(value.startsWith("//") ? `https:${value}` : value);
+    return {
+      href,
+      label: url.pathname.replace(/^\/+/, "") || "/",
+      iconPath: repositoryIcons.get(url.hostname.replace(/^www\./, "")),
+    };
+  } catch {
+    return { href, label: value };
+  }
+});
 const links = computed(() => serviceStatus.value?.links ?? []);
 const webRoutes = computed(() => serviceInfo.value?.web_routes ?? []);
 
@@ -245,11 +268,15 @@ watch([stackName, serviceName], ([stack, service], _, onCleanup) => {
                   <span v-else>n/a</span>
                 </td>
               </tr>
-              <tr>
+              <tr v-if="repository">
                 <th scope="row">Repository</th>
                 <td>
-                  <a v-if="serviceInfo?.repository_url" :href="serviceInfo.repository_url" class="service-inline-link" target="_blank" rel="noopener noreferrer">{{ serviceInfo.repository_url }}</a>
-                  <span v-else>n/a</span>
+                  <a :href="repository.href" :title="repository.href" class="service-inline-link service-repository-link" target="_blank" rel="noopener noreferrer">
+                    <svg v-if="repository.iconPath" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                      <path :d="repository.iconPath" />
+                    </svg>
+                    <span>{{ repository.label }}</span>
+                  </a>
                 </td>
               </tr>
               <tr v-if="links.length">
@@ -586,6 +613,19 @@ watch([stackName, serviceName], ([stack, service], _, onCleanup) => {
 
 .service-inline-link:hover {
   text-decoration: underline;
+}
+
+.service-repository-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+}
+
+.service-repository-link svg {
+  flex: none;
+  width: .9rem;
+  height: .9rem;
 }
 
 .service-section h3 a:hover {
