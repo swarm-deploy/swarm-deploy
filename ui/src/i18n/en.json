@@ -203,7 +203,6 @@
     "definition": "Definition",
     "deploySection": "Deploy",
     "deployment": "Deployment",
-    "description": "Desired-state deployments and their execution attempts. Service convergence is not verified.",
     "desiredChanges": "Desired Changes",
     "desiredStateSuperseded": "Desired state was superseded.",
     "desiredYaml": "Recorded desired configuration YAML",
