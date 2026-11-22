@@ -108,7 +108,7 @@ function displayedValue(variable: EnvironmentVariable): string {
   if (variable.encoded && !revealed.value.has(variable.name)) return "••••••••••••";
   const decoded = decodedValue(variable);
   if (decoded === null) return t("realtime.decodeFailure");
-  return decoded === "" ? "(empty)" : decoded;
+  return decoded === "" ? t("realtime.emptyValue") : decoded;
 }
 
 function hasResources(resources: SwarmTaskResources | undefined): boolean {

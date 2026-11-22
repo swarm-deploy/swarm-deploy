@@ -194,9 +194,9 @@ describe("Stack Details", () => {
     expect(wrapper.text()).toContain("No services captured yet.");
     expect(wrapper.text()).toContain("No deployments yet.");
     expect(wrapper.text()).toContain("alerts offline");
-    for (const key of ["networks", "secrets", "configs"]) {
-      expect(wrapper.get(`[data-summary="${key}"] strong`).text()).toBe("n/a");
-    }
+    expect(wrapper.get('[data-summary="networks"]').text()).toBe("Networks: n/a");
+    expect(wrapper.get('[data-summary="secrets"]').text()).toBe("Secrets: n/a");
+    expect(wrapper.get('[data-summary="configs"]').text()).toBe("Configs: n/a");
     wrapper.unmount();
   });
 

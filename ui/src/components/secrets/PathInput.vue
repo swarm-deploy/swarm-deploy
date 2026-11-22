@@ -27,7 +27,7 @@ const canonicalValue = computed(() => parts.value.join("/"));
 
 function focusInput(select = false): void {
   void nextTick(() => {
-    const currentInput = root.value?.querySelector<HTMLInputElement>('input[aria-label="Path"]');
+    const currentInput = root.value?.querySelector<HTMLInputElement>(".path-input-editor");
     currentInput?.focus();
     if (select) {
       currentInput?.select();

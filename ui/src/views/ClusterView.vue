@@ -115,7 +115,7 @@ function nodeResources(node: NodeInfo): string {
 }
 
 function nodeEngine(node: NodeInfo): string {
-  return node.engine_version ? `Docker ${node.engine_version}` : "Docker n/a";
+  return `Docker ${node.engine_version || t("common.notApplicable")}`;
 }
 
 function labelEntries(labels?: Record<string, string>): LabelEntry[] {

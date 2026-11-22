@@ -161,9 +161,18 @@ onUnmounted(() => { request++; });
         <div class="stack-summary-resources">
           <dt>{{ t('common.resources') }}</dt>
           <dd>
-            <span data-summary="networks"><DeploymentIcon name="network" /><strong>{{ resourcesError ? t('common.notApplicable') : plural('common.networkCount', networks.length) }}</strong></span>
-            <span data-summary="secrets"><DeploymentIcon name="secret" /><strong>{{ resourcesError ? t('common.notApplicable') : plural('common.secretCount', secrets.length) }}</strong></span>
-            <span data-summary="configs"><DeploymentIcon name="config" /><strong>{{ resourcesError ? t('common.notApplicable') : plural('common.configCount', configs.length) }}</strong></span>
+            <span data-summary="networks">
+              <DeploymentIcon name="network" />
+              <strong>{{ resourcesError ? t('stack.resourceUnavailable', { resource: t('common.networks'), status: t('common.notApplicable') }) : plural('common.networkCount', networks.length) }}</strong>
+            </span>
+            <span data-summary="secrets">
+              <DeploymentIcon name="secret" />
+              <strong>{{ resourcesError ? t('stack.resourceUnavailable', { resource: t('common.secrets'), status: t('common.notApplicable') }) : plural('common.secretCount', secrets.length) }}</strong>
+            </span>
+            <span data-summary="configs">
+              <DeploymentIcon name="config" />
+              <strong>{{ resourcesError ? t('stack.resourceUnavailable', { resource: t('common.configs'), status: t('common.notApplicable') }) : plural('common.configCount', configs.length) }}</strong>
+            </span>
           </dd>
         </div>
       </dl>
