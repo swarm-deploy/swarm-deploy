@@ -10,8 +10,8 @@ import (
 type Language string
 
 const (
-	LanguageEnglish Language = "english"
-	LanguageRussian Language = "russian"
+	LanguageEnglish Language = "en"
+	LanguageRussian Language = "ru"
 )
 
 // UnmarshalYAML accepts the supported values of system.language.

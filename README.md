@@ -132,7 +132,7 @@ gitops:
     file: ./networks.yaml
 
 system:
-  language: russian
+  language: ru
 
 web:
   address: ":8080"
@@ -153,7 +153,7 @@ The 0.15.0 runtime configuration uses module sections. Update older configuratio
 
 `web.basePath` defaults to `/`. A trailing slash is normalized, so `/infrastructure/swarm/` serves the UI at `/infrastructure/swarm/` and the API below `/infrastructure/swarm/api/`. Path segments must use URL-unreserved ASCII characters (letters, digits, `-`, `_`, `.`, `~`); percent-encoding and ServeMux wildcard syntax are not accepted. The configured value is authoritative; `X-Forwarded-Prefix` is not used. Health, metrics, and webhook endpoints keep their independently configured paths.
 
-`system.language` sets the web interface language for the entire installation. Supported values are `english` (the default) and `russian`. After editing the setting, restart swarm-deploy and refresh the page. The installation setting takes precedence over browser language preferences.
+`system.language` sets the web interface language for the entire installation. Use `en` for English (the default) or `ru` for Russian. After editing the setting, restart swarm-deploy and refresh the page. The installation setting takes precedence over browser language preferences.
 
 Stacks are declared separately:
 

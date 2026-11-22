@@ -120,8 +120,8 @@ notifications:
             message: "✅ Synchronization recovered: {{ .ResourceID }}"
 
 system:
-  # Installation-wide web interface language: english (default) or russian.
-  language: english
+  # Installation-wide web interface language: en (default) or ru.
+  language: en
 
   # OpenTelemetry tracing. Uncomment to enable.
   # tracing:
