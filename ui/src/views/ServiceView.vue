@@ -196,7 +196,6 @@ watch([stackName, serviceName], ([stack, service], _, onCleanup) => {
           <summary aria-label="Service actions" title="Service actions">⋯</summary>
           <div class="service-actions-items">
             <button type="button" @click="openPause">Pause sync</button>
-            <a v-if="serviceInfo?.repository_url" :href="serviceInfo.repository_url" target="_blank" rel="noopener noreferrer">Open repository</a>
           </div>
         </details>
       </div>
@@ -494,7 +493,7 @@ watch([stackName, serviceName], ([stack, service], _, onCleanup) => {
   background: var(--shell-chrome-bg);
 }
 
-.service-actions-items > :is(button, a) {
+.service-actions-items > button {
   display: flex;
   align-items: center;
   min-height: 32px;
@@ -507,16 +506,15 @@ watch([stackName, serviceName], ([stack, service], _, onCleanup) => {
   font: inherit;
   font-size: .8rem;
   text-align: left;
-  text-decoration: none;
 }
 
-.service-actions-items > :is(button, a):hover {
+.service-actions-items > button:hover {
   background: var(--surface-hover);
   transform: none;
   filter: none;
 }
 
-.service-actions-items > :is(button, a):focus-visible {
+.service-actions-items > button:focus-visible {
   outline: 2px solid var(--accent-focus);
   outline-offset: -2px;
 }

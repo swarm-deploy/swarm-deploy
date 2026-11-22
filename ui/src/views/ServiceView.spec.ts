@@ -136,6 +136,8 @@ describe("ServiceView", () => {
   it("shows service metadata and the live status with a scoped Realtime link", async () => {
     const wrapper = await mountPage();
     const header = wrapper.get(".service-heading");
+    expect(header.get(".service-actions-items").text()).toBe("Pause sync");
+    expect(header.find(".service-actions-items a").exists()).toBe(false);
     expect(header.findAll(".app-status-badge").map((badge) => badge.text())).toEqual(["2 / 2 replicas"]);
     expect(header.get(".app-status-badge").classes()).toContain("app-status-badge--success");
     expect(header.get('a[href="/stacks/infra"]').text()).toBe("infra");
@@ -145,6 +147,7 @@ describe("ServiceView", () => {
     expect(header.get('a[aria-label="Open api in Realtime"]').attributes("href")).toBe("/realtime?stack=infra&service=api");
     expect(wrapper.get("#service-metadata-title").text()).toBe("Service");
     const table = wrapper.get('table[aria-label="Service"]');
+    expect(table.get('a[href="https://github.com/example/api"]').attributes("target")).toBe("_blank");
     expect(table.findAll("th").map((th) => th.text())).toEqual([
       "Type", "Description", "Mode", "Published port",
       "Update strategy", "Image", "Repository", "Links", "Web Routes", "Created", "Labels",
