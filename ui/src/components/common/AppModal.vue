@@ -6,6 +6,7 @@ const modalStack = shallowRef<symbol[]>([]);
 </script>
 
 <script setup lang="ts">
+import { t } from "../../i18n";
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 
 const props = withDefaults(defineProps<{
@@ -21,7 +22,7 @@ const props = withDefaults(defineProps<{
   as?: "div" | "form";
   busy?: boolean;
   initialFocus?: string;
-}>(), { closeLabel: "Close modal", closeOnEscape: true, as: "div" });
+}>(), { closeLabel: t("common.closeModal"), closeOnEscape: true, as: "div" });
 
 const emit = defineEmits<{ close: []; escape: [event: KeyboardEvent] }>();
 const dialog = ref<HTMLElement | null>(null);

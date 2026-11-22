@@ -1,26 +1,32 @@
+export type Locale = "en" | "ru";
+
 interface RuntimeConfig {
   basePath?: string;
+  locale?: string;
 }
 
 const runtimeConfigElementID = "swarm-deploy-runtime-config";
 
-export function getWebBasePath(): string {
+function readRuntimeConfig(): RuntimeConfig {
   const element = document.getElementById(runtimeConfigElementID);
   if (!element?.textContent) {
-    return "/";
+    return {};
   }
 
   try {
-    const config = JSON.parse(element.textContent) as RuntimeConfig;
-    const basePath = String(config.basePath || "/").trim();
-    if (basePath === "/") {
-      return "/";
-    }
-
-    return basePath.replace(/\/+$/, "");
+    return (JSON.parse(element.textContent) as RuntimeConfig | null) ?? {};
   } catch {
-    return "/";
+    return {};
   }
+}
+
+export function getWebBasePath(): string {
+  const basePath = String(readRuntimeConfig().basePath || "/").trim();
+  return basePath === "/" ? "/" : basePath.replace(/\/+$/, "");
+}
+
+export function getLocale(): Locale {
+  return readRuntimeConfig().locale === "ru" ? "ru" : "en";
 }
 
 export function withWebBasePath(path: string): string {

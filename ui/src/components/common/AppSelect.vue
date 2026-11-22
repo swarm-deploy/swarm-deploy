@@ -1,4 +1,5 @@
 <script setup lang="ts" generic="T extends string | number, Multiple extends boolean = false">
+import { formatNumber, locale, t } from "../../i18n";
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, useId } from "vue";
 
 interface AppSelectOption {
@@ -28,9 +29,9 @@ const props = withDefaults(defineProps<{
   placeholder: "",
   selectionLabel: "",
   searchable: false,
-  searchLabel: "Search options",
-  searchPlaceholder: "Search",
-  emptyMessage: "No matching options",
+  searchLabel: t("common.searchOptions"),
+  searchPlaceholder: t("common.search"),
+  emptyMessage: t("common.noMatchingOptions"),
   descriptive: false,
 });
 
@@ -43,11 +44,11 @@ const selectionId = useId();
 const selectedValues = computed<T[]>(() => Array.isArray(props.modelValue) ? props.modelValue : [props.modelValue as T]);
 
 const filteredOptions = computed(() => {
-  const query = search.value.trim().toLocaleLowerCase();
+  const query = search.value.trim().toLocaleLowerCase(locale());
   if (!query) return props.options;
   return props.options.filter((option) => (
     option.searchText ?? `${option.label} ${option.description ?? ""}`
-  ).toLocaleLowerCase().includes(query));
+  ).toLocaleLowerCase(locale()).includes(query));
 });
 const menuOptions = computed(() => props.resetOption
   ? [props.resetOption, ...filteredOptions.value]
@@ -61,7 +62,8 @@ const summary = computed(() => {
       ? props.resetOption.label
       : props.options.find((option) => option.value === value)?.label ?? value
   ));
-  return labels.length <= 2 ? labels.join(", ") : `${labels.length} selected`;
+  return labels.length <= 2 ? new Intl.ListFormat(locale(), { style: "short", type: "unit" }).format(labels.map(String))
+    : t("common.selected", { count: formatNumber(labels.length) });
 });
 
 function select(value: T): void {
@@ -161,7 +163,7 @@ onBeforeUnmount(() => document.removeEventListener("click", handleDocumentClick)
     <div class="app-select-menu">
       <div v-if="heading || multiple" class="app-select-header">
         <strong>{{ heading }}</strong>
-        <button v-if="multiple" type="button" :disabled="selectedValues.length === 0" @click="clear">Clear</button>
+        <button v-if="multiple" type="button" :disabled="selectedValues.length === 0" @click="clear">{{ t('common.clear') }}</button>
       </div>
       <input
         v-if="searchable"

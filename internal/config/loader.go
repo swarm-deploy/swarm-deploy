@@ -26,7 +26,7 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("read config %s: %w", path, err)
 	}
 
-	cfg := &Config{}
+	cfg := &Config{Spec: Spec{System: SystemSpec{Language: LanguageEnglish}}}
 	decoder := yaml.NewDecoder(bytes.NewReader(data))
 	decoder.KnownFields(true)
 	// Decode the spec directly so its nested structs inherit KnownFields.

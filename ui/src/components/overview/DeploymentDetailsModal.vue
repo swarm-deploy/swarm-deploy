@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { formatNumber, plural, t } from "../../i18n";
 import yaml from "@speed-highlight/core/languages/yaml.js";
 import { tokenizeWith } from "@speed-highlight/core/tokenize";
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
@@ -10,7 +11,8 @@ import type { DeploymentAttempt, DeploymentChange, DeploymentInitJobExecution } 
 import { useAssistantStore } from "../../stores/assistant";
 import { useOverviewStore } from "../../stores/overview";
 import { openNewAssistantChat } from "../../router/assistant";
-import { formatDate, shortCommitHash } from "../../utils/format";
+import { deploymentPhase, deploymentStatus } from "../../utils/deployments";
+import { formatDate, formatDecimal, shortCommitHash } from "../../utils/format";
 import AppTabs from "../common/AppTabs.vue";
 import DeploymentIcon from "./DeploymentIcon.vue";
 
@@ -40,16 +42,16 @@ function defaultTab(status?: string): DetailsTab {
 const activeTab = ref<DetailsTab>(defaultTab(store.deploymentDetailsData?.status));
 const tabSelectionInitialized = ref(Boolean(store.deploymentDetailsData));
 const tabManuallySelected = ref(false);
-const copyLabel = ref("Copy YAML");
+const copyLabel = ref(t("deployments.copyYaml"));
 const copiedAttemptID = ref("");
 type InitJobLogState = { open: boolean; loading: boolean; loaded: boolean; logs: string; error: string };
 const initJobLogs = ref<Record<string, InitJobLogState>>({});
 const infoOpen = ref<DetailsTab | null>(null);
 const infoPinned = ref(false);
 const tabs = [
-  { value: "attempts", label: "Attempts", id: "deployment-attempts-tab", panelId: "deployment-attempts-panel" },
-  { value: "changes", label: "Changes", id: "deployment-changes-tab", panelId: "deployment-changes-panel" },
-  { value: "configuration", label: "Configuration", id: "deployment-configuration-tab", panelId: "deployment-configuration-panel" },
+  { value: "attempts", label: t("deployments.attempts"), id: "deployment-attempts-tab", panelId: "deployment-attempts-panel" },
+  { value: "changes", label: t("deployments.changes"), id: "deployment-changes-tab", panelId: "deployment-changes-panel" },
+  { value: "configuration", label: t("deployments.configuration"), id: "deployment-configuration-tab", panelId: "deployment-configuration-panel" },
 ] as const;
 
 function dismissInfo() {
@@ -143,11 +145,11 @@ function resourceIcon(type: string): ResourceKey {
 const initialResourceSections = computed<ResourceSection[]>(() => {
   if (!detail.value) return [];
   const sections: Array<Omit<ResourceSection, "count" | "groups"> & { count: number }> = [
-    { key: "service", label: "Services", count: detail.value.resources.services },
-    { key: "network", label: "Networks", count: detail.value.resources.networks },
-    { key: "secret", label: "Secrets", count: detail.value.resources.secrets },
-    { key: "config", label: "Configs", count: detail.value.resources.configs },
-    { key: "volume", label: "Volumes", count: detail.value.resources.volumes },
+    { key: "service", label: t("common.services"), count: detail.value.resources.services },
+    { key: "network", label: t("common.networks"), count: detail.value.resources.networks },
+    { key: "secret", label: t("common.secrets"), count: detail.value.resources.secrets },
+    { key: "config", label: t("common.configs"), count: detail.value.resources.configs },
+    { key: "volume", label: t("deployments.volumes"), count: detail.value.resources.volumes },
   ];
   return sections.filter((section) => section.key !== "volume" || section.count > 0).map((section) => ({
     ...section,
@@ -155,27 +157,40 @@ const initialResourceSections = computed<ResourceSection[]>(() => {
   }));
 });
 
+const changeCounts = computed(() => {
+  const summary = detail.value?.summary;
+  if (!summary) return "";
+  const changes = t("deployments.changeCounts", {
+    added: formatNumber(summary.added),
+    changed: formatNumber(summary.changed),
+    removed: formatNumber(summary.removed),
+  });
+  return summary.redacted > 0
+    ? t("deployments.maskedCount", { changes, masked: formatNumber(summary.redacted) })
+    : changes;
+});
+
 const comparison = computed(() => {
   switch (detail.value?.comparison_basis) {
-    case "successful_baseline": return "Compared with the last successful desired snapshot.";
-    case "last_attempt": return "Compared with the last attempted desired snapshot; the actual state may differ.";
-    case "observed_state": return "Compared with an observed snapshot; live convergence is not verified.";
-    default: return "No previous desired snapshot is available for comparison.";
+    case "successful_baseline": return t("deployments.basisSuccessful");
+    case "last_attempt": return t("deployments.basisAttempted");
+    case "observed_state": return t("deployments.basisObserved");
+    default: return t("deployments.basisMissing");
   }
 });
 const statusTitle = computed(() => {
   switch (detail.value?.status) {
-    case "failed": return "Apply pipeline failed.";
-    case "interrupted": return "Apply pipeline was interrupted.";
-    case "superseded": return "Desired state was superseded.";
+    case "failed": return t("deployments.applyFailedTitle");
+    case "interrupted": return t("deployments.applyInterrupted");
+    case "superseded": return t("deployments.desiredStateSuperseded");
     default: return "";
   }
 });
 const statusDescription = computed(() => {
   switch (detail.value?.status) {
-    case "failed": return "Apply attempt failed. The actual Swarm state may differ from this desired configuration.";
-    case "interrupted": return "Apply outcome is unknown. The actual Swarm state may differ from this desired configuration.";
-    case "superseded": return "A newer desired state replaced this deployment. Its attempt history is preserved below.";
+    case "failed": return t("deployments.applyFailedDescription");
+    case "interrupted": return t("deployments.unknownOutcome");
+    case "superseded": return t("deployments.supersededDescription");
     default: return "";
   }
 });
@@ -189,25 +204,22 @@ const statusIcon = computed<"check" | "running" | "failed" | "warning">(() => {
 });
 // Keep date and time legible within the two-column mobile metadata layout.
 function formatCompactDate(raw: string): string {
-  const parsed = new Date(raw);
-  if (Number.isNaN(parsed.valueOf())) return raw;
-  const twoDigits = (value: number) => String(value).padStart(2, "0");
-  return `${twoDigits(parsed.getDate())}.${twoDigits(parsed.getMonth() + 1)}.${twoDigits(parsed.getFullYear() % 100)} ${twoDigits(parsed.getHours())}:${twoDigits(parsed.getMinutes())}:${twoDigits(parsed.getSeconds())}`;
+  return formatDate(raw, {
+    day: "2-digit", month: "2-digit", year: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23",
+  });
+}
+
+function formatDuration(milliseconds: number): string {
+  return milliseconds < 1000
+    ? t("common.ms", { count: formatNumber(milliseconds) })
+    : t("common.seconds", { count: formatDecimal(milliseconds / 1000, 1) });
 }
 const duration = computed(() => {
   const ms = detail.value?.duration_ms;
-  return ms == null ? (detail.value?.status === "running" ? "In progress" : "—") : ms < 1000 ? `${ms} ms` : `${(ms / 1000).toFixed(1)} s`;
+  return ms == null ? (detail.value?.status === "running" ? t("deployments.inProgress") : "—") : formatDuration(ms);
 });
-const statusLabel = computed(() => {
-  switch (detail.value?.status) {
-    case "running": return "Running";
-    case "succeeded": return "Succeeded";
-    case "failed": return "Failed";
-    case "interrupted": return "Interrupted";
-    case "superseded": return "Superseded";
-    default: return "Unknown";
-  }
-});
+const statusLabel = computed(() => deploymentStatus(detail.value?.status));
 function attemptDuration(attempt: DeploymentAttempt): string {
   let milliseconds = attempt.duration_ms;
   if (milliseconds == null && attempt.finished_at) {
@@ -215,15 +227,15 @@ function attemptDuration(attempt: DeploymentAttempt): string {
     const finished = Date.parse(attempt.finished_at);
     if (!Number.isNaN(started) && !Number.isNaN(finished)) milliseconds = Math.max(0, finished - started);
   }
-  if (milliseconds == null) return attempt.status === "running" ? "In progress" : "—";
-  return milliseconds < 1000 ? `${milliseconds} ms` : `${(milliseconds / 1000).toFixed(1)} s`;
+  if (milliseconds == null) return attempt.status === "running" ? t("deployments.inProgress") : "—";
+  return formatDuration(milliseconds);
 }
 function initJobDuration(execution: DeploymentInitJobExecution): string {
   const started = Date.parse(execution.started_at);
   const finished = Date.parse(execution.finished_at);
   if (Number.isNaN(started) || Number.isNaN(finished)) return "—";
   const milliseconds = Math.max(0, finished - started);
-  return milliseconds < 1000 ? `${milliseconds} ms` : `${(milliseconds / 1000).toFixed(1)} s`;
+  return formatDuration(milliseconds);
 }
 function attemptExpandable(attempt: DeploymentAttempt): boolean {
   return attempt.status !== "succeeded" || (attempt.init_jobs?.length ?? 0) > 0;
@@ -253,26 +265,23 @@ async function toggleInitJobLogs(attempt: DeploymentAttempt, execution: Deployme
   } catch (error) {
     initJobLogs.value[key] = {
       open: true, loading: false, loaded: false, logs: "",
-      error: error instanceof Error ? error.message : "Failed to load Init Job logs",
+      error: error instanceof Error ? error.message : t("deployments.loadJobLogsFailed"),
     };
   }
 }
 function attemptDiagnostic(attempt: DeploymentAttempt): string {
-  return attempt.diagnostic || reasonLabels[attempt.reason ?? ""] || "No diagnostics were recorded.";
+  return attempt.diagnostic || reasonLabels[attempt.reason ?? ""] || t("deployments.noDiagnostics");
 }
 function selectTab(tab: string) {
   if (tab !== "attempts" && tab !== "changes" && tab !== "configuration") return;
   activeTab.value = tab;
   tabManuallySelected.value = true;
 }
-function pluralize(count: number, singular: string, plural = `${singular}s`): string {
-  return `${count} ${count === 1 ? singular : plural}`;
-}
 const reasonLabels: Record<string, string> = {
-  policy_rejected: "Policy check failed", init_failed: "Init job failed", apply_failed: "Apply failed",
-  prune_failed: "Cleanup failed", verification_unknown: "Live state read failed", process_interrupted: "Process interrupted",
+  policy_rejected: t("deployments.policyFailed"), init_failed: t("deployments.initJobFailed"), apply_failed: t("deployments.applyFailed"),
+  prune_failed: t("deployments.cleanupFailed"), verification_unknown: t("deployments.readLiveFailed"), process_interrupted: t("deployments.processInterrupted"),
 };
-const failureReason = computed(() => detail.value?.diagnostic || reasonLabels[detail.value?.reason ?? ""] || "No detailed diagnostic was recorded.");
+const failureReason = computed(() => detail.value?.diagnostic || reasonLabels[detail.value?.reason ?? ""] || t("deployments.noDetailedDiagnostic"));
 const configuration = computed(() => detail.value?.configuration_yaml ?? "");
 const configurationHtml = computed(() => highlightYaml(configuration.value));
 
@@ -292,18 +301,44 @@ function highlightYaml(source: string): string {
 function fieldLabel(change: DeploymentChange, section: string): string {
   let field = change.field || "definition";
   if (section !== "General" && field.startsWith(section)) field = field.slice(section.length).replace(/^\./, "");
-  if (field === "" || field === "definition") return "Definition";
-  if (field === "deploy.replicas") return "Replicas";
+  if (field === "" || field === "definition") return t("deployments.definition");
+  if (field === "deploy.replicas") return t("common.replicas");
   return field.replaceAll("_", " ");
 }
+function resourceLabel(type: string): string {
+  switch (type.toLowerCase().replace(/s$/, "")) {
+    case "stack": return t("deployments.resourceStack").toLocaleLowerCase();
+    case "service": return t("common.service").toLocaleLowerCase();
+    case "network": return t("common.network").toLocaleLowerCase();
+    case "secret": return t("common.secret").toLocaleLowerCase();
+    case "config": return t("common.config").toLocaleLowerCase();
+    case "volume": return t("deployments.resourceVolume").toLocaleLowerCase();
+    default: return type;
+  }
+}
+
+function operationLabel(operation: ChangeGroup["operation"]): string {
+  return t(`deployments.${operation}`);
+}
+
 function sectionLabel(section: string): string {
+  switch (section) {
+    case "General": return t("deployments.general");
+    case "environment": return t("deployments.environment");
+    case "networks": return t("common.networks");
+    case "ports": return t("deployments.ports");
+    case "volumes": return t("deployments.volumes");
+    case "secrets": return t("common.secrets");
+    case "configs": return t("common.configs");
+    case "deploy": return t("deployments.deploySection");
+  }
   const label = section.replaceAll("_", " ");
   return label.charAt(0).toUpperCase() + label.slice(1);
 }
 function value(raw: string | null | undefined, redacted: boolean): string {
   if (raw == null) return "—";
   if (redacted) return "****";
-  if (raw === "") return '"" (empty)';
+  if (raw === "") return t("deployments.emptyString");
   return raw;
 }
 function hasLongValue(change: DeploymentChange): boolean {
@@ -330,8 +365,8 @@ function openCommit() {
 async function copyConfiguration() {
   if (!configuration.value) return;
   await navigator.clipboard?.writeText(configuration.value);
-  copyLabel.value = "Copied";
-  window.setTimeout(() => { copyLabel.value = "Copy YAML"; }, 1200);
+  copyLabel.value = t("common.copied");
+  window.setTimeout(() => { copyLabel.value = t("deployments.copyYaml"); }, 1200);
 }
 async function copyAttemptDiagnostic(attempt: DeploymentAttempt) {
   await navigator.clipboard?.writeText(attemptDiagnostic(attempt));
@@ -403,7 +438,7 @@ onUnmounted(() => {
     labelledby="deployment-details-title"
     card-class="deployment-modal"
     ref="modal"
-    close-label="Close deployment details"
+    :close-label="t('deployments.closeDetails')"
     :close-on-escape="!infoOpen"
     @escape="onEscape"
     @close="close"
@@ -413,31 +448,31 @@ onUnmounted(() => {
         <div class="deployment-heading-row">
           <div class="deployment-title">
             <div class="deployment-title-topline">
-              <span class="deployment-modal-eyebrow">Deployment</span>
+              <span class="deployment-modal-eyebrow">{{ t('deployments.deployment') }}</span>
               <strong v-if="detail && !store.deploymentDetailsLoading && !store.deploymentDetailsError" class="deployment-status" :class="`deployment-status--${detail.status}`">
                 <span class="deployment-status-dot" aria-hidden="true" />
                 {{ statusLabel }}
               </strong>
             </div>
-            <h2 id="deployment-details-title">{{ detail?.stack || "Deployment" }}</h2>
+            <h2 id="deployment-details-title">{{ detail?.stack || t('deployments.deployment') }}</h2>
           </div>
         </div>
         <dl v-if="detail && !store.deploymentDetailsLoading && !store.deploymentDetailsError" class="deployment-metadata">
-          <div class="deployment-metadata-item"><dt><DeploymentIcon name="stack" />Stack</dt><dd><RouterLink v-if="detail.stack?.trim()" v-slot="{ href }" custom :to="{ name: 'stack-details', params: { stack: detail.stack } }"><a class="deployment-stack-link" :href="href" @click="openStack">{{ detail.stack }}</a></RouterLink><span v-else>—</span></dd></div>
-          <div class="deployment-metadata-item"><dt><DeploymentIcon name="commit" />Commit</dt><dd><button v-if="detail.commit" type="button" class="deployment-commit-link" @click="openCommit">{{ shortCommitHash(detail.commit) }}<span aria-hidden="true">↗</span></button><span v-else>—</span></dd></div>
-          <div class="deployment-metadata-item"><dt><DeploymentIcon name="calendar" />Started</dt><dd><span class="deployment-date-desktop">{{ formatDate(detail.started_at) }}</span><span class="deployment-date-mobile">{{ formatCompactDate(detail.started_at) }}</span></dd></div>
-          <div class="deployment-metadata-item"><dt><DeploymentIcon name="calendar" />Finished</dt><dd><span class="deployment-date-desktop">{{ detail.finished_at ? formatDate(detail.finished_at) : detail.status === "running" ? "In progress" : "—" }}</span><span class="deployment-date-mobile">{{ detail.finished_at ? formatCompactDate(detail.finished_at) : detail.status === "running" ? "In progress" : "—" }}</span></dd></div>
-          <div class="deployment-metadata-item"><dt><DeploymentIcon name="clock" />Duration</dt><dd>{{ duration }}</dd></div>
-          <div class="deployment-metadata-item"><dt><DeploymentIcon name="config" />Stage</dt><dd>{{ detail.phase }}</dd></div>
+          <div class="deployment-metadata-item"><dt><DeploymentIcon name="stack" />{{ t('common.stack') }}</dt><dd><RouterLink v-if="detail.stack?.trim()" v-slot="{ href }" custom :to="{ name: 'stack-details', params: { stack: detail.stack } }"><a class="deployment-stack-link" :href="href" @click="openStack">{{ detail.stack }}</a></RouterLink><span v-else>—</span></dd></div>
+          <div class="deployment-metadata-item"><dt><DeploymentIcon name="commit" />{{ t('common.commit') }}</dt><dd><button v-if="detail.commit" type="button" class="deployment-commit-link" @click="openCommit">{{ shortCommitHash(detail.commit) }}<span aria-hidden="true">↗</span></button><span v-else>—</span></dd></div>
+          <div class="deployment-metadata-item"><dt><DeploymentIcon name="calendar" />{{ t('common.started') }}</dt><dd><span class="deployment-date-desktop">{{ formatDate(detail.started_at) }}</span><span class="deployment-date-mobile">{{ formatCompactDate(detail.started_at) }}</span></dd></div>
+          <div class="deployment-metadata-item"><dt><DeploymentIcon name="calendar" />{{ t('common.finished') }}</dt><dd><span class="deployment-date-desktop">{{ detail.finished_at ? formatDate(detail.finished_at) : detail.status === "running" ? t('deployments.inProgress') : "—" }}</span><span class="deployment-date-mobile">{{ detail.finished_at ? formatCompactDate(detail.finished_at) : detail.status === "running" ? t('deployments.inProgress') : "—" }}</span></dd></div>
+          <div class="deployment-metadata-item"><dt><DeploymentIcon name="clock" />{{ t('common.duration') }}</dt><dd>{{ duration }}</dd></div>
+          <div class="deployment-metadata-item"><dt><DeploymentIcon name="config" />{{ t('deployments.stage') }}</dt><dd>{{ deploymentPhase(detail.phase, true) }}</dd></div>
         </dl>
       </header>
       <main class="deployment-modal-content" :class="{ 'deployment-modal-content--compact': detail?.status === 'succeeded' || detail?.status === 'running' }">
-        <p v-if="store.deploymentDetailsLoading" role="status" class="meta">Loading deployment details...</p>
+        <p v-if="store.deploymentDetailsLoading" role="status" class="meta">{{ t('deployments.loadingDetails') }}</p>
         <div v-else-if="store.deploymentDetailsError" role="alert" class="deployment-state-message">
-          <p>Could not load deployment details: {{ store.deploymentDetailsError }}</p>
-          <AppButton @click="store.openDeploymentDetailsModal(store.deploymentDetailsID)">Retry</AppButton>
+          <p>{{ t('deployments.detailError', { error: store.deploymentDetailsError }) }}</p>
+          <AppButton @click="store.openDeploymentDetailsModal(store.deploymentDetailsID)">{{ t('common.retry') }}</AppButton>
         </div>
-        <p v-else-if="!detail" class="meta">Deployment details are unavailable.</p>
+        <p v-else-if="!detail" class="meta">{{ t('deployments.noDetails') }}</p>
         <template v-else>
         <section
           v-if="detail.status === 'failed' || detail.status === 'interrupted' || detail.status === 'superseded'"
@@ -450,7 +485,7 @@ onUnmounted(() => {
             <strong id="deployment-outcome-title">{{ statusTitle }}</strong>
             <p>{{ statusDescription }}</p>
             <p class="deployment-diagnostic">{{ failureReason }}</p>
-            <span v-if="detail.reason" class="deployment-code">Code: {{ detail.reason }}</span>
+            <span v-if="detail.reason" class="deployment-code">{{ t('deployments.diagnostic', { code: detail.reason }) }}</span>
           </div>
         </section>
 
@@ -458,7 +493,7 @@ onUnmounted(() => {
           class="deployment-tabs"
           :model-value="activeTab"
           :tabs="tabs"
-          label="Deployment detail views"
+          :label="t('deployments.detailViews')"
           density="compact"
           @update:model-value="selectTab"
         >
@@ -468,7 +503,7 @@ onUnmounted(() => {
               v-if="tab.value === 'attempts'"
               class="deployment-tab-count"
               :class="{ 'deployment-tab-count--active': active }"
-            >{{ attemptCount }}</span>
+            >{{ formatNumber(attemptCount) }}</span>
           </template>
         </AppTabs>
 
@@ -479,13 +514,13 @@ onUnmounted(() => {
           role="tabpanel"
           aria-labelledby="deployment-attempts-tab"
         >
-          <p v-if="attempts.length === 0" class="meta">No deployment attempts were recorded.</p>
+          <p v-if="attempts.length === 0" class="meta">{{ t('deployments.noAttempts') }}</p>
           <template v-else>
             <div class="deployment-attempt-columns" aria-hidden="true">
               <span />
-              <span>Started</span>
-              <span>Stage</span>
-              <span>Duration</span>
+              <span>{{ t('common.started') }}</span>
+              <span>{{ t('deployments.stage') }}</span>
+              <span>{{ t('common.duration') }}</span>
               <span />
             </div>
             <div class="deployment-attempt-list">
@@ -497,54 +532,54 @@ onUnmounted(() => {
                 :class="{ 'deployment-attempt-row--static': !attemptExpandable(attempt) }"
               >
                 <component :is="attemptExpandable(attempt) ? 'summary' : 'div'" class="deployment-attempt-summary">
-                  <span class="deployment-attempt-status" :class="`deployment-attempt-status--${attempt.status}`" role="img" :aria-label="`${attempt.status} attempt`" />
+                  <span class="deployment-attempt-status" :class="`deployment-attempt-status--${attempt.status}`" role="img" :aria-label="t('deployments.attemptStatus', { status: deploymentStatus(attempt.status, true) })" />
                   <time :datetime="attempt.started_at">{{ formatDate(attempt.started_at) }}</time>
-                  <span class="deployment-attempt-stage">{{ sectionLabel(attempt.phase) }}</span>
+                  <span class="deployment-attempt-stage">{{ deploymentPhase(attempt.phase) }}</span>
                   <span class="deployment-attempt-duration">{{ attemptDuration(attempt) }}</span>
                   <svg v-if="attemptExpandable(attempt)" class="deployment-chevron" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m7 4 6 6-6 6" /></svg>
                 </component>
                 <div v-if="attemptExpandable(attempt)" class="deployment-attempt-details">
-                  <section v-if="attempt.init_jobs?.length" class="deployment-init-jobs" aria-label="Init Job executions">
-                    <h4>Init Jobs</h4>
+                  <section v-if="attempt.init_jobs?.length" class="deployment-init-jobs" :aria-label="t('deployments.initJobExecutions')">
+                    <h4>{{ t('deployments.initJobs') }}</h4>
                     <div v-for="execution in attempt.init_jobs" :key="execution.ordinal" class="deployment-init-job">
                       <div class="deployment-init-job-summary">
                         <span class="deployment-init-job-identity">
                           <span class="deployment-init-job-title">
                             <strong>{{ execution.job_name }}</strong>
-                            <span class="deployment-attempt-status" :class="`deployment-attempt-status--${execution.status}`" role="img" :aria-label="`${execution.status} Init Job`" />
+                            <span class="deployment-attempt-status" :class="`deployment-attempt-status--${execution.status}`" role="img" :aria-label="t('deployments.initJobStatus', { status: deploymentStatus(execution.status, true) })" />
                           </span>
                           <small>{{ execution.service_name }}</small>
                         </span>
                         <span class="deployment-attempt-duration">{{ initJobDuration(execution) }}</span>
-                        <span v-if="execution.logs_truncated" class="deployment-init-job-badge">Last 64 KiB</span>
+                        <span v-if="execution.logs_truncated" class="deployment-init-job-badge">{{ t('deployments.lastLogChunk', { size: formatNumber(64) }) }}</span>
                         <button
                           v-if="execution.logs_available"
                           type="button"
                           class="deployment-init-job-logs-button"
-                          :aria-label="`${initJobLogState(attempt, execution)?.open ? 'Hide' : 'View'} logs for Init Job ${execution.job_name}`"
+                          :aria-label="t(initJobLogState(attempt, execution)?.open ? 'deployments.hideJobLogs' : 'deployments.viewJobLogs', { job: execution.job_name })"
                           :aria-expanded="Boolean(initJobLogState(attempt, execution)?.open)"
-                          :title="initJobLogState(attempt, execution)?.open ? 'Hide logs' : 'View logs'"
+                          :title="initJobLogState(attempt, execution)?.open ? t('deployments.hideLogs') : t('deployments.viewLogs')"
                           @click.stop="toggleInitJobLogs(attempt, execution)"
                         >
                           <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
                             <path d="M3 2.5A1.5 1.5 0 0 1 4.5 1h5.8c.4 0 .78.16 1.06.44l1.2 1.2c.28.28.44.66.44 1.06v9.8A1.5 1.5 0 0 1 11.5 15h-7A1.5 1.5 0 0 1 3 13.5v-11Zm1.5-.5a.5.5 0 0 0-.5.5v11a.5.5 0 0 0 .5.5h7a.5.5 0 0 0 .5-.5V4H10.5A1.5 1.5 0 0 1 9 2.5V2H4.5ZM10 2.2v.3a.5.5 0 0 0 .5.5h1.3L10 2.2ZM5.5 6a.5.5 0 0 1 .5-.5h4a.5.5 0 0 1 0 1H6a.5.5 0 0 1-.5-.5Zm0 2.25a.5.5 0 0 1 .5-.5h4a.5.5 0 0 1 0 1H6a.5.5 0 0 1-.5-.5Zm0 2.25A.5.5 0 0 1 6 10h2.5a.5.5 0 0 1 0 1H6a.5.5 0 0 1-.5-.5Z" fill="currentColor" />
                           </svg>
                         </button>
-                        <span v-else class="deployment-init-job-unavailable">Logs unavailable</span>
+                        <span v-else class="deployment-init-job-unavailable">{{ t('deployments.logsUnavailable') }}</span>
                       </div>
                       <div v-if="initJobLogState(attempt, execution)?.open" class="deployment-init-job-logs">
-                        <p v-if="initJobLogState(attempt, execution)?.loading" class="meta">Loading logs...</p>
+                        <p v-if="initJobLogState(attempt, execution)?.loading" class="meta">{{ t('deployments.loadingLogs') }}</p>
                         <p v-else-if="initJobLogState(attempt, execution)?.error" role="alert">{{ initJobLogState(attempt, execution)?.error }}</p>
-                        <p v-else-if="!initJobLogState(attempt, execution)?.logs" class="meta">Log output is empty.</p>
+                        <p v-else-if="!initJobLogState(attempt, execution)?.logs" class="meta">{{ t('deployments.logOutputEmpty') }}</p>
                         <pre v-else><code>{{ initJobLogState(attempt, execution)?.logs }}</code></pre>
                       </div>
                     </div>
                   </section>
                   <div v-if="attempt.status !== 'succeeded'" class="deployment-attempt-details-heading">
-                    <strong>Diagnostics</strong>
+                    <strong>{{ t('deployments.diagnostics') }}</strong>
                     <div class="deployment-attempt-details-actions">
                       <AppButton variant="secondary" compact :disabled="!assistantStore.enabled || assistantStore.pending" @click="explainAttempt(attempt)">Explain</AppButton>
-                      <AppButton variant="secondary" compact @click="copyAttemptDiagnostic(attempt)">{{ copiedAttemptID === attempt.id ? "Copied" : "Copy" }}</AppButton>
+                      <AppButton variant="secondary" compact @click="copyAttemptDiagnostic(attempt)">{{ copiedAttemptID === attempt.id ? t('common.copied') : t('common.copy') }}</AppButton>
                     </div>
                   </div>
                   <pre v-if="attempt.status !== 'succeeded'"><code>{{ attemptDiagnostic(attempt) }}</code></pre>
@@ -562,14 +597,14 @@ onUnmounted(() => {
           aria-labelledby="deployment-changes-tab"
         >
           <template v-if="changeState === 'initial'">
-            <h3>Initial snapshot</h3>
-            <p class="deployment-note">First recorded desired-state snapshot. No previous snapshot is available for comparison.</p>
-            <div class="deployment-counts" aria-label="Recorded resource counts">
-              <span><DeploymentIcon name="service" /><strong>{{ pluralize(detail.resources.services, "service") }}</strong></span>
-              <span><DeploymentIcon name="network" /><strong>{{ pluralize(detail.resources.networks, "network") }}</strong></span>
-              <span><DeploymentIcon name="secret" /><strong>{{ pluralize(detail.resources.secrets, "secret") }}</strong></span>
-              <span><DeploymentIcon name="config" /><strong>{{ pluralize(detail.resources.configs, "config") }}</strong></span>
-              <span v-if="detail.resources.volumes"><DeploymentIcon name="volume" /><strong>{{ pluralize(detail.resources.volumes, "volume") }}</strong></span>
+            <h3>{{ t('deployments.initialSnapshot') }}</h3>
+            <p class="deployment-note">{{ t('deployments.initialSnapshotDescription') }}</p>
+            <div class="deployment-counts" :aria-label="t('deployments.recordedResourceCounts')">
+              <span><DeploymentIcon name="service" /><strong>{{ plural('common.serviceCount', detail.resources.services) }}</strong></span>
+              <span><DeploymentIcon name="network" /><strong>{{ plural('common.networkCount', detail.resources.networks) }}</strong></span>
+              <span><DeploymentIcon name="secret" /><strong>{{ plural('common.secretCount', detail.resources.secrets) }}</strong></span>
+              <span><DeploymentIcon name="config" /><strong>{{ plural('common.configCount', detail.resources.configs) }}</strong></span>
+              <span v-if="detail.resources.volumes"><DeploymentIcon name="volume" /><strong>{{ plural('common.volumeCount', detail.resources.volumes) }}</strong></span>
             </div>
             <div class="deployment-initial-resources">
               <details v-for="section in initialResourceSections" :key="section.key" class="deployment-resource-section" :open="section.key === 'service'">
@@ -577,52 +612,52 @@ onUnmounted(() => {
                   <svg class="deployment-chevron" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m7 4 6 6-6 6" /></svg>
                   <DeploymentIcon :name="section.key" />
                   <strong>{{ section.label }}</strong>
-                  <span class="deployment-resource-count">{{ section.count }}</span>
+                  <span class="deployment-resource-count">{{ formatNumber(section.count) }}</span>
                 </summary>
                 <div v-if="section.key === 'service' && initialServices.length" class="deployment-service-table-wrap">
                   <table class="deployment-service-table">
-                    <thead><tr><th>Name</th><th>Image</th><th>Replicas</th></tr></thead>
-                    <tbody><tr v-for="service in initialServices" :key="service.name"><td><span class="deployment-table-name"><DeploymentIcon name="service" />{{ service.name }}</span></td><td :title="service.image">{{ service.image }}</td><td>{{ service.replicas }}</td></tr></tbody>
+                    <thead><tr><th>{{ t('common.name') }}</th><th>{{ t('common.image') }}</th><th>{{ t('common.replicas') }}</th></tr></thead>
+                    <tbody><tr v-for="service in initialServices" :key="service.name"><td><span class="deployment-table-name"><DeploymentIcon name="service" />{{ service.name }}</span></td><td :title="service.image">{{ service.image }}</td><td>{{ /^\d+$/.test(service.replicas) ? formatNumber(Number(service.replicas)) : service.replicas }}</td></tr></tbody>
                   </table>
                 </div>
                 <ul v-else-if="section.groups.length" class="deployment-resource-list">
                   <li v-for="group in section.groups" :key="group.name"><DeploymentIcon :name="section.key" /><span>{{ group.name }}</span></li>
                 </ul>
-                <p v-else class="deployment-resource-empty">Detailed {{ section.label.toLowerCase() }} data is unavailable for this snapshot.</p>
+                <p v-else class="deployment-resource-empty">{{ t('deployments.detailsUnavailableForResource', { resource: section.label.toLocaleLowerCase() }) }}</p>
               </details>
             </div>
           </template>
           <template v-else-if="changeState === 'unavailable'">
-            <h3>Changes unavailable</h3>
-            <p class="deployment-note">A previous desired snapshot could not be used for this comparison. Inspect the recorded configuration instead.</p>
+            <h3>{{ t('deployments.changesUnavailable') }}</h3>
+            <p class="deployment-note">{{ t('deployments.changesUnavailableDescription') }}</p>
           </template>
           <template v-else-if="changeState === 'none'">
-            <h3>No configuration changes</h3>
-            <p class="deployment-note">The recorded desired state matches its comparison snapshot.</p>
+            <h3>{{ t('deployments.noChanges') }}</h3>
+            <p class="deployment-note">{{ t('deployments.matchingSnapshot') }}</p>
             <p class="meta">{{ comparison }}</p>
           </template>
           <template v-else>
             <div class="deployment-changes-heading">
               <div class="deployment-info-heading">
-                <h3>Desired Changes</h3>
+                <h3>{{ t('deployments.desiredChanges') }}</h3>
                 <div class="deployment-info" @pointerenter="showInfo('changes', $event)" @pointerleave="hideInfo('changes', $event)">
-                  <button type="button" class="deployment-info-button" aria-label="About desired changes" :aria-expanded="infoOpen === 'changes'" :aria-describedby="infoOpen === 'changes' ? 'deployment-changes-tooltip' : undefined" @click.stop="toggleInfo('changes')">
+                  <button type="button" class="deployment-info-button" :aria-label="t('deployments.aboutChanges')" :aria-expanded="infoOpen === 'changes'" :aria-describedby="infoOpen === 'changes' ? 'deployment-changes-tooltip' : undefined" @click.stop="toggleInfo('changes')">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 11v5M12 8h.01" stroke-linecap="round" /></svg>
                   </button>
-                  <div v-if="infoOpen === 'changes'" id="deployment-changes-tooltip" class="deployment-info-tooltip" role="tooltip">{{ comparison }} These entries do not confirm runtime convergence.</div>
+                  <div v-if="infoOpen === 'changes'" id="deployment-changes-tooltip" class="deployment-info-tooltip" role="tooltip">{{ comparison }} {{ t('deployments.convergenceHint') }}</div>
                 </div>
               </div>
             </div>
-            <p class="meta">{{ detail.summary.added }} added · {{ detail.summary.changed }} changed · {{ detail.summary.removed }} removed<template v-if="detail.summary.redacted"> · {{ detail.summary.redacted }} masked</template></p>
+            <p class="meta">{{ changeCounts }}</p>
             <template v-for="group in groups" :key="`${group.type}/${group.name}`">
               <div v-if="group.operation === 'removed'" class="deployment-resource deployment-resource--removed">
                 <div class="deployment-resource-heading">
-                  <span><DeploymentIcon :name="resourceIcon(group.type)" /><span><span class="deployment-resource-type">{{ group.type }}</span><strong>{{ group.name }}</strong></span></span>
-                  <span class="deployment-resource-operation deployment-resource-operation--removed">Removed</span>
+                  <span><DeploymentIcon :name="resourceIcon(group.type)" /><span><span class="deployment-resource-type">{{ resourceLabel(group.type) }}</span><strong>{{ group.name }}</strong></span></span>
+                  <span class="deployment-resource-operation deployment-resource-operation--removed">{{ t('deployments.removed') }}</span>
                 </div>
               </div>
               <details v-else class="deployment-resource" open>
-                <summary class="deployment-resource-heading"><span><svg class="deployment-chevron" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m7 4 6 6-6 6" /></svg><DeploymentIcon :name="resourceIcon(group.type)" /><span><span class="deployment-resource-type">{{ group.type }}</span><strong>{{ group.name }}</strong></span></span><span class="deployment-resource-operation" :class="`deployment-resource-operation--${group.operation}`">{{ group.operation }}</span></summary>
+                <summary class="deployment-resource-heading"><span><svg class="deployment-chevron" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m7 4 6 6-6 6" /></svg><DeploymentIcon :name="resourceIcon(group.type)" /><span><span class="deployment-resource-type">{{ resourceLabel(group.type) }}</span><strong>{{ group.name }}</strong></span></span><span class="deployment-resource-operation" :class="`deployment-resource-operation--${group.operation}`">{{ operationLabel(group.operation) }}</span></summary>
                 <section v-for="section in group.sections" :key="section.name" class="deployment-change-section">
                   <h4>{{ sectionLabel(section.name) }}</h4>
                   <div
@@ -652,18 +687,18 @@ onUnmounted(() => {
         >
           <div class="deployment-configuration-heading">
             <div class="deployment-info-heading">
-              <h3>Configuration Snapshot</h3>
+              <h3>{{ t('deployments.snapshot') }}</h3>
               <div class="deployment-info" @pointerenter="showInfo('configuration', $event)" @pointerleave="hideInfo('configuration', $event)">
-                <button type="button" class="deployment-info-button" aria-label="About configuration snapshot" :aria-expanded="infoOpen === 'configuration'" :aria-describedby="infoOpen === 'configuration' ? 'deployment-configuration-tooltip' : undefined" @click.stop="toggleInfo('configuration')">
+                <button type="button" class="deployment-info-button" :aria-label="t('deployments.aboutSnapshot')" :aria-expanded="infoOpen === 'configuration'" :aria-describedby="infoOpen === 'configuration' ? 'deployment-configuration-tooltip' : undefined" @click.stop="toggleInfo('configuration')">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 11v5M12 8h.01" stroke-linecap="round" /></svg>
                 </button>
-                <div v-if="infoOpen === 'configuration'" id="deployment-configuration-tooltip" class="deployment-info-tooltip" role="tooltip">Sensitive values are masked before storage.</div>
+                <div v-if="infoOpen === 'configuration'" id="deployment-configuration-tooltip" class="deployment-info-tooltip" role="tooltip">{{ t('deployments.maskedHint') }}</div>
               </div>
             </div>
             <AppButton v-if="configuration" variant="secondary" compact @click="copyConfiguration">{{ copyLabel }}</AppButton>
           </div>
-          <p v-if="!configuration" class="meta">Recorded configuration is unavailable.</p>
-          <div v-else class="deployment-yaml manifest-code shj-lang-yaml shj-block" aria-label="Recorded desired configuration YAML" v-html="configurationHtml" />
+          <p v-if="!configuration" class="meta">{{ t('deployments.snapshotUnavailable') }}</p>
+          <div v-else class="deployment-yaml manifest-code shj-lang-yaml shj-block" :aria-label="t('deployments.desiredYaml')" v-html="configurationHtml" />
         </section>
         </template>
       </main>

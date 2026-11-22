@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { syncPauseDurationOptions } from "../../utils/syncPause";
+import { t } from "../../i18n";
 import { computed, ref, watch } from "vue";
 
 import {
@@ -7,7 +9,6 @@ import {
   removeServiceSyncPause,
   resumeStackSync,
   setStackSyncPause,
-  syncPauseDurations,
 } from "../../api/syncPauses";
 import type { StackSyncPausesResponse } from "../../api/types";
 import { formatDate } from "../../utils/format";
@@ -27,7 +28,7 @@ const notice = ref("");
 const hasStackPause = computed(() => Boolean(state.value?.stack_pause));
 const servicePauses = computed(() => state.value?.service_pauses ?? []);
 const canSubmit = computed(() => state.value !== null && !loading.value && !pending.value && !error.value);
-const durationOptions: { value: string; label: string }[] = syncPauseDurations.map(({ value, label }) => ({ value, label }));
+const durationOptions = syncPauseDurationOptions();
 let loadRequest = 0;
 
 async function load(): Promise<void> {
@@ -44,7 +45,7 @@ async function load(): Promise<void> {
     state.value = response;
   } catch (reason) {
     if (request !== loadRequest || !props.open || props.stack !== stack) return;
-    error.value = reason instanceof Error ? reason.message : "Failed to load Pause Sync state";
+    error.value = reason instanceof Error ? reason.message : t("syncPause.loadFailed");
   } finally {
     if (request === loadRequest && props.open && props.stack === stack) loading.value = false;
   }
@@ -63,7 +64,7 @@ async function submit(): Promise<void> {
     emit("changed");
     await load();
   } catch (reason) {
-    error.value = reason instanceof Error ? reason.message : "Failed to update Pause Sync";
+    error.value = reason instanceof Error ? reason.message : t("syncPause.updateFailed");
   } finally {
     pending.value = false;
   }
@@ -76,19 +77,19 @@ async function removeService(service: string): Promise<void> {
   try {
     await removeServiceSyncPause(props.stack, service);
     notice.value = hasStackPause.value
-      ? "Service pause removed. The service remains paused by the stack-level pause."
-      : "Service pause removed.";
+      ? t("syncPause.servicePauseRemovedButStackPaused")
+      : t("syncPause.servicePauseRemoved");
     emit("changed");
     state.value = await getStackSyncPauses(props.stack);
   } catch (reason) {
-    error.value = reason instanceof Error ? reason.message : "Failed to remove service pause";
+    error.value = reason instanceof Error ? reason.message : t("syncPause.removeServiceFailed");
   } finally {
     pending.value = false;
   }
 }
 
 function pauseUntil(expiresAt: string | null): string {
-  return expiresAt ? formatDate(expiresAt) : "No expiration";
+  return expiresAt ? formatDate(expiresAt) : t("syncPause.noExpiration");
 }
 
 watch(() => [props.open, props.stack] as const, ([open]) => {
@@ -113,39 +114,48 @@ watch(() => [props.open, props.stack] as const, ([open]) => {
     @submit.prevent="submit"
     @close="emit('close')"
   >
-    <template #title><h2 id="sync-pause-title">Pause Sync — {{ stack }}</h2></template>
+    <template #title><h2 id="sync-pause-title">{{ t('syncPause.title', { resource: stack }) }}</h2></template>
     <div class="modal-body sync-pause-modal-body">
-      <p v-if="loading" class="meta" role="status">Loading Pause Sync state...</p>
+      <p v-if="loading" class="meta" role="status">{{ t('syncPause.loading') }}</p>
       <template v-else>
         <template v-if="hasStackPause">
           <dl class="sync-pause-summary">
-            <dt>Stack pause</dt><dd>Active</dd>
-            <dt>Pause until</dt><dd>{{ pauseUntil(state?.stack_pause?.expires_at ?? null) }}</dd>
+            <dt>{{ t('syncPause.stackPause') }}</dt><dd>{{ t('syncPause.active') }}</dd>
+            <dt>{{ t('syncPause.pauseUntil') }}</dt><dd>{{ pauseUntil(state?.stack_pause?.expires_at ?? null) }}</dd>
           </dl>
-          <p class="form-helper" role="note">Removing the stack pause does not remove independent service pauses. Listed services remain paused.</p>
+          <p class="form-helper" role="note">{{ t('syncPause.resumeStackHint') }}</p>
         </template>
         <template v-else>
-          <label class="sync-pause-duration-label">Duration</label>
-          <AppSelect v-model="duration" :options="durationOptions" label="Pause duration" />
-          <p class="form-helper" role="note">Independent service pauses remain active when the entire stack is paused.</p>
+          <label class="sync-pause-duration-label">{{ t('syncPause.duration') }}</label>
+          <AppSelect v-model="duration" :options="durationOptions" :label="t('syncPause.pauseDuration')" />
+          <p class="form-helper" role="note">{{ t('syncPause.pauseStackHint') }}</p>
         </template>
 
         <section v-if="servicePauses.length" aria-labelledby="service-pauses-title">
-          <h3 id="service-pauses-title">Direct service pauses</h3>
-          <AppTable fixed min-width="520px" aria-label="Direct service pauses">
-            <template #head><tr><th>Service</th><th>Pause until</th><th><span class="sr-only">Actions</span></th></tr></template>
+          <h3 id="service-pauses-title">{{ t('syncPause.directServicePauses') }}</h3>
+          <AppTable fixed :aria-label="t('syncPause.directServicePauses')">
+            <template #head><tr><th>{{ t('common.service') }}</th><th>{{ t('syncPause.pauseUntil') }}</th><th><span class="sr-only">{{ t('common.action') }}</span></th></tr></template>
             <tr v-for="pause in servicePauses" :key="pause.service">
               <td>{{ pause.service }}</td>
               <td>{{ pauseUntil(pause.expires_at) }}</td>
-              <td class="sync-pause-table-action"><AppButton variant="secondary" compact type="button" :disabled="pending" @click="removeService(pause.service ?? '')">Remove service pause</AppButton></td>
+              <td class="sync-pause-table-action">
+                <AppButton
+                  variant="secondary"
+                  compact
+                  type="button"
+                  :aria-label="t('syncPause.removeServicePause')"
+                  :disabled="pending"
+                  @click="removeService(pause.service ?? '')"
+                >{{ t('syncPause.removeServicePauseShort') }}</AppButton>
+              </td>
             </tr>
           </AppTable>
         </section>
         <p v-if="notice" class="sync-pause-notice" role="status">{{ notice }}</p>
         <p v-if="error" class="sync-pause-error" role="alert">{{ error }}</p>
         <div class="sync-pause-actions">
-          <AppButton variant="secondary" type="button" :disabled="pending" @click="emit('close')">Cancel</AppButton>
-          <AppButton type="submit" :disabled="!canSubmit">{{ hasStackPause ? "Resume stack sync" : "Pause entire stack" }}</AppButton>
+          <AppButton variant="secondary" type="button" :disabled="pending" @click="emit('close')">{{ t('common.cancel') }}</AppButton>
+          <AppButton type="submit" :disabled="!canSubmit">{{ hasStackPause ? t('syncPause.resumeStack') : t('syncPause.pauseStack') }}</AppButton>
         </div>
       </template>
     </div>
@@ -154,13 +164,15 @@ watch(() => [props.open, props.stack] as const, ([open]) => {
 
 <style scoped>
 :deep(.sync-pause-modal-card) { width: min(680px, 94vw); }
-.sync-pause-modal-body { display: grid; gap: 14px; }
+.sync-pause-modal-body { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; }
 .sync-pause-summary { display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; margin: 0; font-size: .86rem; }
 .sync-pause-summary dt { color: var(--muted); }
 .sync-pause-summary dd { margin: 0; }
 .sync-pause-duration-label, h3 { margin: 0; font-size: .82rem; }
+.sync-pause-modal-body :deep(.app-table td) { overflow-wrap: anywhere; }
 .sync-pause-table-action { text-align: right; }
+.sync-pause-table-action .app-button { white-space: normal; overflow-wrap: anywhere; }
 .sync-pause-notice { margin: 0; color: var(--muted); }
 .sync-pause-error { margin: 0; color: var(--error); }
-.sync-pause-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.sync-pause-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
 </style>

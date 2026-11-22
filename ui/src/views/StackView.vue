@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { deploymentPhase } from "../utils/deployments";
+import { formatNumber, plural, t } from "../i18n";
 import { computed, onUnmounted, ref, watch } from "vue";
 import { useRoute } from "vue-router";
 
@@ -34,18 +36,18 @@ const syncStatus = computed(() => stackSyncStatus(stack.value?.status));
 let request = 0;
 
 function errorMessage(reason: unknown): string {
-  return reason instanceof Error ? reason.message : "Request failed";
+  return reason instanceof Error ? reason.message : t("common.requestFailed");
 }
 
 function deploymentSummary(deployment: DeploymentSummary): string {
   const changed = deployment.summary.added + deployment.summary.changed + deployment.summary.removed;
   if (deployment.status === "failed" && deployment.reason) return deployment.reason;
-  if (changed > 0) return `${changed} resource${changed === 1 ? "" : "s"} changed`;
+  if (changed > 0) return plural("stack.changedResources", changed);
   if (deployment.resources.services > 0) {
     const count = deployment.resources.services;
-    return `${count} service${count === 1 ? "" : "s"} processed`;
+    return plural("stack.processedServices", count);
   }
-  return deployment.phase === "completed" ? "Stack state reconciled" : `Phase: ${deployment.phase}`;
+  return deployment.phase === "completed" ? t("stack.reconciled") : t("stack.phase", { phase: deploymentPhase(deployment.phase) });
 }
 
 const recentDeployments = computed(() => deployments.value.map((deployment) => ({
@@ -108,11 +110,11 @@ onUnmounted(() => { request++; });
 
 <template>
   <section class="stack-details-page">
-    <AppTableEmpty v-if="loading" role="status" message="Loading stack..." />
+    <AppTableEmpty v-if="loading" role="status" :message="t('stack.loadingStack')" />
     <AppTableEmpty v-else-if="error" role="alert">
-      Failed to load stack: {{ error }} <AppButton variant="secondary" compact @click="load">Retry</AppButton>
+      {{ t('stack.loadError', { error }) }} <AppButton variant="secondary" compact @click="load">{{ t('common.retry') }}</AppButton>
     </AppTableEmpty>
-    <AppTableEmpty v-else-if="!stack" message="Stack not found." />
+    <AppTableEmpty v-else-if="!stack" :message="t('stack.notFound')" />
     <template v-else>
       <header class="stack-hero">
         <div class="stack-hero-icon"><DeploymentIcon name="stack" /></div>
@@ -124,44 +126,53 @@ onUnmounted(() => { request++; });
             </span>
           </div>
           <dl class="stack-hero-metadata">
-            <div><dt>Compose:</dt><dd>{{ stack.compose_file || "n/a" }}</dd></div>
-            <div><dt>Updated:</dt><dd>{{ formatDate(stack.last_deploy_at) }}</dd></div>
-            <div><dt>Commit:</dt><dd>
+            <div><dt>{{ t('stack.composeLabel') }}</dt><dd>{{ stack.compose_file || t('common.notApplicable') }}</dd></div>
+            <div><dt>{{ t('stack.updatedLabel') }}</dt><dd>{{ formatDate(stack.last_deploy_at) }}</dd></div>
+            <div><dt>{{ t('stack.commitLabel') }}</dt><dd>
               <button v-if="stack.last_commit" type="button" class="stack-commit-button"
-                :aria-label="`Open commit ${shortCommitHash(stack.last_commit)}`"
+                :aria-label="t('common.openCommit', { commit: shortCommitHash(stack.last_commit) })"
                 @click="store.openCommitDetailsModal(stack.last_commit)">
                 {{ shortCommitHash(stack.last_commit) }}
               </button>
-              <span v-else>n/a</span>
+              <span v-else>{{ t('common.notApplicable') }}</span>
             </dd></div>
           </dl>
         </div>
-        <AppButton variant="secondary" class="stack-compare-button" @click="store.openStackManifestModal(stack.name)">Compare state</AppButton>
+        <AppButton variant="secondary" class="stack-compare-button" @click="store.openStackManifestModal(stack.name)">{{ t('stack.compareState') }}</AppButton>
       </header>
 
       <p v-if="stack.last_error" class="stack-error" role="alert">{{ stack.last_error }}</p>
 
-      <dl class="stack-summary" aria-label="Stack summary">
+      <dl class="stack-summary" :aria-label="t('stack.summary')">
         <div class="stack-summary-health" data-summary="health">
           <DeploymentIcon name="check" class="metric-icon--success" />
           <div>
-            <dt>Service health</dt>
-            <dd><strong>{{ stack.status?.synced ?? 0 }} / {{ services.length }}</strong><span>synced</span></dd>
+            <dt>{{ t('stack.serviceHealth') }}</dt>
+            <dd><strong>{{ t('common.ratio', { current: formatNumber(stack.status?.synced ?? 0), total: formatNumber(services.length) }) }}</strong><span>{{ t('stack.syncedCaption') }}</span></dd>
           </div>
         </div>
         <div class="stack-summary-drift" :class="{ 'stack-summary-drift--warning': (stack.status?.out_of_synced ?? 0) > 0 }" data-summary="out-of-sync">
           <DeploymentIcon name="warning" />
           <div>
-            <dt>Out of sync</dt>
-            <dd>{{ stack.status?.out_of_synced ?? 0 }}</dd>
+            <dt>{{ t('stack.outOfSync') }}</dt>
+            <dd>{{ formatNumber(stack.status?.out_of_synced ?? 0) }}</dd>
           </div>
         </div>
         <div class="stack-summary-resources">
-          <dt>Resources</dt>
+          <dt>{{ t('common.resources') }}</dt>
           <dd>
-            <span data-summary="networks"><DeploymentIcon name="network" /><strong>{{ resourcesError ? "n/a" : networks.length }}</strong> networks</span>
-            <span data-summary="secrets"><DeploymentIcon name="secret" /><strong>{{ resourcesError ? "n/a" : secrets.length }}</strong> secrets</span>
-            <span data-summary="configs"><DeploymentIcon name="config" /><strong>{{ resourcesError ? "n/a" : configs.length }}</strong> configs</span>
+            <span data-summary="networks">
+              <DeploymentIcon name="network" />
+              <strong>{{ resourcesError ? t('stack.resourceUnavailable', { resource: t('common.networks'), status: t('common.notApplicable') }) : plural('common.networkCount', networks.length) }}</strong>
+            </span>
+            <span data-summary="secrets">
+              <DeploymentIcon name="secret" />
+              <strong>{{ resourcesError ? t('stack.resourceUnavailable', { resource: t('common.secrets'), status: t('common.notApplicable') }) : plural('common.secretCount', secrets.length) }}</strong>
+            </span>
+            <span data-summary="configs">
+              <DeploymentIcon name="config" />
+              <strong>{{ resourcesError ? t('stack.resourceUnavailable', { resource: t('common.configs'), status: t('common.notApplicable') }) : plural('common.configCount', configs.length) }}</strong>
+            </span>
           </dd>
         </div>
       </dl>
@@ -189,7 +200,7 @@ onUnmounted(() => { request++; });
               <span class="overview-summary-panel-icon" aria-hidden="true">
                 <DeploymentIcon name="service" />
               </span>
-              <h3 id="stack-services-title" class="overview-panel-title">Services</h3>
+              <h3 id="stack-services-title" class="overview-panel-title">{{ t('common.services') }}</h3>
             </div>
           </header>
           <ServicesTable :services="services" min-width="620px" variant="stack-detail" />
@@ -198,7 +209,7 @@ onUnmounted(() => { request++; });
         <RecentDeploymentsPanel
           id="stack-deployments-title"
           class="stack-deployments-panel"
-          title="Recent Deployments"
+          :title="t('stack.recentDeployments')"
           :link="{ name: 'deployments', query: { stack_name: stack.name } }"
           :deployments="recentDeployments"
           :error="deploymentsError"

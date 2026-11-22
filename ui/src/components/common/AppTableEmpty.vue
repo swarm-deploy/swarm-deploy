@@ -1,10 +1,11 @@
 <script setup lang="ts">
+import { t } from "../../i18n";
 withDefaults(
   defineProps<{
     message?: string;
   }>(),
   {
-    message: "No data available.",
+    message: t("common.noData"),
   },
 );
 </script>

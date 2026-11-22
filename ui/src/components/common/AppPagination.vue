@@ -1,4 +1,5 @@
 <script setup lang="ts" generic="T, Q">
+import { formatNumber, t } from "../../i18n";
 import { onBeforeUnmount, ref, shallowRef, watch } from "vue";
 import AppButton from "./AppButton.vue";
 
@@ -36,7 +37,7 @@ async function load(index: number, cursor?: string) {
     cursors[index] = cursor;
     cursors.length = index + 1;
   } catch (reason) {
-    if (requestId === current) error.value = reason instanceof Error && reason.message ? reason.message : "Request failed";
+    if (requestId === current) error.value = reason instanceof Error && reason.message ? reason.message : t("common.requestFailed");
   } finally {
     if (requestId === current) loading.value = false;
   }
@@ -64,9 +65,9 @@ onBeforeUnmount(() => { requestId++; });
     class="app-pagination"
     :aria-label="label"
   >
-    <AppButton variant="secondary" compact :disabled="loading || page === 0" @click="load(page - 1, cursors[page - 1])">Previous</AppButton>
-    <span>Page {{ page + 1 }}</span>
-    <AppButton variant="secondary" compact :disabled="loading || !nextCursor" @click="load(page + 1, nextCursor)">Next</AppButton>
+    <AppButton variant="secondary" compact :disabled="loading || page === 0" @click="load(page - 1, cursors[page - 1])">{{ t('common.previous') }}</AppButton>
+    <span>{{ t('common.pageNumber', { page: formatNumber(page + 1) }) }}</span>
+    <AppButton variant="secondary" compact :disabled="loading || !nextCursor" @click="load(page + 1, nextCursor)">{{ t('common.next') }}</AppButton>
   </nav>
 </template>
 

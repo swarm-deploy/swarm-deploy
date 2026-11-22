@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 import { defineStore } from "pinia";
 
 import { ApiError } from "../api/client";
@@ -115,14 +116,14 @@ export const useOverviewStore = defineStore("overview", {
         } else {
           this.stacks = [];
           this.syncInfo = null;
-          errors.push(stacksResult.reason instanceof Error ? stacksResult.reason.message : "Failed to load stacks");
+          errors.push(stacksResult.reason instanceof Error ? stacksResult.reason.message : t("overview.loadStacksFailed"));
         }
 
         if (servicesResult.status === "fulfilled") {
           this.services = Array.isArray(servicesResult.value.services) ? servicesResult.value.services : [];
         } else {
           this.services = [];
-          errors.push(servicesResult.reason instanceof Error ? servicesResult.reason.message : "Failed to load services");
+          errors.push(servicesResult.reason instanceof Error ? servicesResult.reason.message : t("overview.loadServicesFailed"));
         }
 
         if (errors.length > 0) {
@@ -132,7 +133,7 @@ export const useOverviewStore = defineStore("overview", {
         this.stacks = [];
         this.services = [];
         this.syncInfo = null;
-        this.loadingError = error instanceof Error ? error.message : "Failed to load state";
+        this.loadingError = error instanceof Error ? error.message : t("overview.loadStateFailed");
       } finally {
         this.loading = false;
       }
@@ -143,8 +144,8 @@ export const useOverviewStore = defineStore("overview", {
         await triggerSync();
         await this.loadOverview();
       } catch (error) {
-        const message = error instanceof Error ? error.message : "Failed to trigger sync";
-        this.loadingError = `Failed to trigger sync: ${message}`;
+        const message = error instanceof Error ? error.message : t("overview.triggerFailed");
+        this.loadingError = t("overview.triggerError", { error: message });
       } finally {
         this.syncPending = false;
       }
@@ -174,7 +175,7 @@ export const useOverviewStore = defineStore("overview", {
           this.serviceStatusLatestDeploymentAt = deploymentsResult.value.deployments.at(0)?.created_at ?? "";
         }
       } catch (error) {
-        this.serviceStatusError = error instanceof Error ? error.message : "Failed to load service status";
+        this.serviceStatusError = error instanceof Error ? error.message : t("service.loadStatusFailedFallback");
       } finally {
         this.serviceStatusLoading = false;
       }
@@ -198,7 +199,7 @@ export const useOverviewStore = defineStore("overview", {
       try {
         this.commitDetailsData = await fetchGitCommit(commitHash);
       } catch (error) {
-        this.commitDetailsError = error instanceof Error ? error.message : "Failed to load commit details";
+        this.commitDetailsError = error instanceof Error ? error.message : t("deployments.commitDetailsFallback");
       } finally {
         this.commitDetailsLoading = false;
       }
@@ -228,7 +229,7 @@ export const useOverviewStore = defineStore("overview", {
         this.stackManifestDesired = String(manifestos.desired ?? "");
         this.stackManifestLive = String(manifestos.live ?? "");
       } catch (error) {
-        this.stackManifestError = error instanceof Error ? error.message : "Failed to load stack manifest";
+        this.stackManifestError = error instanceof Error ? error.message : t("stack.loadManifestFailedFallback");
       } finally {
         this.stackManifestLoading = false;
       }
@@ -254,7 +255,7 @@ export const useOverviewStore = defineStore("overview", {
         if (request === this.deploymentDetailsRequest) this.deploymentDetailsData = detail;
       } catch (error) {
         if (request === this.deploymentDetailsRequest) {
-          this.deploymentDetailsError = error instanceof Error ? error.message : "Failed to load deployment";
+          this.deploymentDetailsError = error instanceof Error ? error.message : t("deployments.detailsFallback");
         }
       } finally {
         if (request === this.deploymentDetailsRequest) this.deploymentDetailsLoading = false;

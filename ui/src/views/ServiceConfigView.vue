@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t } from "../i18n";
 import { computed, ref, watch } from "vue";
 import { useRoute } from "vue-router";
 
@@ -28,9 +29,9 @@ watch([stack, service, configID, () => route.query.target], async ([stackName, s
     if (!current) return;
     config.value = response.spec.configs?.find((item) =>
       (item.config_id || item.config_name) === id && (typeof target !== "string" || item.target === target));
-    if (!config.value) error.value = "Config attachment not found.";
+    if (!config.value) error.value = t("service.configNotFound");
   } catch (reason) {
-    if (current) error.value = reason instanceof Error ? reason.message : "Failed to load config attachment";
+    if (current) error.value = reason instanceof Error ? reason.message : t("service.loadConfigFailed");
   } finally {
     if (current) loading.value = false;
   }
@@ -41,20 +42,20 @@ watch([stack, service, configID, () => route.query.target], async ([stackName, s
   <section class="services-page">
     <header>
       <RouterLink :to="sourceRoute" class="assistant-md-link">{{ stack }}/{{ service }}</RouterLink>
-      <h2>Config details</h2>
+      <h2>{{ t('service.configDetails') }}</h2>
     </header>
-    <AppTableEmpty v-if="loading" message="Loading config details..." />
+    <AppTableEmpty v-if="loading" :message="t('service.loadingConfig')" />
     <AppTableEmpty v-else-if="error" role="alert">{{ error }}</AppTableEmpty>
-    <AppTable v-else-if="config" summary fixed aria-label="Config details">
-      <tr><th scope="row">Name</th><td>{{ config.config_name }}</td></tr>
+    <AppTable v-else-if="config" summary fixed :aria-label="t('service.configDetails')">
+      <tr><th scope="row">{{ t('common.name') }}</th><td>{{ config.config_name }}</td></tr>
       <tr>
         <th scope="row">ID</th>
         <td>
-          <code>{{ config.config_id || "n/a" }}</code>
-          <AppCopyButton v-if="config.config_id" :value="config.config_id" color="var(--text)" label="Copy config ID" />
+          <code>{{ config.config_id || t('common.notApplicable') }}</code>
+          <AppCopyButton v-if="config.config_id" :value="config.config_id" color="var(--text)" :label="t('service.copyConfigId')" />
         </td>
       </tr>
-      <tr><th scope="row">Mount path</th><td>{{ config.target || "n/a" }}</td></tr>
+      <tr><th scope="row">{{ t('service.mountPath') }}</th><td>{{ config.target || t('common.notApplicable') }}</td></tr>
     </AppTable>
   </section>
 </template>

@@ -39,13 +39,13 @@ type Application struct {
 
 const indexHtml = "index.html"
 
-func buildSPAFallbackHandler(uiFS fs.FS, basePath string) http.Handler {
+func buildSPAFallbackHandler(uiFS fs.FS, basePath, locale string) http.Handler {
 	fileServer := http.FileServer(http.FS(uiFS))
 	indexBytes, indexErr := fs.ReadFile(uiFS, indexHtml)
 	if indexErr != nil {
 		panic(fmt.Errorf("read embedded index.html: %w", indexErr))
 	}
-	indexBytes = injectRuntimeConfig(indexBytes, basePath)
+	indexBytes = injectRuntimeConfig(indexBytes, basePath, locale)
 
 	serveIndex := func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -85,7 +85,7 @@ func buildSPAFallbackHandler(uiFS fs.FS, basePath string) http.Handler {
 	})
 }
 
-func injectRuntimeConfig(indexBytes []byte, basePath string) []byte {
+func injectRuntimeConfig(indexBytes []byte, basePath, locale string) []byte {
 	baseHref := basePath
 	if baseHref != "/" {
 		baseHref += "/"
@@ -93,7 +93,8 @@ func injectRuntimeConfig(indexBytes []byte, basePath string) []byte {
 
 	runtimeConfig, err := json.Marshal(struct {
 		BasePath string `json:"basePath"`
-	}{BasePath: basePath}, jsontext.EscapeForHTML(true), jsontext.EscapeForJS(true))
+		Locale   string `json:"locale"`
+	}{BasePath: basePath, Locale: locale}, jsontext.EscapeForHTML(true), jsontext.EscapeForJS(true))
 	if err != nil {
 		panic(fmt.Errorf("encode UI runtime config: %w", err))
 	}
@@ -104,14 +105,15 @@ func injectRuntimeConfig(indexBytes []byte, basePath string) []byte {
 		runtimeConfig,
 	)
 
+	indexBytes = bytes.Replace(indexBytes, []byte(`<html lang="en">`), []byte(`<html lang="`+locale+`">`), 1)
 	return bytes.Replace(indexBytes, []byte("<head>"), []byte("<head>"+injection), 1)
 }
 
-func buildRouter(basePath string, apiHandler http.Handler, uiFS fs.FS) http.Handler {
+func buildRouter(basePath, locale string, apiHandler http.Handler, uiFS fs.FS) http.Handler {
 	mux := http.NewServeMux()
 
 	mountedAPIHandler := apiHandler
-	mountedUIHandler := buildSPAFallbackHandler(uiFS, basePath)
+	mountedUIHandler := buildSPAFallbackHandler(uiFS, basePath, locale)
 	if basePath != "/" {
 		mountedAPIHandler = http.StripPrefix(basePath, mountedAPIHandler)
 		mountedUIHandler = http.StripPrefix(basePath, mountedUIHandler)
@@ -166,6 +168,7 @@ func routeFinderWithBasePath(basePath string, findRoute middlewares.RouteFinder)
 
 func NewApplication(
 	webConfig config.WebSpec,
+	language config.Language,
 	stackProvider config.StackProvider,
 	gitopsModule *gitops.Module,
 	deploymentsModule *deployments.Module,
@@ -203,7 +206,11 @@ func NewApplication(
 		return nil, fmt.Errorf("build ogen api server: %w", err)
 	}
 
-	handler := buildRouter(webConfig.BasePath, apiHandler, ui.FS)
+	locale := "en"
+	if language == config.LanguageRussian {
+		locale = "ru"
+	}
+	handler := buildRouter(webConfig.BasePath, locale, apiHandler, ui.FS)
 	auth, err := authenticator.Create(webConfig.Security.Authentication)
 	if err != nil {
 		return nil, fmt.Errorf("build authenticator: %w", err)

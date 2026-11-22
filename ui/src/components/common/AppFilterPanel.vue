@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { formatNumber, t } from "../../i18n";
 import { ref } from "vue";
 
 defineProps<{
@@ -19,7 +20,7 @@ const open = ref(false);
       :aria-controls="panelId"
       @click="open = !open"
     >
-      Filters ({{ activeCount }})
+      {{ t('common.activeFilters', { count: formatNumber(activeCount) }) }}
     </button>
     <div
       :id="panelId"

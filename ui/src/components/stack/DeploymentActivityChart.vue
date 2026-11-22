@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { formatNumber, locale, plural, t } from "../../i18n";
 import { computed, onBeforeUnmount, ref, watch } from "vue";
 
 import { fetchStackDeploymentActivity } from "../../api/overview";
@@ -14,11 +15,11 @@ import DeploymentIcon from "../overview/DeploymentIcon.vue";
 const props = defineProps<{ stack: string }>();
 
 const statuses = [
-  { key: "succeeded", label: "Succeeded", color: "var(--success)" },
-  { key: "failed", label: "Failed", color: "var(--error)" },
-  { key: "running", label: "Running", color: "var(--warning)" },
-  { key: "interrupted", label: "Interrupted", color: "var(--muted)" },
-  { key: "superseded", label: "Superseded", color: "var(--info)" },
+  { key: "succeeded", label: t("common.succeeded"), color: "var(--success)" },
+  { key: "failed", label: t("common.failed"), color: "var(--error)" },
+  { key: "running", label: t("common.running"), color: "var(--warning)" },
+  { key: "interrupted", label: t("common.interrupted"), color: "var(--muted)" },
+  { key: "superseded", label: t("common.superseded"), color: "var(--info)" },
 ] as const;
 
 const interval = ref<DeploymentActivityInterval>("weekly");
@@ -39,22 +40,23 @@ const totals = computed(() => {
   return result;
 });
 const total = computed(() => Object.values(totals.value).reduce((sum, value) => sum + value, 0));
-const periodLabel = computed(() => interval.value === "daily" ? "30 days" : "8 weeks");
 const compactSummary = computed(() => {
-  if (isLoading.value && !response.value) return "Loading activity…";
-  if (error.value && !response.value) return "Activity unavailable";
-  return `${total.value} deployment${total.value === 1 ? "" : "s"} in ${periodLabel.value}`;
+  if (isLoading.value && !response.value) return t("deployments.loadingActivity");
+  if (error.value && !response.value) return t("deployments.activityUnavailable");
+  return interval.value === "daily"
+    ? plural("deployments.activityDaily", total.value, { days: formatNumber(30) })
+    : plural("deployments.activityWeekly", total.value, { weeks: formatNumber(8) });
 });
 
 function formatBucket(start: string, long = false): string {
   const date = new Date(start);
-  const formatted = new Intl.DateTimeFormat("en", {
+  const formatted = new Intl.DateTimeFormat(locale(), {
     month: "short",
     day: "numeric",
     ...(long ? { year: "numeric" } : {}),
     timeZone: "UTC",
   }).format(date);
-  return interval.value === "weekly" && long ? `Week of ${formatted}` : formatted;
+  return interval.value === "weekly" && long ? t("deployments.weekOf", { date: formatted }) : formatted;
 }
 
 function bucketTotal(bucket: DeploymentActivityBucket): number {
@@ -67,9 +69,9 @@ const chartSeries = computed(() => statuses.map((status) => ({
   values: buckets.value.map((bucket) => bucket[status.key]),
 })));
 const summary = computed(() => [
-  { label: "Total", value: total.value },
-  { label: "Succeeded", value: totals.value.succeeded },
-  { label: "Failed", value: totals.value.failed },
+  { label: t("deployments.total"), value: total.value },
+  { label: t("common.succeeded"), value: totals.value.succeeded },
+  { label: t("common.failed"), value: totals.value.failed },
 ]);
 
 async function load(selected: DeploymentActivityInterval, force = false) {
@@ -85,7 +87,7 @@ async function load(selected: DeploymentActivityInterval, force = false) {
     if (current !== request) return;
     errors.value = {
       ...errors.value,
-      [selected]: reason instanceof Error ? reason.message : "Request failed",
+      [selected]: reason instanceof Error ? reason.message : t("common.requestFailed"),
     };
   } finally {
     if (current === request) loading.value = { ...loading.value, [selected]: false };
@@ -122,13 +124,13 @@ onBeforeUnmount(() => {
         <span class="overview-summary-panel-icon" aria-hidden="true">
           <DeploymentIcon name="calendar" />
         </span>
-        <h3 id="deployment-activity-title" class="overview-panel-title">Deployment Activity</h3>
+        <h3 id="deployment-activity-title" class="overview-panel-title">{{ t('deployments.activity') }}</h3>
       </div>
     </header>
 
     <AppStackedBarChart
       class="deployment-activity-content"
-      legend-label="Deployment statuses"
+      :legend-label="t('deployments.statuses')"
       :chart-label="compactSummary"
       :labels="buckets.map((bucket) => formatBucket(bucket.start))"
       :tooltip-labels="buckets.map((bucket) => formatBucket(bucket.start, true))"
@@ -138,19 +140,19 @@ onBeforeUnmount(() => {
       :show-plot="Boolean(response && total > 0)"
     >
       <template #controls>
-        <div class="deployment-activity-interval" aria-label="Deployment activity interval">
-          <button type="button" :class="{ active: interval === 'daily' }" :aria-pressed="interval === 'daily'" @click="selectInterval('daily')">Daily</button>
-          <button type="button" :class="{ active: interval === 'weekly' }" :aria-pressed="interval === 'weekly'" @click="selectInterval('weekly')">Weekly</button>
+        <div class="deployment-activity-interval" :aria-label="t('deployments.activityInterval')">
+          <button type="button" :class="{ active: interval === 'daily' }" :aria-pressed="interval === 'daily'" @click="selectInterval('daily')">{{ t('deployments.daily') }}</button>
+          <button type="button" :class="{ active: interval === 'weekly' }" :aria-pressed="interval === 'weekly'" @click="selectInterval('weekly')">{{ t('deployments.weekly') }}</button>
         </div>
       </template>
 
       <template #status>
-        <p v-if="isLoading && !response" class="deployment-activity-state" role="status">Loading deployment activity…</p>
+        <p v-if="isLoading && !response" class="deployment-activity-state" role="status">{{ t('deployments.loadingActivityData') }}</p>
         <p v-else-if="error && !response" class="deployment-activity-state deployment-activity-error" role="alert">
-          Failed to load deployment activity: {{ error }}
-          <AppButton variant="secondary" compact @click="retry">Retry</AppButton>
+          {{ t('deployments.activityError', { error }) }}
+          <AppButton variant="secondary" compact @click="retry">{{ t('common.retry') }}</AppButton>
         </p>
-        <p v-else-if="response && total === 0" class="deployment-activity-state">No deployments in the selected period.</p>
+        <p v-else-if="response && total === 0" class="deployment-activity-state">{{ t('deployments.emptyPeriod') }}</p>
       </template>
     </AppStackedBarChart>
   </section>

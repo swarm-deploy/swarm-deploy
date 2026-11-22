@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t } from "../../i18n";
 import { computed } from "vue";
 import { useRouter } from "vue-router";
 
@@ -53,34 +54,34 @@ async function openServiceDetails() {
             ? `${overviewStore.serviceStatusData.stack} / ${overviewStore.serviceStatusData.service}`
             : canOpenDetails
               ? `${overviewStore.serviceStatusStack} / ${overviewStore.serviceStatusService}`
-              : "Service status"
+              : t('service.serviceStatus')
         }}
       </h2>
     </template>
 
     <div class="modal-body">
-      <p v-if="overviewStore.serviceStatusLoading" class="meta">Loading service status...</p>
+      <p v-if="overviewStore.serviceStatusLoading" class="meta">{{ t('service.loadingStatus') }}</p>
       <p v-else-if="overviewStore.serviceStatusError" class="meta">
-        Failed to load service status: {{ overviewStore.serviceStatusError }}
+        {{ t('service.statusError', { error: overviewStore.serviceStatusError }) }}
       </p>
       <div v-else-if="serviceSpec" class="service-metrics">
-        <AppTable summary aria-label="Service summary">
+        <AppTable summary :aria-label="t('service.summary')">
             <tr>
-              <th scope="row">Stack</th>
-              <td>{{ overviewStore.serviceStatusData?.stack || overviewStore.serviceStatusStack || "n/a" }}</td>
+              <th scope="row">{{ t('common.stack') }}</th>
+              <td>{{ overviewStore.serviceStatusData?.stack || overviewStore.serviceStatusStack || t('common.notApplicable') }}</td>
             </tr>
             <tr>
-              <th scope="row">Image</th>
-              <td>{{ serviceSpec.image || "n/a" }}</td>
+              <th scope="row">{{ t('common.image') }}</th>
+              <td>{{ serviceSpec.image || t('common.notApplicable') }}</td>
             </tr>
             <tr>
-              <th scope="row">Latest Deployment</th>
+              <th scope="row">{{ t('service.latestDeployment') }}</th>
               <td>{{ formatDate(overviewStore.serviceStatusLatestDeploymentAt) }}</td>
             </tr>
         </AppTable>
       </div>
       <div v-if="canOpenDetails" class="services-link-panel service-status-link-panel">
-        <AppButton class="service-status-open-details-btn" @click="openServiceDetails">Open details</AppButton>
+        <AppButton class="service-status-open-details-btn" @click="openServiceDetails">{{ t('service.openDetails') }}</AppButton>
       </div>
     </div>
   </AppModal>
