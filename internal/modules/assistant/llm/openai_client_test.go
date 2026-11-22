@@ -9,16 +9,17 @@ import (
 	"testing"
 
 	openai "github.com/openai/openai-go/v3"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestEmbedOmitsProviderErrorContentAndPreservesUsage(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(t, "/embeddings", r.URL.Path)
+		assert.Equal(t, "/embeddings", r.URL.Path)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
 		_, err := fmt.Fprint(w, `{"error":{"message":"private-query-and-service-metadata","type":"invalid_request_error","code":"private-provider-code"},"usage":{"prompt_tokens":7,"total_tokens":7}}`)
-		require.NoError(t, err)
+		assert.NoError(t, err)
 	}))
 	defer server.Close()
 
