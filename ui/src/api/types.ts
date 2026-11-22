@@ -125,8 +125,6 @@ export interface SwarmService {
   endpoint_mode?: string;
   published_ports?: Array<{ published_port: number; target_port: number; protocol: string }>;
   update_parallelism?: number;
-  update_state?: string;
-  update_completed_at?: string;
   network_targets?: string[];
 }
 

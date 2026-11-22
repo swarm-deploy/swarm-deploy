@@ -8131,8 +8131,6 @@ type SwarmService struct {
 	EndpointMode       OptString                        `json:"endpoint_mode"`
 	PublishedPorts     []SwarmServicePublishedPortsItem `json:"published_ports"`
 	UpdateParallelism  OptInt64                         `json:"update_parallelism"`
-	UpdateState        OptString                        `json:"update_state"`
-	UpdateCompletedAt  OptDateTime                      `json:"update_completed_at"`
 	NetworkTargets     []string                         `json:"network_targets"`
 }
 
@@ -8199,16 +8197,6 @@ func (s *SwarmService) GetPublishedPorts() []SwarmServicePublishedPortsItem {
 // GetUpdateParallelism returns the value of UpdateParallelism.
 func (s *SwarmService) GetUpdateParallelism() OptInt64 {
 	return s.UpdateParallelism
-}
-
-// GetUpdateState returns the value of UpdateState.
-func (s *SwarmService) GetUpdateState() OptString {
-	return s.UpdateState
-}
-
-// GetUpdateCompletedAt returns the value of UpdateCompletedAt.
-func (s *SwarmService) GetUpdateCompletedAt() OptDateTime {
-	return s.UpdateCompletedAt
 }
 
 // GetNetworkTargets returns the value of NetworkTargets.
@@ -8279,16 +8267,6 @@ func (s *SwarmService) SetPublishedPorts(val []SwarmServicePublishedPortsItem) {
 // SetUpdateParallelism sets the value of UpdateParallelism.
 func (s *SwarmService) SetUpdateParallelism(val OptInt64) {
 	s.UpdateParallelism = val
-}
-
-// SetUpdateState sets the value of UpdateState.
-func (s *SwarmService) SetUpdateState(val OptString) {
-	s.UpdateState = val
-}
-
-// SetUpdateCompletedAt sets the value of UpdateCompletedAt.
-func (s *SwarmService) SetUpdateCompletedAt(val OptDateTime) {
-	s.UpdateCompletedAt = val
 }
 
 // SetNetworkTargets sets the value of NetworkTargets.

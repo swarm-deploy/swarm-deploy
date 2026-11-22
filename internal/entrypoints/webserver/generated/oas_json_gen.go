@@ -17258,18 +17258,6 @@ func (s *SwarmService) encodeFields(e *jx.Encoder) {
 		}
 	}
 	{
-		if s.UpdateState.Set {
-			e.FieldStart("update_state")
-			s.UpdateState.Encode(e)
-		}
-	}
-	{
-		if s.UpdateCompletedAt.Set {
-			e.FieldStart("update_completed_at")
-			s.UpdateCompletedAt.Encode(e, json.EncodeDateTime)
-		}
-	}
-	{
 		if s.NetworkTargets != nil {
 			e.FieldStart("network_targets")
 			e.ArrStart()
@@ -17281,7 +17269,7 @@ func (s *SwarmService) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfSwarmService = [16]string{
+var jsonFieldsNameOfSwarmService = [14]string{
 	0:  "id",
 	1:  "name",
 	2:  "full_name",
@@ -17295,9 +17283,7 @@ var jsonFieldsNameOfSwarmService = [16]string{
 	10: "endpoint_mode",
 	11: "published_ports",
 	12: "update_parallelism",
-	13: "update_state",
-	14: "update_completed_at",
-	15: "network_targets",
+	13: "network_targets",
 }
 
 // Decode decodes SwarmService from json.
@@ -17459,26 +17445,6 @@ func (s *SwarmService) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"update_parallelism\"")
-			}
-		case "update_state":
-			if err := func() error {
-				s.UpdateState.Reset()
-				if err := s.UpdateState.Decode(d); err != nil {
-					return err
-				}
-				return nil
-			}(); err != nil {
-				return errors.Wrap(err, "decode field \"update_state\"")
-			}
-		case "update_completed_at":
-			if err := func() error {
-				s.UpdateCompletedAt.Reset()
-				if err := s.UpdateCompletedAt.Decode(d, json.DecodeDateTime); err != nil {
-					return err
-				}
-				return nil
-			}(); err != nil {
-				return errors.Wrap(err, "decode field \"update_completed_at\"")
 			}
 		case "network_targets":
 			if err := func() error {

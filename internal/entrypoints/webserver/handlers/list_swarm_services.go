@@ -54,10 +54,6 @@ func (h *handler) ListSwarmServices(ctx context.Context) (*generated.SwarmServic
 		if update := service.ServiceSpec.UpdateConfig; update != nil {
 			item.UpdateParallelism.SetTo(toInt64FromUint64(update.Parallelism))
 		}
-		if update := service.UpdateStatus; update != nil {
-			item.UpdateState = toOptString(string(update.State))
-			item.UpdateCompletedAt = toOptDateTime(update.CompletedAt)
-		}
 		for _, network := range networks {
 			item.NetworkTargets = append(item.NetworkTargets, network.Target)
 		}

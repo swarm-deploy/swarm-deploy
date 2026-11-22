@@ -507,11 +507,6 @@ components:
           type: integer
           format: int64
           minimum: 0
-        update_state:
-          type: string
-        update_completed_at:
-          type: string
-          format: date-time
         network_targets:
           type: array
           items:

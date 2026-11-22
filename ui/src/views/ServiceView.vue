@@ -19,7 +19,7 @@ import NetworkDetailsModal from "../components/services/NetworkDetailsModal.vue"
 import ServiceSyncPauseModal from "../components/services/ServiceSyncPauseModal.vue";
 import { useOverviewStore } from "../stores/overview";
 import { useSecretDetailsStore } from "../stores/secretDetails";
-import { formatBytes, formatDate, formatNanoCPU, formatRelativeTime } from "../utils/format";
+import { formatBytes, formatDate, formatNanoCPU } from "../utils/format";
 import { serviceRuntimeState } from "../utils/realtime";
 
 const route = useRoute();
@@ -74,18 +74,6 @@ const deploymentBadges = {
 function deploymentBadge(status: ServiceDeploymentStatus) {
   return deploymentBadges[status] ?? { label: status, variant: "neutral" as const };
 }
-const convergence = computed(() => {
-  switch (liveService.value?.update_state) {
-    case "updating": return "Update in progress";
-    case "paused": return "Update paused";
-    case "rollback_started": return "Rollback in progress";
-    case "rollback_paused": return "Rollback paused";
-    case "rollback_completed": return "Rollback completed";
-    case "completed":
-      return available.value === "Available" ? "Converged" : "";
-    default: return "";
-  }
-});
 
 const labelGroups = computed(() => {
   const groups = {
@@ -304,13 +292,7 @@ watch([stackName, serviceName], ([stack, service], _, onCleanup) => {
 
           <AppPanel tag="section" class="service-section service-deployments" aria-labelledby="service-deployments-title">
             <template #header>
-              <div class="service-deployments-heading">
-                <h3 id="service-deployments-title"><RouterLink :to="{ name: 'deployments', query: { stack_name: stackName, service_name: serviceName } }">Deployments</RouterLink></h3>
-                <span v-if="convergence" class="meta">
-                  {{ convergence }}
-                  <time v-if="liveService?.update_completed_at && convergence === 'Converged'" :datetime="liveService.update_completed_at" :title="formatDate(liveService.update_completed_at)">{{ formatRelativeTime(liveService.update_completed_at) }}</time>
-                </span>
-              </div>
+              <h3 id="service-deployments-title"><RouterLink :to="{ name: 'deployments', query: { stack_name: stackName, service_name: serviceName } }">Deployments</RouterLink></h3>
             </template>
             <AppTableEmpty v-if="deploymentsLoading" message="Loading deployments..." />
             <AppTableEmpty v-else-if="deploymentsError" role="alert">{{ deploymentsError }}</AppTableEmpty>
@@ -664,19 +646,6 @@ button.service-entity {
   background: var(--surface-muted);
   transform: none;
   filter: none;
-}
-
-.service-deployments-heading {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 0 8px;
-}
-
-.service-deployments-heading .meta {
-  font-size: .72rem;
-  margin-bottom: 5px;
 }
 
 .service-deployments :deep(.app-table th),

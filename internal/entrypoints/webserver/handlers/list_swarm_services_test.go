@@ -45,7 +45,6 @@ func TestHandlerListSwarmServices(t *testing.T) {
 					UpdateConfig: &dockerswarm.UpdateConfig{Parallelism: 1},
 					TaskTemplate: dockerswarm.TaskSpec{Networks: []dockerswarm.NetworkAttachmentConfig{{Target: "network-id"}}},
 				},
-				UpdateStatus:   &swarm.ServiceUpdateStatus{State: swarm.ServiceUpdateStateCompleted, CompletedAt: updatedAt},
 				PublishedPorts: []dockerswarm.PortConfig{{PublishedPort: 8080, TargetPort: 80, Protocol: dockerswarm.PortConfigProtocolTCP}},
 			},
 			{
@@ -67,8 +66,6 @@ func TestHandlerListSwarmServices(t *testing.T) {
 	assert.Equal(t, "vip", response.Services[0].EndpointMode.Value)
 	assert.Equal(t, generated.SwarmServicePublishedPortsItem{PublishedPort: 8080, TargetPort: 80, Protocol: "tcp"}, response.Services[0].PublishedPorts[0])
 	assert.Equal(t, int64(1), response.Services[0].UpdateParallelism.Value)
-	assert.Equal(t, "completed", response.Services[0].UpdateState.Value)
-	assert.Equal(t, updatedAt, response.Services[0].UpdateCompletedAt.Value)
 	assert.Equal(t, []string{"network-id"}, response.Services[0].NetworkTargets)
 	assert.Empty(t, response.Services[1].NetworkTargets)
 	assert.Equal(t, int64(4), response.Services[0].ConfiguredReplicas.Value)

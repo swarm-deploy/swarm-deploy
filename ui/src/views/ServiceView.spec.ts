@@ -42,7 +42,7 @@ const liveAPI = {
   replicas: { running: 2, desired: 2 },
   created_at: date, endpoint_mode: "vip",
   published_ports: [{ published_port: 8080, target_port: 80, protocol: "tcp" }],
-  update_parallelism: 1, update_state: "completed", update_completed_at: date,
+  update_parallelism: 1,
   network_targets: ["overlay-id"],
 };
 const liveWorker = {
@@ -203,7 +203,7 @@ describe("ServiceView", () => {
     const history = wrapper.get('table[aria-label="Deployment history"]');
     expect(history.findAll("th").map((item) => item.text())).toEqual(["Version", "Status", "Started", "Details"]);
     expect(history.text()).toContain("Superseded");
-    expect(wrapper.get(".service-deployments").text()).toContain("Converged");
+    expect(wrapper.get(".service-deployments .app-panel-header").text()).toBe("Deployments");
     expect(wrapper.get(".service-deployments").text()).not.toMatch(/Current|Git sync healthy/);
     expect(history.find(".app-status-badge-dot").exists()).toBe(false);
     await history.get("tbody tr").trigger("click");
