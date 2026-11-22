@@ -207,7 +207,7 @@ watch([stackName, serviceName], ([stack, service], _, onCleanup) => {
     <header class="service-heading">
       <DeploymentIcon name="service" class="service-heading-icon" />
       <div class="service-heading-content">
-        <RouterLink :to="stackRoute" class="service-inline-link service-stack-link">{{ stackName }}</RouterLink>
+        <RouterLink :to="stackRoute" class="service-inline-link">{{ stackName }}</RouterLink>
         <div class="service-heading-summary">
           <h2>{{ serviceName }}</h2>
           <AppStatusBadge
@@ -603,12 +603,8 @@ watch([stackName, serviceName], ([stack, service], _, onCleanup) => {
 }
 
 .service-inline-link {
-  color: var(--accent-strong);
-  text-decoration: none;
-}
-
-.service-stack-link {
   color: var(--control-primary);
+  text-decoration: none;
 }
 
 .service-inline-link:hover {
