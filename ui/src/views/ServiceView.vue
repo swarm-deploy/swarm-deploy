@@ -77,10 +77,10 @@ function deploymentBadge(status: ServiceDeploymentStatus) {
 
 const labelGroups = computed(() => {
   const groups = {
+    Custom: new Map<string, string>(),
     Docker: new Map(Object.entries(spec.value?.labels?.docker ?? {})),
     "Swarm Deploy": new Map(Object.entries(spec.value?.labels?.swarm_deploy ?? {})),
     Other: new Map<string, string>(),
-    Custom: new Map<string, string>(),
   };
   for (const [key, value] of Object.entries(spec.value?.labels?.custom ?? {})) {
     if (key.startsWith("com.docker.")) groups.Docker.set(key, value);
@@ -93,7 +93,10 @@ const labelGroups = computed(() => {
     labels: [...labels].sort(([left], [right]) => left.localeCompare(right)),
   })).filter((group) => group.labels.length);
 });
-const labelPreview = computed(() => labelGroups.value.flatMap((group) => group.labels).slice(-3));
+const labelPreview = computed(() => {
+  const group = labelGroups.value.find(({ name }) => name === "Custom") ?? labelGroups.value.at(-1);
+  return group?.labels.at(-1);
+});
 function previewKey(key: string): string {
   return key.replace(/^swarm-deploy\./, "");
 }
@@ -178,7 +181,7 @@ watch([stackName, serviceName], ([stack, service], _, onCleanup) => {
     <header class="service-heading">
       <DeploymentIcon name="service" class="service-heading-icon" />
       <div class="service-heading-content">
-        <RouterLink :to="stackRoute" class="service-inline-link">{{ stackName }}</RouterLink>
+        <RouterLink :to="stackRoute" class="service-inline-link service-stack-link">{{ stackName }}</RouterLink>
         <div class="service-heading-summary">
           <h2>{{ serviceName }}</h2>
           <template v-if="!loading || liveService">
@@ -187,17 +190,6 @@ watch([stackName, serviceName], ([stack, service], _, onCleanup) => {
             </AppStatusBadge>
             <AppStatusBadge v-if="liveService" filled>{{ liveService.replicas.running }} / {{ liveService.replicas.desired }} replicas</AppStatusBadge>
           </template>
-          <a
-            v-for="link in links"
-            :key="`${link.type}-${link.url}`"
-            :href="link.url"
-            :title="link.url"
-            class="service-heading-link"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <AppStatusBadge filled>{{ link.type }}</AppStatusBadge>
-          </a>
         </div>
       </div>
       <div class="service-heading-actions">
@@ -221,23 +213,12 @@ watch([stackName, serviceName], ([stack, service], _, onCleanup) => {
       <p v-if="loadingError || runtimeError" class="meta" role="status">{{ loadingError || runtimeError }}</p>
       <div class="service-dossier">
         <AppPanel tag="section" class="service-section service-metadata" aria-labelledby="service-metadata-title">
-          <template #header><h3 id="service-metadata-title">Service metadata</h3></template>
-          <AppTable summary fixed aria-label="Service metadata">
+          <template #header><h3 id="service-metadata-title">Service</h3></template>
+          <AppTable summary fixed aria-label="Service">
             <template #colgroup><colgroup><col class="service-metadata-label" /><col /></colgroup></template>
-            <tr><th scope="row">Stack</th><td><RouterLink :to="stackRoute" class="service-inline-link">{{ stackName }}</RouterLink></td></tr>
             <tr><th scope="row">Type</th><td>{{ serviceInfo?.type_title || serviceInfo?.type || "n/a" }}</td></tr>
             <tr><th scope="row">Description</th><td>{{ serviceInfo?.description || "n/a" }}</td></tr>
             <tr><th scope="row">Mode</th><td class="service-mode">{{ liveService?.mode || spec?.mode || "n/a" }}</td></tr>
-            <tr>
-              <th scope="row">Service ID</th>
-              <td>
-                <span v-if="liveService?.id" class="service-copy-value">
-                  <code>{{ liveService.id }}</code>
-                  <AppCopyButton :value="liveService.id" color="var(--text)" label="Copy service ID" copied-label="Service ID copied" />
-                </span>
-                <span v-else>n/a</span>
-              </td>
-            </tr>
             <tr>
               <th scope="row">Published port</th>
               <td>{{ liveService?.published_ports?.map(({ published_port, target_port, protocol }) => `${published_port} → ${target_port}/${protocol}`).join(", ") || "n/a" }}</td>
@@ -260,6 +241,24 @@ watch([stackName, serviceName], ([stack, service], _, onCleanup) => {
                 <span v-else>n/a</span>
               </td>
             </tr>
+            <tr v-if="links.length">
+              <th scope="row">Links</th>
+              <td>
+                <div class="service-links">
+                  <a
+                    v-for="link in links"
+                    :key="`${link.type}-${link.url}`"
+                    :href="link.url"
+                    :title="link.url"
+                    class="service-link-badge"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    <AppStatusBadge filled>{{ link.type }}</AppStatusBadge>
+                  </a>
+                </div>
+              </td>
+            </tr>
             <tr v-if="webRoutes.length">
               <th scope="row">Web Routes</th>
               <td>
@@ -274,10 +273,8 @@ watch([stackName, serviceName], ([stack, service], _, onCleanup) => {
             <tr>
               <th scope="row">Labels</th>
               <td>
-                <div v-if="labelPreview.length" class="service-labels-preview">
-                  <div class="service-labels-tokens">
-                    <code v-for="[key, value] in labelPreview" :key="key" class="service-label-token" :title="`${key}=${value}`">{{ previewKey(key) }}<span>={{ value }}</span></code>
-                  </div>
+                <div v-if="labelPreview" class="service-labels-preview">
+                  <code class="service-label-token" :title="labelPreview.join('=')">{{ previewKey(labelPreview[0]) }}<span>={{ labelPreview[1] }}</span></code>
                   <AppButton variant="secondary" compact class="service-labels-show" aria-haspopup="dialog" @click="labelsModalOpen = true">Show all</AppButton>
                 </div>
                 <span v-else class="meta">No labels.</span>
@@ -422,25 +419,31 @@ watch([stackName, serviceName], ([stack, service], _, onCleanup) => {
   white-space: nowrap;
 }
 
-.service-heading-link {
+.service-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.service-link-badge {
   display: inline-flex;
   max-width: 100%;
   border-radius: 999px;
   text-decoration: none;
 }
 
-.service-heading-link :deep(.app-status-badge) {
+.service-link-badge :deep(.app-status-badge) {
   min-width: 0;
   white-space: normal;
   overflow-wrap: anywhere;
 }
 
-.service-heading-link:hover :deep(.app-status-badge) {
+.service-link-badge:hover :deep(.app-status-badge) {
   color: var(--accent-strong);
   border-color: var(--accent-border);
 }
 
-.service-heading-link:focus-visible {
+.service-link-badge:focus-visible {
   outline: 2px solid var(--accent-focus);
   outline-offset: 2px;
 }
@@ -559,6 +562,10 @@ watch([stackName, serviceName], ([stack, service], _, onCleanup) => {
   text-decoration: none;
 }
 
+.service-stack-link {
+  color: var(--control-primary);
+}
+
 .service-inline-link:hover {
   text-decoration: underline;
 }
@@ -604,20 +611,12 @@ watch([stackName, serviceName], ([stack, service], _, onCleanup) => {
   min-width: 0;
 }
 
-.service-labels-preview,
-.service-labels-tokens {
+.service-labels-preview {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   min-width: 0;
   gap: 4px;
-}
-
-.service-labels-preview {
-  justify-content: space-between;
-}
-
-.service-labels-tokens {
-  flex: 0 1 auto;
 }
 
 .service-label-token {

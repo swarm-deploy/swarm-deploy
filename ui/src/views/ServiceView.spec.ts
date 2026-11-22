@@ -132,49 +132,49 @@ describe("ServiceView", () => {
     expect(header.text()).toContain("Available");
     const replicas = header.findAll(".app-status-badge").find((badge) => badge.text() === "2 / 2 replicas");
     expect(replicas).toBeDefined();
-    const link = header.get('a[href="https://monitoring.example.test/api"]');
-    expect(link.get(".app-status-badge").classes()).toEqual(replicas?.classes());
-    expect(link.text()).toBe("Dashboard");
-    expect(link.attributes("target")).toBe("_blank");
+    expect(header.get('a[href="/stacks/infra"]').text()).toBe("infra");
+    expect(header.text()).not.toContain("Dashboard");
     expect(header.text()).not.toMatch(/Last deployment|Succeeded/i);
     expect(header.text()).not.toContain("Application");
     expect(header.get('a[aria-label="Open api in Realtime"]').attributes("href")).toBe("/realtime?stack=infra&service=api");
-    const table = wrapper.get('table[aria-label="Service metadata"]');
+    expect(wrapper.get("#service-metadata-title").text()).toBe("Service");
+    const table = wrapper.get('table[aria-label="Service"]');
     expect(table.findAll("th").map((th) => th.text())).toEqual([
-      "Stack", "Type", "Description", "Mode", "Service ID", "Published port",
-      "Update strategy", "Image", "Repository", "Web Routes", "Created", "Labels",
+      "Type", "Description", "Mode", "Published port",
+      "Update strategy", "Image", "Repository", "Links", "Web Routes", "Created", "Labels",
     ]);
-    for (const value of ["Application", "Serves the API", "replicated", "service-id", "8080 → 80/tcp", "Rolling / parallelism 1", image, "api.example.test (10.0.0.12:443)"]) {
+    for (const value of ["Application", "Serves the API", "replicated", "8080 → 80/tcp", "Rolling / parallelism 1", image, "api.example.test (10.0.0.12:443)"]) {
       expect(table.text()).toContain(value);
     }
+    const link = table.get('a[href="https://monitoring.example.test/api"]');
+    expect(link.get(".app-status-badge").classes()).toEqual(replicas?.classes());
+    expect(link.text()).toBe("Dashboard");
+    expect(link.attributes("target")).toBe("_blank");
     expect(table.get("time").attributes("datetime")).toBe(date);
     expect(wrapper.get('table[aria-label="Service resources"]').findAll("th").map((th) => th.text())).toEqual([
       "Requested / limited RAM", "Requested / limited CPU",
     ]);
   });
 
-  it("copies the exact image reference, service ID and full label", async () => {
+  it("copies the exact image reference and full label", async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     vi.stubGlobal("isSecureContext", true);
     vi.stubGlobal("navigator", { clipboard: { writeText } });
     const wrapper = await mountPage();
     await wrapper.get('button[aria-label="Copy image reference"]').trigger("click");
-    await wrapper.get('button[aria-label="Copy service ID"]').trigger("click");
     await wrapper.get(".service-labels-show").trigger("click");
     await wrapper.get('button[aria-label="Copy swarm-deploy.gitops label"]').trigger("click");
-    expect(writeText.mock.calls).toEqual([[image], ["service-id"], ["swarm-deploy.gitops=true"]]);
+    expect(writeText.mock.calls).toEqual([[image], ["swarm-deploy.gitops=true"]]);
   });
 
-  it("shows three labels in the preview and exact keys in their existing groups", async () => {
+  it("previews one label and opens all exact labels with Custom first", async () => {
     const wrapper = await mountPage();
-    expect(wrapper.findAll(".service-label-token").map((item) => item.text())).toEqual([
-      "gitops=true", "environment=production", "team=platform",
-    ]);
+    expect(wrapper.findAll(".service-label-token").map((item) => item.text())).toEqual(["team=platform"]);
     await wrapper.get(".service-labels-show").trigger("click");
     const labels = wrapper.get('.modal[aria-hidden="false"] [role="dialog"][aria-labelledby="service-labels-title"]');
     expect(labels.get("h2").text()).toBe("Service labels");
-    expect(labels.findAll(".service-labels-group-header span").map((item) => item.text())).toEqual(["1", "1", "2"]);
-    expect(labels.findAll("h3").map((item) => item.text())).toEqual(["Docker", "Swarm Deploy", "Custom"]);
+    expect(labels.findAll(".service-labels-group-header span").map((item) => item.text())).toEqual(["2", "1", "1"]);
+    expect(labels.findAll("h3").map((item) => item.text())).toEqual(["Custom", "Docker", "Swarm Deploy"]);
     expect(labels.text()).toContain("com.docker.stack.namespace");
     expect(labels.text()).toContain("swarm-deploy.gitops");
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
