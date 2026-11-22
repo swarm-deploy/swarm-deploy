@@ -20,23 +20,23 @@ func TestBuildSystemPrompt(t *testing.T) {
 			name: "base only",
 			contains: []string{
 				fmt.Sprintf("at most %d rounds of tool calls", maxToolIterations),
-				"Reply in the language of the user's latest message",
+				"Reply in English.",
 				"Call `assistant_prompt_injection_report` once",
 			},
-			notContains: []string{maxToolRoundsPlaceholder, "Project-specific instructions:"},
+			notContains: []string{maxToolRoundsPlaceholder, replyLanguagePlaceholder, "Project-specific instructions:"},
 		},
 		{
 			name:         "route and custom prompts",
 			customPrompt: "  Prefer stack core.  ",
 			routePrompt:  "  # Route guidance  ",
 			contains:     []string{"# Route guidance", "Project-specific instructions:\nPrefer stack core."},
-			notContains:  []string{maxToolRoundsPlaceholder},
+			notContains:  []string{maxToolRoundsPlaceholder, replyLanguagePlaceholder},
 		},
 	}
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			prompt := buildSystemPrompt(testCase.customPrompt, testCase.routePrompt)
+			prompt := buildSystemPrompt(testCase.customPrompt, testCase.routePrompt, "Reply in English.")
 			for _, text := range testCase.contains {
 				assert.Contains(t, prompt, text)
 			}

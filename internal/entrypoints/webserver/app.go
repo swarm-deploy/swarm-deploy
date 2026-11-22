@@ -20,6 +20,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/middlewares"
 	alertstore "github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/texts"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops"
@@ -178,6 +179,7 @@ func NewApplication(
 	recommendations recommendationstore.Store,
 	alerts alertstore.Store,
 	assistantService assistant.Assistant,
+	assistantTexts *texts.Localizer,
 	taskLogs *logparser.Service,
 ) (*Application, error) {
 	h := handlers.New(
@@ -196,6 +198,7 @@ func NewApplication(
 		recommendations,
 		alerts,
 		assistantService,
+		assistantTexts,
 		deploymentsModule.Store,
 		taskLogs,
 		eventModule.Dispatcher,

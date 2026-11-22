@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/conversation"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/texts"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/tools/routing"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/model"
 )
@@ -138,6 +139,8 @@ type ActiveChatRequest struct {
 
 // Config contains runtime assistant settings.
 type Config struct {
+	// Localizer renders new assistant responses in the installation language.
+	Localizer *texts.Localizer
 	// Enabled toggles assistant execution.
 	Enabled bool
 	// ModelName is the model identifier used for chat completion.

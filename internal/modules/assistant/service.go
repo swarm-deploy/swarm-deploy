@@ -148,7 +148,7 @@ func (s *Service) Chat(ctx context.Context, request ChatRequest) ChatResponse {
 				Status:         StatusFailed,
 				ConversationID: conversationID,
 				RequestID:      requestID,
-				ErrorMessage:   "unknown request_id",
+				ErrorMessage:   s.config.Localizer.Text("chat.unknown_request"),
 			}
 		}
 		if conversationID != "" && conversationID != run.conversationID {
@@ -156,7 +156,7 @@ func (s *Service) Chat(ctx context.Context, request ChatRequest) ChatResponse {
 				Status:         StatusFailed,
 				ConversationID: conversationID,
 				RequestID:      requestID,
-				ErrorMessage:   "request_id does not belong to conversation_id",
+				ErrorMessage:   s.config.Localizer.Text("chat.request_conversation_mismatch"),
 			}
 		}
 
@@ -168,7 +168,7 @@ func (s *Service) Chat(ctx context.Context, request ChatRequest) ChatResponse {
 			Status:         StatusFailed,
 			ConversationID: conversationID,
 			RequestID:      requestID,
-			ErrorMessage:   "message is required for new assistant request",
+			ErrorMessage:   s.config.Localizer.Text("chat.message_required"),
 		}
 	}
 	if len(message) > maxAssistantMessageBytes {
@@ -176,7 +176,7 @@ func (s *Service) Chat(ctx context.Context, request ChatRequest) ChatResponse {
 			Status:         StatusFailed,
 			ConversationID: conversationID,
 			RequestID:      requestID,
-			ErrorMessage:   "message is too large",
+			ErrorMessage:   s.config.Localizer.Text("chat.message_too_large"),
 		}
 	}
 
@@ -189,13 +189,13 @@ func (s *Service) Chat(ctx context.Context, request ChatRequest) ChatResponse {
 		switch {
 		case errors.Is(readErr, errRequestIDConflict):
 			return ChatResponse{Status: StatusFailed, ConversationID: conversationID, RequestID: requestID,
-				ErrorMessage: readErr.Error()}
+				ErrorMessage: s.config.Localizer.Text("chat.request_id_conflict")}
 		case errors.Is(readErr, errConversationBusy):
 			return ChatResponse{Status: StatusFailed, ConversationID: conversationID, RequestID: requestID,
-				ErrorMessage: "Assistant is still answering in this chat. Wait for the reply."}
+				ErrorMessage: s.config.Localizer.Text("chat.conversation_busy")}
 		}
 		return ChatResponse{Status: StatusFailed, ConversationID: conversationID, RequestID: requestID,
-			ErrorMessage: "Failed to read conversation history"}
+			ErrorMessage: s.config.Localizer.Text("chat.history_read_failed")}
 	}
 	span.SetAttributes(tracing.GenAIConversationID.String(run.conversationID))
 	if created {
@@ -210,7 +210,7 @@ func (s *Service) startRun(ctx context.Context, run *chatRun, createdBy string) 
 	select {
 	case s.runSlots <- struct{}{}:
 	default:
-		run.finish(StatusFailed, "", "Assistant is busy. Try again later.", nil)
+		run.finish(StatusFailed, "", s.config.Localizer.Text("chat.busy"), nil)
 		return
 	}
 
@@ -234,19 +234,19 @@ func (s *Service) startRun(ctx context.Context, run *chatRun, createdBy string) 
 func (s *Service) prepareRun(ctx context.Context, run *chatRun, createdBy string) ([]conversation.Turn, bool) {
 	if s.graph.guard.Check(run.message) {
 		s.publishPromptRejection(ctx, run.message)
-		run.reject()
+		run.finish(StatusRejected, "", s.config.Localizer.Text("chat.rejected"), nil)
 		return nil, false
 	}
 
 	history, err := s.getConversation(ctx, run.conversationID)
 	if err != nil {
-		run.finish(StatusFailed, "", "Failed to read conversation history", nil)
+		run.finish(StatusFailed, "", s.config.Localizer.Text("chat.history_read_failed"), nil)
 		return nil, false
 	}
 
 	unlock, err := s.lockChatHistory(ctx, run.conversationID)
 	if err != nil {
-		run.finish(StatusFailed, "", "Failed to save assistant message", nil)
+		run.finish(StatusFailed, "", s.config.Localizer.Text("chat.save_message_failed"), nil)
 		return nil, false
 	}
 	defer unlock()
@@ -254,7 +254,7 @@ func (s *Service) prepareRun(ctx context.Context, run *chatRun, createdBy string
 	question := conversation.Turn{Role: "user", Content: run.message}
 	_, err = s.persistConversation(ctx, run.conversationID, createdBy, conversation.TokenUsage{}, question)
 	if err != nil {
-		run.finish(StatusFailed, "", "Failed to save assistant message", nil)
+		run.finish(StatusFailed, "", s.config.Localizer.Text("chat.save_message_failed"), nil)
 		return nil, false
 	}
 
@@ -269,7 +269,7 @@ func (s *Service) runAssistant(ctx context.Context, createdBy string, history []
 	conversationID := run.conversationID
 	question := conversation.Turn{Role: "user", Content: run.message}
 
-	run.addActivity("Analyzing request")
+	run.addActivity(s.config.Localizer.Text("progress.analyze"))
 	turn := s.graph.operations.beginTurn(conversationID)
 	answer, usage, err := s.graph.run(runCtx, turn, history, run.message, run.addActivity)
 	if err != nil {
@@ -284,7 +284,7 @@ func (s *Service) runAssistant(ctx context.Context, createdBy string, history []
 
 			s.publishPromptRejection(runCtx, rejectedPrompt)
 			_, _ = s.persistConversation(ctx, conversationID, createdBy, usage)
-			run.reject()
+			run.finish(StatusRejected, "", s.config.Localizer.Text("chat.rejected"), nil)
 			return
 		}
 
@@ -296,13 +296,13 @@ func (s *Service) runAssistant(ctx context.Context, createdBy string, history []
 			slog.String("request_id", run.requestID),
 			slog.Any("err", err),
 		)
-		run.finish(StatusFailed, "", "Failed to generate assistant response", nil)
+		run.finish(StatusFailed, "", s.config.Localizer.Text("chat.generation_failed"), nil)
 		return
 	}
 
 	answer = strings.TrimSpace(answer)
 	if answer == "" {
-		answer = "No answer generated by model."
+		answer = s.config.Localizer.Text("chat.no_answer")
 	}
 
 	reply := conversation.Turn{Role: "assistant", Content: answer, Activity: run.activitySnapshot()}
@@ -316,7 +316,7 @@ func (s *Service) runAssistant(ctx context.Context, createdBy string, history []
 	if err != nil {
 		// Keep the model context equal to the saved history: the question stays, the lost reply does not.
 		s.conversationStorage.Append(conversationID, question)
-		run.finish(StatusFailed, "", "Failed to save assistant response", nil)
+		run.finish(StatusFailed, "", s.config.Localizer.Text("chat.save_response_failed"), nil)
 		return
 	}
 	turn.publish()
@@ -677,11 +677,6 @@ func (r *chatRun) isStarted() bool {
 	defer r.mu.RUnlock()
 
 	return r.started
-}
-
-func (r *chatRun) reject() {
-	r.finish(StatusRejected, "",
-		"Request was rejected by prompt injection protection. Rephrase your debugging question.", nil)
 }
 
 func (r *chatRun) addActivity(message string) {

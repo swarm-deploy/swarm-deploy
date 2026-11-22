@@ -8,6 +8,7 @@ import (
 )
 
 const maxToolRoundsPlaceholder = "{{max_tool_rounds}}"
+const replyLanguagePlaceholder = "{{reply_language}}"
 
 const customPromptHeading = "\n\nProject-specific instructions:\n"
 
@@ -32,10 +33,11 @@ var diagnosticsPrompt string
 //go:embed prompts/lookups.md
 var lookupsPrompt string
 
-func buildSystemPrompt(customPrompt, routePrompt string) string {
+func buildSystemPrompt(customPrompt, routePrompt, replyLanguage string) string {
 	prompt := strings.ReplaceAll(
 		strings.TrimSpace(basePrompt), maxToolRoundsPlaceholder, strconv.Itoa(maxToolIterations),
 	)
+	prompt = strings.ReplaceAll(prompt, replyLanguagePlaceholder, replyLanguage)
 	if routePrompt = strings.TrimSpace(routePrompt); routePrompt != "" {
 		prompt = fmt.Sprintf("%s\n\n%s", prompt, routePrompt)
 	}

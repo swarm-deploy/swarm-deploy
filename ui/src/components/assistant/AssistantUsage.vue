@@ -4,21 +4,16 @@ import { computed, ref, watch } from "vue";
 import { getAssistantUsage } from "../../api/assistant";
 import { ApiError } from "../../api/client";
 import type { AssistantUsageInterval, AssistantUsageQuery, AssistantUsageResponse } from "../../api/types";
+import { formatNumber, locale, t } from "../../i18n";
 import AppButton from "../common/AppButton.vue";
 import AppStackedBarChart from "../common/AppStackedBarChart.vue";
 import AppTabs from "../common/AppTabs.vue";
 
-const periods = [
-  { value: "daily", label: "Daily" },
-  { value: "weekly", label: "Weekly" },
-  { value: "monthly", label: "Monthly" },
-  { value: "custom", label: "Custom" },
-].map((tab) => ({ ...tab, id: `usage-${tab.value}`, panelId: "usage-period" }));
+const periods = computed(() => ["daily", "weekly", "monthly", "custom"].map((value) => ({
+  value, label: t(`assistant.${value}`), id: `usage-${value}`, panelId: "usage-period",
+})));
 
-const fullNumber = new Intl.NumberFormat();
-const compactNumber = new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 });
-const formatNumber = (value: number) => fullNumber.format(value);
-const formatAxisNumber = (value: number) => compactNumber.format(value);
+const formatAxisNumber = (value: number) => formatNumber(value, { notation: "compact", maximumFractionDigits: 1 });
 const dayMs = 86_400_000;
 
 function dateString(date: Date): string {
@@ -60,7 +55,7 @@ function applyRange() {
   const from = Date.parse(rangeStart.value);
   const end = Date.parse(rangeEnd.value);
   if (!Number.isFinite(from) || !Number.isFinite(end) || from > end || end > todayMs) {
-    rangeError.value = "Choose a start date and an end date in order, up to today.";
+    rangeError.value = t('assistant.invalidDateRange');
     return;
   }
 
@@ -82,12 +77,12 @@ watch([query, retryCount], async ([selected], _, onCleanup) => {
   response.value = undefined;
   try {
     const result = await getAssistantUsage(selected, controller.signal);
-    if (!Array.isArray(result?.buckets)) throw new Error("Invalid usage response");
+    if (!Array.isArray(result?.buckets)) throw new Error(t('assistant.invalidUsageResponse'));
     if (!controller.signal.aborted) response.value = result;
   } catch (reason) {
     if (controller.signal.aborted) return;
     unavailable.value = reason instanceof ApiError && (reason.status === 404 || reason.status === 501);
-    error.value = reason instanceof Error ? reason.message : "Request failed";
+    error.value = reason instanceof Error ? reason.message : t('assistant.usageRequestFailed');
   } finally {
     if (!controller.signal.aborted) loading.value = false;
   }
@@ -95,22 +90,27 @@ watch([query, retryCount], async ([selected], _, onCleanup) => {
 
 const buckets = computed(() => response.value?.buckets ?? []);
 const series = computed(() => [
-  { label: "Input tokens", color: "var(--info)", values: buckets.value.map((bucket) => bucket.input_tokens) },
-  { label: "Output tokens", color: "var(--success)", values: buckets.value.map((bucket) => bucket.output_tokens) },
+  { label: t('assistant.inputTokens'), color: "var(--info)", values: buckets.value.map((bucket) => bucket.input_tokens) },
+  { label: t('assistant.outputTokens'), color: "var(--success)", values: buckets.value.map((bucket) => bucket.output_tokens) },
 ]);
 
 const summary = computed(() => [
-  { label: "Total tokens", value: buckets.value.reduce((total, bucket) => total + bucket.total_tokens, 0) },
-  { label: "Input tokens", value: series.value[0].values.reduce((total, value) => total + value, 0) },
-  { label: "Output tokens", value: series.value[1].values.reduce((total, value) => total + value, 0) },
+  { label: t('assistant.totalTokens'), value: buckets.value.reduce((total, bucket) => total + bucket.total_tokens, 0) },
+  { label: t('assistant.inputTokens'), value: series.value[0].values.reduce((total, value) => total + value, 0) },
+  { label: t('assistant.outputTokens'), value: series.value[1].values.reduce((total, value) => total + value, 0) },
 ]);
+const chartLabelKeys: Record<AssistantUsageInterval, string> = {
+  daily: "assistant.usageByDay",
+  weekly: "assistant.usageByWeek",
+  monthly: "assistant.usageByMonth",
+};
 const hasUsage = computed(() => summary.value.some(({ value }) => value > 0));
 
 function bucketLabels(long: boolean) {
   const monthly = query.value.interval === "monthly";
   const firstYear = buckets.value[0]?.start.slice(0, 4);
   const lastYear = buckets.value.at(-1)?.start.slice(0, 4);
-  const formatter = new Intl.DateTimeFormat("en", {
+  const formatter = new Intl.DateTimeFormat(locale(), {
     month: "short",
     ...(!monthly ? { day: "numeric" } : {}),
     ...(long || (monthly && firstYear !== lastYear) ? { year: "numeric" } : {}),
@@ -118,48 +118,47 @@ function bucketLabels(long: boolean) {
   });
   return buckets.value.map(({ start }) => {
     const label = formatter.format(new Date(start));
-    return long && query.value.interval === "weekly" ? `Week of ${label}` : label;
+    return long && query.value.interval === "weekly" ? t('assistant.weekOf', { date: label }) : label;
   });
 }
 </script>
 
 <template>
   <section class="assistant-usage" aria-labelledby="assistant-usage-title">
-    <AppTabs v-model="period" :tabs="periods" label="Usage period" density="compact" />
+    <AppTabs v-model="period" :tabs="periods" :label="t('assistant.usagePeriod')" density="compact" />
     <div id="usage-period" class="assistant-usage-period" role="tabpanel" :aria-labelledby="`usage-${period}`">
       <form v-if="period === 'custom'" class="assistant-usage-dates" @submit.prevent="applyRange">
         <label>
-          From
+          {{ t('assistant.from') }}
           <input v-model="rangeStart" type="date" :max="today" required @input="rangeError = ''" />
         </label>
         <label>
-          To
+          {{ t('assistant.to') }}
           <input v-model="rangeEnd" type="date" :max="today" required @input="rangeError = ''" />
         </label>
-        <AppButton type="submit" variant="secondary" compact>Apply</AppButton>
+        <AppButton type="submit" variant="secondary" compact>{{ t('assistant.apply') }}</AppButton>
         <p v-if="rangeError" class="assistant-usage-range-error" role="alert">{{ rangeError }}</p>
       </form>
 
       <AppStackedBarChart
-        legend-label="Token types"
-        :chart-label="`Assistant token usage by ${query.interval === 'daily' ? 'day' : query.interval === 'weekly' ? 'week' : 'month'}`"
+        :legend-label="t('assistant.tokenTypes')"
+        :chart-label="t(chartLabelKeys[query.interval])"
         :labels="bucketLabels(false)"
         :tooltip-labels="bucketLabels(true)"
         :totals="buckets.map((bucket) => bucket.total_tokens)"
         :series="series"
         :summary="summary"
         :show-plot="hasUsage"
-        :format-value="formatNumber"
         :format-axis-value="formatAxisNumber"
       >
         <template #status>
-          <p v-if="loading" class="assistant-usage-status" role="status">Loading token usage…</p>
-          <p v-else-if="unavailable" class="assistant-usage-status">Token usage history is unavailable on this server.</p>
+          <p v-if="loading" class="assistant-usage-status" role="status">{{ t('assistant.loadingUsage') }}</p>
+          <p v-else-if="unavailable" class="assistant-usage-status">{{ t('assistant.usageUnavailable') }}</p>
           <div v-else-if="error" class="assistant-usage-status assistant-usage-error" role="alert">
-            Failed to load token usage ({{ error }}).
-            <AppButton variant="secondary" compact @click="retryCount++">Retry</AppButton>
+            {{ t('assistant.loadUsageFailed', { error }) }}
+            <AppButton variant="secondary" compact @click="retryCount++">{{ t('common.retry') }}</AppButton>
           </div>
-          <p v-else-if="!hasUsage" class="assistant-usage-status">No token usage in the selected period.</p>
+          <p v-else-if="!hasUsage" class="assistant-usage-status">{{ t('assistant.noUsage') }}</p>
         </template>
       </AppStackedBarChart>
     </div>

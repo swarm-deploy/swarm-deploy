@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/conversation"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/texts"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/tools/routing"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
@@ -150,6 +151,7 @@ func TestServiceChatReturnsCompletedResponse(t *testing.T) {
 	history := newSQLHistory(t)
 	serviceInstance, err := NewService(
 		Config{
+			Localizer:               testAssistantTexts(t, "en"),
 			Enabled:                 true,
 			ModelName:               "gpt-4o-mini",
 			BaseURL:                 server.URL,
@@ -234,6 +236,7 @@ func TestServiceChatRejectsPromptInjection(t *testing.T) {
 			tools := &fakeTools{}
 			serviceInstance, err := NewService(
 				Config{
+					Localizer:               testAssistantTexts(t, "en"),
 					Enabled:                 true,
 					ModelName:               "gpt-4o-mini",
 					BaseURL:                 "http://127.0.0.1:1",
@@ -333,6 +336,7 @@ func TestServiceChatHandlesToolCalls(t *testing.T) {
 
 	serviceInstance, err := NewService(
 		Config{
+			Localizer:               testAssistantTexts(t, "en"),
 			Enabled:                 true,
 			ModelName:               "gpt-4o-mini",
 			BaseURL:                 server.URL,
@@ -354,7 +358,7 @@ func TestServiceChatHandlesToolCalls(t *testing.T) {
 		Message: "Run sync now",
 	})
 	assert.Equal(t, StatusCompleted, response.Status, "expected completed response")
-	assert.Equal(t, "Запустить синхронизацию GitOps?", response.Answer, "unexpected answer")
+	assert.Equal(t, "Start GitOps synchronization?", response.Answer, "unexpected answer")
 	response = serviceInstance.Chat(context.Background(), ChatRequest{
 		ConversationID: response.ConversationID,
 		Message:        "да",
@@ -382,6 +386,7 @@ func TestServiceChatSkipsRetrievalForSmallTalk(t *testing.T) {
 
 	serviceInstance, err := NewService(
 		Config{
+			Localizer:               testAssistantTexts(t, "en"),
 			Enabled:                 true,
 			ModelName:               "gpt-4o-mini",
 			BaseURL:                 server.URL,
@@ -402,13 +407,14 @@ func TestServiceChatSkipsRetrievalForSmallTalk(t *testing.T) {
 		Message: "привет",
 	})
 	assert.Equal(t, StatusCompleted, response.Status, "expected completed response")
-	assert.Equal(t, "Привет! Чем помочь со swarm-deploy?", response.Answer, "unexpected answer")
+	assert.Equal(t, "Hello! How can I help with swarm-deploy?", response.Answer, "unexpected answer")
 
 }
 
 func TestServiceChatFailsOnUnknownPollRequestID(t *testing.T) {
 	serviceInstance, err := NewService(
 		Config{
+			Localizer:               testAssistantTexts(t, "en"),
 			Enabled:                 true,
 			ModelName:               "gpt-4o-mini",
 			BaseURL:                 "http://127.0.0.1:1",
@@ -429,12 +435,12 @@ func TestServiceChatFailsOnUnknownPollRequestID(t *testing.T) {
 		RequestID: "missing",
 	})
 	assert.Equal(t, StatusFailed, response.Status, "expected failed status")
-	assert.Contains(t, response.ErrorMessage, "unknown request_id", "unexpected error")
+	assert.Contains(t, response.ErrorMessage, "Unknown request_id", "unexpected error")
 }
 
 func TestServiceChatBindsRequestIDToConversationAndMessage(t *testing.T) {
 	serviceInstance, err := NewService(
-		Config{Enabled: true, ConversationInMemoryTTL: time.Hour},
+		Config{Localizer: testAssistantTexts(t, "en"), Enabled: true, ConversationInMemoryTTL: time.Hour},
 		serviceStore(t, nil),
 		&fakeTools{},
 		&dispatcher.NopDispatcher{},
@@ -468,7 +474,7 @@ func TestServiceChatBindsRequestIDToConversationAndMessage(t *testing.T) {
 
 func TestServiceChatRetriesStartWithoutConversationID(t *testing.T) {
 	serviceInstance, err := NewService(
-		Config{Enabled: true, ConversationInMemoryTTL: time.Hour},
+		Config{Localizer: testAssistantTexts(t, "en"), Enabled: true, ConversationInMemoryTTL: time.Hour},
 		serviceStore(t, nil),
 		NewMockToolExecutor(gomock.NewController(t)),
 		&dispatcher.NopDispatcher{},
@@ -524,7 +530,7 @@ func TestServiceChatDeduplicatesAtRunCapacity(t *testing.T) {
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			serviceInstance, err := NewService(
-				Config{Enabled: true, ConversationInMemoryTTL: time.Hour},
+				Config{Localizer: testAssistantTexts(t, "en"), Enabled: true, ConversationInMemoryTTL: time.Hour},
 				serviceStore(t, nil),
 				NewMockToolExecutor(gomock.NewController(t)),
 				&dispatcher.NopDispatcher{},
@@ -566,7 +572,7 @@ func TestServiceChatDeduplicatesAtRunCapacity(t *testing.T) {
 
 func TestServiceChatRejectsOversizedMessage(t *testing.T) {
 	serviceInstance, err := NewService(
-		Config{Enabled: true, ConversationInMemoryTTL: time.Hour},
+		Config{Localizer: testAssistantTexts(t, "en"), Enabled: true, ConversationInMemoryTTL: time.Hour},
 		serviceStore(t, nil),
 		&fakeTools{},
 		&dispatcher.NopDispatcher{},
@@ -925,4 +931,11 @@ func TestServiceChatGenerationFailurePreservesUnread(t *testing.T) {
 			assert.Equal(t, "user", chat.Messages[2].Role)
 		})
 	}
+}
+
+func testAssistantTexts(t *testing.T, locale string) *texts.Localizer {
+	t.Helper()
+	localizer, err := texts.New(locale)
+	require.NoError(t, err)
+	return localizer
 }

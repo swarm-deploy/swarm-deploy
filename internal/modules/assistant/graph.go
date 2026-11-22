@@ -25,8 +25,6 @@ const (
 	toolLimitFinalAnswer         = "The maximum number of tool execution rounds has been reached. " +
 		"Produce the final answer now using only the information already collected. " +
 		"Do not request or suggest another tool call. Clearly state when the available evidence is insufficient."
-	toolLimitFallbackAnswer = "I reached the tool execution limit before the model produced a final answer. " +
-		"The available tool results were preserved, but I cannot safely infer any missing details."
 )
 
 const (
@@ -41,18 +39,18 @@ const (
 	graphNodeFinalizeTerminal = "finalize_terminal_result"
 )
 
-var fastConversationResponses = map[string]string{
-	"hello":       "Hello! How can I help with swarm-deploy?",
-	"hi":          "Hi! How can I help with swarm-deploy?",
-	"hey":         "Hey! How can I help with swarm-deploy?",
-	"thanks":      "You're welcome.",
-	"thank you":   "You're welcome.",
-	"привет":      "Привет! Чем помочь со swarm-deploy?",
-	"здарова":     "Привет! Чем помочь со swarm-deploy?",
-	"ку":          "Привет! Чем помочь со swarm-deploy?",
-	"здравствуй":  "Привет! Чем помочь со swarm-deploy?",
-	"добрый день": "Добрый день! Чем помочь со swarm-deploy?",
-	"спасибо":     "Пожалуйста.",
+var fastConversationMessageIDs = map[string]string{
+	"hello":       "greeting.hello",
+	"hi":          "greeting.hi",
+	"hey":         "greeting.hey",
+	"thanks":      "greeting.thanks",
+	"thank you":   "greeting.thanks",
+	"привет":      "greeting.hello",
+	"здарова":     "greeting.hello",
+	"ку":          "greeting.hello",
+	"здравствуй":  "greeting.hello",
+	"добрый день": "greeting.good_day",
+	"спасибо":     "greeting.thanks",
 }
 
 type routerFallbackObserver interface {
@@ -76,6 +74,7 @@ type graphExecutionState struct {
 	operationTurn           *operationTurn
 	history                 []conversation.Turn
 	userMessage             string
+	scopedRequest           string
 	route                   Route
 	profile                 RouteProfile
 	capabilities            []Capability
@@ -140,8 +139,8 @@ func (g *graph) run(
 	if handled || err != nil {
 		return pendingAnswer, pendingUsage, err
 	}
-	if answer, ok := fastConversationResponse(userMessage); ok {
-		return answer, conversation.TokenUsage{}, nil
+	if id, ok := fastConversationMessageIDs[strings.ToLower(strings.TrimSpace(userMessage))]; ok {
+		return g.config.Localizer.Text(id), conversation.TokenUsage{}, nil
 	}
 	executionState := &graphExecutionState{
 		operationTurn:  turn,
@@ -286,7 +285,7 @@ func (g *graph) routeNode(
 	executionState *graphExecutionState,
 ) func(context.Context, []llms.MessageContent) ([]llms.MessageContent, error) {
 	return func(ctx context.Context, messages []llms.MessageContent) ([]llms.MessageContent, error) {
-		executionState.report("Routing request")
+		executionState.report(g.config.Localizer.Text("progress.route_request"))
 		result, err := g.router.Route(ctx, RouteRequest{
 			Message:       executionState.userMessage,
 			RecentHistory: executionState.history,
@@ -306,9 +305,9 @@ func (g *graph) routeNode(
 
 		route := result.Route
 		executionState.route = route
-		executionState.report("Route: " + string(route))
-		if result.LocalReply != "" {
-			executionState.answer = result.LocalReply
+		executionState.report(g.config.Localizer.Format("progress.route", map[string]any{"Route": route}))
+		if id := localRouteMessageID(route); id != "" {
+			executionState.answer = g.config.Localizer.Text(id)
 			executionState.routeCompleted = true
 			return messages, nil
 		}
@@ -317,7 +316,7 @@ func (g *graph) routeNode(
 				executionState.rejectedPrompt = "prompt injection detected in scoped request"
 				return messages, &guard.PromptInjectionError{Prompt: executionState.rejectedPrompt}
 			}
-			executionState.userMessage = result.ScopedRequest
+			executionState.scopedRequest = result.ScopedRequest
 		}
 
 		profile, ok := routeProfile(route)
@@ -341,7 +340,7 @@ func (g *graph) retrievePlanNode(
 	executionState *graphExecutionState,
 ) func(context.Context, []llms.MessageContent) ([]llms.MessageContent, error) {
 	return func(ctx context.Context, messages []llms.MessageContent) ([]llms.MessageContent, error) {
-		executionState.report("Finding relevant service context")
+		executionState.report(g.config.Localizer.Text("progress.find_context"))
 		plan, usage, err := g.retriever.Plan(ctx, executionState.userMessage)
 		executionState.usage.Add(usage)
 		if err != nil {
@@ -357,7 +356,7 @@ func (g *graph) retrieveLexicalNode(
 	executionState *graphExecutionState,
 ) func(context.Context, []llms.MessageContent) ([]llms.MessageContent, error) {
 	return func(_ context.Context, messages []llms.MessageContent) ([]llms.MessageContent, error) {
-		executionState.report("Loading service context")
+		executionState.report(g.config.Localizer.Text("progress.load_context"))
 		relevantServices, err := g.retriever.RetrieveLexical(executionState.retrievalPlan)
 		if err != nil {
 			return messages, fmt.Errorf("retrieve lexical context: %w", err)
@@ -372,7 +371,7 @@ func (g *graph) retrieveSemanticNode(
 	executionState *graphExecutionState,
 ) func(context.Context, []llms.MessageContent) ([]llms.MessageContent, error) {
 	return func(_ context.Context, messages []llms.MessageContent) ([]llms.MessageContent, error) {
-		executionState.report("Loading service context")
+		executionState.report(g.config.Localizer.Text("progress.load_context"))
 		relevantServices, err := g.retriever.RetrieveSemantic(executionState.retrievalPlan)
 		if err != nil {
 			return messages, fmt.Errorf("retrieve semantic context: %w", err)
@@ -388,7 +387,9 @@ func (g *graph) prepareNode(
 ) func(context.Context, []llms.MessageContent) ([]llms.MessageContent, error) {
 	return func(_ context.Context, state []llms.MessageContent) ([]llms.MessageContent, error) {
 		messages := make([]llm.Message, 0, len(executionState.history)+prepareMessagesExtraCapacity)
-		systemPrompt := buildSystemPrompt(g.config.SystemPrompt, executionState.profile.Prompt)
+		systemPrompt := buildSystemPrompt(
+			g.config.SystemPrompt, executionState.profile.Prompt, g.config.Localizer.Text("prompt.reply_language"),
+		)
 		messages = append(messages, llm.Message{
 			Role:    "system",
 			Content: systemPrompt,
@@ -417,7 +418,10 @@ func (g *graph) prepareNode(
 				Content: turn.Content,
 			})
 		}
-		userMessage := strings.TrimSpace(executionState.userMessage)
+		userMessage := executionState.userMessage
+		if executionState.scopedRequest != "" {
+			userMessage = executionState.scopedRequest
+		}
 		messages = append(messages, llm.Message{
 			Role:    "user",
 			Content: userMessage,
@@ -440,9 +444,9 @@ func (g *graph) generateAnswerNode(
 ) func(context.Context, []llms.MessageContent) ([]llms.MessageContent, error) {
 	return func(ctx context.Context, messages []llms.MessageContent) ([]llms.MessageContent, error) {
 		if executionState.toolIterations == 0 {
-			executionState.report("Generating response")
+			executionState.report(g.config.Localizer.Text("progress.generate"))
 		} else {
-			executionState.report("Reviewing tool results")
+			executionState.report(g.config.Localizer.Text("progress.review_tools"))
 		}
 
 		requestMessages := executionState.modelMessages
@@ -478,7 +482,7 @@ func (g *graph) generateAnswerNode(
 		if len(completion.ToolCalls) == 0 || toolLimitReached {
 			executionState.answer = strings.TrimSpace(completion.Content)
 			if executionState.answer == "" && toolLimitReached {
-				executionState.answer = toolLimitFallbackAnswer
+				executionState.answer = g.config.Localizer.Text("chat.tool_limit")
 			}
 			executionState.pendingToolCalls = nil
 			return messages, nil
@@ -522,12 +526,12 @@ func (g *graph) executeMCPNode(
 				continue
 			}
 			slog.InfoContext(ctx, "[graph] running mcp tool", slog.String("tool.name", toolCall.Name))
-			executionState.report("Running tool: " + toolCall.Name)
+			executionState.report(g.config.Localizer.Format("progress.run_tool", map[string]any{"Tool": toolCall.Name}))
 			startedAt := time.Now()
 
 			toolResultMessage, err := g.executeToolCall(ctx, toolCall, executionState.effectiveToolSet)
 			success := err == nil
-			reportToolActivity(executionState, toolCall.Name, time.Since(startedAt), err)
+			g.reportToolActivity(executionState, toolCall.Name, time.Since(startedAt), err)
 			if err != nil {
 				toolResultMessage = toolCallFailure(ctx, toolCall.Name, err)
 			}
@@ -554,27 +558,29 @@ func (g *graph) executeMCPNode(
 	}
 }
 
-func reportToolActivity(executionState *graphExecutionState, toolName string, duration time.Duration, err error) {
-	duration = duration.Round(time.Millisecond)
+func (g *graph) reportToolActivity(
+	executionState *graphExecutionState, toolName string, duration time.Duration, err error,
+) {
+	data := map[string]any{"Tool": toolName, "Duration": duration.Round(time.Millisecond)}
 	if err != nil {
-		executionState.report(fmt.Sprintf("Tool %s failed after %s", toolName, duration))
+		executionState.report(g.config.Localizer.Format("progress.tool_failed", data))
 		return
 	}
 
-	executionState.report(fmt.Sprintf("Tool %s completed in %s", toolName, duration))
+	executionState.report(g.config.Localizer.Format("progress.tool_completed", data))
 }
 
 func (g *graph) finalizeTerminalResultNode(
 	executionState *graphExecutionState,
 ) func(context.Context, []llms.MessageContent) ([]llms.MessageContent, error) {
 	return func(ctx context.Context, messages []llms.MessageContent) ([]llms.MessageContent, error) {
-		executionState.report("Preparing response")
+		executionState.report(g.config.Localizer.Text("progress.prepare_response"))
 		if !g.isTerminalToolResultCandidate(executionState.lastToolResults) {
 			return messages, nil
 		}
 
 		result := executionState.lastToolResults[0]
-		answer, err := finalizeTerminalToolResult(result.toolName, result.content)
+		answer, err := finalizeTerminalToolResult(g.config.Localizer, result.toolName, result.content)
 		if err != nil {
 			slog.ErrorContext(ctx, "[assistant] failed to finalize terminal tool result, falling back to generation",
 				slog.String("tool.name", result.toolName),
@@ -610,12 +616,6 @@ func (g *graph) guardMCPResultsNode(
 
 		return messages, nil
 	}
-}
-
-func fastConversationResponse(userMessage string) (string, bool) {
-	normalized := strings.ToLower(strings.TrimSpace(userMessage))
-	answer, ok := fastConversationResponses[normalized]
-	return answer, ok
 }
 
 func buildServicesContextMessage(services []model.Info) string {

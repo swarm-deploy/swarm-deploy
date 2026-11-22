@@ -13,7 +13,8 @@ import (
 )
 
 func TestAssistantChatRejectsOversizedRequest(t *testing.T) {
-	h := &handler{assistant: &assistant.DisabledAssistant{}}
+	localizer := newTestAssistantTexts(t, "en")
+	h := &handler{assistant: assistant.NewDisabledAssistant(localizer), assistantTexts: localizer}
 
 	response, err := h.AssistantChat(context.Background(), &generated.AssistantChatRequest{
 		Message: generated.NewOptString(strings.Repeat("x", assistantChatRequestMaxBytes+1)),
@@ -28,7 +29,8 @@ func TestAssistantChatRejectsOversizedRequest(t *testing.T) {
 }
 
 func TestAssistantChatAcceptsRequestAtLimit(t *testing.T) {
-	h := &handler{assistant: &assistant.DisabledAssistant{}}
+	localizer := newTestAssistantTexts(t, "en")
+	h := &handler{assistant: assistant.NewDisabledAssistant(localizer), assistantTexts: localizer}
 
 	response, err := h.AssistantChat(context.Background(), &generated.AssistantChatRequest{
 		Message: generated.NewOptString(strings.Repeat("x", assistantChatRequestMaxBytes)),

@@ -68,7 +68,7 @@ async function explainWithAI() {
   modal.value?.forgetReturnFocus();
   if (!await openNewAssistantChat(router)) return;
   closeCommitDetailsModal();
-  await assistantStore.sendMessage(`Explain changes in git commit: ${commitHash}`);
+  await assistantStore.sendMessage(t("assistant.explainCommitPrompt", { commit: commitHash }));
 }
 </script>
 
@@ -88,8 +88,8 @@ async function explainWithAI() {
       <button
         class="commit-header-icon-button commit-explain-button"
         type="button"
-        aria-label="Explain commit"
-        title="Explain commit"
+        :aria-label="t('assistant.explainCommit')"
+        :title="t('assistant.explainCommit')"
         :disabled="explainDisabled"
         @click="explainWithAI"
       >

@@ -48,7 +48,7 @@ func TestFinalizeTerminalServiceActionResult(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			answer, err := finalizeTerminalToolResult(testCase.toolName, testCase.toolResult)
+			answer, err := finalizeTerminalToolResult(testAssistantTexts(t, "en"), testCase.toolName, testCase.toolResult)
 			require.NoError(t, err)
 			assert.NotEqual(t, testCase.toolResult, answer, "raw JSON must not be returned")
 			for _, expected := range testCase.answerContains {
@@ -77,7 +77,7 @@ func TestPromptInjectionReportIsTerminalAndSuppressesOperationalTools(t *testing
 	})
 
 	require.Equal(t, StatusCompleted, response.Status)
-	assert.Equal(t, promptInjectionRejectedResponse, response.Answer)
+	assert.Equal(t, "Request was rejected by prompt injection protection.", response.Answer)
 	assert.Equal(t, int64(2), chatCalls.Load(), "router and first generation should be the only model calls")
 	assert.Equal(t, []string{assistantPromptInjectionReportTool}, tools.calls)
 }
@@ -306,7 +306,7 @@ func TestFinalizeTerminalToolResultRejectsRawOrIncompletePayload(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			answer, err := finalizeTerminalToolResult(testCase.toolName, testCase.result)
+			answer, err := finalizeTerminalToolResult(testAssistantTexts(t, "en"), testCase.toolName, testCase.result)
 			require.Error(t, err)
 			assert.True(t, strings.TrimSpace(answer) == "")
 		})

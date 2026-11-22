@@ -7,11 +7,17 @@ The assistant helps with environment debugging using:
 
 Assistant is available only when `assistant.enabled: true`.
 
+## Language
+
+`system.language` selects English (`en`, the default) or Russian (`ru`) for the assistant UI, new replies, and execution progress. The assistant uses the installation language even when the question or earlier messages are in another language. Changing the installation language applies to the next reply in an existing chat. Saved messages and their activity remain in their original form.
+
+Both `yes` / `no` and `да` / `нет` work for operation confirmations. Resource names, identifiers, commands, and quoted tool output keep their original spelling.
+
 ## Request routing
 
 For a regular chat turn the configured model classifies the user's goal using the current message and up to six recent messages without calling tools. The assistant handles swarm-deploy usage and practical infrastructure tasks, including deployment, configuration, observability, operations, and troubleshooting. Supported tasks use the `platform`, `services`, `cluster`, `deployments`, `diagnostics`, or `lookups` profile. Exact greetings and acknowledgements use a local fast path. An invalid router response fails the request.
 
-The `general` and `out_of_scope` routes return a brief description of the assistant's specialization. The `needs_clarification` route asks which infrastructure task the user wants to solve. These turns end after routing, before retrieval, answer generation, or tool execution. For mixed requests, the router selects capabilities and passes the supported part of the current message on for processing. The original user message is stored in the conversation.
+The `general` and `out_of_scope` routes return a brief description of the assistant's specialization. The `needs_clarification` route asks which infrastructure task the user wants to solve. These turns end after routing, before retrieval, answer generation, or tool execution. For mixed requests, the router selects capabilities and sends the supported part to the response model. Routing and service retrieval use the original request text, which is also stored in the conversation.
 
 `platform` covers stable infrastructure guidance as well as swarm-deploy itself. Questions about the actual installation can request the configuration capability. Capabilities select operational tools independently of the response profile. Only `service_context` requests service catalog retrieval. Pure platform guidance reaches the response model with conversation history and the security-report tool.
 
@@ -24,6 +30,7 @@ The assistant chat span records request-size diagnostics without recording promp
 ## API
 
 - `POST /api/v1/assistant/chat`
+- `GET /api/assistant/suggestions`
 - `GET /api/v1/assistant/chats`
 - `GET /api/v1/assistant/chats/{conversation_id}`
 - `GET /api/v1/assistant/usage?from=2026-11-01&to=2026-12-01&interval=weekly`
@@ -31,6 +38,12 @@ The assistant chat span records request-size diagnostics without recording promp
 The chat endpoint supports start and poll with the same route. Chat history endpoints return persisted conversations ordered by latest activity and the full message history for a selected chat.
 
 While a run is in progress, responses may include an `activity` array with safe execution progress such as request routing, context lookup, response generation, and MCP tool execution. The UI uses short long-poll requests while a run is active so these updates appear promptly. Activity intentionally excludes model chain-of-thought, tool arguments, and tool results. Completed assistant turns persist this activity metadata alongside the message, so reopening a chat restores the execution trace. Activity is not included in subsequent model context.
+
+### Empty-chat suggestions
+
+The suggestions endpoint returns a `suggestions` array with `id`, `title`, and `prompt` for each item. The drawer displays the localized title and sends the full prompt. The endpoint lists the most recently changed deployed service and the newest alert when available, followed by cluster state and today's deployments. If either dynamic source fails, the other suggestions are still returned with HTTP 200.
+
+Alert suggestions use the alert kind and selected metadata, including the alert ID, status, and creation time in UTC. They omit the original alert title and message and ask the assistant to verify the cause against deployment and cluster data.
 
 ### Start request
 
@@ -188,7 +201,7 @@ Ask “What is enabled in my swarm-deploy?”, “How are notifications configur
 
 The supported sections are `gitops`, `deployments`, `event`, `system`, `notifications`, `web`, `healthServer`, `assistant`, and `hostings`. For example, `{"section":"deployments"}` gives the poll interval and default timeout per init job. A job can define its own timeout in Compose. Other arguments and unsupported section names are rejected. If you use an explicit `assistant.tools` allowlist, add `swarm_deploy_config_get` to enable the tool.
 
-In the `assistant` section, `toolAccess.allowedTools` lists recognized entries from the configured global allowlist. The actual tools available for a request follow the capability and security rules above.
+The `system` section reports the effective `language`. In the `assistant` section, `toolAccess.allowedTools` lists recognized entries from the configured global allowlist. The actual tools available for a request follow the capability and security rules above.
 
 GitOps settings describe the global policy. In webhook mode, local reconciliation still runs on a timer and periodic Git polling is disabled. For a question about self-heal on a particular stack, the assistant can check the global policy and available runtime evidence. The stack or service override requires separate evidence.
 
@@ -199,6 +212,8 @@ Only explicitly selected fields from startup configuration are sent to the model
 ## Configuration
 
 ```yaml
+system:
+  language: en
 assistant:
   enabled: true
   tools: []

@@ -5,6 +5,7 @@ import { createMemoryHistory, createRouter } from "vue-router";
 
 import * as assistantApi from "../../api/assistant";
 import type { AssistantChatHistory, AssistantChatResponse } from "../../api/types";
+import { i18n } from "../../i18n";
 import { useAssistantStore } from "../../stores/assistant";
 import { useOverviewStore } from "../../stores/overview";
 import CommitDetailsModal from "../overview/CommitDetailsModal.vue";
@@ -22,6 +23,7 @@ vi.hoisted(() => {
 });
 
 afterEach(() => {
+  i18n.global.locale.value = "en";
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
@@ -482,50 +484,55 @@ describe("Assistant Drawer", () => {
     wrapper.unmount();
   });
 
-  it("shows API suggestions in an empty chat and submits the exact prompt", async () => {
-    const prompt = "API-provided prompt\nwith exact context.";
-    const fetchMock = vi.fn().mockImplementation(async () =>
-      new Response(JSON.stringify({
-        suggestions: [
-          { id: "from-api", title: "API-provided title", prompt },
-          { id: "second", title: "Another API title", prompt: "Second prompt" },
-        ],
-      }), { status: 200, headers: { "Content-Type": "application/json" } }),
-    );
+  it.each([
+    { locale: "en", heading: "How can I help?", newChat: "New chat", title: "API-provided title" },
+    { locale: "ru", heading: "Чем помочь?", newChat: "Новый чат", title: "Заголовок из API" },
+  ] as const)("displays the API title and sends the exact prompt in $locale", async ({ locale, heading, newChat, title }) => {
+    i18n.global.locale.value = locale;
+    const prompt = "  API-provided prompt\nwith exact context.  ";
+    const fetchMock = vi.fn(async (path: string, _request?: RequestInit) => {
+      const payload = path === "/api/assistant/suggestions"
+        ? { suggestions: [{ id: "from-api", title, prompt }] }
+        : path === "/api/v1/assistant/chat"
+          ? { status: "completed", conversation_id: "chat-1", request_id: "turn-1", answer: "Done" }
+          : { chats: [] };
+      return new Response(JSON.stringify(payload), {
+        status: 200, headers: { "Content-Type": "application/json" },
+      });
+    });
     vi.stubGlobal("fetch", fetchMock);
     const pinia = createPinia();
-    setActivePinia(pinia);
-    const router = createRouter({
-      history: createMemoryHistory(),
-      routes,
-    });
+    const router = createRouter({ history: createMemoryHistory(), routes });
     await router.push("/?assistant=new");
-    await router.isReady();
-    const assistantStore = useAssistantStore();
-    const sendMessage = vi.spyOn(assistantStore, "sendMessage").mockImplementation(async (message) => {
-      assistantStore.pushMessage("user", message);
-    });
 
-    const wrapper = mount(AssistantDrawer, {
-      global: { plugins: [pinia, router] },
-    });
+    const wrapper = mount(AssistantDrawer, { global: { plugins: [pinia, router] } });
     await flushPromises();
 
-    expect(fetchMock).toHaveBeenCalledOnce();
     expect(fetchMock).toHaveBeenCalledWith("/api/assistant/suggestions", undefined);
-    expect(wrapper.text()).toContain("API-provided title");
-    expect(wrapper.text()).toContain("Another API title");
+    expect(wrapper.get(".assistant-empty-state strong").text()).toBe(heading);
+    expect(wrapper.get(".assistant-suggestion").text()).toBe(title);
     await wrapper.get(".assistant-suggestion").trigger("click");
     await flushPromises();
 
-    expect(sendMessage).toHaveBeenCalledWith(prompt);
+    const request = fetchMock.mock.calls.find(([path]) => path === "/api/v1/assistant/chat")?.[1];
+    expect(JSON.parse(request?.body as string).message).toBe(prompt);
     expect(wrapper.find(".assistant-suggestions").exists()).toBe(false);
 
-    await wrapper.get('[aria-label="New chat"]').trigger("click");
+    await wrapper.get(`[aria-label="${newChat}"]`).trigger("click");
     await flushPromises();
 
-    expect(assistantStore.messages).toEqual([]);
-    expect(wrapper.text()).toContain("API-provided title");
+    expect(wrapper.get(".assistant-suggestion").text()).toBe(title);
+    wrapper.unmount();
+  });
+
+  it("localizes Pinia request errors while preserving the error detail", async () => {
+    i18n.global.locale.value = "ru";
+    vi.spyOn(assistantApi, "getAssistantSuggestions").mockResolvedValue({ suggestions: [] });
+    vi.spyOn(assistantApi, "sendAssistantChat").mockRejectedValue(new Error("upstream unavailable"));
+    const { wrapper, store } = await mountDrawer("/?assistant=new");
+
+    await store.sendMessage("Inspect the cluster");
+    expect(wrapper.get(".assistant-chat-message-system").text()).toBe("Ошибка ассистента: upstream unavailable");
     wrapper.unmount();
   });
 

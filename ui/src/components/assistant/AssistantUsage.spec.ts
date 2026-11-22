@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getAssistantUsage } from "../../api/assistant";
 import { ApiError } from "../../api/client";
 import type { AssistantUsageResponse } from "../../api/types";
+import { i18n } from "../../i18n";
 import AssistantUsage from "./AssistantUsage.vue";
 
 const { setOption } = vi.hoisted(() => ({ setOption: vi.fn() }));
@@ -39,6 +40,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  i18n.global.locale.value = "en";
   vi.useRealTimers();
 });
 
@@ -64,6 +66,22 @@ describe("Assistant Usage", () => {
     expect(tooltip).toContain(`Total: ${number.format(1_334_568)}`);
     expect(tooltip).toContain(`Input tokens: ${number.format(1_234_567)}`);
     expect(tooltip).toContain(`Output tokens: ${number.format(100_000)}`);
+    wrapper.unmount();
+  });
+
+  it("localizes the chart and uses UTC for bucket labels", async () => {
+    i18n.global.locale.value = "ru";
+    vi.mocked(getAssistantUsage).mockResolvedValue({
+      buckets: [{ ...usage.buckets[0], start: "2026-11-15T23:30:00-02:00" }],
+    });
+    const wrapper = render();
+    await flushPromises();
+
+    expect(wrapper.get('[role="tab"][aria-selected="true"]').text()).toBe("По неделям");
+    expect(wrapper.get('[role="img"]').attributes("aria-label")).toBe("Расход токенов ассистента по неделям");
+    expect(wrapper.findAll("dt").map((item) => item.text())).toEqual(["Всего токенов", "Входные токены", "Выходные токены"]);
+    const tooltip = setOption.mock.lastCall?.[0].tooltip.formatter([{ dataIndex: 0 }]);
+    expect(tooltip).toContain("Неделя с 16 нояб. 2026 г.");
     wrapper.unmount();
   });
 

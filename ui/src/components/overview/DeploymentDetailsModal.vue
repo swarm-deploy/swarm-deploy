@@ -384,15 +384,12 @@ async function explainAttempt(attempt: DeploymentAttempt) {
     .filter(Boolean);
   const snapshotServiceNames = (detail.value.services ?? []).map((service) => service.name).filter(Boolean);
   const serviceNames = [...new Set(changedServiceNames.length > 0 ? changedServiceNames : snapshotServiceNames)];
-  const message = [
-    "Explain this deployment error.",
-    "",
-    `deployment_id: ${detail.value.id}`,
-    `stack_name: ${detail.value.stack}`,
-    `service_name: ${serviceNames.join(", ") || "unknown"}`,
-    "error:",
-    attemptDiagnostic(attempt),
-  ].join("\n");
+  const message = t("assistant.explainDeploymentPrompt", {
+    deployment: detail.value.id,
+    stack: detail.value.stack,
+    services: serviceNames.join(", ") || t("assistant.unknownService"),
+    diagnostic: attemptDiagnostic(attempt),
+  });
 
   modal.value?.forgetReturnFocus();
   if (!await openNewAssistantChat(router, { ...router.currentRoute.value.query, deployment_id: undefined })) return;
@@ -578,7 +575,7 @@ onUnmounted(() => {
                   <div v-if="attempt.status !== 'succeeded'" class="deployment-attempt-details-heading">
                     <strong>{{ t('deployments.diagnostics') }}</strong>
                     <div class="deployment-attempt-details-actions">
-                      <AppButton variant="secondary" compact :disabled="!assistantStore.enabled || assistantStore.pending" @click="explainAttempt(attempt)">Explain</AppButton>
+                      <AppButton variant="secondary" compact :disabled="!assistantStore.enabled || assistantStore.pending" @click="explainAttempt(attempt)">{{ t('assistant.explainDeploymentError') }}</AppButton>
                       <AppButton variant="secondary" compact @click="copyAttemptDiagnostic(attempt)">{{ copiedAttemptID === attempt.id ? t('common.copied') : t('common.copy') }}</AppButton>
                     </div>
                   </div>
