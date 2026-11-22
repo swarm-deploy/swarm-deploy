@@ -93,7 +93,6 @@ const labelGroups = computed(() => {
     labels: [...labels].sort(([left], [right]) => left.localeCompare(right)),
   })).filter((group) => group.labels.length);
 });
-const labelCount = computed(() => labelGroups.value.reduce((total, group) => total + group.labels.length, 0));
 const labelPreview = computed(() => labelGroups.value.flatMap((group) => group.labels).slice(-3));
 function previewKey(key: string): string {
   return key.replace(/^swarm-deploy\./, "");
@@ -329,20 +328,13 @@ watch([stackName, serviceName], ([stack, service], _, onCleanup) => {
 
     <AppModal
       :open="labelsModalOpen"
-      class="service-labels-modal"
       labelledby="service-labels-title"
+      keep-mounted
       card-class="service-labels-modal-card"
-      close-label="Close labels"
       @close="labelsModalOpen = false"
     >
       <template #title>
-        <div>
-          <p class="service-labels-context">Service metadata</p>
-          <div class="service-labels-title">
-            <h2 id="service-labels-title">All labels</h2>
-            <span class="service-labels-count" :aria-label="`${labelCount} labels`">{{ labelCount }}</span>
-          </div>
-        </div>
+        <h2 id="service-labels-title">Service labels</h2>
       </template>
       <div class="modal-body service-labels-modal-body">
         <section v-for="group in labelGroups" :key="group.name" class="service-labels-group">
@@ -711,84 +703,8 @@ button.service-entity {
   max-width: 720px;
 }
 
-.service-labels-modal {
-  display: grid;
-  place-items: center;
-}
-
-.service-labels-modal :deep(.modal-overlay) {
-  backdrop-filter: blur(2px);
-}
-
-.service-labels-modal :deep(.service-labels-modal-card) {
-  display: flex;
-  flex-direction: column;
-  width: min(720px, calc(100% - 40px));
-  max-height: calc(100dvh - 48px);
-  margin: 0;
-  overflow: hidden;
-  border-radius: 12px;
-  box-shadow: 0 24px 80px var(--backdrop-soft);
-}
-
-.service-labels-modal :deep(.modal-header) {
-  flex: none;
-  min-height: 92px;
-  padding: 20px 68px 17px 22px;
-}
-
-.service-labels-modal :deep(.modal-close) {
-  top: 20px;
-  right: 22px;
-  width: 38px;
-  height: 38px;
-  border: 1px solid var(--border-default);
-  color: var(--text);
-}
-
-.service-labels-context,
-.service-labels-group-header {
-  color: var(--muted);
-  font-weight: 700;
-  letter-spacing: .055em;
-  text-transform: uppercase;
-}
-
-.service-labels-context {
-  margin: 0 0 4px;
-  font-size: .75rem;
-}
-
-.service-labels-title {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.service-labels-title h2 {
-  font-size: 1.375rem;
-}
-
-.service-labels-count {
-  display: inline-grid;
-  place-items: center;
-  min-width: 23px;
-  min-height: 20px;
-  padding-inline: 6px;
-  border-radius: 999px;
-  background: var(--surface-muted);
-  color: var(--muted);
-  font-size: .7rem;
-  font-weight: 700;
-  text-align: center;
-}
-
 .service-labels-modal-body {
-  min-height: 0;
   gap: 14px;
-  padding: 18px 22px 22px;
-  overflow-y: auto;
-  overscroll-behavior: contain;
 }
 
 .service-labels-group-header {
@@ -798,7 +714,11 @@ button.service-entity {
   min-height: 25px;
   padding: 0 2px 5px;
   border-bottom: 1px solid var(--border-subtle);
+  color: var(--muted);
   font-size: .6875rem;
+  font-weight: 700;
+  letter-spacing: .055em;
+  text-transform: uppercase;
 }
 
 .service-labels-group-header h3 {
@@ -841,33 +761,7 @@ button.service-entity {
   margin: 0;
 }
 
-@media (max-width: 820px) {
-  .service-labels-modal {
-    align-items: end;
-  }
-
-  .service-labels-modal :deep(.service-labels-modal-card) {
-    width: 100%;
-    max-width: none;
-    max-height: 88dvh;
-    border-width: 1px 0 0;
-    border-radius: 16px 16px 0 0;
-  }
-
-  .service-labels-modal :deep(.modal-header) {
-    min-height: 88px;
-    padding: 18px 62px 14px 16px;
-  }
-
-  .service-labels-modal :deep(.modal-close) {
-    top: 18px;
-    right: 16px;
-  }
-
-  .service-labels-modal-body {
-    padding: 16px 16px 22px;
-  }
-
+@media (max-width: 650px) {
   .service-labels-list-item {
     position: relative;
     grid-template-columns: minmax(0, 1fr);

@@ -2887,6 +2887,10 @@ button.app-copy-button.service-image-copy-button {
   border-radius: 8px;
 }
 
+.service-labels-modal-card {
+  width: min(760px, 94vw);
+}
+
 .modal-card.task-logs-modal-card {
   --log-gutter: 24px;
   --log-time-width: 120px;

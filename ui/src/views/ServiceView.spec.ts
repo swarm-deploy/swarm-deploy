@@ -158,8 +158,7 @@ describe("ServiceView", () => {
     ]);
     await wrapper.get(".service-labels-show").trigger("click");
     const labels = wrapper.get('.modal[aria-hidden="false"] [role="dialog"][aria-labelledby="service-labels-title"]');
-    expect(labels.get("h2").text()).toBe("All labels");
-    expect(labels.get(".service-labels-count").text()).toBe("4");
+    expect(labels.get("h2").text()).toBe("Service labels");
     expect(labels.findAll(".service-labels-group-header span").map((item) => item.text())).toEqual(["1", "1", "2"]);
     expect(labels.findAll("h3").map((item) => item.text())).toEqual(["Docker", "Swarm Deploy", "Custom"]);
     expect(labels.text()).toContain("com.docker.stack.namespace");
