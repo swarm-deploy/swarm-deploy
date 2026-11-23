@@ -14,7 +14,7 @@ jobs:
 
     steps:
       - name: Require module label
-        uses: mheap/github-action-required-labels@v5
+        uses: mheap/github-action-required-labels@23e10fde7e062233401931a0eece796cd9bf3177 # v5
         with:
           mode: minimum
           count: 1
@@ -30,7 +30,7 @@ jobs:
             UI
 
       - name: Require change type label
-        uses: mheap/github-action-required-labels@v5
+        uses: mheap/github-action-required-labels@23e10fde7e062233401931a0eece796cd9bf3177 # v5
         with:
           mode: exactly
           count: 1
