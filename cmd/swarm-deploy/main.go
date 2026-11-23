@@ -5,6 +5,7 @@ import (
 	"flag"
 	"log/slog"
 	"os"
+	"strings"
 	"time"
 
 	entrypoint "github.com/artarts36/go-entrypoint"
@@ -168,7 +169,13 @@ func main() {
 
 	metricsGroup.BuildInfo.Set(Version, BuildDate)
 
-	db, err := storage.OpenSQLite(ctx, cfg.Spec.DataDir)
+	var db *storage.SQLXDatabase
+	if cfg.Spec.System.Database.DSN.Path == "" {
+		db, err = storage.OpenSQLite(ctx, cfg.Spec.DataDir)
+	} else {
+		dsn := strings.TrimSpace(string(cfg.Spec.System.Database.DSN.Content))
+		db, err = storage.OpenSQLiteDSN(ctx, dsn)
+	}
 	if err != nil {
 		slog.ErrorContext(ctx, "failed to open database", slog.Any("err", err))
 		os.Exit(1)

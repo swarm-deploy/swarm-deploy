@@ -164,3 +164,32 @@ func writeRuntimeYAML(t *testing.T, content string) string {
 	require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
 	return path
 }
+
+func TestLoadOptionalDatabaseDSN(t *testing.T) {
+	t.Run("default local SQLite", func(t *testing.T) {
+		cfg, err := Load(writeRuntimeYAML(t, minimalRuntimeYAML))
+		require.NoError(t, err)
+		assert.Empty(t, cfg.Spec.System.Database.DSN.Path)
+	})
+
+	t.Run("DSN from a mounted file", func(t *testing.T) {
+		dsnFile := filepath.Join(t.TempDir(), "dsn")
+		const dsn = "file:/data/ha.sqlite?_pragma=foreign_keys(1)\n"
+		require.NoError(t, os.WriteFile(dsnFile, []byte(dsn), 0o600))
+		cfg, err := Load(writeRuntimeYAML(t,
+			minimalRuntimeYAML+"system:\n  database:\n    dsnPath: "+dsnFile+"\n",
+		))
+		require.NoError(t, err)
+		assert.Equal(t, dsnFile, cfg.Spec.System.Database.DSN.Path)
+		assert.Equal(t, dsn, string(cfg.Spec.System.Database.DSN.Content))
+	})
+
+	t.Run("empty DSN file", func(t *testing.T) {
+		dsnFile := filepath.Join(t.TempDir(), "dsn")
+		require.NoError(t, os.WriteFile(dsnFile, []byte("\n"), 0o600))
+		_, err := Load(writeRuntimeYAML(t,
+			minimalRuntimeYAML+"system:\n  database:\n    dsnPath: "+dsnFile+"\n",
+		))
+		require.ErrorContains(t, err, "system.database.dsnPath must reference a non-empty DSN file")
+	})
+}

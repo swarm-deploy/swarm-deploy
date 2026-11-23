@@ -836,3 +836,34 @@ func TestOpenIgnoresLegacyJSONFiles(t *testing.T) {
 	))
 	assert.Zero(t, legacyTableCount)
 }
+
+func TestOpenSQLiteDSNSupportsInteractiveTransactions(t *testing.T) {
+	ctx := t.Context()
+	path := filepath.Join(t.TempDir(), "custom.sqlite")
+	u := url.URL{Scheme: "file", Path: path}
+	u.RawQuery = "_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)" +
+		"&_pragma=synchronous(FULL)&_txlock=immediate&_time_integer_format=unix_nano&_inttotime=1"
+
+	db, err := OpenSQLiteDSN(ctx, u.String())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+
+	_, err = db.Exec(ctx, "CREATE TABLE interactive_test (id INTEGER PRIMARY KEY, value INTEGER NOT NULL)")
+	require.NoError(t, err)
+	_, err = db.Exec(ctx, "INSERT INTO interactive_test (id, value) VALUES (1, 7)")
+	require.NoError(t, err)
+
+	require.NoError(t, db.WithinTransaction(ctx, func(txCtx context.Context) error {
+		var current int
+		if err := db.Get(txCtx, &current, "SELECT value FROM interactive_test WHERE id = ?", 1); err != nil {
+			return err
+		}
+		_, err := db.Exec(txCtx, "UPDATE interactive_test SET value = ? WHERE id = ?", current+1, 1)
+		return err
+	}))
+
+	var actual int
+	require.NoError(t, db.Get(ctx, &actual, "SELECT value FROM interactive_test WHERE id = ?", 1))
+	assert.Equal(t, 8, actual)
+	assert.FileExists(t, path)
+}
