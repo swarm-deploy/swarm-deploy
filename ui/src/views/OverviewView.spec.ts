@@ -146,7 +146,7 @@ describe("GitOps status bar", () => {
     expect(fetchEvent).toHaveBeenCalledWith("c0e8a2f1-1234-4567-890a-123456789abc");
     await flushPromises();
     expect(wrapper.get('[aria-label="Event metadata"]').text()).toContain("WebhookReceived");
-    expect(wrapper.get(".overview-event-details").text()).toContain("queued");
+    expect(wrapper.get(".overview-event-details").text()).toContain("Queued");
     expect(wrapper.get(".overview-event-details").text()).toContain("true");
 
     await wrapper.get(".overview-sync-commit-badge").trigger("click");

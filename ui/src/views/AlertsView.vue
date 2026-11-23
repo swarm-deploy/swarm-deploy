@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { formatNumber, t } from "../i18n";
 import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
@@ -10,6 +11,7 @@ import AppSelect from "../components/common/AppSelect.vue";
 import AppStatusBadge from "../components/common/AppStatusBadge.vue";
 import AppTable from "../components/common/AppTable.vue";
 import AppTableEmpty from "../components/common/AppTableEmpty.vue";
+import { alertKindLabel, alertMessage, alertResourceLabel, alertStatusLabel, alertTitle } from "../utils/alertPresentation";
 import { formatDate } from "../utils/format";
 
 const route = useRoute();
@@ -25,18 +27,16 @@ const selectedResource = ref("");
 const newestFirst = ref(true);
 let requestID = 0;
 
-const statusOptions: { value: AlertStatus; label: string }[] = [
-  { value: "open", label: "Active" },
-  { value: "resolved", label: "Resolved" },
-];
+const statuses: AlertStatus[] = ["open", "resolved"];
+const statusOptions = computed(() => statuses.map((value) => ({ value, label: alertStatusLabel(value) })));
 const activeFilterCount = computed(() => [selectedStatus.value, selectedType.value, selectedResource.value].filter(Boolean).length);
 const typeOptions = computed(() => [...new Set(alerts.value.map((alert) => alert.kind))].sort()
-  .map((value) => ({ value, label: value.replaceAll("_", " ") })));
+  .map((value) => ({ value, label: alertKindLabel(value) })));
 const resourceOptions = computed(() => {
   const resources = new Map<string, string>();
   for (const alert of alerts.value) {
     if (alert.resourceId) {
-      resources.set(resourceKey(alert), `${alert.resourceId} (${alert.resourceType})`);
+      resources.set(resourceKey(alert), `${alert.resourceId} (${alertResourceLabel(alert.resourceType)})`);
     }
   }
   return [...resources].map(([value, label]) => ({ value, label }))
@@ -81,7 +81,7 @@ async function loadAlerts() {
     }
   } catch (error) {
     if (currentRequestID === requestID) {
-      loadingError.value = error instanceof Error ? error.message : "Failed to load alerts";
+      loadingError.value = error instanceof Error ? error.message : t("common.unknownError");
     }
   } finally {
     if (currentRequestID === requestID) loading.value = false;
@@ -98,8 +98,8 @@ onMounted(() => void loadAlerts());
       <AppSelect
         v-model="selectedStatus"
         :options="statusOptions"
-        :reset-option="{ value: '', label: 'All statuses' }"
-        label="Filter alerts by status"
+        :reset-option="{ value: '', label: t('alerts.allStatuses') }"
+        :label="t('alerts.filterStatus')"
       >
         <template #icon>
           <svg class="events-filter-icon" viewBox="0 0 20 20" aria-hidden="true">
@@ -112,8 +112,8 @@ onMounted(() => void loadAlerts());
       <AppSelect
         v-model="selectedType"
         :options="typeOptions"
-        :reset-option="{ value: '', label: 'All types' }"
-        label="Filter alerts by type"
+        :reset-option="{ value: '', label: t('activity.allTypes') }"
+        :label="t('alerts.filterType')"
       >
         <template #icon>
           <svg class="events-filter-icon" viewBox="0 0 20 20" aria-hidden="true">
@@ -126,12 +126,12 @@ onMounted(() => void loadAlerts());
       <AppSelect
         v-model="selectedResource"
         :options="resourceOptions"
-        :reset-option="{ value: '', label: 'All resources' }"
-        label="Filter alerts by resource"
+        :reset-option="{ value: '', label: t('alerts.allResources') }"
+        :label="t('alerts.filterResource')"
         searchable
-        search-label="Search resources"
-        search-placeholder="Search resources"
-        empty-message="No matching resources"
+        :search-label="t('alerts.searchResources')"
+        :search-placeholder="t('alerts.searchResources')"
+        :empty-message="t('alerts.noMatchingResources')"
       >
         <template #icon>
           <svg class="events-filter-icon" viewBox="0 0 20 20" aria-hidden="true">
@@ -142,13 +142,16 @@ onMounted(() => void loadAlerts());
       </AppSelect>
 
       <template #after>
-        <p v-if="stackFilter" class="meta">Stack: <strong>{{ stackFilter }}</strong> <AppButton variant="secondary" compact @click="clearStackFilter">Clear stack filter</AppButton></p>
+        <p v-if="stackFilter" class="meta">
+          {{ t('alerts.stackFilter', { stack: stackFilter }) }}
+          <AppButton variant="secondary" compact @click="clearStackFilter">{{ t('alerts.clearStack') }}</AppButton>
+        </p>
       </template>
     </AppFilterPanel>
 
-    <AppTableEmpty v-if="loading" message="Loading alerts..." />
-    <AppTableEmpty v-else-if="loadingError">Failed to load alerts: {{ loadingError }}</AppTableEmpty>
-    <AppTableEmpty v-else-if="visibleAlerts.length === 0" :message="activeFilterCount ? 'No alerts match the selected filters.' : 'No alerts.'" />
+    <AppTableEmpty v-if="loading" :message="t('alerts.loading')" />
+    <AppTableEmpty v-else-if="loadingError" role="alert">{{ t('alerts.loadError', { error: loadingError }) }}</AppTableEmpty>
+    <AppTableEmpty v-else-if="visibleAlerts.length === 0" :message="t(activeFilterCount ? 'alerts.emptyFiltered' : 'alerts.empty')" />
     <AppTable v-else fixed min-width="720px" table-class="alerts-table">
       <template #colgroup>
         <colgroup>
@@ -163,28 +166,28 @@ onMounted(() => void loadAlerts());
         <tr>
           <th :aria-sort="newestFirst ? 'descending' : 'ascending'">
             <button class="app-table-sort" type="button" @click="newestFirst = !newestFirst">
-              Updated <span class="app-table-sort-indicator" aria-hidden="true">{{ newestFirst ? "↓" : "↑" }}</span>
+              {{ t('common.updated') }} <span class="app-table-sort-indicator" aria-hidden="true">{{ newestFirst ? "↓" : "↑" }}</span>
             </button>
           </th>
-          <th>Status</th>
-          <th>Alert</th>
-          <th>Resource</th>
-          <th>Occurrences</th>
+          <th>{{ t('common.status') }}</th>
+          <th>{{ t('alerts.alert') }}</th>
+          <th>{{ t('alerts.resource') }}</th>
+          <th>{{ t('alerts.occurrences') }}</th>
         </tr>
       </template>
       <tr v-for="alert in visibleAlerts" :key="alert.id" class="app-table-row--clickable" @click="router.push(alertDetailsLocation(alert.id))">
         <td>{{ formatDate(updatedAt(alert)) }}</td>
         <td>
           <AppStatusBadge :variant="alert.status === 'resolved' ? 'neutral' : 'warning'" dot>
-            {{ alert.status === "resolved" ? "Resolved" : "Active" }}
+            {{ alertStatusLabel(alert.status) }}
           </AppStatusBadge>
         </td>
         <td>
-          <RouterLink :to="alertDetailsLocation(alert.id)" class="alerts-title" @click.stop>{{ alert.title }}</RouterLink>
-          <span v-if="alert.message && alert.message !== alert.title" class="alerts-message">{{ alert.message }}</span>
+          <RouterLink :to="alertDetailsLocation(alert.id)" class="alerts-title" @click.stop>{{ alertTitle(alert) }}</RouterLink>
+          <span v-if="alert.message && alert.message !== alert.title" class="alerts-message">{{ alertMessage(alert) }}</span>
         </td>
-        <td class="alerts-resource">{{ alert.resourceId || "unknown resource" }}</td>
-        <td>{{ alert.occurrences }}</td>
+        <td class="alerts-resource">{{ alert.resourceId || t('alerts.unknownResource') }}</td>
+        <td>{{ formatNumber(alert.occurrences) }}</td>
       </tr>
     </AppTable>
   </section>

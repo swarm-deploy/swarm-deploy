@@ -1,13 +1,14 @@
 import { flushPromises, mount } from "@vue/test-utils";
 import { createMemoryHistory, createRouter } from "vue-router";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fetchRecommendations } from "../api/overview";
 import type { Recommendation } from "../api/types";
+import { i18n } from "../i18n";
 import RecommendationsView from "./RecommendationsView.vue";
 
 vi.mock("../api/overview", () => ({ fetchRecommendations: vi.fn() }));
 const recommendation = (stack: string): Recommendation => ({
-  severity: "medium", type: "service.image.latest", subject: { stack, service: "api" },
+  severity: "medium", type: "custom.image.pin", subject: { stack, service: "api" },
   source: { file: "app.yaml", digest: "sha256:abc", commit: "abcdef" },
   title: `Pin ${stack} image`, recommendation: `Pin ${stack} image`, created_at: "2026-10-10T10:00:00Z",
 });
@@ -26,6 +27,24 @@ describe("Recommendation stack links", () => {
     vi.mocked(fetchRecommendations).mockReset();
     vi.mocked(fetchRecommendations).mockResolvedValue({ recommendations: [recommendation("app"), recommendation("infra")] });
   });
+  afterEach(() => { i18n.global.locale.value = "en"; });
+
+  it("localizes static advice and preserves legacy advice with variable pairs", async () => {
+    i18n.global.locale.value = "ru";
+    const legacyAdvice = "MYSQL_ROOT_PASSWORD -> MYSQL_ROOT_PASSWORD_FILE; MYSQL_PASSWORD -> MYSQL_PASSWORD_FILE";
+    vi.mocked(fetchRecommendations).mockResolvedValue({ recommendations: [
+      { ...recommendation("app"), type: "service.image.latest" },
+      { ...recommendation("app"), type: "service.secrets.environment", title: "Secrets", recommendation: legacyAdvice },
+    ] });
+    const { wrapper } = await render();
+
+    expect(wrapper.text()).toContain("Рекомендации");
+    expect(wrapper.text()).toContain("замените изменяемый тег latest");
+    expect(wrapper.text()).toContain(legacyAdvice);
+    expect(wrapper.get("option[value=medium]").text()).toBe("Средний");
+    wrapper.unmount();
+  });
+
   it("applies the URL stack filter and keeps dropdown and URL in sync", async () => {
     const { wrapper, router } = await render();
     expect(wrapper.get(".recommendations-filter-dropdown summary").text()).toContain("app");

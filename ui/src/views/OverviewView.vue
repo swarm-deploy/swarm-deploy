@@ -12,7 +12,9 @@ import SummaryPanel from "../components/overview/SummaryPanel.vue";
 import SummaryRow from "../components/overview/SummaryRow.vue";
 import SyncPauseModal from "../components/overview/SyncPauseModal.vue";
 import { useOverviewStore } from "../stores/overview";
-import { formatDate, shortCommitHash } from "../utils/format";
+import { alertTitle } from "../utils/alertPresentation";
+import { formatDate, formatRelativeTime, shortCommitHash } from "../utils/format";
+import { recommendationSeverityLabel, recommendationTitle } from "../utils/recommendationPresentation";
 
 const overviewStore = useOverviewStore();
 const deployments = ref<DeploymentSummary[]>([]);
@@ -97,28 +99,6 @@ function pollResult(result: "updated" | "no_change" | "error" | undefined): stri
   return t("common.unknown");
 }
 
-function formatRelativeTime(raw: string | undefined): string {
-  if (!raw) {
-    return "time unknown";
-  }
-
-  const timestamp = new Date(raw).valueOf();
-  if (Number.isNaN(timestamp)) {
-    return raw;
-  }
-
-  const elapsedMinutes = Math.max(0, Math.floor((Date.now() - timestamp) / 60000));
-  if (elapsedMinutes < 1) {
-    return "just now";
-  }
-  if (elapsedMinutes < 60) {
-    return `${elapsedMinutes} min ago`;
-  }
-
-  const elapsedHours = Math.floor(elapsedMinutes / 60);
-  return elapsedHours === 1 ? "1 hour ago" : `${elapsedHours} hours ago`;
-}
-
 function recommendationSubject(recommendation: Recommendation): string {
   return [recommendation.subject.stack, recommendation.subject.service].filter(Boolean).join(" / ") || "Swarm Deploy";
 }
@@ -164,8 +144,8 @@ async function openWebhookDetails() {
     eventDetails.value = await fetchEvent(eventID);
   } catch (error) {
     eventDetailsError.value = error instanceof ApiError && error.status === 404
-      ? "This event is no longer available because it was removed by event history retention."
-      : `Failed to load event details: ${error instanceof Error ? error.message : t("common.unknownError")}`;
+      ? t("events.retainedAway")
+      : t("events.detailsLoadError", { error: error instanceof Error ? error.message : t("common.unknownError") });
   } finally {
     eventDetailsLoading.value = false;
   }
@@ -223,7 +203,7 @@ async function refreshOverview() {
     alerts.value = Array.isArray(alertsResult.value.alerts) ? alertsResult.value.alerts : [];
   } else {
     alerts.value = [];
-    overviewAlertsError.value = alertsResult.reason instanceof Error ? alertsResult.reason.message : "Failed to load alerts";
+    overviewAlertsError.value = alertsResult.reason instanceof Error ? alertsResult.reason.message : t("common.unknownError");
   }
   if (recommendationsResult.status === "fulfilled") {
     recommendations.value = Array.isArray(recommendationsResult.value.recommendations)
@@ -234,7 +214,7 @@ async function refreshOverview() {
     overviewRecommendationsError.value =
       recommendationsResult.reason instanceof Error
         ? recommendationsResult.reason.message
-        : "Failed to load recommendations";
+        : t("common.unknownError");
   }
 }
 
@@ -286,6 +266,7 @@ onUnmounted(() => {
               v-if="syncInfo.last_webhook.event_id"
               type="button"
               class="overview-webhook-details"
+              :aria-label="t('events.openDetailsAt', { time: formatDate(syncInfo.last_webhook.at) })"
               @click="openWebhookDetails"
             >
               {{ formatDate(syncInfo.last_webhook.at) }}
@@ -365,56 +346,56 @@ onUnmounted(() => {
       </div>
     </SummaryPanel>
 
-    <SummaryPanel title="Alerts" icon="alerts" to="/events#alerts">
-      <p v-if="overviewAlertsError && alerts.length === 0" class="meta">Failed to load alerts: {{ overviewAlertsError }}</p>
+    <SummaryPanel :title="t('alerts.tab')" icon="alerts" to="/events#alerts">
+      <p v-if="overviewAlertsError && alerts.length === 0" class="meta">{{ t('alerts.loadError', { error: overviewAlertsError }) }}</p>
       <div v-else-if="alerts.length === 0" class="overview-summary-empty">
         <span class="overview-summary-empty-icon overview-summary-empty-icon--healthy" aria-hidden="true">✓</span>
-        <strong>No active alerts</strong>
-        <span>Everything looks healthy</span>
+        <strong>{{ t('alerts.noActive') }}</strong>
+        <span>{{ t('alerts.everythingHealthy') }}</span>
       </div>
       <div v-else class="overview-alert-list">
         <SummaryRow
           v-for="alert in alerts"
           :key="alert.id"
           interactive
-          :aria-label="`Open alert: ${alert.title}`"
+          :aria-label="t('alerts.open', { title: alertTitle(alert) })"
           @activate="openAlertDetails(alert)"
         >
           <span class="overview-summary-severity overview-summary-severity--alert" aria-hidden="true"></span>
           <span class="overview-summary-row-copy">
-            <span class="overview-alert-message">{{ alert.title }}</span>
+            <span class="overview-alert-message">{{ alertTitle(alert) }}</span>
             <span class="overview-summary-secondary">
-              {{ alert.resourceId || 'unknown stack' }} · {{ formatRelativeTime(alert.updatedAt) }}
+              {{ alert.resourceId || t('alerts.unknownResource') }} · {{ formatRelativeTime(alert.updatedAt) }}
             </span>
           </span>
         </SummaryRow>
       </div>
     </SummaryPanel>
 
-    <SummaryPanel title="Recommendations" icon="recommendations" to="/recommendations">
+    <SummaryPanel :title="t('recommendations.title')" icon="recommendations" to="/recommendations">
       <p v-if="overviewRecommendationsError && overviewRecommendations.length === 0" class="meta">
-        Failed to load recommendations: {{ overviewRecommendationsError }}
+        {{ t('recommendations.loadError', { error: overviewRecommendationsError }) }}
       </p>
       <div v-else-if="overviewRecommendations.length === 0" class="overview-summary-empty">
         <span class="overview-summary-empty-icon overview-summary-empty-icon--healthy" aria-hidden="true">✓</span>
-        <strong>No recommendations</strong>
-        <span>Your configuration looks good</span>
+        <strong>{{ t('recommendations.empty') }}</strong>
+        <span>{{ t('recommendations.configurationHealthy') }}</span>
       </div>
       <div v-else class="overview-recommendation-list">
         <SummaryRow
           v-for="recommendation in overviewRecommendations"
           :key="`${recommendation.severity}-${recommendation.subject.stack}-${recommendation.subject.service}-${recommendation.title}`"
           to="/recommendations"
-          :aria-label="`View recommendation: ${recommendation.title}`"
+          :aria-label="t('recommendations.open', { title: recommendationTitle(recommendation) })"
         >
           <span
             class="overview-summary-severity"
             :class="recommendationSeverityClass(recommendation.severity)"
-            :title="recommendation.severity"
+            :title="recommendationSeverityLabel(recommendation.severity)"
             aria-hidden="true"
           ></span>
           <span class="overview-summary-row-copy">
-            <span class="overview-recommendation-text">{{ recommendation.title }}</span>
+            <span class="overview-recommendation-text">{{ recommendationTitle(recommendation) }}</span>
             <span class="overview-summary-secondary">{{ recommendationSubject(recommendation) }}</span>
           </span>
         </SummaryRow>

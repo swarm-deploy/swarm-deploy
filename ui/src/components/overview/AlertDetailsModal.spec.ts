@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { nextTick } from "vue";
 
 import type { Alert, AlertFinding } from "../../api/types";
+import { i18n } from "../../i18n";
 import { useOverviewStore } from "../../stores/overview";
 import AlertDetailsModal from "./AlertDetailsModal.vue";
 
@@ -30,7 +31,10 @@ function mountAlert(overrides: Partial<Alert> = {}) {
 
 describe("Alert details modal", () => {
   beforeEach(() => setActivePinia(createPinia()));
-  afterEach(() => vi.restoreAllMocks());
+  afterEach(() => {
+    i18n.global.locale.value = "en";
+    vi.restoreAllMocks();
+  });
 
   it("shows the open incident and omits findings and actions without data", () => {
     const { wrapper } = mountAlert({ findings: [] });
@@ -44,6 +48,21 @@ describe("Alert details modal", () => {
     expect(wrapper.find("details").exists()).toBe(false);
     expect(wrapper.text()).not.toContain("View deployment");
     expect(wrapper.text()).not.toContain("Commit");
+    wrapper.unmount();
+  });
+
+  it.each([
+    ["Swarm node is not ready", "Swarm node reconnected", "Узел Swarm не готов к работе", "Узел Swarm снова подключён"],
+    ["Swarm node is not ready: worker-2", "Swarm node reconnected via eth1",
+      "Swarm node is not ready: worker-2", "Swarm node reconnected via eth1"],
+  ])("presents the recorded node diagnostic and recovery: %s", (message, recovery, expectedMessage, expectedRecovery) => {
+    i18n.global.locale.value = "ru";
+    const { wrapper } = mountAlert({
+      kind: "node_disconnected", resourceType: "node", resourceId: "worker-2", title: "Node disconnected",
+      message, status: "resolved", resolution: { reason: "recovered", message: recovery, eventId: "four" },
+    });
+    expect(wrapper.get(".alert-details-diagnostic").text()).toBe(expectedMessage);
+    expect(wrapper.get(".alert-details-resolution p").text()).toBe(expectedRecovery);
     wrapper.unmount();
   });
 
@@ -65,6 +84,30 @@ describe("Alert details modal", () => {
     wrapper.unmount();
   });
 
+  it("localizes a known finding without losing the placement constraint or unknown causes", () => {
+    i18n.global.locale.value = "ru";
+    const placement = "no suitable node (placement constraint: node.labels.region == east)";
+    const other = "Plugin-specific diagnostic for api";
+    const { wrapper } = mountAlert({
+      status: "resolved",
+      resolution: { reason: "resource_removed", message: "Stack app removed from configuration", eventId: "four" },
+      findings: [
+        { code: "no_suitable_node", summary: placement, detectedAt: openedAt },
+        { code: "future_code", summary: other, detectedAt: updatedAt },
+      ],
+    });
+
+    expect(wrapper.get(".alert-details-heading h3").text()).toBe("Сбой синхронизации");
+    expect(wrapper.get(".app-status-badge").text()).toBe("Закрыто");
+    expect(wrapper.get(".alert-details-resolution h4").text()).toBe("Ресурс удалён");
+    expect(wrapper.get(".alert-details-resolution p").text()).toBe("Stack app removed from configuration");
+    const findings = wrapper.get(".alert-details-findings");
+    expect(findings.findAll("li strong").map((item) => item.text())).toEqual(["Нет подходящего узла", other]);
+    expect(findings.get(".alert-details-finding-summary").text()).toBe(placement);
+    expect(findings.findAll("li code").map((item) => item.text())).toEqual(["no_suitable_node", "future_code"]);
+    wrapper.unmount();
+  });
+
   it("keeps multiple findings separate from the alert code and resets disclosure on reopen", async () => {
     const findings = [imageFinding, { code: "another_cause", summary: "Another diagnostic cause", detectedAt: updatedAt }];
     const { store, wrapper } = mountAlert({ findings });
@@ -72,7 +115,8 @@ describe("Alert details modal", () => {
 
     expect(disclosure.element.open).toBe(false);
     expect(disclosure.get("summary").text()).toMatch(/Findings\s+2/);
-    expect(disclosure.findAll("li strong").map((item) => item.text())).toEqual(findings.map(({ summary }) => summary));
+    expect(disclosure.findAll("li strong").map((item) => item.text())).toEqual(["Image not found", findings[1].summary]);
+    expect(disclosure.get(".alert-details-finding-summary").text()).toBe(imageFinding.summary);
     expect(disclosure.findAll("li code").map((item) => item.text())).toEqual(findings.map(({ code }) => code));
     expect(wrapper.get(".alert-details-metadata code").text()).toBe("apply_failed");
 

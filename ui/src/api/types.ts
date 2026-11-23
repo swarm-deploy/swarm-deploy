@@ -258,12 +258,6 @@ export interface AlertsResponse {
 }
 
 export type RecommendationSeverity = "high" | "medium" | "low";
-export type RecommendationType =
-  | "service.resources.unspecified"
-  | "service.resources.limits.unspecified"
-  | "service.image.latest"
-  | "service.image.digest.unspecified";
-
 export interface RecommendationSubject {
   stack: string;
   service: string;
@@ -277,7 +271,7 @@ export interface RecommendationSource {
 
 export interface Recommendation {
   severity: RecommendationSeverity;
-  type: RecommendationType;
+  type: string;
   source: RecommendationSource;
   subject: RecommendationSubject;
   title: string;
