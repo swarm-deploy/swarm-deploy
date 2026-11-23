@@ -8,40 +8,45 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
-	"github.com/swarm-deploy/swarm-deploy/internal/service"
+	secretmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/secrets/model"
+	secretstore "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/secrets/modelstore"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/secretservice"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/enrichment/metadata"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/model"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/modelstore"
+	"github.com/swarm-deploy/swarm-deploy/internal/storage"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
-	"github.com/swarm-deploy/webroute"
-	"go.uber.org/mock/gomock"
+	"github.com/swarm-deploy/swarm-deploy/internal/testutil"
+	webroute "github.com/swarm-deploy/webroute/api"
 )
 
 func TestHandlerGetSecretByName(t *testing.T) {
 	t.Parallel()
 
 	now := time.Now().UTC()
-	ctrl := gomock.NewController(t)
-	secretsReader := swarm.NewMockSecretManager(ctrl)
-	h := &handler{
-		secrets: secretsReader,
-	}
-
-	secretsReader.EXPECT().
-		List(gomock.Any()).
-		Return([]swarm.Secret{
-			{
-				ID:        "secret-id",
-				Name:      "db-password",
-				VersionID: 7,
-				CreatedAt: now.Add(-time.Hour),
-				UpdatedAt: now,
-				Driver:    "vault",
-				Labels: map[string]string{
-					"external_path":       "kv/prod/db-password",
-					"external_version_id": "v12",
-					"scope":               "production",
-				},
+	secretsReader := newSecretsStore(t, []secretmodel.Secret{
+		{
+			ID: "secret-id", Name: "db-password", VersionID: 7,
+			CreatedAt: now.Add(-time.Hour), UpdatedAt: now, Driver: "vault",
+			ExternalPath: "kv/prod/db-password", ExternalVersionID: "v12",
+			Labels: map[string]string{
+				"external_path": "kv/prod/db-password", "external_version_id": "v12", "scope": "production",
 			},
-		}, nil)
+		},
+	})
+	servicesStore := modelstore.NewSQLStore(testutil.OpenSQLite(t))
+	require.NoError(t, servicesStore.ReplaceStack(t.Context(), "payments", []model.Info{{
+		Name: "api",
+		Spec: swarm.ServiceSpec{Secrets: []swarm.ServiceSecret{{
+			SecretID: "secret-id", SecretName: "db-password", Target: "/run/secrets/db-password",
+		}}},
+	}}))
+	h := &handler{
+		secrets:         secretsReader,
+		secretRelations: secretservice.NewResolver(servicesStore, secretsReader),
+	}
 
 	resp, err := h.GetSecretByName(context.Background(), generated.GetSecretByNameParams{Name: "db-password"})
 	require.NoError(t, err)
@@ -56,20 +61,80 @@ func TestHandlerGetSecretByName(t *testing.T) {
 	assert.Equal(t, "v12", resp.External.Value.VersionID.Value)
 	assert.True(t, resp.Labels.IsSet())
 	assert.Equal(t, "production", resp.Labels.Value["scope"])
+	require.Len(t, resp.UsedBy, 1)
+	assert.Equal(t, "payments", resp.UsedBy[0].Stack)
+	assert.Equal(t, "api", resp.UsedBy[0].Service)
+	assert.Equal(t, "/run/secrets/db-password", resp.UsedBy[0].Target.Value)
+}
+
+func TestHandlerListSecretsIncludesServiceUsage(t *testing.T) {
+	t.Parallel()
+
+	secretsReader := newSecretsStore(t, []secretmodel.Secret{{ID: "secret-id", Name: "db-password"}})
+	servicesStore := modelstore.NewSQLStore(testutil.OpenSQLite(t))
+	require.NoError(t, servicesStore.ReplaceStack(t.Context(), "payments", []model.Info{{
+		Name: "api",
+		Spec: swarm.ServiceSpec{Secrets: []swarm.ServiceSecret{{
+			SecretID: "secret-id", SecretName: "db-password", Target: "/run/secrets/db-password",
+		}}},
+	}}))
+	h := &handler{
+		secrets:         secretsReader,
+		secretRelations: secretservice.NewResolver(servicesStore, secretsReader),
+	}
+
+	resp, err := h.ListSecrets(t.Context())
+	require.NoError(t, err)
+	require.Len(t, resp.Secrets, 1)
+	require.Len(t, resp.Secrets[0].UsedBy, 1)
+	assert.Equal(t, "payments", resp.Secrets[0].UsedBy[0].Stack)
+	assert.Equal(t, "api", resp.Secrets[0].UsedBy[0].Service)
+	assert.Equal(t, "/run/secrets/db-password", resp.Secrets[0].UsedBy[0].Target.Value)
+}
+
+func TestHandlerListSecretsReturnsSecretsWhenUsageResolutionFails(t *testing.T) {
+	t.Parallel()
+
+	secrets := newSecretsStore(t, []secretmodel.Secret{{ID: "secret-id", Name: "db-password"}})
+	serviceDB, err := storage.OpenSQLite(t.Context(), t.TempDir())
+	require.NoError(t, err)
+	services := modelstore.NewSQLStore(serviceDB)
+	require.NoError(t, serviceDB.Close())
+	h := &handler{secretRelations: secretservice.NewResolver(services, secrets)}
+
+	resp, err := h.ListSecrets(t.Context())
+	require.NoError(t, err)
+	require.Len(t, resp.Secrets, 1)
+	assert.Equal(t, "db-password", resp.Secrets[0].Name)
+	assert.Empty(t, resp.Secrets[0].UsedBy)
+}
+
+func TestHandlerGetSecretReturnsSecretWhenUsageResolutionFails(t *testing.T) {
+	t.Parallel()
+
+	secrets := newSecretsStore(t, []secretmodel.Secret{{ID: "secret-id", Name: "db-password"}})
+	serviceDB, err := storage.OpenSQLite(t.Context(), t.TempDir())
+	require.NoError(t, err)
+	services := modelstore.NewSQLStore(serviceDB)
+	require.NoError(t, serviceDB.Close())
+	h := &handler{
+		secrets:         secrets,
+		secretRelations: secretservice.NewResolver(services, secrets),
+	}
+
+	resp, err := h.GetSecretByName(t.Context(), generated.GetSecretByNameParams{Name: "db-password"})
+	require.NoError(t, err)
+	assert.Equal(t, "db-password", resp.Name)
+	assert.Empty(t, resp.UsedBy)
 }
 
 func TestHandlerGetSecretByName_NotFound(t *testing.T) {
 	t.Parallel()
 
-	ctrl := gomock.NewController(t)
-	secretsReader := swarm.NewMockSecretManager(ctrl)
+	secretsReader := newSecretsStore(t, []secretmodel.Secret{{Name: "known-secret"}})
 	h := &handler{
 		secrets: secretsReader,
 	}
-
-	secretsReader.EXPECT().
-		List(gomock.Any()).
-		Return([]swarm.Secret{{Name: "known-secret"}}, nil)
 
 	_, err := h.GetSecretByName(context.Background(), generated.GetSecretByNameParams{Name: "unknown-secret"})
 	require.Error(t, err)
@@ -82,37 +147,31 @@ func TestHandlerGetSecretByName_NotFound(t *testing.T) {
 func TestHandlerSearch_PriorityAndDedupe(t *testing.T) {
 	t.Parallel()
 
-	servicesStore, err := service.NewStore(t.TempDir() + "/services.json")
-	require.NoError(t, err)
-	require.NoError(t, servicesStore.ReplaceStack("payments", []service.Info{
+	ctx := context.Background()
+	servicesStore := modelstore.NewSQLStore(testutil.OpenSQLite(t))
+	require.NoError(t, servicesStore.ReplaceStack(ctx, "payments", []model.Info{
 		{
-			Name: "api-app",
-			Type: "application",
-			WebRoutes: []webroute.Route{
-				{Domain: "api-app.example.com", Address: "10.10.0.5", Port: "443"},
+			Name:     "api-app",
+			Metadata: metadata.Metadata{Type: "application"},
+			WebRoutes: []webroute.WebRoute{
+				{From: webroute.Address{Domain: "api-app.example.com", Address: "10.10.0.5", Port: "443"}},
 			},
 		},
 		{
-			Name: "billing",
-			Type: "application",
-			WebRoutes: []webroute.Route{
-				{Domain: "billing.example.com", Address: "10.10.0.7", Port: "443"},
+			Name:     "billing",
+			Metadata: metadata.Metadata{Type: "application"},
+			WebRoutes: []webroute.WebRoute{
+				{From: webroute.Address{Domain: "billing.example.com", Address: "10.10.0.7", Port: "443"}},
 			},
 		},
 	}))
 
-	ctrl := gomock.NewController(t)
-	secretsReader := swarm.NewMockSecretManager(ctrl)
+	secretsReader := newSecretsStore(t, []secretmodel.Secret{{Name: "api-app-secret"}})
 	h := &handler{
-		services: servicesStore,
-		secrets:  secretsReader,
+		stackProvider: newConfigWithStacks(t, []config.StackSpec{}),
+		services:      servicesStore,
+		secrets:       secretsReader,
 	}
-
-	secretsReader.EXPECT().
-		List(gomock.Any()).
-		Return([]swarm.Secret{
-			{Name: "api-app-secret"},
-		}, nil)
 
 	resp, err := h.Search(context.Background(), generated.SearchParams{Query: "api-app"})
 	require.NoError(t, err)
@@ -125,4 +184,19 @@ func TestHandlerSearch_PriorityAndDedupe(t *testing.T) {
 	assert.Equal(t, generated.SearchResultMatchSecretName, resp.Results[1].Match)
 	assert.Equal(t, generated.SearchResultKindSecret, resp.Results[1].Kind)
 	assert.Equal(t, "api-app-secret", resp.Results[1].Label)
+}
+
+func newSecretsStore(t *testing.T, secrets []secretmodel.Secret) *secretstore.SQLStore {
+	t.Helper()
+	for i := range secrets {
+		if secrets[i].CreatedAt.IsZero() {
+			secrets[i].CreatedAt = time.Now().UTC()
+		}
+		if secrets[i].UpdatedAt.IsZero() {
+			secrets[i].UpdatedAt = secrets[i].CreatedAt
+		}
+	}
+	store := secretstore.NewSQLStore(testutil.OpenSQLite(t))
+	require.NoError(t, store.Replace(t.Context(), secrets))
+	return store
 }

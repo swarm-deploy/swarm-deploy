@@ -1,0 +1,236 @@
+package compose
+
+import (
+	jsonv1 "encoding/json"
+	"encoding/json/v2"
+	"fmt"
+	"os"
+	"slices"
+	"strings"
+
+	"github.com/docker/docker/api/types/mount"
+	"go.yaml.in/yaml/v3"
+)
+
+type ServiceVolumeType string
+
+const (
+	ServiceVolumeTypeBind   = "bind"
+	ServiceVolumeTypeVolume = "volume"
+	ServiceVolumeTypeTmpfs  = "tmpfs"
+)
+
+type ServiceVolumes struct {
+	Volumes []*ServiceVolume `json:"Volumes"`
+
+	// Map indexes Volumes by ServiceVolume.Target. It is parser metadata and is not
+	// serialized; snapshots persisted by older releases may still contain it.
+	Map map[string]*ServiceVolume `json:"Map"`
+}
+
+// serviceVolumesJSON is the persisted form of ServiceVolumes, without parser metadata.
+type serviceVolumesJSON struct {
+	// Volumes lists service mounts in source order.
+	Volumes []*ServiceVolume `json:"Volumes"`
+}
+
+// MarshalJSON omits Map, which duplicates Volumes.
+func (sv ServiceVolumes) MarshalJSON() ([]byte, error) {
+	return json.Marshal(serviceVolumesJSON{Volumes: sv.Volumes}, jsonv1.DefaultOptionsV1())
+}
+
+type ServiceVolume struct {
+	Type        ServiceVolumeType `json:"Type"`
+	Source      string            `json:"Source"`
+	Target      string            `json:"Target"`
+	Consistency mount.Consistency `json:"Consistency"`
+	ReadOnly    bool              `json:"ReadOnly"`
+
+	Bind   *ServiceVolumeBind   `yaml:"bind,omitempty" json:"Bind"`
+	Volume *ServiceVolumeVolume `yaml:"volume,omitempty" json:"Volume"`
+	Tmpfs  *ServiceVolumeTmpfs  `yaml:"tmpfs,omitempty" json:"Tmpfs"`
+
+	// UnsupportedModes preserves unconverted short-syntax options for strict consumers.
+	UnsupportedModes []string `yaml:"-" json:"UnsupportedModes,omitempty"`
+
+	isString bool
+}
+
+// EffectiveType returns the mount type, defaulting omitted long-syntax types to volume.
+func (sv ServiceVolume) EffectiveType() ServiceVolumeType {
+	if sv.Type == "" {
+		return ServiceVolumeTypeVolume
+	}
+	return sv.Type
+}
+
+type ServiceVolumeBind struct {
+	CreateHostPath *bool             `yaml:"create_host_path,omitempty" json:"CreateHostPath"`
+	Propagation    mount.Propagation `yaml:"propagation,omitempty" json:"Propagation"`
+}
+
+type ServiceVolumeVolume struct {
+	Nocopy  bool   `yaml:"nocopy" json:"Nocopy"`
+	Subpath string `yaml:"subpath" json:"Subpath"`
+}
+
+type ServiceVolumeTmpfs struct {
+	Mode os.FileMode `yaml:"mode" json:"Mode"`
+	Size string      `yaml:"size" json:"Size"`
+}
+
+type serviceVolumeSchema struct {
+	Type        ServiceVolumeType `yaml:"type" json:"Type"`
+	Source      string            `yaml:"source" json:"Source"`
+	Target      string            `yaml:"target" json:"Target"`
+	ReadOnly    bool              `yaml:"read_only" json:"ReadOnly"`
+	Consistency mount.Consistency `yaml:"consistency,omitempty" json:"Consistency"`
+
+	Bind   *ServiceVolumeBind   `yaml:"bind,omitempty" json:"Bind"`
+	Volume *ServiceVolumeVolume `yaml:"volume,omitempty" json:"Volume"`
+	Tmpfs  *ServiceVolumeTmpfs  `yaml:"tmpfs,omitempty" json:"Tmpfs"`
+}
+
+func (sv *ServiceVolumes) UnmarshalYAML(root *yaml.Node) error {
+	if root.Kind != yaml.SequenceNode {
+		return fmt.Errorf("expected sequence node, got %q", root.Tag)
+	}
+
+	sv.Map = make(map[string]*ServiceVolume, len(root.Content))
+
+	for _, child := range root.Content {
+		volume := &ServiceVolume{}
+
+		if child.Kind != yaml.ScalarNode && child.Kind != yaml.MappingNode {
+			return fmt.Errorf("expected string or mapping node, got %q", child.Tag)
+		}
+
+		if child.Kind == yaml.ScalarNode {
+			if err := volume.UnmarshalString(child.Value); err != nil {
+				return fmt.Errorf("unmarshal from string: %w", err)
+			}
+
+			sv.Volumes = append(sv.Volumes, volume)
+			sv.Map[volume.Target] = volume
+			continue
+		}
+
+		var schema serviceVolumeSchema
+		if err := child.Decode(&schema); err != nil {
+			return fmt.Errorf("unmarshal from mapping: %w", err)
+		}
+
+		volume.Type = schema.Type
+		volume.Source = schema.Source
+		volume.Target = schema.Target
+		volume.ReadOnly = schema.ReadOnly
+		volume.Consistency = schema.Consistency
+		volume.Bind = schema.Bind
+		volume.Volume = schema.Volume
+		volume.Tmpfs = schema.Tmpfs
+
+		sv.Volumes = append(sv.Volumes, volume)
+		sv.Map[volume.Target] = volume
+	}
+
+	return nil
+}
+
+func (sv ServiceVolume) MarshalYAML() (interface{}, error) {
+	if sv.isString {
+		return sv.MarshalString(), nil
+	}
+
+	return &serviceVolumeSchema{
+		Type:        sv.Type,
+		Source:      sv.Source,
+		Target:      sv.Target,
+		ReadOnly:    sv.ReadOnly,
+		Consistency: sv.Consistency,
+		Bind:        sv.Bind,
+		Volume:      sv.Volume,
+		Tmpfs:       sv.Tmpfs,
+	}, nil
+}
+
+func (sv *ServiceVolume) MarshalString() string {
+	if sv.Source == "" {
+		return sv.Target
+	}
+
+	buf := strings.Builder{}
+
+	buf.WriteString(sv.Source)
+	buf.WriteString(":")
+	buf.WriteString(sv.Target)
+
+	if sv.ReadOnly || (sv.Bind != nil && sv.Bind.Propagation != "") {
+		buf.WriteString(":")
+
+		if sv.ReadOnly {
+			buf.WriteString("ro")
+		}
+
+		if sv.Bind != nil && sv.Bind.Propagation != "" {
+			if sv.ReadOnly {
+				buf.WriteString(",")
+			}
+
+			buf.WriteString(string(sv.Bind.Propagation))
+		}
+	}
+
+	return buf.String()
+}
+
+func (sv *ServiceVolume) UnmarshalString(raw string) error {
+	parts := strings.Split(raw, ":")
+	sv.isString = true
+
+	switch len(parts) {
+	case 1:
+		sv.Target = parts[0]
+	case 2: //nolint:mnd // volume and bind
+		sv.Type = ServiceVolumeTypeVolume
+		sv.Source = parts[0]
+		sv.Target = parts[1]
+		if strings.HasPrefix(sv.Source, ".") || strings.Contains(sv.Source, "/") {
+			sv.Type = ServiceVolumeTypeBind
+		}
+	case 3: //nolint:mnd // volume and bind with modes
+		sv.Type = ServiceVolumeTypeVolume
+		sv.Source = parts[0]
+		sv.Target = parts[1]
+		if strings.HasPrefix(sv.Source, ".") || strings.Contains(sv.Source, "/") {
+			sv.Type = ServiceVolumeTypeBind
+		}
+
+		for _, mode := range strings.Split(parts[2], ",") {
+			mode = strings.ToLower(mode)
+
+			switch {
+			case mode == "ro":
+				sv.ReadOnly = true
+			case mode == "rw":
+				sv.ReadOnly = false
+			case slices.Contains([]string{"consistent", "cached", "delegated"}, mode):
+				sv.Consistency = mount.Consistency(mode)
+			case mode == "nocopy":
+				sv.Volume = &ServiceVolumeVolume{Nocopy: true}
+			case slices.Contains(mount.Propagations, mount.Propagation(mode)):
+				sv.Bind = &ServiceVolumeBind{Propagation: mount.Propagation(mode)}
+			default:
+				sv.UnsupportedModes = append(sv.UnsupportedModes, mode)
+			}
+
+		}
+	default:
+		return fmt.Errorf("invalid service volume format: %q", raw)
+	}
+
+	return nil
+}
+
+func (sv ServiceVolumes) MarshalYAML() (interface{}, error) {
+	return sv.Volumes, nil
+}

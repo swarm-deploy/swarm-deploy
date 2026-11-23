@@ -1,5 +1,10 @@
+.PHONY: run
 run:
-	docker compose -f docker-compose.local.yaml up
+	$(MAKE) -C testenv up
+
+.PHONY: ui-mock
+ui-mock:
+	npm --prefix ui run dev:mock
 
 .PHONY: lint
 lint:
@@ -7,7 +12,7 @@ lint:
 
 .PHONY: gen
 gen:
-	ogen --target ./internal/entrypoints/webserver/generated --clean ./api/api-server.yaml
+	go run -mod=mod github.com/ogen-go/ogen/cmd/ogen@v1.20.1 --config ./ogen.yml --target ./internal/entrypoints/webserver/generated --clean ./api/api-server.yaml
 	go generate ./...
 
 .PHONY: test
@@ -15,9 +20,12 @@ test:
 	go test ./...
 
 .PHONY: check
-check: lint test
+check: lint test test-compatibility
 
 .PHONY: test-cli
 cli:
 	go run ./cmd/sd/main.go lint ./example/04-assistant/swarm-deploy.yaml
 
+.PHONY: test-compatibility
+test-compatibility:
+	go -C tools/compatibility test ./...

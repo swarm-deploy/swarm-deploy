@@ -11,6 +11,37 @@ import (
 // ErrServiceNotFound means that service does not exist in swarm.
 var ErrServiceNotFound = errors.New("service not found")
 
+// ErrServiceModeUnsupported means scaling is unavailable for this service mode.
+var ErrServiceModeUnsupported = errors.New("only replicated services can be scaled")
+
+// ErrServiceUpdateConflict means the service changed during an update.
+var ErrServiceUpdateConflict = errors.New("service changed while updating replicas; refresh and retry")
+
+// ErrServiceZeroReplicas means a stopped service cannot be restarted.
+var ErrServiceZeroReplicas = errors.New("cannot restart a service with zero configured replicas")
+
+// ServiceScaleResult describes the service and replica count before a successful scale.
+type ServiceScaleResult struct {
+	// Stack is the Docker stack namespace, or empty for standalone services.
+	Stack string
+	// Service is the service name without the stack prefix.
+	Service string
+	// PreviousReplicas is the configured count read before the update.
+	PreviousReplicas uint64
+}
+
+// ErrServiceConflict means that a service create or update conflicted with concurrent Docker state.
+var ErrServiceConflict = errors.New("service conflict")
+
+// ErrTaskNotFound means that task does not exist in swarm.
+var ErrTaskNotFound = errors.New("task not found")
+
+// ListServicesFilter contains Docker Swarm service filters.
+type ListServicesFilter struct {
+	// Stack limits services to the Docker stack namespace when specified.
+	Stack string
+}
+
 // ServiceStatus contains compact status snapshot of a stack service.
 type ServiceStatus struct {
 	// Stack is a stack name.
@@ -19,6 +50,12 @@ type ServiceStatus struct {
 	Service string
 	// Spec contains current compact service spec snapshot.
 	Spec ServiceSpec
+	// ContainerLabels contains task container labels from service spec.
+	ContainerLabels map[string]string
+	// ContainerEnv contains task container environment variables from service spec.
+	ContainerEnv []string
+	// ContainerConfigs contains task container configs from service spec.
+	ContainerConfigs []ServiceConfig
 }
 
 // ServiceTask contains compact realtime task data for service container status.
@@ -27,14 +64,72 @@ type ServiceTask struct {
 	ID string
 	// Node is a task node identifier.
 	Node string
+	// NodeInfo is the current node snapshot, populated for terminal global-service tasks.
+	NodeInfo *Node
+	// Slot is the task slot within a replicated service.
+	Slot int
+	// JobIteration identifies the job execution that created this task; nil for ordinary services.
+	JobIteration *dockerswarm.Version
+	// DesiredState is the desired task state.
+	DesiredState TaskState
 	// CreatedAt is task creation timestamp from Docker Swarm.
 	CreatedAt time.Time
 	// UpdatedAt is task last update timestamp from Docker Swarm.
 	UpdatedAt time.Time
-	// CurrentState is a current task state in docker status format.
-	CurrentState string
+	// CurrentState is the current task state.
+	CurrentState TaskState
+	// ContainerID is the task container identifier when assigned.
+	ContainerID string
+	// ExitCode is the task container exit code when container status is available.
+	ExitCode *int
 	// Error is a task runtime error.
 	Error string
+	// Message is the task status diagnostic reported by Docker.
+	Message string
+	// Spec is the comparable task template the task was created from, including its ForceUpdate generation.
+	Spec TaskSpec
+}
+
+// TaskResources contains compact CPU and memory resource settings.
+type TaskResources struct {
+	// NanoCPUs is the configured CPU amount in nano-CPUs.
+	NanoCPUs int64
+	// MemoryBytes is the configured memory amount in bytes.
+	MemoryBytes int64
+}
+
+// ServiceTaskDetails contains compact runtime details from an inspected Docker task.
+type ServiceTaskDetails struct {
+	// ID is a Docker task identifier.
+	ID string
+	// ServiceID is the Docker service identifier owning the task.
+	ServiceID string
+	// NodeID is the Docker node identifier assigned to the task.
+	NodeID string
+	// Slot is the task slot within a replicated service.
+	Slot int
+	// DesiredState is the desired task state.
+	DesiredState TaskState
+	// CurrentState is the current task state.
+	CurrentState TaskState
+	// Error is a task runtime error.
+	Error string
+	// CreatedAt is task creation timestamp from Docker Swarm.
+	CreatedAt time.Time
+	// UpdatedAt is task last update timestamp from Docker Swarm.
+	UpdatedAt time.Time
+	// ContainerID is the task container identifier when assigned.
+	ContainerID string
+	// ExitCode is the task container exit code when container status is available.
+	ExitCode *int
+	// Image is the container image captured in the inspected task specification.
+	Image string
+	// Environment contains original container environment entries from the inspected task.
+	Environment []string
+	// Reservations contains requested task resources when configured.
+	Reservations *TaskResources
+	// Limits contains task resource limits when configured.
+	Limits *TaskResources
 }
 
 // ServiceSpec is a compact service spec projection.
@@ -59,6 +154,8 @@ type ServiceSpec struct {
 	Secrets []ServiceSecret `json:"secrets,omitempty"`
 	// Network contains compact network attachments from service spec.
 	Network []ServiceNetwork `json:"network,omitempty"`
+	// Configs contains compact config references from service spec.
+	Configs []ServiceConfig `json:"configs,omitempty"`
 }
 
 // ServiceSecret is a compact service secret reference.
@@ -79,10 +176,25 @@ type ServiceNetwork struct {
 	Aliases []string `json:"aliases,omitempty"`
 }
 
+// ServiceUpdateState is the state of a rolling service update.
+type ServiceUpdateState = dockerswarm.UpdateState
+
+const (
+	ServiceUpdateStateUpdating          = dockerswarm.UpdateStateUpdating
+	ServiceUpdateStatePaused            = dockerswarm.UpdateStatePaused
+	ServiceUpdateStateCompleted         = dockerswarm.UpdateStateCompleted
+	ServiceUpdateStateRollbackStarted   = dockerswarm.UpdateStateRollbackStarted
+	ServiceUpdateStateRollbackPaused    = dockerswarm.UpdateStateRollbackPaused
+	ServiceUpdateStateRollbackCompleted = dockerswarm.UpdateStateRollbackCompleted
+)
+
+// ServiceUpdateStateFailed is a failure state handled by deployment consumers.
+const ServiceUpdateStateFailed ServiceUpdateState = "failed"
+
 // ServiceUpdateStatus is a compact projection of service rolling update state.
 type ServiceUpdateStatus struct {
 	// State is an update status state.
-	State string `json:"state"`
+	State ServiceUpdateState `json:"state"`
 	// StartedAt is update start time.
 	StartedAt time.Time `json:"started_at,omitempty"`
 	// CompletedAt is update completion time.
@@ -109,18 +221,6 @@ type Service struct {
 	UpdateStatus *ServiceUpdateStatus `json:"update_status,omitempty"`
 }
 
-// ServiceLabels contains labels from service, container and image inspect.
-type ServiceLabels struct {
-	// Service contains Docker service-level labels from annotations.
-	Service map[string]string
-	// Container contains container labels from task template.
-	Container map[string]string
-	// ContainerEnv contains environment variables from task container spec.
-	ContainerEnv []string
-	// Image contains OCI labels from image config.
-	Image map[string]string
-}
-
 // ServiceLogsOptions configures stack service logs query.
 type ServiceLogsOptions struct {
 	// Limit is max number of latest lines to return.
@@ -131,12 +231,41 @@ type ServiceLogsOptions struct {
 	Until *time.Time
 }
 
+// TaskLogsOptions configures task logs stream query.
+type TaskLogsOptions struct {
+	// Follow keeps the task logs stream open for new log lines.
+	Follow bool
+	// Limit is max number of latest lines to return before following.
+	Limit int
+	// Since defines an optional inclusive lower bound for Docker log timestamps.
+	Since *time.Time
+	// Until defines an optional inclusive upper bound for Docker log timestamps.
+	Until *time.Time
+}
+
+// LogEntry contains one normalized Docker log line.
+type LogEntry struct {
+	// Timestamp is a Docker log timestamp parsed from the log line.
+	Timestamp time.Time
+	// Stream is stdout or stderr.
+	Stream string
+	// Message is log line payload without Docker timestamp.
+	Message string
+}
+
 // StackService is a compact snapshot of a service belonging to a stack.
 type StackService struct {
+	// CompletedTasks is the count completed in the current job iteration.
+	CompletedTasks uint64
+	// JobStatus identifies the current execution of a Swarm job.
+	JobStatus *dockerswarm.JobStatus
+
 	// ID is a Docker service identifier.
 	ID string
 	// Name is a service name without stack prefix.
 	Name string
+	// Stack is the Docker stack namespace when the service belongs to a stack.
+	Stack string
 	// FullName is a Docker service name formatted as "<stack>_<service>".
 	FullName string
 	// Image is a container image reference configured for the service.
@@ -145,8 +274,22 @@ type StackService struct {
 	Mode string
 	// Replicas is desired replicas count for replicated mode.
 	Replicas *uint64
+	// RunningTasks is the number of tasks currently running according to Docker.
+	RunningTasks uint64
+	// DesiredTasks is the number of tasks desired according to Docker.
+	DesiredTasks uint64
+	// CreatedAt is service creation timestamp.
+	CreatedAt time.Time
+	// UpdatedAt is service update timestamp.
+	UpdatedAt time.Time
+	// UpdateStatus contains current rolling update status when available.
+	UpdateStatus *ServiceUpdateStatus
 	// ServiceSpec is raw Docker service specification snapshot.
 	ServiceSpec dockerswarm.ServiceSpec
+	// PublishedPorts contains the runtime port bindings, including ports allocated by Swarm.
+	PublishedPorts []dockerswarm.PortConfig
+	// PreviousSpec is the previous raw Docker service specification used by Swarm rollback.
+	PreviousSpec *dockerswarm.ServiceSpec
 	// Labels contains Docker service annotations labels.
 	Labels map[string]string
 }
@@ -167,6 +310,11 @@ func NewServiceReference(stackName, serviceName string) ServiceReference {
 	}
 }
 
+// NewServiceIDReference targets a live Docker service, including standalone services.
+func NewServiceIDReference(serviceID string) ServiceReference {
+	return ServiceReference{fullName: serviceID}
+}
+
 // StackName returns stack name part.
 func (r ServiceReference) StackName() string {
 	return r.stackName
@@ -177,7 +325,7 @@ func (r ServiceReference) ServiceName() string {
 	return r.serviceName
 }
 
-// Name returns full service name as "<stack>_<service>".
+// Name returns the Docker selector: a full stack service name or service ID.
 func (r ServiceReference) Name() string {
 	return r.fullName
 }

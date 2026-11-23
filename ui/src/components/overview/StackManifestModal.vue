@@ -1,44 +1,72 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from "vue";
+import { t } from "../../i18n";
+import yaml from "@speed-highlight/core/languages/yaml.js";
+import { tokenizeWith } from "@speed-highlight/core/tokenize";
+import { computed, ref, watch } from "vue";
 
+import AppModal from "../common/AppModal.vue";
 import { useOverviewStore } from "../../stores/overview";
+import AppTabs from "../common/AppTabs.vue";
 
 type ManifestTab = "desired" | "live";
 
 const overviewStore = useOverviewStore();
 const activeTab = ref<ManifestTab>("desired");
+const tabs = [
+  { value: "desired", label: t("stack.desired"), id: "desired-manifest-tab", panelId: "stack-manifest-panel" },
+  { value: "live", label: t("stack.live"), id: "live-manifest-tab", panelId: "stack-manifest-panel" },
+] as const;
 
 const modalTitle = computed(() => {
   const stackName = String(overviewStore.stackManifestStack || "").trim();
   if (!stackName) {
-    return "Stack manifest";
+    return t("stack.manifest");
   }
 
-  return `${stackName} manifest`;
+  return t("stack.manifestFor", { stack: stackName });
 });
 const desiredManifest = computed(() => overviewStore.stackManifestDesired);
-const desiredManifestLines = computed(() => {
-  const payload = String(desiredManifest.value || "");
-  return payload.split(/\r?\n/);
-});
 const liveManifest = computed(() => overviewStore.stackManifestLive);
-const liveManifestLines = computed(() => {
-  const payload = String(liveManifest.value || "");
-  return payload.split(/\r?\n/);
-});
+const desiredManifestHtml = computed(() => highlightManifest(desiredManifest.value));
+const liveManifestHtml = computed(() => highlightManifest(liveManifest.value));
+const activeManifest = computed(() => (activeTab.value === "desired" ? desiredManifest.value : liveManifest.value));
+const activeManifestHtml = computed(() =>
+  activeTab.value === "desired" ? desiredManifestHtml.value : liveManifestHtml.value,
+);
+const activeManifestLabel = computed(() =>
+  activeTab.value === "desired" ? t("stack.desiredYaml") : t("stack.liveYaml"),
+);
+const activeManifestEmptyMessage = computed(() =>
+  activeTab.value === "desired" ? t("stack.desiredEmpty") : t("stack.liveEmpty"),
+);
 
-function setActiveTab(tab: ManifestTab) {
+function escapeHtml(value: string) {
+  return value.replaceAll("&", "&#38;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+}
+
+function highlightManifest(manifest: string) {
+  if (!manifest.trim()) {
+    return "";
+  }
+
+  let highlighted = "";
+  tokenizeWith(manifest, yaml, (text, token) => {
+    const escapedText = escapeHtml(text);
+    highlighted += token ? `<span class="shj-syn-${token}">${escapedText}</span>` : escapedText;
+  });
+
+  const lineCount = manifest.split(/\r\n|\r|\n/).length;
+  const lineNumbers = "<div></div>".repeat(lineCount);
+  return `<div><div class="shj-numbers" aria-hidden="true">${lineNumbers}</div><div>${highlighted}</div></div>`;
+}
+
+function setActiveTab(tab: string) {
+  if (tab !== "desired" && tab !== "live") return;
   activeTab.value = tab;
 }
 
 function closeStackManifestModal() {
   overviewStore.closeStackManifestModal();
-}
-
-function handleEscape(event: KeyboardEvent) {
-  if (event.key === "Escape" && overviewStore.stackManifestModalOpen) {
-    closeStackManifestModal();
-  }
 }
 
 watch(
@@ -49,81 +77,49 @@ watch(
     }
   },
 );
-
-onMounted(() => {
-  document.addEventListener("keydown", handleEscape);
-});
-
-onUnmounted(() => {
-  document.removeEventListener("keydown", handleEscape);
-});
 </script>
 
 <template>
-  <div class="modal" :class="{ hidden: !overviewStore.stackManifestModalOpen }" aria-hidden="true">
-    <div class="modal-overlay" @click="closeStackManifestModal" />
-    <div class="modal-card manifest-modal-card" role="dialog" aria-modal="true" aria-labelledby="stack-manifest-title">
-      <div class="modal-header">
-        <h2 id="stack-manifest-title">{{ modalTitle }}</h2>
-        <button class="modal-close" type="button" aria-label="Close modal" @click="closeStackManifestModal">x</button>
-      </div>
+  <AppModal
+    :open="overviewStore.stackManifestModalOpen"
+    labelledby="stack-manifest-title"
+    keep-mounted
+    card-class="manifest-modal-card"
+    @close="closeStackManifestModal"
+  >
+    <template #title>
+      <h2 id="stack-manifest-title">{{ modalTitle }}</h2>
+    </template>
 
-      <div class="modal-body">
-        <p v-if="overviewStore.stackManifestLoading" class="meta">Loading manifest...</p>
-        <p v-else-if="overviewStore.stackManifestError" class="meta">
-          Failed to load manifest: {{ overviewStore.stackManifestError }}
-        </p>
-        <template v-else>
-          <div class="manifest-tabs" role="tablist" aria-label="Stack manifest tabs">
-            <button
-              type="button"
-              role="tab"
-              class="manifest-tab-btn"
-              :class="{ active: activeTab === 'desired' }"
-              :aria-selected="activeTab === 'desired'"
-              @click="setActiveTab('desired')"
-            >
-              Desired
-            </button>
-            <button
-              type="button"
-              role="tab"
-              class="manifest-tab-btn"
-              :class="{ active: activeTab === 'live' }"
-              :aria-selected="activeTab === 'live'"
-              @click="setActiveTab('live')"
-            >
-              Live
-            </button>
-          </div>
+    <div class="modal-body">
+      <p v-if="overviewStore.stackManifestLoading" class="meta">{{ t('stack.loadingManifest') }}</p>
+      <p v-else-if="overviewStore.stackManifestError" class="meta">
+        {{ t('stack.manifestError', { error: overviewStore.stackManifestError }) }}
+      </p>
+      <template v-else>
+        <AppTabs
+          class="manifest-tabs"
+          :model-value="activeTab"
+          :tabs="tabs"
+          :label="t('stack.manifestTabs')"
+          @update:model-value="setActiveTab"
+        />
 
-          <div v-if="activeTab === 'desired'" class="manifest-viewer">
-            <p v-if="desiredManifest.trim().length === 0" class="meta">Desired manifest is empty.</p>
-            <ol v-else class="manifest-lines" aria-label="Desired manifest yaml">
-              <li
-                v-for="(line, lineIndex) in desiredManifestLines"
-                :key="`${lineIndex}-${line}`"
-                class="manifest-line"
-              >
-                <code>{{ line || " " }}</code>
-              </li>
-            </ol>
-          </div>
-
-          <div v-else class="manifest-viewer">
-            <p v-if="liveManifest.trim().length === 0" class="meta">Live manifest is empty.</p>
-            <ol v-else class="manifest-lines" aria-label="Live manifest yaml">
-              <li
-                v-for="(line, lineIndex) in liveManifestLines"
-                :key="`${lineIndex}-${line}`"
-                class="manifest-line"
-              >
-                <code>{{ line || " " }}</code>
-              </li>
-            </ol>
-          </div>
-        </template>
-      </div>
+        <div
+          id="stack-manifest-panel"
+          class="manifest-viewer"
+          role="tabpanel"
+          :aria-labelledby="`${activeTab}-manifest-tab`"
+        >
+          <p v-if="activeManifest.trim().length === 0" class="meta">{{ activeManifestEmptyMessage }}</p>
+          <div
+            v-else
+            class="manifest-code shj-lang-yaml shj-block"
+            :aria-label="activeManifestLabel"
+            v-html="activeManifestHtml"
+          />
+        </div>
+      </template>
     </div>
-  </div>
+  </AppModal>
 </template>

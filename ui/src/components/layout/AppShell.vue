@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed, onMounted } from "vue";
-import { RouterView, useRoute } from "vue-router";
+import { t } from "../../i18n";
+import { computed, onMounted, watch } from "vue";
+import { RouterView, useRoute, useRouter } from "vue-router";
 
 import { useAssistantStore } from "../../stores/assistant";
 import { useCurrentUserStore } from "../../stores/currentUser";
@@ -9,73 +10,114 @@ import { useUIStore } from "../../stores/ui";
 import AssistantDrawer from "../assistant/AssistantDrawer.vue";
 import SidebarNav from "./SidebarNav.vue";
 import TopBar from "./TopBar.vue";
-import EventHistoryModal from "../overview/EventHistoryModal.vue";
 import ServiceStatusModal from "../overview/ServiceStatusModal.vue";
+import AlertDetailsModal from "../overview/AlertDetailsModal.vue";
 import CommitDetailsModal from "../overview/CommitDetailsModal.vue";
+import DeploymentDetailsModal from "../overview/DeploymentDetailsModal.vue";
 import StackManifestModal from "../overview/StackManifestModal.vue";
 import SecretDetailsModal from "../secrets/SecretDetailsModal.vue";
 
 const route = useRoute();
+const router = useRouter();
 const overviewStore = useOverviewStore();
 const assistantStore = useAssistantStore();
 const currentUserStore = useCurrentUserStore();
 const uiStore = useUIStore();
 
-const isOverviewRoute = computed(() => route.path === "/overview");
+const currentUserLabel = computed(() => currentUserStore.displayName.trim() || t("common.user"));
 
-const syncDisabled = computed(() => !isOverviewRoute.value);
-const notificationsDisabled = computed(() => false);
+const assistantPinnedActive = computed(
+  () => assistantStore.enabled && uiStore.assistantDrawerOpen && uiStore.assistantPinned,
+);
+const linkedDeploymentID = computed(() => {
+  const value = route.query.deployment_id;
+  if (typeof value === "string") return value.trim();
+  if (Array.isArray(value)) return value.find((item) => typeof item === "string" && item.trim())?.trim() ?? "";
+  return "";
+});
 
-async function handleSyncNow() {
-  if (!isOverviewRoute.value) {
+watch(linkedDeploymentID, (deploymentID, previousDeploymentID) => {
+  if (deploymentID) {
+    if (!overviewStore.deploymentDetailsModalOpen || overviewStore.deploymentDetailsID !== deploymentID) {
+      void overviewStore.openDeploymentDetailsModal(deploymentID);
+    }
     return;
   }
+  if (previousDeploymentID && overviewStore.deploymentDetailsModalOpen &&
+      overviewStore.deploymentDetailsID === previousDeploymentID) {
+    overviewStore.closeDeploymentDetailsModal();
+  }
+}, { immediate: true });
 
-  await overviewStore.triggerManualSync();
-}
+watch(() => overviewStore.deploymentDetailsModalOpen, (open, wasOpen) => {
+  if (open || !wasOpen || !linkedDeploymentID.value) return;
+  const query = { ...route.query };
+  delete query.deployment_id;
+  void router.replace({ query });
+});
 
-async function handleNotifications() {
-  await overviewStore.openEventsModal();
-}
+const linkedAlertID = computed(() => {
+  const id = route.query.alert_id;
+  return route.name === "events" && route.query.tab !== "events" && typeof id === "string" ? id.trim() : "";
+});
 
-function handleAssistantToggle() {
+watch(linkedAlertID, (id, previousID) => {
+  if (id) {
+    if (overviewStore.alertDetailsID !== id) void overviewStore.openAlertDetailsByID(id);
+  } else if (previousID && overviewStore.alertDetailsID === previousID) {
+    overviewStore.closeAlertDetailsModal();
+  }
+}, { immediate: true });
+
+watch(() => overviewStore.alertDetailsID, (id, previousID) => {
+  if (id || !previousID || previousID !== linkedAlertID.value) return;
+  const query = { ...route.query };
+  delete query.alert_id;
+  void router.replace({ query, hash: route.hash });
+});
+
+async function handleAssistantToggle() {
   if (!assistantStore.enabled) {
     return;
   }
 
-  uiStore.toggleAssistantDrawer();
+  const query = { ...route.query };
+  if (uiStore.assistantDrawerOpen) {
+    delete query.assistant;
+  } else {
+    query.assistant = assistantStore.conversationID || "new";
+  }
+
+  await router.push({ query, hash: route.hash });
 }
 
 onMounted(() => {
+  uiStore.initializeTheme();
   void currentUserStore.loadCurrentUser();
 });
 </script>
 
 <template>
-  <div class="app-root">
-    <div class="bg-shape shape-1" />
-    <div class="bg-shape shape-2" />
-    <div class="layout-shell">
-      <TopBar
-        :sync-disabled="syncDisabled"
-        :sync-pending="overviewStore.syncPending"
-        :assistant-enabled="assistantStore.enabled"
-        :assistant-open="uiStore.assistantDrawerOpen"
-        :notifications-disabled="notificationsDisabled"
-        @sync-now="handleSyncNow"
-        @open-notifications="handleNotifications"
-        @toggle-assistant="handleAssistantToggle"
+  <div class="app-root" :class="{ 'assistant-pinned': assistantPinnedActive }">
+    <div class="layout-shell" :class="{ 'sidebar-collapsed': uiStore.sidebarCollapsed }">
+      <SidebarNav
+        :current-user-label="currentUserLabel"
+        :collapsed="uiStore.sidebarCollapsed"
+        @toggle="uiStore.toggleSidebar"
       />
-
-      <div class="shell-content">
-        <SidebarNav />
-        <main class="shell-main">
+      <main class="shell-main">
+        <TopBar
+          :assistant-enabled="assistantStore.enabled"
+          @toggle-assistant="handleAssistantToggle"
+        />
+        <div class="shell-view">
           <RouterView />
-        </main>
-      </div>
+        </div>
+      </main>
     </div>
-    <EventHistoryModal />
     <ServiceStatusModal />
+    <AlertDetailsModal :linked="Boolean(linkedAlertID)" />
+    <DeploymentDetailsModal />
     <CommitDetailsModal />
     <StackManifestModal />
     <SecretDetailsModal />

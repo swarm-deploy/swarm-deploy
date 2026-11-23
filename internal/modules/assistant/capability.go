@@ -1,0 +1,208 @@
+package assistant
+
+import "github.com/swarm-deploy/swarm-deploy/internal/config"
+
+// Capability identifies a composable source of assistant context or tools.
+type Capability string
+
+const (
+	// CapabilityServiceContext enables service.store RAG retrieval.
+	CapabilityServiceContext Capability = "service_context"
+	// CapabilityServiceRuntime enables read-only service runtime inspection.
+	CapabilityServiceRuntime Capability = "service_runtime"
+	// CapabilityServiceOperations enables mutating service operations.
+	CapabilityServiceOperations Capability = "service_operations"
+	// CapabilityCluster enables Swarm cluster inspection tools.
+	CapabilityCluster Capability = "cluster"
+	// CapabilityDeploymentHistory enables deployment, event, recommendation, and git history tools.
+	CapabilityDeploymentHistory Capability = "deployment_history"
+	// CapabilityAlertManagement enables read-only Alert Management inspection.
+	CapabilityAlertManagement Capability = "alert_management"
+	// CapabilityDeploymentSync enables manual deployment synchronization.
+	CapabilityDeploymentSync Capability = "deployment_sync"
+	// CapabilityPauseSync enables GitOps-owned Pause Sync inspection and confirmed mutations.
+	CapabilityPauseSync Capability = "pause_sync"
+	// CapabilityRegistry enables container registry image lookups.
+	CapabilityRegistry Capability = "registry"
+	// CapabilityExternalRelease enables upstream repository release lookups.
+	CapabilityExternalRelease Capability = "external_release"
+	// CapabilityDNS enables DNS resolution.
+	CapabilityDNS Capability = "dns"
+	// CapabilityTLS enables live TLS certificate diagnostics.
+	CapabilityTLS Capability = "tls"
+	// CapabilityMetrics enables application metrics lookup.
+	CapabilityMetrics Capability = "metrics"
+	// CapabilityConfiguration enables read-only global configuration lookup.
+	CapabilityConfiguration Capability = "configuration"
+)
+
+// CapabilityProfile describes the context and tools enabled by a capability.
+type CapabilityProfile struct {
+	Tools          []string
+	ServiceContext bool
+}
+
+var capabilityProfiles = map[Capability]CapabilityProfile{
+	CapabilityConfiguration: {
+		Tools: []string{string(config.AssistantToolNameSwarmDeployConfigGet)},
+	},
+	CapabilityServiceContext: {
+		ServiceContext: true,
+	},
+	CapabilityServiceRuntime: {
+		Tools: []string{
+			"service_health_get",
+			"service_logs_get",
+			"service_task_list",
+			"service_task_logs_get",
+			"service_spec_get",
+			"service_webroute_ping",
+			"dependency_graph_get",
+		},
+	},
+	CapabilityServiceOperations: {
+		Tools: []string{
+			"service_replicas_set",
+			"service_restart_trigger",
+			serviceImageUpdateTool,
+		},
+	},
+	CapabilityPauseSync: {
+		Tools: []string{"sync_pause_get", "sync_pause_set", "sync_pause_resume"},
+	},
+	CapabilityCluster: {
+		Tools: []string{
+			"swarm_node_list",
+			"docker_network_list",
+			"docker_plugin_list",
+			"docker_secret_list",
+		},
+	},
+	CapabilityDeploymentHistory: {
+		Tools: []string{
+			"history_event_list",
+			"deployment_list",
+			"deployment_get",
+			"recommendation_list",
+			"git_repository_diagnostics",
+			"git_commit_list",
+			"git_commit_diff",
+		},
+	},
+	CapabilityAlertManagement: {
+		Tools: []string{
+			"alert_list",
+			"alert_get",
+		},
+	},
+	CapabilityDeploymentSync: {
+		Tools: []string{
+			"deploy_sync_trigger",
+		},
+	},
+	CapabilityRegistry: {
+		Tools: []string{
+			"registry_image_version_get",
+		},
+	},
+	CapabilityExternalRelease: {
+		Tools: []string{
+			"external_repository_release_latest_get",
+		},
+	},
+	CapabilityDNS: {
+		Tools: []string{
+			"dns_name_resolve",
+		},
+	},
+	CapabilityTLS: {
+		Tools: []string{string(config.AssistantToolNameTLSCertificateCheck)},
+	},
+	CapabilityMetrics: {
+		Tools: []string{
+			"self_metrics_list",
+		},
+	},
+}
+
+func capabilityProfile(capability Capability) (CapabilityProfile, bool) {
+	profile, ok := capabilityProfiles[capability]
+	if !ok {
+		return CapabilityProfile{}, false
+	}
+	profile.Tools = append([]string(nil), profile.Tools...)
+	return profile, true
+}
+
+func defaultCapabilitiesForRoute(route Route) []Capability {
+	switch route {
+	case RouteGeneral, RouteOutOfScope, RouteNeedsClarification, RoutePlatform:
+		return nil
+	case RouteServices:
+		return []Capability{
+			CapabilityServiceContext,
+			CapabilityServiceRuntime,
+			CapabilityServiceOperations,
+			CapabilityPauseSync,
+			CapabilityRegistry,
+			CapabilityExternalRelease,
+		}
+	case RouteCluster:
+		return []Capability{CapabilityCluster, CapabilityAlertManagement}
+	case RouteDeployments:
+		return []Capability{
+			CapabilityDeploymentHistory, CapabilityAlertManagement, CapabilityDeploymentSync, CapabilityPauseSync,
+		}
+	case RouteDiagnostics:
+		return []Capability{
+			CapabilityServiceContext,
+			CapabilityServiceRuntime,
+			CapabilityDeploymentHistory,
+			CapabilityAlertManagement,
+			CapabilityCluster,
+			CapabilityRegistry,
+			CapabilityExternalRelease,
+			CapabilityDNS,
+			CapabilityTLS,
+			CapabilityMetrics,
+		}
+	case RouteLookups:
+		return []Capability{
+			CapabilityRegistry,
+			CapabilityExternalRelease,
+			CapabilityDNS,
+			CapabilityTLS,
+			CapabilityMetrics,
+		}
+	default:
+		return nil
+	}
+}
+
+func normalizeCapabilities(capabilities []Capability) ([]Capability, bool) {
+	if len(capabilities) == 0 {
+		return nil, true
+	}
+	result := make([]Capability, 0, len(capabilities))
+	seen := make(map[Capability]struct{}, len(capabilities))
+	for _, capability := range capabilities {
+		if _, ok := capabilityProfiles[capability]; !ok {
+			return nil, false
+		}
+		if _, ok := seen[capability]; ok {
+			continue
+		}
+		seen[capability] = struct{}{}
+		result = append(result, capability)
+	}
+	return result, true
+}
+
+func hasCapability(capabilities []Capability, target Capability) bool {
+	for _, capability := range capabilities {
+		if capability == target {
+			return true
+		}
+	}
+	return false
+}

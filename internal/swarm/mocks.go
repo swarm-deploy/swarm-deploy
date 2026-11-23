@@ -13,7 +13,8 @@ import (
 	context "context"
 	reflect "reflect"
 
-	events "github.com/docker/docker/api/types/events"
+	network "github.com/docker/docker/api/types/network"
+	registry "github.com/docker/docker/api/types/registry"
 	swarm "github.com/docker/docker/api/types/swarm"
 	gomock "go.uber.org/mock/gomock"
 )
@@ -40,6 +41,21 @@ func NewMockServiceManager(ctrl *gomock.Controller) *MockServiceManager {
 // EXPECT returns an object that allows the caller to indicate expected use.
 func (m *MockServiceManager) EXPECT() *MockServiceManagerMockRecorder {
 	return m.recorder
+}
+
+// Create mocks base method.
+func (m *MockServiceManager) Create(ctx context.Context, spec swarm.ServiceSpec, options swarm.ServiceCreateOptions) (string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Create", ctx, spec, options)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Create indicates an expected call of Create.
+func (mr *MockServiceManagerMockRecorder) Create(ctx, spec, options any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Create", reflect.TypeOf((*MockServiceManager)(nil).Create), ctx, spec, options)
 }
 
 // Get mocks base method.
@@ -87,49 +103,80 @@ func (mr *MockServiceManagerMockRecorder) GetStatus(ctx, serviceRef any) *gomock
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetStatus", reflect.TypeOf((*MockServiceManager)(nil).GetStatus), ctx, serviceRef)
 }
 
-// Labels mocks base method.
-func (m *MockServiceManager) Labels(ctx context.Context, serviceRef ServiceReference) (ServiceLabels, error) {
+// GetTask mocks base method.
+func (m *MockServiceManager) GetTask(ctx context.Context, taskID string) (ServiceTaskDetails, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Labels", ctx, serviceRef)
-	ret0, _ := ret[0].(ServiceLabels)
+	ret := m.ctrl.Call(m, "GetTask", ctx, taskID)
+	ret0, _ := ret[0].(ServiceTaskDetails)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
-// Labels indicates an expected call of Labels.
-func (mr *MockServiceManagerMockRecorder) Labels(ctx, serviceRef any) *gomock.Call {
+// GetTask indicates an expected call of GetTask.
+func (mr *MockServiceManagerMockRecorder) GetTask(ctx, taskID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Labels", reflect.TypeOf((*MockServiceManager)(nil).Labels), ctx, serviceRef)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetTask", reflect.TypeOf((*MockServiceManager)(nil).GetTask), ctx, taskID)
 }
 
-// ListStackServices mocks base method.
-func (m *MockServiceManager) ListStackServices(ctx context.Context, stackName string) ([]StackService, error) {
+// Inspect mocks base method.
+func (m *MockServiceManager) Inspect(ctx context.Context, serviceIDOrName string) (swarm.Service, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListStackServices", ctx, stackName)
+	ret := m.ctrl.Call(m, "Inspect", ctx, serviceIDOrName)
+	ret0, _ := ret[0].(swarm.Service)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Inspect indicates an expected call of Inspect.
+func (mr *MockServiceManagerMockRecorder) Inspect(ctx, serviceIDOrName any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Inspect", reflect.TypeOf((*MockServiceManager)(nil).Inspect), ctx, serviceIDOrName)
+}
+
+// ListServices mocks base method.
+func (m *MockServiceManager) ListServices(ctx context.Context, filter ListServicesFilter) ([]StackService, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListServices", ctx, filter)
 	ret0, _ := ret[0].([]StackService)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
-// ListStackServices indicates an expected call of ListStackServices.
-func (mr *MockServiceManagerMockRecorder) ListStackServices(ctx, stackName any) *gomock.Call {
+// ListServices indicates an expected call of ListServices.
+func (mr *MockServiceManagerMockRecorder) ListServices(ctx, filter any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListStackServices", reflect.TypeOf((*MockServiceManager)(nil).ListStackServices), ctx, stackName)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListServices", reflect.TypeOf((*MockServiceManager)(nil).ListServices), ctx, filter)
 }
 
 // ListTasks mocks base method.
-func (m *MockServiceManager) ListTasks(ctx context.Context, serviceRef ServiceReference) ([]ServiceTask, error) {
+func (m *MockServiceManager) ListTasks(ctx context.Context, serviceIDOrName string) ([]ServiceTask, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListTasks", ctx, serviceRef)
+	ret := m.ctrl.Call(m, "ListTasks", ctx, serviceIDOrName)
 	ret0, _ := ret[0].([]ServiceTask)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // ListTasks indicates an expected call of ListTasks.
-func (mr *MockServiceManagerMockRecorder) ListTasks(ctx, serviceRef any) *gomock.Call {
+func (mr *MockServiceManagerMockRecorder) ListTasks(ctx, serviceIDOrName any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListTasks", reflect.TypeOf((*MockServiceManager)(nil).ListTasks), ctx, serviceRef)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListTasks", reflect.TypeOf((*MockServiceManager)(nil).ListTasks), ctx, serviceIDOrName)
+}
+
+// LogTail mocks base method.
+func (m *MockServiceManager) LogTail(ctx context.Context, serviceID string, byteLimit int) ([]byte, bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "LogTail", ctx, serviceID, byteLimit)
+	ret0, _ := ret[0].([]byte)
+	ret1, _ := ret[1].(bool)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// LogTail indicates an expected call of LogTail.
+func (mr *MockServiceManagerMockRecorder) LogTail(ctx, serviceID, byteLimit any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LogTail", reflect.TypeOf((*MockServiceManager)(nil).LogTail), ctx, serviceID, byteLimit)
 }
 
 // Logs mocks base method.
@@ -190,6 +237,105 @@ func (mr *MockServiceManagerMockRecorder) Scale(ctx, serviceRef, replicas any) *
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Scale", reflect.TypeOf((*MockServiceManager)(nil).Scale), ctx, serviceRef, replicas)
 }
 
+// ScaleByID mocks base method.
+func (m *MockServiceManager) ScaleByID(ctx context.Context, serviceID string, replicas uint64) (ServiceScaleResult, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ScaleByID", ctx, serviceID, replicas)
+	ret0, _ := ret[0].(ServiceScaleResult)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ScaleByID indicates an expected call of ScaleByID.
+func (mr *MockServiceManagerMockRecorder) ScaleByID(ctx, serviceID, replicas any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ScaleByID", reflect.TypeOf((*MockServiceManager)(nil).ScaleByID), ctx, serviceID, replicas)
+}
+
+// TaskLogs mocks base method.
+func (m *MockServiceManager) TaskLogs(ctx context.Context, taskID string, options TaskLogsOptions) (<-chan LogEntry, <-chan error, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "TaskLogs", ctx, taskID, options)
+	ret0, _ := ret[0].(<-chan LogEntry)
+	ret1, _ := ret[1].(<-chan error)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// TaskLogs indicates an expected call of TaskLogs.
+func (mr *MockServiceManagerMockRecorder) TaskLogs(ctx, taskID, options any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "TaskLogs", reflect.TypeOf((*MockServiceManager)(nil).TaskLogs), ctx, taskID, options)
+}
+
+// Update mocks base method.
+func (m *MockServiceManager) Update(ctx context.Context, serviceID string, version swarm.Version, spec swarm.ServiceSpec, options swarm.ServiceUpdateOptions) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Update", ctx, serviceID, version, spec, options)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Update indicates an expected call of Update.
+func (mr *MockServiceManagerMockRecorder) Update(ctx, serviceID, version, spec, options any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Update", reflect.TypeOf((*MockServiceManager)(nil).Update), ctx, serviceID, version, spec, options)
+}
+
+// MockImageManager is a mock of ImageManager interface.
+type MockImageManager struct {
+	ctrl     *gomock.Controller
+	recorder *MockImageManagerMockRecorder
+	isgomock struct{}
+}
+
+// MockImageManagerMockRecorder is the mock recorder for MockImageManager.
+type MockImageManagerMockRecorder struct {
+	mock *MockImageManager
+}
+
+// NewMockImageManager creates a new mock instance.
+func NewMockImageManager(ctrl *gomock.Controller) *MockImageManager {
+	mock := &MockImageManager{ctrl: ctrl}
+	mock.recorder = &MockImageManagerMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockImageManager) EXPECT() *MockImageManagerMockRecorder {
+	return m.recorder
+}
+
+// Get mocks base method.
+func (m *MockImageManager) Get(ctx context.Context, imageRef string) (Image, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Get", ctx, imageRef)
+	ret0, _ := ret[0].(Image)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Get indicates an expected call of Get.
+func (mr *MockImageManagerMockRecorder) Get(ctx, imageRef any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Get", reflect.TypeOf((*MockImageManager)(nil).Get), ctx, imageRef)
+}
+
+// InspectDistribution mocks base method.
+func (m *MockImageManager) InspectDistribution(ctx context.Context, imageRef, encodedRegistryAuth string) (registry.DistributionInspect, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "InspectDistribution", ctx, imageRef, encodedRegistryAuth)
+	ret0, _ := ret[0].(registry.DistributionInspect)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// InspectDistribution indicates an expected call of InspectDistribution.
+func (mr *MockImageManagerMockRecorder) InspectDistribution(ctx, imageRef, encodedRegistryAuth any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InspectDistribution", reflect.TypeOf((*MockImageManager)(nil).InspectDistribution), ctx, imageRef, encodedRegistryAuth)
+}
+
 // MockSecretManager is a mock of SecretManager interface.
 type MockSecretManager struct {
 	ctrl     *gomock.Controller
@@ -214,19 +360,48 @@ func (m *MockSecretManager) EXPECT() *MockSecretManagerMockRecorder {
 	return m.recorder
 }
 
-// List mocks base method.
-func (m *MockSecretManager) List(ctx context.Context) ([]Secret, error) {
+// Create mocks base method.
+func (m *MockSecretManager) Create(ctx context.Context, req CreateSecretRequest) (string, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "List", ctx)
+	ret := m.ctrl.Call(m, "Create", ctx, req)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Create indicates an expected call of Create.
+func (mr *MockSecretManagerMockRecorder) Create(ctx, req any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Create", reflect.TypeOf((*MockSecretManager)(nil).Create), ctx, req)
+}
+
+// List mocks base method.
+func (m *MockSecretManager) List(ctx context.Context, filter ListSecretsFilter) ([]Secret, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "List", ctx, filter)
 	ret0, _ := ret[0].([]Secret)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // List indicates an expected call of List.
-func (mr *MockSecretManagerMockRecorder) List(ctx any) *gomock.Call {
+func (mr *MockSecretManagerMockRecorder) List(ctx, filter any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "List", reflect.TypeOf((*MockSecretManager)(nil).List), ctx)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "List", reflect.TypeOf((*MockSecretManager)(nil).List), ctx, filter)
+}
+
+// Remove mocks base method.
+func (m *MockSecretManager) Remove(ctx context.Context, secretID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Remove", ctx, secretID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Remove indicates an expected call of Remove.
+func (mr *MockSecretManagerMockRecorder) Remove(ctx, secretID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Remove", reflect.TypeOf((*MockSecretManager)(nil).Remove), ctx, secretID)
 }
 
 // ResolveReference mocks base method.
@@ -242,6 +417,118 @@ func (m *MockSecretManager) ResolveReference(ctx context.Context, source, target
 func (mr *MockSecretManagerMockRecorder) ResolveReference(ctx, source, target any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ResolveReference", reflect.TypeOf((*MockSecretManager)(nil).ResolveReference), ctx, source, target)
+}
+
+// UpdateLabels mocks base method.
+func (m *MockSecretManager) UpdateLabels(ctx context.Context, secretID string, labels map[string]string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateLabels", ctx, secretID, labels)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateLabels indicates an expected call of UpdateLabels.
+func (mr *MockSecretManagerMockRecorder) UpdateLabels(ctx, secretID, labels any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateLabels", reflect.TypeOf((*MockSecretManager)(nil).UpdateLabels), ctx, secretID, labels)
+}
+
+// MockConfigManager is a mock of ConfigManager interface.
+type MockConfigManager struct {
+	ctrl     *gomock.Controller
+	recorder *MockConfigManagerMockRecorder
+	isgomock struct{}
+}
+
+// MockConfigManagerMockRecorder is the mock recorder for MockConfigManager.
+type MockConfigManagerMockRecorder struct {
+	mock *MockConfigManager
+}
+
+// NewMockConfigManager creates a new mock instance.
+func NewMockConfigManager(ctrl *gomock.Controller) *MockConfigManager {
+	mock := &MockConfigManager{ctrl: ctrl}
+	mock.recorder = &MockConfigManagerMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockConfigManager) EXPECT() *MockConfigManagerMockRecorder {
+	return m.recorder
+}
+
+// Create mocks base method.
+func (m *MockConfigManager) Create(ctx context.Context, req CreateConfigRequest) (string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Create", ctx, req)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Create indicates an expected call of Create.
+func (mr *MockConfigManagerMockRecorder) Create(ctx, req any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Create", reflect.TypeOf((*MockConfigManager)(nil).Create), ctx, req)
+}
+
+// Get mocks base method.
+func (m *MockConfigManager) Get(ctx context.Context, configName string) (Config, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Get", ctx, configName)
+	ret0, _ := ret[0].(Config)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Get indicates an expected call of Get.
+func (mr *MockConfigManagerMockRecorder) Get(ctx, configName any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Get", reflect.TypeOf((*MockConfigManager)(nil).Get), ctx, configName)
+}
+
+// List mocks base method.
+func (m *MockConfigManager) List(ctx context.Context, filter ListConfigsFilter) ([]Config, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "List", ctx, filter)
+	ret0, _ := ret[0].([]Config)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// List indicates an expected call of List.
+func (mr *MockConfigManagerMockRecorder) List(ctx, filter any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "List", reflect.TypeOf((*MockConfigManager)(nil).List), ctx, filter)
+}
+
+// Remove mocks base method.
+func (m *MockConfigManager) Remove(ctx context.Context, configID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Remove", ctx, configID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Remove indicates an expected call of Remove.
+func (mr *MockConfigManagerMockRecorder) Remove(ctx, configID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Remove", reflect.TypeOf((*MockConfigManager)(nil).Remove), ctx, configID)
+}
+
+// ResolveReference mocks base method.
+func (m *MockConfigManager) ResolveReference(ctx context.Context, source, target string) (*swarm.ConfigReference, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ResolveReference", ctx, source, target)
+	ret0, _ := ret[0].(*swarm.ConfigReference)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ResolveReference indicates an expected call of ResolveReference.
+func (mr *MockConfigManagerMockRecorder) ResolveReference(ctx, source, target any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ResolveReference", reflect.TypeOf((*MockConfigManager)(nil).ResolveReference), ctx, source, target)
 }
 
 // MockNetworkManager is a mock of NetworkManager interface.
@@ -284,33 +571,38 @@ func (mr *MockNetworkManagerMockRecorder) Create(ctx, req any) *gomock.Call {
 }
 
 // Get mocks base method.
-func (m *MockNetworkManager) Get(ctx context.Context, name string) (Network, error) {
+func (m *MockNetworkManager) Get(ctx context.Context, name string, options ...network.InspectOptions) (Network, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Get", ctx, name)
+	varargs := []any{ctx, name}
+	for _, a := range options {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "Get", varargs...)
 	ret0, _ := ret[0].(Network)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // Get indicates an expected call of Get.
-func (mr *MockNetworkManagerMockRecorder) Get(ctx, name any) *gomock.Call {
+func (mr *MockNetworkManagerMockRecorder) Get(ctx, name any, options ...any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Get", reflect.TypeOf((*MockNetworkManager)(nil).Get), ctx, name)
+	varargs := append([]any{ctx, name}, options...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Get", reflect.TypeOf((*MockNetworkManager)(nil).Get), varargs...)
 }
 
 // List mocks base method.
-func (m *MockNetworkManager) List(ctx context.Context) ([]Network, error) {
+func (m *MockNetworkManager) List(ctx context.Context, filter ListNetworksFilter) ([]Network, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "List", ctx)
+	ret := m.ctrl.Call(m, "List", ctx, filter)
 	ret0, _ := ret[0].([]Network)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // List indicates an expected call of List.
-func (mr *MockNetworkManagerMockRecorder) List(ctx any) *gomock.Call {
+func (mr *MockNetworkManagerMockRecorder) List(ctx, filter any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "List", reflect.TypeOf((*MockNetworkManager)(nil).List), ctx)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "List", reflect.TypeOf((*MockNetworkManager)(nil).List), ctx, filter)
 }
 
 // Map mocks base method.
@@ -352,6 +644,20 @@ func (m *MockNodeManager) EXPECT() *MockNodeManagerMockRecorder {
 	return m.recorder
 }
 
+// DeleteLabel mocks base method.
+func (m *MockNodeManager) DeleteLabel(ctx context.Context, nodeID, key string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteLabel", ctx, nodeID, key)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteLabel indicates an expected call of DeleteLabel.
+func (mr *MockNodeManagerMockRecorder) DeleteLabel(ctx, nodeID, key any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteLabel", reflect.TypeOf((*MockNodeManager)(nil).DeleteLabel), ctx, nodeID, key)
+}
+
 // List mocks base method.
 func (m *MockNodeManager) List(ctx context.Context) ([]Node, error) {
 	m.ctrl.T.Helper()
@@ -367,18 +673,16 @@ func (mr *MockNodeManagerMockRecorder) List(ctx any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "List", reflect.TypeOf((*MockNodeManager)(nil).List), ctx)
 }
 
-// Watch mocks base method.
-func (m *MockNodeManager) Watch(ctx context.Context) (<-chan events.Message, <-chan error, error) {
+// SetLabel mocks base method.
+func (m *MockNodeManager) SetLabel(ctx context.Context, req NodeLabelUpdateRequest) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Watch", ctx)
-	ret0, _ := ret[0].(<-chan events.Message)
-	ret1, _ := ret[1].(<-chan error)
-	ret2, _ := ret[2].(error)
-	return ret0, ret1, ret2
+	ret := m.ctrl.Call(m, "SetLabel", ctx, req)
+	ret0, _ := ret[0].(error)
+	return ret0
 }
 
-// Watch indicates an expected call of Watch.
-func (mr *MockNodeManagerMockRecorder) Watch(ctx any) *gomock.Call {
+// SetLabel indicates an expected call of SetLabel.
+func (mr *MockNodeManagerMockRecorder) SetLabel(ctx, req any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Watch", reflect.TypeOf((*MockNodeManager)(nil).Watch), ctx)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetLabel", reflect.TypeOf((*MockNodeManager)(nil).SetLabel), ctx, req)
 }

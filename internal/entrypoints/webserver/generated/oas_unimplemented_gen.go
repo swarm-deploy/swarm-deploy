@@ -4,6 +4,7 @@ package api
 
 import (
 	"context"
+	"net/http"
 
 	ht "github.com/ogen-go/ogen/http"
 )
@@ -12,11 +13,91 @@ import (
 type UnimplementedHandler struct{}
 
 var _ Handler = UnimplementedHandler{}
+var _ RawHandler = UnimplementedHandler{}
+
+// AddNodeLabel implements addNodeLabel operation.
+//
+// POST /api/v1/nodes/{id}/labels
+func (UnimplementedHandler) AddNodeLabel(ctx context.Context, req *NodeLabelCreateRequest, params AddNodeLabelParams) error {
+	return ht.ErrNotImplemented
+}
 
 // AssistantChat implements assistantChat operation.
 //
 // POST /api/v1/assistant/chat
 func (UnimplementedHandler) AssistantChat(ctx context.Context, req *AssistantChatRequest) (r *AssistantChatResponse, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// CreateExternalSecret implements createExternalSecret operation.
+//
+// POST /api/v1/secret-managers/{stack}/{service}/secrets
+func (UnimplementedHandler) CreateExternalSecret(ctx context.Context, req *CreateExternalSecretRequest, params CreateExternalSecretParams) (r *CreateExternalSecretResponse, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// CreateSecret implements createSecret operation.
+//
+// POST /api/v1/secrets
+func (UnimplementedHandler) CreateSecret(ctx context.Context, req *CreateSecretRequest) (r *CreateSecretResponse, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// DeleteNodeLabel implements deleteNodeLabel operation.
+//
+// DELETE /api/v1/nodes/{id}/labels/{key}
+func (UnimplementedHandler) DeleteNodeLabel(ctx context.Context, params DeleteNodeLabelParams) error {
+	return ht.ErrNotImplemented
+}
+
+// DeleteServiceSyncPause implements deleteServiceSyncPause operation.
+//
+// DELETE /api/v1/stacks/{stack}/services/{service}/sync-pause
+func (UnimplementedHandler) DeleteServiceSyncPause(ctx context.Context, params DeleteServiceSyncPauseParams) error {
+	return ht.ErrNotImplemented
+}
+
+// DeleteStackSyncPause implements deleteStackSyncPause operation.
+//
+// DELETE /api/v1/stacks/{stack}/sync-pause
+func (UnimplementedHandler) DeleteStackSyncPause(ctx context.Context, params DeleteStackSyncPauseParams) error {
+	return ht.ErrNotImplemented
+}
+
+// GetAlert implements getAlert operation.
+//
+// GET /api/v1/alerts/{id}
+func (UnimplementedHandler) GetAlert(ctx context.Context, params GetAlertParams) (r *Alert, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// GetAssistantChat implements getAssistantChat operation.
+//
+// GET /api/v1/assistant/chats/{conversationID}
+func (UnimplementedHandler) GetAssistantChat(ctx context.Context, params GetAssistantChatParams) (r *AssistantChatHistory, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// GetAssistantSuggestions implements getAssistantSuggestions operation.
+//
+// GET /api/assistant/suggestions
+func (UnimplementedHandler) GetAssistantSuggestions(ctx context.Context) (r *AssistantSuggestionsResponse, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// GetAssistantUsage implements getAssistantUsage operation.
+//
+// Read assistant token totals grouped by chat creation date.
+//
+// GET /api/v1/assistant/usage
+func (UnimplementedHandler) GetAssistantUsage(ctx context.Context, params GetAssistantUsageParams) (r *AssistantUsageResponse, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// GetConfig implements getConfig operation.
+//
+// GET /api/v1/config
+func (UnimplementedHandler) GetConfig(ctx context.Context) (r *UIConfigResponse, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -27,10 +108,52 @@ func (UnimplementedHandler) GetCurrentUser(ctx context.Context) (r *CurrentUserR
 	return r, ht.ErrNotImplemented
 }
 
+// GetDeployment implements getDeployment operation.
+//
+// GET /api/v1/deployments/{id}
+func (UnimplementedHandler) GetDeployment(ctx context.Context, params GetDeploymentParams) (r *Deployment, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// GetDeploymentFilters implements getDeploymentFilters operation.
+//
+// GET /api/v1/deployments/filters
+func (UnimplementedHandler) GetDeploymentFilters(ctx context.Context) (r *DeploymentFilterOptions, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// GetDeploymentInitJobLogs implements getDeploymentInitJobLogs operation.
+//
+// GET /api/v1/deployments/{id}/attempts/{attemptID}/init-jobs/{ordinal}/logs
+func (UnimplementedHandler) GetDeploymentInitJobLogs(ctx context.Context, params GetDeploymentInitJobLogsParams, w http.ResponseWriter) error {
+	return ht.ErrNotImplemented
+}
+
+// GetEvent implements getEvent operation.
+//
+// GET /api/v1/events/{id}
+func (UnimplementedHandler) GetEvent(ctx context.Context, params GetEventParams) (r GetEventRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// GetEventFilters implements getEventFilters operation.
+//
+// GET /api/v1/events/filters
+func (UnimplementedHandler) GetEventFilters(ctx context.Context) (r *EventFilterOptions, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // GetGitCommit implements getGitCommit operation.
 //
 // GET /api/v1/git/commits/{commit}
 func (UnimplementedHandler) GetGitCommit(ctx context.Context, params GetGitCommitParams) (r *GitCommitDetailsResponse, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// GetGraph implements getGraph operation.
+//
+// GET /api/v1/graph
+func (UnimplementedHandler) GetGraph(ctx context.Context) (r *GraphResponse, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -41,17 +164,26 @@ func (UnimplementedHandler) GetSecretByName(ctx context.Context, params GetSecre
 	return r, ht.ErrNotImplemented
 }
 
-// GetServiceRealtime implements getServiceRealtime operation.
+// GetService implements getService operation.
 //
-// GET /api/v1/stacks/{stack}/services/{service}/realtime
-func (UnimplementedHandler) GetServiceRealtime(ctx context.Context, params GetServiceRealtimeParams) (r *ServiceRealtimeResponse, _ error) {
+// GET /api/v1/stacks/{stack}/services/{service}
+func (UnimplementedHandler) GetService(ctx context.Context, params GetServiceParams) (r *ServiceStatusResponse, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
-// GetServiceStatus implements getServiceStatus operation.
+// GetServiceSyncPause implements getServiceSyncPause operation.
 //
-// GET /api/v1/stacks/{stack}/services/{service}/status
-func (UnimplementedHandler) GetServiceStatus(ctx context.Context, params GetServiceStatusParams) (r *ServiceStatusResponse, _ error) {
+// GET /api/v1/stacks/{stack}/services/{service}/sync-pause
+func (UnimplementedHandler) GetServiceSyncPause(ctx context.Context, params GetServiceSyncPauseParams) (r *ServiceSyncPauseResponse, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// GetStackDeploymentActivity implements getStackDeploymentActivity operation.
+//
+// Aggregated deployment operations for a configured stack, grouped by UTC start time.
+//
+// GET /api/v1/stacks/{stack}/deployments/activity
+func (UnimplementedHandler) GetStackDeploymentActivity(ctx context.Context, params GetStackDeploymentActivityParams) (r *DeploymentActivityResponse, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -59,6 +191,66 @@ func (UnimplementedHandler) GetServiceStatus(ctx context.Context, params GetServ
 //
 // GET /api/v1/stacks/{stack}/manifestos
 func (UnimplementedHandler) GetStackManifestos(ctx context.Context, params GetStackManifestosParams) (r *StackManifestosResponse, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// GetStackResources implements getStackResources operation.
+//
+// Current Docker resources owned by a configured stack, selected by the exact
+// com.docker.stack.namespace label. Unlabelled external resources are excluded.
+// Returns metadata only, never secret values or config payloads.
+//
+// GET /api/v1/stacks/{stack}/resources
+func (UnimplementedHandler) GetStackResources(ctx context.Context, params GetStackResourcesParams) (r *StackResourcesResponse, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// GetStackSyncPauses implements getStackSyncPauses operation.
+//
+// GET /api/v1/stacks/{stack}/sync-pauses
+func (UnimplementedHandler) GetStackSyncPauses(ctx context.Context, params GetStackSyncPausesParams) (r GetStackSyncPausesRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// GetSwarmTask implements getSwarmTask operation.
+//
+// GET /api/v1/swarm/tasks/{taskID}
+func (UnimplementedHandler) GetSwarmTask(ctx context.Context, params GetSwarmTaskParams) (r *SwarmTaskDetailsHeaders, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// GetTaskLogs implements getTaskLogs operation.
+//
+// GET /api/tasks/{taskID}/logs
+func (UnimplementedHandler) GetTaskLogs(ctx context.Context, params GetTaskLogsParams, w http.ResponseWriter) error {
+	return ht.ErrNotImplemented
+}
+
+// ListAlerts implements listAlerts operation.
+//
+// GET /api/v1/alerts
+func (UnimplementedHandler) ListAlerts(ctx context.Context, params ListAlertsParams) (r *AlertsResponse, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// ListAssistantChats implements listAssistantChats operation.
+//
+// GET /api/v1/assistant/chats
+func (UnimplementedHandler) ListAssistantChats(ctx context.Context) (r *AssistantChatsResponse, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// ListDSNSuggestions implements listDSNSuggestions operation.
+//
+// GET /api/v1/secrets/suggestions/dsn
+func (UnimplementedHandler) ListDSNSuggestions(ctx context.Context) (r *DSNSuggestionsResponse, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// ListDeployments implements listDeployments operation.
+//
+// GET /api/v1/deployments
+func (UnimplementedHandler) ListDeployments(ctx context.Context, params ListDeploymentsParams) (r *DeploymentsResponse, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -72,7 +264,7 @@ func (UnimplementedHandler) ListEvents(ctx context.Context, params ListEventsPar
 // ListNetworks implements listNetworks operation.
 //
 // GET /api/v1/networks
-func (UnimplementedHandler) ListNetworks(ctx context.Context) (r *NetworksResponse, _ error) {
+func (UnimplementedHandler) ListNetworks(ctx context.Context, params ListNetworksParams) (r *NetworksResponse, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -80,6 +272,20 @@ func (UnimplementedHandler) ListNetworks(ctx context.Context) (r *NetworksRespon
 //
 // GET /api/v1/nodes
 func (UnimplementedHandler) ListNodes(ctx context.Context) (r *NodesResponse, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// ListRecommendations implements listRecommendations operation.
+//
+// GET /api/v1/recommendations
+func (UnimplementedHandler) ListRecommendations(ctx context.Context, params ListRecommendationsParams) (r *RecommendationsResponse, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// ListSecretManagers implements listSecretManagers operation.
+//
+// GET /api/v1/secret-managers
+func (UnimplementedHandler) ListSecretManagers(ctx context.Context) (r *SecretManagersResponse, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -111,10 +317,77 @@ func (UnimplementedHandler) ListStacks(ctx context.Context) (r *StacksResponse, 
 	return r, ht.ErrNotImplemented
 }
 
+// ListSwarmServiceTasks implements listSwarmServiceTasks operation.
+//
+// GET /api/v1/swarm/services/{serviceIDOrName}/tasks
+func (UnimplementedHandler) ListSwarmServiceTasks(ctx context.Context, params ListSwarmServiceTasksParams) (r *ServiceRealtimeResponse, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// ListSwarmServices implements listSwarmServices operation.
+//
+// GET /api/v1/swarm/services
+func (UnimplementedHandler) ListSwarmServices(ctx context.Context) (r *SwarmServicesResponse, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// MarkAssistantChatRead implements markAssistantChatRead operation.
+//
+// PUT /api/v1/assistant/chats/{conversationID}/read
+func (UnimplementedHandler) MarkAssistantChatRead(ctx context.Context, req *AssistantChatReadRequest, params MarkAssistantChatReadParams) error {
+	return ht.ErrNotImplemented
+}
+
+// PutServiceSyncPause implements putServiceSyncPause operation.
+//
+// PUT /api/v1/stacks/{stack}/services/{service}/sync-pause
+func (UnimplementedHandler) PutServiceSyncPause(ctx context.Context, req *SyncPauseRequest, params PutServiceSyncPauseParams) (r *ServiceSyncPauseResponse, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// PutStackSyncPause implements putStackSyncPause operation.
+//
+// PUT /api/v1/stacks/{stack}/sync-pause
+func (UnimplementedHandler) PutStackSyncPause(ctx context.Context, req *SyncPauseRequest, params PutStackSyncPauseParams) (r *StackSyncPausesResponse, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// RestartSwarmService implements restartSwarmService operation.
+//
+// Restarts a live replicated service, including standalone services, by scaling N to 0 to N. 204
+// means Docker accepted restoration, not that tasks are Running. Unsupported global/job modes return
+// 400, missing services 404, zero configured replicas or concurrent changes 409, and internal/Docker
+// failures 500. Failure after scaling to zero may leave replicas at zero; refresh live state and
+// check replicas before retrying. Errors use error_message and hide Docker diagnostics. Event
+// publication failure after restoration does not change success.
+//
+// POST /api/v1/swarm/services/{serviceID}/restart
+func (UnimplementedHandler) RestartSwarmService(ctx context.Context, params RestartSwarmServiceParams) error {
+	return ht.ErrNotImplemented
+}
+
+// ScaleSwarmService implements scaleSwarmService operation.
+//
+// Updates live replicated services, including standalone services, without waiting for tasks or
+// GitOps operations. Invalid input or unsupported modes return 400, missing services return 404,
+// concurrent updates return 409, and Docker errors return 500.
+//
+// PUT /api/v1/swarm/services/{serviceID}/replicas
+func (UnimplementedHandler) ScaleSwarmService(ctx context.Context, req *ScaleSwarmServiceRequest, params ScaleSwarmServiceParams) error {
+	return ht.ErrNotImplemented
+}
+
 // Search implements search operation.
 //
 // GET /api/v1/search
 func (UnimplementedHandler) Search(ctx context.Context, params SearchParams) (r *SearchResponse, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// SyncSecretManager implements syncSecretManager operation.
+//
+// POST /api/v1/secret-managers/{stack}/{service}/sync
+func (UnimplementedHandler) SyncSecretManager(ctx context.Context, params SyncSecretManagerParams) (r *SecretManagerSyncResponse, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -123,4 +396,11 @@ func (UnimplementedHandler) Search(ctx context.Context, params SearchParams) (r 
 // POST /api/v1/sync
 func (UnimplementedHandler) TriggerSync(ctx context.Context) (r *QueueResponse, _ error) {
 	return r, ht.ErrNotImplemented
+}
+
+// UpdateNodeLabel implements updateNodeLabel operation.
+//
+// PUT /api/v1/nodes/{id}/labels/{key}
+func (UnimplementedHandler) UpdateNodeLabel(ctx context.Context, req *NodeLabelUpdateRequest, params UpdateNodeLabelParams) error {
+	return ht.ErrNotImplemented
 }

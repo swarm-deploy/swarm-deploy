@@ -1,12 +1,9 @@
 package config
 
 import (
-	"errors"
-	"fmt"
 	"strings"
 
 	"github.com/artarts36/specw"
-	"gopkg.in/yaml.v3"
 )
 
 // GitAuthType defines supported git authentication type values.
@@ -32,29 +29,34 @@ func (t GitAuthType) IsSupported() bool {
 }
 
 type GitSpec struct {
-	// Pull contains git repository settings used for read operations.
-	Pull GitPullSpec `yaml:"pull"`
-	// Push contains git repository settings used for write operations.
-	Push GitPushSpec `yaml:"push"`
-}
-
-type GitRepositorySpec struct {
 	// Repository is a git repository URL (ssh or https).
 	Repository string `yaml:"repository"`
 	// Branch is a git branch to track.
 	Branch string `yaml:"branch"`
+	// Pull contains Git polling and pull deadline settings.
+	Pull GitPullSpec `yaml:"pull"`
 	// Auth contains git authentication settings.
 	Auth GitAuthSpec `yaml:"auth"`
-}
-
-type GitPullSpec struct {
-	GitRepositorySpec `yaml:",inline"`
+	// Push optionally overrides the repository used for assistant-proposed Git changes.
+	Push *GitPushSpec `yaml:"push,omitempty"`
 }
 
 type GitPushSpec struct {
-	GitRepositorySpec `yaml:",inline"`
-	// APIToken is an optional API token used by push integrations.
-	APIToken specw.File `yaml:"apiTokenPath,omitempty"`
+	// Repository is the write repository URL. Empty uses the sync repository.
+	Repository string `yaml:"repository,omitempty"`
+	// Branch is the base for proposed changes. Empty uses the sync branch.
+	Branch string `yaml:"branch,omitempty"`
+	// Auth supplies write credentials. Omitted credentials are inherited only for the sync repository.
+	Auth *GitAuthSpec `yaml:"auth,omitempty"`
+	// APIToken optionally authorizes creating a GitHub pull request after pushing.
+	APIToken specw.File `yaml:"apiTokenPath,omitempty" json:"-"`
+}
+
+type GitPullSpec struct {
+	// Interval is the time between Git pull attempts.
+	Interval specw.Duration `yaml:"interval"`
+	// Timeout limits Git pull operations, including lock acquisition.
+	Timeout specw.Duration `yaml:"timeout"`
 }
 
 type GitAuthSpec struct {
@@ -86,78 +88,6 @@ type GitSSHAuthSpec struct {
 	InsecureIgnoreHostKey bool `yaml:"insecureIgnoreHostKey"`
 	// Passphrase is a path to file containing private key passphrase.
 	Passphrase specw.File `yaml:"passphrasePath,omitempty"`
-}
-
-func (s *GitSpec) UnmarshalYAML(node *yaml.Node) error {
-	if node.Kind != yaml.MappingNode {
-		return errors.New("git config must be a map")
-	}
-
-	repositoryNode, hasRepository := findYAMLMappingValue(node, "repository")
-	if hasRepository {
-		if repositoryNode.Kind == yaml.ScalarNode {
-			return s.unmarshalSingleRepository(node)
-		}
-		return errors.New("git.repository as object is not supported; use git.pull and git.push")
-	}
-
-	var topLevelSpec struct {
-		Pull *GitPullSpec `yaml:"pull"`
-		Push *GitPushSpec `yaml:"push"`
-	}
-	if err := node.Decode(&topLevelSpec); err != nil {
-		return fmt.Errorf("decode git: %w", err)
-	}
-	if topLevelSpec.Pull != nil || topLevelSpec.Push != nil {
-		if topLevelSpec.Pull == nil {
-			return errors.New("git.pull is required when git.push is set")
-		}
-		if topLevelSpec.Push == nil {
-			return errors.New("git.push is required when git.pull is set")
-		}
-
-		s.Pull = *topLevelSpec.Pull
-		s.Push = *topLevelSpec.Push
-		return nil
-	}
-
-	return s.unmarshalSingleRepository(node)
-}
-
-func (s *GitSpec) unmarshalSingleRepository(node *yaml.Node) error {
-	var singleSpec struct {
-		Repository string      `yaml:"repository"`
-		Branch     string      `yaml:"branch"`
-		Auth       GitAuthSpec `yaml:"auth"`
-	}
-	if err := node.Decode(&singleSpec); err != nil {
-		return fmt.Errorf("unmarshal single spec: %w", err)
-	}
-
-	repositorySpec := GitRepositorySpec{
-		Repository: singleSpec.Repository,
-		Branch:     singleSpec.Branch,
-		Auth:       singleSpec.Auth,
-	}
-
-	s.Pull = GitPullSpec{GitRepositorySpec: repositorySpec}
-	s.Push = GitPushSpec{GitRepositorySpec: repositorySpec}
-
-	return nil
-}
-
-func findYAMLMappingValue(node *yaml.Node, key string) (*yaml.Node, bool) {
-	if node.Kind != yaml.MappingNode {
-		return nil, false
-	}
-
-	for i := 0; i+1 < len(node.Content); i += 2 {
-		if node.Content[i].Value == key {
-			return node.Content[i+1], true
-		}
-	}
-
-	return nil, false
 }
 
 func (a GitHTTPAuth) ResolvePassword() string {

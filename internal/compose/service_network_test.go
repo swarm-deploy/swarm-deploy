@@ -5,7 +5,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gopkg.in/yaml.v3"
+	"go.yaml.in/yaml/v3"
 )
 
 func Test_ServiceNetwork_UnmarshalYAML(t *testing.T) {
@@ -46,18 +46,12 @@ infra:
 					"infra": {
 						Alias:   "infra",
 						Aliases: []string{"my-app"},
-						Extra: map[string]interface{}{
-							"x-key": "val",
-						},
 					},
 				},
 				List: []*ServiceNetwork{
 					{
 						Alias:   "infra",
 						Aliases: []string{"my-app"},
-						Extra: map[string]interface{}{
-							"x-key": "val",
-						},
 					},
 				},
 			},

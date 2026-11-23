@@ -1,0 +1,116 @@
+package handlers
+
+import (
+	"context"
+	"encoding/json/v2"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+	"time"
+
+	dockerswarm "github.com/docker/docker/api/types/swarm"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
+
+	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
+	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
+)
+
+func TestHandlerListSwarmServices(t *testing.T) {
+	t.Parallel()
+
+	ctrl := gomock.NewController(t)
+	serviceInspector := swarm.NewMockServiceManager(ctrl)
+	h := &handler{serviceInspector: serviceInspector}
+	configured := uint64(4)
+	updatedAt := time.Date(2026, time.October, 28, 12, 0, 0, 0, time.UTC)
+	serviceInspector.EXPECT().
+		ListServices(gomock.Any(), swarm.ListServicesFilter{}).
+		Return([]swarm.StackService{
+			{
+				ID:           "service-1",
+				Name:         "postgres",
+				FullName:     "infra_postgres",
+				Stack:        "infra",
+				Image:        "postgres:18",
+				Mode:         "replicated",
+				Replicas:     &configured,
+				RunningTasks: 1,
+				DesiredTasks: 1,
+				UpdatedAt:    updatedAt,
+				CreatedAt:    updatedAt.Add(-time.Hour),
+				ServiceSpec: dockerswarm.ServiceSpec{
+					EndpointSpec: &dockerswarm.EndpointSpec{Mode: dockerswarm.ResolutionModeVIP},
+					UpdateConfig: &dockerswarm.UpdateConfig{Parallelism: 1},
+					TaskTemplate: dockerswarm.TaskSpec{Networks: []dockerswarm.NetworkAttachmentConfig{{Target: "network-id"}}},
+				},
+				PublishedPorts: []dockerswarm.PortConfig{{PublishedPort: 8080, TargetPort: 80, Protocol: dockerswarm.PortConfigProtocolTCP}},
+			},
+			{
+				ID:           "service-2",
+				Name:         "standalone",
+				FullName:     "standalone",
+				Mode:         "global",
+				RunningTasks: 2,
+				DesiredTasks: 3,
+				UpdatedAt:    updatedAt,
+			},
+		}, nil)
+
+	response, err := h.ListSwarmServices(context.Background())
+	require.NoError(t, err)
+	require.Len(t, response.Services, 2)
+	assert.Equal(t, "infra", response.Services[0].Stack)
+	assert.Equal(t, updatedAt.Add(-time.Hour), response.Services[0].CreatedAt.Value)
+	assert.Equal(t, "vip", response.Services[0].EndpointMode.Value)
+	assert.Equal(t, generated.SwarmServicePublishedPortsItem{PublishedPort: 8080, TargetPort: 80, Protocol: "tcp"}, response.Services[0].PublishedPorts[0])
+	assert.Equal(t, int64(1), response.Services[0].UpdateParallelism.Value)
+	assert.Equal(t, []string{"network-id"}, response.Services[0].NetworkTargets)
+	assert.Empty(t, response.Services[1].NetworkTargets)
+	assert.Equal(t, int64(4), response.Services[0].ConfiguredReplicas.Value)
+	assert.True(t, response.Services[0].ConfiguredReplicas.Set)
+	assert.False(t, response.Services[1].ConfiguredReplicas.Set)
+	assert.Equal(t, int64(1), response.Services[0].Replicas.Desired)
+	assert.Empty(t, response.Services[1].Stack)
+	assert.Equal(t, int64(2), response.Services[1].Replicas.Running)
+	assert.Equal(t, int64(3), response.Services[1].Replicas.Desired)
+}
+
+func TestSwarmServiceListResponseDoesNotContainEnvironment(t *testing.T) {
+	t.Parallel()
+
+	ctrl := gomock.NewController(t)
+	serviceInspector := swarm.NewMockServiceManager(ctrl)
+	h := &handler{serviceInspector: serviceInspector}
+	serviceInspector.EXPECT().
+		ListServices(gomock.Any(), swarm.ListServicesFilter{}).
+		Return([]swarm.StackService{{ID: "service-1", Name: "api", FullName: "api"}}, nil)
+
+	server, err := generated.NewServer(h, h, generated.WithErrorHandler(HandleHTTPError))
+	require.NoError(t, err)
+	recorder := httptest.NewRecorder()
+	server.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/v1/swarm/services", nil))
+
+	require.Equal(t, http.StatusOK, recorder.Code)
+	var response map[string]any
+	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &response))
+	assert.NotContains(t, recorder.Body.String(), "environment")
+}
+
+func TestHandlerListSwarmServicesDockerError(t *testing.T) {
+	t.Parallel()
+
+	ctrl := gomock.NewController(t)
+	serviceInspector := swarm.NewMockServiceManager(ctrl)
+	h := &handler{serviceInspector: serviceInspector}
+	serviceInspector.EXPECT().
+		ListServices(gomock.Any(), swarm.ListServicesFilter{}).
+		Return(nil, assert.AnError)
+
+	_, err := h.ListSwarmServices(context.Background())
+	require.Error(t, err)
+	var statusErr *statusError
+	require.ErrorAs(t, err, &statusErr)
+	assert.Equal(t, http.StatusInternalServerError, statusErr.code)
+}

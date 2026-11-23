@@ -1,4 +1,5 @@
 import { escapeHtml } from "./escape";
+import { getWebBasePath, withWebBasePath } from "../runtimeConfig";
 
 function sanitizeLinkHref(rawHref: string): string {
   const trimmed = String(rawHref || "").trim();
@@ -12,7 +13,12 @@ function sanitizeLinkHref(rawHref: string): string {
   }
 
   try {
-    const parsed = new URL(hrefWithNoTitle, window.location.origin);
+    const resolvedHref = hrefWithNoTitle.startsWith("/") && !hrefWithNoTitle.startsWith("//")
+      ? withWebBasePath(hrefWithNoTitle)
+      : hrefWithNoTitle;
+    const basePath = getWebBasePath();
+    const baseURL = new URL(basePath === "/" ? "/" : `${basePath}/`, window.location.origin);
+    const parsed = new URL(resolvedHref, baseURL);
     const protocol = parsed.protocol.toLowerCase();
     if (protocol !== "http:" && protocol !== "https:" && protocol !== "mailto:") {
       return "";
@@ -181,7 +187,7 @@ export function renderAssistantMarkdown(text: string): string {
         .join("");
 
       blocks.push(
-        `<div class="assistant-md-table-wrap"><table class="assistant-md-table"><thead><tr>${headHtml}</tr></thead><tbody>${bodyHtml}</tbody></table></div>`,
+        `<div class="app-table-wrap assistant-md-table-wrap"><table class="app-table assistant-md-table"><thead><tr>${headHtml}</tr></thead><tbody>${bodyHtml}</tbody></table></div>`,
       );
       continue;
     }

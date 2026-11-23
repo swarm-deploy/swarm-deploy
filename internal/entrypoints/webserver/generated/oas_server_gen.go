@@ -4,38 +4,143 @@ package api
 
 import (
 	"context"
+	"net/http"
 )
 
 // Handler handles operations described by OpenAPI v3 specification.
 type Handler interface {
+	// AddNodeLabel implements addNodeLabel operation.
+	//
+	// POST /api/v1/nodes/{id}/labels
+	AddNodeLabel(ctx context.Context, req *NodeLabelCreateRequest, params AddNodeLabelParams) error
 	// AssistantChat implements assistantChat operation.
 	//
 	// POST /api/v1/assistant/chat
 	AssistantChat(ctx context.Context, req *AssistantChatRequest) (*AssistantChatResponse, error)
+	// CreateExternalSecret implements createExternalSecret operation.
+	//
+	// POST /api/v1/secret-managers/{stack}/{service}/secrets
+	CreateExternalSecret(ctx context.Context, req *CreateExternalSecretRequest, params CreateExternalSecretParams) (*CreateExternalSecretResponse, error)
+	// CreateSecret implements createSecret operation.
+	//
+	// POST /api/v1/secrets
+	CreateSecret(ctx context.Context, req *CreateSecretRequest) (*CreateSecretResponse, error)
+	// DeleteNodeLabel implements deleteNodeLabel operation.
+	//
+	// DELETE /api/v1/nodes/{id}/labels/{key}
+	DeleteNodeLabel(ctx context.Context, params DeleteNodeLabelParams) error
+	// DeleteServiceSyncPause implements deleteServiceSyncPause operation.
+	//
+	// DELETE /api/v1/stacks/{stack}/services/{service}/sync-pause
+	DeleteServiceSyncPause(ctx context.Context, params DeleteServiceSyncPauseParams) error
+	// DeleteStackSyncPause implements deleteStackSyncPause operation.
+	//
+	// DELETE /api/v1/stacks/{stack}/sync-pause
+	DeleteStackSyncPause(ctx context.Context, params DeleteStackSyncPauseParams) error
+	// GetAlert implements getAlert operation.
+	//
+	// GET /api/v1/alerts/{id}
+	GetAlert(ctx context.Context, params GetAlertParams) (*Alert, error)
+	// GetAssistantChat implements getAssistantChat operation.
+	//
+	// GET /api/v1/assistant/chats/{conversationID}
+	GetAssistantChat(ctx context.Context, params GetAssistantChatParams) (*AssistantChatHistory, error)
+	// GetAssistantSuggestions implements getAssistantSuggestions operation.
+	//
+	// GET /api/assistant/suggestions
+	GetAssistantSuggestions(ctx context.Context) (*AssistantSuggestionsResponse, error)
+	// GetAssistantUsage implements getAssistantUsage operation.
+	//
+	// Read assistant token totals grouped by chat creation date.
+	//
+	// GET /api/v1/assistant/usage
+	GetAssistantUsage(ctx context.Context, params GetAssistantUsageParams) (*AssistantUsageResponse, error)
+	// GetConfig implements getConfig operation.
+	//
+	// GET /api/v1/config
+	GetConfig(ctx context.Context) (*UIConfigResponse, error)
 	// GetCurrentUser implements getCurrentUser operation.
 	//
 	// GET /api/v1/users/me
 	GetCurrentUser(ctx context.Context) (*CurrentUserResponse, error)
+	// GetDeployment implements getDeployment operation.
+	//
+	// GET /api/v1/deployments/{id}
+	GetDeployment(ctx context.Context, params GetDeploymentParams) (*Deployment, error)
+	// GetDeploymentFilters implements getDeploymentFilters operation.
+	//
+	// GET /api/v1/deployments/filters
+	GetDeploymentFilters(ctx context.Context) (*DeploymentFilterOptions, error)
+	// GetEvent implements getEvent operation.
+	//
+	// GET /api/v1/events/{id}
+	GetEvent(ctx context.Context, params GetEventParams) (GetEventRes, error)
+	// GetEventFilters implements getEventFilters operation.
+	//
+	// GET /api/v1/events/filters
+	GetEventFilters(ctx context.Context) (*EventFilterOptions, error)
 	// GetGitCommit implements getGitCommit operation.
 	//
 	// GET /api/v1/git/commits/{commit}
 	GetGitCommit(ctx context.Context, params GetGitCommitParams) (*GitCommitDetailsResponse, error)
+	// GetGraph implements getGraph operation.
+	//
+	// GET /api/v1/graph
+	GetGraph(ctx context.Context) (*GraphResponse, error)
 	// GetSecretByName implements getSecretByName operation.
 	//
 	// GET /api/v1/secrets/{name}
 	GetSecretByName(ctx context.Context, params GetSecretByNameParams) (*SecretDetailsResponse, error)
-	// GetServiceRealtime implements getServiceRealtime operation.
+	// GetService implements getService operation.
 	//
-	// GET /api/v1/stacks/{stack}/services/{service}/realtime
-	GetServiceRealtime(ctx context.Context, params GetServiceRealtimeParams) (*ServiceRealtimeResponse, error)
-	// GetServiceStatus implements getServiceStatus operation.
+	// GET /api/v1/stacks/{stack}/services/{service}
+	GetService(ctx context.Context, params GetServiceParams) (*ServiceStatusResponse, error)
+	// GetServiceSyncPause implements getServiceSyncPause operation.
 	//
-	// GET /api/v1/stacks/{stack}/services/{service}/status
-	GetServiceStatus(ctx context.Context, params GetServiceStatusParams) (*ServiceStatusResponse, error)
+	// GET /api/v1/stacks/{stack}/services/{service}/sync-pause
+	GetServiceSyncPause(ctx context.Context, params GetServiceSyncPauseParams) (*ServiceSyncPauseResponse, error)
+	// GetStackDeploymentActivity implements getStackDeploymentActivity operation.
+	//
+	// Aggregated deployment operations for a configured stack, grouped by UTC start time.
+	//
+	// GET /api/v1/stacks/{stack}/deployments/activity
+	GetStackDeploymentActivity(ctx context.Context, params GetStackDeploymentActivityParams) (*DeploymentActivityResponse, error)
 	// GetStackManifestos implements getStackManifestos operation.
 	//
 	// GET /api/v1/stacks/{stack}/manifestos
 	GetStackManifestos(ctx context.Context, params GetStackManifestosParams) (*StackManifestosResponse, error)
+	// GetStackResources implements getStackResources operation.
+	//
+	// Current Docker resources owned by a configured stack, selected by the exact
+	// com.docker.stack.namespace label. Unlabelled external resources are excluded.
+	// Returns metadata only, never secret values or config payloads.
+	//
+	// GET /api/v1/stacks/{stack}/resources
+	GetStackResources(ctx context.Context, params GetStackResourcesParams) (*StackResourcesResponse, error)
+	// GetStackSyncPauses implements getStackSyncPauses operation.
+	//
+	// GET /api/v1/stacks/{stack}/sync-pauses
+	GetStackSyncPauses(ctx context.Context, params GetStackSyncPausesParams) (GetStackSyncPausesRes, error)
+	// GetSwarmTask implements getSwarmTask operation.
+	//
+	// GET /api/v1/swarm/tasks/{taskID}
+	GetSwarmTask(ctx context.Context, params GetSwarmTaskParams) (*SwarmTaskDetailsHeaders, error)
+	// ListAlerts implements listAlerts operation.
+	//
+	// GET /api/v1/alerts
+	ListAlerts(ctx context.Context, params ListAlertsParams) (*AlertsResponse, error)
+	// ListAssistantChats implements listAssistantChats operation.
+	//
+	// GET /api/v1/assistant/chats
+	ListAssistantChats(ctx context.Context) (*AssistantChatsResponse, error)
+	// ListDSNSuggestions implements listDSNSuggestions operation.
+	//
+	// GET /api/v1/secrets/suggestions/dsn
+	ListDSNSuggestions(ctx context.Context) (*DSNSuggestionsResponse, error)
+	// ListDeployments implements listDeployments operation.
+	//
+	// GET /api/v1/deployments
+	ListDeployments(ctx context.Context, params ListDeploymentsParams) (*DeploymentsResponse, error)
 	// ListEvents implements listEvents operation.
 	//
 	// GET /api/v1/events
@@ -43,11 +148,19 @@ type Handler interface {
 	// ListNetworks implements listNetworks operation.
 	//
 	// GET /api/v1/networks
-	ListNetworks(ctx context.Context) (*NetworksResponse, error)
+	ListNetworks(ctx context.Context, params ListNetworksParams) (*NetworksResponse, error)
 	// ListNodes implements listNodes operation.
 	//
 	// GET /api/v1/nodes
 	ListNodes(ctx context.Context) (*NodesResponse, error)
+	// ListRecommendations implements listRecommendations operation.
+	//
+	// GET /api/v1/recommendations
+	ListRecommendations(ctx context.Context, params ListRecommendationsParams) (*RecommendationsResponse, error)
+	// ListSecretManagers implements listSecretManagers operation.
+	//
+	// GET /api/v1/secret-managers
+	ListSecretManagers(ctx context.Context) (*SecretManagersResponse, error)
 	// ListSecrets implements listSecrets operation.
 	//
 	// GET /api/v1/secrets
@@ -64,31 +177,92 @@ type Handler interface {
 	//
 	// GET /api/v1/stacks
 	ListStacks(ctx context.Context) (*StacksResponse, error)
+	// ListSwarmServiceTasks implements listSwarmServiceTasks operation.
+	//
+	// GET /api/v1/swarm/services/{serviceIDOrName}/tasks
+	ListSwarmServiceTasks(ctx context.Context, params ListSwarmServiceTasksParams) (*ServiceRealtimeResponse, error)
+	// ListSwarmServices implements listSwarmServices operation.
+	//
+	// GET /api/v1/swarm/services
+	ListSwarmServices(ctx context.Context) (*SwarmServicesResponse, error)
+	// MarkAssistantChatRead implements markAssistantChatRead operation.
+	//
+	// PUT /api/v1/assistant/chats/{conversationID}/read
+	MarkAssistantChatRead(ctx context.Context, req *AssistantChatReadRequest, params MarkAssistantChatReadParams) error
+	// PutServiceSyncPause implements putServiceSyncPause operation.
+	//
+	// PUT /api/v1/stacks/{stack}/services/{service}/sync-pause
+	PutServiceSyncPause(ctx context.Context, req *SyncPauseRequest, params PutServiceSyncPauseParams) (*ServiceSyncPauseResponse, error)
+	// PutStackSyncPause implements putStackSyncPause operation.
+	//
+	// PUT /api/v1/stacks/{stack}/sync-pause
+	PutStackSyncPause(ctx context.Context, req *SyncPauseRequest, params PutStackSyncPauseParams) (*StackSyncPausesResponse, error)
+	// RestartSwarmService implements restartSwarmService operation.
+	//
+	// Restarts a live replicated service, including standalone services, by scaling N to 0 to N. 204
+	// means Docker accepted restoration, not that tasks are Running. Unsupported global/job modes return
+	// 400, missing services 404, zero configured replicas or concurrent changes 409, and internal/Docker
+	// failures 500. Failure after scaling to zero may leave replicas at zero; refresh live state and
+	// check replicas before retrying. Errors use error_message and hide Docker diagnostics. Event
+	// publication failure after restoration does not change success.
+	//
+	// POST /api/v1/swarm/services/{serviceID}/restart
+	RestartSwarmService(ctx context.Context, params RestartSwarmServiceParams) error
+	// ScaleSwarmService implements scaleSwarmService operation.
+	//
+	// Updates live replicated services, including standalone services, without waiting for tasks or
+	// GitOps operations. Invalid input or unsupported modes return 400, missing services return 404,
+	// concurrent updates return 409, and Docker errors return 500.
+	//
+	// PUT /api/v1/swarm/services/{serviceID}/replicas
+	ScaleSwarmService(ctx context.Context, req *ScaleSwarmServiceRequest, params ScaleSwarmServiceParams) error
 	// Search implements search operation.
 	//
 	// GET /api/v1/search
 	Search(ctx context.Context, params SearchParams) (*SearchResponse, error)
+	// SyncSecretManager implements syncSecretManager operation.
+	//
+	// POST /api/v1/secret-managers/{stack}/{service}/sync
+	SyncSecretManager(ctx context.Context, params SyncSecretManagerParams) (*SecretManagerSyncResponse, error)
 	// TriggerSync implements triggerSync operation.
 	//
 	// POST /api/v1/sync
 	TriggerSync(ctx context.Context) (*QueueResponse, error)
+	// UpdateNodeLabel implements updateNodeLabel operation.
+	//
+	// PUT /api/v1/nodes/{id}/labels/{key}
+	UpdateNodeLabel(ctx context.Context, req *NodeLabelUpdateRequest, params UpdateNodeLabelParams) error
+}
+
+// RawHandler handles raw response operations described by OpenAPI v3 specification.
+type RawHandler interface {
+	// GetDeploymentInitJobLogs implements getDeploymentInitJobLogs operation.
+	//
+	// GET /api/v1/deployments/{id}/attempts/{attemptID}/init-jobs/{ordinal}/logs
+	GetDeploymentInitJobLogs(ctx context.Context, params GetDeploymentInitJobLogsParams, w http.ResponseWriter) error
+	// GetTaskLogs implements getTaskLogs operation.
+	//
+	// GET /api/tasks/{taskID}/logs
+	GetTaskLogs(ctx context.Context, params GetTaskLogsParams, w http.ResponseWriter) error
 }
 
 // Server implements http server based on OpenAPI v3 specification and
 // calls Handler to handle requests.
 type Server struct {
-	h Handler
+	h  Handler
+	rh RawHandler
 	baseServer
 }
 
 // NewServer creates new Server.
-func NewServer(h Handler, opts ...ServerOption) (*Server, error) {
+func NewServer(h Handler, rh RawHandler, opts ...ServerOption) (*Server, error) {
 	s, err := newServerConfig(opts...).baseServer()
 	if err != nil {
 		return nil, err
 	}
 	return &Server{
 		h:          h,
+		rh:         rh,
 		baseServer: s,
 	}, nil
 }

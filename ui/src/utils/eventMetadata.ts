@@ -1,0 +1,17 @@
+export const eventFilterTypes = [
+  "DeploySuccess",
+  "SendNotificationFailed",
+  "SyncManualStarted",
+  "WebhookReceived",
+  "NodeJoined",
+  "NodeConnected",
+  "NodeDisconnected",
+  "ServiceMissed",
+  "ServiceReplicasIncreased",
+  "ServiceReplicasDecreased",
+  "ServiceRestarted",
+  "ServicePruned",
+  "NetworkCreated",
+  "UserAuthenticated",
+  "AssistantPromptInjectionDetected",
+];

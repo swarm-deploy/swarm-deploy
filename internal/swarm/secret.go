@@ -22,3 +22,29 @@ type Secret struct {
 	// Labels contains custom Docker secret labels.
 	Labels map[string]string `json:"labels"`
 }
+
+// ListSecretsFilter selects Docker secrets by name, label, and stack ownership.
+type ListSecretsFilter struct {
+	// Names contains Docker secret names to match.
+	Names []string
+	// Labels contains Docker labels to match by key and value.
+	Labels map[string]string
+	// StackName selects secrets owned by the given stack.
+	StackName string
+}
+
+// CreateSecretRequest describes a Docker secret to create.
+type CreateSecretRequest struct {
+	// Name is the Docker secret name.
+	Name string
+	// Labels contains custom Docker secret labels.
+	Labels map[string]string
+	// Data contains the secret payload.
+	Data []byte
+	// Driver is the external secret driver name.
+	Driver string
+	// DriverOptions contains external secret driver options.
+	DriverOptions map[string]string
+	// TemplateDriver is the secret template driver name.
+	TemplateDriver string
+}

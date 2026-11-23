@@ -1,20 +1,55 @@
 export interface SyncInfo {
-  last_sync_at?: string;
-  last_sync_reason?: string;
-  last_sync_result?: string;
-  git_revision?: string;
-  last_sync_error?: string;
-  [key: string]: string | undefined;
+  last_poll?: {
+    at?: string;
+    result?: "updated" | "no_change" | "error";
+    error?: string;
+  };
+  last_webhook?: {
+    event_id?: string;
+    at?: string;
+    queued?: boolean;
+  };
+  last_revision?: string;
+}
+
+export interface StackStatus {
+  synced: number;
+  out_of_synced: number;
 }
 
 export interface StackView {
   name: string;
   compose_file: string;
-  last_status: string;
+  status: StackStatus;
   last_error?: string;
   last_commit?: string;
   last_deploy_at?: string;
   source_digest?: string;
+  effectively_paused_services?: number;
+}
+
+export type SyncPauseScope = "stack" | "service";
+export type EffectiveSyncPauseSource = "stack" | "service" | "both";
+
+export interface SyncPauseRecord {
+  scope: SyncPauseScope;
+  stack: string;
+  service?: string;
+  expires_at: string | null;
+}
+
+export interface StackSyncPausesResponse {
+  stack_pause?: SyncPauseRecord;
+  service_pauses: SyncPauseRecord[];
+  effective_services: { service: string; source: EffectiveSyncPauseSource }[];
+  effectively_paused_services: number;
+}
+
+export interface ServiceSyncPauseResponse {
+  stack_pause?: SyncPauseRecord;
+  service_pause?: SyncPauseRecord;
+  effective_paused: boolean;
+  effective_source?: EffectiveSyncPauseSource;
 }
 
 export interface StacksResponse {
@@ -35,7 +70,17 @@ export interface GitCommitDetailsResponse {
   changed_files: string[];
 }
 
-export type ServiceType = "application" | "monitoring" | "delivery" | "reverseProxy" | "database";
+export type ServiceType =
+  | "application"
+  | "monitoring"
+  | "delivery"
+  | "reverseProxy"
+  | "database"
+  | "secretManager"
+  | "cronManager"
+  | "deploymentManagementSystem"
+  | "mcp";
+export type ServiceSyncStatus = "Synced" | "OutOfSync" | "unknown";
 
 export interface WebRoute {
   domain: string;
@@ -46,6 +91,8 @@ export interface WebRoute {
 export interface ServiceInfo {
   name: string;
   stack: string;
+  sync_status: ServiceSyncStatus;
+  sync_error?: string;
   type: ServiceType;
   type_title: string;
   image: string;
@@ -59,6 +106,74 @@ export interface ServicesResponse {
   services: ServiceInfo[];
 }
 
+export interface SwarmServiceReplicas {
+  running: number;
+  desired: number;
+}
+
+export interface SwarmService {
+  id: string;
+  name: string;
+  full_name: string;
+  stack: string;
+  image: string;
+  mode: string;
+  replicas: SwarmServiceReplicas;
+  configured_replicas?: number;
+  updated_at: string;
+  created_at?: string;
+  endpoint_mode?: string;
+  published_ports?: Array<{ published_port: number; target_port: number; protocol: string }>;
+  update_parallelism?: number;
+  network_targets?: string[];
+}
+
+export interface SwarmServicesResponse {
+  services: SwarmService[];
+}
+
+export interface EnvironmentVariable {
+  name: string;
+  value: string;
+  encoded: boolean;
+}
+
+export interface SwarmTaskResources {
+  nano_cpus: number;
+  memory_bytes: number;
+}
+
+export interface SwarmTaskDetails {
+  id: string;
+  service_id: string;
+  node_id: string;
+  slot: number;
+  desired_state: string;
+  current_state: string;
+  error?: string;
+  created_at: string;
+  updated_at: string;
+  container_id: string;
+  exit_code?: number;
+  image: string;
+  environment: EnvironmentVariable[];
+  reservations?: SwarmTaskResources;
+  limits?: SwarmTaskResources;
+}
+
+export type GraphNodeKind = ServiceType;
+
+export interface GraphNode {
+  name: string;
+  kind: GraphNodeKind;
+  endpoints: string[];
+  depends: string[];
+}
+
+export interface GraphResponse {
+  nodes: GraphNode[];
+}
+
 export interface QueueResponse {
   queued: boolean;
 }
@@ -68,9 +183,10 @@ export interface CurrentUserResponse {
 }
 
 export type EventSeverity = "info" | "warn" | "error" | "alert";
-export type EventCategory = "sync" | "security";
+export type EventCategory = "sync" | "security" | "swarm";
 
 export interface EventHistoryItem {
+  id: string;
   type: string;
   severity: EventSeverity;
   category: EventCategory;
@@ -81,12 +197,97 @@ export interface EventHistoryItem {
 
 export interface EventHistoryResponse {
   events: EventHistoryItem[];
+  nextCursor?: string;
+}
+
+export interface EventFilterService {
+  stack_name: string;
+  service_name: string;
+}
+
+export interface EventFilterOptions {
+  stacks: string[];
+  services: EventFilterService[];
+}
+
+export type AlertStatus = "open" | "resolved";
+
+export interface AlertResolution {
+  reason: "recovered" | "resource_removed";
+  message: string;
+  eventId: string;
+}
+
+export interface AlertFinding {
+  code: string;
+  summary: string;
+  detectedAt: string;
+}
+
+export interface Alert {
+  id: string;
+  fingerprint: string;
+  kind:
+    | "sync_failed"
+    | "node_disconnected"
+    | "git_repository_unavailable"
+    | "service_drift"
+    | "messenger_unavailable"
+    | "messenger_misconfigured";
+  resourceType: "stack" | "node" | "repository" | "service" | "messenger";
+  resourceId: string;
+  status: AlertStatus;
+  title: string;
+  message: string;
+  failureStage?: string;
+  errorCode?: string;
+  findings?: AlertFinding[];
+  deploymentId?: string;
+  commit?: string;
+  occurrences: number;
+  openedAt: string;
+  updatedAt: string;
+  openEventId: string;
+  latestEventId: string;
+  resolvedAt?: string;
+  resolution?: AlertResolution;
+}
+
+export interface AlertsResponse {
+  alerts: Alert[];
+}
+
+export type RecommendationSeverity = "high" | "medium" | "low";
+export interface RecommendationSubject {
+  stack: string;
+  service: string;
+}
+
+export interface RecommendationSource {
+  file: string;
+  digest: string;
+  commit: string;
+}
+
+export interface Recommendation {
+  severity: RecommendationSeverity;
+  type: string;
+  source: RecommendationSource;
+  subject: RecommendationSubject;
+  title: string;
+  recommendation: string;
+  created_at: string;
+}
+
+export interface RecommendationsResponse {
+  recommendations: Recommendation[];
 }
 
 export interface ServiceSpecSecretResponse {
   secret_id?: string;
   secret_name: string;
   target?: string;
+  secret?: SecretInfo;
 }
 
 export interface ServiceSpecNetworkResponse {
@@ -96,12 +297,14 @@ export interface ServiceSpecNetworkResponse {
 
 export interface ServiceSpecLabelsResponse {
   docker?: Record<string, string>;
+  swarm_deploy?: Record<string, string>;
   custom?: Record<string, string>;
 }
 
 export interface ServiceSpecResponse {
   image: string;
   mode: string;
+  configs?: Array<{ config_id?: string; config_name: string; target?: string }>;
   replicas: number;
   requested_ram_bytes: number;
   requested_cpu_nano: number;
@@ -112,19 +315,29 @@ export interface ServiceSpecResponse {
   network?: ServiceSpecNetworkResponse[];
 }
 
+export interface ServiceLink {
+  type: string;
+  url: string;
+}
+
 export interface ServiceStatusResponse {
   stack: string;
   service: string;
   spec: ServiceSpecResponse;
+  links: ServiceLink[];
 }
 
 export interface ServiceRealtimeTask {
   id: string;
+  slot: number;
   node: string;
   node_name?: string;
+  desired_state: string;
   created_at?: string;
   updated_at?: string;
   current_state: string;
+  container_id: string;
+  exit_code?: number;
   error?: string;
 }
 
@@ -132,9 +345,25 @@ export interface ServiceRealtimeResponse {
   tasks: ServiceRealtimeTask[];
 }
 
-export type ServiceDeploymentStatus = "success" | "failed";
+export type TaskLogLevel = "TRACE" | "DEBUG" | "INFO" | "WARN" | "ERROR" | "FATAL";
+
+export interface TaskLogEvent {
+  timestamp: string;
+  stream: "stdout" | "stderr" | string;
+  level?: TaskLogLevel;
+  message: string;
+  attributes?: Record<string, unknown>;
+  raw_message?: string;
+}
+
+export interface TaskLogCountsEvent {
+  counts: Partial<Record<TaskLogLevel, number>>;
+}
+
+export type ServiceDeploymentStatus = "running" | "succeeded" | "failed" | "interrupted" | "superseded";
 
 export interface ServiceDeploymentResponse {
+  id: string;
   created_at: string;
   status: ServiceDeploymentStatus;
   image: string;
@@ -164,6 +393,15 @@ export interface NodesResponse {
   nodes: NodeInfo[];
 }
 
+export interface NodeLabelCreateRequest {
+  key: string;
+  value: string;
+}
+
+export interface NodeLabelUpdateRequest {
+  value: string;
+}
+
 export interface NetworkInfo {
   id: string;
   name: string;
@@ -176,6 +414,7 @@ export interface NetworkInfo {
   options?: Record<string, string>;
   stack_name?: string;
   managed: boolean;
+  ipam?: Array<{ subnet?: string; gateway?: string }>;
 }
 
 export interface NetworksResponse {
@@ -190,13 +429,78 @@ export interface SecretExternalInfo {
 export interface SecretInfo {
   id: string;
   name: string;
+  description?: string;
   version_id: number;
   created_at: string;
   external?: SecretExternalInfo;
+  used_by?: SecretServiceUsage[];
 }
 
 export interface SecretsResponse {
   secrets: SecretInfo[];
+}
+
+export interface CreateSecretRequest {
+  name: string;
+  value: string;
+  description?: string;
+}
+
+export interface CreateSecretResponse {
+  id: string;
+  name: string;
+}
+
+export interface SecretManagerProvider {
+  name: string;
+  links?: SecretManagerProviderLinks;
+}
+
+export interface SecretManagerProviderLinks {
+  doc?: string;
+  manager?: string;
+}
+
+export interface SecretManagerInfo {
+  stack: string;
+  service: string;
+  kind: string;
+  controllable: boolean;
+  available: boolean;
+  version?: string;
+  provider?: SecretManagerProvider;
+  last_sync_at?: string;
+  next_sync_at?: string;
+  error?: string;
+}
+
+export interface SecretManagersResponse {
+  secret_managers: SecretManagerInfo[];
+}
+
+export interface SecretManagerSyncResponse {
+  created: number;
+  updated: number;
+  removed: number;
+  unchanged: number;
+  secret?: SynchronizedSecretIdentity;
+}
+
+export interface SynchronizedSecretIdentity {
+  id: string;
+  name: string;
+}
+
+export interface CreateExternalSecretRequest {
+  path: string;
+  value: string;
+  key?: string;
+  description?: string;
+}
+
+export interface CreateExternalSecretResponse {
+  path: string;
+  manager_url?: string;
 }
 
 export interface SecretDetailsResponse {
@@ -208,6 +512,13 @@ export interface SecretDetailsResponse {
   driver?: string;
   labels?: Record<string, string>;
   external?: SecretExternalInfo;
+  used_by?: SecretServiceUsage[];
+}
+
+export interface SecretServiceUsage {
+  stack: string;
+  service: string;
+  target?: string;
 }
 
 export type SearchResultKind = "service" | "secret" | "stack";
@@ -240,6 +551,198 @@ export interface AssistantChatResponse {
   request_id: string;
   conversation_id: string;
   answer?: string;
+  answer_sequence?: number;
   error_message?: string;
   poll_after_ms?: number;
+  activity?: string[];
+}
+
+export interface AssistantTokenUsage {
+  input_tokens: number;
+  output_tokens: number;
+  total_tokens: number;
+}
+
+export type AssistantUsageInterval = "daily" | "weekly" | "monthly";
+
+export interface AssistantUsageQuery {
+  from: string;
+  to: string;
+  interval: AssistantUsageInterval;
+}
+
+export interface AssistantUsageBucket extends AssistantTokenUsage {
+  start: string;
+}
+
+export interface AssistantUsageResponse {
+  buckets: AssistantUsageBucket[];
+}
+
+export interface AssistantChatSummary {
+  id: string;
+  unread: boolean;
+  title: string;
+  created_at: string;
+  updated_at: string;
+  token_usage?: AssistantTokenUsage;
+}
+
+export interface AssistantChatsResponse {
+  chats: AssistantChatSummary[];
+}
+
+export interface AssistantSuggestion {
+  id: string;
+  title: string;
+  prompt: string;
+}
+
+export interface AssistantSuggestionsResponse {
+  suggestions: AssistantSuggestion[];
+}
+
+export interface AssistantChatMessage {
+  sequence: number;
+  role: "user" | "assistant" | "system";
+  content: string;
+  activity?: string[];
+}
+
+export interface AssistantActiveChatRequest {
+  request_id: string;
+  activity?: string[];
+}
+
+export interface AssistantChatHistory extends AssistantChatSummary {
+  messages: AssistantChatMessage[];
+  active_request?: AssistantActiveChatRequest;
+}
+export type DeploymentStatus = "running" | "succeeded" | "failed" | "interrupted" | "superseded";
+export type DeploymentPhase = "apply" | "verification" | "cleanup" | "completed";
+export type DeploymentStageStatus = "pending" | "running" | "succeeded" | "failed" | "unknown" | "skipped";
+export type DeploymentActualStateStatus = "observed" | "unknown";
+export type DeploymentComparisonStatus = "known" | "unknown";
+export type DeploymentComparisonBasis = "none" | "successful_baseline" | "last_attempt" | "observed_state";
+export interface DeploymentChange {
+  resourceType: string;
+  resourceName: string;
+  field: string;
+  operation: "added" | "changed" | "removed";
+  before?: string;
+  after?: string;
+  redacted: boolean;
+}
+export interface DeploymentChangeSummary {
+  added: number;
+  changed: number;
+  removed: number;
+  redacted: number;
+}
+export interface DeploymentResourceSummary {
+  services: number;
+  configs: number;
+  secrets: number;
+  networks: number;
+  volumes: number;
+}
+export interface DeploymentSummary {
+  id: string;
+  stack: string;
+  commit: string;
+  status: DeploymentStatus;
+  phase: DeploymentPhase;
+  reason?: string;
+  apply_status: DeploymentStageStatus;
+  verification_status: DeploymentStageStatus;
+  cleanup_status: DeploymentStageStatus;
+  actual_state_status: DeploymentActualStateStatus;
+  observed_at?: string;
+  comparison_basis: DeploymentComparisonBasis;
+  comparison_status: DeploymentComparisonStatus;
+  basis_deployment_id?: string;
+  started_at: string;
+  finished_at?: string;
+  duration_ms?: number;
+  summary: DeploymentChangeSummary;
+  resources: DeploymentResourceSummary;
+  diff_available: boolean;
+  latest_attempt_id: string;
+  attempt_count: number;
+}
+export interface DeploymentAttempt {
+  id: string;
+  number: number;
+  status: Exclude<DeploymentStatus, "superseded">;
+  phase: DeploymentPhase;
+  reason?: string;
+  diagnostic?: string;
+  apply_status: DeploymentStageStatus;
+  verification_status: DeploymentStageStatus;
+  cleanup_status: DeploymentStageStatus;
+  actual_state_status: DeploymentActualStateStatus;
+  observed_at?: string;
+  started_at: string;
+  finished_at?: string;
+  duration_ms?: number;
+  init_jobs: DeploymentInitJobExecution[];
+}
+export interface DeploymentInitJobExecution {
+  ordinal: number;
+  service_name: string;
+  job_name: string;
+  status: "succeeded" | "failed" | "interrupted";
+  started_at: string;
+  finished_at: string;
+  logs_available: boolean;
+  logs_truncated: boolean;
+}
+export interface Deployment extends DeploymentSummary {
+  diagnostic?: string;
+  configuration_yaml?: string;
+  services?: Array<{ name: string; image: string; replicas: string }>;
+  changes: DeploymentChange[];
+  attempts: DeploymentAttempt[];
+}
+export interface DeploymentsResponse {
+  deployments: DeploymentSummary[];
+  next_cursor?: string;
+}
+export type DeploymentActivityInterval = "daily" | "weekly";
+export interface DeploymentActivityBucket {
+  start: string;
+  succeeded: number;
+  failed: number;
+  running: number;
+  interrupted: number;
+  superseded: number;
+}
+export interface DeploymentActivityResponse {
+  buckets: DeploymentActivityBucket[];
+}
+export interface DeploymentFilterOptions {
+  stacks: string[];
+  services: Array<{ stack_name: string; service_name: string }>;
+}
+
+export interface StackResourceInfo {
+  id: string;
+  name: string;
+}
+
+export interface StackResourcesResponse {
+  networks: NetworkInfo[];
+  secrets: StackResourceInfo[];
+  configs: StackResourceInfo[];
+}
+
+export interface DSNSuggestion {
+  service_name: string;
+  stack: string;
+  engine: "postgresql" | "mysql" | null;
+  port: number | null;
+}
+
+export interface DSNSuggestionsResponse {
+  suggestions: DSNSuggestion[];
 }

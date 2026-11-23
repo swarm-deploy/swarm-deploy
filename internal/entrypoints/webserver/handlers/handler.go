@@ -1,49 +1,103 @@
 package handlers
 
 import (
-	"github.com/swarm-deploy/swarm-deploy/internal/assistant"
-	"github.com/swarm-deploy/swarm-deploy/internal/controller"
+	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
-	"github.com/swarm-deploy/swarm-deploy/internal/event/history"
-	gitx "github.com/swarm-deploy/swarm-deploy/internal/git"
-	swarmnode "github.com/swarm-deploy/swarm-deploy/internal/node"
-	"github.com/swarm-deploy/swarm-deploy/internal/service"
+	alertstore "github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/modelstore"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/texts"
+	deploymentstore "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/modelstore"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/history"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller"
+	gitx "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/modelstore"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/syncpause"
+	recommendationstore "github.com/swarm-deploy/swarm-deploy/internal/modules/recommendations/modelstore"
+	swarmnode "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/node"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/secretmanager"
+	secretstore "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/secrets/modelstore"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/secretservice"
+	servicestore "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/modelstore"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/logparser"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 
 type handler struct {
+	deployments *deploymentstore.Store
 	generated.UnimplementedHandler
+	uiConfig         config.WebUISpec
+	stackProvider    config.StackProvider
+	stateStore       modelstore.ReadStore
+	syncPauses       *syncpause.Service
 	control          *controller.Controller
 	serviceInspector swarm.ServiceManager
-	secrets          swarm.SecretManager
+	eventDispatcher  dispatcher.Dispatcher
+	taskLogs         *logparser.Service
+	secrets          secretstore.Store
+	secretRelations  *secretservice.Resolver
+	secretManagers   *secretmanager.Domain
 	networks         swarm.NetworkManager
-	history          *history.Store
-	services         *service.Store
-	nodes            *swarmnode.Store
+	dockerSecrets    swarm.SecretManager
+	dockerConfigs    swarm.ConfigManager
+	nodeManager      swarm.NodeManager
+	history          history.Repository
+	services         servicestore.Store
+	nodes            swarmnode.Repository
+	recommendations  recommendationstore.Store
+	alerts           alertstore.Store
 	assistant        assistant.Assistant
+	assistantTexts   *texts.Localizer
 	git              gitx.Repository
 }
 
 var _ generated.Handler = (*handler)(nil)
+var _ generated.RawHandler = (*handler)(nil)
 
 func New(
+	uiConfig config.WebUISpec,
+	stackProvider config.StackProvider,
+	stateStore modelstore.ReadStore,
+	syncPauses *syncpause.Service,
 	control *controller.Controller,
 	gitRepository gitx.Repository,
 	swarmService *swarm.Swarm,
-	history *history.Store,
-	services *service.Store,
-	nodes *swarmnode.Store,
+	history history.Repository,
+	services servicestore.Store,
+	nodes swarmnode.Repository,
+	secrets secretstore.Store,
+	secretManagers *secretmanager.Domain,
+	recommendations recommendationstore.Store,
+	alerts alertstore.Store,
 	assistantService assistant.Assistant,
-) generated.Handler {
-	return &handler{
+	assistantTexts *texts.Localizer,
+	deployments *deploymentstore.Store,
+	taskLogs *logparser.Service,
+	eventDispatcher dispatcher.Dispatcher,
+) *handler {
+	return &handler{deployments: deployments,
+		uiConfig:         uiConfig,
+		stackProvider:    stackProvider,
+		stateStore:       stateStore,
+		syncPauses:       syncPauses,
 		control:          control,
 		serviceInspector: swarmService.Services,
-		secrets:          swarmService.Secrets,
+		taskLogs:         taskLogs,
+		eventDispatcher:  eventDispatcher,
+		secrets:          secrets,
+		secretRelations:  secretservice.NewResolver(services, secrets),
+		secretManagers:   secretManagers,
 		networks:         swarmService.Networks,
+		dockerSecrets:    swarmService.Secrets,
+		dockerConfigs:    swarmService.Configs,
+		nodeManager:      swarmService.Nodes,
 		history:          history,
 		services:         services,
 		nodes:            nodes,
+		recommendations:  recommendations,
+		alerts:           alerts,
 		assistant:        assistantService,
+		assistantTexts:   assistantTexts,
 		git:              gitRepository,
 	}
 }

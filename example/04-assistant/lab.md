@@ -125,10 +125,13 @@ RAG строится после деплоя сервисов.
 В дальнейшем думаю, что можно рассмотреть поднятие сервера на отдельном порту для того, чтобы использовать инструменты в привычном агенте. Но сейчас в проекте есть только basic-аутентификация, которой явно недостаточно для поднятия сервера.
 
 - `history_event_list` — Просмотр истории событий. Асисстент может посмотреть, когда был последний деплой, каким было состояние приложения и какие изменения
+- `alert_list`, `alert_get` — Просмотр активных и разрешённых операционных алертов без изменения их состояния
+- `deployment_list`, `deployment_get` — Просмотр попыток деплоя, безопасной диагностики и замаскированных семантических изменений
 - `swarm_node_list` — Просмотр списка узлов в кластере. Не стал делать RAG, потому что всегда нужно видеть актуальное состояние ноды
 - `service_webroute_ping` — Пинг веб-маршрутов сервиса. Инструмент просто отправляет запросы на урлы, по которым отвечает контейнер за reverse proxy.
+- `tls_certificate_check` — Проверка TLS-сертификата указанного хоста и порта, срока действия, имени и доверия к цепочке. [Контракт и примеры](../../docs/assistant.md#tls-certificate-checks)
 - `assistant_prompt_injection_report` — Сообщения о попытке Prompt Injection. В системном промпте модели определено поведение для определения инъекции, и дана установка вызывать MCP.
-- `deploy_sync_trigger` — Выполнение деплоев. В этом инструменте деплой - это по сути `git pull` + `docker stack deploy`
+- `deploy_sync_trigger` — Выполнение деплоев. В этом инструменте деплой - это по сути `git pull` + применение сервисов через Docker API
 - `service_replicas_set` — Изменение количества реплик сервиса
 - `service_restart_trigger` — Рестарт сервиса через масштабирование в `0` и возврат прежнего числа реплик
 - `git_commit_list` — Получение списка коммитов
@@ -165,21 +168,20 @@ Prompt Injection может определить как регулярка, та
 Также можно настроить алертинг в Telegram, добавив конфиг:
 ```yaml
 notifications:
-  on:
-    assistantPromptInjectionDetected:
+  messengers:
+    telegram:
+      botTokenPath: /run/secrets/swarm-deploy-notifications-telegram-token
+      chats:
+        default:
+          id: "<chat-id>"
+          threadId: 155
+  events:
+    AssistantPromptInjectionDetected:
       telegram:
-        - name: ops-prompt-injection
-          # Path to file with bot token.
-          botTokenPath: /run/secrets/swarm-deploy-notifications-telegram-token
-          # Chat/channel ID.
-          chatId: "<chat-id>"
-          # Thread (topic) ID inside chat.
-          chatThreadId: 155
-          # Message text template.
+        - chats: default
           message: |
             ⚠️ Обнаружена попытка Prompt Injection.
-            Промпт: {{ .event.Prompt }}
-            Детектор: {{ .event.Detector }}
+            Детектор: {{ .Detector }}
 ```
 
 И получать вот такие сообщения:

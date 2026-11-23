@@ -7,8 +7,9 @@ import (
 	"strings"
 
 	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
-	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
-	"github.com/swarm-deploy/webroute"
+	secretmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/secrets/model"
+	servicemodel "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/model"
+	webroute "github.com/swarm-deploy/webroute/api"
 )
 
 func (h *handler) Search(
@@ -22,13 +23,17 @@ func (h *handler) Search(
 
 	results := make([]generated.SearchResult, 0)
 
-	results = append(results, h.searchServicesByName(query)...)
-	results = append(results, h.searchServicesByWebRoute(query)...)
+	services, err := h.services.ReadAll(ctx)
+	if err != nil {
+		return nil, err
+	}
+	results = append(results, searchServicesByName(services, query)...)
+	results = append(results, searchServicesByWebRoute(services, query)...)
 
 	if h.secrets != nil {
-		secrets, err := h.secrets.List(ctx)
-		if err != nil {
-			return nil, withStatusError(http.StatusInternalServerError, fmt.Errorf("list docker secrets: %w", err))
+		secrets, readErr := h.secrets.List(ctx)
+		if readErr != nil {
+			return nil, withStatusError(http.StatusInternalServerError, fmt.Errorf("list secrets: %w", readErr))
 		}
 		results = append(results, searchSecretsByName(secrets, query)...)
 	}
@@ -38,12 +43,7 @@ func (h *handler) Search(
 	return &generated.SearchResponse{Results: results}, nil
 }
 
-func (h *handler) searchServicesByName(query string) []generated.SearchResult {
-	if h.services == nil {
-		return nil
-	}
-
-	services := h.services.List()
+func searchServicesByName(services []servicemodel.Info, query string) []generated.SearchResult {
 	results := make([]generated.SearchResult, 0, len(services))
 	for _, serviceInfo := range services {
 		if !strings.Contains(strings.ToLower(serviceInfo.Name), query) {
@@ -62,12 +62,7 @@ func (h *handler) searchServicesByName(query string) []generated.SearchResult {
 	return results
 }
 
-func (h *handler) searchServicesByWebRoute(query string) []generated.SearchResult {
-	if h.services == nil {
-		return nil
-	}
-
-	services := h.services.List()
+func searchServicesByWebRoute(services []servicemodel.Info, query string) []generated.SearchResult {
 	results := make([]generated.SearchResult, 0, len(services))
 	for _, serviceInfo := range services {
 		if strings.Contains(strings.ToLower(serviceInfo.Name), query) {
@@ -89,7 +84,7 @@ func (h *handler) searchServicesByWebRoute(query string) []generated.SearchResul
 	return results
 }
 
-func searchSecretsByName(secrets []swarm.Secret, query string) []generated.SearchResult {
+func searchSecretsByName(secrets []secretmodel.Secret, query string) []generated.SearchResult {
 	results := make([]generated.SearchResult, 0, len(secrets))
 	for _, secret := range secrets {
 		if !strings.Contains(strings.ToLower(secret.Name), query) {
@@ -108,11 +103,7 @@ func searchSecretsByName(secrets []swarm.Secret, query string) []generated.Searc
 }
 
 func (h *handler) searchStacksByName(query string) []generated.SearchResult {
-	if h.control == nil {
-		return nil
-	}
-
-	stacks := h.control.ListStacks()
+	stacks := h.stackProvider.Stacks()
 	results := make([]generated.SearchResult, 0, len(stacks))
 	for _, stack := range stacks {
 		if !strings.Contains(strings.ToLower(stack.Name), query) {
@@ -130,9 +121,13 @@ func (h *handler) searchStacksByName(query string) []generated.SearchResult {
 	return results
 }
 
-func containsWebRoute(routes []webroute.Route, query string) bool {
+func containsWebRoute(routes []webroute.WebRoute, query string) bool {
 	for _, route := range routes {
-		value := strings.ToLower(strings.Join([]string{route.Domain, route.Address, route.Port}, " "))
+		parts := []string{route.From.Domain, route.From.Address, route.From.Port}
+		if route.To != nil {
+			parts = append(parts, route.To.Domain, route.To.Address, route.To.Port)
+		}
+		value := strings.ToLower(strings.Join(parts, " "))
 		if strings.Contains(value, query) {
 			return true
 		}

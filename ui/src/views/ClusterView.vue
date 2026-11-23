@@ -1,48 +1,131 @@
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { enumLabel, formatNumber, plural, t } from "../i18n";
+import { computed, onMounted, ref } from "vue";
 
-import { fetchNodes } from "../api/cluster";
+import AppModal from "../components/common/AppModal.vue";
+import { addNodeLabel, deleteNodeLabel, fetchNodes, updateNodeLabel } from "../api/cluster";
 import type { NodeInfo } from "../api/types";
+import AppButton from "../components/common/AppButton.vue";
+import AppCard from "../components/common/AppCard.vue";
 import { formatBytes, formatNanoCPU } from "../utils/format";
+
+interface LabelEntry {
+  key: string;
+  value: string;
+  text: string;
+}
+
+interface LabelDialogState {
+  mode: "add" | "edit";
+  node: NodeInfo;
+  originalKey: string;
+  key: string;
+  value: string;
+  error: string;
+  saving: boolean;
+}
 
 const nodes = ref<NodeInfo[]>([]);
 const loading = ref(false);
 const loadingError = ref("");
+const labelDialog = ref<LabelDialogState | null>(null);
 
-function statusClass(status: string): "success" | "failed" | "unknown" {
-  const normalizedStatus = status.trim().toLowerCase();
-  if (normalizedStatus === "ready" || normalizedStatus === "active" || normalizedStatus === "up") {
-    return "success";
+const possibleStaleNodeIDs = computed(() => {
+  const readyWorkers = new Map<string, Set<string>>();
+  for (const node of nodes.value) {
+    const hostname = normalize(node.hostname);
+    if (hostname && !isManager(node) && normalize(node.status) === "ready") {
+      const ids = readyWorkers.get(hostname) ?? new Set<string>();
+      ids.add(node.id);
+      readyWorkers.set(hostname, ids);
+    }
   }
-  if (
-    normalizedStatus === "down" ||
-    normalizedStatus === "failed" ||
-    normalizedStatus === "error" ||
-    normalizedStatus === "disconnected"
-  ) {
-    return "failed";
+  return new Set(nodes.value.filter((node) => {
+    const matching = readyWorkers.get(normalize(node.hostname));
+    return !isManager(node) && normalize(node.status) === "down" &&
+      matching !== undefined && [...matching].some((id) => id !== node.id);
+  }).map((node) => node.id));
+});
+
+const nodeSummary = computed(() => {
+  const total = nodes.value.length;
+  const ready = nodes.value.filter((node) => normalize(node.status) === "ready").length;
+  const managers = nodes.value.filter((node) => isManager(node)).length;
+  const workers = total - managers;
+
+  return t("cluster.nodeSummary", {
+    nodes: plural("cluster.nodeCount", total),
+    ready: formatNumber(ready),
+    managers: plural("cluster.managerCount", managers),
+    workers: plural("cluster.workerCount", workers),
+  });
+});
+
+function statusClass(status: string): string {
+  return normalize(status) === "ready" ? "node-status-ready" : "node-status-warning";
+}
+
+function showNodeStatus(node: NodeInfo): boolean {
+  return normalize(node.status) !== "ready";
+}
+
+function roleClass(node: NodeInfo): string {
+  const managerStatus = normalize(node.manager_status);
+  if (managerStatus === "leader") {
+    return "node-role-leader";
   }
-  return "unknown";
+  if (isManager(node)) {
+    return "node-role-manager";
+  }
+
+  return "node-role-worker";
+}
+
+function roleLabel(node: NodeInfo): string {
+  const managerStatus = normalize(node.manager_status);
+  if (managerStatus === "leader") {
+    return t("cluster.leader");
+  }
+  if (isManager(node)) {
+    return t("cluster.manager");
+  }
+
+  return t("cluster.worker");
+}
+
+function availabilityClass(availability: string): string {
+  return normalize(availability) === "drain" ? "node-availability-drain" : "node-availability-pause";
+}
+
+function showAvailability(node: NodeInfo): boolean {
+  const availability = normalize(node.availability);
+  return availability === "drain" || availability === "pause";
 }
 
 function nodeCPU(node: NodeInfo): string {
-  return node.cpu_nano > 0 ? formatNanoCPU(node.cpu_nano) : "n/a";
+  return node.cpu_nano > 0 ? formatNanoCPU(node.cpu_nano) : t("common.notApplicable");
 }
 
 function nodeRAM(node: NodeInfo): string {
-  return node.memory_bytes > 0 ? formatBytes(node.memory_bytes) : "n/a";
+  return node.memory_bytes > 0 ? formatBytes(node.memory_bytes) : t("common.notApplicable");
 }
 
-function labelsText(labels?: Record<string, string>): string {
-  const entries = Object.entries(labels ?? {});
-  if (entries.length === 0) {
-    return "n/a";
-  }
+function nodeResources(node: NodeInfo): string {
+  return t("cluster.cpuAndMemory", { cpu: nodeCPU(node), memory: nodeRAM(node) });
+}
 
-  return entries
+function nodeEngine(node: NodeInfo): string {
+  return `Docker ${node.engine_version || t("common.notApplicable")}`;
+}
+
+function labelEntries(labels?: Record<string, string>): LabelEntry[] {
+  return Object.entries(labels ?? {})
     .sort(([left], [right]) => left.localeCompare(right))
-    .map(([key, value]) => `${key}=${value}`)
-    .join(", ");
+    .map(([key, value]) => ({
+      key,
+      value,
+      text: `${key}=${value}`,
+    }));
 }
 
 async function loadNodes() {
@@ -54,12 +137,104 @@ async function loadNodes() {
     const nextNodes = Array.isArray(response.nodes) ? response.nodes : [];
     nodes.value = [...nextNodes].sort((left, right) => left.hostname.localeCompare(right.hostname));
   } catch (error) {
-    loadingError.value = error instanceof Error ? error.message : "Failed to load nodes";
+    loadingError.value = error instanceof Error ? error.message : t("cluster.loadNodesFailed");
     nodes.value = [];
   } finally {
     loading.value = false;
   }
 }
+
+function openAddLabel(node: NodeInfo) {
+  labelDialog.value = {
+    mode: "add",
+    node,
+    originalKey: "",
+    key: "",
+    value: "true",
+    error: "",
+    saving: false,
+  };
+}
+
+function openEditLabel(node: NodeInfo, label: LabelEntry) {
+  labelDialog.value = {
+    mode: "edit",
+    node,
+    originalKey: label.key,
+    key: label.key,
+    value: label.value,
+    error: "",
+    saving: false,
+  };
+}
+
+function closeLabelDialog() {
+  if (labelDialog.value?.saving) {
+    return;
+  }
+
+  labelDialog.value = null;
+}
+
+async function submitLabelDialog() {
+  const dialog = labelDialog.value;
+  if (!dialog) {
+    return;
+  }
+
+  const key = dialog.key.trim();
+  if (dialog.mode === "add" && !key) {
+    dialog.error = t("cluster.labelKeyRequired");
+    return;
+  }
+
+  dialog.saving = true;
+  dialog.error = "";
+
+  try {
+    if (dialog.mode === "add") {
+      await addNodeLabel(dialog.node.id, { key, value: dialog.value });
+    } else {
+      await updateNodeLabel(dialog.node.id, dialog.originalKey, { value: dialog.value });
+    }
+    await loadNodes();
+    labelDialog.value = null;
+  } catch (error) {
+    dialog.error = error instanceof Error ? error.message : t("cluster.updateLabelFailed");
+  } finally {
+    dialog.saving = false;
+  }
+}
+
+async function removeCurrentLabel() {
+  const dialog = labelDialog.value;
+  if (!dialog || dialog.mode !== "edit") {
+    return;
+  }
+
+  dialog.saving = true;
+  dialog.error = "";
+
+  try {
+    await deleteNodeLabel(dialog.node.id, dialog.originalKey);
+    await loadNodes();
+    labelDialog.value = null;
+  } catch (error) {
+    dialog.error = error instanceof Error ? error.message : t("cluster.removeLabelFailed");
+  } finally {
+    dialog.saving = false;
+  }
+}
+
+function normalize(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+function isManager(node: NodeInfo): boolean {
+  const managerStatus = normalize(node.manager_status);
+  return managerStatus !== "" && managerStatus !== "worker";
+}
+
 
 onMounted(() => {
   void loadNodes();
@@ -67,46 +242,132 @@ onMounted(() => {
 </script>
 
 <template>
-  <section class="services-header">
-    <h2>Nodes</h2>
-  </section>
+  <section class="services-page nodes-page">
+    <header class="services-header nodes-header">
+      <div>
+        <h2>{{ t('cluster.nodes') }}</h2>
+        <p class="meta nodes-summary">{{ nodeSummary }}</p>
+      </div>
+    </header>
 
-  <section>
-    <div v-if="loading && nodes.length === 0" class="node-grid">
-      <article class="node-card">
-        <p class="meta">Loading...</p>
-      </article>
+    <div v-if="loading && nodes.length === 0" class="services-empty">
+      <p class="meta">{{ t('common.loading') }}</p>
     </div>
 
-    <div v-else-if="loadingError" class="node-grid">
-      <article class="node-card">
-        <p class="meta">Failed to load nodes: {{ loadingError }}</p>
-      </article>
+    <div v-else-if="loadingError" class="services-empty">
+      <p class="meta">{{ t('cluster.loadError', { error: loadingError }) }}</p>
     </div>
 
-    <div v-else-if="nodes.length === 0" class="node-grid">
-      <article class="node-card">
-        <p class="meta">No nodes found.</p>
-      </article>
+    <div v-else-if="nodes.length === 0" class="services-empty">
+      <p class="meta">{{ t('cluster.noNodes') }}</p>
     </div>
 
-    <div v-else class="node-grid">
-      <article v-for="node in nodes" :key="node.id" class="node-card">
-        <div class="node-card-header">
-          <h3 class="node-name">{{ node.hostname || "unknown" }}</h3>
-          <span class="status" :class="statusClass(node.status || '')">
-            {{ (node.status || "unknown").toLowerCase() }}
-          </span>
+    <div v-else class="node-list">
+      <AppCard v-for="node in nodes" :key="node.id" class="node-card">
+        <div class="node-main-row">
+          <div class="node-title-group">
+            <span class="node-status-dot" :class="statusClass(node.status || '')" aria-hidden="true"></span>
+            <h3 class="node-name" :title="node.hostname || t('nodeStates.unknown')">{{ node.hostname || t('nodeStates.unknown') }}</h3>
+          </div>
+
+          <div class="node-state-group">
+            <span v-if="showNodeStatus(node)" class="node-state-text">
+              {{ enumLabel('nodeStates', normalize(node.status) || 'unknown') }}
+            </span>
+            <span class="node-role" :class="roleClass(node)">
+              {{ roleLabel(node) }}
+            </span>
+            <span v-if="showAvailability(node)" class="node-availability" :class="availabilityClass(node.availability)">
+              {{ enumLabel('nodeStates', normalize(node.availability)) }}
+            </span>
+          </div>
         </div>
-        <p class="meta">availability: {{ node.availability || "n/a" }}</p>
-        <p class="meta">manager: {{ node.manager_status || "n/a" }}</p>
-        <p class="meta">cpu: {{ nodeCPU(node) }}</p>
-        <p class="meta">ram: {{ nodeRAM(node) }}</p>
-        <p class="meta">address: {{ node.addr || "n/a" }}</p>
-        <p class="meta">engine: {{ node.engine_version || "n/a" }}</p>
-        <p class="meta">labels: {{ labelsText(node.labels) }}</p>
-        <p class="meta">id: {{ node.id || "n/a" }}</p>
-      </article>
+
+        <p v-if="possibleStaleNodeIDs.has(node.id)" class="node-stale-hint" role="note">
+          <strong>{{ t('cluster.staleWorker') }}</strong>
+          {{ t('cluster.staleWorkerHint', { command: 'docker node ls' }) }}
+        </p>
+
+        <div class="node-meta-list">
+          <div class="node-meta-row">
+            <span class="node-meta-key">{{ t('cluster.address') }}</span>
+            <span class="node-meta-value">{{ node.addr || t('common.notApplicable') }}</span>
+          </div>
+
+          <div class="node-meta-row">
+            <span class="node-meta-key">{{ t('common.resources') }}</span>
+            <span class="node-meta-value">{{ nodeResources(node) }}</span>
+          </div>
+
+          <div class="node-meta-row">
+            <span class="node-meta-key">{{ t('cluster.engine') }}</span>
+            <span class="node-meta-value">{{ nodeEngine(node) }}</span>
+          </div>
+
+          <div class="node-meta-row">
+            <span class="node-meta-key">{{ t('common.labels') }}</span>
+            <div class="node-meta-value node-label-list">
+              <button
+                v-for="label in labelEntries(node.labels)"
+                :key="label.key"
+                type="button"
+                class="node-label-chip"
+                :title="t('cluster.editNamedLabel', { label: label.text })"
+                @click="openEditLabel(node, label)"
+              >
+                {{ label.text }}
+              </button>
+              <span v-if="labelEntries(node.labels).length === 0" class="meta node-label-empty">{{ t('cluster.none') }}</span>
+              <button type="button" class="node-label-add" @click="openAddLabel(node)">{{ t('cluster.addLabel') }}</button>
+            </div>
+          </div>
+        </div>
+      </AppCard>
     </div>
+
+    <AppModal
+      :open="Boolean(labelDialog)"
+      labelledby="node-label-title"
+      card-class="node-label-dialog"
+      v-if="labelDialog"
+      :close-disabled="labelDialog.saving"
+      @close="closeLabelDialog"
+    >
+      <template #title>
+        <h2 id="node-label-title">
+          {{ labelDialog.mode === "add" ? t('common.addLabel') : t('common.editLabel') }}
+        </h2>
+      </template>
+
+      <form class="modal-body node-label-form" @submit.prevent="submitLabelDialog">
+        <label>
+          <span>{{ t('common.key') }}</span>
+          <input v-model="labelDialog.key" type="text" :readonly="labelDialog.mode === 'edit'" :disabled="labelDialog.saving" />
+        </label>
+
+        <label>
+          <span>{{ t('common.value') }}</span>
+          <input v-model="labelDialog.value" type="text" :disabled="labelDialog.saving" />
+        </label>
+
+        <p v-if="labelDialog.error" class="meta node-label-error">{{ labelDialog.error }}</p>
+
+        <div class="node-label-dialog-actions">
+          <AppButton
+            v-if="labelDialog.mode === 'edit'"
+            variant="danger"
+            :disabled="labelDialog.saving"
+            @click="removeCurrentLabel"
+          >
+            {{ t('common.remove') }}
+          </AppButton>
+          <span class="node-label-dialog-spacer"></span>
+          <AppButton variant="secondary" :disabled="labelDialog.saving" @click="closeLabelDialog">{{ t('common.cancel') }}</AppButton>
+          <AppButton type="submit" :disabled="labelDialog.saving">
+            {{ labelDialog.saving ? t('common.saving') : labelDialog.mode === "add" ? t('common.add') : t('common.save') }}
+          </AppButton>
+        </div>
+      </form>
+    </AppModal>
   </section>
 </template>

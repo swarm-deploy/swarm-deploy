@@ -3,37 +3,27 @@ package compose
 import (
 	"fmt"
 	"strconv"
+	"strings"
 
-	"gopkg.in/yaml.v3"
+	"github.com/docker/go-connections/nat"
+
+	dockerswarm "github.com/docker/docker/api/types/swarm"
+	"go.yaml.in/yaml/v3"
 )
 
 type ServicePorts struct {
-	Ports []ServicePort
+	Ports []ServicePort `json:"Ports"`
 
 	isMap bool
 }
 
 type ServicePort struct {
-	Published   int          `yaml:"published" json:"published"`
-	Target      int          `yaml:"target" json:"target"`
-	Protocol    PortProtocol `yaml:"protocol,omitempty" json:"protocol,omitempty"`
-	AppProtocol string       `yaml:"app_protocol,omitempty" json:"app_protocol,omitempty"`
-	Mode        string       `yaml:"mode,omitempty" json:"mode,omitempty"`
-	HostIP      string       `yaml:"host_ip,omitempty" json:"host_ip,omitempty"`
-
-	Extra map[string]interface{} `yaml:",inline"`
-}
-
-type PortProtocol string
-
-const (
-	PortProtocolTCP  PortProtocol = "tcp"
-	PortProtocolUDP  PortProtocol = "udp"
-	PortProtocolSctp PortProtocol = "sctp"
-)
-
-func (p PortProtocol) Valid() bool {
-	return p == PortProtocolTCP || p == PortProtocolUDP || p == PortProtocolSctp
+	Published   int                               `yaml:"published" json:"published"`
+	Target      int                               `yaml:"target" json:"target"`
+	Protocol    dockerswarm.PortConfigProtocol    `yaml:"protocol,omitempty" json:"protocol,omitempty"`
+	AppProtocol string                            `yaml:"app_protocol,omitempty" json:"app_protocol,omitempty"`
+	Mode        dockerswarm.PortConfigPublishMode `yaml:"mode,omitempty" json:"mode,omitempty"`
+	HostIP      string                            `yaml:"host_ip,omitempty" json:"host_ip,omitempty"`
 }
 
 func (sp *ServicePorts) UnmarshalYAML(root *yaml.Node) error { //nolint:gocognit // not need
@@ -67,7 +57,7 @@ func (sp *ServicePorts) UnmarshalYAML(root *yaml.Node) error { //nolint:gocognit
 	}
 
 	for i, node := range root.Content {
-		switch node.Kind { //nolint:exhaustive // expect only mapping or scalar
+		switch node.Kind {
 		case yaml.MappingNode:
 			port := defaultServicePort(0, 0)
 			if err := node.Decode(&port); err != nil {
@@ -76,12 +66,22 @@ func (sp *ServicePorts) UnmarshalYAML(root *yaml.Node) error { //nolint:gocognit
 
 			sp.Ports = append(sp.Ports, port)
 		case yaml.ScalarNode:
+			if strings.Contains(node.Value, "-") {
+				ports, err := parsePortRange(node.Value)
+				if err != nil {
+					return fmt.Errorf("parse port range: %w", err)
+				}
+				sp.Ports = append(sp.Ports, ports...)
+				continue
+			}
 			port, err := sp.parseStringView(node.Value)
 			if err != nil {
 				return fmt.Errorf("parse %q: %w", node.Value, err)
 			}
 
 			sp.Ports = append(sp.Ports, *port)
+		case yaml.DocumentNode, yaml.SequenceNode, yaml.AliasNode:
+			fallthrough
 		default:
 			return fmt.Errorf("expect mapping or string node, got %s", root.Tag)
 		}
@@ -128,7 +128,7 @@ func (sp *ServicePorts) parseStringView(s string) (*ServicePort, error) {
 			intVal = 0
 		case '/':
 			port.Target = intVal
-			port.Protocol = PortProtocol(s[i+1:])
+			port.Protocol = dockerswarm.PortConfigProtocol(s[i+1:])
 			return &port, nil
 		default:
 			if char < '0' || char > '9' {
@@ -148,7 +148,7 @@ func (sp *ServicePorts) parseStringView(s string) (*ServicePort, error) {
 	}
 
 	if port.Protocol == "" {
-		port.Protocol = PortProtocolTCP
+		port.Protocol = dockerswarm.PortConfigProtocolTCP
 	}
 
 	return &port, nil
@@ -158,6 +158,29 @@ func defaultServicePort(published, target int) ServicePort {
 	return ServicePort{
 		Published: published,
 		Target:    target,
-		Protocol:  PortProtocolTCP,
+		Protocol:  dockerswarm.PortConfigProtocolTCP,
+		Mode:      dockerswarm.PortConfigPublishModeIngress,
 	}
+}
+
+func parsePortRange(value string) ([]ServicePort, error) {
+	mappings, err := nat.ParsePortSpec(value)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]ServicePort, 0, len(mappings))
+	for _, mapping := range mappings {
+		published := 0
+		if mapping.Binding.HostPort != "" {
+			published, err = strconv.Atoi(mapping.Binding.HostPort)
+			if err != nil {
+				return nil, err
+			}
+		}
+		port := defaultServicePort(published, mapping.Port.Int())
+		port.Protocol = dockerswarm.PortConfigProtocol(mapping.Port.Proto())
+		port.HostIP = mapping.Binding.HostIP
+		result = append(result, port)
+	}
+	return result, nil
 }

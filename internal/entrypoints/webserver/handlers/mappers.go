@@ -1,43 +1,72 @@
 package handlers
 
 import (
+	"context"
 	"math"
 	"strings"
 	"time"
 
-	"github.com/swarm-deploy/swarm-deploy/internal/controller"
+	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
-	"github.com/swarm-deploy/swarm-deploy/internal/event/events"
-	"github.com/swarm-deploy/swarm-deploy/internal/event/history"
-	"github.com/swarm-deploy/swarm-deploy/internal/imageref"
-	"github.com/swarm-deploy/swarm-deploy/internal/labelsdict"
-	"github.com/swarm-deploy/swarm-deploy/internal/service"
-	serviceType "github.com/swarm-deploy/swarm-deploy/internal/service/stype"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/history"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/model"
+	resourcegraph "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/graph"
+	secretmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/secrets/model"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/secretservice"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/enrichment/metadata"
+	servicemodel "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/model"
+	serviceType "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/stype"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/labelsdict"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/utils"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
-	"github.com/swarm-deploy/webroute"
+	webroute "github.com/swarm-deploy/webroute/api"
 )
 
 const (
-	externalPathLabel      = "external_path"
-	externalVersionIDLabel = "external_version_id"
 	dockerLabelPrefix      = "com.docker."
+	swarmDeployLabelPrefix = "org.swarm-deploy"
 )
 
-func toGeneratedStacks(stacks []controller.StackView) []generated.StackView {
+func (h *handler) listStacks(ctx context.Context, snapshot model.Runtime) ([]generated.StackView, error) {
+	stacks := h.stackProvider.Stacks()
 	mapped := make([]generated.StackView, 0, len(stacks))
-
-	for _, stack := range stacks {
-		mapped = append(mapped, toGeneratedStack(stack))
+	for _, stackCfg := range stacks {
+		stackSnapshot, exists := snapshot.Stacks[stackCfg.Name]
+		item := toGeneratedStack(stackCfg, stackSnapshot, exists)
+		paused := 0
+		if h.syncPauses != nil {
+			pauseState, err := h.syncPauses.GetStack(ctx, stackCfg.Name)
+			if err != nil {
+				return nil, err
+			}
+			paused = len(pauseState.EffectivelyPausedServices)
+		}
+		item.EffectivelyPausedServices = generated.NewOptInt(paused)
+		mapped = append(mapped, item)
 	}
 
-	return mapped
+	return mapped, nil
 }
 
-func toGeneratedStack(stack controller.StackView) generated.StackView {
+func toGeneratedStack(stackCfg config.StackSpec, stack model.Stack, exists bool) generated.StackView {
+	status := generated.StackStatus{}
+	if exists {
+		stackStatus := stack.Status
+		if stackStatus.Synced == 0 && stackStatus.OutOfSynced == 0 && len(stack.Services) > 0 {
+			stackStatus = model.NewStackStatus(stack.Services)
+		}
+
+		status = generated.StackStatus{
+			Synced:      int64(stackStatus.Synced),
+			OutOfSynced: int64(stackStatus.OutOfSynced),
+		}
+	}
+
 	mapped := generated.StackView{
-		Name:        stack.Name,
-		ComposeFile: stack.ComposeFile,
-		LastStatus:  stack.LastStatus,
+		Name:        stackCfg.Name,
+		ComposeFile: stackCfg.ComposeFile,
+		Status:      status,
 		LastError:   toOptString(stack.LastError),
 		LastCommit:  toOptString(stack.LastCommit),
 		LastDeployAt: toOptDateTime(
@@ -65,14 +94,33 @@ func toOptDateTime(value time.Time) generated.OptDateTime {
 	return generated.NewOptDateTime(value)
 }
 
-func toGeneratedServiceStatus(status swarm.ServiceStatus) *generated.ServiceStatusResponse {
-	resp := &generated.ServiceStatusResponse{
-		Stack:   status.Stack,
-		Service: status.Service,
-		Spec:    toGeneratedServiceSpec(status.Spec),
+func toGeneratedServiceStatusFromInfo(
+	serviceInfo servicemodel.Info,
+	resolvedSecrets []secretservice.ResolvedSecret,
+) *generated.ServiceStatusResponse {
+	spec := serviceInfo.Spec
+	if spec.Image == "" {
+		spec.Image = serviceInfo.Image
 	}
 
-	return resp
+	return &generated.ServiceStatusResponse{
+		Stack:   serviceInfo.Stack,
+		Service: serviceInfo.Name,
+		Spec:    toGeneratedServiceSpec(spec, resolvedSecrets),
+		Links:   toGeneratedServiceLinks(serviceInfo.Links),
+	}
+}
+
+func toGeneratedServiceLinks(links []metadata.Link) []generated.ServiceLink {
+	mapped := make([]generated.ServiceLink, 0, len(links))
+	for _, link := range links {
+		mapped = append(mapped, generated.ServiceLink{
+			Type: link.Type,
+			URL:  link.URL,
+		})
+	}
+
+	return mapped
 }
 
 func toGeneratedServiceRealtimeTasks(
@@ -83,8 +131,11 @@ func toGeneratedServiceRealtimeTasks(
 	for _, task := range tasks {
 		item := generated.ServiceRealtimeTask{
 			ID:           task.ID,
+			Slot:         int64(task.Slot),
 			Node:         task.Node,
-			CurrentState: task.CurrentState,
+			DesiredState: string(task.DesiredState),
+			CurrentState: string(task.CurrentState),
+			ContainerID:  task.ContainerID,
 		}
 		if !task.CreatedAt.IsZero() {
 			item.CreatedAt = generated.NewOptDateTime(task.CreatedAt)
@@ -98,76 +149,19 @@ func toGeneratedServiceRealtimeTasks(
 		if task.Error != "" {
 			item.Error = generated.NewOptString(task.Error)
 		}
+		if task.ExitCode != nil {
+			item.ExitCode = generated.NewOptInt64(int64(*task.ExitCode))
+		}
 		mapped = append(mapped, item)
 	}
 
 	return mapped
 }
 
-func toGeneratedServiceDeployments(
-	entries []history.Entry,
-	stackName string,
-	serviceName string,
-	image string,
-	limit int,
-) []generated.ServiceDeploymentResponse {
-	if len(entries) == 0 || stackName == "" {
-		return []generated.ServiceDeploymentResponse{}
-	}
-
-	imageVersion := imageref.Version(image)
-	out := make([]generated.ServiceDeploymentResponse, 0, len(entries))
-
-	for idx := len(entries) - 1; idx >= 0; idx-- {
-		entry := entries[idx]
-
-		status, ok := toGeneratedServiceDeploymentStatus(entry.Type)
-		if !ok {
-			continue
-		}
-
-		if entry.Details["stack"] != stackName {
-			continue
-		}
-		if serviceInEvent := entry.Details["service"]; serviceInEvent != "" && serviceInEvent != serviceName {
-			continue
-		}
-
-		item := generated.ServiceDeploymentResponse{
-			CreatedAt:    entry.CreatedAt,
-			Status:       status,
-			Image:        image,
-			ImageVersion: imageVersion,
-		}
-
-		if entry.Message != "" {
-			item.Message = generated.NewOptString(entry.Message)
-		}
-		if commit := entry.Details["commit"]; commit != "" {
-			item.Commit = generated.NewOptString(commit)
-		}
-
-		out = append(out, item)
-		if limit > 0 && len(out) >= limit {
-			break
-		}
-	}
-
-	return out
-}
-
-func toGeneratedServiceDeploymentStatus(typ events.Type) (generated.ServiceDeploymentStatus, bool) {
-	switch typ {
-	case events.TypeDeploySuccess:
-		return generated.ServiceDeploymentStatusSuccess, true
-	case events.TypeDeployFailed:
-		return generated.ServiceDeploymentStatusFailed, true
-	default:
-		return "", false
-	}
-}
-
-func toGeneratedServiceSpec(spec swarm.ServiceSpec) generated.ServiceSpecResponse {
+func toGeneratedServiceSpec(
+	spec swarm.ServiceSpec,
+	resolvedSecrets []secretservice.ResolvedSecret,
+) generated.ServiceSpecResponse {
 	mapped := generated.ServiceSpecResponse{
 		Image:             spec.Image,
 		Mode:              spec.Mode,
@@ -176,17 +170,27 @@ func toGeneratedServiceSpec(spec swarm.ServiceSpec) generated.ServiceSpecRespons
 		RequestedCPUNano:  spec.RequestedCPUNano,
 		LimitRAMBytes:     spec.LimitRAMBytes,
 		LimitCPUNano:      spec.LimitCPUNano,
-		Secrets:           toGeneratedServiceSpecSecrets(spec.Secrets),
+		Secrets:           toGeneratedServiceSpecSecrets(resolvedSecrets),
 		Network:           toGeneratedServiceSpecNetworks(spec.Network),
 	}
+	for _, config := range spec.Configs {
+		mapped.Configs = append(mapped.Configs, generated.ServiceSpecResponseConfigsItem{
+			ConfigID: toOptString(config.ConfigID), ConfigName: config.ConfigName, Target: toOptString(config.Target),
+		})
+	}
 
-	if len(spec.Labels) > 0 {
+	if len(spec.Labels) > 0 { //nolint:nestif // nn
 		dockerLabels := make(generated.ServiceSpecLabelGroupResponse)
+		swarmDeployLabels := make(generated.ServiceSpecLabelGroupResponse)
 		customLabels := make(generated.ServiceSpecLabelGroupResponse)
 
 		for key, value := range spec.Labels {
 			if strings.HasPrefix(key, dockerLabelPrefix) {
 				dockerLabels[key] = value
+				continue
+			}
+			if strings.HasPrefix(key, swarmDeployLabelPrefix) {
+				swarmDeployLabels[key] = value
 				continue
 			}
 
@@ -197,10 +201,13 @@ func toGeneratedServiceSpec(spec swarm.ServiceSpec) generated.ServiceSpecRespons
 		if len(dockerLabels) > 0 {
 			groupedLabels.Docker = generated.NewOptServiceSpecLabelGroupResponse(dockerLabels)
 		}
+		if len(swarmDeployLabels) > 0 {
+			groupedLabels.SwarmDeploy = generated.NewOptServiceSpecLabelGroupResponse(swarmDeployLabels)
+		}
 		if len(customLabels) > 0 {
 			groupedLabels.Custom = generated.NewOptServiceSpecLabelGroupResponse(customLabels)
 		}
-		if groupedLabels.Docker.IsSet() || groupedLabels.Custom.IsSet() {
+		if groupedLabels.Docker.IsSet() || groupedLabels.SwarmDeploy.IsSet() || groupedLabels.Custom.IsSet() {
 			mapped.Labels = generated.NewOptServiceSpecLabelsResponse(groupedLabels)
 		}
 	}
@@ -208,13 +215,14 @@ func toGeneratedServiceSpec(spec swarm.ServiceSpec) generated.ServiceSpecRespons
 	return mapped
 }
 
-func toGeneratedServiceSpecSecrets(secrets []swarm.ServiceSecret) []generated.ServiceSpecSecretResponse {
+func toGeneratedServiceSpecSecrets(secrets []secretservice.ResolvedSecret) []generated.ServiceSpecSecretResponse {
 	if len(secrets) == 0 {
 		return nil
 	}
 
 	mapped := make([]generated.ServiceSpecSecretResponse, 0, len(secrets))
-	for _, secret := range secrets {
+	for _, resolved := range secrets {
+		secret := resolved.Reference
 		item := generated.ServiceSpecSecretResponse{
 			SecretName: secret.SecretName,
 		}
@@ -223,6 +231,9 @@ func toGeneratedServiceSpecSecrets(secrets []swarm.ServiceSecret) []generated.Se
 		}
 		if secret.Target != "" {
 			item.Target = generated.NewOptString(secret.Target)
+		}
+		if resolved.Secret != nil {
+			item.Secret = generated.NewOptSecretInfo(toGeneratedSecret(*resolved.Secret, nil))
 		}
 		mapped = append(mapped, item)
 	}
@@ -249,24 +260,25 @@ func toGeneratedServiceSpecNetworks(networks []swarm.ServiceNetwork) []generated
 func toGeneratedEvents(entries []history.Entry) []generated.EventHistoryItem {
 	mapped := make([]generated.EventHistoryItem, 0, len(entries))
 	for _, entry := range entries {
-		item := generated.EventHistoryItem{
-			Type:      entry.Type.String(),
-			Severity:  toGeneratedEventSeverity(entry.Severity),
-			Category:  toGeneratedEventCategory(entry.Category),
-			CreatedAt: entry.CreatedAt,
-			Message:   entry.Message,
-		}
-		if len(entry.Details) > 0 {
-			details := make(map[string]string, len(entry.Details))
-			for key, value := range entry.Details {
-				details[key] = value
-			}
-			item.Details = generated.NewOptEventHistoryItemDetails(details)
-		}
-		mapped = append(mapped, item)
+		mapped = append(mapped, toGeneratedEvent(entry))
 	}
 
 	return mapped
+}
+
+func toGeneratedEvent(entry history.Entry) generated.EventHistoryItem {
+	item := generated.EventHistoryItem{
+		ID: entry.ID, Type: entry.Type.String(), Severity: toGeneratedEventSeverity(entry.Severity),
+		Category: toGeneratedEventCategory(entry.Category), CreatedAt: entry.CreatedAt, Message: entry.Message,
+	}
+	if len(entry.Details) > 0 {
+		details := make(map[string]string, len(entry.Details))
+		for key, value := range entry.Details {
+			details[key] = value
+		}
+		item.Details = generated.NewOptEventHistoryItemDetails(details)
+	}
+	return item
 }
 
 func toGeneratedEventSeverity(severity events.Severity) generated.EventSeverity {
@@ -288,6 +300,8 @@ func toGeneratedEventCategory(category events.Category) generated.EventCategory 
 	switch category {
 	case events.CategorySecurity:
 		return generated.EventCategorySecurity
+	case events.CategorySwarm:
+		return generated.EventCategorySwarm
 	case events.CategorySync:
 		fallthrough
 	default:
@@ -295,29 +309,131 @@ func toGeneratedEventCategory(category events.Category) generated.EventCategory 
 	}
 }
 
-func toGeneratedServiceInfos(services []service.Info) []generated.ServiceInfo {
+func toGeneratedGraph(graph resourcegraph.Graph) *generated.GraphResponse {
+	return &generated.GraphResponse{
+		Nodes: toGeneratedGraphNodes(graph.Nodes),
+	}
+}
+
+func toGeneratedGraphNodes(nodes []resourcegraph.Node) []generated.GraphNode {
+	if len(nodes) == 0 {
+		return []generated.GraphNode{}
+	}
+
+	mapped := make([]generated.GraphNode, 0, len(nodes))
+	for _, node := range nodes {
+		mapped = append(mapped, toGeneratedGraphNode(node))
+	}
+
+	return mapped
+}
+
+func toGeneratedGraphNode(node resourcegraph.Node) generated.GraphNode {
+	mapped := generated.GraphNode{
+		Name: node.Name,
+		Kind: toGeneratedGraphNodeKind(node.Kind),
+	}
+
+	if len(node.Endpoints) > 0 {
+		mapped.Endpoints = append(mapped.Endpoints, node.Endpoints...)
+	}
+	if len(node.Depends) > 0 {
+		mapped.Depends = append(mapped.Depends, node.Depends...)
+	}
+
+	return mapped
+}
+
+func toGeneratedGraphNodeKind(kind resourcegraph.Kind) generated.GraphNodeKind {
+	switch kind {
+	case resourcegraph.KindApplication:
+		return generated.GraphNodeKindApplication
+	case resourcegraph.KindMonitoring:
+		return generated.GraphNodeKindMonitoring
+	case resourcegraph.KindDelivery:
+		return generated.GraphNodeKindDelivery
+	case resourcegraph.KindReverseProxy:
+		return generated.GraphNodeKindReverseProxy
+	case resourcegraph.KindDatabase:
+		return generated.GraphNodeKindDatabase
+	case resourcegraph.KindSecretManager:
+		return generated.GraphNodeKindSecretManager
+	case resourcegraph.KindCronManager:
+		return generated.GraphNodeKindCronManager
+	case resourcegraph.KindDeploymentManagementSystem:
+		return generated.GraphNodeKindDeploymentManagementSystem
+	case resourcegraph.KindMCP:
+		return generated.GraphNodeKindMcp
+	default:
+		return generated.GraphNodeKindApplication
+	}
+}
+
+func toGeneratedServiceInfos(services []servicemodel.Info, runtime model.Runtime) []generated.ServiceInfo {
 	mapped := make([]generated.ServiceInfo, 0, len(services))
 	for _, serviceInfo := range services {
-		mapped = append(mapped, toGeneratedServiceInfo(serviceInfo))
+		mapped = append(mapped, toGeneratedServiceInfo(serviceInfo, runtime))
 	}
 	return mapped
 }
 
-func toGeneratedServiceInfo(serviceInfo service.Info) generated.ServiceInfo {
+func toGeneratedServiceInfo(serviceInfo servicemodel.Info, runtime model.Runtime) generated.ServiceInfo {
 	return generated.ServiceInfo{
 		Name:          serviceInfo.Name,
 		Stack:         serviceInfo.Stack,
+		SyncStatus:    toGeneratedServiceSyncStatus(serviceInfo, runtime),
+		SyncError:     toGeneratedServiceSyncError(serviceInfo, runtime),
 		Type:          toGeneratedServiceType(serviceInfo.Type),
 		TypeTitle:     serviceType.Title(serviceInfo.Type),
 		Image:         serviceInfo.Image,
-		ImageVersion:  imageref.Version(serviceInfo.Image),
+		ImageVersion:  utils.ImageVersion(serviceInfo.Image),
 		RepositoryURL: toOptString(serviceInfo.RepositoryURL),
 		Description:   toOptString(serviceInfo.Description),
 		WebRoutes:     toGeneratedWebRoutes(serviceInfo.WebRoutes),
 	}
 }
 
-func toGeneratedWebRoutes(routes []webroute.Route) []generated.WebRoute {
+func toGeneratedServiceSyncStatus(serviceInfo servicemodel.Info, runtime model.Runtime) generated.ServiceSyncStatus {
+	stackState, exists := runtime.Stacks[serviceInfo.Stack]
+	if !exists {
+		return generated.ServiceSyncStatusUnknown
+	}
+
+	serviceState, exists := stackState.Services[serviceInfo.Name]
+	if !exists {
+		return generated.ServiceSyncStatusUnknown
+	}
+
+	switch serviceState.SyncStatus {
+	case model.SyncStatusSynced:
+		return generated.ServiceSyncStatusSynced
+	case model.SyncStatusOutOfSync:
+		return generated.ServiceSyncStatusOutOfSync
+	default:
+		return generated.ServiceSyncStatusUnknown
+	}
+}
+
+func toGeneratedServiceSyncError(serviceInfo servicemodel.Info, runtime model.Runtime) generated.OptString {
+	stackState, exists := runtime.Stacks[serviceInfo.Stack]
+	if !exists {
+		return generated.OptString{}
+	}
+
+	serviceState, exists := stackState.Services[serviceInfo.Name]
+	if !exists {
+		return generated.OptString{}
+	}
+
+	syncError := strings.TrimSpace(serviceState.SyncError)
+	if syncError == "" {
+		return generated.OptString{}
+	}
+
+	return generated.NewOptString(syncError)
+}
+
+func toGeneratedWebRoutes(routes []webroute.WebRoute) []generated.WebRoute {
 	if len(routes) == 0 {
 		return nil
 	}
@@ -325,9 +441,9 @@ func toGeneratedWebRoutes(routes []webroute.Route) []generated.WebRoute {
 	mapped := make([]generated.WebRoute, 0, len(routes))
 	for _, route := range routes {
 		mapped = append(mapped, generated.WebRoute{
-			Domain:  route.Domain,
-			Address: route.Address,
-			Port:    route.Port,
+			Domain:  route.From.Domain,
+			Address: route.From.Address,
+			Port:    route.From.Port,
 		})
 	}
 
@@ -386,22 +502,10 @@ func toGeneratedNetworks(networks []swarm.Network) []generated.NetworkInfo {
 		if len(network.Options) > 0 {
 			item.Options = generated.NewOptNetworkInfoOptions(cloneStringMap(network.Options))
 		}
-
-		mapped = append(mapped, item)
-	}
-
-	return mapped
-}
-
-func toGeneratedSecrets(secrets []swarm.Secret) []generated.SecretInfo {
-	mapped := make([]generated.SecretInfo, 0, len(secrets))
-	for _, secret := range secrets {
-		item := generated.SecretInfo{
-			ID:        secret.ID,
-			Name:      secret.Name,
-			VersionID: toInt64FromUint64(secret.VersionID),
-			CreatedAt: secret.CreatedAt,
-			External:  toGeneratedSecretExternal(secret.Labels),
+		for _, pool := range network.IPAM {
+			item.Ipam = append(item.Ipam, generated.NetworkInfoIpamItem{
+				Subnet: toOptString(pool.Subnet), Gateway: toOptString(pool.Gateway),
+			})
 		}
 
 		mapped = append(mapped, item)
@@ -410,20 +514,53 @@ func toGeneratedSecrets(secrets []swarm.Secret) []generated.SecretInfo {
 	return mapped
 }
 
-func toGeneratedSecretExternal(labels map[string]string) generated.OptSecretExternalInfo {
-	if len(labels) == 0 {
-		return generated.OptSecretExternalInfo{}
+func toGeneratedSecrets(secrets []secretservice.SecretWithUsage) []generated.SecretInfo {
+	mapped := make([]generated.SecretInfo, 0, len(secrets))
+	for _, item := range secrets {
+		mapped = append(mapped, toGeneratedSecret(item.Secret, item.UsedBy))
 	}
 
+	return mapped
+}
+
+func toGeneratedSecret(secret secretmodel.Secret, usedBy []secretservice.ServiceUsage) generated.SecretInfo {
+	return generated.SecretInfo{
+		ID:          secret.ID,
+		Name:        secret.Name,
+		Description: toOptString(secret.Description),
+		VersionID:   toInt64FromUint64(secret.VersionID),
+		CreatedAt:   secret.CreatedAt,
+		External:    toGeneratedSecretExternal(secret.ExternalPath, secret.ExternalVersionID),
+		UsedBy:      toGeneratedSecretServiceUsages(usedBy),
+	}
+}
+
+func toGeneratedSecretServiceUsages(usages []secretservice.ServiceUsage) []generated.SecretServiceUsage {
+	mapped := make([]generated.SecretServiceUsage, 0, len(usages))
+	for _, usage := range usages {
+		item := generated.SecretServiceUsage{
+			Stack:   usage.Stack,
+			Service: usage.Service,
+		}
+		if usage.Target != "" {
+			item.Target = generated.NewOptString(usage.Target)
+		}
+		mapped = append(mapped, item)
+	}
+
+	return mapped
+}
+
+func toGeneratedSecretExternal(path string, versionID string) generated.OptSecretExternalInfo {
 	external := generated.SecretExternalInfo{}
 	hasExternalData := false
 
-	if path, ok := labels[externalPathLabel]; ok && path != "" {
+	if path != "" {
 		external.Path = generated.NewOptString(path)
 		hasExternalData = true
 	}
 
-	if versionID, ok := labels[externalVersionIDLabel]; ok && versionID != "" {
+	if versionID != "" {
 		external.VersionID = generated.NewOptString(versionID)
 		hasExternalData = true
 	}
@@ -449,8 +586,12 @@ func toGeneratedServiceType(typ serviceType.Type) generated.ServiceInfoType {
 		return generated.ServiceInfoTypeDatabase
 	case serviceType.SecretManager:
 		return generated.ServiceInfoTypeSecretManager
+	case serviceType.CronManager:
+		return generated.ServiceInfoTypeCronManager
 	case serviceType.DeploymentManagementSystem:
 		return generated.ServiceInfoTypeDeploymentManagementSystem
+	case serviceType.MCP:
+		return generated.ServiceInfoTypeMcp
 	default:
 		return generated.ServiceInfoTypeApplication
 	}

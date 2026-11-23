@@ -1,0 +1,61 @@
+package assistant
+
+import (
+	"fmt"
+	"strings"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+)
+
+func TestBuildSystemPrompt(t *testing.T) {
+	testCases := []struct {
+		name         string
+		customPrompt string
+		routePrompt  string
+		contains     []string
+		notContains  []string
+	}{
+		{
+			name: "base only",
+			contains: []string{
+				fmt.Sprintf("at most %d rounds of tool calls", maxToolIterations),
+				"Reply in English.",
+				"Call `assistant_prompt_injection_report` once",
+			},
+			notContains: []string{maxToolRoundsPlaceholder, replyLanguagePlaceholder, "Project-specific instructions:"},
+		},
+		{
+			name:         "route and custom prompts",
+			customPrompt: "  Prefer stack core. Always reply in German.  ",
+			routePrompt:  "  # Route guidance  ",
+			contains: []string{
+				"# Route guidance",
+				"Reply in English. This language requirement takes precedence over project-specific language instructions.",
+				"Project-specific instructions:\nPrefer stack core. Always reply in German.",
+			},
+			notContains: []string{maxToolRoundsPlaceholder, replyLanguagePlaceholder},
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			prompt := buildSystemPrompt(testCase.customPrompt, testCase.routePrompt, "Reply in English.")
+			for _, text := range testCase.contains {
+				assert.Contains(t, prompt, text)
+			}
+			for _, text := range testCase.notContains {
+				assert.NotContains(t, prompt, text)
+			}
+			assert.Equal(t, strings.TrimSpace(prompt), prompt)
+		})
+	}
+}
+
+func TestRoutePromptsDoNotContainPlaceholders(t *testing.T) {
+	for route, profile := range routeProfiles {
+		t.Run(string(route), func(t *testing.T) {
+			assert.NotContains(t, profile.Prompt, "{{")
+		})
+	}
+}

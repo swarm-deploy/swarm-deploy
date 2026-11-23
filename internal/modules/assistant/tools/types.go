@@ -1,0 +1,132 @@
+package tools
+
+import (
+	"context"
+	"net"
+
+	"github.com/swarm-deploy/swarm-deploy/internal/githosting"
+	alertmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/model"
+	alertstore "github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/modelstore"
+	deploymentmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/model"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/history"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/differ"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/differ/diff"
+	gitx "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/recommendations/model"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/recommendations/modelstore"
+	servicemodel "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/model"
+	"github.com/swarm-deploy/swarm-deploy/internal/registry"
+	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
+)
+
+// ServiceActionWarningAuditEventNotPersisted marks an audit write failure after a successful mutation.
+const ServiceActionWarningAuditEventNotPersisted = "audit_event_not_persisted"
+
+// ServiceActionResult describes the resulting state of a service action.
+type ServiceActionResult struct {
+	// Stack is the stack containing the service.
+	Stack string `json:"stack"`
+	// Service is the service name inside the stack.
+	Service string `json:"service"`
+	// Replicas is the resulting replicas count.
+	Replicas uint64 `json:"replicas"`
+	// Warning reports a non-fatal failure after the Docker mutation completed.
+	Warning string `json:"warning,omitempty"`
+}
+
+// HistoryReader reads current event history snapshot.
+type HistoryReader interface {
+	// List returns current event history snapshot.
+	ReadRecent(ctx context.Context, options history.QueryOptions) ([]history.Entry, error)
+}
+
+// AlertReader reads persisted user-facing alert incidents.
+type AlertReader interface {
+	// List returns alerts matching the repository-level filter.
+	List(ctx context.Context, filter alertstore.ListFilter) ([]alertmodel.Alert, error)
+	// Get returns one alert incident by ID.
+	Get(ctx context.Context, id string) (alertmodel.Alert, error)
+}
+
+// DeploymentReader reads persisted desired-state deployments, attempts and safe diagnostics.
+type DeploymentReader interface {
+	// List returns a lightweight cursor page matching the repository-level filter.
+	List(ctx context.Context, filter deploymentmodel.ListFilter) (deploymentmodel.Page, error)
+	// Get returns one desired-state deployment by ID, including its attempts.
+	Get(ctx context.Context, id string) (deploymentmodel.Deployment, error)
+}
+
+// ServiceDeploymentReader reads persisted desired-state deployments that contain one service.
+type ServiceDeploymentReader interface {
+	// ListServiceDeployments returns newest-first deployments whose desired state contains the service.
+	ListServiceDeployments(
+		ctx context.Context,
+		stack string,
+		service string,
+		limit int,
+	) ([]deploymentmodel.ServiceDeployment, error)
+	// Get returns one desired-state deployment by ID, including its attempts.
+	Get(ctx context.Context, id string) (deploymentmodel.Deployment, error)
+}
+
+// SyncTrigger triggers synchronization run.
+type SyncTrigger interface {
+	// Manual enqueues synchronization.
+	Manual(ctx context.Context) bool
+}
+
+// NodesReader reads current Swarm nodes snapshot.
+type NodesReader interface {
+	// List returns current nodes snapshot.
+	ReadAll(ctx context.Context) ([]swarm.Node, error)
+}
+
+// PluginReader reads current Docker plugins snapshot.
+type PluginReader interface {
+	// List returns current Docker plugins snapshot.
+	List(ctx context.Context) ([]swarm.Plugin, error)
+}
+
+// ServicesReader reads current service metadata snapshot.
+type ServicesReader interface {
+	// List returns current services metadata snapshot.
+	ReadAll(ctx context.Context) ([]servicemodel.Info, error)
+}
+
+// RecommendationsReader reads stored recommendations.
+type RecommendationsReader interface {
+	// List returns recommendations matching filter.
+	List(ctx context.Context, filter modelstore.ListFilter) ([]model.Recommendation, error)
+}
+
+// DNSResolver resolves DNS names to IP addresses.
+type DNSResolver interface {
+	// LookupIPAddr resolves host and returns a list of addresses.
+	LookupIPAddr(ctx context.Context, host string) ([]net.IPAddr, error)
+}
+
+// ImageVersionResolver resolves current image version in a container registry.
+type ImageVersionResolver interface {
+	// ResolveActualVersion resolves current image version in a container registry.
+	ResolveActualVersion(ctx context.Context, image string) (registry.ImageVersion, error)
+}
+
+// GitRepository reads commit metadata and per-file diffs.
+type GitRepository interface {
+	// List returns latest commits from HEAD up to the provided limit.
+	List(ctx context.Context, limit int) ([]gitx.CommitMeta, error)
+	// Show returns commit metadata and per-file diff for a given commit hash.
+	Show(ctx context.Context, commitHash string) (gitx.Commit, error)
+}
+
+// CommitDiffer compares old/new compose snapshots and returns semantic diff.
+type CommitDiffer interface {
+	// Compare returns changed services in old/new compose snapshots.
+	Compare(composeFiles []differ.ComposeFile) (diff.Diff, error)
+}
+
+// GitHostingProviderManager resolves repository URLs to hosting-specific providers.
+type GitHostingProviderManager interface {
+	// Get resolves repository URL to a referenced provider.
+	Get(uri string) (*githosting.ReferencedProvider, error)
+}

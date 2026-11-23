@@ -1,15 +1,28 @@
 package compose
 
 import (
+	jsonv1 "encoding/json"
+	"encoding/json/v2"
+	"errors"
 	"fmt"
+	"slices"
 
-	"gopkg.in/yaml.v3"
+	"github.com/google/shlex"
+	"go.yaml.in/yaml/v3"
 )
 
 type Command struct {
-	Args []string
+	Args []string `json:"Args"`
 
 	isList bool
+}
+
+type commandJSON struct {
+	// Args contains the parsed command values.
+	Args []string `json:"Args"`
+	// IsList is false for scalar shell form, which decoding converts to exec form.
+	// It is omitted for exec form; snapshots of older releases always contain it.
+	IsList *bool `json:"IsList,omitempty"`
 }
 
 func NewCommand(args []string) Command {
@@ -44,4 +57,61 @@ func (c Command) MarshalYAML() (interface{}, error) {
 	}
 
 	return c.Args[0], nil
+}
+
+// MarshalJSON writes exec-form arguments. Only an unnormalized scalar command
+// is marked, because Compose gives that form different execution semantics.
+func (c Command) MarshalJSON() ([]byte, error) {
+	value := commandJSON{Args: c.Args}
+	if c.isScalar() {
+		value.IsList = new(bool)
+	}
+	return json.Marshal(value, jsonv1.DefaultOptionsV1())
+}
+
+// UnmarshalJSON restores the execution form in persisted desired snapshots.
+func (c *Command) UnmarshalJSON(data []byte) error {
+	var value commandJSON
+	if err := json.Unmarshal(data, &value, jsonv1.DefaultOptionsV1()); err != nil {
+		return err
+	}
+	c.Args = value.Args
+	c.isList = value.IsList == nil || *value.IsList
+	return nil
+}
+
+// isScalar reports whether the command uses scalar shell syntax with arguments.
+func (c Command) isScalar() bool {
+	return !c.isList && len(c.Args) > 0
+}
+
+// IsList reports whether the command uses exec/list syntax.
+func (c Command) IsList() bool { return c.isList }
+
+// Words returns the effective arguments without invoking a shell.
+func (c Command) Words() ([]string, error) {
+	if c.isList || len(c.Args) == 0 {
+		return slices.Clone(c.Args), nil
+	}
+	if len(c.Args) != 1 {
+		return nil, fmt.Errorf("invalid scalar command")
+	}
+	return shlex.Split(c.Args[0])
+}
+
+// errInvalidQuoting hides the command text, which may contain secrets.
+var errInvalidQuoting = errors.New("invalid quoting")
+
+// Exec returns the command in exec (list) form, as Docker runs it.
+// Scalar shell syntax is split into words without invoking a shell; an empty
+// command has nil arguments. Exec is idempotent and does not modify c.
+func (c Command) Exec() (Command, error) {
+	words, err := c.Words()
+	if err != nil {
+		return c, errInvalidQuoting
+	}
+	if len(words) == 0 {
+		words = nil
+	}
+	return NewCommand(words), nil
 }

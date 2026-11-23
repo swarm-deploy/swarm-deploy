@@ -1,0 +1,178 @@
+package controller
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"log/slog"
+	"time"
+
+	"github.com/swarm-deploy/swarm-deploy/internal/config"
+	"github.com/swarm-deploy/swarm-deploy/internal/configstore"
+	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/gitpull"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/networkloop"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/scheduler"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackloop"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackloop/preparation"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackqueue"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/syncrun"
+	gitx "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/modelstore"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/syncpause"
+	"github.com/swarm-deploy/swarm-deploy/internal/security"
+	"github.com/swarm-deploy/swarm-deploy/internal/storage"
+	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
+)
+
+const gracefulReconciliationShutdownTimeout = 25 * time.Second
+
+type TriggerReason = syncrun.TriggerReason
+
+const (
+	TriggerStartup  = syncrun.TriggerStartup
+	TriggerPoll     = syncrun.TriggerPoll
+	TriggerInterval = syncrun.TriggerInterval
+	TriggerWebhook  = syncrun.TriggerWebhook
+	TriggerManual   = syncrun.TriggerManual
+)
+
+// Controller owns GitOps lifecycle, process ownership and graceful shutdown.
+type Controller struct {
+	deployments  deployments.Executor
+	scheduler    *scheduler.Scheduler
+	stacks       *stackqueue.Queue
+	event        dispatcher.Dispatcher
+	ownership    *controllerOwnership
+	shutdownWait time.Duration
+}
+
+// New assembles the focused GitOps controller components while preserving external entry points.
+func New(
+	cfg *config.Config,
+	configStore *configstore.ConfigStore,
+	git gitx.Repository,
+	swarmService *swarm.Swarm,
+	deploymentExecutor deployments.Executor,
+	metricGroup *metrics.Group,
+	eventDispatcher dispatcher.Dispatcher,
+	stateStore modelstore.Store,
+	db storage.Database,
+	pauseService *syncpause.Service,
+) *Controller {
+	rotator := stackloop.NewRotator()
+	preparer := preparation.New(cfg, git, rotator)
+	stackReconciler := stackloop.NewStackReconciler(
+		cfg, deploymentExecutor, swarmService, eventDispatcher, metricGroup.Deploys,
+		stateStore, preparer, rotator, db, pauseService,
+	)
+	puller := gitpull.NewPuller(
+		git, gitpull.NewMonitor(db, stateStore, eventDispatcher), metricGroup.Git, cfg.Spec.GitOps.Git,
+	)
+	networkCoordinator := networkloop.NewCoordinator(
+		db, configStore, stateStore, networkloop.New(swarmService.Networks), eventDispatcher,
+	)
+	stacks := stackqueue.New(stackReconciler, metricGroup.Sync, cfg.Spec.GitOps.Sync.Parallelism)
+	runner := syncrun.New(
+		configStore, git, metricGroup, eventDispatcher, stateStore,
+		networkCoordinator, puller, stacks, pauseService,
+	)
+	return &Controller{
+		deployments:  deploymentExecutor,
+		scheduler:    scheduler.New(cfg, runner),
+		stacks:       stacks,
+		event:        eventDispatcher,
+		ownership:    newControllerOwnership(cfg.Spec.DataDir),
+		shutdownWait: gracefulReconciliationShutdownTimeout,
+	}
+}
+
+// Run acquires controller ownership, starts components and waits for graceful shutdown.
+func (c *Controller) Run(ctx context.Context) error {
+	runDone := make(chan struct{})
+	defer close(runDone)
+	reconciliationCtx, cancelReconciliation := context.WithCancel(context.WithoutCancel(ctx))
+	defer cancelReconciliation()
+	shutdownWait := c.shutdownWait
+	if shutdownWait <= 0 {
+		shutdownWait = gracefulReconciliationShutdownTimeout
+	}
+	c.watchShutdown(ctx, runDone, cancelReconciliation, shutdownWait)
+
+	var handle *ownershipHandle
+	if c.ownership != nil {
+		var err error
+		handle, err = c.acquireOwnership(ctx)
+		if err != nil {
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				return nil
+			}
+			return fmt.Errorf("acquire controller ownership: %w", err)
+		}
+	}
+	if handle != nil {
+		defer c.releaseOwnership(ctx, handle)
+	}
+	if c.deployments != nil {
+		if err := c.deployments.Recover(ctx); err != nil {
+			return fmt.Errorf("recover orphaned deployments: %w", err)
+		}
+	}
+	// Stack operations run until they finish or the graceful shutdown deadline cancels them.
+	// Stop is deferred after ownership acquisition, so ownership is released only once they ended.
+	c.stacks.Start(reconciliationCtx)
+	defer c.stacks.Stop()
+	return c.scheduler.Run(ctx, reconciliationCtx)
+}
+
+// Manual requests a non-blocking manual synchronization.
+func (c *Controller) Manual(ctx context.Context) bool {
+	user, _ := security.UserFromContext(ctx)
+	return c.scheduler.Schedule(ctx, syncrun.Task{TriggeredBy: user.Name, Reason: syncrun.TriggerManual})
+}
+
+// Webhook requests a non-blocking webhook synchronization and records the receipt.
+func (c *Controller) Webhook(ctx context.Context) (bool, error) {
+	queued := c.scheduler.Schedule(ctx, syncrun.Task{Reason: syncrun.TriggerWebhook})
+	return queued, c.event.Publish(ctx, &events.WebhookReceived{Queued: queued})
+}
+
+func (c *Controller) watchShutdown(
+	ctx context.Context, runDone <-chan struct{}, cancelReconciliation context.CancelFunc, shutdownWait time.Duration,
+) {
+	go func() {
+		select {
+		case <-ctx.Done():
+			if c.scheduler != nil {
+				c.scheduler.Shutdown()
+			}
+			timer := time.NewTimer(shutdownWait)
+			defer timer.Stop()
+			select {
+			case <-timer.C:
+				cancelReconciliation()
+			case <-runDone:
+			}
+		case <-runDone:
+		}
+	}()
+}
+
+func (c *Controller) acquireOwnership(ctx context.Context) (*ownershipHandle, error) {
+	slog.InfoContext(ctx, "controller waiting for deployment ownership", slog.String("lock_file", c.ownership.path))
+	handle, err := c.ownership.acquire(ctx)
+	if err != nil {
+		return nil, err
+	}
+	slog.InfoContext(ctx, "controller acquired deployment ownership", slog.String("lock_file", c.ownership.path))
+	return handle, nil
+}
+
+func (c *Controller) releaseOwnership(ctx context.Context, handle *ownershipHandle) {
+	if err := handle.release(); err != nil {
+		slog.ErrorContext(context.WithoutCancel(ctx), "release controller ownership", "err", err)
+	}
+}

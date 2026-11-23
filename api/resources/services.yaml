@@ -1,0 +1,636 @@
+paths:
+  /api/v1/services:
+    get:
+      operationId: listServices
+      responses:
+        '200':
+          description: Latest service metadata collected after successful deploys
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServicesResponse'
+              examples:
+                development:
+                  $ref: '../mocks/overview.yaml#/components/examples/ServicesResponse'
+  /api/v1/stacks/{stack}/services/{service}:
+    get:
+      operationId: getService
+      parameters:
+        - in: path
+          name: stack
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: service
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Service status and compact runtime spec
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceStatusResponse'
+
+  /api/v1/swarm/services:
+    get:
+      operationId: listSwarmServices
+      responses:
+        '200':
+          description: Live services read directly from Docker Swarm
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SwarmServicesResponse'
+  /api/v1/swarm/services/{serviceID}/restart:
+    post:
+      operationId: restartSwarmService
+      description: >-
+        Restarts a live replicated service, including standalone services, by scaling N to 0 to N.
+        204 means Docker accepted restoration, not that tasks are Running. Unsupported global/job
+        modes return 400, missing services 404, zero configured replicas or concurrent changes 409,
+        and internal/Docker failures 500. Failure after scaling to zero may leave replicas at zero;
+        refresh live state and check replicas before retrying. Errors use error_message and hide
+        Docker diagnostics. Event publication failure after restoration does not change success.
+      parameters:
+        - in: path
+          name: serviceID
+          required: true
+          schema:
+            type: string
+            minLength: 1
+      responses:
+        '204':
+          description: Original configured replicas restored and accepted by Docker. No response body.
+  /api/v1/swarm/services/{serviceID}/replicas:
+    put:
+      operationId: scaleSwarmService
+      description: >-
+        Updates live replicated services, including standalone services, without waiting for tasks
+        or GitOps operations. Invalid input or unsupported modes return
+        400, missing services return 404, concurrent updates return 409, and Docker errors return 500.
+      parameters:
+        - in: path
+          name: serviceID
+          required: true
+          schema:
+            type: string
+            minLength: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ScaleSwarmServiceRequest'
+      responses:
+        '204':
+          description: Docker accepted the configured replica count.
+  /api/v1/swarm/services/{serviceIDOrName}/tasks:
+    get:
+      operationId: listSwarmServiceTasks
+      parameters:
+        - in: path
+          name: serviceIDOrName
+          required: true
+          schema:
+            type: string
+            minLength: 1
+      responses:
+        '200':
+          description: Service realtime tasks status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceRealtimeResponse'
+  /api/v1/swarm/tasks/{taskID}:
+    get:
+      operationId: getSwarmTask
+      parameters:
+        - in: path
+          name: taskID
+          required: true
+          schema:
+            type: string
+            minLength: 1
+      responses:
+        '200':
+          description: Inspected Docker Swarm task runtime details
+          headers:
+            Cache-Control:
+              required: true
+              description: Prevents caching recoverable environment values.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SwarmTaskDetails'
+  /api/tasks/{taskID}/logs:
+    get:
+      operationId: getTaskLogs
+      parameters:
+        - in: path
+          name: taskID
+          required: true
+          schema:
+            type: string
+            minLength: 1
+        - in: query
+          name: follow
+          required: false
+          schema:
+            type: boolean
+            default: true
+        - in: query
+          name: tail
+          required: false
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+            maximum: 1000
+            default: 200
+        - in: query
+          name: parse
+          required: false
+          schema:
+            type: boolean
+            default: false
+          description: Parse JSON/logfmt entries and emit normalized structured fields.
+        - in: query
+          name: levels
+          required: false
+          style: form
+          explode: true
+          schema:
+            type: array
+            items:
+              type: string
+          description: Normalized level filters applied on the backend when parsing is enabled.
+        - in: query
+          name: since
+          required: false
+          schema:
+            type: string
+            format: date-time
+          description: Optional inclusive lower Docker log timestamp bound.
+        - in: query
+          name: until
+          required: false
+          schema:
+            type: string
+            format: date-time
+          description: Optional inclusive upper Docker log timestamp bound.
+      responses:
+        '200':
+          description: Task logs stream encoded as Server-Sent Events.
+          content:
+            text/event-stream:
+              x-ogen-raw-response: true
+              schema:
+                type: string
+  /api/v1/stacks/{stack}/services/{service}/deployments:
+    get:
+      operationId: listServiceDeployments
+      parameters:
+        - in: path
+          name: stack
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: service
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: limit
+          required: false
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+            maximum: 100
+            default: 5
+      responses:
+        '200':
+          description: Latest deployments for a stack service
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceDeploymentsResponse'
+components:
+  schemas:
+    ServicesResponse:
+      type: object
+      required: [services]
+      properties:
+        services:
+          type: array
+          items:
+            $ref: '#/components/schemas/ServiceInfo'
+    ServiceInfo:
+      type: object
+      required: [name, stack, sync_status, type, type_title, image, image_version]
+      properties:
+        name:
+          type: string
+        stack:
+          type: string
+        sync_status:
+          $ref: '#/components/schemas/ServiceSyncStatus'
+        sync_error:
+          type: string
+        description:
+          type: string
+        type:
+          type: string
+          enum: [application, monitoring, delivery, reverseProxy, database, secretManager, cronManager, deploymentManagementSystem, mcp]
+        type_title:
+          type: string
+          description: Human-readable title for the service type enum.
+        image:
+          type: string
+        image_version:
+          type: string
+          description: Tag or short digest string derived from the image reference.
+        repository_url:
+          type: string
+        web_routes:
+          type: array
+          items:
+            $ref: '#/components/schemas/WebRoute'
+    ServiceSyncStatus:
+      type: string
+      enum: [Synced, OutOfSync, unknown]
+    WebRoute:
+      type: object
+      required: [domain, address, port]
+      properties:
+        domain:
+          type: string
+        address:
+          type: string
+        port:
+          type: string
+    ServiceLink:
+      type: object
+      required: [type, url]
+      properties:
+        type:
+          type: string
+        url:
+          type: string
+    ServiceView:
+      type: object
+      required: [name, image, image_version]
+      properties:
+        name:
+          type: string
+        image:
+          type: string
+        image_version:
+          type: string
+        last_status:
+          type: string
+        last_deploy_at:
+          type: string
+          format: date-time
+    ServiceStatusResponse:
+      type: object
+      required: [stack, service, spec, links]
+      properties:
+        stack:
+          type: string
+        service:
+          type: string
+        spec:
+          $ref: '#/components/schemas/ServiceSpecResponse'
+        links:
+          type: array
+          items:
+            $ref: '#/components/schemas/ServiceLink'
+    ServiceSpecResponse:
+      type: object
+      required: [image, mode, replicas, requested_ram_bytes, requested_cpu_nano, limit_ram_bytes, limit_cpu_nano]
+      properties:
+        image:
+          type: string
+        mode:
+          type: string
+        replicas:
+          type: integer
+          format: int64
+          minimum: 0
+        requested_ram_bytes:
+          type: integer
+          format: int64
+          minimum: 0
+        requested_cpu_nano:
+          type: integer
+          format: int64
+          minimum: 0
+        limit_ram_bytes:
+          type: integer
+          format: int64
+          minimum: 0
+        limit_cpu_nano:
+          type: integer
+          format: int64
+          minimum: 0
+        labels:
+          $ref: '#/components/schemas/ServiceSpecLabelsResponse'
+        secrets:
+          type: array
+          items:
+            $ref: '#/components/schemas/ServiceSpecSecretResponse'
+        network:
+          type: array
+          items:
+            $ref: '#/components/schemas/ServiceSpecNetworkResponse'
+        configs:
+          type: array
+          items:
+            type: object
+            required: [config_name]
+            properties:
+              config_id:
+                type: string
+              config_name:
+                type: string
+              target:
+                type: string
+    ServiceSpecLabelsResponse:
+      type: object
+      properties:
+        docker:
+          $ref: '#/components/schemas/ServiceSpecLabelGroupResponse'
+        swarm_deploy:
+          $ref: '#/components/schemas/ServiceSpecLabelGroupResponse'
+        custom:
+          $ref: '#/components/schemas/ServiceSpecLabelGroupResponse'
+    ServiceSpecLabelGroupResponse:
+      type: object
+      additionalProperties:
+        type: string
+    ServiceSpecSecretResponse:
+      type: object
+      required: [secret_name]
+      properties:
+        secret_id:
+          type: string
+        secret_name:
+          type: string
+        target:
+          type: string
+        secret:
+          $ref: './secrets.yaml#/components/schemas/SecretInfo'
+    ServiceSpecNetworkResponse:
+      type: object
+      required: [target]
+      properties:
+        target:
+          type: string
+        aliases:
+          type: array
+          items:
+            type: string
+
+    ServiceRealtimeTask:
+      type: object
+      required: [id, slot, node, desired_state, current_state, container_id]
+      properties:
+        id:
+          type: string
+        slot:
+          type: integer
+          format: int64
+          minimum: 0
+        node:
+          type: string
+        node_name:
+          type: string
+        desired_state:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        current_state:
+          type: string
+        container_id:
+          type: string
+        exit_code:
+          type: integer
+          format: int64
+        error:
+          type: string
+    ServiceRealtimeResponse:
+      type: object
+      required: [tasks]
+      properties:
+        tasks:
+          type: array
+          items:
+            $ref: '#/components/schemas/ServiceRealtimeTask'
+    ScaleSwarmServiceRequest:
+      type: object
+      required: [replicas]
+      properties:
+        replicas:
+          type: integer
+          format: int64
+          minimum: 0
+    SwarmServiceReplicas:
+      type: object
+      required: [running, desired]
+      properties:
+        running:
+          type: integer
+          format: int64
+          minimum: 0
+        desired:
+          type: integer
+          format: int64
+          minimum: 0
+    SwarmService:
+      type: object
+      required: [id, name, full_name, stack, image, mode, replicas, updated_at]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        full_name:
+          type: string
+        stack:
+          type: string
+          description: Docker stack namespace, or an empty string for standalone services.
+        image:
+          type: string
+        mode:
+          type: string
+        replicas:
+          $ref: '#/components/schemas/SwarmServiceReplicas'
+        configured_replicas:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Configured ServiceSpec replica count, present only for replicated services.
+        updated_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        endpoint_mode:
+          type: string
+        published_ports:
+          type: array
+          items:
+            type: object
+            required: [published_port, target_port, protocol]
+            properties:
+              published_port:
+                type: integer
+                format: int64
+              target_port:
+                type: integer
+                format: int64
+              protocol:
+                type: string
+        update_parallelism:
+          type: integer
+          format: int64
+          minimum: 0
+        network_targets:
+          type: array
+          items:
+            type: string
+    SwarmServicesResponse:
+      type: object
+      required: [services]
+      properties:
+        services:
+          type: array
+          items:
+            $ref: '#/components/schemas/SwarmService'
+    EnvironmentVariable:
+      type: object
+      required:
+        - name
+        - value
+        - encoded
+      properties:
+        name:
+          type: string
+        value:
+          type: string
+        encoded:
+          type: boolean
+          description: >
+            True when value contains the original environment value encoded
+            using standard Base64. The value is encoded, not encrypted or
+            irreversibly masked.
+    SwarmTaskResources:
+      type: object
+      required: [nano_cpus, memory_bytes]
+      properties:
+        nano_cpus:
+          type: integer
+          format: int64
+          minimum: 0
+        memory_bytes:
+          type: integer
+          format: int64
+          minimum: 0
+    SwarmTaskDetails:
+      type: object
+      required:
+        - id
+        - service_id
+        - node_id
+        - slot
+        - desired_state
+        - current_state
+        - created_at
+        - updated_at
+        - container_id
+        - image
+        - environment
+      properties:
+        id:
+          type: string
+        service_id:
+          type: string
+        node_id:
+          type: string
+        slot:
+          type: integer
+          format: int64
+          minimum: 0
+        desired_state:
+          type: string
+        current_state:
+          type: string
+        error:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        container_id:
+          type: string
+        exit_code:
+          type: integer
+          format: int64
+        image:
+          type: string
+        environment:
+          type: array
+          description: >
+            Environment from the inspected task. Sensitive values remain
+            recoverable through standard Base64 encoding.
+          items:
+            $ref: '#/components/schemas/EnvironmentVariable'
+        reservations:
+          $ref: '#/components/schemas/SwarmTaskResources'
+        limits:
+          $ref: '#/components/schemas/SwarmTaskResources'
+    ServiceDeploymentStatus:
+      type: string
+      enum: [running, succeeded, failed, interrupted, superseded]
+    ServiceDeploymentResponse:
+      type: object
+      required: [id, created_at, status, image, image_version]
+      properties:
+        id:
+          type: string
+          description: Desired-state deployment ID.
+        created_at:
+          type: string
+          format: date-time
+        status:
+          $ref: '#/components/schemas/ServiceDeploymentStatus'
+        image:
+          type: string
+        image_version:
+          type: string
+        message:
+          type: string
+        commit:
+          type: string
+    ServiceDeploymentsResponse:
+      type: object
+      required: [deployments]
+      properties:
+        deployments:
+          type: array
+          items:
+            $ref: '#/components/schemas/ServiceDeploymentResponse'

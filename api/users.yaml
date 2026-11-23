@@ -1,0 +1,19 @@
+paths:
+  /api/v1/users/me:
+    get:
+      operationId: getCurrentUser
+      responses:
+        '200':
+          description: Current authenticated user profile.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CurrentUserResponse'
+components:
+  schemas:
+    CurrentUserResponse:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string

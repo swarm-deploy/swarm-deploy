@@ -2,7 +2,10 @@ package webserver
 
 import (
 	"bytes"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
+	"html"
 	"io/fs"
 	"net/http"
 	"path"
@@ -10,18 +13,21 @@ import (
 	"time"
 
 	"github.com/artarts36/go-entrypoint"
-	"github.com/swarm-deploy/swarm-deploy/internal/assistant"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
-	"github.com/swarm-deploy/swarm-deploy/internal/controller"
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/authenticator"
 	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/handlers"
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/middlewares"
-	"github.com/swarm-deploy/swarm-deploy/internal/event/dispatcher"
-	"github.com/swarm-deploy/swarm-deploy/internal/event/history"
-	gitx "github.com/swarm-deploy/swarm-deploy/internal/git"
-	swarmnode "github.com/swarm-deploy/swarm-deploy/internal/node"
-	"github.com/swarm-deploy/swarm-deploy/internal/service"
+	alertstore "github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/modelstore"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/texts"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/event"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops"
+	recommendationstore "github.com/swarm-deploy/swarm-deploy/internal/modules/recommendations/modelstore"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/logparser"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/tracing"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	"github.com/swarm-deploy/swarm-deploy/ui"
 )
@@ -34,12 +40,13 @@ type Application struct {
 
 const indexHtml = "index.html"
 
-func buildSPAFallbackHandler(uiFS fs.FS) http.Handler {
+func buildSPAFallbackHandler(uiFS fs.FS, basePath, locale string) http.Handler {
 	fileServer := http.FileServer(http.FS(uiFS))
 	indexBytes, indexErr := fs.ReadFile(uiFS, indexHtml)
 	if indexErr != nil {
 		panic(fmt.Errorf("read embedded index.html: %w", indexErr))
 	}
+	indexBytes = injectRuntimeConfig(indexBytes, basePath, locale)
 
 	serveIndex := func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -79,58 +86,150 @@ func buildSPAFallbackHandler(uiFS fs.FS) http.Handler {
 	})
 }
 
-func NewApplication(
-	address string,
-	control *controller.Controller,
-	gitRepository gitx.Repository,
-	swarmService *swarm.Swarm,
-	eventHistory *history.Store,
-	serviceStore *service.Store,
-	nodeStore *swarmnode.Store,
-	assistantService assistant.Assistant,
-	eventDispatcher dispatcher.Dispatcher,
-	authCfg config.AuthenticationSpec,
-) (*Application, error) {
-	h := handlers.New(
-		control,
-		gitRepository,
-		swarmService,
-		eventHistory,
-		serviceStore,
-		nodeStore,
-		assistantService,
+func injectRuntimeConfig(indexBytes []byte, basePath, locale string) []byte {
+	baseHref := basePath
+	if baseHref != "/" {
+		baseHref += "/"
+	}
+
+	runtimeConfig, err := json.Marshal(struct {
+		BasePath string `json:"basePath"`
+		Locale   string `json:"locale"`
+	}{BasePath: basePath, Locale: locale}, jsontext.EscapeForHTML(true), jsontext.EscapeForJS(true))
+	if err != nil {
+		panic(fmt.Errorf("encode UI runtime config: %w", err))
+	}
+
+	injection := fmt.Sprintf(
+		`<base href="%s"><script id="swarm-deploy-runtime-config" type="application/json">%s</script>`,
+		html.EscapeString(baseHref),
+		runtimeConfig,
 	)
 
-	apiHandler, err := generated.NewServer(h, generated.WithErrorHandler(handlers.HandleHTTPError))
+	indexBytes = bytes.Replace(indexBytes, []byte(`<html lang="en">`), []byte(`<html lang="`+locale+`">`), 1)
+	return bytes.Replace(indexBytes, []byte("<head>"), []byte("<head>"+injection), 1)
+}
+
+func buildRouter(basePath, locale string, apiHandler http.Handler, uiFS fs.FS) http.Handler {
+	mux := http.NewServeMux()
+
+	mountedAPIHandler := apiHandler
+	mountedUIHandler := buildSPAFallbackHandler(uiFS, basePath, locale)
+	if basePath != "/" {
+		mountedAPIHandler = http.StripPrefix(basePath, mountedAPIHandler)
+		mountedUIHandler = http.StripPrefix(basePath, mountedUIHandler)
+	}
+
+	mux.Handle(joinBasePath(basePath, "/api/"), mountedAPIHandler)
+	mux.HandleFunc(joinBasePath(basePath, "/ui"), func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, joinBasePath(basePath, "/overview"), http.StatusMovedPermanently)
+	})
+	mux.HandleFunc(joinBasePath(basePath, "/ui/"), func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, joinBasePath(basePath, "/overview"), http.StatusMovedPermanently)
+	})
+	mux.Handle(basePathWithTrailingSlash(basePath), mountedUIHandler)
+
+	return mux
+}
+
+func joinBasePath(basePath, route string) string {
+	if basePath == "/" {
+		return route
+	}
+
+	return basePath + route
+}
+
+func basePathWithTrailingSlash(basePath string) string {
+	if basePath == "/" {
+		return basePath
+	}
+
+	return basePath + "/"
+}
+
+func routeFinderWithBasePath(basePath string, findRoute middlewares.RouteFinder) middlewares.RouteFinder {
+	if basePath == "/" {
+		return findRoute
+	}
+
+	return func(method, requestPath string) (generated.Route, bool) {
+		if requestPath != basePath && !strings.HasPrefix(requestPath, basePath+"/") {
+			return generated.Route{}, false
+		}
+
+		requestPath = strings.TrimPrefix(requestPath, basePath)
+		if requestPath == "" {
+			requestPath = "/"
+		}
+
+		return findRoute(method, requestPath)
+	}
+}
+
+func NewApplication(
+	webConfig config.WebSpec,
+	language config.Language,
+	stackProvider config.StackProvider,
+	gitopsModule *gitops.Module,
+	deploymentsModule *deployments.Module,
+	swarmService *swarm.Swarm,
+	eventModule *event.Module,
+	resourcesModule *resources.Module,
+	recommendations recommendationstore.Store,
+	alerts alertstore.Store,
+	assistantService assistant.Assistant,
+	assistantTexts *texts.Localizer,
+	taskLogs *logparser.Service,
+) (*Application, error) {
+	h := handlers.New(
+		webConfig.UI,
+		stackProvider,
+		gitopsModule.Store,
+		gitopsModule.SyncPauses,
+		gitopsModule.Controller,
+		gitopsModule.GitRepository,
+		swarmService,
+		eventModule.History,
+		resourcesModule.ServiceStore,
+		resourcesModule.NodeStore,
+		resourcesModule.Secrets.Store,
+		resourcesModule.SecretManagers,
+		recommendations,
+		alerts,
+		assistantService,
+		assistantTexts,
+		deploymentsModule.Store,
+		taskLogs,
+		eventModule.Dispatcher,
+	)
+
+	apiHandler, err := generated.NewServer(h, h, generated.WithErrorHandler(handlers.HandleHTTPError))
 	if err != nil {
 		return nil, fmt.Errorf("build ogen api server: %w", err)
 	}
 
-	mux := http.NewServeMux()
-	mux.Handle("/api/", apiHandler)
-
-	uiHandler := buildSPAFallbackHandler(ui.FS)
-	mux.HandleFunc("/ui", func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, "/overview", http.StatusMovedPermanently)
-	})
-	mux.HandleFunc("/ui/", func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, "/overview", http.StatusMovedPermanently)
-	})
-	mux.Handle("/", uiHandler)
-
-	rootHandler := http.Handler(mux)
-	auth, err := authenticator.Create(authCfg)
+	handler := buildRouter(webConfig.BasePath, string(language), apiHandler, ui.FS)
+	auth, err := authenticator.Create(webConfig.Security.Authentication)
 	if err != nil {
 		return nil, fmt.Errorf("build authenticator: %w", err)
 	}
 
+	handler = middlewares.NewLog(
+		middlewares.Authorize(handler, auth, eventModule.Dispatcher, webConfig.BasePath),
+		routeFinderWithBasePath(webConfig.BasePath, apiHandler.FindRoute),
+	)
+
+	if tracing.Enabled() {
+		handler = middlewares.Trace(handler)
+	}
+
+	handler = middlewares.Recovery(handler)
+
 	return &Application{
 		server: &http.Server{
-			Addr: address,
-			Handler: middlewares.NewLog(
-				middlewares.Authorize(rootHandler, auth, eventDispatcher),
-				apiHandler.FindRoute,
-			),
+			Addr:              webConfig.Address,
+			Handler:           handler,
 			ReadHeaderTimeout: readHeaderTimeout,
 		},
 	}, nil

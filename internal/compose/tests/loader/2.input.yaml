@@ -45,3 +45,4 @@ secrets:
 volumes:
   my-volume:
     name: external-name
+    external: true

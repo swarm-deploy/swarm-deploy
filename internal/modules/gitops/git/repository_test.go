@@ -1,0 +1,922 @@
+package git
+
+import (
+	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"encoding/pem"
+	"errors"
+	"io"
+	"net"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"runtime"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/artarts36/specw"
+	gogit "github.com/go-git/go-git/v5"
+	gitconfig "github.com/go-git/go-git/v5/config"
+	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/object"
+	githttp "github.com/go-git/go-git/v5/plumbing/transport/http"
+	gitssh "github.com/go-git/go-git/v5/plumbing/transport/ssh"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"github.com/swarm-deploy/swarm-deploy/internal/config"
+	cryptossh "golang.org/x/crypto/ssh"
+)
+
+func TestResolveAuthMethodAnonymous(t *testing.T) {
+	testCases := []string{
+		"",
+		"none",
+	}
+
+	for _, authType := range testCases {
+		authMethod, err := resolveAuthMethod(config.GitAuthSpec{
+			Type: config.GitAuthType(authType),
+		})
+		require.NoError(t, err, "resolve auth for type %q", authType)
+		assert.Nil(t, authMethod, "auth method should be nil for anonymous type %q", authType)
+	}
+}
+
+func TestResolveAuthMethodHTTPWithUsernameAndPassword(t *testing.T) {
+	authMethod, err := resolveAuthMethod(config.GitAuthSpec{
+		Type: "http",
+		HTTP: config.GitHTTPAuth{
+			Username: "robot",
+			Password: specw.File{
+				Content: []byte("secret"),
+			},
+		},
+	})
+	require.NoError(t, err, "resolve http auth")
+
+	basicAuth, ok := authMethod.(*githttp.BasicAuth)
+	require.True(t, ok, "auth method should be *http.BasicAuth")
+	assert.Equal(t, "robot", basicAuth.Username, "unexpected http username")
+	assert.Equal(t, "secret", basicAuth.Password, "unexpected http password")
+}
+
+func TestResolveAuthMethodHTTPWithToken(t *testing.T) {
+	authMethod, err := resolveAuthMethod(config.GitAuthSpec{
+		Type: "http",
+		HTTP: config.GitHTTPAuth{
+			Token: specw.File{
+				Content: []byte("token-value"),
+			},
+		},
+	})
+	require.NoError(t, err, "resolve http auth with token")
+
+	basicAuth, ok := authMethod.(*githttp.BasicAuth)
+	require.True(t, ok, "auth method should be *http.BasicAuth")
+	assert.Equal(t, "oauth2", basicAuth.Username, "token auth should use oauth2 username")
+	assert.Equal(t, "token-value", basicAuth.Password, "token auth should use token as password")
+}
+
+func TestResolveAuthMethodHTTPRequiresCredentials(t *testing.T) {
+	authMethod, err := resolveAuthMethod(config.GitAuthSpec{
+		Type: "http",
+		HTTP: config.GitHTTPAuth{},
+	})
+	require.Error(t, err, "http auth without credentials must fail")
+	assert.Nil(t, authMethod, "auth method must be nil on error")
+	assert.Contains(t, err.Error(), "http auth requires username+passwordPath or tokenPath", "unexpected error")
+}
+
+func TestResolveAuthMethodUnsupportedType(t *testing.T) {
+	authMethod, err := resolveAuthMethod(config.GitAuthSpec{
+		Type: "kerberos",
+	})
+	require.Error(t, err, "unsupported auth type must fail")
+	assert.Nil(t, authMethod, "auth method must be nil on error")
+	assert.Contains(t, err.Error(), "unsupported git auth type", "unexpected error")
+}
+
+func TestResolveAuthMethodSSHRequiresPrivateKeyPath(t *testing.T) {
+	authMethod, err := resolveAuthMethod(config.GitAuthSpec{
+		Type: "ssh",
+		SSH:  config.GitSSHAuthSpec{},
+	})
+	require.Error(t, err, "ssh auth without privateKeyPath must fail")
+	assert.Nil(t, authMethod, "auth method must be nil on error")
+	assert.Contains(t, err.Error(), "ssh auth requires privateKeyPath", "unexpected error")
+}
+
+func TestResolveAuthMethodSSHReturnsPrivateKeyReadError(t *testing.T) {
+	authMethod, err := resolveAuthMethod(config.GitAuthSpec{
+		Type: "ssh",
+		SSH: config.GitSSHAuthSpec{
+			PrivateKeyPath: filepath.Join(t.TempDir(), "missing-id_rsa"),
+		},
+	})
+	require.Error(t, err, "ssh auth with unreadable private key must fail")
+	assert.Nil(t, authMethod, "auth method must be nil on error")
+	assert.Contains(t, err.Error(), "read ssh private key from file", "unexpected error")
+}
+
+func TestResolveAuthMethodSSHWithInsecureIgnoreHostKey(t *testing.T) {
+	keyPath := writePrivateKeyFile(t, t.TempDir())
+
+	authMethod, err := resolveAuthMethod(config.GitAuthSpec{
+		Type: "ssh",
+		SSH: config.GitSSHAuthSpec{
+			User:                  "deploy",
+			PrivateKeyPath:        keyPath,
+			InsecureIgnoreHostKey: true,
+		},
+	})
+	require.NoError(t, err, "resolve ssh auth with insecure host key")
+
+	publicKeys, ok := authMethod.(*gitssh.PublicKeys)
+	require.True(t, ok, "auth method should be *ssh.PublicKeys")
+	assert.Equal(t, "deploy", publicKeys.User, "unexpected ssh user")
+	assert.NotNil(t, publicKeys.HostKeyCallback, "host key callback should be set")
+}
+
+func TestResolveAuthMethodSSHWithKnownHostsCallbackError(t *testing.T) {
+	keyPath := writePrivateKeyFile(t, t.TempDir())
+
+	authMethod, err := resolveAuthMethod(config.GitAuthSpec{
+		Type: "ssh",
+		SSH: config.GitSSHAuthSpec{
+			PrivateKeyPath: keyPath,
+			KnownHostsPath: filepath.Join(t.TempDir(), "missing-known-hosts"),
+		},
+	})
+	require.Error(t, err, "ssh auth with unreadable known_hosts must fail")
+	assert.Nil(t, authMethod, "auth method must be nil on error")
+	assert.Contains(t, err.Error(), "build known_hosts callback", "unexpected error")
+}
+
+func TestResolveAuthMethodSSHUsesDefaultUser(t *testing.T) {
+	keyPath := writePrivateKeyFile(t, t.TempDir())
+
+	authMethod, err := resolveAuthMethod(config.GitAuthSpec{
+		Type: "ssh",
+		SSH: config.GitSSHAuthSpec{
+			PrivateKeyPath: keyPath,
+		},
+	})
+	require.NoError(t, err, "resolve ssh auth with default user")
+
+	publicKeys, ok := authMethod.(*gitssh.PublicKeys)
+	require.True(t, ok, "auth method should be *ssh.PublicKeys")
+	assert.Equal(t, "git", publicKeys.User, "default ssh user should be git")
+}
+
+func TestNewGoGitRepositoryClonesRepositoryAndStoresGoGitRepository(t *testing.T) {
+	sourceRepositoryPath, sourceHead := initSourceRepository(t)
+	targetRepositoryPath := filepath.Join(t.TempDir(), "target")
+
+	repository, err := NewGoGitRepository(t.Context(), config.GitSpec{
+		Repository: sourceRepositoryPath,
+		Branch:     sourceHead.Name().Short(),
+	}, targetRepositoryPath)
+	require.NoError(t, err, "create go-git repository")
+	require.NotNil(t, repository.repository, "go-git repository should be initialized by constructor")
+
+	head, err := repository.Head(t.Context())
+	require.NoError(t, err, "resolve head")
+	assert.Equal(t, sourceHead.Hash().String(), head, "unexpected repository head")
+}
+
+func TestNewGoGitRepositoryOpensExistingRepositoryWithoutClone(t *testing.T) {
+	sourceRepositoryPath, sourceHead := initSourceRepository(t)
+
+	repository, err := NewGoGitRepository(t.Context(), config.GitSpec{
+		Repository: sourceRepositoryPath,
+		Branch:     "main",
+	}, sourceRepositoryPath)
+	require.NoError(t, err, "create repository over existing path")
+
+	head, err := repository.Head(t.Context())
+	require.NoError(t, err, "resolve head on existing repository")
+	assert.Equal(t, sourceHead.Hash().String(), head, "unexpected head for existing repository")
+}
+
+func TestNewGoGitRepositoryRejectsUnexpectedOrigin(t *testing.T) {
+	sourceRepositoryPath, _ := initSourceRepository(t)
+
+	repository, err := NewGoGitRepository(t.Context(), config.GitSpec{
+		Repository: filepath.Join(t.TempDir(), "different"), Branch: "main",
+	}, sourceRepositoryPath)
+	require.Error(t, err)
+	assert.Nil(t, repository)
+	category, diagnostic := PullFailure(err)
+	assert.Equal(t, FailureOther, category)
+	assert.Contains(t, diagnostic, "origin does not match")
+}
+
+func TestNewGoGitRepositoryClassifiesHTTPFailures(t *testing.T) {
+	testCases := []struct {
+		name   string
+		status int
+		want   FailureCategory
+	}{
+		{name: "invalid credentials", status: http.StatusUnauthorized, want: FailureAuthentication},
+		{name: "access denied", status: http.StatusForbidden, want: FailureAccessDenied},
+		{name: "repository not found", status: http.StatusNotFound, want: FailureRepositoryNotFound},
+		{name: "bad gateway", status: http.StatusBadGateway, want: FailureNetwork},
+		{name: "service unavailable", status: http.StatusServiceUnavailable, want: FailureNetwork},
+		{name: "gateway timeout", status: http.StatusGatewayTimeout, want: FailureNetwork},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+				writer.WriteHeader(testCase.status)
+			}))
+			defer server.Close()
+
+			repository, err := NewGoGitRepository(t.Context(), config.GitSpec{
+				Repository: server.URL + "/team/app.git", Branch: "main",
+				Auth: config.GitAuthSpec{Type: config.GitAuthTypeHTTP, HTTP: config.GitHTTPAuth{
+					Username: "robot", Password: specw.File{Content: []byte("invalid-secret")},
+				}},
+			}, filepath.Join(t.TempDir(), "clone"))
+			require.Error(t, err)
+			assert.Nil(t, repository)
+			category, _ := PullFailure(err)
+			assert.Equal(t, testCase.want, category)
+			assert.NotContains(t, err.Error(), "invalid-secret")
+		})
+	}
+}
+
+func TestGoGitRepositoryPullUsesConfiguredRemoteURL(t *testing.T) {
+	staleRemote, _ := initSourceRepository(t)
+	configuredRemote, configuredHead := initSourceRepository(t)
+	target := filepath.Join(t.TempDir(), "target")
+	repository, err := NewGoGitRepository(t.Context(), config.GitSpec{
+		Repository: configuredRemote, Branch: configuredHead.Name().Short(),
+	}, target)
+	require.NoError(t, err)
+
+	storedConfig, err := repository.repository.Config()
+	require.NoError(t, err)
+	storedConfig.Remotes["origin"].URLs = []string{staleRemote}
+	require.NoError(t, repository.repository.Storer.SetConfig(storedConfig))
+
+	configuredRepository, err := gogit.PlainOpen(configuredRemote)
+	require.NoError(t, err)
+	configuredWorktree, err := configuredRepository.Worktree()
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(configuredRemote, "README.md"), []byte("configured"), 0o600))
+	_, err = configuredWorktree.Add("README.md")
+	require.NoError(t, err)
+	wantHead, err := configuredWorktree.Commit("configured remote update", &gogit.CommitOptions{
+		Author: &object.Signature{Name: "test", Email: "test@example.com", When: time.Now()},
+	})
+	require.NoError(t, err)
+
+	result, err := repository.Pull(t.Context())
+	require.NoError(t, err)
+	assert.True(t, result.Updated)
+	assert.Equal(t, wantHead.String(), result.NewRevision)
+}
+
+func TestGoGitRepositoryPullDoesNotWriteThroughSymlink(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("creating symlinks can require elevated privileges on Windows")
+	}
+
+	source, sourceHead := initSourceRepository(t)
+	target := filepath.Join(t.TempDir(), "target")
+	repository, err := NewGoGitRepository(t.Context(), config.GitSpec{
+		Repository: source, Branch: sourceHead.Name().Short(),
+	}, target)
+	require.NoError(t, err)
+
+	metadataPath := filepath.Join(target, ".git", "config")
+	original, err := os.ReadFile(metadataPath)
+	require.NoError(t, err)
+	require.NoError(t, os.Symlink(".git", filepath.Join(target, "alias")))
+
+	sourceRepository, err := gogit.PlainOpen(source)
+	require.NoError(t, err)
+	worktree, err := sourceRepository.Worktree()
+	require.NoError(t, err)
+	require.NoError(t, os.Mkdir(filepath.Join(source, "alias"), 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(source, "alias", "config"), []byte("new content"), 0o600))
+	_, err = worktree.Add("alias/config")
+	require.NoError(t, err)
+	head, err := worktree.Commit("add tracked file", &gogit.CommitOptions{
+		Author: &object.Signature{Name: "test", Email: "test@example.com", When: time.Now()},
+	})
+	require.NoError(t, err)
+
+	result, err := repository.Pull(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t, head.String(), result.NewRevision)
+	metadata, err := os.ReadFile(metadataPath)
+	require.NoError(t, err)
+	assert.Equal(t, original, metadata)
+	tracked, err := os.ReadFile(filepath.Join(target, "alias", "config"))
+	require.NoError(t, err)
+	assert.Equal(t, "new content", string(tracked))
+}
+
+func TestGoGitRepositoryPullUsesConfiguredHTTPRemoteAndAuth(t *testing.T) {
+	source, head := initSourceRepository(t)
+	repository, err := NewGoGitRepository(t.Context(), config.GitSpec{
+		Repository: source, Branch: head.Name().Short(),
+	}, source)
+	require.NoError(t, err)
+
+	authenticated := make(chan struct{}, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		username, password, ok := request.BasicAuth()
+		if ok && username == "fresh" && password == "secret" {
+			authenticated <- struct{}{}
+		}
+		writer.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer server.Close()
+	repository.remote = server.URL + "/team/app.git"
+	repository.authType = config.GitAuthTypeHTTP
+	repository.auth = &githttp.BasicAuth{Username: "fresh", Password: "secret"}
+
+	_, err = repository.Pull(t.Context())
+	require.Error(t, err)
+	category, _ := PullFailure(err)
+	assert.Equal(t, FailureNetwork, category)
+	select {
+	case <-authenticated:
+	default:
+		t.Fatal("configured HTTP authentication was not sent to the configured remote")
+	}
+}
+
+func TestGoGitRepositoryPullUsesConfiguredSSHRemoteAndAuth(t *testing.T) {
+	source, head := initSourceRepository(t)
+	repository, err := NewGoGitRepository(t.Context(), config.GitSpec{
+		Repository: source, Branch: head.Name().Short(),
+	}, source)
+	require.NoError(t, err)
+
+	remote, authenticated := startSSHAuthProbeServer(t)
+	auth, err := resolveAuthMethod(config.GitAuthSpec{
+		Type: config.GitAuthTypeSSH,
+		SSH: config.GitSSHAuthSpec{
+			PrivateKeyPath: writePrivateKeyFile(t, t.TempDir()), InsecureIgnoreHostKey: true,
+		},
+	})
+	require.NoError(t, err)
+	repository.remote = remote
+	repository.authType = config.GitAuthTypeSSH
+	repository.auth = auth
+
+	_, err = repository.Pull(t.Context())
+	require.Error(t, err)
+	select {
+	case <-authenticated:
+	case <-time.After(2 * time.Second):
+		t.Fatal("configured SSH authentication was not sent to the configured remote")
+	}
+}
+
+func TestNewGoGitRepositoryClassifiesNetworkFailure(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	repositoryURL := server.URL + "/team/app.git"
+	server.Close()
+
+	repository, err := NewGoGitRepository(t.Context(), config.GitSpec{
+		Repository: repositoryURL, Branch: "main",
+	}, filepath.Join(t.TempDir(), "clone"))
+	require.Error(t, err)
+	assert.Nil(t, repository)
+	category, _ := PullFailure(err)
+	assert.Equal(t, FailureNetwork, category)
+}
+
+func TestNewGoGitRepositoryClassifiesInvalidSSHCredentials(t *testing.T) {
+	remote := startSSHTestServer(t, false)
+	spec := config.GitSpec{
+		Repository: remote, Branch: "main", Auth: config.GitAuthSpec{
+			Type: config.GitAuthTypeSSH, SSH: config.GitSSHAuthSpec{
+				PrivateKeyPath: writePrivateKeyFile(t, t.TempDir()), InsecureIgnoreHostKey: true,
+			},
+		},
+	}
+	repository, err := NewGoGitRepository(t.Context(), spec, filepath.Join(t.TempDir(), "clone"))
+	require.Error(t, err)
+	assert.Nil(t, repository)
+	category, _ := PullFailure(err)
+	assert.Equal(t, FailureAuthentication, category)
+}
+
+func TestNewGoGitRepositoryClassifiesSSHHostVerificationFailure(t *testing.T) {
+	remote := startSSHTestServer(t, true)
+	knownHostsPath := filepath.Join(t.TempDir(), "known_hosts")
+	require.NoError(t, os.WriteFile(knownHostsPath, nil, 0o600))
+	repository, err := NewGoGitRepository(t.Context(), config.GitSpec{
+		Repository: remote, Branch: "main", Auth: config.GitAuthSpec{
+			Type: config.GitAuthTypeSSH, SSH: config.GitSSHAuthSpec{
+				PrivateKeyPath: writePrivateKeyFile(t, t.TempDir()), KnownHostsPath: knownHostsPath,
+			},
+		},
+	}, filepath.Join(t.TempDir(), "clone"))
+	require.Error(t, err)
+	assert.Nil(t, repository)
+	category, _ := PullFailure(err)
+	assert.Equal(t, FailureSSHHostVerification, category)
+}
+
+func startSSHTestServer(t *testing.T, acceptKey bool) string {
+	t.Helper()
+	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+	signer, err := cryptossh.NewSignerFromKey(privateKey)
+	require.NoError(t, err)
+	serverConfig := &cryptossh.ServerConfig{
+		PublicKeyCallback: func(cryptossh.ConnMetadata, cryptossh.PublicKey) (*cryptossh.Permissions, error) {
+			if acceptKey {
+				return nil, nil
+			}
+			return nil, errors.New("credentials rejected")
+		},
+	}
+	serverConfig.AddHostKey(signer)
+	listener, err := net.Listen("tcp4", "127.0.0.1:0")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = listener.Close() })
+	go func() {
+		connection, acceptErr := listener.Accept()
+		if acceptErr != nil {
+			return
+		}
+		defer connection.Close()
+		_, _, _, _ = cryptossh.NewServerConn(connection, serverConfig)
+	}()
+	return "ssh://git@" + listener.Addr().String() + "/team/app.git"
+}
+
+func startSSHAuthProbeServer(t *testing.T) (string, <-chan struct{}) {
+	t.Helper()
+	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+	signer, err := cryptossh.NewSignerFromKey(privateKey)
+	require.NoError(t, err)
+	authenticated := make(chan struct{})
+	var once sync.Once
+	serverConfig := &cryptossh.ServerConfig{
+		PublicKeyCallback: func(cryptossh.ConnMetadata, cryptossh.PublicKey) (*cryptossh.Permissions, error) {
+			once.Do(func() { close(authenticated) })
+			return nil, nil
+		},
+	}
+	serverConfig.AddHostKey(signer)
+	listener, err := net.Listen("tcp4", "127.0.0.1:0")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = listener.Close() })
+	go func() {
+		connection, acceptErr := listener.Accept()
+		if acceptErr != nil {
+			return
+		}
+		defer connection.Close()
+		_, _, _, _ = cryptossh.NewServerConn(connection, serverConfig)
+	}()
+	return "ssh://git@" + listener.Addr().String() + "/team/app.git", authenticated
+}
+
+func TestLazyProxyInitializesRepositoryLazily(t *testing.T) {
+	sourceRepositoryPath, sourceHead := initSourceRepository(t)
+	targetRepositoryPath := filepath.Join(t.TempDir(), "target")
+
+	proxy := NewLazyProxy(config.GitSpec{
+		Repository: sourceRepositoryPath,
+		Branch:     sourceHead.Name().Short(),
+	}, targetRepositoryPath)
+
+	head, err := proxy.Head(t.Context())
+	require.NoError(t, err, "resolve proxy head")
+	assert.Equal(t, sourceHead.Hash().String(), head, "unexpected proxy head")
+
+	commit, err := proxy.Show(t.Context(), sourceHead.Hash().String())
+	require.NoError(t, err, "show commit via lazy proxy")
+	assert.Equal(t, "test", commit.Author, "unexpected commit author")
+
+	commits, err := proxy.List(t.Context(), 1)
+	require.NoError(t, err, "list commits via lazy proxy")
+	require.Len(t, commits, 1, "expected one latest commit")
+	assert.Equal(t, sourceHead.Hash().String(), commits[0].Hash, "unexpected listed hash")
+
+	_, err = proxy.Pull(t.Context())
+	require.NoError(t, err, "pull lazy proxy repository")
+}
+
+func TestLazyProxyInitialCloneRespectsPullTimeout(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		call func(*LazyProxy, context.Context) error
+	}{
+		{"pull", func(proxy *LazyProxy, ctx context.Context) error {
+			_, err := proxy.Pull(ctx)
+			return err
+		}},
+		{"head", func(proxy *LazyProxy, ctx context.Context) error {
+			_, err := proxy.Head(ctx)
+			return err
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			started := make(chan struct{}, 1)
+			server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, request *http.Request) {
+				select {
+				case started <- struct{}{}:
+				default:
+				}
+				<-request.Context().Done()
+			}))
+			defer server.Close()
+
+			proxy := NewLazyProxy(config.GitSpec{
+				Repository: server.URL + "/team/app.git", Branch: "main",
+				Pull: config.GitPullSpec{Timeout: specw.Duration{Value: 200 * time.Millisecond}},
+			}, filepath.Join(t.TempDir(), "clone"))
+			ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+			defer cancel()
+			begin := time.Now()
+			err := tc.call(proxy, ctx)
+			require.Error(t, err)
+			category, diagnostic := PullFailure(err)
+			assert.Equal(t, FailureNetwork, category)
+			assert.Equal(t, "Git repository connection timed out", diagnostic)
+			assert.Less(t, time.Since(begin), 800*time.Millisecond, "the clone must use the pull timeout, not the caller deadline")
+			select {
+			case <-started:
+			default:
+				t.Fatal("the clone never reached the stalled Git server")
+			}
+		})
+	}
+}
+
+func TestLazyProxyInitialCloneReturnsWhileSSHHandshakeIsStalled(t *testing.T) {
+	listener, err := net.Listen("tcp4", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer listener.Close()
+	connected := make(chan struct{}, 2)
+	closed := make(chan struct{}, 2)
+	go func() {
+		for range 2 {
+			conn, acceptErr := listener.Accept()
+			if acceptErr != nil {
+				return
+			}
+			connected <- struct{}{}
+			// An SSH client that enforces a socket deadline closes this
+			// connection when the handshake cannot complete.
+			go func() {
+				defer conn.Close()
+				_, _ = io.Copy(io.Discard, conn)
+				closed <- struct{}{}
+			}()
+		}
+	}()
+
+	proxy := NewLazyProxy(config.GitSpec{
+		Repository: "ssh://git@" + listener.Addr().String() + "/team/app.git", Branch: "main",
+		Pull: config.GitPullSpec{Timeout: specw.Duration{Value: 500 * time.Millisecond}},
+		Auth: config.GitAuthSpec{
+			Type: config.GitAuthTypeSSH,
+			SSH: config.GitSSHAuthSpec{
+				PrivateKeyPath: writePrivateKeyFile(t, t.TempDir()), InsecureIgnoreHostKey: true,
+			},
+		},
+	}, filepath.Join(t.TempDir(), "clone"))
+
+	for attempt := range 2 {
+		result := make(chan error, 1)
+		go func() {
+			_, headErr := proxy.Head(t.Context())
+			result <- headErr
+		}()
+		select {
+		case <-connected:
+		case <-time.After(2 * time.Second):
+			t.Fatalf("attempt %d did not connect to the SSH server", attempt+1)
+		}
+		select {
+		case err = <-result:
+			category, diagnostic := PullFailure(err)
+			assert.Equal(t, FailureNetwork, category)
+			assert.Equal(t, "Git repository connection timed out", diagnostic)
+		case <-time.After(2 * time.Second):
+			t.Fatalf("attempt %d waited for the stalled SSH handshake", attempt+1)
+		}
+		select {
+		case <-closed:
+		case <-time.After(2 * time.Second):
+			t.Fatalf("attempt %d did not close its timed-out SSH socket", attempt+1)
+		}
+	}
+}
+
+func TestLazyProxyPullDeadlineWhileWaitingForInitialClone(t *testing.T) {
+	requests := make(chan struct{}, 2)
+	server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, request *http.Request) {
+		select {
+		case requests <- struct{}{}:
+		default:
+		}
+		<-request.Context().Done()
+	}))
+	defer server.Close()
+
+	proxy := NewLazyProxy(config.GitSpec{
+		Repository: server.URL + "/team/app.git", Branch: "main",
+		Pull: config.GitPullSpec{Timeout: specw.Duration{Value: 3 * time.Second}},
+	}, filepath.Join(t.TempDir(), "clone"))
+	cloneCtx, cancelClone := context.WithCancel(t.Context())
+	defer cancelClone()
+	cloneResult := make(chan error, 1)
+	go func() {
+		_, err := proxy.Head(cloneCtx)
+		cloneResult <- err
+	}()
+	select {
+	case <-requests:
+	case <-time.After(2 * time.Second):
+		t.Fatal("initial clone did not reach the Git server")
+	}
+
+	pullCtx, cancelPull := context.WithTimeout(t.Context(), 100*time.Millisecond)
+	defer cancelPull()
+	_, err := proxy.Pull(pullCtx)
+	require.Error(t, err)
+	category, diagnostic := PullFailure(err)
+	assert.Equal(t, FailureOther, category)
+	assert.Equal(t, repositoryLockTimeoutDiagnostic, diagnostic)
+	select {
+	case <-cloneResult:
+		t.Fatal("Pull waited for the initial clone to finish")
+	default:
+	}
+	select {
+	case <-requests:
+		t.Fatal("Pull started a second clone")
+	default:
+	}
+	cancelClone()
+	require.Error(t, <-cloneResult)
+}
+
+func TestGoGitRepositoryShowReturnsCommitMetadataAndFileDiff(t *testing.T) {
+	sourceRepositoryPath, sourceHead := initSourceRepository(t)
+	sourceRepository, err := gogit.PlainOpen(sourceRepositoryPath)
+	require.NoError(t, err, "open source repository")
+
+	worktree, err := sourceRepository.Worktree()
+	require.NoError(t, err, "open source repository worktree")
+
+	err = os.WriteFile(filepath.Join(sourceRepositoryPath, "README.md"), []byte("hello world"), 0o600)
+	require.NoError(t, err, "rewrite readme")
+	err = os.WriteFile(filepath.Join(sourceRepositoryPath, "docker-compose.yaml"),
+		[]byte("services:\n  api:\n    image: nginx:1.0\n"), 0o600)
+	require.NoError(t, err, "write compose file")
+
+	_, err = worktree.Add("README.md")
+	require.NoError(t, err, "git add readme")
+	_, err = worktree.Add("docker-compose.yaml")
+	require.NoError(t, err, "git add compose")
+
+	commitTime := time.Date(2026, time.March, 27, 1, 2, 3, 0, time.UTC)
+	commitHash, err := worktree.Commit("second commit", &gogit.CommitOptions{
+		Author: &object.Signature{
+			Name:  "alice",
+			Email: "alice@example.com",
+			When:  commitTime,
+		},
+	})
+	require.NoError(t, err, "commit changes")
+
+	repository, err := NewGoGitRepository(t.Context(), config.GitSpec{
+		Repository: sourceRepositoryPath,
+		Branch:     sourceHead.Name().Short(),
+	}, sourceRepositoryPath)
+	require.NoError(t, err, "create go-git repository")
+
+	commit, err := repository.Show(t.Context(), commitHash.String())
+	require.NoError(t, err, "show commit")
+	assert.Equal(t, "alice", commit.Author, "unexpected commit author")
+	assert.Equal(t, "alice@example.com", commit.AuthorEmail, "unexpected commit author email")
+	assert.Equal(t, "second commit", commit.Message, "unexpected commit message")
+	assert.Equal(t, commitTime.Unix(), commit.Time.Unix(), "unexpected commit author time")
+	require.Len(t, commit.Files, 2, "expected diff by two files")
+
+	diffsByPath := map[string]CommitFileDiff{}
+	for _, fileDiff := range commit.Files {
+		path := fileDiff.NewPath
+		if path == "" {
+			path = fileDiff.OldPath
+		}
+		diffsByPath[path] = fileDiff
+	}
+
+	require.Contains(t, diffsByPath, "README.md", "readme diff must exist")
+	assert.Equal(t, "hello", diffsByPath["README.md"].OldContent, "unexpected old readme content")
+	assert.Equal(t, "hello world", diffsByPath["README.md"].NewContent, "unexpected new readme content")
+	assert.Contains(t, diffsByPath["README.md"].Patch, "-hello", "unexpected readme patch")
+	assert.Contains(t, diffsByPath["README.md"].Patch, "+hello world", "unexpected readme patch")
+
+	require.Contains(t, diffsByPath, "docker-compose.yaml", "compose diff must exist")
+	assert.Empty(t, diffsByPath["docker-compose.yaml"].OldContent, "new compose file must not have old content")
+	assert.Equal(
+		t,
+		"services:\n  api:\n    image: nginx:1.0\n",
+		diffsByPath["docker-compose.yaml"].NewContent,
+		"unexpected new compose content",
+	)
+}
+
+func TestGoGitRepositoryShowFailsOnUnknownCommit(t *testing.T) {
+	sourceRepositoryPath, sourceHead := initSourceRepository(t)
+
+	repository, err := NewGoGitRepository(t.Context(), config.GitSpec{
+		Repository: sourceRepositoryPath,
+		Branch:     sourceHead.Name().Short(),
+	}, sourceRepositoryPath)
+	require.NoError(t, err, "create repository")
+
+	_, err = repository.Show(t.Context(), "0000000000000000000000000000000000000000")
+	require.Error(t, err, "show unknown commit")
+	assert.Contains(t, err.Error(), "find commit", "unexpected error")
+}
+
+func TestGoGitRepositoryDiffReturnsFileDiffsBetweenRevisions(t *testing.T) {
+	sourceRepositoryPath, sourceHead := initSourceRepository(t)
+	sourceRepository, err := gogit.PlainOpen(sourceRepositoryPath)
+	require.NoError(t, err, "open source repository")
+
+	worktree, err := sourceRepository.Worktree()
+	require.NoError(t, err, "open source repository worktree")
+
+	err = os.WriteFile(filepath.Join(sourceRepositoryPath, "README.md"), []byte("hello world"), 0o600)
+	require.NoError(t, err, "rewrite readme")
+	err = os.WriteFile(filepath.Join(sourceRepositoryPath, "docker-compose.yaml"),
+		[]byte("services:\n  api:\n    image: nginx:1.0\n"), 0o600)
+	require.NoError(t, err, "write compose file")
+
+	_, err = worktree.Add("README.md")
+	require.NoError(t, err, "git add readme")
+	_, err = worktree.Add("docker-compose.yaml")
+	require.NoError(t, err, "git add compose")
+
+	commitHash, err := worktree.Commit("second commit", &gogit.CommitOptions{
+		Author: &object.Signature{
+			Name:  "alice",
+			Email: "alice@example.com",
+			When:  time.Date(2026, time.March, 27, 1, 2, 3, 0, time.UTC),
+		},
+	})
+	require.NoError(t, err, "commit changes")
+
+	repository, err := NewGoGitRepository(t.Context(), config.GitSpec{
+		Repository: sourceRepositoryPath,
+		Branch:     sourceHead.Name().Short(),
+	}, sourceRepositoryPath)
+	require.NoError(t, err, "create go-git repository")
+
+	fileDiffs, err := repository.Diff(t.Context(), sourceHead.Hash().String(), commitHash.String())
+	require.NoError(t, err, "diff revisions")
+	require.Len(t, fileDiffs, 2, "expected diff by two files")
+
+	diffsByPath := map[string]CommitFileDiff{}
+	for _, fileDiff := range fileDiffs {
+		path := fileDiff.NewPath
+		if path == "" {
+			path = fileDiff.OldPath
+		}
+		diffsByPath[path] = fileDiff
+	}
+
+	require.Contains(t, diffsByPath, "README.md", "readme diff must exist")
+	assert.Equal(t, "hello", diffsByPath["README.md"].OldContent, "unexpected old readme content")
+	assert.Equal(t, "hello world", diffsByPath["README.md"].NewContent, "unexpected new readme content")
+
+	require.Contains(t, diffsByPath, "docker-compose.yaml", "compose diff must exist")
+	assert.Empty(t, diffsByPath["docker-compose.yaml"].OldContent, "new compose file must not have old content")
+	assert.Equal(
+		t,
+		"services:\n  api:\n    image: nginx:1.0\n",
+		diffsByPath["docker-compose.yaml"].NewContent,
+		"unexpected new compose content",
+	)
+}
+
+func TestGoGitRepositoryListReturnsLatestCommits(t *testing.T) {
+	sourceRepositoryPath, sourceHead := initSourceRepository(t)
+	sourceRepository, err := gogit.PlainOpen(sourceRepositoryPath)
+	require.NoError(t, err, "open source repository")
+
+	worktree, err := sourceRepository.Worktree()
+	require.NoError(t, err, "open source repository worktree")
+
+	err = os.WriteFile(filepath.Join(sourceRepositoryPath, "README.md"), []byte("hello world"), 0o600)
+	require.NoError(t, err, "rewrite readme")
+	_, err = worktree.Add("README.md")
+	require.NoError(t, err, "git add readme")
+
+	secondCommitTime := time.Date(2026, time.March, 27, 1, 2, 3, 0, time.UTC)
+	_, err = worktree.Commit("second commit", &gogit.CommitOptions{
+		Author: &object.Signature{
+			Name:  "alice",
+			Email: "alice@example.com",
+			When:  secondCommitTime,
+		},
+	})
+	require.NoError(t, err, "commit second revision")
+
+	repository, err := NewGoGitRepository(t.Context(), config.GitSpec{
+		Repository: sourceRepositoryPath,
+		Branch:     sourceHead.Name().Short(),
+	}, sourceRepositoryPath)
+	require.NoError(t, err, "create go-git repository")
+
+	commits, err := repository.List(t.Context(), 2)
+	require.NoError(t, err, "list latest commits")
+	require.Len(t, commits, 2, "expected latest two commits")
+	assert.Equal(t, "second commit", commits[0].Message, "unexpected latest commit message")
+	assert.Equal(t, "alice", commits[0].Author, "unexpected latest commit author")
+	assert.Equal(t, secondCommitTime.Unix(), commits[0].Time.Unix(), "unexpected latest commit time")
+	assert.Equal(t, sourceHead.Hash().String(), commits[1].Hash, "unexpected previous commit hash")
+}
+
+func TestGoGitRepositoryListFailsOnInvalidLimit(t *testing.T) {
+	sourceRepositoryPath, sourceHead := initSourceRepository(t)
+
+	repository, err := NewGoGitRepository(t.Context(), config.GitSpec{
+		Repository: sourceRepositoryPath,
+		Branch:     sourceHead.Name().Short(),
+	}, sourceRepositoryPath)
+	require.NoError(t, err, "create repository")
+
+	_, err = repository.List(t.Context(), 0)
+	require.Error(t, err, "list must fail on invalid limit")
+	assert.Contains(t, err.Error(), "limit must be > 0", "unexpected error")
+}
+
+func writePrivateKeyFile(t *testing.T, dir string) string {
+	t.Helper()
+
+	privateKey, err := rsa.GenerateKey(rand.Reader, 1024)
+	require.NoError(t, err, "generate rsa private key")
+
+	privateKeyPEM := pem.EncodeToMemory(&pem.Block{
+		Type:  "RSA PRIVATE KEY",
+		Bytes: x509.MarshalPKCS1PrivateKey(privateKey),
+	})
+	require.NotEmpty(t, privateKeyPEM, "pem payload must not be empty")
+
+	keyPath := filepath.Join(dir, "id_rsa")
+	err = os.WriteFile(keyPath, privateKeyPEM, 0o600)
+	require.NoError(t, err, "write private key file")
+
+	return keyPath
+}
+
+func initSourceRepository(t *testing.T) (string, *plumbing.Reference) {
+	t.Helper()
+
+	sourceRepositoryPath := filepath.Join(t.TempDir(), "source")
+	sourceRepository, err := gogit.PlainInit(sourceRepositoryPath, false)
+	require.NoError(t, err, "init source repository")
+	_, err = sourceRepository.CreateRemote(&gitconfig.RemoteConfig{
+		Name: "origin", URLs: []string{sourceRepositoryPath},
+	})
+	require.NoError(t, err, "create source origin")
+
+	filePath := filepath.Join(sourceRepositoryPath, "README.md")
+	err = os.WriteFile(filePath, []byte("hello"), 0o600)
+	require.NoError(t, err, "write source repository file")
+
+	worktree, err := sourceRepository.Worktree()
+	require.NoError(t, err, "open source repository worktree")
+
+	_, err = worktree.Add("README.md")
+	require.NoError(t, err, "git add file")
+
+	_, err = worktree.Commit("initial commit", &gogit.CommitOptions{
+		Author: &object.Signature{
+			Name:  "test",
+			Email: "test@example.com",
+			When:  time.Now(),
+		},
+	})
+	require.NoError(t, err, "commit file")
+
+	head, err := sourceRepository.Head()
+	require.NoError(t, err, "resolve source repository head")
+
+	return sourceRepositoryPath, head
+}

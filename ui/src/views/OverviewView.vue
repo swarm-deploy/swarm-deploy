@@ -1,18 +1,154 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted } from "vue";
+import { deploymentStatus } from "../utils/deployments";
+import { plural, t } from "../i18n";
+import { computed, onMounted, onUnmounted, ref } from "vue";
 
+import { fetchAlerts, fetchDeployments, fetchEvent, fetchRecommendations } from "../api/overview";
+import { ApiError } from "../api/client";
+import type { Alert, DeploymentSummary, EventHistoryItem, Recommendation, RecommendationSeverity } from "../api/types";
+import EventDetailsModal from "../components/overview/EventDetailsModal.vue";
+import StackCard from "../components/overview/StackCard.vue";
+import SummaryPanel from "../components/overview/SummaryPanel.vue";
+import SummaryRow from "../components/overview/SummaryRow.vue";
+import SyncPauseModal from "../components/overview/SyncPauseModal.vue";
 import { useOverviewStore } from "../stores/overview";
-import { formatDate, shortCommitHash } from "../utils/format";
+import { alertTitle } from "../utils/alertPresentation";
+import { formatDate, formatRelativeTime, shortCommitHash } from "../utils/format";
+import { recommendationSeverityLabel, recommendationTitle } from "../utils/recommendationPresentation";
 
 const overviewStore = useOverviewStore();
+const deployments = ref<DeploymentSummary[]>([]);
+const alerts = ref<Alert[]>([]);
+const recommendations = ref<Recommendation[]>([]);
+const overviewEventsError = ref("");
+const overviewAlertsError = ref("");
+const overviewRecommendationsError = ref("");
+const eventDetailsOpen = ref(false);
+const eventDetailsLoading = ref(false);
+const eventDetailsError = ref("");
+const eventDetails = ref<EventHistoryItem | null>(null);
+const pauseStack = ref("");
+const deploymentsLimit = 4;
+const alertEventsLimit = 4;
+const recommendationsLimit = 4;
+const recommendationSeverityRank: Record<RecommendationSeverity, number> = {
+  high: 0,
+  medium: 1,
+  low: 2,
+};
 
 let refreshTimer: ReturnType<typeof setInterval> | undefined;
 
 const syncInfo = computed(() => overviewStore.syncInfo);
-const syncRevision = computed(() => String(syncInfo.value?.git_revision ?? "").trim());
+const hasLastPoll = computed(() => Boolean(syncInfo.value && Object.hasOwn(syncInfo.value, "last_poll")));
+const hasLastWebhook = computed(() => Boolean(syncInfo.value && Object.hasOwn(syncInfo.value, "last_webhook")));
+const hasLastRevision = computed(() => Boolean(syncInfo.value && Object.hasOwn(syncInfo.value, "last_revision")));
+const syncRevision = computed(() => String(syncInfo.value?.last_revision ?? "").trim());
+const sortedRecommendations = computed(() =>
+  recommendations.value
+    .slice()
+    .sort(
+      (left, right) =>
+        recommendationSeverityRank[left.severity] - recommendationSeverityRank[right.severity] ||
+        left.subject.stack.localeCompare(right.subject.stack) ||
+        left.subject.service.localeCompare(right.subject.service),
+    ),
+);
+const overviewRecommendations = computed(() => sortedRecommendations.value.slice(0, recommendationsLimit));
+const serviceCountsByStack = computed(() => {
+  const counts = new Map<string, number>();
+  for (const service of overviewStore.services) {
+    counts.set(service.stack, (counts.get(service.stack) ?? 0) + 1);
+  }
 
-function isStatusClass(status: string, expected: string): boolean {
-  return status.toLowerCase() === expected;
+  return counts;
+});
+
+function serviceCount(stackName: string): number {
+  return serviceCountsByStack.value.get(stackName) ?? 0;
+}
+
+function deploymentChangeState(item: DeploymentSummary): string {
+  if (item.comparison_basis === "none") return t("overview.initialSnapshot");
+  if (!item.diff_available) return t("overview.changesUnavailable");
+  const total = item.summary.added + item.summary.changed + item.summary.removed;
+  return total === 0 ? t("overview.noConfigChanges") : plural("overview.fieldChanges", total);
+}
+
+function deploymentResultClass(item: DeploymentSummary): string {
+  switch (item.status) {
+    case "succeeded":
+      return "overview-deployment-result--success";
+    case "running":
+      return "overview-deployment-result--running";
+    case "interrupted":
+      return "overview-deployment-result--interrupted";
+    default:
+      return "overview-deployment-result--failed";
+  }
+}
+
+function formatTime(raw: string | undefined): string {
+  return formatDate(raw, { hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+}
+
+function pollResult(result: "updated" | "no_change" | "error" | undefined): string {
+  if (result === "updated") return t("overview.pollUpdated");
+  if (result === "no_change") return t("overview.pollNoChange");
+  if (result === "error") return t("overview.pollError");
+  return t("common.unknown");
+}
+
+function recommendationSubject(recommendation: Recommendation): string {
+  return [recommendation.subject.stack, recommendation.subject.service].filter(Boolean).join(" / ") || "Swarm Deploy";
+}
+
+function recommendationSeverityClass(severity: RecommendationSeverity): string {
+  return `overview-recommendation-severity-${severity}`;
+}
+
+function pollIndicator(): string {
+  if (!syncInfo.value?.last_poll?.result) return "";
+  return syncInfo.value.last_poll.result === "error" ? "!" : "✓";
+}
+
+function pollIndicatorClass(): string {
+  return syncInfo.value?.last_poll?.result === "error" ? "overview-sync-indicator--error" : "overview-sync-indicator--success";
+}
+
+function webhookIndicator(): string {
+  if (typeof syncInfo.value?.last_webhook?.queued !== "boolean") return "";
+  return syncInfo.value.last_webhook.queued ? "✓" : "!";
+}
+
+function webhookIndicatorClass(): string {
+  return syncInfo.value?.last_webhook?.queued ? "overview-sync-indicator--success" : "overview-sync-indicator--warning";
+}
+
+function closeEventDetails() {
+  eventDetailsOpen.value = false;
+  eventDetailsLoading.value = false;
+  eventDetailsError.value = "";
+  eventDetails.value = null;
+}
+
+async function openWebhookDetails() {
+  const eventID = syncInfo.value?.last_webhook?.event_id?.trim() ?? "";
+  if (!eventID) return;
+
+  eventDetailsOpen.value = true;
+  eventDetailsLoading.value = true;
+  eventDetailsError.value = "";
+  eventDetails.value = null;
+  try {
+    eventDetails.value = await fetchEvent(eventID);
+  } catch (error) {
+    eventDetailsError.value = error instanceof ApiError && error.status === 404
+      ? t("events.retainedAway")
+      : t("events.detailsLoadError", { error: error instanceof Error ? error.message : t("common.unknownError") });
+  } finally {
+    eventDetailsLoading.value = false;
+  }
 }
 
 async function openCommitDetails(commitHash: string | undefined) {
@@ -33,8 +169,53 @@ async function openStackManifest(stackName: string) {
   await overviewStore.openStackManifestModal(stack);
 }
 
+function openPauseSync(stackName: string) { pauseStack.value = stackName; }
+function closePauseSync() { pauseStack.value = ""; }
+async function pauseChanged() { await overviewStore.loadOverview(); }
+
+function openAlertDetails(alert: Alert) {
+  overviewStore.openAlertDetailsModal(alert);
+}
+
 async function refreshOverview() {
-  await overviewStore.loadOverview();
+  overviewEventsError.value = "";
+  overviewAlertsError.value = "";
+  overviewRecommendationsError.value = "";
+
+  const [overviewResult, deploymentsResult, alertsResult, recommendationsResult] = await Promise.allSettled([
+    overviewStore.loadOverview(),
+    fetchDeployments({ limit: deploymentsLimit }),
+    fetchAlerts({ status: "open", limit: alertEventsLimit }),
+    fetchRecommendations({ limit: recommendationsLimit }),
+  ]);
+
+  if (overviewResult.status === "rejected") {
+    overviewStore.loadingError = overviewResult.reason instanceof Error ? overviewResult.reason.message : t("overview.loadStateFailed");
+  }
+  if (deploymentsResult.status === "fulfilled") {
+    deployments.value = Array.isArray(deploymentsResult.value.deployments) ? deploymentsResult.value.deployments : [];
+  } else {
+    deployments.value = [];
+    overviewEventsError.value =
+      deploymentsResult.reason instanceof Error ? deploymentsResult.reason.message : t("overview.loadLatestDeploymentsFailed");
+  }
+  if (alertsResult.status === "fulfilled") {
+    alerts.value = Array.isArray(alertsResult.value.alerts) ? alertsResult.value.alerts : [];
+  } else {
+    alerts.value = [];
+    overviewAlertsError.value = alertsResult.reason instanceof Error ? alertsResult.reason.message : t("common.unknownError");
+  }
+  if (recommendationsResult.status === "fulfilled") {
+    recommendations.value = Array.isArray(recommendationsResult.value.recommendations)
+      ? recommendationsResult.value.recommendations
+      : [];
+  } else {
+    recommendations.value = [];
+    overviewRecommendationsError.value =
+      recommendationsResult.reason instanceof Error
+        ? recommendationsResult.reason.message
+        : t("common.unknownError");
+  }
 }
 
 onMounted(async () => {
@@ -53,95 +234,207 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <section class="status-panel">
-    <p v-if="overviewStore.loadingError" class="meta">Failed to load state: {{ overviewStore.loadingError }}</p>
-    <p v-else-if="!syncInfo" class="meta">Sync status is unavailable.</p>
-    <p v-else class="meta">
-      Last sync: {{ formatDate(syncInfo.last_sync_at) }} | reason: {{ syncInfo.last_sync_reason || "n/a" }} | result:
-      {{ syncInfo.last_sync_result || "n/a" }} | revision:
-      <button
-        v-if="syncRevision"
-        type="button"
-        class="stack-commit-badge status unknown"
-        @click="openCommitDetails(syncRevision)"
-      >
-        {{ shortCommitHash(syncRevision) }}
-      </button>
-      <span v-else> n/a</span>
-      <template v-if="syncInfo.last_sync_error"> | error: {{ syncInfo.last_sync_error }}</template>
-    </p>
+  <div class="overview-sync-row">
+    <section class="status-panel overview-sync-panel">
+      <div class="overview-sync-items">
+        <div v-if="hasLastPoll" class="overview-sync-item">
+          <span class="overview-sync-label">{{ t('overview.lastPoll') }}</span>
+          <template v-if="syncInfo?.last_poll?.at">
+            <span
+              v-if="pollIndicator()"
+              class="overview-sync-indicator"
+              :class="pollIndicatorClass()"
+              :title="syncInfo.last_poll.error || t('overview.pollResult', { result: pollResult(syncInfo.last_poll.result) })"
+              :aria-label="syncInfo.last_poll.error || t('overview.pollResult', { result: pollResult(syncInfo.last_poll.result) })"
+            >{{ pollIndicator() }}</span>
+            <time :datetime="syncInfo.last_poll.at">{{ formatDate(syncInfo.last_poll.at) }}</time>
+          </template>
+          <span v-else>—</span>
+        </div>
+        <span v-if="hasLastPoll && hasLastWebhook" class="overview-sync-separator" aria-hidden="true"></span>
+        <div v-if="hasLastWebhook" class="overview-sync-item">
+          <span class="overview-sync-label">{{ t('overview.lastWebhook') }}</span>
+          <template v-if="syncInfo?.last_webhook?.at">
+            <span
+              v-if="webhookIndicator()"
+              class="overview-sync-indicator"
+              :class="webhookIndicatorClass()"
+              :title="syncInfo.last_webhook.queued ? t('overview.webhookQueued') : t('overview.webhookNotQueued')"
+              :aria-label="syncInfo.last_webhook.queued ? t('overview.webhookQueued') : t('overview.webhookNotQueued')"
+            >{{ webhookIndicator() }}</span>
+            <button
+              v-if="syncInfo.last_webhook.event_id"
+              type="button"
+              class="overview-webhook-details"
+              :aria-label="t('events.openDetailsAt', { time: formatDate(syncInfo.last_webhook.at) })"
+              @click="openWebhookDetails"
+            >
+              {{ formatDate(syncInfo.last_webhook.at) }}
+            </button>
+            <time v-else :datetime="syncInfo.last_webhook.at">{{ formatDate(syncInfo.last_webhook.at) }}</time>
+          </template>
+          <span v-else>—</span>
+        </div>
+        <span v-if="hasLastRevision && (hasLastPoll || hasLastWebhook)" class="overview-sync-separator" aria-hidden="true"></span>
+        <div v-if="hasLastRevision" class="overview-sync-item">
+          <span class="overview-sync-label">{{ t('overview.lastRevision') }}</span>
+          <button
+            v-if="syncRevision"
+            type="button"
+            class="overview-commit-badge overview-sync-commit-badge"
+            :aria-label="t('common.openGitCommit', { commit: syncRevision })"
+            @click="openCommitDetails(syncRevision)"
+          >
+            {{ shortCommitHash(syncRevision) }}
+          </button>
+          <span v-else>—</span>
+        </div>
+      </div>
+      <p v-if="overviewStore.loadingError" class="meta overview-sync-error" role="alert">
+        {{ t('overview.stateError', { error: overviewStore.loadingError }) }}
+      </p>
+    </section>
+    <button
+      type="button"
+      class="topbar-sync-button overview-sync-button"
+      :disabled="overviewStore.syncPending"
+      @click="overviewStore.triggerManualSync()"
+    >
+      {{ overviewStore.syncPending ? t('overview.syncing') : t('overview.syncNow') }}
+    </button>
+  </div>
+
+  <section class="overview-summary-grid" :aria-label="t('overview.highlights')">
+    <SummaryPanel
+      :title="t('overview.latestDeployments')"
+      icon="deployments"
+      to="/deployments"
+    >
+      <p v-if="overviewEventsError && deployments.length === 0" class="meta">
+        {{ t('overview.deploymentsError', { error: overviewEventsError }) }}
+      </p>
+      <div v-else-if="deployments.length === 0" class="overview-summary-empty">
+        <span class="overview-summary-empty-icon" aria-hidden="true">↓</span>
+        <strong>{{ t('overview.noDeployments') }}</strong>
+        <span>{{ t('overview.deploymentsEmptyDescription') }}</span>
+      </div>
+      <div v-else class="overview-deployment-list">
+        <div
+          v-for="event in deployments.slice(0, deploymentsLimit)"
+          :key="event.id"
+          class="overview-summary-row overview-deployment-row"
+        >
+          <button type="button" class="overview-deployment-details"
+            :aria-label="t('overview.openDeployment', { status: deploymentStatus(event.status, true), stack: event.stack || t('overview.unknownStack'), changes: deploymentChangeState(event) })"
+            :title="deploymentChangeState(event)"
+            @click="overviewStore.openDeploymentDetailsModal(event.id)" />
+          <span
+            class="overview-summary-severity overview-deployment-result"
+            :class="deploymentResultClass(event)"
+            :aria-label="t('overview.deploymentStatus', { status: deploymentStatus(event.status, true), changes: deploymentChangeState(event) })"
+            :title="t('overview.deploymentTooltip', { status: deploymentStatus(event.status, true), changes: deploymentChangeState(event) })"
+            role="img"
+          ></span>
+          <span class="overview-deployment-stack">{{ event.stack || t('overview.unknownStack') }}</span>
+          <time class="overview-deployment-time" :datetime="event.started_at">{{ formatTime(event.started_at) }}</time>
+          <button v-if="event.commit" type="button" class="overview-commit-badge overview-summary-sha-badge"
+            :aria-label="t('common.openGitCommit', { commit: event.commit })" @click.stop="openCommitDetails(event.commit)">
+            {{ shortCommitHash(event.commit) }}
+          </button>
+          <span v-else class="overview-summary-value-empty">{{ t('common.notApplicable') }}</span>
+        </div>
+      </div>
+    </SummaryPanel>
+
+    <SummaryPanel :title="t('alerts.tab')" icon="alerts" to="/events#alerts">
+      <p v-if="overviewAlertsError && alerts.length === 0" class="meta">{{ t('alerts.loadError', { error: overviewAlertsError }) }}</p>
+      <div v-else-if="alerts.length === 0" class="overview-summary-empty">
+        <span class="overview-summary-empty-icon overview-summary-empty-icon--healthy" aria-hidden="true">✓</span>
+        <strong>{{ t('alerts.noActive') }}</strong>
+        <span>{{ t('alerts.everythingHealthy') }}</span>
+      </div>
+      <div v-else class="overview-alert-list">
+        <SummaryRow
+          v-for="alert in alerts"
+          :key="alert.id"
+          interactive
+          :aria-label="t('alerts.open', { title: alertTitle(alert) })"
+          @activate="openAlertDetails(alert)"
+        >
+          <span class="overview-summary-severity overview-summary-severity--alert" aria-hidden="true"></span>
+          <span class="overview-summary-row-copy">
+            <span class="overview-alert-message">{{ alertTitle(alert) }}</span>
+            <span class="overview-summary-secondary">
+              {{ alert.resourceId || t('alerts.unknownResource') }} · {{ formatRelativeTime(alert.updatedAt) }}
+            </span>
+          </span>
+        </SummaryRow>
+      </div>
+    </SummaryPanel>
+
+    <SummaryPanel :title="t('recommendations.title')" icon="recommendations" to="/recommendations">
+      <p v-if="overviewRecommendationsError && overviewRecommendations.length === 0" class="meta">
+        {{ t('recommendations.loadError', { error: overviewRecommendationsError }) }}
+      </p>
+      <div v-else-if="overviewRecommendations.length === 0" class="overview-summary-empty">
+        <span class="overview-summary-empty-icon overview-summary-empty-icon--healthy" aria-hidden="true">✓</span>
+        <strong>{{ t('recommendations.empty') }}</strong>
+        <span>{{ t('recommendations.configurationHealthy') }}</span>
+      </div>
+      <div v-else class="overview-recommendation-list">
+        <SummaryRow
+          v-for="recommendation in overviewRecommendations"
+          :key="`${recommendation.severity}-${recommendation.subject.stack}-${recommendation.subject.service}-${recommendation.title}`"
+          to="/recommendations"
+          :aria-label="t('recommendations.open', { title: recommendationTitle(recommendation) })"
+        >
+          <span
+            class="overview-summary-severity"
+            :class="recommendationSeverityClass(recommendation.severity)"
+            :title="recommendationSeverityLabel(recommendation.severity)"
+            aria-hidden="true"
+          ></span>
+          <span class="overview-summary-row-copy">
+            <span class="overview-recommendation-text">{{ recommendationTitle(recommendation) }}</span>
+            <span class="overview-summary-secondary">{{ recommendationSubject(recommendation) }}</span>
+          </span>
+        </SummaryRow>
+      </div>
+    </SummaryPanel>
   </section>
 
   <section>
     <div v-if="overviewStore.loading && overviewStore.stacks.length === 0" class="stack-grid">
       <article class="stack-card">
-        <p class="meta">Loading...</p>
+        <p class="meta">{{ t('common.loading') }}</p>
       </article>
     </div>
 
     <div v-else-if="overviewStore.stacks.length === 0" class="stack-grid">
       <article class="stack-card">
-        <p class="meta">No stacks configured.</p>
+        <p class="meta">{{ t('overview.noStacks') }}</p>
       </article>
     </div>
 
     <div v-else class="stack-grid">
-      <article v-for="stack in overviewStore.stacks" :key="stack.name" class="stack-card">
-        <h3 class="stack-title">{{ stack.name }}</h3>
-        <span
-          class="status stack-card-status"
-          :class="{
-            success: isStatusClass(stack.last_status || 'unknown', 'success'),
-            failed: isStatusClass(stack.last_status || 'unknown', 'failed'),
-            unknown: !isStatusClass(stack.last_status || 'unknown', 'success') && !isStatusClass(stack.last_status || 'unknown', 'failed'),
-          }"
-        >
-          {{ (stack.last_status || "unknown").toLowerCase() }}
-        </span>
-        <p class="meta">compose: {{ stack.compose_file }}</p>
-        <p class="meta">last deploy: {{ formatDate(stack.last_deploy_at) }}</p>
-        <p class="meta">
-          commit:
-          <button
-            v-if="stack.last_commit"
-            type="button"
-            class="stack-commit-badge status unknown"
-            @click="openCommitDetails(stack.last_commit)"
-          >
-            {{ shortCommitHash(stack.last_commit) }}
-          </button>
-          <span v-else> n/a</span>
-        </p>
-        <p v-if="stack.last_error" class="meta">error: {{ stack.last_error }}</p>
-        <div class="stack-card-actions">
-          <button
-            type="button"
-            class="service-copy-task-id-button stack-manifest-open-button"
-            aria-label="Show stack manifest"
-            title="Show stack manifest"
-            @click="openStackManifest(stack.name)"
-          >
-            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-              <g transform="translate(0 -1028.4)">
-                <path
-                  d="m5 1030.4c-1.1046 0-2 0.9-2 2v8 4 6c0 1.1 0.8954 2 2 2h14c1.105 0 2-0.9 2-2v-6-4-4l-6-6h-10z"
-                  fill="#95a5a6"
-                />
-                <path
-                  d="m5 1029.4c-1.1046 0-2 0.9-2 2v8 4 6c0 1.1 0.8954 2 2 2h14c1.105 0 2-0.9 2-2v-6-4-4l-6-6h-10z"
-                  fill="#bdc3c7"
-                />
-                <path d="m21 1035.4-6-6v4c0 1.1 0.895 2 2 2h4z" fill="#95a5a6" />
-                <path
-                  d="m6 8v1h12v-1h-12zm0 3v1h12v-1h-12zm0 3v1h12v-1h-12zm0 3v1h12v-1h-12z"
-                  transform="translate(0 1028.4)"
-                  fill="#95a5a6"
-                />
-              </g>
-            </svg>
-          </button>
-        </div>
-      </article>
+      <StackCard
+        v-for="stack in overviewStore.stacks"
+        :key="stack.name"
+        :stack="stack"
+        :service-count="serviceCount(stack.name)"
+        @compare="openStackManifest"
+        @commit="openCommitDetails"
+        @pause="openPauseSync"
+      />
     </div>
   </section>
+
+  <EventDetailsModal
+    :open="eventDetailsOpen"
+    :event="eventDetails"
+    :loading="eventDetailsLoading"
+    :error="eventDetailsError"
+    @close="closeEventDetails"
+  />
+  <SyncPauseModal :open="Boolean(pauseStack)" :stack="pauseStack" @close="closePauseSync" @changed="pauseChanged" />
 </template>

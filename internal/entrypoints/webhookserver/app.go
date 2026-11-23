@@ -1,15 +1,20 @@
 package webhookserver
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
+	"errors"
+	"fmt"
 	"io"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/artarts36/go-entrypoint"
+	"golang.org/x/time/rate"
+
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
-	"github.com/swarm-deploy/swarm-deploy/internal/controller"
+	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webhookserver/authenticator"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller"
 )
 
 const readHeaderTimeout = 10 * time.Second
@@ -19,13 +24,27 @@ type Application struct {
 	server  *http.Server
 	cfg     *config.Config
 	control *controller.Controller
+	limiter *rate.Limiter
+
+	authenticator authenticator.Authenticator
 }
 
-func NewApplication(address string, cfg *config.Config, control *controller.Controller) *Application {
+func NewApplication(address string, cfg *config.Config, control *controller.Controller) (*Application, error) {
 	app := &Application{
 		mux:     http.NewServeMux(),
 		cfg:     cfg,
 		control: control,
+		limiter: rate.NewLimiter(
+			rate.Limit(cfg.Spec.GitOps.Sync.Webhook.RateLimit.RequestsPerSecond),
+			cfg.Spec.GitOps.Sync.Webhook.RateLimit.Burst,
+		),
+	}
+
+	var err error
+
+	app.authenticator, err = authenticator.NewAuthenticator(&cfg.Spec.GitOps.Sync.Webhook)
+	if err != nil {
+		return nil, fmt.Errorf("create authenticator: %w", err)
 	}
 
 	app.registerRoutes()
@@ -35,11 +54,7 @@ func NewApplication(address string, cfg *config.Config, control *controller.Cont
 		ReadHeaderTimeout: readHeaderTimeout,
 	}
 
-	return app
-}
-
-func (a *Application) Enabled() bool {
-	return a.cfg.Spec.Sync.Webhook.Enabled
+	return app, nil
 }
 
 func (a *Application) Entrypoint() entrypoint.Entrypoint {
@@ -47,11 +62,7 @@ func (a *Application) Entrypoint() entrypoint.Entrypoint {
 }
 
 func (a *Application) registerRoutes() {
-	if !a.Enabled() {
-		return
-	}
-
-	a.mux.HandleFunc(a.cfg.Spec.Sync.Webhook.Path, a.handleGitWebhook)
+	a.mux.HandleFunc(a.cfg.Spec.GitOps.Sync.Webhook.Path, a.handleGitWebhook)
 }
 
 func (a *Application) handleGitWebhook(w http.ResponseWriter, r *http.Request) {
@@ -60,41 +71,63 @@ func (a *Application) handleGitWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !a.validateWebhookSecret(r) {
-		writeJSON(w, http.StatusUnauthorized, map[string]any{
-			"error": "invalid webhook secret",
+	if !a.limiter.Allow() {
+		writeJSON(w, http.StatusTooManyRequests, map[string]any{
+			"error": "webhook rate limit exceeded",
 		})
 		return
 	}
 
-	_, _ = io.Copy(io.Discard, r.Body)
-	_ = r.Body.Close()
+	body, err := readBody(w, r, a.cfg.Spec.GitOps.Sync.Webhook.MaxBodyBytes)
+	if err != nil {
+		var maxBytesErr *http.MaxBytesError
+		if errors.As(err, &maxBytesErr) {
+			writeJSON(w, http.StatusRequestEntityTooLarge, map[string]any{
+				"error": "webhook body is too large",
+			})
+			return
+		}
 
-	queued := a.control.Webhook()
+		writeJSON(w, http.StatusBadRequest, map[string]any{
+			"error": "failed to read webhook body",
+		})
+		return
+	}
+
+	if !a.authenticate(&authenticator.Request{
+		Request: r,
+		Body:    body,
+	}) {
+		writeJSON(w, http.StatusUnauthorized, map[string]any{
+			"error": "webhook authentication failed",
+		})
+		return
+	}
+
+	queued, err := a.control.Webhook(r.Context())
+	if err != nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
+			"error": "persist webhook event", "queued": queued,
+		})
+		return
+	}
 	writeJSON(w, http.StatusAccepted, map[string]any{
 		"queued": queued,
 	})
 }
 
-func (a *Application) validateWebhookSecret(r *http.Request) bool {
-	expected := strings.TrimSpace(string(a.cfg.Spec.Sync.Webhook.Secret.Content))
-	if expected == "" {
-		return true
-	}
+func (a *Application) authenticate(req *authenticator.Request) bool {
+	return a.authenticator.Authenticate(req) == nil
+}
 
-	headerToken := strings.TrimSpace(r.Header.Get("X-Swarm-Deploy-Secret"))
-	if headerToken == "" {
-		authHeader := strings.TrimSpace(r.Header.Get("Authorization"))
-		if strings.HasPrefix(strings.ToLower(authHeader), "bearer ") {
-			headerToken = strings.TrimSpace(authHeader[len("Bearer "):])
-		}
-	}
+func readBody(w http.ResponseWriter, r *http.Request, maxBodyBytes int64) ([]byte, error) {
+	defer r.Body.Close()
 
-	return headerToken == expected
+	return io.ReadAll(http.MaxBytesReader(w, r.Body, maxBodyBytes))
 }
 
 func writeJSON(w http.ResponseWriter, status int, payload any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(payload)
+	_ = json.MarshalEncode(jsontext.NewEncoder(w), payload)
 }

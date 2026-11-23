@@ -14,12 +14,13 @@ import (
 type Log struct {
 	handler http.Handler
 
-	router router
+	router RouteFinder
 }
 
-type router func(method, path string) (api.Route, bool)
+// RouteFinder resolves an HTTP method and path to an API route.
+type RouteFinder func(method, path string) (api.Route, bool)
 
-func NewLog(handler http.Handler, router router) *Log {
+func NewLog(handler http.Handler, router RouteFinder) *Log {
 	return &Log{
 		handler: handler,
 		router:  router,
@@ -36,6 +37,15 @@ func (w *lRespWriter) WriteHeader(statusCode int) {
 	w.statusCode = statusCode
 
 	w.ResponseWriter.WriteHeader(statusCode)
+}
+
+func (w *lRespWriter) Flush() {
+	flusher, ok := w.ResponseWriter.(http.Flusher)
+	if !ok {
+		return
+	}
+
+	flusher.Flush()
 }
 
 func (l *Log) ServeHTTP(w http.ResponseWriter, req *http.Request) {

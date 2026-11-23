@@ -1,0 +1,36 @@
+paths:
+  /api/v1/config:
+    get:
+      operationId: getConfig
+      responses:
+        '200':
+          description: Public web UI configuration.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UIConfigResponse'
+components:
+  schemas:
+    UIConfigResponse:
+      type: object
+      required: [web]
+      properties:
+        web:
+          type: object
+          required: [ui]
+          properties:
+            ui:
+              type: object
+              required: [logViewer]
+              properties:
+                logViewer:
+                  type: object
+                  required: [linkFields]
+                  properties:
+                    linkFields:
+                      type: object
+                      description: Map of log field names to HTTP(S) URL templates. The UI replaces {value} with the URL-encoded field value.
+                      additionalProperties:
+                        type: string
+                      example:
+                        trace-id: 'http://tracer.example/{value}'

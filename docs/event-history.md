@@ -1,30 +1,126 @@
 ## Event history
 
+Event details are a public attribute contract. Shared attributes always use the
+following `snake_case` names:
+
+| Attribute | Semantics |
+| --- | --- |
+| `stack_name` | Stack name |
+| `service_name` | Service name without the stack prefix |
+| `deployment_id` | Persisted desired-state deployment identifier |
+| `attempt_id` | Persisted execution attempt identifier |
+| `commit` | Source revision |
+| `username` | User who initiated the action |
+| `node_id`, `node_name` | Swarm node identifier and hostname |
+| `network_id`, `network_name` | Swarm network identifier and name |
+| `status` | Event-specific lifecycle status |
+| `error` | Bounded, secret-masked human-readable diagnostic |
+| `error_code` | Stable machine-readable failure category |
+| `stage` | Stage responsible for the failure |
+
+The obsolete `stack`, `service`, `triggered_by`, and `diagnostic` detail keys are
+not emitted. Event-specific attributes not listed above also use `snake_case`.
+Existing SQLite history rows are not migrated; the standardized keys apply to
+newly persisted events.
+
 | Type                               | Severity | Category   | Trigger                             | Details keys                                                 |
 |------------------------------------|----------|------------|-------------------------------------|--------------------------------------------------------------|
-| `deploySuccess`                    | `info`   | `sync`     | Successful stack deployment         | `stack`, `commit`                                            |
-| `deployFailed`                     | `alert`  | `sync`     | Failed stack deployment             | `stack`, `commit`, `error` (if present)                      |
-| `servicePruned`                    | `info`   | `sync`     | Orphaned managed service was removed | `stack_name`, `service_name`, `commit`                       |
-| `sendNotificationFailed`           | `error`  | `sync`     | Notification delivery failure       | `destination`, `channel`, `event_type`, `error` (if present) |
-| `syncManualStarted`                | `info`   | `sync`     | Manual sync run started             | `triggered_by` (if present)                                  |
-| `serviceReplicasIncreased`         | `info`   | `sync`     | Service replicas count increased    | `stack`, `service`, `previous_replicas`, `current_replicas`, `username` (if present) |
-| `serviceReplicasDecreased`         | `info`   | `sync`     | Service replicas count decreased    | `stack`, `service`, `previous_replicas`, `current_replicas`, `username` (if present) |
-| `serviceRestarted`                 | `info`   | `sync`     | Service restarted                   | `stack`, `service`, `username` (if present)                  |
-| `userAuthenticated`                | `info`   | `security` | User passed web authentication      | `username`                                                   |
-| `assistantPromptInjectionDetected` | `alert`  | `security` | Assistant prompt injection detected | `detector`, `prompt` (if present), `username` (if present)   |
+| `DeploySuccess`                    | `info`   | `sync`     | Successful stack deployment         | `stack_name`, `commit`, `deployment_id`, `attempt_id`, `status` |
+| `ServicePruned`                    | `info`   | `sync`     | Orphaned managed service was removed | `stack_name`, `service_name`, `commit`                       |
+| `NetworkCreated`                   | `info`   | `sync`     | Managed network was created          | `network_name`, `network_id`, `driver`                       |
+| `WebhookReceived`                  | `info`   | `sync`     | Authenticated webhook received and reconciliation scheduling attempted | `queued` (`true` or `false`)                     |
+| `SyncManualStarted`                | `info`   | `sync`     | Manual sync run started             | `username` (if present)                                      |
+| `NodeJoined`                       | `info`   | `swarm`    | New node joined the swarm           | `node_id`, `node_name` (if present), `role` (if present)      |
+| `NodeConnected`                    | `info`   | `swarm`    | Swarm node became ready             | `node_id`, `node_name` (if present), `status`                 |
+| `NodeDisconnected`                 | `alert`  | `swarm`    | Swarm node left ready state         | `node_id`, `node_name` (if present), `status`                 |
+| `ServiceMissed`                    | `alert`  | `sync`     | Desired service is absent in swarm state | `stack_name`, `service_name`, `commit`                  |
+| `ServiceDrifted`                   | `warn`   | `sync`     | Existing service differs from desired state | `stack_name`, `service_name`, `commit`, `reason`       |
+| `ServiceDriftFixed`                | `info`   | `sync`     | Live service state is confirmed converged | `stack_name`, `service_name`, `commit`                  |
+| `ServiceReplicasIncreased`         | `info`   | `sync`     | Service replicas count increased    | `stack_name`, `service_name`, `previous_replicas`, `current_replicas`, `username` (if present) |
+| `ServiceReplicasDecreased`         | `info`   | `sync`     | Service replicas count decreased    | `stack_name`, `service_name`, `previous_replicas`, `current_replicas`, `username` (if present) |
+| `ServiceRestarted`                 | `info`   | `sync`     | Service restarted                   | `stack_name`, `service_name`, `username` (if present)        |
+| `UserAuthenticated`                | `info`   | `security` | User passed web authentication      | `username`                                                   |
+| `AssistantPromptInjectionDetected` | `alert`  | `security` | Assistant prompt injection detected | `detector`, `prompt` (if present), `username` (if present)   |
 
-All runtime events are persisted to disk in `.swarm-deploy/event-history.json` and can be viewed via API:
+Selected user-visible events are stored in
+`event_history` in `<dataDir>/swarm-deploy.sqlite`. Internal deployment failure facts and
+`NodeDisconnected` records remain alert inputs and are excluded from history. New event
+identifiers use PascalCase.
+The table above describes public event types, not a promise that every
+signal appears in user history. `DeployFailed`, preparation failures, and interrupted attempts are internal
+deployment lifecycle facts consumed by Deployment Model and Alert Management; they are
+not public event names and are not available under `notifications.events`.
+Known terminal service convergence failures publish internal `DeployFailed` with
+`error_code=convergence_failed` and `stage=verification`; observation failures and
+verification interruptions publish `DeployInterrupted` with `verification_unknown`.
+A reconciliation step can fail after a successful Attempt. GitOps publishes internal
+`DeployPreparationFailed` with the failed stage and safe diagnostic. Alert Management
+opens or updates `sync_failed`, while the Attempt keeps its successful outcome.
+Post-deployment error codes are fixed for drift analysis (`analyze_drift_failed`),
+self-heal (`self_heal_drift_failed`), and self-heal verification
+(`verify_self_heal_failed`). An unrecognized stage uses `reconcile_failed`.
+Deployment completion events describe the persisted Attempt. Their `Services` list
+contains only its execution targets; GitOps updates applied revisions only for those
+services. `DeploySuccess` means those targets completed successfully. Pruning still
+uses the full desired stack. No new event types are introduced for targeted execution.
+Retry-deferred scheduler cycles publish neither event and do not increase alert
+occurrences. These remain internal facts, excluded from Event History.
+Deployment failures, node disconnections, and unresolved service drift feed Alert Management.
+Success, reconnection, and confirmed drift recovery resolve the respective open incident. New SQLite history records use the safe event codec,
+which omits raw prompts, logs and error strings.
+
+`ConfigurationChanged` is an internal, payload-free signal emitted after an effective
+in-memory configuration change. Subscribers inspect the current configuration when they
+handle it; the signal is not a historical configuration snapshot and is excluded from history.
+
+Startup does not read, import, update or delete `event-history.json`. The file may
+remain as an operator-owned archive, but SQLite is the only active Event History store.
+The Outbox uses a bounded worker pool after publication commits and preserves ordering
+within each subscription. Failed projections retry independently. The internal `ServiceCatalogUpdated` event updates
+RAG after service metadata is committed and is excluded from user history.
+
+History can be viewed via API:
 
 - `GET /api/v1/events` - returns latest stored events
   - optional query filters:
     - `severities` - list of severities (`info`, `warn`, `error`, `alert`)
-    - `categories` - list of categories (`sync`, `security`)
+    - `categories` - list of categories (`sync`, `security`, `swarm`)
+    - `types` - list of event types
+    - `stack_name` - list of exact `stack_name` attribute values
+    - `service_name` - list of exact `service_name` attribute values
+    - `since` - inclusive timestamp
+    - `limit` - maximum events to return (1-100)
+    - `sort` - `time` or `severity`; enables paginated sorting
+    - `order` - `asc` or `desc` (default `desc` when paging)
+    - `cursor` - opaque `nextCursor` returned by the previous page
+- `GET /api/v1/events/{id}` - returns one retained event with the same fields and
+  detail semantics as the list API. It returns `404 Not Found` when the ID is
+  unknown or the event has been removed by retention.
 
-History size is bounded by `eventHistory.capacity` in config. When limit is reached, the oldest event is removed.
+When `sort`, `order`, or `cursor` is supplied, API pagination returns at
+most 50 events by default, ordered by the requested field. If more events
+exist, the response includes `nextCursor`; repeat the request with that cursor
+and the same sort and filters to fetch the next page.
+
+Existing requests without paging parameters keep the oldest-first response
+order. Overview reads `/api/v1/deployments` for recent deployments and uses the
+direct event endpoint to open the latest retained webhook receipt reported by
+`GET /api/v1/stacks`.
+
+Runtime history size is bounded by `event.history.capacity`. New projections remove
+oldest entries by publication sequence. SQLite filters and cursor queries run directly
+against the projection; source event IDs prevent duplicate projection.
 
 Config example:
 ```yaml
 # Event history configuration.
-eventHistory:
-  capacity: 500
+event:
+  history:
+    capacity: 500
 ```
+Event notifications use PascalCase event type identifiers. Synchronization failures are delivered
+through the `sync_failed` alert lifecycle instead of Event Notifications. Durable payloads intentionally
+omit raw Compose, environment, logs, arbitrary errors and assistant prompts.
+Messenger health events and the legacy internal `SendNotificationFailed` type are not
+subscribed by Event History. Messenger health is represented by the current alert state;
+delivery diagnostics remain in Outbox status and metrics.

@@ -1,0 +1,175 @@
+package tools
+
+import (
+	"context"
+	"encoding/json/v2"
+	"errors"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/tools/routing"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
+	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
+	"go.uber.org/mock/gomock"
+)
+
+func TestSetServiceReplicasExecute(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	manager := swarm.NewMockServiceManager(ctrl)
+	dispatcher, captured := capturePublishedEvents(t)
+	tool := NewSetServiceReplicas(manager, dispatcher)
+
+	serviceRef := swarm.NewServiceReference("core", "api")
+	manager.EXPECT().GetReplicas(gomock.Any(), serviceRef).Return(uint64(3), nil)
+	manager.EXPECT().Scale(gomock.Any(), serviceRef, uint64(5)).Return(nil)
+
+	response, err := tool.Execute(context.Background(), routing.Request{
+		Payload: setServiceReplicasRequest{
+			Stack:    "core",
+			Service:  "api",
+			Replicas: uint64Pointer(5),
+		},
+	})
+	require.NoError(t, err, "execute service_replicas_set")
+
+	var payload struct {
+		Stack    string `json:"stack"`
+		Service  string `json:"service"`
+		Replicas uint64 `json:"replicas"`
+	}
+
+	encoded, err := json.Marshal(response.Payload)
+	require.NoError(t, err, "encode response payload")
+	require.NoError(t, json.Unmarshal(encoded, &payload), "decode response payload")
+
+	assert.Equal(t, "core", payload.Stack, "unexpected stack")
+	assert.Equal(t, "api", payload.Service, "unexpected service")
+	assert.Equal(t, uint64(5), payload.Replicas, "unexpected replicas")
+	require.Len(t, *captured, 1, "expected single dispatched event")
+
+	replicasEvent, ok := (*captured)[0].(*events.ServiceReplicasIncreased)
+	require.True(t, ok, "expected service replicas increased event")
+	assert.Equal(t, "core", replicasEvent.StackName, "unexpected event stack")
+	assert.Equal(t, "api", replicasEvent.ServiceName, "unexpected event service")
+	assert.Equal(t, uint64(3), replicasEvent.PreviousReplicas, "unexpected previous replicas")
+	assert.Equal(t, uint64(5), replicasEvent.CurrentReplicas, "unexpected current replicas")
+}
+
+func TestSetServiceReplicasReturnsSuccessWhenEventPublishFails(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	manager := swarm.NewMockServiceManager(ctrl)
+	eventDispatcher := dispatcher.NewMockDispatcher(ctrl)
+	tool := NewSetServiceReplicas(manager, eventDispatcher)
+
+	serviceRef := swarm.NewServiceReference("core", "api")
+	manager.EXPECT().GetReplicas(gomock.Any(), serviceRef).Return(uint64(3), nil)
+	manager.EXPECT().Scale(gomock.Any(), serviceRef, uint64(5)).Return(nil)
+	eventDispatcher.EXPECT().Publish(gomock.Any(), gomock.Any()).Return(errors.New("storage unavailable"))
+
+	response, err := tool.Execute(context.Background(), routing.Request{Payload: setServiceReplicasRequest{
+		Stack: "core", Service: "api", Replicas: uint64Pointer(5),
+	}})
+	require.NoError(t, err, "completed mutation must not be reported as failed")
+	payload, ok := response.Payload.(ServiceActionResult)
+	require.True(t, ok)
+	assert.Equal(t, uint64(5), payload.Replicas)
+	assert.Equal(t, ServiceActionWarningAuditEventNotPersisted, payload.Warning)
+}
+
+func TestSetServiceReplicasExecuteFailsOnValidation(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	dispatcher, captured := capturePublishedEvents(t)
+	tool := NewSetServiceReplicas(swarm.NewMockServiceManager(ctrl), dispatcher)
+
+	_, err := tool.Execute(context.Background(), routing.Request{
+		Payload: setServiceReplicasRequest{
+			Stack:    "core",
+			Service:  "api",
+			Replicas: uint64Pointer(0),
+		},
+	})
+	require.Error(t, err, "expected execute error")
+	assert.Contains(t, err.Error(), "replicas must be > 0", "unexpected error")
+	assert.Empty(t, *captured, "validation error must not dispatch events")
+}
+
+func TestSetServiceReplicasExecuteFailsOnUpdate(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	manager := swarm.NewMockServiceManager(ctrl)
+	dispatcher, captured := capturePublishedEvents(t)
+	tool := NewSetServiceReplicas(manager, dispatcher)
+
+	serviceRef := swarm.NewServiceReference("core", "api")
+	manager.EXPECT().GetReplicas(gomock.Any(), serviceRef).Return(uint64(1), nil)
+	manager.EXPECT().Scale(gomock.Any(), serviceRef, uint64(2)).Return(errors.New("docker unavailable"))
+
+	_, err := tool.Execute(context.Background(), routing.Request{
+		Payload: setServiceReplicasRequest{
+			Stack:    "core",
+			Service:  "api",
+			Replicas: uint64Pointer(2),
+		},
+	})
+	require.Error(t, err, "expected execute error")
+	assert.Contains(t, err.Error(), "update service replicas", "unexpected error")
+	assert.Empty(t, *captured, "failed updates must not dispatch events")
+}
+
+func TestSetServiceReplicasExecuteDispatchesEventOnDecrease(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	manager := swarm.NewMockServiceManager(ctrl)
+	dispatcher, captured := capturePublishedEvents(t)
+	tool := NewSetServiceReplicas(manager, dispatcher)
+
+	serviceRef := swarm.NewServiceReference("core", "api")
+	manager.EXPECT().GetReplicas(gomock.Any(), serviceRef).Return(uint64(5), nil)
+	manager.EXPECT().Scale(gomock.Any(), serviceRef, uint64(2)).Return(nil)
+
+	_, err := tool.Execute(context.Background(), routing.Request{
+		Payload: setServiceReplicasRequest{
+			Stack:    "core",
+			Service:  "api",
+			Replicas: uint64Pointer(2),
+		},
+	})
+	require.NoError(t, err, "execute service_replicas_set")
+	require.Len(t, *captured, 1, "expected single dispatched event")
+
+	replicasEvent, ok := (*captured)[0].(*events.ServiceReplicasDecreased)
+	require.True(t, ok, "expected service replicas decreased event")
+	assert.Equal(t, "core", replicasEvent.StackName, "unexpected event stack")
+	assert.Equal(t, "api", replicasEvent.ServiceName, "unexpected event service")
+	assert.Equal(t, uint64(5), replicasEvent.PreviousReplicas, "unexpected previous replicas")
+	assert.Equal(t, uint64(2), replicasEvent.CurrentReplicas, "unexpected current replicas")
+}
+
+func TestSetServiceReplicasExecuteSkipsEventOnSameReplicas(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	manager := swarm.NewMockServiceManager(ctrl)
+	dispatcher, captured := capturePublishedEvents(t)
+	tool := NewSetServiceReplicas(manager, dispatcher)
+
+	serviceRef := swarm.NewServiceReference("core", "api")
+	manager.EXPECT().GetReplicas(gomock.Any(), serviceRef).Return(uint64(5), nil)
+	manager.EXPECT().Scale(gomock.Any(), serviceRef, uint64(5)).Return(nil)
+
+	_, err := tool.Execute(context.Background(), routing.Request{
+		Payload: setServiceReplicasRequest{
+			Stack:    "core",
+			Service:  "api",
+			Replicas: uint64Pointer(5),
+		},
+	})
+	require.NoError(t, err, "execute service_replicas_set")
+	assert.Empty(t, *captured, "same replicas count must not dispatch events")
+}
+
+func capturePublishedEvents(t *testing.T) (*dispatcher.MockDispatcher, *[]events.Event) {
+	t.Helper()
+	mock := dispatcher.NewMockDispatcher(gomock.NewController(t))
+	captured := []events.Event{}
+	mock.EXPECT().Publish(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, e events.Event) error { captured = append(captured, e); return nil }).AnyTimes()
+	return mock, &captured
+}

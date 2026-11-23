@@ -1,15 +1,25 @@
 import { createRouter, createWebHistory } from "vue-router";
 
-import ServicesView from "../views/ApplicationsView.vue";
+import { getWebBasePath } from "../runtimeConfig";
+
+import DeploymentsView from "../views/DeploymentsView.vue";
 import ClusterView from "../views/ClusterView.vue";
+import EventsView from "../views/EventsAlertsView.vue";
+import GraphView from "../views/GraphView.vue";
 import NetworksView from "../views/NetworksView.vue";
 import OverviewView from "../views/OverviewView.vue";
+import RecommendationsView from "../views/RecommendationsView.vue";
+import RealtimeView from "../views/RealtimeView.vue";
 import SecretsView from "../views/SecretsView.vue";
+import StackView from "../views/StackView.vue";
 import ServiceView from "../views/ServiceView.vue";
+import ServiceConfigView from "../views/ServiceConfigView.vue";
 
 export const router = createRouter({
-  history: createWebHistory(),
+  history: createWebHistory(getWebBasePath()),
   routes: [
+    { path: "/stacks/:stack", name: "stack-details", component: StackView },
+    { path: "/deployments", name: "deployments", component: DeploymentsView },
     {
       path: "/",
       redirect: "/overview",
@@ -20,14 +30,39 @@ export const router = createRouter({
       component: OverviewView,
     },
     {
-      path: "/services",
-      name: "services",
-      component: ServicesView,
+      path: "/realtime",
+      name: "realtime",
+      component: RealtimeView,
+    },
+    {
+      path: "/graph",
+      name: "graph",
+      component: GraphView,
+    },
+    {
+      path: "/alerts",
+      name: "alerts",
+      redirect: "/events?tab=alerts",
+    },
+    {
+      path: "/events",
+      name: "events",
+      component: EventsView,
+    },
+    {
+      path: "/recommendations",
+      name: "recommendations",
+      component: RecommendationsView,
     },
     {
       path: "/services/:stack/:service",
       name: "service-details",
       component: ServiceView,
+    },
+    {
+      path: "/services/:stack/:service/configs/:config",
+      name: "service-config",
+      component: ServiceConfigView,
     },
     {
       path: "/cluster",

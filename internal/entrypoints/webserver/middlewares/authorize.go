@@ -5,8 +5,8 @@ import (
 	"net/http"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/authenticator"
-	"github.com/swarm-deploy/swarm-deploy/internal/event/dispatcher"
-	"github.com/swarm-deploy/swarm-deploy/internal/event/events"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/security"
 )
 
@@ -19,6 +19,7 @@ func Authorize(
 	next http.Handler,
 	auth authenticator.Authenticator,
 	eventDispatcher dispatcher.Dispatcher,
+	cookiePath string,
 ) http.Handler {
 	if auth == nil {
 		return next
@@ -33,8 +34,12 @@ func Authorize(
 
 			slog.InfoContext(req.Context(), "[security] request authorized")
 			if !hasActiveAuthSession(req) {
-				eventDispatcher.Dispatch(req.Context(), &events.UserAuthenticated{Username: user.Name})
-				setActiveAuthSession(w)
+				if err := eventDispatcher.Publish(req.Context(), &events.UserAuthenticated{Username: user.Name}); err != nil {
+					slog.ErrorContext(req.Context(), "persist authentication event", "err", err)
+					http.Error(w, "event persistence unavailable", http.StatusServiceUnavailable)
+					return
+				}
+				setActiveAuthSession(w, cookiePath)
 			}
 
 			next.ServeHTTP(w, req)
@@ -55,11 +60,11 @@ func hasActiveAuthSession(r *http.Request) bool {
 	return cookie.Value == authSessionCookieValue
 }
 
-func setActiveAuthSession(w http.ResponseWriter) {
-	http.SetCookie(w, &http.Cookie{
+func setActiveAuthSession(w http.ResponseWriter, cookiePath string) {
+	http.SetCookie(w, &http.Cookie{ //nolint:gosec // Secure would break configured HTTP endpoints.
 		Name:     authSessionCookieName,
 		Value:    authSessionCookieValue,
-		Path:     "/",
+		Path:     cookiePath,
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
 	})

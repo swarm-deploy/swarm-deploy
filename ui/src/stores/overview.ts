@@ -1,8 +1,11 @@
+import { t } from "../i18n";
 import { defineStore } from "pinia";
 
+import { ApiError } from "../api/client";
 import {
-  fetchEvents,
+  fetchAlert,
   fetchGitCommit,
+  fetchDeployment,
   fetchServiceDeployments,
   fetchServiceStatus,
   fetchStackManifestos,
@@ -11,7 +14,8 @@ import {
 } from "../api/overview";
 import { fetchServices } from "../api/services";
 import type {
-  EventHistoryItem,
+  Alert,
+  Deployment,
   GitCommitDetailsResponse,
   ServiceInfo,
   ServiceStatusResponse,
@@ -26,10 +30,6 @@ interface OverviewState {
   loading: boolean;
   loadingError: string;
   syncPending: boolean;
-  events: EventHistoryItem[];
-  eventsLoading: boolean;
-  eventsError: string;
-  eventsModalOpen: boolean;
   serviceStatusData: ServiceStatusResponse | null;
   serviceStatusLoading: boolean;
   serviceStatusError: string;
@@ -48,6 +48,18 @@ interface OverviewState {
   stackManifestStack: string;
   stackManifestDesired: string;
   stackManifestLive: string;
+  deploymentDetailsModalOpen: boolean;
+  deploymentDetailsID: string;
+  deploymentDetailsData: Deployment | null;
+  deploymentDetailsLoading: boolean;
+  deploymentDetailsError: string;
+  deploymentDetailsRequest: number;
+  alertDetailsModalOpen: boolean;
+  alertDetailsID: string;
+  alertDetailsAlert: Alert | null;
+  alertDetailsLoading: boolean;
+  alertDetailsError: string;
+  alertDetailsRequest: number;
 }
 
 export const useOverviewStore = defineStore("overview", {
@@ -58,10 +70,6 @@ export const useOverviewStore = defineStore("overview", {
     loading: false,
     loadingError: "",
     syncPending: false,
-    events: [],
-    eventsLoading: false,
-    eventsError: "",
-    eventsModalOpen: false,
     serviceStatusData: null,
     serviceStatusLoading: false,
     serviceStatusError: "",
@@ -80,6 +88,18 @@ export const useOverviewStore = defineStore("overview", {
     stackManifestStack: "",
     stackManifestDesired: "",
     stackManifestLive: "",
+    deploymentDetailsModalOpen: false,
+    deploymentDetailsID: "",
+    deploymentDetailsData: null,
+    deploymentDetailsLoading: false,
+    deploymentDetailsError: "",
+    deploymentDetailsRequest: 0,
+    alertDetailsModalOpen: false,
+    alertDetailsID: "",
+    alertDetailsAlert: null,
+    alertDetailsLoading: false,
+    alertDetailsError: "",
+    alertDetailsRequest: 0,
   }),
   actions: {
     async loadOverview() {
@@ -96,14 +116,14 @@ export const useOverviewStore = defineStore("overview", {
         } else {
           this.stacks = [];
           this.syncInfo = null;
-          errors.push(stacksResult.reason instanceof Error ? stacksResult.reason.message : "Failed to load stacks");
+          errors.push(stacksResult.reason instanceof Error ? stacksResult.reason.message : t("overview.loadStacksFailed"));
         }
 
         if (servicesResult.status === "fulfilled") {
           this.services = Array.isArray(servicesResult.value.services) ? servicesResult.value.services : [];
         } else {
           this.services = [];
-          errors.push(servicesResult.reason instanceof Error ? servicesResult.reason.message : "Failed to load services");
+          errors.push(servicesResult.reason instanceof Error ? servicesResult.reason.message : t("overview.loadServicesFailed"));
         }
 
         if (errors.length > 0) {
@@ -113,7 +133,7 @@ export const useOverviewStore = defineStore("overview", {
         this.stacks = [];
         this.services = [];
         this.syncInfo = null;
-        this.loadingError = error instanceof Error ? error.message : "Failed to load state";
+        this.loadingError = error instanceof Error ? error.message : t("overview.loadStateFailed");
       } finally {
         this.loading = false;
       }
@@ -124,28 +144,11 @@ export const useOverviewStore = defineStore("overview", {
         await triggerSync();
         await this.loadOverview();
       } catch (error) {
-        const message = error instanceof Error ? error.message : "Failed to trigger sync";
-        this.loadingError = `Failed to trigger sync: ${message}`;
+        const message = error instanceof Error ? error.message : t("overview.triggerFailed");
+        this.loadingError = t("overview.triggerError", { error: message });
       } finally {
         this.syncPending = false;
       }
-    },
-    async openEventsModal() {
-      this.eventsModalOpen = true;
-      this.eventsLoading = true;
-      this.eventsError = "";
-
-      try {
-        const response = await fetchEvents();
-        this.events = Array.isArray(response.events) ? response.events : [];
-      } catch (error) {
-        this.eventsError = error instanceof Error ? error.message : "Failed to load event history";
-      } finally {
-        this.eventsLoading = false;
-      }
-    },
-    closeEventsModal() {
-      this.eventsModalOpen = false;
     },
     async openServiceStatusModal(stackName: string, serviceName: string) {
       this.serviceStatusModalOpen = true;
@@ -172,7 +175,7 @@ export const useOverviewStore = defineStore("overview", {
           this.serviceStatusLatestDeploymentAt = deploymentsResult.value.deployments.at(0)?.created_at ?? "";
         }
       } catch (error) {
-        this.serviceStatusError = error instanceof Error ? error.message : "Failed to load service status";
+        this.serviceStatusError = error instanceof Error ? error.message : t("service.loadStatusFailedFallback");
       } finally {
         this.serviceStatusLoading = false;
       }
@@ -196,7 +199,7 @@ export const useOverviewStore = defineStore("overview", {
       try {
         this.commitDetailsData = await fetchGitCommit(commitHash);
       } catch (error) {
-        this.commitDetailsError = error instanceof Error ? error.message : "Failed to load commit details";
+        this.commitDetailsError = error instanceof Error ? error.message : t("deployments.commitDetailsFallback");
       } finally {
         this.commitDetailsLoading = false;
       }
@@ -226,7 +229,7 @@ export const useOverviewStore = defineStore("overview", {
         this.stackManifestDesired = String(manifestos.desired ?? "");
         this.stackManifestLive = String(manifestos.live ?? "");
       } catch (error) {
-        this.stackManifestError = error instanceof Error ? error.message : "Failed to load stack manifest";
+        this.stackManifestError = error instanceof Error ? error.message : t("stack.loadManifestFailedFallback");
       } finally {
         this.stackManifestLoading = false;
       }
@@ -238,6 +241,69 @@ export const useOverviewStore = defineStore("overview", {
       this.stackManifestStack = "";
       this.stackManifestDesired = "";
       this.stackManifestLive = "";
+    },
+    async openDeploymentDetailsModal(id: string) {
+      if (!id) return;
+      const request = ++this.deploymentDetailsRequest;
+      this.deploymentDetailsModalOpen = true;
+      this.deploymentDetailsID = id;
+      this.deploymentDetailsData = null;
+      this.deploymentDetailsError = "";
+      this.deploymentDetailsLoading = true;
+      try {
+        const detail = await fetchDeployment(id);
+        if (request === this.deploymentDetailsRequest) this.deploymentDetailsData = detail;
+      } catch (error) {
+        if (request === this.deploymentDetailsRequest) {
+          this.deploymentDetailsError = error instanceof Error ? error.message : t("deployments.detailsFallback");
+        }
+      } finally {
+        if (request === this.deploymentDetailsRequest) this.deploymentDetailsLoading = false;
+      }
+    },
+    closeDeploymentDetailsModal() {
+      ++this.deploymentDetailsRequest;
+      this.deploymentDetailsModalOpen = false;
+      this.deploymentDetailsID = "";
+      this.deploymentDetailsData = null;
+      this.deploymentDetailsLoading = false;
+      this.deploymentDetailsError = "";
+    },
+    openAlertDetailsModal(alert: Alert) {
+      ++this.alertDetailsRequest;
+      this.alertDetailsID = alert.id;
+      this.alertDetailsAlert = alert;
+      this.alertDetailsLoading = false;
+      this.alertDetailsError = "";
+      this.alertDetailsModalOpen = true;
+    },
+    async openAlertDetailsByID(id: string) {
+      const request = ++this.alertDetailsRequest;
+      this.alertDetailsModalOpen = true;
+      this.alertDetailsID = id;
+      this.alertDetailsAlert = null;
+      this.alertDetailsLoading = true;
+      this.alertDetailsError = "";
+      try {
+        const alert = await fetchAlert(id);
+        if (request === this.alertDetailsRequest) this.alertDetailsAlert = alert;
+      } catch (error) {
+        if (request === this.alertDetailsRequest) {
+          this.alertDetailsError = error instanceof ApiError && error.status === 404
+            ? t("alerts.notFound")
+            : t("alerts.detailsLoadError", { error: error instanceof Error ? error.message : t("common.unknownError") });
+        }
+      } finally {
+        if (request === this.alertDetailsRequest) this.alertDetailsLoading = false;
+      }
+    },
+    closeAlertDetailsModal() {
+      ++this.alertDetailsRequest;
+      this.alertDetailsModalOpen = false;
+      this.alertDetailsID = "";
+      this.alertDetailsAlert = null;
+      this.alertDetailsLoading = false;
+      this.alertDetailsError = "";
     },
   },
 });

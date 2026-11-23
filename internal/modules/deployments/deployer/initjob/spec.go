@@ -1,0 +1,259 @@
+package initjob
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"strings"
+	"time"
+
+	dockerswarm "github.com/docker/docker/api/types/swarm"
+	"github.com/swarm-deploy/swarm-deploy/internal/compose"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/resources"
+	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
+)
+
+func (r *InitJobRunner) buildInitServiceSpec(
+	ctx context.Context,
+	spec Spec,
+	serviceName string,
+) (dockerswarm.ServiceSpec, error) {
+	containerSpec := &dockerswarm.ContainerSpec{
+		Image: spec.Job.Image, Command: spec.Job.Entrypoint, Args: spec.Job.Command,
+	}
+	containerSpec.Env = initJobEnvironment(spec.Job.Environment.Map)
+	networkAttachments, err := r.initJobNetworks(ctx, spec)
+	if err != nil {
+		return dockerswarm.ServiceSpec{}, err
+	}
+	if err = r.addInitJobObjects(ctx, spec, containerSpec); err != nil {
+		return dockerswarm.ServiceSpec{}, err
+	}
+
+	replicas := uint64(1)
+	return dockerswarm.ServiceSpec{
+		Annotations: dockerswarm.Annotations{Name: serviceName, Labels: map[string]string{
+			"org.swarm-deploy.init-job.name": serviceName, "org.swarm-deploy.init-job.stack": spec.StackName,
+			"org.swarm-deploy.init-job.service": spec.ServiceName,
+		}},
+		TaskTemplate: dockerswarm.TaskSpec{ContainerSpec: containerSpec, Networks: networkAttachments,
+			RestartPolicy: &dockerswarm.RestartPolicy{Condition: dockerswarm.RestartPolicyConditionNone}},
+		Mode: dockerswarm.ServiceMode{Replicated: &dockerswarm.ReplicatedService{Replicas: &replicas}},
+	}, nil
+}
+
+func initJobEnvironment(environment map[string]string) []string {
+	if len(environment) == 0 {
+		return nil
+	}
+	env := make([]string, 0, len(environment))
+	for key, value := range environment {
+		env = append(env, fmt.Sprintf("%s=%s", key, value))
+	}
+	return env
+}
+
+func (r *InitJobRunner) initJobNetworks(ctx context.Context, spec Spec) ([]dockerswarm.NetworkAttachmentConfig, error) {
+	networks := networkAliases(spec.Job.Networks)
+	if len(networks) == 0 {
+		networks = spec.DefaultNetwork
+	}
+
+	attachments := make([]dockerswarm.NetworkAttachmentConfig, 0, len(networks))
+	for _, network := range uniqueStrings(networks) {
+		target := spec.NetworkTargets[network]
+		if target == "" {
+			var err error
+			target, err = r.resolveNetworkTarget(ctx, spec.StackName, network)
+			if err != nil {
+				return nil, err
+			}
+		}
+		if target != "" {
+			attachments = append(attachments, dockerswarm.NetworkAttachmentConfig{Target: target})
+		}
+	}
+	return attachments, nil
+}
+
+func (r *InitJobRunner) addInitJobObjects(
+	ctx context.Context,
+	spec Spec,
+	containerSpec *dockerswarm.ContainerSpec,
+) error {
+	if err := spec.Job.ValidateObjectRefs(); err != nil {
+		return err
+	}
+	// Resolve mount targets before deduplication so equivalent spellings of one
+	// file are attached once.
+	secrets := mergeObjectRefs(resolveObjectRefs(spec.ServiceSecrets, inheritedSecret),
+		resolveObjectRefs(spec.Job.Secrets, compose.ObjectRef.InitJobSecret))
+	for _, secret := range secrets {
+		ref := resolvedSecretReference(secret, spec.ResolvedSecrets)
+		if ref == nil {
+			var err error
+			ref, err = r.swarmService.Secrets.ResolveReference(ctx, secret.Source, secret.Target)
+			if err != nil {
+				return err
+			}
+		}
+		containerSpec.Secrets = append(containerSpec.Secrets, ref)
+	}
+	configs := mergeObjectRefs(resolveObjectRefs(spec.ServiceConfigs, compose.ObjectRef.ServiceConfig),
+		resolveObjectRefs(spec.Job.Configs, compose.ObjectRef.ServiceConfig))
+	for _, cfg := range configs {
+		ref := resolvedConfigReference(cfg, spec.ResolvedConfigs)
+		if ref == nil {
+			var err error
+			ref, err = r.swarmService.Configs.ResolveReference(ctx, cfg.Source, cfg.Target)
+			if err != nil {
+				return err
+			}
+		}
+		containerSpec.Configs = append(containerSpec.Configs, ref)
+	}
+	return nil
+}
+
+func networkAliases(networks *compose.ServiceNetworks) []string {
+	if networks == nil {
+		return nil
+	}
+	if aliases := networks.GetAliases(); len(aliases) > 0 {
+		return aliases
+	}
+	return networks.GetNames()
+}
+
+// inheritedSecret mounts a service secret at the service's path, spelled absolute
+// like Init Job secrets so that it deduplicates with them.
+func inheritedSecret(ref compose.ObjectRef) compose.ObjectRef {
+	return ref.ServiceSecret().InitJobSecret()
+}
+
+// resolveObjectRefs resolves each reference with resolve.
+func resolveObjectRefs(
+	refs []compose.ObjectRef, resolve func(compose.ObjectRef) compose.ObjectRef,
+) []compose.ObjectRef {
+	result := make([]compose.ObjectRef, len(refs))
+	for i, ref := range refs {
+		result[i] = resolve(ref)
+	}
+	return result
+}
+
+// resolvedSecretReference mounts a secret resolved with compose.ObjectRef.InitJobSecret.
+func resolvedSecretReference(
+	object compose.ObjectRef,
+	resolved map[string]resources.ResolvedResource,
+) *dockerswarm.SecretReference {
+	resource, ok := resolved[object.Source]
+	if !ok {
+		return nil
+	}
+	uid, gid, mode := object.FileOwnership()
+	return &dockerswarm.SecretReference{SecretID: resource.ID, SecretName: resource.Name,
+		File: &dockerswarm.SecretReferenceFileTarget{Name: object.Target, UID: uid, GID: gid, Mode: mode}}
+}
+
+// resolvedConfigReference mounts a config resolved with compose.ObjectRef.ServiceConfig.
+func resolvedConfigReference(
+	object compose.ObjectRef,
+	resolved map[string]resources.ResolvedResource,
+) *dockerswarm.ConfigReference {
+	resource, ok := resolved[object.Source]
+	if !ok {
+		return nil
+	}
+	uid, gid, mode := object.FileOwnership()
+	return &dockerswarm.ConfigReference{ConfigID: resource.ID, ConfigName: resource.Name,
+		File: &dockerswarm.ConfigReferenceFileTarget{Name: object.Target, UID: uid, GID: gid, Mode: mode}}
+}
+
+func (r *InitJobRunner) resolveNetworkTarget(ctx context.Context, stackName, network string) (string, error) {
+	candidates := []string{network}
+	if !strings.HasPrefix(network, stackName+"_") {
+		candidates = append(candidates, stackName+"_"+network)
+	}
+	if network == "default" {
+		candidates = append(candidates, stackName+"_default")
+	}
+	for _, candidate := range uniqueStrings(candidates) {
+		netResource, err := r.swarmService.Networks.Get(ctx, candidate)
+		if err == nil {
+			return netResource.ID, nil
+		}
+		if !errors.Is(err, swarm.ErrNetworkNotFound) {
+			return "", fmt.Errorf("resolve init job network %s: %w", candidate, err)
+		}
+	}
+	return network, nil
+}
+
+// BuildName returns the ephemeral Docker service name for one Init Job execution.
+func BuildName(_, _, jobName string) string {
+	return fmt.Sprintf("%s-%d", sanitizeForName(jobName), time.Now().UnixNano())
+}
+
+func sanitizeForName(v string) string {
+	if v == "" {
+		return "job"
+	}
+	var out strings.Builder
+	for _, r := range strings.ToLower(v) {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+			out.WriteRune(r)
+		default:
+			out.WriteRune('-')
+		}
+	}
+	result := strings.Trim(out.String(), "-")
+	if result == "" {
+		return "job"
+	}
+	return result
+}
+
+func uniqueStrings(values []string) []string {
+	seen := map[string]struct{}{}
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
+	}
+	return out
+}
+
+func mergeObjectRefs(inherited, job []compose.ObjectRef) []compose.ObjectRef {
+	type mountKey struct {
+		source string
+		target string
+	}
+	seen := map[mountKey]struct{}{}
+	unique := func(refs []compose.ObjectRef) []compose.ObjectRef {
+		out := make([]compose.ObjectRef, 0, len(refs))
+		for _, ref := range refs {
+			if ref.Source == "" {
+				continue
+			}
+			key := mountKey{source: ref.Source, target: ref.MountPath()}
+			if _, exists := seen[key]; exists {
+				continue
+			}
+			seen[key] = struct{}{}
+			out = append(out, ref)
+		}
+		return out
+	}
+	// Keep job references on a match and pass them after the remaining inherited mounts.
+	jobRefs := unique(job)
+	return append(unique(inherited), jobRefs...)
+}

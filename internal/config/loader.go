@@ -1,12 +1,15 @@
 package config
 
 import (
+	"bytes"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 
 	"github.com/artarts36/specw"
-	"gopkg.in/yaml.v3"
+	"go.yaml.in/yaml/v3"
 )
 
 func Unmarshal(path string) (*Config, error) {
@@ -23,10 +26,19 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("read config %s: %w", path, err)
 	}
 
-	cfg := &Config{}
-	err = yaml.Unmarshal(data, cfg)
-	if err != nil {
-		return nil, fmt.Errorf("decode config yaml: %w", err)
+	cfg := &Config{Spec: Spec{System: SystemSpec{Language: LanguageEnglish}}}
+	decoder := yaml.NewDecoder(bytes.NewReader(data))
+	decoder.KnownFields(true)
+	// Decode the spec directly so its nested structs inherit KnownFields.
+	if decodeErr := decoder.Decode(&cfg.Spec); decodeErr != nil && !errors.Is(decodeErr, io.EOF) {
+		return nil, fmt.Errorf("decode config yaml: %w", decodeErr)
+	}
+
+	if decodeErr := decoder.Decode(&Spec{}); !errors.Is(decodeErr, io.EOF) {
+		if decodeErr != nil {
+			return nil, fmt.Errorf("decode config yaml: %w", decodeErr)
+		}
+		return nil, errors.New("runtime configuration must contain a single YAML document")
 	}
 
 	configDir := filepath.Dir(path)
@@ -35,11 +47,7 @@ func Load(path string) (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	err = cfg.loadStacks(configDir)
-	if err != nil {
-		return nil, err
-	}
-	err = cfg.loadNetworks(configDir)
+	err = cfg.loadInitialDesired(configDir)
 	if err != nil {
 		return nil, err
 	}

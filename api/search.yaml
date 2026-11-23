@@ -1,0 +1,46 @@
+paths:
+  /api/v1/search:
+    get:
+      operationId: search
+      parameters:
+        - in: query
+          name: query
+          required: true
+          schema:
+            type: string
+            minLength: 1
+      responses:
+        '200':
+          description: Search results for services, secrets, and stacks.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SearchResponse'
+components:
+  schemas:
+    SearchResponse:
+      type: object
+      required: [results]
+      properties:
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/SearchResult'
+    SearchResult:
+      type: object
+      required: [kind, match, label]
+      properties:
+        kind:
+          type: string
+          enum: [service, secret, stack]
+        match:
+          type: string
+          enum: [service_name, service_web_route, secret_name, stack_name]
+        label:
+          type: string
+        stack:
+          type: string
+        service:
+          type: string
+        secret_name:
+          type: string

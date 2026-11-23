@@ -8,16 +8,17 @@ on:
   workflow_dispatch:
 
 env:
-  GO_VERSION: 1.26.2
+  GO_VERSION: 1.27.4
 
 jobs:
   binary:
     name: Release binaries
     runs-on: ubuntu-latest
-    permissions: write-all
+    permissions:
+      contents: write
     steps:
       - name: Check out code
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Generate builder values
         id: values
@@ -26,12 +27,12 @@ jobs:
           echo "buildDate=$(echo $(date +%FT%T%z))" >> $GITHUB_OUTPUT
 
       - name: Compile binary files
-        uses: crazy-max/ghaction-xgo@v3
+        uses: crazy-max/ghaction-xgo@acf46aa99b919eb9ef6bba89dfd13bafa680667f # v3
         with:
           xgo_version: latest
           go_version: ${{ env.GO_VERSION }}
           dest: dist
-          pkg: ./cmd/cli
+          pkg: ./cmd/sd
           prefix: sd
           targets: windows/amd64,linux/amd64,linux/arm64,darwin/arm64,darwin/amd64
           v: true
@@ -71,7 +72,7 @@ jobs:
           done
 
       - name: Attach binary files to release
-        uses: ncipollo/release-action@v1
+        uses: ncipollo/release-action@339a81892b84b4eeb0f6e744e4574d79d0d9b8dd # v1
         with:
           artifacts: "dist/*.zip"
           generateReleaseNotes: false
@@ -83,16 +84,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out code
-        uses: actions/checkout@v3
+        uses: actions/checkout@a37ce9120846195fa4ece8f58b268e6043cb2f26 # v3
 
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v2 # Action page: <https://github.com/docker/setup-qemu-action>
+        uses: docker/setup-qemu-action@2b82ce82d56a2a04d2637cd93a637ae1b359c0a7 # v2; Action page: <https://github.com/docker/setup-qemu-action>
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v2 # Action page: <https://github.com/docker/setup-buildx-action>
+        uses: docker/setup-buildx-action@885d1462b80bc1c1c7f0b00334ad271f09369c55 # v2; Action page: <https://github.com/docker/setup-buildx-action>
 
       - name: Login to Docker Hub
-        uses: docker/login-action@v2
+        uses: docker/login-action@465a07811f14bebb1938fbed4728c6a1ff8901fc # v2
         with:
           username: ${{ secrets.DOCKERHUB_LOGIN }}
           password: ${{ secrets.DOCKERHUB_PASSWORD }}
@@ -104,7 +105,7 @@ jobs:
           echo "timestamp=$(echo $(date +%FT%T%z))" >> $GITHUB_OUTPUT
 
       - name: Build image
-        uses: docker/build-push-action@v4 # Action page: <https://github.com/docker/build-push-action>
+        uses: docker/build-push-action@0a97817b6ade9f46837855d676c4cca3a2471fc9 # v4; Action page: <https://github.com/docker/build-push-action>
         with:
           context: .
           file: Dockerfile

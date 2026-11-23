@@ -15,6 +15,8 @@ type Assistant interface {
 	RecordIndexRebuild(status string, size int, duration time.Duration, updatedAt time.Time)
 	// RecordRetrieveFallback tracks fallback reasons during retrieval.
 	RecordRetrieveFallback(reason string)
+	// RecordRouterFallback tracks reasons that assistant routing used the fallback profile.
+	RecordRouterFallback(reason string)
 }
 
 type prometheusAssistant struct {
@@ -22,6 +24,7 @@ type prometheusAssistant struct {
 	ragIndexRebuildTotal     *prometheus.CounterVec
 	ragIndexRebuildDuration  *prometheus.HistogramVec
 	ragRetrieveFallbackTotal *prometheus.CounterVec
+	routerFallbackTotal      *prometheus.CounterVec
 	ragIndexSize             prometheus.Gauge
 	ragIndexUpdatedAt        prometheus.Gauge
 }
@@ -37,6 +40,8 @@ func (NopAssistant) RecordChatCreated() {}
 func (NopAssistant) RecordIndexRebuild(string, int, time.Duration, time.Time) {}
 
 func (NopAssistant) RecordRetrieveFallback(string) {}
+
+func (NopAssistant) RecordRouterFallback(string) {}
 
 func newAssistant(namespace string, enabled bool) Assistant {
 	if enabled {
@@ -83,6 +88,15 @@ func newPrometheusAssistant(namespace string) Assistant {
 			},
 			[]string{"reason"},
 		),
+		routerFallbackTotal: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Namespace: namespace,
+				Subsystem: "assistant",
+				Name:      "router_fallback_total",
+				Help:      "Number of assistant router fallbacks grouped by reason.",
+			},
+			[]string{"reason"},
+		),
 		ragIndexSize: prometheus.NewGauge(
 			prometheus.GaugeOpts{
 				Namespace: namespace,
@@ -119,12 +133,17 @@ func (m *prometheusAssistant) RecordRetrieveFallback(reason string) {
 	m.ragRetrieveFallbackTotal.WithLabelValues(reason).Inc()
 }
 
+func (m *prometheusAssistant) RecordRouterFallback(reason string) {
+	m.routerFallbackTotal.WithLabelValues(reason).Inc()
+}
+
 func (m *prometheusAssistant) collectors() []prometheus.Collector {
 	return []prometheus.Collector{
 		m.chatCreatedTotal,
 		m.ragIndexRebuildTotal,
 		m.ragIndexRebuildDuration,
 		m.ragRetrieveFallbackTotal,
+		m.routerFallbackTotal,
 		m.ragIndexSize,
 		m.ragIndexUpdatedAt,
 	}

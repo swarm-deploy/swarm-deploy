@@ -1,33 +1,47 @@
 package compose
 
 import (
+	jsonv1 "encoding/json"
+	"encoding/json/v2"
 	"fmt"
 
-	"gopkg.in/yaml.v3"
+	"go.yaml.in/yaml/v3"
 )
 
+// ServiceNetworks lists service network attachments. Names, AliasMap and Aliases
+// index List; they are parser metadata and are not serialized, although snapshots
+// persisted by older releases may still contain them.
 type ServiceNetworks struct {
-	Names []string
+	Names []string `json:"Names"`
 
-	List     []*ServiceNetwork
-	AliasMap map[string]*ServiceNetwork
-	Aliases  []string
+	List     []*ServiceNetwork          `json:"List"`
+	AliasMap map[string]*ServiceNetwork `json:"AliasMap"`
+	Aliases  []string                   `json:"Aliases"`
 
 	onlyAlias bool
 }
 
+// serviceNetworksJSON is the persisted form of ServiceNetworks, without parser metadata.
+type serviceNetworksJSON struct {
+	// List contains network attachments in source order.
+	List []*ServiceNetwork `json:"List"`
+}
+
+// MarshalJSON omits the indexes derived from List.
+func (s ServiceNetworks) MarshalJSON() ([]byte, error) {
+	return json.Marshal(serviceNetworksJSON{List: s.List}, jsonv1.DefaultOptionsV1())
+}
+
 type ServiceNetwork struct {
-	Alias string `yaml:"-"`
+	Alias string `yaml:"-" json:"Alias"`
 
 	// Resolved full name
-	ResolvedName string `yaml:"-"`
+	ResolvedName string `yaml:"-" json:"ResolvedName"`
 
 	IPV4Address string   `yaml:"ipv4_address,omitempty" json:"ipv4_address,omitempty"`
 	Aliases     []string `yaml:"aliases,omitempty" json:"aliases,omitempty"`
 	// DriverOpts contains network attachment driver options.
 	DriverOpts map[string]string `yaml:"driver_opts,omitempty" json:"driver_opts,omitempty"`
-
-	Extra map[string]interface{} `yaml:",inline"`
 }
 
 func NewServiceNetworks(nets ...*ServiceNetwork) *ServiceNetworks {
@@ -149,4 +163,13 @@ func (s ServiceNetworks) MarshalYAML() (interface{}, error) {
 	}
 
 	return root, nil
+}
+
+func (s *ServiceNetworks) HasAlias(alias string) bool {
+	if s == nil {
+		return false
+	}
+
+	_, has := s.AliasMap[alias]
+	return has
 }

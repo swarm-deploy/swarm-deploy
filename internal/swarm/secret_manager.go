@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 
+	"github.com/docker/docker/api/types/filters"
 	dockerswarm "github.com/docker/docker/api/types/swarm"
 	"github.com/docker/docker/client"
 )
@@ -19,10 +20,12 @@ func newSecretManager(dockerClient *client.Client) SecretManager {
 	}
 }
 
-func (r *secretManager) List(ctx context.Context) ([]Secret, error) {
-	secrets, err := r.dockerClient.SecretList(ctx, dockerswarm.SecretListOptions{})
+func (r *secretManager) List(ctx context.Context, filter ListSecretsFilter) ([]Secret, error) {
+	secrets, err := r.dockerClient.SecretList(ctx, dockerswarm.SecretListOptions{
+		Filters: buildSecretListFilters(filter),
+	})
 	if err != nil {
-		return nil, fmt.Errorf("list docker secrets: %w", err)
+		return nil, fmt.Errorf("list docker secrets: %w", classifyDockerError(err))
 	}
 
 	mapped := make([]Secret, len(secrets))
@@ -34,13 +37,76 @@ func (r *secretManager) List(ctx context.Context) ([]Secret, error) {
 	return mapped, nil
 }
 
+func buildSecretListFilters(filter ListSecretsFilter) filters.Args {
+	filterArgs := make([]filters.KeyValuePair, 0, len(filter.Names)+len(filter.Labels)+1)
+	for _, name := range filter.Names {
+		filterArgs = append(filterArgs, filters.Arg("name", name))
+	}
+	for key, value := range filter.Labels {
+		filterArgs = append(filterArgs, filters.Arg("label", key+"="+value))
+	}
+	if filter.StackName != "" {
+		filterArgs = append(filterArgs, filters.Arg("label", stackNamespaceLabelKey+"="+filter.StackName))
+	}
+
+	return filters.NewArgs(filterArgs...)
+}
+
+func (r *secretManager) Create(ctx context.Context, req CreateSecretRequest) (string, error) {
+	spec := dockerswarm.SecretSpec{
+		Annotations: dockerswarm.Annotations{Name: req.Name, Labels: req.Labels},
+		Data:        req.Data,
+	}
+	if req.Driver != "" {
+		spec.Driver = &dockerswarm.Driver{Name: req.Driver, Options: req.DriverOptions}
+	}
+	if req.TemplateDriver != "" {
+		spec.Templating = &dockerswarm.Driver{Name: req.TemplateDriver}
+	}
+
+	created, err := r.dockerClient.SecretCreate(ctx, spec)
+	if err != nil {
+		if isConflictErr(err) {
+			return "", fmt.Errorf("create docker secret %s: %w: %w", req.Name, ErrSecretAlreadyExists, err)
+		}
+		return "", fmt.Errorf("create docker secret %s: %w", req.Name, classifyDockerError(err))
+	}
+
+	return created.ID, nil
+}
+
+func (r *secretManager) UpdateLabels(ctx context.Context, secretID string, labels map[string]string) error {
+	secret, _, err := r.dockerClient.SecretInspectWithRaw(ctx, secretID)
+	if err != nil {
+		return fmt.Errorf("inspect secret for label update: %w", classifyDockerError(err))
+	}
+	// Recheck the freshly inspected owner: labels may have changed since List.
+	owner := labels[stackNamespaceLabelKey]
+	if owner == "" || secret.Spec.Labels[stackNamespaceLabelKey] != owner {
+		return fmt.Errorf("secret %s ownership conflict", secretID)
+	}
+	secret.Spec.Labels = labels
+	if err = r.dockerClient.SecretUpdate(ctx, secret.ID, secret.Version, secret.Spec); err != nil {
+		return fmt.Errorf("update secret labels: %w", classifyDockerError(err))
+	}
+	return nil
+}
+
+func (r *secretManager) Remove(ctx context.Context, secretID string) error {
+	if err := r.dockerClient.SecretRemove(ctx, secretID); err != nil {
+		return fmt.Errorf("remove docker secret %s: %w", secretID, classifyDockerError(err))
+	}
+
+	return nil
+}
+
 func (r *secretManager) ResolveReference(
 	ctx context.Context,
 	source, target string,
 ) (*dockerswarm.SecretReference, error) {
 	secret, _, err := r.dockerClient.SecretInspectWithRaw(ctx, source)
 	if err != nil {
-		return nil, fmt.Errorf("inspect secret: %w", err)
+		return nil, fmt.Errorf("inspect secret: %w", classifyDockerError(err))
 	}
 
 	ref := &dockerswarm.SecretReference{

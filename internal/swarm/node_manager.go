@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"sort"
 
-	dockerevents "github.com/docker/docker/api/types/events"
-	"github.com/docker/docker/api/types/filters"
 	dockerswarm "github.com/docker/docker/api/types/swarm"
 	"github.com/docker/docker/client"
 )
@@ -26,7 +24,7 @@ func newNodeManager(dockerClient *client.Client) NodeManager {
 func (m *nodeManager) List(ctx context.Context) ([]Node, error) {
 	nodes, err := m.dockerClient.NodeList(ctx, dockerswarm.NodeListOptions{})
 	if err != nil {
-		return nil, fmt.Errorf("list swarm nodes: %w", err)
+		return nil, fmt.Errorf("list swarm nodes: %w", classifyDockerError(err))
 	}
 
 	mapped := make([]Node, 0, len(nodes))
@@ -38,16 +36,47 @@ func (m *nodeManager) List(ctx context.Context) ([]Node, error) {
 	return mapped, nil
 }
 
-// Watch subscribes to Docker node events stream.
-func (m *nodeManager) Watch(
-	ctx context.Context,
-) (<-chan dockerevents.Message, <-chan error, error) {
-	eventsFilter := filters.NewArgs(filters.Arg("type", string(dockerevents.NodeEventType)))
-	messages, errs := m.dockerClient.Events(ctx, dockerevents.ListOptions{
-		Filters: eventsFilter,
+// SetLabel sets Docker node label value while preserving the rest of the node spec.
+func (m *nodeManager) SetLabel(ctx context.Context, req NodeLabelUpdateRequest) error {
+	return m.updateLabels(ctx, req.NodeID, func(labels map[string]string) {
+		labels[req.Key] = req.Value
 	})
+}
 
-	return messages, errs, nil
+// DeleteLabel removes Docker node label while preserving the rest of the node spec.
+func (m *nodeManager) DeleteLabel(ctx context.Context, nodeID string, key string) error {
+	return m.updateLabels(ctx, nodeID, func(labels map[string]string) {
+		delete(labels, key)
+	})
+}
+
+func (m *nodeManager) updateLabels(ctx context.Context, nodeID string, mutate func(labels map[string]string)) error {
+	node, _, err := m.dockerClient.NodeInspectWithRaw(ctx, nodeID)
+	if err != nil {
+		if isNotFoundErr(err) {
+			return fmt.Errorf("%w: %w", ErrNodeNotFound, err)
+		}
+
+		return fmt.Errorf("inspect node %s: %w", nodeID, classifyDockerError(err))
+	}
+
+	spec := node.Spec
+	labels := cloneLabels(spec.Labels)
+	mutate(labels)
+	spec.Labels = labels
+
+	if err = m.dockerClient.NodeUpdate(ctx, node.ID, node.Version, spec); err != nil {
+		if isNotFoundErr(err) {
+			return fmt.Errorf("%w: %w", ErrNodeNotFound, err)
+		}
+		if isUpdateConflict(err) {
+			return fmt.Errorf("%w: %w", ErrNodeUpdateConflict, err)
+		}
+
+		return fmt.Errorf("update node %s labels: %w", nodeID, classifyDockerError(err))
+	}
+
+	return nil
 }
 
 func (*nodeManager) mapNode(node dockerswarm.Node) Node {
@@ -64,17 +93,30 @@ func (*nodeManager) mapNode(node dockerswarm.Node) Node {
 	}
 
 	return Node{
-		ID:            node.ID,
-		Hostname:      node.Description.Hostname,
-		Status:        string(node.Status.State),
-		Availability:  string(node.Spec.Availability),
-		ManagerStatus: managerStatus,
-		EngineVersion: node.Description.Engine.EngineVersion,
-		Addr:          node.Status.Addr,
-		CPUNano:       node.Description.Resources.NanoCPUs,
-		MemoryBytes:   node.Description.Resources.MemoryBytes,
-		Labels:        node.Spec.Labels,
+		ID:                   node.ID,
+		Role:                 string(node.Spec.Role),
+		Hostname:             node.Description.Hostname,
+		PlatformOS:           node.Description.Platform.OS,
+		PlatformArchitecture: node.Description.Platform.Architecture,
+		Status:               string(node.Status.State),
+		Availability:         string(node.Spec.Availability),
+		ManagerStatus:        managerStatus,
+		EngineVersion:        node.Description.Engine.EngineVersion,
+		EngineLabels:         node.Description.Engine.Labels,
+		Addr:                 node.Status.Addr,
+		CPUNano:              node.Description.Resources.NanoCPUs,
+		MemoryBytes:          node.Description.Resources.MemoryBytes,
+		Labels:               node.Spec.Labels,
 	}
+}
+
+func cloneLabels(labels map[string]string) map[string]string {
+	cloned := make(map[string]string, len(labels))
+	for key, value := range labels {
+		cloned[key] = value
+	}
+
+	return cloned
 }
 
 func (*nodeManager) sortInfos(nodes []Node) {

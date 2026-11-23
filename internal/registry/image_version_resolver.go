@@ -5,8 +5,7 @@ import (
 	"fmt"
 
 	"github.com/distribution/reference"
-	dockerregistry "github.com/docker/docker/api/types/registry"
-	"github.com/docker/docker/client"
+	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 
 // ImageVersion describes resolved image version details in registry.
@@ -23,33 +22,18 @@ type ImageVersion struct {
 	Digest string
 }
 
-// DistributionInspector inspects image distribution metadata in a registry.
-type DistributionInspector interface {
-	// DistributionInspect returns digest and manifest metadata for image reference.
-	DistributionInspect(
-		ctx context.Context,
-		imageRef string,
-		encodedRegistryAuth string,
-	) (dockerregistry.DistributionInspect, error)
-}
-
 // ImageVersionResolver resolves actual image version in registry.
 type ImageVersionResolver struct {
-	inspector   DistributionInspector
+	images      swarm.ImageManager
 	authManager AuthManager
 }
 
 // NewImageVersionResolver creates image version resolver.
-func NewImageVersionResolver() (*ImageVersionResolver, error) {
-	inspector, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
-	if err != nil {
-		return nil, fmt.Errorf("create docker client for distribution inspect: %w", err)
-	}
-
+func NewImageVersionResolver(images swarm.ImageManager) *ImageVersionResolver {
 	return &ImageVersionResolver{
-		inspector:   inspector,
+		images:      images,
 		authManager: NewAuthManager(),
-	}, nil
+	}
 }
 
 // ResolveActualVersion resolves actual image version in registry.
@@ -69,7 +53,7 @@ func (r *ImageVersionResolver) ResolveActualVersion(
 		return ImageVersion{}, fmt.Errorf("resolve image auth: %w", err)
 	}
 
-	result, err := r.inspector.DistributionInspect(ctx, inspectReference, encodedAuth)
+	result, err := r.images.InspectDistribution(ctx, inspectReference, encodedAuth)
 	if err != nil {
 		return ImageVersion{}, fmt.Errorf("resolve image %q in registry: %w", inspectReference, err)
 	}

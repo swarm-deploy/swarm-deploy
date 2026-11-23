@@ -1,6 +1,62 @@
 package config
 
-import "github.com/artarts36/specw"
+import (
+	"strings"
+
+	"github.com/artarts36/specw"
+)
+
+// AssistantToolName identifies a built-in assistant tool.
+type AssistantToolName string
+
+const (
+	AssistantToolNameHistoryEventList                   AssistantToolName = "history_event_list"
+	AssistantToolNameAlertList                          AssistantToolName = "alert_list"
+	AssistantToolNameAlertGet                           AssistantToolName = "alert_get"
+	AssistantToolNameDeploymentList                     AssistantToolName = "deployment_list"
+	AssistantToolNameDeploymentGet                      AssistantToolName = "deployment_get"
+	AssistantToolNameDeploySyncTrigger                  AssistantToolName = "deploy_sync_trigger"
+	AssistantToolNameSyncPauseGet                       AssistantToolName = "sync_pause_get"
+	AssistantToolNameSyncPauseSet                       AssistantToolName = "sync_pause_set"
+	AssistantToolNameSyncPauseResume                    AssistantToolName = "sync_pause_resume"
+	AssistantToolNameSwarmNodeList                      AssistantToolName = "swarm_node_list"
+	AssistantToolNameDockerNetworkList                  AssistantToolName = "docker_network_list"
+	AssistantToolNameDockerPluginList                   AssistantToolName = "docker_plugin_list"
+	AssistantToolNameDockerSecretList                   AssistantToolName = "docker_secret_list"
+	AssistantToolNameServiceLogsGet                     AssistantToolName = "service_logs_get"
+	AssistantToolNameServiceTaskList                    AssistantToolName = "service_task_list"
+	AssistantToolNameServiceTaskLogsGet                 AssistantToolName = "service_task_logs_get"
+	AssistantToolNameServiceSpecGet                     AssistantToolName = "service_spec_get"
+	AssistantToolNameServiceHealthGet                   AssistantToolName = "service_health_get"
+	AssistantToolNameDNSNameResolve                     AssistantToolName = "dns_name_resolve"
+	AssistantToolNameTLSCertificateCheck                AssistantToolName = "tls_certificate_check"
+	AssistantToolNameServiceWebRoutePing                AssistantToolName = "service_webroute_ping"
+	AssistantToolNameDependencyGraphGet                 AssistantToolName = "dependency_graph_get"
+	AssistantToolNameRecommendationList                 AssistantToolName = "recommendation_list"
+	AssistantToolNameServiceReplicasSet                 AssistantToolName = "service_replicas_set"
+	AssistantToolNameServiceRestartTrigger              AssistantToolName = "service_restart_trigger"
+	AssistantToolNameServiceImageUpdate                 AssistantToolName = "service_image_update"
+	AssistantToolNameRegistryImageVersionGet            AssistantToolName = "registry_image_version_get"
+	AssistantToolNameGitRepositoryDiagnostics           AssistantToolName = "git_repository_diagnostics"
+	AssistantToolNameGitCommitList                      AssistantToolName = "git_commit_list"
+	AssistantToolNameGitCommitDiff                      AssistantToolName = "git_commit_diff"
+	AssistantToolNameExternalRepositoryReleaseLatestGet AssistantToolName = "external_repository_release_latest_get"
+	AssistantToolNameDate                               AssistantToolName = "date"
+	AssistantToolNameSelfMetricsList                    AssistantToolName = "self_metrics_list"
+	AssistantToolNameAssistantPromptInjectionReport     AssistantToolName = "assistant_prompt_injection_report"
+	AssistantToolNameSwarmDeployConfigGet               AssistantToolName = "swarm_deploy_config_get"
+)
+
+// NormalizeAssistantToolAllowlist returns the configured tool names. An empty set permits every tool.
+func NormalizeAssistantToolAllowlist(names []string) map[string]struct{} {
+	allowed := make(map[string]struct{}, len(names))
+	for _, name := range names {
+		if name = strings.TrimSpace(name); name != "" {
+			allowed[name] = struct{}{}
+		}
+	}
+	return allowed
+}
 
 // AssistantSpec configures AI assistant behavior.
 type AssistantSpec struct {
@@ -37,7 +93,7 @@ type AssistantOpenAISpec struct {
 	// Temperature is a model temperature value in [0, 2].
 	Temperature string `yaml:"temperature"`
 	// MaxTokens is a max generated token count.
-	MaxTokens string `yaml:"maxTokens"`
+	MaxTokens int `yaml:"maxTokens"`
 }
 
 // AssistantConversationSpec contains conversation settings.

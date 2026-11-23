@@ -1,24 +1,48 @@
 package compose
 
 import (
+	jsonv1 "encoding/json"
+	"encoding/json/v2"
 	"fmt"
+	"slices"
+	"sort"
 	"strings"
 
 	"github.com/go-faster/errors"
-	"gopkg.in/yaml.v3"
+	"go.yaml.in/yaml/v3"
 )
 
 const envPairParts = 2
 
 type Environment struct {
-	Map map[string]string
+	// Unset is retained only for backwards compatibility with persisted definitions.
+	// Newly loaded Compose environments contain explicit values.
+	Unset []string          `json:"Unset,omitempty"`
+	Map   map[string]string `json:"Map"`
+	// Keys records the source order of Map. It is parser metadata and is not
+	// serialized; snapshots persisted by older releases may still contain it.
+	Keys []string `json:"Keys"`
 
 	isMap bool
 }
 
+// environmentJSON is the persisted form of Environment, without parser metadata.
+type environmentJSON struct {
+	// Unset lists legacy variables without a value.
+	Unset []string `json:"Unset,omitempty"`
+	// Map contains variable values by name.
+	Map map[string]string `json:"Map"`
+}
+
+// MarshalJSON omits Keys, which only records the source order of Map.
+func (e Environment) MarshalJSON() ([]byte, error) {
+	return json.Marshal(environmentJSON{Unset: e.Unset, Map: e.Map}, jsonv1.DefaultOptionsV1())
+}
+
 func NewEnvironment(values []string) (*Environment, error) {
 	env := &Environment{
-		Map: make(map[string]string, len(values)),
+		Map:  make(map[string]string, len(values)),
+		Keys: make([]string, 0, len(values)),
 	}
 
 	for i, raw := range values {
@@ -28,6 +52,7 @@ func NewEnvironment(values []string) (*Environment, error) {
 		}
 
 		env.Map[key] = value
+		env.Keys = append(env.Keys, key)
 	}
 
 	return env, nil
@@ -38,14 +63,9 @@ func (e *Environment) UnmarshalYAML(node *yaml.Node) error {
 		return errors.New("environment must be a map or a sequence node")
 	}
 
+	e.Unset = nil
 	if node.Kind == yaml.MappingNode {
-		if err := node.Decode(&e.Map); err != nil {
-			return err
-		}
-
-		e.isMap = true
-
-		return nil
+		return e.unmarshalFromMapping(node)
 	}
 
 	return e.unmarshalFromSequence(node)
@@ -53,7 +73,15 @@ func (e *Environment) UnmarshalYAML(node *yaml.Node) error {
 
 func (e Environment) MarshalYAML() (interface{}, error) {
 	if e.isMap {
-		return e.Map, nil
+		values := make(map[string]any, len(e.Map))
+		for key, value := range e.Map {
+			if slices.Contains(e.Unset, key) {
+				values[key] = nil
+			} else {
+				values[key] = value
+			}
+		}
+		return values, nil
 	}
 
 	values := make([]string, len(e.Map))
@@ -61,14 +89,47 @@ func (e Environment) MarshalYAML() (interface{}, error) {
 
 	for k, v := range e.Map {
 		values[i] = k + "=" + v
+		if slices.Contains(e.Unset, k) {
+			values[i] = k
+		}
 		i++
 	}
 
+	sort.Strings(values)
 	return values, nil
+}
+
+func (e *Environment) IsEmpty() bool {
+	return len(e.Map) == 0
+}
+
+func (e *Environment) Clone() *Environment {
+	values := make(map[string]string, len(e.Map))
+	for k, v := range e.Map {
+		values[k] = v
+	}
+
+	return &Environment{
+		Map:   values,
+		Keys:  slices.Clone(e.Keys),
+		Unset: slices.Clone(e.Unset),
+		isMap: e.isMap,
+	}
+}
+
+func (e *Environment) Has(key string) bool {
+	_, has := e.Map[key]
+	return has
+}
+
+func (e *Environment) Get(key string) (string, bool) {
+	value, has := e.Map[key]
+	return value, has
 }
 
 func (e *Environment) unmarshalFromSequence(node *yaml.Node) error {
 	mmap := map[string]string{}
+	keys := make([]string, 0, len(node.Content))
 
 	for i, item := range node.Content {
 		if item.Kind != yaml.ScalarNode {
@@ -81,9 +142,11 @@ func (e *Environment) unmarshalFromSequence(node *yaml.Node) error {
 		}
 
 		mmap[key] = value
+		keys = append(keys, key)
 	}
 
 	e.Map = mmap
+	e.Keys = keys
 
 	return nil
 }
@@ -95,4 +158,27 @@ func (e *Environment) parseVar(raw string) (string, string, error) {
 	}
 
 	return "", "", errors.New("contains non-pair value")
+}
+
+func (e *Environment) unmarshalFromMapping(node *yaml.Node) error {
+	e.Map = make(map[string]string, len(node.Content)/envPairParts)
+	e.Keys = make([]string, 0, len(node.Content)/envPairParts)
+
+	key := ""
+	for i, child := range node.Content {
+		if i%2 == 0 {
+			key = child.Value
+		} else {
+			if child.Tag == "!!null" {
+				e.Map[key] = ""
+			} else {
+				e.Map[key] = child.Value
+			}
+			e.Keys = append(e.Keys, key)
+		}
+	}
+
+	e.isMap = true
+
+	return nil
 }

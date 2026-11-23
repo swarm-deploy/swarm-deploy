@@ -1,0 +1,381 @@
+// Package waiter observes Docker Swarm service convergence after detached applies.
+package waiter
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"reflect"
+	"slices"
+	"sort"
+	"time"
+
+	dockerswarm "github.com/docker/docker/api/types/swarm"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/services"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/tracing"
+	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/trace"
+)
+
+const (
+	defaultServiceWaitTimeout  = 10 * time.Minute
+	maxServiceDiagnosticLength = 256
+	globalServiceMode          = "global"
+	replicatedServiceMode      = "replicated"
+	globalJobServiceMode       = "global-job"
+	replicatedJobServiceMode   = "replicated-job"
+)
+
+var serviceWaiterTracer = otel.Tracer(
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer/servicewaiter",
+)
+
+// ErrConvergenceFailed identifies an observed terminal Swarm failure, rather than an observation error.
+var ErrConvergenceFailed = errors.New("service convergence failed")
+
+// ServiceState describes the current convergence state of a service.
+type ServiceState string
+
+const (
+	// ServicePending means that the service has not converged yet.
+	ServicePending ServiceState = "pending"
+	// ServiceReady means that the requested verification succeeded; see SpecificationOnly.
+	ServiceReady ServiceState = "ready"
+	// ServiceFailed means that the service cannot converge without another update.
+	ServiceFailed ServiceState = "failed"
+)
+
+// ServiceProgress contains one observable service convergence state.
+type ServiceProgress struct {
+	// ServiceID is the Docker service identifier when the service is visible.
+	ServiceID string
+	// Name is the service name without the stack prefix.
+	Name string
+	// State is the current convergence state.
+	State ServiceState
+	// Desired is the number of tasks expected to run.
+	Desired uint64
+	// Running is the number of current desired-state tasks that are running.
+	Running uint64
+	// SpecificationOnly limits verification to spec acceptance, without checking task health.
+	SpecificationOnly bool
+	// FailedTaskID identifies the task responsible for a confirmed terminal failure.
+	FailedTaskID string
+	// Message contains a bounded convergence diagnostic.
+	Message string
+
+	taskFault            faults.Coded
+	taskContext          string
+	pendingTaskFaults    []faults.Coded
+	placementConstraints []string
+	taskLookupFailed     bool
+}
+
+func (p *ServiceProgress) failTask(task swarm.ServiceTask, message string) {
+	p.State = ServiceFailed
+	p.FailedTaskID = task.ID
+	p.Message = message + formatTaskDiagnostic(task)
+	p.taskFault = task.Fault()
+	if p.taskFault == nil {
+		return
+	}
+	// Keep task metadata separate so the technical error can wrap the full diagnostic once.
+	task.Error = ""
+	p.taskContext = message + formatTaskDiagnostic(task)
+}
+
+// ServiceProgressCallback receives meaningful service convergence transitions.
+type ServiceProgressCallback func(ServiceProgress)
+
+// ServiceWaitResult contains the final verification obligations, including targets never observed.
+type ServiceWaitResult struct {
+	// SpecificationOnlyServices lists services verified for spec acceptance rather than task health.
+	SpecificationOnlyServices []string
+	// FailedTasks retains confirmed terminal task failures, ordered by service name.
+	FailedTasks []ServiceProgress
+	// UnresolvedServices contains every target whose last observed state was not ready.
+	UnresolvedServices []string
+}
+
+// ServiceWaitRequest defines the services to observe after a detached stack apply.
+type ServiceWaitRequest struct {
+	// StackName is the Docker stack namespace.
+	StackName string
+	// ServiceNames is the complete verification target set, without the stack prefix.
+	// The caller selects changed services and prior unresolved rollouts.
+	ServiceNames []string
+	// Baseline is the stack service snapshot captured immediately before apply.
+	Baseline []swarm.StackService
+	// AppliedServices contains services actually created or updated by this apply.
+	// These must become visible before their tasks or update status can satisfy verification.
+	AppliedServices []string
+	// UnresolvedServices carries verification obligations even without a new apply.
+	// Task generation evidence is required only for writes that can replace tasks.
+	UnresolvedServices []string
+	// ExpectedSpecs carries converter-produced specifications and their replica ownership policies.
+	ExpectedSpecs map[string]dockerswarm.ServiceSpec
+	// UpdateGenerations records actual runtime generations preserved by successful writes.
+	UpdateGenerations map[string]services.UpdateGeneration
+	// Progress receives de-duplicated convergence transitions when configured.
+	Progress ServiceProgressCallback
+}
+
+// ServiceWaiter observes Docker Swarm service convergence after a detached apply.
+type ServiceWaiter struct {
+	services     swarm.ServiceManager
+	nodes        swarm.NodeManager
+	pollInterval time.Duration
+	timeout      time.Duration
+}
+
+// NewServiceWaiter creates a bounded Docker Swarm service convergence waiter.
+func NewServiceWaiter(
+	services swarm.ServiceManager,
+	nodes swarm.NodeManager,
+	pollInterval time.Duration,
+	timeout time.Duration,
+) *ServiceWaiter {
+	return &ServiceWaiter{services: services, nodes: nodes, pollInterval: pollInterval, timeout: timeout}
+}
+
+// Snapshot returns the current services belonging to a stack.
+func (w *ServiceWaiter) Snapshot(ctx context.Context, stackName string) ([]swarm.StackService, error) {
+	services, err := w.services.ListServices(ctx, swarm.ListServicesFilter{Stack: stackName})
+	if err != nil {
+		return nil, fmt.Errorf("snapshot services for stack %s: %w", stackName, err)
+	}
+
+	return services, nil
+}
+
+// Wait blocks until the requested services converge or the wait is interrupted.
+func (w *ServiceWaiter) Wait(ctx context.Context, request ServiceWaitRequest) (ServiceWaitResult, error) {
+	startedAt := time.Now()
+	ctx, span := serviceWaiterTracer.Start(ctx, "serviceWaiter.Wait", trace.WithAttributes(
+		tracing.ResourceStackName.String(request.StackName),
+	))
+	defer span.End()
+
+	state := waitState{last: make(map[string]ServiceProgress), services: make(map[string]swarm.StackService)}
+	var waitErr error
+	defer func() {
+		finishServiceWaitSpan(span, startedAt, state, waitErr)
+	}()
+
+	waitErr = w.wait(ctx, span, request, &state)
+	return state.result(), waitErr
+}
+
+func (w *ServiceWaiter) wait(
+	ctx context.Context,
+	span trace.Span,
+	request ServiceWaitRequest,
+	state *waitState,
+) error {
+	baseline := servicesByName(request.Baseline)
+	candidates := uniqueSortedNames(request.ServiceNames)
+	targets := make(map[string]struct{}, len(candidates))
+	for _, name := range candidates {
+		targets[name] = struct{}{}
+	}
+	state.targets = targets
+	if len(candidates) == 0 {
+		return nil
+	}
+	waitCtx, cancel := context.WithTimeout(ctx, w.timeout)
+	defer cancel()
+	ticker := time.NewTicker(w.pollInterval)
+	defer ticker.Stop()
+
+	for {
+		settled, observeErr := w.poll(waitCtx, span, request, baseline, targets, state)
+		if !settled && waitCtx.Err() != nil {
+			break
+		}
+		switch {
+		case observeErr != nil:
+			if !isTransientDockerAPIError(observeErr) {
+				cancel()
+				failure := w.withObservationFailure(ctx, state, observeErr)
+				state.failPending(span, request.Progress, observeErr)
+				return failure
+			}
+			state.retryPending(span, request.Progress, targets, observeErr)
+		case settled:
+			return state.terminalError()
+		default:
+			state.lastObservationError = nil
+		}
+
+		select {
+		case <-waitCtx.Done():
+		case <-ticker.C:
+		}
+		if waitCtx.Err() != nil {
+			break
+		}
+	}
+
+	cause := waitCtx.Err()
+	failure := w.finishInterruptedWait(ctx, request.StackName, state, cause)
+	state.failPending(span, request.Progress, cause)
+	return failure
+}
+
+func (w *ServiceWaiter) finishInterruptedWait(ctx context.Context, stack string, state *waitState, cause error) error {
+	interrupted := w.waitInterruptedError(ctx, stack, state.last, cause, state.lastObservationError)
+	terminal := state.terminalError()
+	if terminal == nil {
+		return interrupted
+	}
+	return errors.Join(terminal, interrupted)
+}
+
+func (w *ServiceWaiter) withObservationFailure(ctx context.Context, state *waitState, cause error) error {
+	if terminal := state.terminalError(); terminal != nil {
+		cause = fmt.Errorf("%w; observation failed: %w", terminal, cause)
+	}
+	return w.withPendingTaskFaults(ctx, cause, state.last)
+}
+
+func (w *ServiceWaiter) poll(
+	ctx context.Context,
+	span trace.Span,
+	request ServiceWaitRequest,
+	baseline map[string]swarm.StackService,
+	targets map[string]struct{},
+	state *waitState,
+) (bool, error) {
+	current, err := w.Snapshot(ctx, request.StackName)
+	if err != nil {
+		return false, err
+	}
+	currentByName := servicesByName(current)
+	if len(targets) == 0 {
+		return true, nil
+	}
+
+	return w.observeTargets(ctx, span, request, baseline, currentByName, targets, state)
+}
+
+func (w *ServiceWaiter) observeTargets(
+	ctx context.Context,
+	span trace.Span,
+	request ServiceWaitRequest,
+	baseline map[string]swarm.StackService,
+	current map[string]swarm.StackService,
+	targets map[string]struct{},
+	state *waitState,
+) (bool, error) {
+	state.observed = len(targets)
+	state.converged = 0
+	settled := true
+	var observationErrs observationErrors
+	for _, name := range sortedTargetNames(targets) {
+		service := current[name]
+		if ctx.Err() != nil {
+			state.invalidateChangedService(span, request.Progress, name, service)
+			settled = false
+			continue
+		}
+		if slices.Contains(request.AppliedServices, name) && baseline[name].ID != "" &&
+			!serviceChanged(baseline[name], service) {
+			// Docker may briefly return the pre-apply snapshot. Neither old running
+			// tasks nor an old paused update describes the accepted service version.
+			state.observe(span, request.Progress, service, ServiceProgress{
+				Name: name, State: ServicePending, Message: "waiting for applied service version",
+			})
+			settled = false
+			continue
+		}
+		progress, err := w.observeService(ctx, name, baseline[name], service,
+			slices.Contains(request.UnresolvedServices, name), request.ExpectedSpecs[name], request.UpdateGenerations[name])
+		state.observe(span, request.Progress, service, progress)
+		if err != nil {
+			observationErrs = append(observationErrs, err)
+			continue
+		}
+		switch progress.State {
+		case ServiceReady:
+			state.converged++
+		case ServicePending:
+			settled = false
+		case ServiceFailed:
+			// Keep observing independent targets after a confirmed failure.
+		}
+	}
+	if len(observationErrs) != 0 {
+		return false, observationErrs
+	}
+	return settled, nil
+}
+
+func serviceChanged(before, after swarm.StackService) bool {
+	return before.ID != after.ID || !before.UpdatedAt.Equal(after.UpdatedAt) ||
+		!reflect.DeepEqual(before.ServiceSpec, after.ServiceSpec)
+}
+
+func servicesByName(services []swarm.StackService) map[string]swarm.StackService {
+	mapped := make(map[string]swarm.StackService, len(services))
+	for _, service := range services {
+		mapped[service.Name] = service
+	}
+	return mapped
+}
+
+type observationErrors []error
+
+func (errs observationErrors) Error() string   { return errors.Join(errs...).Error() }
+func (errs observationErrors) Unwrap() []error { return errs }
+func (errs observationErrors) Temporary() bool {
+	// Retrying the poll only helps when every failed observation can be retried.
+	for _, err := range errs {
+		if !isTransientDockerAPIError(err) {
+			return false
+		}
+	}
+	return true
+}
+
+func isTransientDockerAPIError(err error) bool {
+	if observations, ok := err.(observationErrors); ok {
+		return observations.Temporary()
+	}
+	var temporary faults.Error
+	if errors.As(err, &temporary) && temporary.Temporary() {
+		return true
+	}
+
+	var timeout interface{ Timeout() bool }
+	return errors.As(err, &timeout) && timeout.Timeout()
+}
+
+func uniqueSortedNames(names []string) []string {
+	set := make(map[string]struct{}, len(names))
+	for _, name := range names {
+		if name != "" {
+			set[name] = struct{}{}
+		}
+	}
+	return sortedTargetNames(set)
+}
+
+func sortedTargetNames(names map[string]struct{}) []string {
+	sorted := make([]string, 0, len(names))
+	for name := range names {
+		sorted = append(sorted, name)
+	}
+	sort.Strings(sorted)
+	return sorted
+}
+
+func sortedProgressNames(progress map[string]ServiceProgress) []string {
+	names := make([]string, 0, len(progress))
+	for name := range progress {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
