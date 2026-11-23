@@ -72,3 +72,54 @@ func TestDockerFaultsExtractedIntoAlertFindings(t *testing.T) {
 		})
 	}
 }
+
+func TestRegistryPullFindingsSetSyncAlertThreshold(t *testing.T) {
+	evaluator := NewSyncEvaluator(modelstore.NewSQLStore(testutil.OpenSQLite(t)), &config.Config{})
+	temporary := faults.Cause{
+		Code: faults.CodeImagePullFailed, Summary: "Docker could not pull the image.", Temporary: true,
+	}
+	permanent := faults.Cause{Code: faults.CodeMountFailed, Summary: "mount failed: volume unavailable"}
+	for _, tc := range []struct {
+		name      string
+		terminal  bool
+		causes    []faults.Cause
+		openAfter uint64
+	}{
+		{"terminal failure with temporary finding", true, []faults.Cause{temporary}, openImmediately},
+		{"interruption with only temporary findings", false, []faults.Cause{temporary}, temporaryFailureThreshold},
+		{"interruption with mixed findings", false, []faults.Cause{temporary, permanent}, openImmediately},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			const rawDiagnostic = `error from registry: unexpected response {"token":"private-value"}`
+			diagnostic := faults.NewSafeErrorWithCauses(rawDiagnostic, false, tc.causes)
+			var event events.Event = &events.DeployInterrupted{
+				StackName: "app", Reason: events.DeployInterruptReasonVerificationUnknown, Error: diagnostic,
+			}
+			typeName := events.TypeNameDeployInterrupted
+			if tc.terminal {
+				event = &events.DeployFailed{
+					DeployEvent: events.DeployEvent{StackName: "app"},
+					ErrorCode:   events.DeployErrorCodeConvergenceFailed,
+					Error:       diagnostic,
+				}
+				typeName = events.TypeNameDeployFailed
+			}
+			payload, err := codec.Encode(event)
+			require.NoError(t, err)
+			decoded, err := codec.Decode(typeName, codec.Version, payload)
+			require.NoError(t, err)
+
+			actions, err := evaluator.Evaluate(t.Context(), events.Envelope{ID: "failure", Event: decoded})
+			require.NoError(t, err)
+			require.Len(t, actions, 1)
+			action := actions[0]
+			assert.Equal(t, tc.openAfter, action.OpenAfter)
+			require.Len(t, action.Findings, len(tc.causes))
+			for i, cause := range tc.causes {
+				assert.Equal(t, model.Finding{Code: cause.Code, Summary: cause.Summary}, action.Findings[i])
+			}
+			assert.Contains(t, action.Alert.Message, `{"token":"****"}`)
+			assert.NotContains(t, action.Alert.Message, "private-value")
+		})
+	}
+}

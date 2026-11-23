@@ -73,6 +73,26 @@ func (e *dockerFaultError) Is(target error) bool {
 	return target == ErrImageNotFound && e.code == faults.CodeImageNotFound
 }
 
+// Match Docker/Swarm diagnostics rather than generic permission or startup errors.
+var dockerFaultPatterns = [...]struct {
+	text string
+	code faults.Code
+}{
+	{"no suitable node", faults.CodeNoSuitableNode},
+	{"unauthorized: authentication required", faults.CodeImagePullDenied},
+	{"denied: requested access to the resource is denied", faults.CodeImagePullDenied},
+	{"no basic auth credentials", faults.CodeImagePullDenied},
+	{"insufficient_scope: authorization failed", faults.CodeImagePullDenied},
+	{"invalid mount config for type ", faults.CodeMountFailed},
+	{"error while creating mount source path ", faults.CodeMountFailed},
+	{"error while mounting volume ", faults.CodeMountFailed},
+	{"error while creating volume ", faults.CodeMountFailed},
+	{"volumedriver.mount:", faults.CodeMountFailed},
+	{"failed to mount ", faults.CodeMountFailed},
+	{"error mounting ", faults.CodeMountFailed},
+	{"mount failed:", faults.CodeMountFailed},
+}
+
 func dockerFault(diagnostic string) (faults.Code, string) {
 	const maxSummaryLength = 256
 	message := strings.ToLower(diagnostic)
@@ -83,25 +103,7 @@ func dockerFault(diagnostic string) (faults.Code, string) {
 			"Container image extraction failed: containerd snapshot lease is missing. " +
 				"Retry deployment; check for concurrent image cleanup."
 	}
-	// Match Docker/Swarm diagnostics rather than generic permission or startup errors.
-	for _, pattern := range []struct {
-		text string
-		code faults.Code
-	}{
-		{"no suitable node", faults.CodeNoSuitableNode},
-		{"unauthorized: authentication required", faults.CodeImagePullDenied},
-		{"denied: requested access to the resource is denied", faults.CodeImagePullDenied},
-		{"no basic auth credentials", faults.CodeImagePullDenied},
-		{"insufficient_scope: authorization failed", faults.CodeImagePullDenied},
-		{"invalid mount config for type ", faults.CodeMountFailed},
-		{"error while creating mount source path ", faults.CodeMountFailed},
-		{"error while mounting volume ", faults.CodeMountFailed},
-		{"error while creating volume ", faults.CodeMountFailed},
-		{"volumedriver.mount:", faults.CodeMountFailed},
-		{"failed to mount ", faults.CodeMountFailed},
-		{"error mounting ", faults.CodeMountFailed},
-		{"mount failed:", faults.CodeMountFailed},
-	} {
+	for _, pattern := range dockerFaultPatterns {
 		if index := strings.Index(message, pattern.text); index >= 0 {
 			summary := strings.TrimSpace(diagnostic[index:])
 			if len(summary) > maxSummaryLength {

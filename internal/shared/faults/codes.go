@@ -15,6 +15,9 @@ const CodeNoSuitableNode Code = "no_suitable_node"
 // CodeImagePullDenied indicates that a registry explicitly denied image access.
 const CodeImagePullDenied Code = "image_pull_denied"
 
+// CodeImagePullFailed indicates that Docker could not pull an image from a registry.
+const CodeImagePullFailed Code = "image_pull_failed"
+
 // CodeMountFailed indicates that Docker could not create or mount a volume or bind mount.
 const CodeMountFailed Code = "mount_failed"
 

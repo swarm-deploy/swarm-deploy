@@ -26,6 +26,8 @@ func TestServiceWaiterTerminalTaskFaults(t *testing.T) {
 	}{
 		{swarm.TaskStatePending, "no suitable node (scheduling constraints not satisfied on 1 node)", faults.CodeNoSuitableNode, false},
 		{swarm.TaskStateRejected, "unauthorized: authentication required", faults.CodeImagePullDenied, false},
+		{swarm.TaskStateRejected, "error from registry: toomanyrequests: rate limit exceeded", faults.CodeImagePullFailed, false},
+		{swarm.TaskStateRejected, "error from registry: unsupported", faults.CodeImagePullFailed, false},
 		{swarm.TaskStateRejected, `invalid mount config for type "bind": bind source path does not exist: /srv/data`, faults.CodeMountFailed, false},
 		{swarm.TaskStateRejected, "VolumeDriver.Mount: permission denied", faults.CodeMountFailed, true},
 		{swarm.TaskStateRejected, "mount failed: " + strings.Repeat("backend unavailable; ", 30), faults.CodeMountFailed, false},
@@ -64,7 +66,14 @@ func TestServiceWaiterTerminalTaskFaults(t *testing.T) {
 			require.ErrorAs(t, err, &coded)
 			assert.Same(t, original, coded)
 			assert.Equal(t, tc.code, coded.FaultCode())
-			assert.Equal(t, boundedDiagnostic(tc.diagnostic), coded.FaultSummary())
+			wantSummary := boundedDiagnostic(tc.diagnostic)
+			if tc.code == faults.CodeImagePullFailed {
+				wantSummary = "Docker could not pull the image."
+				var classified faults.Error
+				require.ErrorAs(t, coded, &classified)
+				assert.Equal(t, tc.diagnostic != "error from registry: unsupported", classified.Temporary())
+			}
+			assert.Equal(t, wantSummary, coded.FaultSummary())
 			assert.Equal(t, tc.code == faults.CodeImageNotFound, errors.Is(err, swarm.ErrImageNotFound))
 		})
 	}
@@ -379,6 +388,65 @@ func TestServiceWaiterClearsRecoveredSchedulingFault(t *testing.T) {
 				assert.False(t, errors.As(err, &coded))
 				assert.NotContains(t, err.Error(), "no suitable node")
 			}
+		})
+	}
+}
+
+func TestServiceWaiterKeepsPendingRegistryFault(t *testing.T) {
+	observationErr := errors.New("permission denied listing tasks")
+	for _, tc := range []struct {
+		name   string
+		reason error
+	}{
+		{"timeout", context.DeadlineExceeded},
+		{"cancellation", context.Canceled},
+		{"another service fails terminally", ErrConvergenceFailed},
+		{"non-retriable observation error", observationErr},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+
+			manager := swarm.NewMockServiceManager(gomock.NewController(t))
+			now := serviceWaitTestTime
+			api := testReplicatedService("api", "api-id", 1, now, "api:2")
+			registryTask := testTask("api-rejected", 1, swarm.TaskStateShutdown, swarm.TaskStateRejected, now)
+			registryTask.Error = "error from registry: toomanyrequests: rate limit exceeded"
+			manager.EXPECT().ListTasks(gomock.Any(), api.ID).Return([]swarm.ServiceTask{registryTask}, nil)
+			current := []swarm.StackService{api}
+			names := []string{api.Name}
+			if tc.reason == ErrConvergenceFailed || tc.reason == observationErr {
+				worker := testReplicatedService("worker", "worker-id", 1, now, "worker:2")
+				if tc.reason == ErrConvergenceFailed {
+					worker.UpdateStatus = &swarm.ServiceUpdateStatus{State: swarm.ServiceUpdateStatePaused, StartedAt: now}
+					failed := testTask("worker-failed", 1, swarm.TaskStateShutdown, swarm.TaskStateFailed, now)
+					failed.Spec = swarm.NewTaskSpec(worker.ServiceSpec.TaskTemplate)
+					failed.Error = "application exited"
+					manager.EXPECT().ListTasks(gomock.Any(), worker.ID).Return([]swarm.ServiceTask{failed}, nil)
+				} else {
+					manager.EXPECT().ListTasks(gomock.Any(), worker.ID).Return(nil, observationErr)
+				}
+				current = append(current, worker)
+				names = append(names, worker.Name)
+			}
+			manager.EXPECT().ListServices(gomock.Any(), gomock.Any()).Return(current, nil)
+
+			_, err := NewServiceWaiter(manager, nil, time.Second, 100*time.Millisecond).Wait(ctx, ServiceWaitRequest{
+				StackName: "app", ServiceNames: names,
+				Progress: func(progress ServiceProgress) {
+					if tc.reason == context.Canceled && progress.Name == api.Name && progress.State == ServicePending {
+						cancel()
+					}
+				},
+			})
+			require.ErrorIs(t, err, tc.reason)
+			if tc.reason == ErrConvergenceFailed {
+				assert.ErrorContains(t, err, "application exited")
+			}
+			assert.Equal(t, 1, strings.Count(err.Error(), registryTask.Error))
+			assert.Equal(t, []faults.Cause{
+				{Code: faults.CodeImagePullFailed, Summary: "Docker could not pull the image.", Temporary: true},
+			}, faults.Causes(err))
 		})
 	}
 }
