@@ -24,3 +24,11 @@ func (l *Language) UnmarshalYAML(node *yaml.Node) error {
 	*l = value
 	return nil
 }
+
+// Effective returns the installation language, defaulting to English when unset.
+func (l Language) Effective() Language {
+	if l == "" {
+		return LanguageEnglish
+	}
+	return l
+}

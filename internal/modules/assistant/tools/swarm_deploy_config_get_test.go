@@ -52,6 +52,7 @@ func loadConfigForTool(t *testing.T, custom bool) config.Spec {
 deployments: {pollInterval: 4s, initJobs: {maxDuration: 7m}}
 event: {history: {capacity: 17}}
 system:
+  language: ru
   log: {level: DEBUG}
   tracing:
     transport: http
@@ -128,7 +129,7 @@ func TestSwarmDeployConfigGet(t *testing.T) {
   "gitops":{"syncMode":"hybrid","reconcileInterval":"1m","gitPollingEnabled":true,"gitPollInterval":"30s","webhookEnabled":false,
     "globalPolicy":{"selfHeal":false,"prune":false}},
   "deployments":{"pollInterval":"2s","initJobDefaultTimeout":"10m"},"event":{"historyCapacity":500},
-  "system":{"logLevel":"INFO","tracing":{"enabled":false}},
+  "system":{"language":"en","logLevel":"INFO","tracing":{"enabled":false}},
   "notifications":{"telegramConfigured":false,"eventTypes":[]},
   "web":{"basePath":"/","authentication":"none"},"healthServer":{"healthcheckPath":"/healthz","metricsPath":"/metrics"},
   "assistant":{"enabled":false,"toolAccess":{"mode":"unrestricted"},"maxOutputTokens":800,"conversationInMemoryTTL":"1h"},
@@ -137,7 +138,7 @@ func TestSwarmDeployConfigGet(t *testing.T) {
   "gitops":{"syncMode":"webhook","reconcileInterval":"13s","gitPollingEnabled":false,"webhookEnabled":true,
     "globalPolicy":{"selfHeal":true,"prune":true}},
   "deployments":{"pollInterval":"4s","initJobDefaultTimeout":"7m"},"event":{"historyCapacity":17},
-  "system":{"logLevel":"DEBUG","tracing":{"enabled":true,"sampler":{"strategy":"parentbased_traceidratio","ratio":0}}},
+  "system":{"language":"ru","logLevel":"DEBUG","tracing":{"enabled":true,"sampler":{"strategy":"parentbased_traceidratio","ratio":0}}},
   "notifications":{"telegramConfigured":true,"telegramMaxAttemptsPerAction":7,"eventTypes":["DeploySuccess"]},
   "web":{"basePath":"/swarm","authentication":"auth_proxy"},"healthServer":{"healthcheckPath":"/live","metricsPath":"/prometheus"},
   "assistant":{"enabled":true,"toolAccess":{"mode":"allowlist"},"maxOutputTokens":1200,"conversationInMemoryTTL":"30m"},
@@ -150,8 +151,8 @@ func TestSwarmDeployConfigGet(t *testing.T) {
 			  "globalPolicy":{"selfHeal":true,"prune":true,"imageTag":{"required":true,"noLatest":true,"onlySHA":true}}}`},
 		{"deployments", `{"pollInterval":"2s","initJobDefaultTimeout":"10m"}`, `{"pollInterval":"4s","initJobDefaultTimeout":"7m"}`},
 		{"event", `{"historyCapacity":500}`, `{"historyCapacity":17}`},
-		{"system", `{"logLevel":"INFO","tracing":{"enabled":false}}`,
-			`{"logLevel":"DEBUG","tracing":{"enabled":true,"sampler":{"strategy":"parentbased_traceidratio","ratio":0}}}`},
+		{"system", `{"language":"en","logLevel":"INFO","tracing":{"enabled":false}}`,
+			`{"language":"ru","logLevel":"DEBUG","tracing":{"enabled":true,"sampler":{"strategy":"parentbased_traceidratio","ratio":0}}}`},
 		{"web", `{"basePath":"/","authentication":"none"}`, `{"basePath":"/swarm","authentication":"auth_proxy"}`},
 		{"healthServer", `{"healthcheckPath":"/healthz","metricsPath":"/metrics"}`, `{"healthcheckPath":"/live","metricsPath":"/prometheus"}`},
 		{"assistant",

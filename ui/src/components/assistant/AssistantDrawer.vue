@@ -4,6 +4,7 @@ import { useRoute, useRouter } from "vue-router";
 
 import { openNewAssistantChat } from "../../router/assistant";
 import { getAssistantSuggestions } from "../../api/assistant";
+import { formatNumber, locale, t } from "../../i18n";
 import type { AssistantSuggestion } from "../../api/types";
 import { useAssistantStore } from "../../stores/assistant";
 import { useUIStore } from "../../stores/ui";
@@ -82,7 +83,7 @@ const currentChatTitle = computed(() => {
 
   const firstUserMessage = messages.value.find((message) => message.role === "user")?.text.trim();
   if (!firstUserMessage) {
-    return "New chat";
+    return t('assistant.newChat');
   }
 
   return firstUserMessage.length > 52 ? `${firstUserMessage.slice(0, 52)}…` : firstUserMessage;
@@ -103,7 +104,7 @@ const currentChatDateLabel = computed(() => {
     createdAt.getDate() === now.getDate();
 
   if (isToday) {
-    return "Today";
+    return t('assistant.today');
   }
 
   const options: Intl.DateTimeFormatOptions = {
@@ -114,14 +115,14 @@ const currentChatDateLabel = computed(() => {
     options.year = "numeric";
   }
 
-  return createdAt.toLocaleDateString(undefined, options);
+  return createdAt.toLocaleDateString(locale(), options);
 });
 
 const groupedChats = computed(() => {
   const groups = [
-    { label: "Today", chats: [] as typeof chats.value },
-    { label: "Last 7 days", chats: [] as typeof chats.value },
-    { label: "Earlier", chats: [] as typeof chats.value },
+    { label: t('assistant.today'), chats: [] as typeof chats.value },
+    { label: t('assistant.lastSevenDays'), chats: [] as typeof chats.value },
+    { label: t('assistant.earlier'), chats: [] as typeof chats.value },
   ];
 
   const now = new Date();
@@ -322,7 +323,7 @@ function formatTokens(value: number | undefined): string {
     return "—";
   }
 
-  return new Intl.NumberFormat().format(value);
+  return formatNumber(value);
 }
 
 function assistantQuery(value: string | undefined) {
@@ -464,7 +465,7 @@ async function submitHistoryMessage() {
     const response = await assistantStore.createChat(message, historyRequest.id);
     historyRequest = undefined;
     if (!response.conversation_id || response.status === "disabled") {
-      historyError.value = response.error_message || "Could not start a chat. Try again.";
+      historyError.value = response.error_message || t('assistant.startChatFailed');
       return;
     }
     historyMessage.value = "";
@@ -475,7 +476,7 @@ async function submitHistoryMessage() {
       await assistantStore.loadChats();
     }
   } catch (error) {
-    historyError.value = error instanceof Error ? error.message : "Could not start a chat. Try again.";
+    historyError.value = error instanceof Error ? error.message : t('assistant.startChatFailed');
   } finally {
     historySending.value = false;
   }
@@ -529,7 +530,7 @@ function renderMessageText(role: string, text: string): string {
     @keydown.esc.prevent="handleEscape"
   >
     <div class="assistant-drawer-overlay" @click="closeDrawer" />
-    <section class="assistant-drawer" aria-label="Assistant Drawer" :inert="!isOpen">
+    <section class="assistant-drawer" :aria-label="t('assistant.drawer')" :inert="!isOpen">
       <header class="assistant-drawer-header">
         <template v-if="historyOpen">
           <div v-if="searchOpen" class="assistant-history-search">
@@ -538,15 +539,15 @@ function renderMessageText(role: string, text: string): string {
               :value="searchQuery"
               @input="searchQuery = ($event.target as HTMLInputElement).value"
               type="search"
-              placeholder="Search chats"
-              aria-label="Search chats"
+              :placeholder="t('assistant.searchChats')"
+              :aria-label="t('assistant.searchChats')"
             />
             <button
               v-if="searchQuery"
               type="button"
               class="assistant-icon-button"
-              aria-label="Clear search"
-              title="Clear search"
+              :aria-label="t('assistant.clearSearch')"
+              :title="t('assistant.clearSearch')"
               @click="clearSearch"
             >
               <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -557,7 +558,7 @@ function renderMessageText(role: string, text: string): string {
           <div v-else class="assistant-header-identity">
             <span class="assistant-avatar" aria-hidden="true">AI</span>
             <div class="assistant-header-copy">
-              <h2>Assistant</h2>
+              <h2>{{ t('assistant.name') }}</h2>
               <span>Swarm Deploy</span>
             </div>
           </div>
@@ -569,15 +570,15 @@ function renderMessageText(role: string, text: string): string {
               ref="backButtonRef"
               type="button"
               class="assistant-icon-button"
-              aria-label="Back to chats"
-              title="Back to chats"
+              :aria-label="t('assistant.backToChats')"
+              :title="t('assistant.backToChats')"
               @click="openHistory"
             >
               <svg viewBox="0 0 24 24" aria-hidden="true">
                 <path d="m15 18-6-6 6-6" />
               </svg>
             </button>
-            <h2 v-if="usageOpen" id="assistant-usage-title" class="assistant-chat-title">Usage</h2>
+            <h2 v-if="usageOpen" id="assistant-usage-title" class="assistant-chat-title">{{ t('assistant.usage') }}</h2>
             <template v-else>
               <span class="assistant-avatar assistant-avatar-small" aria-hidden="true">AI</span>
               <h2 class="assistant-chat-title" :title="currentChatTitle">{{ currentChatTitle }}</h2>
@@ -592,8 +593,8 @@ function renderMessageText(role: string, text: string): string {
             type="button"
             class="assistant-icon-button assistant-search-button"
             :aria-expanded="searchOpen"
-            :aria-label="searchOpen ? 'Close search' : 'Search chats'"
-            :title="searchOpen ? 'Close search' : 'Search chats'"
+            :aria-label="searchOpen ? t('assistant.closeSearch') : t('assistant.searchChats')"
+            :title="searchOpen ? t('assistant.closeSearch') : t('assistant.searchChats')"
             @click="toggleSearch"
           >
             <svg v-if="searchOpen" viewBox="0 0 24 24" aria-hidden="true">
@@ -608,8 +609,8 @@ function renderMessageText(role: string, text: string): string {
             v-if="historyOpen"
             :to="usageRoute"
             class="assistant-icon-button"
-            aria-label="Assistant usage"
-            title="Usage"
+            :aria-label="t('assistant.assistantUsage')"
+            :title="t('assistant.usage')"
           >
             <svg class="assistant-usage-icon" viewBox="0 0 24 24" aria-hidden="true">
               <path :d="tokenUsageIconPath" />
@@ -619,8 +620,8 @@ function renderMessageText(role: string, text: string): string {
             v-if="chatOpen"
             type="button"
             class="assistant-icon-button"
-            aria-label="New chat"
-            title="New chat"
+            :aria-label="t('assistant.newChat')"
+            :title="t('assistant.newChat')"
             :disabled="pending"
             @click="newChat"
           >
@@ -633,8 +634,8 @@ function renderMessageText(role: string, text: string): string {
             class="assistant-icon-button assistant-pin-button"
             :class="{ active: uiStore.assistantPinned }"
             :aria-pressed="uiStore.assistantPinned"
-            :aria-label="uiStore.assistantPinned ? 'Unpin assistant' : 'Pin assistant'"
-            :title="uiStore.assistantPinned ? 'Use overlay mode' : 'Keep assistant open while navigating'"
+            :aria-label="uiStore.assistantPinned ? t('assistant.unpin') : t('assistant.pin')"
+            :title="uiStore.assistantPinned ? t('assistant.overlayMode') : t('assistant.keepOpen')"
             @click="uiStore.toggleAssistantPinned"
           >
             <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -642,7 +643,7 @@ function renderMessageText(role: string, text: string): string {
               <path d="M12 13v8" />
             </svg>
           </button>
-          <button type="button" class="assistant-icon-button" aria-label="Close assistant" title="Close" @click="closeDrawer">
+          <button type="button" class="assistant-icon-button" :aria-label="t('assistant.close')" :title="t('common.close')" @click="closeDrawer">
             <svg viewBox="0 0 24 24" aria-hidden="true">
               <path d="M6 6l12 12M18 6 6 18" />
             </svg>
@@ -663,12 +664,12 @@ function renderMessageText(role: string, text: string): string {
               <path d="M12 5v14M5 12h14" />
             </svg>
           </span>
-          <span>New chat</span>
+          <span>{{ t('assistant.newChat') }}</span>
         </button>
 
-        <p v-if="historyLoading" class="assistant-history-empty">Loading chats...</p>
+        <p v-if="historyLoading" class="assistant-history-empty">{{ t('assistant.loadingChats') }}</p>
         <p v-else-if="groupedChats.length === 0" class="assistant-history-empty">
-          {{ searchQuery.trim() ? "No matching chats." : "No previous chats yet." }}
+          {{ searchQuery.trim() ? t('assistant.noMatchingChats') : t('assistant.noPreviousChats') }}
         </p>
 
         <section v-for="group in groupedChats" v-else :key="group.label" class="assistant-history-group">
@@ -682,7 +683,7 @@ function renderMessageText(role: string, text: string): string {
               type="button"
               class="assistant-history-open"
               :title="chat.title"
-              :aria-label="chat.unread ? `${chat.title} (unread)` : undefined"
+              :aria-label="chat.unread ? t('assistant.unreadChat', { title: chat.title }) : undefined"
               @click="openChat(chat.id)"
             >
               <span v-if="chat.unread" class="assistant-history-unread-dot" aria-hidden="true" />
@@ -694,8 +695,8 @@ function renderMessageText(role: string, text: string): string {
                 class="assistant-history-stats"
                 :class="{ active: usageOpenChatID === chat.id }"
                 :aria-expanded="usageOpenChatID === chat.id"
-                aria-label="Token usage"
-                title="Token usage"
+                :aria-label="t('assistant.tokenUsage')"
+                :title="t('assistant.tokenUsage')"
                 @click.stop="toggleChatUsage(chat.id)"
               >
                 <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -703,18 +704,18 @@ function renderMessageText(role: string, text: string): string {
                 </svg>
               </button>
               <div v-if="usageOpenChatID === chat.id" class="assistant-history-usage-popover">
-                <strong>Token usage</strong>
+                <strong>{{ t('assistant.tokenUsage') }}</strong>
                 <dl>
                   <div>
-                    <dt>Total</dt>
+                    <dt>{{ t('assistant.total') }}</dt>
                     <dd>{{ formatTokens(chat.token_usage?.total_tokens) }}</dd>
                   </div>
                   <div>
-                    <dt>Input</dt>
+                    <dt>{{ t('assistant.input') }}</dt>
                     <dd>{{ formatTokens(chat.token_usage?.input_tokens) }}</dd>
                   </div>
                   <div>
-                    <dt>Output</dt>
+                    <dt>{{ t('assistant.output') }}</dt>
                     <dd>{{ formatTokens(chat.token_usage?.output_tokens) }}</dd>
                   </div>
                 </dl>
@@ -731,9 +732,9 @@ function renderMessageText(role: string, text: string): string {
       >
         <div v-if="messages.length === 0 && !existingChatLoading" class="assistant-empty-state">
           <span class="assistant-avatar" aria-hidden="true">AI</span>
-          <strong>How can I help?</strong>
-          <span>Ask about services, deployments, events, or the Swarm cluster.</span>
-          <div v-if="suggestions.length > 0" class="assistant-suggestions" aria-label="Suggested prompts">
+          <strong>{{ t('assistant.howCanIHelp') }}</strong>
+          <span>{{ t('assistant.emptyHint') }}</span>
+          <div v-if="suggestions.length > 0" class="assistant-suggestions" :aria-label="t('assistant.suggestions')">
             <button
               v-for="suggestion in suggestions"
               :key="suggestion.id"
@@ -760,7 +761,7 @@ function renderMessageText(role: string, text: string): string {
                 v-html="renderMessageText(message.role, message.text)"
               />
               <details v-if="message.activity?.length" class="assistant-activity-details">
-                <summary>Activity</summary>
+                <summary>{{ t('assistant.activity') }}</summary>
                 <ol>
                   <li v-for="(item, activityIndex) in message.activity" :key="activityIndex + '-' + item">
                     {{ item }}
@@ -769,14 +770,14 @@ function renderMessageText(role: string, text: string): string {
               </details>
             </article>
             <article v-if="replyMissing(index)" class="assistant-chat-message assistant-chat-message-system">
-              <p class="assistant-chat-text">No reply received. Send your message again.</p>
+              <p class="assistant-chat-text">{{ t('assistant.noReply') }}</p>
             </article>
           </template>
           <div v-if="pending" class="assistant-activity-live" role="status" aria-live="polite">
             <span class="assistant-activity-spinner" aria-hidden="true" />
             <div>
-              <strong>Working</strong>
-              <span>{{ activity[activity.length - 1] || "Analyzing request" }}</span>
+              <strong>{{ t('assistant.working') }}</strong>
+              <span>{{ activity[activity.length - 1] || t('assistant.analyzing') }}</span>
             </div>
           </div>
         </div>
@@ -794,8 +795,8 @@ function renderMessageText(role: string, text: string): string {
             ref="historyMessageRef"
             :value="historyMessage"
             rows="1"
-            placeholder="Ask the assistant…"
-            aria-label="Ask the assistant"
+            :placeholder="t('assistant.placeholder')"
+            :aria-label="t('assistant.ask')"
             :readonly="composerDisabled || historySending"
             @input="historyMessage = ($event.target as HTMLTextAreaElement).value; historyError = ''"
           />
@@ -803,7 +804,7 @@ function renderMessageText(role: string, text: string): string {
             v-if="historyMessage.trim()"
             class="assistant-send-button"
             type="submit"
-            :aria-label="historySending ? 'Sending message' : 'Send message'"
+            :aria-label="historySending ? t('assistant.sending') : t('assistant.send')"
             :disabled="composerDisabled || historySending"
           >
             <span v-if="historySending" class="assistant-activity-spinner" aria-hidden="true" />
@@ -821,7 +822,7 @@ function renderMessageText(role: string, text: string): string {
           class="assistant-new-reply"
           @click="scrollToNewReply"
         >
-          New reply
+          {{ t('assistant.newReply') }}
         </button>
         <div class="assistant-composer">
           <textarea
@@ -829,8 +830,8 @@ function renderMessageText(role: string, text: string): string {
             :value="messageInput"
             @input="messageInput = ($event.target as HTMLTextAreaElement).value"
             rows="1"
-            placeholder="Ask the assistant…"
-            aria-label="Ask the assistant"
+            :placeholder="t('assistant.placeholder')"
+            :aria-label="t('assistant.ask')"
             :disabled="composerDisabled"
           />
           <button
@@ -838,7 +839,7 @@ function renderMessageText(role: string, text: string): string {
             id="assistant-chat-send"
             class="assistant-send-button"
             type="submit"
-            aria-label="Send message"
+            :aria-label="t('assistant.send')"
             :disabled="composerDisabled"
           >
             <svg viewBox="0 0 24 24" aria-hidden="true">

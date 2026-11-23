@@ -227,7 +227,8 @@ func newConfigurationChatService(t *testing.T, baseURL string, spec config.Spec)
 		&alertmanagement.Module{Store: alertstore.NewSQLStore(db)}, &event.Module{}, &swarm.Swarm{},
 		nil, nil, nil, nil, nil, metrics.NewGroup(metrics.CreateGroupParams{}).MCP, spec)
 	service, err := NewService(Config{
-		Enabled: true, ModelName: "test-model", BaseURL: baseURL, APIToken: "test-token",
+		Localizer: testAssistantTexts(t, "en"),
+		Enabled:   true, ModelName: "test-model", BaseURL: baseURL, APIToken: "test-token",
 		MaxTokens: 200, AllowedTools: spec.Assistant.Tools, SystemPrompt: spec.Assistant.SystemPrompt,
 		ConversationInMemoryTTL: time.Hour, ConversationHistory: conversation.NewSQLHistoryStorage(db),
 	}, nil, executor, &dispatcher.NopDispatcher{}, metrics.NopAssistant{})

@@ -3,6 +3,8 @@ package assistant
 import (
 	"context"
 	"time"
+
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/texts"
 )
 
 // Assistant provides chat execution and persisted chat history.
@@ -20,15 +22,22 @@ type Assistant interface {
 }
 
 // DisabledAssistant is used when assistant support is disabled.
-type DisabledAssistant struct{}
+type DisabledAssistant struct {
+	texts *texts.Localizer
+}
+
+// NewDisabledAssistant creates the disabled implementation with localized responses.
+func NewDisabledAssistant(localizer *texts.Localizer) *DisabledAssistant {
+	return &DisabledAssistant{texts: localizer}
+}
 
 // Chat returns a disabled response.
-func (*DisabledAssistant) Chat(_ context.Context, req ChatRequest) ChatResponse {
+func (a *DisabledAssistant) Chat(_ context.Context, req ChatRequest) ChatResponse {
 	return ChatResponse{
 		Status:         StatusDisabled,
 		ConversationID: req.ConversationID,
 		RequestID:      req.RequestID,
-		ErrorMessage:   "assistant is disabled in configuration",
+		ErrorMessage:   a.texts.Text("chat.disabled"),
 	}
 }
 

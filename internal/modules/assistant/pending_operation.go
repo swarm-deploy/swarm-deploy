@@ -5,6 +5,7 @@ import (
 	"encoding/json/v2"
 	"fmt"
 	"log/slog"
+	"math"
 	"slices"
 	"strconv"
 	"strings"
@@ -15,6 +16,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/conversation"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/guard"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/llm"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/texts"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/tools/routing"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/syncpause"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/model"
@@ -34,6 +36,7 @@ type SyncPauseTargetResolver interface {
 
 // operationFlow runs the deterministic collect, confirm, and execute workflow for supported mutations.
 type operationFlow struct {
+	texts          *texts.Localizer
 	modelName      string
 	chat           modelCompleter
 	store          ServiceStore
@@ -53,6 +56,7 @@ func newOperationFlow(
 	allowedToolSet map[string]struct{},
 ) *operationFlow {
 	return &operationFlow{
+		texts:          config.Localizer,
 		modelName:      config.ModelName,
 		chat:           chat,
 		store:          store,
@@ -241,14 +245,14 @@ func (t *operationTurn) startPendingOperation(
 	if op.Type == OperationDeploySync {
 		op.Stage = PendingOperationConfirmation
 		t.next = &op
-		return confirmationMessage(op), conversation.TokenUsage{}
+		return t.confirmationMessage(op), conversation.TokenUsage{}
 	}
 	if op.Type == OperationSyncPauseSet || op.Type == OperationSyncPauseResume {
 		return t.startPauseOperation(ctx, op)
 	}
 	services, err := t.store.ReadAll(ctx)
 	if err != nil {
-		return "Не удалось прочитать каталог сервисов. Повторите запрос.", conversation.TokenUsage{}
+		return t.texts.Text("operation.catalog_failed"), conversation.TokenUsage{}
 	}
 	resolution, usage := t.resolveOperationTarget(ctx, services, op.Target)
 	if resolution.ok {
@@ -260,11 +264,11 @@ func (t *operationTurn) startPendingOperation(
 	}
 	if op.Type == OperationServiceReplicasSet && op.Replicas == nil {
 		t.next = &op
-		return fmt.Sprintf("Сколько реплик установить для `%s` в стеке `%s`?", op.Service, op.Stack), usage
+		return t.texts.Format("operation.ask_replicas", operationTargetData(op)), usage
 	}
 	op.Stage = PendingOperationConfirmation
 	t.next = &op
-	return confirmationMessage(op), usage
+	return t.confirmationMessage(op), usage
 }
 
 //nolint:nestif // Scope-specific target revalidation keeps stack and service warnings explicit.
@@ -273,7 +277,7 @@ func (t *operationTurn) startPauseOperation(
 	op PendingOperation,
 ) (string, conversation.TokenUsage) {
 	if t.pauseTargets == nil {
-		return "Pause Sync is unavailable.", conversation.TokenUsage{}
+		return t.texts.Text("operation.pause_unavailable"), conversation.TokenUsage{}
 	}
 	target := strings.Trim(strings.TrimSpace(op.Target), "/")
 	if op.Scope == "" {
@@ -284,13 +288,13 @@ func (t *operationTurn) startPauseOperation(
 		}
 	}
 	if op.Scope != string(syncpause.ScopeStack) && op.Scope != string(syncpause.ScopeService) {
-		return "Укажите область Pause Sync: `stack` или `service`.", conversation.TokenUsage{}
+		return t.texts.Text("operation.ask_scope"), conversation.TokenUsage{}
 	}
 	if op.Scope == string(syncpause.ScopeStack) {
 		op.Stack = target
 		state, err := t.pauseTargets.GetStack(ctx, op.Stack)
 		if err != nil {
-			return "Стек не найден в состоянии GitOps. Уточните имя стека.", conversation.TokenUsage{}
+			return t.texts.Text("operation.stack_not_found"), conversation.TokenUsage{}
 		}
 		if op.Type == OperationSyncPauseResume {
 			op.RemainingServicePauses = len(state.ServicePauses)
@@ -298,16 +302,16 @@ func (t *operationTurn) startPauseOperation(
 	} else {
 		stack, service, ok := strings.Cut(target, "/")
 		if !ok || strings.TrimSpace(stack) == "" || strings.TrimSpace(service) == "" {
-			return "Укажите GitOps-сервис в формате `stack/service`.", conversation.TokenUsage{}
+			return t.texts.Text("operation.ask_gitops_service"), conversation.TokenUsage{}
 		}
 		op.Stack, op.Service = strings.TrimSpace(stack), strings.TrimSpace(service)
 		if _, err := t.pauseTargets.GetService(ctx, op.Stack, op.Service); err != nil {
-			return "Сервис не найден в состоянии GitOps. Уточните цель `stack/service`.", conversation.TokenUsage{}
+			return t.texts.Text("operation.gitops_service_not_found"), conversation.TokenUsage{}
 		}
 	}
 	op.Stage = PendingOperationConfirmation
 	t.next = &op
-	return confirmationMessage(op), conversation.TokenUsage{}
+	return t.confirmationMessage(op), conversation.TokenUsage{}
 }
 
 func (t *operationTurn) handlePendingOperation(
@@ -341,13 +345,13 @@ func (t *operationTurn) handlePendingConfirmation(
 		return true, answer, conversation.TokenUsage{}, err
 	case confirmationNegative:
 		t.pending.delete(t.conversationID)
-		return true, "Операция отменена.", conversation.TokenUsage{}, nil
+		return true, t.texts.Text("operation.cancelled"), conversation.TokenUsage{}, nil
 	case confirmationUnknown:
 		if isUnrelatedPendingMessage(message) {
 			t.pending.delete(t.conversationID)
 			return false, "", conversation.TokenUsage{}, nil
 		}
-		return true, "Ответьте явно: `да` для подтверждения или `нет` для отмены.", conversation.TokenUsage{}, nil
+		return true, t.texts.Text("operation.ask_confirmation"), conversation.TokenUsage{}, nil
 	default:
 		t.pending.delete(t.conversationID)
 		return false, "", conversation.TokenUsage{}, nil
@@ -378,18 +382,14 @@ func (t *operationTurn) handlePendingCollection(
 		replicas, replicasOK := parseReplicas(message)
 		if !replicasOK {
 			t.next = &op
-			question := fmt.Sprintf(
-				"Сколько реплик установить для `%s` в стеке `%s`?",
-				op.Service,
-				op.Stack,
-			)
+			question := t.texts.Format("operation.ask_replicas", operationTargetData(op))
 			return true, question, usage, nil
 		}
 		op.Replicas = &replicas
 	}
 	op.Stage = PendingOperationConfirmation
 	t.next = &op
-	return true, confirmationMessage(op), usage, nil
+	return true, t.confirmationMessage(op), usage, nil
 }
 
 func (f *operationFlow) resolvePendingTarget(
@@ -406,7 +406,7 @@ func (f *operationFlow) resolvePendingTarget(
 	services, err := f.store.ReadAll(ctx)
 	if err != nil {
 		return serviceResolution{
-			message: "Не удалось прочитать каталог сервисов. Повторите запрос.",
+			message: f.texts.Text("operation.catalog_failed"),
 		}, conversation.TokenUsage{}
 	}
 	return f.resolveOperationTarget(ctx, services, target)
@@ -417,7 +417,7 @@ func (t *operationTurn) executePendingOperation(
 	op PendingOperation,
 ) (string, error) {
 	if !t.pending.claim(t.conversationID, op) {
-		return "Операция уже обрабатывается или больше не ожидает подтверждения.", nil
+		return t.texts.Text("operation.no_longer_pending"), nil
 	}
 	capability, arguments, aborted, err := t.pendingOperationArguments(ctx, op)
 	if err != nil {
@@ -429,7 +429,7 @@ func (t *operationTurn) executePendingOperation(
 
 	effectiveTools := t.toolSet([]Capability{capability})
 	if _, ok := effectiveTools[string(op.Type)]; !ok {
-		return "Эта операция запрещена настройкой `assistant.tools`.", nil
+		return t.texts.Text("operation.forbidden"), nil
 	}
 	if op.Type == OperationServiceReplicasSet {
 		arguments["replicas"] = op.Replicas
@@ -440,7 +440,7 @@ func (t *operationTurn) executePendingOperation(
 	}
 	result, err := t.tools.Execute(ctx, routing.Request{ToolName: string(op.Type), Payload: string(payload)})
 	if err != nil {
-		return fmt.Sprintf("Не удалось выполнить операцию: %s", strings.TrimSpace(err.Error())), nil
+		return t.texts.Format("operation.failed", map[string]any{"Error": strings.TrimSpace(err.Error())}), nil
 	}
 	if t.guard.Check(result) {
 		return "", &guard.PromptInjectionError{
@@ -450,7 +450,7 @@ func (t *operationTurn) executePendingOperation(
 	if op.Type == OperationSyncPauseSet && op.Replicas != nil {
 		return t.executeConfirmedPauseScale(ctx, op, result)
 	}
-	answer, err := finalizeTerminalToolResult(string(op.Type), result)
+	answer, err := finalizeTerminalToolResult(t.texts, string(op.Type), result)
 	if err != nil {
 		return "", err
 	}
@@ -472,11 +472,11 @@ func (f *operationFlow) pendingOperationArguments(
 		if err != nil {
 			return "", nil, "", err
 		}
-		resolution := resolveServiceTarget(services, op.Stack+"/"+op.Service)
+		resolution := f.resolveServiceTarget(services, op.Stack+"/"+op.Service)
 		if !resolution.ok || !strings.EqualFold(resolution.stack, op.Stack) ||
 			!strings.EqualFold(resolution.service, op.Service) {
 			return CapabilityServiceOperations, nil,
-				"Сервис изменился или больше не существует. Операция отменена.", nil
+				f.texts.Text("operation.service_changed"), nil
 		}
 		return CapabilityServiceOperations, map[string]any{
 			"stack": resolution.stack, "service": resolution.service,
@@ -491,7 +491,7 @@ func (f *operationFlow) pauseOperationArguments(
 	op PendingOperation,
 ) (Capability, map[string]any, string, error) {
 	if f.pauseTargets == nil {
-		return CapabilityPauseSync, nil, "Pause Sync is unavailable.", nil
+		return CapabilityPauseSync, nil, f.texts.Text("operation.pause_unavailable"), nil
 	}
 	arguments := map[string]any{"scope": op.Scope, "stack": op.Stack}
 	if op.Scope == string(syncpause.ScopeService) {
@@ -503,13 +503,13 @@ func (f *operationFlow) pauseOperationArguments(
 	if op.Scope == string(syncpause.ScopeStack) {
 		if !f.stackPauseTargetValid(ctx, op.Stack) {
 			return CapabilityPauseSync, nil,
-				"Стек изменился или больше не управляется GitOps. Операция отменена.", nil
+				f.texts.Text("operation.gitops_stack_changed"), nil
 		}
 		return CapabilityPauseSync, arguments, "", nil
 	}
 	if !f.servicePauseTargetValid(ctx, op.Stack, op.Service) {
 		return CapabilityPauseSync, nil,
-			"Сервис изменился или больше не управляется GitOps. Операция отменена.", nil
+			f.texts.Text("operation.gitops_service_changed"), nil
 	}
 	return CapabilityPauseSync, arguments, "", nil
 }
@@ -529,21 +529,19 @@ func (t *operationTurn) executeConfirmedPauseScale(
 	op PendingOperation,
 	pauseResult string,
 ) (string, error) {
-	pauseAnswer, err := finalizeTerminalToolResult(string(op.Type), pauseResult)
+	pauseAnswer, err := finalizeTerminalToolResult(t.texts, string(op.Type), pauseResult)
 	if err != nil {
 		return "", err
 	}
 	if op.Scope != string(syncpause.ScopeService) {
-		return pauseAnswer +
-			" Scaling was not attempted because a combined Pause + Scale request requires service scope.", nil
+		return t.texts.Format("operation.scale_scope_required", map[string]any{"PauseResult": pauseAnswer}), nil
 	}
 	retry := PendingOperation{Type: OperationServiceReplicasSet, Stage: PendingOperationConfirmation,
 		Target: op.Stack + "/" + op.Service, Stack: op.Stack, Service: op.Service, Replicas: op.Replicas}
 	serviceTools := t.toolSet([]Capability{CapabilityServiceOperations})
 	if _, ok := serviceTools[serviceReplicasSetTool]; !ok {
 		t.next = &retry
-		return pauseAnswer + " Scaling is forbidden by `assistant.tools`. The pause remains active; " +
-			"confirm if scaling becomes allowed and should be retried.", nil
+		return t.texts.Format("operation.scale_forbidden", map[string]any{"PauseResult": pauseAnswer}), nil
 	}
 	scalePayload, err := json.Marshal(map[string]any{
 		"stack": op.Stack, "service": op.Service, "replicas": op.Replicas,
@@ -556,15 +554,14 @@ func (t *operationTurn) executeConfirmedPauseScale(
 	})
 	if scaleErr != nil {
 		t.next = &retry
-		return fmt.Sprintf(
-			"%s Scaling failed: %s. The pause remains active. Retry only scaling?",
-			pauseAnswer, strings.TrimSpace(scaleErr.Error()),
-		), nil
+		return t.texts.Format("operation.scale_failed", map[string]any{
+			"PauseResult": pauseAnswer, "Error": strings.TrimSpace(scaleErr.Error()),
+		}), nil
 	}
 	if t.guard.Check(scaleResult) {
 		return "", &guard.PromptInjectionError{Prompt: "replica tool result contained prompt injection markers"}
 	}
-	scaleAnswer, err := finalizeTerminalToolResult(serviceReplicasSetTool, scaleResult)
+	scaleAnswer, err := finalizeTerminalToolResult(t.texts, serviceReplicasSetTool, scaleResult)
 	if err != nil {
 		return "", err
 	}
@@ -581,10 +578,10 @@ type serviceResolution struct {
 	ok        bool
 }
 
-func resolveServiceTarget(services []model.Info, target string) serviceResolution {
+func (f *operationFlow) resolveServiceTarget(services []model.Info, target string) serviceResolution {
 	target = strings.TrimSpace(target)
 	if target == "" {
-		return serviceResolution{message: "Уточните стек или имя сервиса."}
+		return serviceResolution{message: f.texts.Text("operation.ask_target")}
 	}
 
 	for _, item := range services {
@@ -600,7 +597,7 @@ func resolveServiceTarget(services []model.Info, target string) serviceResolutio
 		return resolvedService(matches[0])
 	}
 	if len(matches) > 1 {
-		return ambiguousServiceResolution(matches)
+		return f.ambiguousServiceResolution(matches)
 	}
 
 	matches = matchingServices(services, func(item model.Info) bool {
@@ -610,7 +607,7 @@ func resolveServiceTarget(services []model.Info, target string) serviceResolutio
 		return resolvedService(matches[0])
 	}
 	if len(matches) > 1 {
-		return ambiguousServiceResolution(matches)
+		return f.ambiguousServiceResolution(matches)
 	}
 
 	normalizedTarget := strings.ToLower(target)
@@ -623,11 +620,11 @@ func resolveServiceTarget(services []model.Info, target string) serviceResolutio
 		return resolvedService(matches[0])
 	}
 	if len(matches) > 1 {
-		return ambiguousServiceResolution(matches)
+		return f.ambiguousServiceResolution(matches)
 	}
 
 	return serviceResolution{
-		message: fmt.Sprintf("Сервис для цели `%s` не найден. Уточните стек или имя сервиса.", target),
+		message: f.texts.Format("operation.target_not_found", map[string]any{"Target": target}),
 	}
 }
 
@@ -645,7 +642,7 @@ func resolvedService(item model.Info) serviceResolution {
 	return serviceResolution{stack: item.Stack, service: item.Name, ok: true}
 }
 
-func ambiguousServiceResolution(services []model.Info) serviceResolution {
+func (f *operationFlow) ambiguousServiceResolution(services []model.Info) serviceResolution {
 	targets := make([]string, 0, len(services))
 	seen := make(map[string]struct{}, len(services))
 	for _, item := range services {
@@ -662,7 +659,7 @@ func ambiguousServiceResolution(services []model.Info) serviceResolution {
 		quoted = append(quoted, "`"+target+"`")
 	}
 	return serviceResolution{
-		message:   "Найдено несколько сервисов: " + strings.Join(quoted, ", ") + ". Уточните цель.",
+		message:   f.texts.Format("operation.ambiguous_target", map[string]any{"Targets": strings.Join(quoted, ", ")}),
 		ambiguous: true,
 	}
 }
@@ -682,7 +679,7 @@ func (f *operationFlow) resolveOperationTarget(
 	services []model.Info,
 	target string,
 ) (serviceResolution, conversation.TokenUsage) {
-	deterministic := resolveServiceTarget(services, target)
+	deterministic := f.resolveServiceTarget(services, target)
 	if deterministic.ok || deterministic.ambiguous || strings.TrimSpace(target) == "" || len(services) == 0 {
 		return deterministic, conversation.TokenUsage{}
 	}
@@ -706,14 +703,14 @@ func (f *operationFlow) resolveOperationTarget(
 		return deterministic, completion.Usage
 	}
 
-	resolution := validateTargetResolverDecision(services, completion.Content)
+	resolution := f.validateTargetResolverDecision(services, completion.Content)
 	if resolution.ok || resolution.message != "" {
 		return resolution, completion.Usage
 	}
 	return deterministic, completion.Usage
 }
 
-func validateTargetResolverDecision(services []model.Info, content string) serviceResolution {
+func (f *operationFlow) validateTargetResolverDecision(services []model.Info, content string) serviceResolution {
 	var decision targetResolverDecision
 	if err := json.Unmarshal([]byte(strings.TrimSpace(content)), &decision); err != nil {
 		return serviceResolution{}
@@ -728,7 +725,7 @@ func validateTargetResolverDecision(services []model.Info, content string) servi
 	case "ambiguous":
 		matches := targetResolverMatches(services, decision.Candidates)
 		if len(matches) > 1 {
-			return ambiguousServiceResolution(matches)
+			return f.ambiguousServiceResolution(matches)
 		}
 	case "not_found":
 		return serviceResolution{}
@@ -771,39 +768,61 @@ func isSelfResolveRequest(message string) bool {
 	}
 }
 
-func confirmationMessage(op PendingOperation) string {
-	if op.Type == OperationDeploySync {
-		return "Запустить синхронизацию GitOps?"
-	}
-	if op.Type == OperationServiceReplicasSet && op.Replicas != nil {
-		return fmt.Sprintf("Установить %d реплик для `%s` в стеке `%s`?", *op.Replicas, op.Service, op.Stack)
-	}
-	if op.Type == OperationSyncPauseSet {
-		target := fmt.Sprintf("стека `%s`", op.Stack)
+func (f *operationFlow) confirmationMessage(op PendingOperation) string {
+	data := operationTargetData(op)
+	switch op.Type {
+	case OperationDeploySync:
+		return f.texts.Text("operation.confirm_sync")
+	case OperationServiceReplicasSet:
+		return f.confirmReplicaCount("operation.confirm_replicas", *op.Replicas, data)
+	case OperationSyncPauseSet:
+		return f.confirmPause(op, data)
+	case OperationSyncPauseResume:
 		if op.Scope == string(syncpause.ScopeService) {
-			target = fmt.Sprintf("сервиса `%s` в стеке `%s`", op.Service, op.Stack)
+			return f.texts.Format("operation.confirm_resume_service", data)
 		}
-		expiration := "без срока действия"
-		if op.PauseExpiresAt != nil {
-			expiration = op.PauseExpiresAt.UTC().Format(time.RFC3339)
+		question := f.texts.Format("operation.confirm_resume_stack", data)
+		if count := op.RemainingServicePauses; count > 0 {
+			question += " " + f.texts.Plural("operation.remaining_pauses", count, map[string]any{"Count": count})
 		}
-		if op.Replicas != nil {
-			return fmt.Sprintf("Приостановить Sync для %s до %s, затем установить %d реплик?", target, expiration, *op.Replicas)
-		}
-		return fmt.Sprintf("Приостановить Sync для %s до %s?", target, expiration)
+		return question
+	case OperationServiceRestart:
+		return f.texts.Format("operation.confirm_restart", data)
+	default:
+		return ""
 	}
-	if op.Type == OperationSyncPauseResume {
-		target := fmt.Sprintf("стека `%s`", op.Stack)
-		if op.Scope == string(syncpause.ScopeService) {
-			target = fmt.Sprintf("сервиса `%s` в стеке `%s`", op.Service, op.Stack)
-		}
-		warning := ""
-		if op.Scope == string(syncpause.ScopeStack) && op.RemainingServicePauses > 0 {
-			warning = fmt.Sprintf(" %d прямых пауз сервисов останутся активными.", op.RemainingServicePauses)
-		}
-		return fmt.Sprintf("Удалить прямую Pause Sync для %s?%s", target, warning)
+}
+
+func (f *operationFlow) confirmPause(op PendingOperation, data map[string]any) string {
+	scope := string(syncpause.ScopeStack)
+	if op.Scope == string(syncpause.ScopeService) {
+		scope = string(syncpause.ScopeService)
 	}
-	return fmt.Sprintf("Перезапустить `%s` в стеке `%s`?", op.Service, op.Stack)
+	suffix := ""
+	if op.PauseExpiresAt != nil {
+		data["Until"] = op.PauseExpiresAt.UTC().Format(time.RFC3339)
+		suffix = "_until"
+	}
+	if op.Replicas != nil {
+		return f.confirmReplicaCount("operation.confirm_pause_scale_"+scope+suffix, *op.Replicas, data)
+	}
+	return f.texts.Format("operation.confirm_pause_"+scope+suffix, data)
+}
+
+func (f *operationFlow) confirmReplicaCount(id string, count uint64, data map[string]any) string {
+	data["Count"] = count
+	// go-i18n accepts signed integers. For larger values preserve the last two
+	// digits (used by Russian plurals) and the distinction from English singular.
+	pluralCount := count
+	if pluralCount > math.MaxInt64 {
+		const pluralSuffixBase = 100
+		pluralCount = pluralSuffixBase + count%pluralSuffixBase
+	}
+	return f.texts.Plural(id, int64(pluralCount), data)
+}
+
+func operationTargetData(op PendingOperation) map[string]any {
+	return map[string]any{"Stack": op.Stack, "Service": op.Service}
 }
 
 type confirmationValue uint8

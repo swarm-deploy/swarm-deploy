@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/texts"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/tools"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/syncpause"
 )
 
 const (
@@ -17,26 +19,25 @@ const (
 	syncPauseSetTool                   = "sync_pause_set"
 	syncPauseResumeTool                = "sync_pause_resume"
 	assistantPromptInjectionReportTool = "assistant_prompt_injection_report"
-	promptInjectionRejectedResponse    = "Request was rejected by prompt injection protection."
 )
 
 // finalizeTerminalToolResult formats the user-facing answer for a successful terminal tool result.
-func finalizeTerminalToolResult(toolName, result string) (string, error) {
+func finalizeTerminalToolResult(localizer *texts.Localizer, toolName, result string) (string, error) {
 	switch toolName {
 	case assistantPromptInjectionReportTool:
-		return promptInjectionRejectedResponse, nil
+		return localizer.Text("result.injection_rejected"), nil
 	case deploySyncTriggerTool:
-		return finalizeSyncToolResult(result)
+		return finalizeSyncToolResult(localizer, result)
 	case syncPauseSetTool, syncPauseResumeTool:
-		return finalizePauseToolResult(toolName, result)
+		return finalizePauseToolResult(localizer, toolName, result)
 	case serviceRestartTriggerTool, serviceReplicasSetTool:
-		return finalizeServiceActionResult(toolName, result)
+		return finalizeServiceActionResult(localizer, toolName, result)
 	default:
 		return "", fmt.Errorf("terminal formatter is not configured for tool %q", toolName)
 	}
 }
 
-func finalizeSyncToolResult(result string) (string, error) {
+func finalizeSyncToolResult(localizer *texts.Localizer, result string) (string, error) {
 	var syncResult struct {
 		Queued bool `json:"queued"`
 	}
@@ -44,12 +45,12 @@ func finalizeSyncToolResult(result string) (string, error) {
 		return "", fmt.Errorf("decode terminal sync result: %w", err)
 	}
 	if !syncResult.Queued {
-		return "Synchronization request was not queued because another synchronization is already pending.", nil
+		return localizer.Text("result.sync_pending"), nil
 	}
-	return "Synchronization request queued successfully.", nil
+	return localizer.Text("result.sync_queued"), nil
 }
 
-func finalizeServiceActionResult(toolName, result string) (string, error) {
+func finalizeServiceActionResult(localizer *texts.Localizer, toolName, result string) (string, error) {
 	var actionResult tools.ServiceActionResult
 	if err := json.Unmarshal([]byte(result), &actionResult); err != nil {
 		return "", fmt.Errorf("decode terminal tool result: %w", err)
@@ -61,53 +62,43 @@ func finalizeServiceActionResult(toolName, result string) (string, error) {
 		return "", errors.New("terminal tool result does not contain service")
 	}
 
-	switch toolName {
-	case serviceRestartTriggerTool:
-		return appendActionWarning(fmt.Sprintf(
-			"Service restart completed successfully: stack %q, service %q, current replicas: %d.",
-			actionResult.Stack,
-			actionResult.Service,
-			actionResult.Replicas,
-		), actionResult.Warning), nil
-	case serviceReplicasSetTool:
-		return appendActionWarning(fmt.Sprintf(
-			"Service replicas updated successfully: stack %q, service %q, replicas set to %d.",
-			actionResult.Stack,
-			actionResult.Service,
-			actionResult.Replicas,
-		), actionResult.Warning), nil
-	default:
-		return "", fmt.Errorf("terminal formatter is not configured for tool %q", toolName)
+	id := "result.restart"
+	if toolName == serviceReplicasSetTool {
+		id = "result.replicas"
 	}
+	answer := localizer.Format(id, map[string]any{
+		"Stack": actionResult.Stack, "Service": actionResult.Service, "Count": actionResult.Replicas,
+	})
+	switch warning := strings.TrimSpace(actionResult.Warning); warning {
+	case tools.ServiceActionWarningAuditEventNotPersisted:
+		answer += " " + localizer.Text("result.audit_event_not_persisted")
+	case "":
+	default:
+		answer += " " + localizer.Format("result.warning", map[string]any{"Warning": warning})
+	}
+	return answer, nil
 }
 
-func finalizePauseToolResult(toolName, result string) (string, error) {
+func finalizePauseToolResult(localizer *texts.Localizer, toolName, result string) (string, error) {
 	var pauseResult struct {
-		Scope   string `json:"scope"`
-		Stack   string `json:"stack"`
-		Service string `json:"service"`
-		Changed *bool  `json:"changed"`
+		Scope   syncpause.Scope `json:"scope"`
+		Stack   string          `json:"stack"`
+		Service string          `json:"service"`
+		Changed *bool           `json:"changed"`
 	}
 	if err := json.Unmarshal([]byte(result), &pauseResult); err != nil {
 		return "", fmt.Errorf("decode Pause Sync result: %w", err)
 	}
-	target := fmt.Sprintf("stack %q", pauseResult.Stack)
-	if pauseResult.Scope == "service" {
-		target = fmt.Sprintf("service %q in stack %q", pauseResult.Service, pauseResult.Stack)
-	}
 	if pauseResult.Changed != nil && !*pauseResult.Changed {
-		return "Pause Sync policy was already in the requested state.", nil
+		return localizer.Text("result.pause_unchanged"), nil
+	}
+	data := map[string]any{"Stack": pauseResult.Stack, "Service": pauseResult.Service}
+	scope := string(syncpause.ScopeStack)
+	if pauseResult.Scope == syncpause.ScopeService {
+		scope = string(syncpause.ScopeService)
 	}
 	if toolName == syncPauseSetTool {
-		return fmt.Sprintf("Pause Sync enabled for %s.", target), nil
+		return localizer.Format("result.pause_"+scope+"_set", data), nil
 	}
-	return fmt.Sprintf("Direct Pause Sync policy removed for %s.", target), nil
-}
-
-func appendActionWarning(answer, warning string) string {
-	warning = strings.TrimSpace(warning)
-	if warning == "" {
-		return answer
-	}
-	return answer + " Warning: " + warning
+	return localizer.Format("result.pause_"+scope+"_removed", data), nil
 }

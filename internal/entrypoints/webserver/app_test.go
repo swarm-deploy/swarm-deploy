@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/texts"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops"
@@ -30,6 +31,8 @@ func newTestApplication(t *testing.T, webConfig config.WebSpec, language config.
 	secretsStore := secretstore.NewSQLStore(testutil.OpenSQLite(t))
 	serviceManager := swarm.NewMockServiceManager(ctrl)
 
+	localizer, err := texts.New(string(language))
+	require.NoError(t, err)
 	app, err := NewApplication(
 		webConfig,
 		language,
@@ -42,6 +45,7 @@ func newTestApplication(t *testing.T, webConfig config.WebSpec, language config.
 		nil,
 		nil,
 		nil,
+		localizer,
 		logparser.NewService(serviceManager),
 	)
 	require.NoError(t, err, "new application")

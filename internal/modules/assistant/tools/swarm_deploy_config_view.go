@@ -62,6 +62,7 @@ type eventSettings struct {
 }
 
 type systemSettings struct {
+	Language config.Language `json:"language"`
 	LogLevel string          `json:"logLevel"`
 	Tracing  tracingSettings `json:"tracing"`
 }
@@ -212,7 +213,7 @@ func projectGitOps(spec config.GitOpsSpec) gitOpsSettings {
 }
 
 func projectSystem(spec config.SystemSpec) systemSettings {
-	settings := systemSettings{LogLevel: spec.Log.Level.Level().String()}
+	settings := systemSettings{Language: spec.Language.Effective(), LogLevel: spec.Log.Level.Level().String()}
 	if spec.Tracing == nil {
 		return settings
 	}

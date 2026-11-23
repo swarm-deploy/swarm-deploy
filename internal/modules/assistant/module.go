@@ -10,6 +10,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/conversation"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/texts"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/tools"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event"
@@ -50,9 +51,9 @@ type Container interface {
 }
 
 // InitModule initializes the assistant and its built-in tools.
-func InitModule(_ context.Context, cfg *config.Config, cnt Container) (*Module, error) {
+func InitModule(_ context.Context, cfg *config.Config, cnt Container, localizer *texts.Localizer) (*Module, error) {
 	if !cfg.Spec.Assistant.Enabled {
-		return &Module{Service: &DisabledAssistant{}}, nil
+		return &Module{Service: NewDisabledAssistant(localizer)}, nil
 	}
 
 	temperature, err := cfg.Spec.Assistant.Model.OpenAI.ResolveTemperature()
@@ -89,6 +90,7 @@ func InitModule(_ context.Context, cfg *config.Config, cnt Container) (*Module, 
 	)
 
 	service, err := NewService(Config{
+		Localizer:               localizer,
 		Enabled:                 cfg.Spec.Assistant.Enabled,
 		ModelName:               cfg.Spec.Assistant.Model.Name,
 		EmbeddingModelName:      cfg.Spec.Assistant.Model.EmbeddingName,

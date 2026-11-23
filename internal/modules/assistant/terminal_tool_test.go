@@ -23,12 +23,14 @@ import (
 func TestFinalizeTerminalServiceActionResult(t *testing.T) {
 	testCases := []struct {
 		name           string
+		locale         string
 		toolName       string
 		toolResult     string
 		answerContains []string
 	}{
 		{
-			name:       "restart",
+			name:       "restart with an unrecognized warning",
+			locale:     "en",
 			toolName:   serviceRestartTriggerTool,
 			toolResult: `{"stack":"infra","service":"postgres","replicas":1,"warning":"audit unavailable"}`,
 			answerContains: []string{
@@ -38,17 +40,28 @@ func TestFinalizeTerminalServiceActionResult(t *testing.T) {
 		},
 		{
 			name:       "replicas",
+			locale:     "en",
 			toolName:   serviceReplicasSetTool,
 			toolResult: `{"stack":"core","service":"api","replicas":4}`,
 			answerContains: []string{
 				"replicas updated successfully", `stack "core"`, `service "api"`, "replicas set to 4",
 			},
 		},
+		{
+			name:       "replicas with an audit warning in Russian",
+			locale:     "ru",
+			toolName:   serviceReplicasSetTool,
+			toolResult: `{"stack":"core","service":"api","replicas":4,"warning":"audit_event_not_persisted"}`,
+			answerContains: []string{
+				`Число реплик сервиса "api" в стеке "core" изменено на 4.`,
+				"Предупреждение: не удалось сохранить событие аудита.",
+			},
+		},
 	}
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			answer, err := finalizeTerminalToolResult(testCase.toolName, testCase.toolResult)
+			answer, err := finalizeTerminalToolResult(testAssistantTexts(t, testCase.locale), testCase.toolName, testCase.toolResult)
 			require.NoError(t, err)
 			assert.NotEqual(t, testCase.toolResult, answer, "raw JSON must not be returned")
 			for _, expected := range testCase.answerContains {
@@ -77,7 +90,7 @@ func TestPromptInjectionReportIsTerminalAndSuppressesOperationalTools(t *testing
 	})
 
 	require.Equal(t, StatusCompleted, response.Status)
-	assert.Equal(t, promptInjectionRejectedResponse, response.Answer)
+	assert.Equal(t, "Request was rejected by prompt injection protection.", response.Answer)
 	assert.Equal(t, int64(2), chatCalls.Load(), "router and first generation should be the only model calls")
 	assert.Equal(t, []string{assistantPromptInjectionReportTool}, tools.calls)
 }
@@ -306,7 +319,7 @@ func TestFinalizeTerminalToolResultRejectsRawOrIncompletePayload(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			answer, err := finalizeTerminalToolResult(testCase.toolName, testCase.result)
+			answer, err := finalizeTerminalToolResult(testAssistantTexts(t, "en"), testCase.toolName, testCase.result)
 			require.Error(t, err)
 			assert.True(t, strings.TrimSpace(answer) == "")
 		})

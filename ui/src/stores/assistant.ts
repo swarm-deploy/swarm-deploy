@@ -6,6 +6,7 @@ import type {
   AssistantChatResponse,
   AssistantChatSummary,
 } from "../api/types";
+import { t } from "../i18n";
 import { useUIStore } from "./ui";
 
 function sleep(ms: number): Promise<void> {
@@ -231,7 +232,7 @@ export const useAssistantStore = defineStore("assistant", {
       if (response?.status === "completed") {
         this.pushMessage(
           "assistant",
-          response.answer || "Assistant returned empty answer.",
+          response.answer || t("assistant.emptyAnswer"),
           this.activity.length > 0 ? [...this.activity] : undefined,
           response.answer_sequence,
         );
@@ -247,15 +248,15 @@ export const useAssistantStore = defineStore("assistant", {
 
       this.activity = [];
       this.pushMessage("system", response
-        ? response.error_message || `Assistant status: ${response.status}`
-        : "Assistant request timeout. Try again.");
+        ? response.error_message || t("assistant.status", { status: response.status })
+        : t("assistant.timeout"));
     },
     showRequestError(error: unknown) {
       this.chatHistoryStale = true;
       this.activeRequestID = "";
       this.activity = [];
-      const message = error instanceof Error ? error.message : "Unexpected assistant error";
-      this.pushMessage("system", `Assistant failed: ${message}`);
+      const message = error instanceof Error ? error.message : t("assistant.unexpectedError");
+      this.pushMessage("system", t("assistant.requestFailed", { message }));
     },
     // Return as soon as the server has accepted the first question and assigned a chat ID.
     async createChat(message: string, requestID: string) {
@@ -263,7 +264,7 @@ export const useAssistantStore = defineStore("assistant", {
         { message, request_id: requestID },
         (progress) => !progress.conversation_id,
       );
-      if (!response) throw new Error("Assistant request timeout. Try again.");
+      if (!response) throw new Error(t("assistant.timeout"));
       return response;
     },
     openCreatedChat(message: string, response: AssistantChatResponse) {
@@ -284,28 +285,27 @@ export const useAssistantStore = defineStore("assistant", {
         return;
       }
 
-      const normalizedMessage = message.trim();
-      if (!normalizedMessage) {
+      if (!message.trim()) {
         return;
       }
 
       const conversationID = this.conversationID;
       // Sending keeps the shown chat and drops any chat that is still loading.
       const generation = this.beginChatGeneration();
-      this.pushMessage("user", normalizedMessage);
+      this.pushMessage("user", message);
       this.activity = [];
       this.pending = true;
 
       try {
         const response = await this.pollSelectedChat({
           conversation_id: conversationID || undefined,
-          message: normalizedMessage,
+          message,
         }, generation);
         if (!this.isCurrentChat(generation)) return;
         if (conversationID && (response?.status === "failed" || response?.status === "rejected")) {
           // Another client may own the running request, or the server may have rejected our optimistic turn.
           this.chatHistoryStale = true;
-          const notice = response.error_message || `Assistant status: ${response.status}`;
+          const notice = response.error_message || t("assistant.status", { status: response.status });
           this.pushMessage("system", notice);
           await this.refreshChat(conversationID, undefined, notice);
         } else {

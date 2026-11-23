@@ -2,6 +2,7 @@ import { config, flushPromises, mount } from "@vue/test-utils";
 import { createPinia, setActivePinia } from "pinia";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createMemoryHistory, createRouter } from "vue-router";
+import { i18n } from "../../i18n";
 import { useOverviewStore } from "../../stores/overview";
 import CommitDetailsModal from "./CommitDetailsModal.vue";
 
@@ -39,7 +40,10 @@ describe("Commit Details modal", () => {
     assistantStore.sendMessage.mockClear();
   });
 
-  afterEach(() => { config.global.plugins = []; });
+  afterEach(() => {
+    config.global.plugins = [];
+    i18n.global.locale.value = "en";
+  });
 
   it("shows an icon-only explanation action immediately before close", () => {
     openCommitDetails();
@@ -70,16 +74,20 @@ describe("Commit Details modal", () => {
     wrapper.unmount();
   });
 
-  it("preserves the existing AI explanation behavior", async () => {
+  it.each([
+    { locale: "en", label: "Explain commit", prompt: "Explain changes in git commit: abcdef012345" },
+    { locale: "ru", label: "Объяснить коммит", prompt: "Объясни изменения в коммите Git: abcdef012345" },
+  ] as const)("opens an assistant chat with the commit prompt in $locale", async ({ locale, label, prompt }) => {
+    i18n.global.locale.value = locale;
     const store = openCommitDetails();
     const wrapper = mount(CommitDetailsModal);
 
-    await wrapper.get('[aria-label="Explain commit"]').trigger("click");
+    await wrapper.get(`[aria-label="${label}"]`).trigger("click");
     await flushPromises();
 
     expect(store.commitDetailsModalOpen).toBe(false);
     expect(router.currentRoute.value.fullPath).toBe("/?assistant=new&tab=services#commit");
-    expect(assistantStore.sendMessage).toHaveBeenCalledWith("Explain changes in git commit: abcdef012345");
+    expect(assistantStore.sendMessage).toHaveBeenCalledWith(prompt);
     wrapper.unmount();
   });
 });

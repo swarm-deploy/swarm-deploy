@@ -21,7 +21,7 @@ func (h *handler) AssistantChat(
 	if requestSize > assistantChatRequestMaxBytes {
 		return nil, withStatusError(
 			http.StatusRequestEntityTooLarge,
-			errors.New("assistant request is too large"),
+			errors.New(h.assistantTexts.Text("http.request_too_large")),
 		)
 	}
 

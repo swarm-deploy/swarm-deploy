@@ -70,7 +70,7 @@ func TestRestartServiceReturnsSuccessWhenEventPublishFails(t *testing.T) {
 	payload, ok := response.Payload.(ServiceActionResult)
 	require.True(t, ok)
 	assert.Equal(t, uint64(3), payload.Replicas)
-	assert.Contains(t, payload.Warning, "audit event")
+	assert.Equal(t, ServiceActionWarningAuditEventNotPersisted, payload.Warning)
 }
 
 func TestRestartServiceExecuteFailsOnInspect(t *testing.T) {

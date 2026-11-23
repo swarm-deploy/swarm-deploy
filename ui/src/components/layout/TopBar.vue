@@ -223,12 +223,12 @@ onUnmounted(() => {
       <AppButton
         variant="secondary"
         class="topbar-assistant-button"
-        aria-label="Assistant"
+        :aria-label="t('assistant.name')"
         :disabled="!assistantEnabled"
         @click="emit('toggleAssistant')"
       >
-        <span class="topbar-assistant-label">Assistant</span>
-        <span class="topbar-assistant-icon" title="Assistant" aria-hidden="true">
+        <span class="topbar-assistant-label">{{ t('assistant.name') }}</span>
+        <span class="topbar-assistant-icon" :title="t('assistant.name')" aria-hidden="true">
           <svg
             width="26"
             height="26"

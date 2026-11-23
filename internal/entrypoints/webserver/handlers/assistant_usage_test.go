@@ -30,10 +30,11 @@ func TestAssistantUsageHTTP(t *testing.T) {
 	_, err = history.SaveTurns(ctx, "second-chat", "", conversation.TokenUsage{InputTokens: 6, OutputTokens: 2, TotalTokens: 8})
 	require.NoError(t, err)
 	service, err := assistant.NewService(assistant.Config{
-		Enabled: true, ConversationInMemoryTTL: time.Hour, ConversationHistory: history,
+		Localizer: newTestAssistantTexts(t, "en"),
+		Enabled:   true, ConversationInMemoryTTL: time.Hour, ConversationHistory: history,
 	}, nil, nil, dispatcher.NewOutboxDispatcher(outbox.New(db)), &metrics.NopAssistant{})
 	require.NoError(t, err)
-	h := &handler{assistant: service}
+	h := &handler{assistant: service, assistantTexts: newTestAssistantTexts(t, "en")}
 	server, err := generated.NewServer(h, h, generated.WithErrorHandler(HandleHTTPError))
 	require.NoError(t, err)
 

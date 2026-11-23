@@ -39,7 +39,8 @@ func TestPendingOperationFullRestartSkipsMainGenerationAndConfirmationSkipsModel
 		executeResult: `{"stack":"core","service":"api","replicas":2}`,
 	}
 	assistantService, err := NewService(Config{
-		Enabled: true, ModelName: "test-model", BaseURL: server.URL, APIToken: "token", MaxTokens: 64,
+		Localizer: testAssistantTexts(t, "en"),
+		Enabled:   true, ModelName: "test-model", BaseURL: server.URL, APIToken: "token", MaxTokens: 64,
 		ConversationInMemoryTTL: time.Hour, ConversationHistory: newSQLHistory(t),
 	}, serviceStore(t, []model.Info{{Stack: "core", Name: "api"}}), tools,
 		&dispatcher.NopDispatcher{}, metrics.NopAssistant{})
@@ -47,7 +48,7 @@ func TestPendingOperationFullRestartSkipsMainGenerationAndConfirmationSkipsModel
 
 	first := assistantService.Chat(context.Background(), ChatRequest{Message: "Перезапусти core/api"})
 	require.Equal(t, StatusCompleted, first.Status)
-	assert.Equal(t, "Перезапустить `api` в стеке `core`?", first.Answer)
+	assert.Equal(t, "Restart `api` in stack `core`?", first.Answer)
 	assert.Equal(t, 1, requests, "initial turn must call only the router")
 	assert.Empty(t, tools.calls)
 
@@ -83,15 +84,16 @@ func TestPendingOperationResolution(t *testing.T) {
 		{name: "unique service", target: "worker", expectedOK: true, expectedStack: "core", expectedName: "worker"},
 		{name: "stack with one service", target: "infra", expectedOK: true, expectedStack: "infra", expectedName: "postgres"},
 		{name: "unique partial match", target: "work", expectedOK: true, expectedStack: "core", expectedName: "worker"},
-		{name: "ambiguous stack", target: "core", expectedText: "несколько сервисов"},
-		{name: "ambiguous service", target: "postgres", expectedText: "несколько сервисов"},
-		{name: "missing target", expectedText: "Уточните"},
-		{name: "no match", target: "missing", expectedText: "не найден"},
+		{name: "ambiguous stack", target: "core", expectedText: "Multiple services"},
+		{name: "ambiguous service", target: "postgres", expectedText: "Multiple services"},
+		{name: "missing target", expectedText: "Specify"},
+		{name: "no match", target: "missing", expectedText: "No service found"},
 	}
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			resolved := resolveServiceTarget(services, testCase.target)
+			flow := newPendingTestFlow(t, nil, nil)
+			resolved := flow.resolveServiceTarget(services, testCase.target)
 			assert.Equal(t, testCase.expectedOK, resolved.ok)
 			assert.Equal(t, testCase.expectedStack, resolved.stack)
 			assert.Equal(t, testCase.expectedName, resolved.service)
@@ -113,18 +115,18 @@ func TestPendingOperationDeterministicTurns(t *testing.T) {
 	}{
 		{
 			name: "negative confirmation", message: "нет", expectedHandled: true,
-			expectedAnswer: "Операция отменена.", expectedPending: false,
+			expectedAnswer: "Operation cancelled.", expectedPending: false,
 		},
 		{
 			name: "ambiguous confirmation", message: "возможно", expectedHandled: true,
-			expectedAnswer: "Ответьте явно", expectedPending: true,
+			expectedAnswer: "Reply `yes`", expectedPending: true,
 		},
 		{
 			name: "resource changed", message: "да", expectedHandled: true,
 			configure: func(_ *operationFlow, store *MockServiceStore, _ *fakeTools) {
 				store.EXPECT().ReadAll(gomock.Any()).Return(nil, nil).AnyTimes()
 			},
-			expectedAnswer: "больше не существует", expectedPending: false,
+			expectedAnswer: "no longer exists", expectedPending: false,
 		},
 		{
 			name: "tool disallowed", message: "да", expectedHandled: true,
@@ -150,7 +152,7 @@ func TestPendingOperationDeterministicTurns(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			store := serviceStore(t, []model.Info{{Stack: "core", Name: "api"}})
 			tools := &fakeTools{definitions: assistantTestToolDefinitions(), executeResult: `{"stack":"core","service":"api","replicas":2}`}
-			flow := newPendingTestFlow(store, tools)
+			flow := newPendingTestFlow(t, store, tools)
 			flow.pending.set("conversation", PendingOperation{
 				Type: OperationServiceRestart, Stage: PendingOperationConfirmation, Stack: "core", Service: "api",
 			})
@@ -176,7 +178,7 @@ func TestPendingOperationDeterministicTurns(t *testing.T) {
 
 func TestPendingOperationExpiredFallsThrough(t *testing.T) {
 	store := serviceStore(t, []model.Info{{Stack: "core", Name: "api"}})
-	flow := newPendingTestFlow(store, &fakeTools{})
+	flow := newPendingTestFlow(t, store, &fakeTools{})
 	now := time.Date(2026, time.September, 27, 12, 0, 0, 0, time.UTC)
 	flow.pending.now = func() time.Time { return now }
 	flow.pending.operations["conversation"] = PendingOperation{
@@ -194,7 +196,7 @@ func TestPendingOperationExpiredFallsThrough(t *testing.T) {
 
 func TestPendingOperationPromptGuardRunsBeforePendingHandling(t *testing.T) {
 	store := serviceStore(t, []model.Info{{Stack: "core", Name: "api"}})
-	flow := newPendingTestFlow(store, &fakeTools{})
+	flow := newPendingTestFlow(t, store, &fakeTools{})
 	g := &graph{guard: flow.guard, operations: flow}
 	flow.pending.set("conversation", PendingOperation{
 		Type: OperationServiceRestart, Stage: PendingOperationConfirmation, Stack: "core", Service: "api",
@@ -210,14 +212,14 @@ func TestPendingOperationSetsReplicas(t *testing.T) {
 	replicas := uint64(4)
 	store := serviceStore(t, []model.Info{{Stack: "core", Name: "api"}})
 	tools := &fakeTools{definitions: assistantTestToolDefinitions(), executeResult: `{"stack":"core","service":"api","replicas":4}`}
-	flow := newPendingTestFlow(store, tools)
+	flow := newPendingTestFlow(t, store, tools)
 
 	turn := flow.beginTurn("conversation")
 	answer, usage := turn.startPendingOperation(context.Background(), OperationIntent{
 		Type: OperationServiceReplicasSet, Target: "api", Replicas: &replicas,
 	})
 	turn.publish()
-	assert.Equal(t, "Установить 4 реплик для `api` в стеке `core`?", answer)
+	assert.Equal(t, "Set 4 replicas for `api` in stack `core`?", answer)
 	assert.True(t, usage.IsZero())
 
 	handled, answer, usage, err := flow.beginTurn("conversation").handlePendingOperation(context.Background(), "confirm")
@@ -230,14 +232,14 @@ func TestPendingOperationSetsReplicas(t *testing.T) {
 
 func TestPendingOperationConfirmsDeploySync(t *testing.T) {
 	tools := &fakeTools{definitions: assistantTestToolDefinitions(), executeResult: `{"queued":true}`}
-	flow := newPendingTestFlow(serviceStore(t, nil), tools)
+	flow := newPendingTestFlow(t, serviceStore(t, nil), tools)
 
 	turn := flow.beginTurn("conversation")
 	answer, usage := turn.startPendingOperation(context.Background(), OperationIntent{
 		Type: OperationDeploySync,
 	})
 	turn.publish()
-	assert.Equal(t, "Запустить синхронизацию GitOps?", answer)
+	assert.Equal(t, "Start GitOps synchronization?", answer)
 	assert.True(t, usage.IsZero())
 
 	handled, answer, usage, err := flow.beginTurn("conversation").handlePendingOperation(context.Background(), "да")
@@ -250,7 +252,7 @@ func TestPendingOperationConfirmsDeploySync(t *testing.T) {
 
 func TestPendingPauseStackResumeWarnsThatServicePausesRemain(t *testing.T) {
 	tools := &fakeTools{definitions: assistantTestToolDefinitions(), executeResult: `{"scope":"stack","stack":"app","changed":true}`}
-	flow := newPendingTestFlow(serviceStore(t, nil), tools)
+	flow := newPendingTestFlow(t, serviceStore(t, nil), tools)
 	flow.pauseTargets = &fakePauseTargets{stackState: syncpause.StackState{ServicePauses: []syncpause.Pause{{
 		Scope: syncpause.ScopeService, StackName: "app", ServiceName: "api",
 	}}}}
@@ -261,7 +263,7 @@ func TestPendingPauseStackResumeWarnsThatServicePausesRemain(t *testing.T) {
 	})
 	turn.publish()
 	assert.Zero(t, usage)
-	assert.Contains(t, answer, "1 прямых пауз сервисов останутся активными")
+	assert.Contains(t, answer, "1 direct service pause will remain active")
 
 	handled, answer, _, err := flow.beginTurn("conversation").handlePendingOperation(t.Context(), "confirm")
 	require.NoError(t, err)
@@ -287,7 +289,7 @@ func TestPendingPauseAndScaleFailureRetainsRetryForScaleOnly(t *testing.T) {
 			return "", errors.New("unexpected tool")
 		}
 	}
-	flow := newPendingTestFlow(serviceStore(t, []model.Info{{Stack: "app", Name: "api"}}), tools)
+	flow := newPendingTestFlow(t, serviceStore(t, []model.Info{{Stack: "app", Name: "api"}}), tools)
 	flow.pauseTargets = &fakePauseTargets{}
 	replicas := uint64(3)
 
@@ -296,7 +298,7 @@ func TestPendingPauseAndScaleFailureRetainsRetryForScaleOnly(t *testing.T) {
 		Type: OperationSyncPauseSet, Scope: "service", Target: "app/api", Replicas: &replicas,
 	})
 	turn.publish()
-	assert.Contains(t, answer, "затем установить 3 реплик")
+	assert.Contains(t, answer, "then set 3 replicas")
 	retryTurn := flow.beginTurn("conversation")
 	handled, answer, _, err := retryTurn.handlePendingOperation(t.Context(), "yes")
 	require.NoError(t, err)
@@ -316,23 +318,23 @@ func TestPendingPauseAndScaleFailureRetainsRetryForScaleOnly(t *testing.T) {
 
 func TestPendingOperationCollectsMissingServiceWithoutModels(t *testing.T) {
 	store := serviceStore(t, []model.Info{{Stack: "core", Name: "api"}, {Stack: "core", Name: "worker"}})
-	flow := newPendingTestFlow(store, &fakeTools{})
+	flow := newPendingTestFlow(t, store, &fakeTools{})
 	turn := flow.beginTurn("conversation")
 	answer, usage := turn.startPendingOperation(context.Background(), OperationIntent{Type: OperationServiceRestart, Target: "core"})
 	turn.publish()
-	assert.Contains(t, answer, "несколько сервисов")
+	assert.Contains(t, answer, "Multiple services")
 	assert.True(t, usage.IsZero())
 
 	handled, answer, usage, err := flow.beginTurn("conversation").handlePendingOperation(context.Background(), "worker")
 	require.NoError(t, err)
 	assert.True(t, handled)
 	assert.True(t, usage.IsZero())
-	assert.Equal(t, "Перезапустить `worker` в стеке `core`?", answer)
+	assert.Equal(t, "Restart `worker` in stack `core`?", answer)
 }
 
 func TestPendingOperationResolvesLiteralStackTarget(t *testing.T) {
 	store := serviceStore(t, []model.Info{{Stack: "infra-postgres-mcp", Name: "postgres-mcp-core"}})
-	flow := newPendingTestFlow(store, &fakeTools{})
+	flow := newPendingTestFlow(t, store, &fakeTools{})
 
 	turn := flow.beginTurn("conversation")
 	answer, usage := turn.startPendingOperation(context.Background(), OperationIntent{
@@ -340,7 +342,7 @@ func TestPendingOperationResolvesLiteralStackTarget(t *testing.T) {
 	})
 	turn.publish()
 
-	assert.Equal(t, "Перезапустить `postgres-mcp-core` в стеке `infra-postgres-mcp`?", answer)
+	assert.Equal(t, "Restart `postgres-mcp-core` in stack `infra-postgres-mcp`?", answer)
 	assert.True(t, usage.IsZero(), "deterministic resolution must not call a model")
 	op, ok := flow.pending.get("conversation")
 	require.True(t, ok)
@@ -354,7 +356,7 @@ func TestPendingOperationFindItYourselfUsesOriginalTarget(t *testing.T) {
 		Content: `{"status":"exact","candidate":"infra-postgres-mcp/postgres-mcp-core"}`,
 		Usage:   conversation.TokenUsage{InputTokens: 10, OutputTokens: 3, TotalTokens: 13},
 	}}
-	flow := newPendingTestFlow(store, &fakeTools{})
+	flow := newPendingTestFlow(t, store, &fakeTools{})
 	flow.chat = resolver
 	flow.modelName = "test-model"
 	flow.pending.set("conversation", PendingOperation{
@@ -364,7 +366,7 @@ func TestPendingOperationFindItYourselfUsesOriginalTarget(t *testing.T) {
 	handled, answer, usage, err := flow.beginTurn("conversation").handlePendingOperation(context.Background(), "Найди сам")
 	require.NoError(t, err)
 	assert.True(t, handled)
-	assert.Equal(t, "Перезапустить `postgres-mcp-core` в стеке `infra-postgres-mcp`?", answer)
+	assert.Equal(t, "Restart `postgres-mcp-core` in stack `infra-postgres-mcp`?", answer)
 	assert.Equal(t, int64(13), usage.TotalTokens)
 	require.Len(t, resolver.requests, 1)
 	assert.Len(t, resolver.requests[0].Messages, 2, "resolver must not receive full history")
@@ -376,12 +378,12 @@ func TestTargetResolverRejectsCandidateMissingFromStore(t *testing.T) {
 	resolver := &recordingCompleter{response: llm.Response{
 		Content: `{"status":"exact","candidate":"prod/admin"}`,
 	}}
-	flow := newPendingTestFlow(serviceStore(t, services), &fakeTools{})
+	flow := newPendingTestFlow(t, serviceStore(t, services), &fakeTools{})
 	flow.chat = resolver
 
 	resolution, _ := flow.resolveOperationTarget(context.Background(), services, "production API")
 	assert.False(t, resolution.ok)
-	assert.Contains(t, resolution.message, "не найден")
+	assert.Contains(t, resolution.message, "No service found")
 }
 
 type recordingCompleter struct {
@@ -394,9 +396,9 @@ func (c *recordingCompleter) Complete(_ context.Context, request llm.Request) (l
 	return c.response, nil
 }
 
-func newPendingTestFlow(store *MockServiceStore, tools *fakeTools) *operationFlow {
+func newPendingTestFlow(t *testing.T, store *MockServiceStore, tools *fakeTools) *operationFlow {
 	return newOperationFlow(
-		Config{ConversationInMemoryTTL: time.Hour}, nil, store, tools, guard.NewInjectionChecker(), map[string]struct{}{},
+		Config{Localizer: testAssistantTexts(t, "en"), ConversationInMemoryTTL: time.Hour}, nil, store, tools, guard.NewInjectionChecker(), map[string]struct{}{},
 	)
 }
 
