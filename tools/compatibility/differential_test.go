@@ -19,7 +19,7 @@ import (
 	"go.yaml.in/yaml/v3"
 )
 
-// The independent loader/converter is pinned to Docker CLI v28.3.3 in go.mod.
+// The independent loader/converter is pinned in this module's go.mod.
 // It is used only in tests and never loads prepared production snapshots.
 func TestDockerCLIDifferential(t *testing.T) {
 	for _, fixture := range []string{
@@ -71,7 +71,7 @@ func TestDockerCLIDifferential(t *testing.T) {
 			require.NoError(t, yaml.Unmarshal([]byte(source), &dictionary))
 			cli, err := cliloader.Load(clitypes.ConfigDetails{WorkingDir: t.TempDir(), ConfigFiles: []clitypes.ConfigFile{{Config: dictionary}}}, func(options *cliloader.Options) { options.SkipInterpolation = true })
 			require.NoError(t, err)
-			expected, err := cliconvert.Service("1.51", cliconvert.NewNamespace("demo"), cli.Services[0], cli.Networks, cli.Volumes, nil, nil)
+			expected, err := cliconvert.Service(cliconvert.NewNamespace("demo"), cli.Services[0], cli.Networks, cli.Volumes, nil, nil)
 			require.NoError(t, err)
 			native, err := compose.Parse([]byte(source))
 			require.NoError(t, err)
@@ -80,20 +80,14 @@ func TestDockerCLIDifferential(t *testing.T) {
 			networks.EXPECT().Get(gomock.Any(), "demo_default").Return(swarm.Network{ID: "demo_default", Name: "demo_default", Scope: "swarm"}, nil)
 			converted, err := converter.New(networks, swarm.NewMockConfigManager(ctrl), swarm.NewMockSecretManager(ctrl)).Convert(t.Context(), "demo", *native)
 			require.NoError(t, err)
-			actual := converted.Services[0]
-			require.NoError(t, err)
-			// CLI always emits empty optional objects; normalize Docker defaults and
-			// compare effective API values instead of nil versus empty collections.
-			expected.TaskTemplate.Networks = actual.TaskTemplate.Networks
-			assert.Equal(t, canonicalDifferential(t, expected), canonicalDifferential(t, actual))
+			assert.Equal(t, canonicalJSON(t, expected), canonicalNativeSpec(t, converted.Services[0]))
 		})
 	}
 }
 
-func canonicalDifferential(t *testing.T, spec dockerswarm.ServiceSpec) any {
+func canonicalNativeSpec(t *testing.T, spec dockerswarm.ServiceSpec) any {
 	t.Helper()
-	// Differences that don't change the API meaning are collapsed here, without
-	// applying native image normalization or copying any converted service fields.
+	// Match the empty optional objects emitted by the CLI.
 	if spec.TaskTemplate.Resources == nil {
 		spec.TaskTemplate.Resources = &dockerswarm.ResourceRequirements{}
 	}
@@ -150,7 +144,7 @@ func TestCLIFieldLimitations(t *testing.T) {
 	require.NoError(t, yaml.Unmarshal([]byte("version: '3.8'\nservices: {api: {image: alpine, tmpfs: /run}}"), &dictionary))
 	cli, err := cliloader.Load(clitypes.ConfigDetails{WorkingDir: t.TempDir(), ConfigFiles: []clitypes.ConfigFile{{Config: dictionary}}})
 	require.NoError(t, err)
-	spec, err := cliconvert.Service("1.51", cliconvert.NewNamespace("demo"), cli.Services[0], cli.Networks, cli.Volumes, nil, nil)
+	spec, err := cliconvert.Service(cliconvert.NewNamespace("demo"), cli.Services[0], cli.Networks, cli.Volumes, nil, nil)
 	require.NoError(t, err)
 	assert.Empty(t, spec.TaskTemplate.ContainerSpec.Mounts, "CLI loads service-level tmpfs but its converter omits it")
 	require.NoError(t, yaml.Unmarshal([]byte("version: '3.8'\nservices: {api: {image: alpine, oom_score_adj: 100}}"), &dictionary))
@@ -161,7 +155,7 @@ func TestCLIFieldLimitations(t *testing.T) {
 func TestDockerCLIRestartInvalid(t *testing.T) {
 	for _, policy := range []string{"invalid", "Always", ":5", "on-failure:abc", "on-failure:1:2", "on-failure:9223372036854775808"} {
 		t.Run(policy, func(t *testing.T) {
-			_, cliErr := cliconvert.Service("1.51", cliconvert.NewNamespace("demo"), clitypes.ServiceConfig{Name: "api", Image: "alpine", Restart: policy}, nil, nil, nil, nil)
+			_, cliErr := cliconvert.Service(cliconvert.NewNamespace("demo"), clitypes.ServiceConfig{Name: "api", Image: "alpine", Restart: policy}, nil, nil, nil, nil)
 			require.Error(t, cliErr)
 			native, err := compose.Parse([]byte("services: {api: {image: alpine, restart: '" + policy + "'}}"))
 			require.NoError(t, err)

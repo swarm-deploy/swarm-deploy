@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { deploymentStatus, deploymentPhase } from "../../utils/deployments";
+import { t } from "../../i18n";
 import type { RouteLocationRaw } from "vue-router";
 
 import { useOverviewStore } from "../../stores/overview";
@@ -45,12 +47,12 @@ function deploymentIcon(status: string): "check" | "failed" | "running" | "warni
 
 function deploymentTitle(status: string): string {
   switch (status) {
-    case "succeeded": return "Deploy completed";
-    case "failed": return "Deploy failed";
-    case "running": return "Deploy started";
-    case "interrupted": return "Deploy interrupted";
-    case "superseded": return "Deploy superseded";
-    default: return "Deployment updated";
+    case "succeeded": return t("deployments.completed");
+    case "failed": return t("deployments.failed");
+    case "running": return t("deployments.started");
+    case "interrupted": return t("deployments.interrupted");
+    case "superseded": return t("deployments.superseded");
+    default: return t("deployments.updated");
   }
 }
 
@@ -71,9 +73,9 @@ function openDeploymentFromKeyboard(event: KeyboardEvent, id: string) {
         <h3 :id="id" class="overview-panel-title">{{ title }}</h3>
       </RouterLink>
     </header>
-    <p v-if="loading" class="stack-panel-state" role="status">Loading deployments...</p>
-    <p v-else-if="error" class="stack-panel-state" role="alert">Failed to load deployments: {{ error }}</p>
-    <p v-else-if="!deployments.length" class="stack-panel-state">No deployments yet.</p>
+    <p v-if="loading" class="stack-panel-state" role="status">{{ t('deployments.loading') }}</p>
+    <p v-else-if="error" class="stack-panel-state" role="alert">{{ t('deployments.loadError', { error }) }}</p>
+    <p v-else-if="!deployments.length" class="stack-panel-state">{{ t('deployments.noDeployments') }}</p>
     <ol v-else class="stack-deployment-list">
       <li
         v-for="deployment in deployments"
@@ -81,7 +83,7 @@ function openDeploymentFromKeyboard(event: KeyboardEvent, id: string) {
         class="stack-deployment"
         :class="deploymentStatusClass(deployment.status)"
         tabindex="0"
-        :aria-label="`Open ${deployment.status} deployment details`"
+        :aria-label="t('deployments.openRecentDetails', { status: deploymentStatus(deployment.status, true) })"
         @click="store.openDeploymentDetailsModal(deployment.id)"
         @keydown="openDeploymentFromKeyboard($event, deployment.id)"
       >
@@ -92,20 +94,20 @@ function openDeploymentFromKeyboard(event: KeyboardEvent, id: string) {
             <time :datetime="deployment.startedAt">{{ formatDate(deployment.startedAt) }}</time>
           </div>
           <p class="stack-deployment-meta">
-            <span>Commit
+            <span>{{ t('common.commit') }}
               <button
                 v-if="deployment.commit"
                 type="button"
                 class="stack-commit-button"
-                :aria-label="`Open deployment commit ${deployment.commit}`"
+                :aria-label="t('deployments.openCommit', { commit: deployment.commit })"
                 @click.stop="store.openCommitDetailsModal(deployment.commit)"
                 @keydown.stop
               >
                 {{ shortCommitHash(deployment.commit) }}
               </button>
-              <span v-else>not available</span>
+              <span v-else>{{ t('deployments.notAvailable') }}</span>
             </span>
-            <span v-if="deployment.phase">Phase <strong>{{ deployment.phase }}</strong></span>
+            <span v-if="deployment.phase">{{ t('common.phase') }} <strong>{{ deploymentPhase(deployment.phase, true) }}</strong></span>
           </p>
           <p class="stack-deployment-summary">{{ deployment.summary }}</p>
         </div>

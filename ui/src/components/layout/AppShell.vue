@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t } from "../../i18n";
 import { computed, onMounted, watch } from "vue";
 import { RouterView, useRoute, useRouter } from "vue-router";
 
@@ -23,7 +24,7 @@ const assistantStore = useAssistantStore();
 const currentUserStore = useCurrentUserStore();
 const uiStore = useUIStore();
 
-const currentUserLabel = computed(() => currentUserStore.displayName.trim() || "User");
+const currentUserLabel = computed(() => currentUserStore.displayName.trim() || t("common.user"));
 
 const assistantPinnedActive = computed(
   () => assistantStore.enabled && uiStore.assistantDrawerOpen && uiStore.assistantPinned,
@@ -83,17 +84,11 @@ async function handleAssistantToggle() {
   const query = { ...route.query };
   if (uiStore.assistantDrawerOpen) {
     delete query.assistant;
-    await router.push({ query });
-    return;
-  }
-
-  query.assistant = "chats";
-  await router.push({ query });
-
-  if (!assistantStore.historyOpen && (assistantStore.conversationID || assistantStore.messages.length > 0)) {
+  } else {
     query.assistant = assistantStore.conversationID || "new";
-    await router.push({ query });
   }
+
+  await router.push({ query, hash: route.hash });
 }
 
 onMounted(() => {

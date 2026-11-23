@@ -149,29 +149,32 @@ notifications:
             action: reply
             message: "🟢 Node connected: {{ .ResourceID }}"
 
-# OpenTelemetry tracing. Uncomment to enable.
-# system:
-#   tracing:
-#     # OTLP transport: http | grpc.
-#     transport: http
-#     sampler:
-#       # Sampling strategy: always_on | always_off | traceidratio | parentbased_traceidratio.
-#       strategy: ${OTEL_TRACES_SAMPLER}
-#       # Sampling ratio for traceidratio strategies. Must be between 0 and 1.
-#       ratio: ${OTEL_TRACES_SAMPLER_ARG}
-#     exporter:
-#       endpoint: $OTEL_EXPORTER_OTLP_ENDPOINT
-#       # Header values can reference environment variables.
-#       # Authorization must be configured via authentication.bearerPath or authentication.apiKeyPath.
-#       headers:
-#         x-tenant: $OTEL_TENANT
-#       authentication:
-#         # Optional path to a file containing bearer token.
-#         bearerPath: /run/secrets/otel-bearer
-#         # Optional path to a file containing API key for Authorization: Api-Key <value>.
-#         apiKeyPath: /run/secrets/otel-api-key
-#         # Optional path to a file containing x-api-key.
-#         xApiKeyPath: /run/secrets/otel-x-api-key
+system:
+  # Installation-wide web interface language: en (default) or ru.
+  language: en
+
+  # OpenTelemetry tracing. Uncomment to enable.
+  # tracing:
+  #   # OTLP transport: http | grpc.
+  #   transport: http
+  #   sampler:
+  #     # Sampling strategy: always_on | always_off | traceidratio | parentbased_traceidratio.
+  #     strategy: ${OTEL_TRACES_SAMPLER}
+  #     # Sampling ratio for traceidratio strategies. Must be between 0 and 1.
+  #     ratio: ${OTEL_TRACES_SAMPLER_ARG}
+  #   exporter:
+  #     endpoint: $OTEL_EXPORTER_OTLP_ENDPOINT
+  #     # Header values can reference environment variables.
+  #     # Authorization must be configured via authentication.bearerPath or authentication.apiKeyPath.
+  #     headers:
+  #       x-tenant: $OTEL_TENANT
+  #     authentication:
+  #       # Optional path to a file containing bearer token.
+  #       bearerPath: /run/secrets/otel-bearer
+  #       # Optional path to a file containing API key for Authorization: Api-Key <value>.
+  #       apiKeyPath: /run/secrets/otel-api-key
+  #       # Optional path to a file containing x-api-key.
+  #       xApiKeyPath: /run/secrets/otel-x-api-key
 
 # Deployment polling and Init Job settings.
 deployments:

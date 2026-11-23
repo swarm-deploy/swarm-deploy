@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t } from "../../i18n";
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 
@@ -89,7 +90,7 @@ async function performSearch(query: string) {
       return;
     }
     searchResults.value = [];
-    searchError.value = error instanceof Error ? error.message : "Search failed";
+    searchError.value = error instanceof Error ? error.message : t("navigation.searchFailed");
   } finally {
     if (requestID === searchRequestID) {
       searchLoading.value = false;
@@ -168,16 +169,16 @@ onUnmounted(() => {
       <input
         v-model="searchQuery"
         type="search"
-        placeholder="Search services, secrets, and stacks"
-        aria-label="Search services, secrets, and stacks"
+        :placeholder="t('navigation.searchPlaceholder')"
+        :aria-label="t('navigation.searchPlaceholder')"
         @focus="scheduleSearch"
       />
       <div v-if="searchOpen" class="topbar-search-dropdown">
-        <p v-if="searchLoading" class="topbar-search-state">Searching...</p>
-        <p v-else-if="searchError" class="topbar-search-state">Search failed: {{ searchError }}</p>
+        <p v-if="searchLoading" class="topbar-search-state">{{ t('navigation.searching') }}</p>
+        <p v-else-if="searchError" class="topbar-search-state">{{ t('navigation.searchError', { error: searchError }) }}</p>
         <template v-else>
           <div v-if="stackResults.length > 0" class="topbar-search-group">
-            <p class="topbar-search-group-title">Stacks</p>
+            <p class="topbar-search-group-title">{{ t('common.stacks') }}</p>
             <button
               v-for="item in stackResults"
               :key="`stack-${item.stack}-${item.match}`"
@@ -189,7 +190,7 @@ onUnmounted(() => {
             </button>
           </div>
           <div v-if="serviceResults.length > 0" class="topbar-search-group">
-            <p class="topbar-search-group-title">Services</p>
+            <p class="topbar-search-group-title">{{ t('common.services') }}</p>
             <button
               v-for="item in serviceResults"
               :key="`service-${item.stack}-${item.service}-${item.match}`"
@@ -198,11 +199,11 @@ onUnmounted(() => {
               @click="selectService(item)"
             >
               <span>{{ item.label }}</span>
-              <small v-if="item.stack">stack: {{ item.stack }}</small>
+              <small v-if="item.stack">{{ t('navigation.searchStack', { stack: item.stack }) }}</small>
             </button>
           </div>
           <div v-if="secretResults.length > 0" class="topbar-search-group">
-            <p class="topbar-search-group-title">Secrets</p>
+            <p class="topbar-search-group-title">{{ t('common.secrets') }}</p>
             <button
               v-for="item in secretResults"
               :key="`secret-${item.secret_name}-${item.match}`"
@@ -213,7 +214,7 @@ onUnmounted(() => {
               <span>{{ item.label }}</span>
             </button>
           </div>
-          <p v-if="showNoResults" class="topbar-search-state">No matches found.</p>
+          <p v-if="showNoResults" class="topbar-search-state">{{ t('navigation.noMatches') }}</p>
         </template>
       </div>
     </div>
@@ -222,12 +223,12 @@ onUnmounted(() => {
       <AppButton
         variant="secondary"
         class="topbar-assistant-button"
-        aria-label="Assistant"
+        :aria-label="t('assistant.name')"
         :disabled="!assistantEnabled"
         @click="emit('toggleAssistant')"
       >
-        <span class="topbar-assistant-label">Assistant</span>
-        <span class="topbar-assistant-icon" title="Assistant" aria-hidden="true">
+        <span class="topbar-assistant-label">{{ t('assistant.name') }}</span>
+        <span class="topbar-assistant-icon" :title="t('assistant.name')" aria-hidden="true">
           <svg
             width="26"
             height="26"

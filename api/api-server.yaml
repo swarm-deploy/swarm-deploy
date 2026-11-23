@@ -44,6 +44,10 @@ paths:
     $ref: './assistant.yaml#/paths/~1api~1v1~1assistant~1chats'
   /api/v1/assistant/chats/{conversationID}:
     $ref: './assistant.yaml#/paths/~1api~1v1~1assistant~1chats~1{conversationID}'
+  /api/v1/assistant/chats/{conversationID}/read:
+    $ref: './assistant.yaml#/paths/~1api~1v1~1assistant~1chats~1{conversationID}~1read'
+  /api/v1/assistant/usage:
+    $ref: './assistant.yaml#/paths/~1api~1v1~1assistant~1usage'
   /api/v1/events:
     $ref: './events.yaml#/paths/~1api~1v1~1events'
   /api/v1/events/{id}:
@@ -120,10 +124,14 @@ components:
       $ref: './assistant.yaml#/components/schemas/AssistantChatSummary'
     AssistantChatsResponse:
       $ref: './assistant.yaml#/components/schemas/AssistantChatsResponse'
+    AssistantChatReadRequest:
+      $ref: './assistant.yaml#/components/schemas/AssistantChatReadRequest'
     AssistantChatMessage:
       $ref: './assistant.yaml#/components/schemas/AssistantChatMessage'
     AssistantChatHistory:
       $ref: './assistant.yaml#/components/schemas/AssistantChatHistory'
+    AssistantActiveChatRequest:
+      $ref: './assistant.yaml#/components/schemas/AssistantActiveChatRequest'
     QueueResponse:
       $ref: './gitops.yaml#/components/schemas/QueueResponse'
     EventHistoryResponse:

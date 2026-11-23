@@ -28,6 +28,8 @@ const (
 	CapabilityExternalRelease Capability = "external_release"
 	// CapabilityDNS enables DNS resolution.
 	CapabilityDNS Capability = "dns"
+	// CapabilityTLS enables live TLS certificate diagnostics.
+	CapabilityTLS Capability = "tls"
 	// CapabilityMetrics enables application metrics lookup.
 	CapabilityMetrics Capability = "metrics"
 	// CapabilityConfiguration enables read-only global configuration lookup.
@@ -112,6 +114,9 @@ var capabilityProfiles = map[Capability]CapabilityProfile{
 			"dns_name_resolve",
 		},
 	},
+	CapabilityTLS: {
+		Tools: []string{string(config.AssistantToolNameTLSCertificateCheck)},
+	},
 	CapabilityMetrics: {
 		Tools: []string{
 			"self_metrics_list",
@@ -130,7 +135,7 @@ func capabilityProfile(capability Capability) (CapabilityProfile, bool) {
 
 func defaultCapabilitiesForRoute(route Route) []Capability {
 	switch route {
-	case RouteGeneral, RouteOutOfScope, RoutePlatform:
+	case RouteGeneral, RouteOutOfScope, RouteNeedsClarification, RoutePlatform:
 		return nil
 	case RouteServices:
 		return []Capability{
@@ -157,6 +162,7 @@ func defaultCapabilitiesForRoute(route Route) []Capability {
 			CapabilityRegistry,
 			CapabilityExternalRelease,
 			CapabilityDNS,
+			CapabilityTLS,
 			CapabilityMetrics,
 		}
 	case RouteLookups:
@@ -164,6 +170,7 @@ func defaultCapabilitiesForRoute(route Route) []Capability {
 			CapabilityRegistry,
 			CapabilityExternalRelease,
 			CapabilityDNS,
+			CapabilityTLS,
 			CapabilityMetrics,
 		}
 	default:

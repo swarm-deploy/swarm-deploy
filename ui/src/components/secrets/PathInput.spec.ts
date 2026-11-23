@@ -1,10 +1,11 @@
 import { mount } from "@vue/test-utils";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { defineComponent, nextTick, ref } from "vue";
 
+import { i18n } from "../../i18n";
 import PathInput from "./PathInput.vue";
 
-function mountInput(initialValue = "") {
+function mountInput(initialValue = "", attachTo?: HTMLElement) {
   return mount(defineComponent({
     components: { PathInput },
     setup() {
@@ -12,10 +13,29 @@ function mountInput(initialValue = "") {
       return { value };
     },
     template: '<PathInput v-model="value" />',
-  }));
+  }), { attachTo });
 }
 
+afterEach(() => { i18n.global.locale.value = "en"; });
+
 describe("PathInput", () => {
+  it("focuses the next path segment after a slash in Russian", async () => {
+    i18n.global.locale.value = "ru";
+    const wrapper = mountInput("", document.body);
+    try {
+      const input = wrapper.get<HTMLInputElement>('input[aria-label="Путь"]');
+      input.element.focus();
+      await input.setValue("production/");
+      await nextTick();
+
+      const nextInput = wrapper.get<HTMLInputElement>('input[aria-label="Путь"]');
+      expect(nextInput.element).toBe(document.activeElement);
+      expect(nextInput.element.value).toBe("");
+    } finally {
+      wrapper.unmount();
+    }
+  });
+
   it("completes segments when a slash is typed", async () => {
     const wrapper = mountInput();
     let input = wrapper.get<HTMLInputElement>('input[aria-label="Path"]');

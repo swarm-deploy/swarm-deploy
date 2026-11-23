@@ -85,6 +85,15 @@ func (UnimplementedHandler) GetAssistantSuggestions(ctx context.Context) (r *Ass
 	return r, ht.ErrNotImplemented
 }
 
+// GetAssistantUsage implements getAssistantUsage operation.
+//
+// Read assistant token totals grouped by chat creation date.
+//
+// GET /api/v1/assistant/usage
+func (UnimplementedHandler) GetAssistantUsage(ctx context.Context, params GetAssistantUsageParams) (r *AssistantUsageResponse, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // GetConfig implements getConfig operation.
 //
 // GET /api/v1/config
@@ -320,6 +329,13 @@ func (UnimplementedHandler) ListSwarmServiceTasks(ctx context.Context, params Li
 // GET /api/v1/swarm/services
 func (UnimplementedHandler) ListSwarmServices(ctx context.Context) (r *SwarmServicesResponse, _ error) {
 	return r, ht.ErrNotImplemented
+}
+
+// MarkAssistantChatRead implements markAssistantChatRead operation.
+//
+// PUT /api/v1/assistant/chats/{conversationID}/read
+func (UnimplementedHandler) MarkAssistantChatRead(ctx context.Context, req *AssistantChatReadRequest, params MarkAssistantChatReadParams) error {
+	return ht.ErrNotImplemented
 }
 
 // PutServiceSyncPause implements putServiceSyncPause operation.

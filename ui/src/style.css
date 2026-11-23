@@ -859,18 +859,12 @@ body {
   .events-filter-bar {
     justify-content: stretch;
   }
-
-  .events-filter-field,
-  .events-filter-field select,
-  .events-filter-field input {
-    width: 100%;
-    min-width: 0;
-  }
 }
 
 
 .assistant-drawer {
   width: min(560px, 96vw);
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto minmax(0, 1fr) auto;
   gap: 0;
   padding: 0;
@@ -979,6 +973,43 @@ body {
   background: var(--surface-selected);
 }
 
+.assistant-search-button[aria-expanded="true"] {
+  color: var(--text);
+  background: var(--surface-muted);
+}
+
+.assistant-history-search {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.assistant-history-search input {
+  width: 100%;
+  padding: 8px 36px 8px 10px;
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  background: var(--surface-input);
+  color: var(--text);
+  font: inherit;
+}
+
+.assistant-history-search input:focus {
+  outline: 1px solid var(--accent-focus);
+  border-color: var(--accent-border);
+}
+
+.assistant-history-search input::-webkit-search-cancel-button {
+  display: none;
+}
+
+.assistant-history-search button {
+  position: absolute;
+  top: 50%;
+  right: 2px;
+  translate: 0 -50%;
+}
+
 .assistant-icon-button svg,
 .assistant-new-chat-icon svg,
 .assistant-send-button svg {
@@ -992,9 +1023,14 @@ body {
 }
 
 .assistant-history {
+  min-width: 0;
   min-height: 0;
   overflow-y: auto;
   padding: 18px 14px 24px;
+}
+
+.assistant-history-form {
+  display: none;
 }
 
 .assistant-new-chat-row,
@@ -1056,7 +1092,9 @@ body {
 }
 
 .assistant-history-group {
+  min-width: 0;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 2px;
   margin-top: 14px;
 }
@@ -1076,7 +1114,23 @@ body {
 }
 
 .assistant-history-open {
+  position: relative;
   padding: 4px 0;
+}
+
+.assistant-history-unread-dot {
+  position: absolute;
+  top: 50%;
+  left: -8px;
+  translate: 0 -50%;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent-strong);
+}
+
+.assistant-history-title.unread {
+  font-weight: 650;
 }
 
 .assistant-history-usage {
@@ -1105,6 +1159,7 @@ body {
   filter: none;
 }
 
+.assistant-icon-button .assistant-usage-icon,
 .assistant-history-stats svg {
   width: 16px;
   height: 16px;
@@ -1160,10 +1215,6 @@ body {
 
 .assistant-history-usage-popover dl > div:first-child dd {
   font-weight: 700;
-}
-
-.assistant-history-item.active {
-  background: var(--surface-selected);
 }
 
 .assistant-history-title {
@@ -1370,33 +1421,87 @@ body {
   display: none;
 }
 
+.assistant-composer {
+  position: relative;
+}
+
+.assistant-composer textarea {
+  display: block;
+  width: 100%;
+  min-height: 50px;
+  max-height: 144px;
+  max-height: min(144px, calc(var(--assistant-viewport-height, 100dvh) * 0.35));
+  field-sizing: content;
+  overflow-y: auto;
+  resize: none;
+  border: 1px solid var(--border-default);
+  border-radius: 10px;
+  background: var(--surface-input);
+  color: var(--text);
+  padding: 13px 44px 13px 12px;
+  box-shadow: none;
+  font: inherit;
+  font-size: 16px;
+  line-height: 22px;
+}
+
+.assistant-composer textarea:focus {
+  outline: 1px solid var(--accent-focus);
+  border-color: var(--accent-border);
+}
+
+.assistant-composer textarea::placeholder {
+  color: var(--muted);
+  opacity: 1;
+}
+
+.assistant-composer .assistant-send-button {
+  inset: auto 6px 6px auto;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--surface-control-strong);
+  color: var(--text);
+}
+
+.assistant-composer .assistant-send-button:hover:not(:disabled) {
+  background: var(--surface-muted-strong);
+  filter: none;
+}
+
+.assistant-composer .assistant-activity-spinner {
+  border-top-color: currentColor;
+}
+
 .assistant-chat-form {
   position: relative;
   min-width: 0;
   width: 100%;
   margin: 0;
-  padding: 14px 16px 16px;
+  padding: 8px 10px;
   border-top: 1px solid var(--line);
   display: block;
 }
 
-.assistant-chat-form textarea {
-  width: 100%;
-  min-height: 84px;
-  max-height: 180px;
-  resize: vertical;
+.assistant-new-reply {
+  position: absolute;
+  z-index: 1;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  translate: -50% 0;
   border: 1px solid var(--border-default);
-  border-radius: 10px;
-  background: var(--surface-code);
-  color: var(--text);
-  padding: 14px 48px 14px 14px;
-  font: inherit;
-  line-height: 1.4;
+  border-radius: 999px;
+  padding: 5px 10px;
+  background: var(--surface-elevated);
+  color: var(--accent-strong);
+  font-size: 0.8rem;
+  font-weight: 650;
+  white-space: nowrap;
 }
 
-.assistant-chat-form textarea:focus {
-  outline: 1px solid var(--accent-focus);
-  border-color: var(--accent-border);
+.assistant-new-reply:hover {
+  background: var(--surface-hover-soft);
+  transform: none;
 }
 
 .assistant-send-button {
@@ -1433,9 +1538,67 @@ body {
 
 @media (max-width: 640px) {
   .assistant-drawer {
+    top: var(--assistant-viewport-top, 0);
     width: 100%;
     max-width: 100%;
+    height: 100%;
+    height: var(--assistant-viewport-height, 100dvh);
+    padding: env(safe-area-inset-top) env(safe-area-inset-right)
+      env(safe-area-inset-bottom) env(safe-area-inset-left);
     overscroll-behavior-x: none;
+  }
+
+  .assistant-drawer-header {
+    padding-inline: 12px;
+  }
+
+  .assistant-history-search input {
+    font-size: 16px;
+  }
+
+  .assistant-history {
+    padding: 4px 8px 10px;
+    overscroll-behavior-y: contain;
+  }
+
+  .assistant-new-chat-row {
+    display: none;
+  }
+
+  .assistant-history-group {
+    gap: 0;
+    margin-top: 6px;
+  }
+
+  .assistant-history-group h3 {
+    padding: 6px 4px 4px;
+  }
+
+  .assistant-history-item {
+    padding: 0 2px 0 4px;
+  }
+
+  .assistant-history-open,
+  .assistant-history-stats {
+    min-height: 36px;
+  }
+
+  .assistant-history-stats {
+    width: 36px;
+  }
+
+  .assistant-history-form {
+    display: block;
+    margin: 0;
+    padding: 8px 10px;
+    border-top: 1px solid var(--line);
+  }
+
+  .assistant-history-error {
+    margin: 0 0 6px;
+    color: var(--error);
+    font-size: 0.82rem;
+    overflow-wrap: anywhere;
   }
 
   .assistant-drawer-body {
@@ -1445,14 +1608,6 @@ body {
 
   .assistant-chat-title {
     max-width: none;
-  }
-
-  .assistant-send-button {
-    display: none;
-  }
-
-  .assistant-chat-form textarea {
-    padding-right: 14px;
   }
 }
 

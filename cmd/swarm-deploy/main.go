@@ -21,6 +21,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/texts"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
@@ -110,7 +111,7 @@ var modules = []module{
 	{
 		Name: "assistant",
 		Initialize: func(ctx context.Context, cfg *config.Config, cnt *container) error {
-			mod, err := assistant.InitModule(ctx, cfg, cnt)
+			mod, err := assistant.InitModule(ctx, cfg, cnt, cnt.AssistantTexts)
 			cnt.Assistant = mod
 			return err
 		},
@@ -145,6 +146,12 @@ func main() {
 	}
 	slog.SetDefault(slog.New(slogx.NewChain(logHandler, loggingMiddlewares()...)))
 
+	assistantTexts, err := texts.New(string(cfg.Spec.System.Language.Effective()))
+	if err != nil {
+		slog.ErrorContext(ctx, "failed to initialize assistant texts", slog.Any("err", err))
+		os.Exit(1)
+	}
+
 	err = os.MkdirAll(cfg.Spec.DataDir, 0o755)
 	if err != nil {
 		slog.ErrorContext(
@@ -174,9 +181,10 @@ func main() {
 		os.Exit(1)
 	}
 	cnt := &container{
-		Storage:    db,
-		FileSystem: fs.TraceOS(),
-		Metrics:    metricsGroup,
+		Storage:        db,
+		FileSystem:     fs.TraceOS(),
+		Metrics:        metricsGroup,
+		AssistantTexts: assistantTexts,
 	}
 
 	dockerClient, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
@@ -207,6 +215,7 @@ func main() {
 
 	webApplication, err := webserver.NewApplication(
 		cfg.Spec.Web,
+		cfg.Spec.System.Language,
 		cnt.ConfigStore,
 		cnt.GitOps,
 		cnt.Deployments,
@@ -216,6 +225,7 @@ func main() {
 		cnt.Recommendations.Store,
 		cnt.AlertManagement.Store,
 		cnt.Assistant.Service,
+		assistantTexts,
 		cnt.TaskLogs,
 	)
 	if err != nil {
@@ -362,6 +372,7 @@ type container struct {
 	Recommendations *recommendations.Module
 	AlertManagement *alertmanagement.Module
 	Assistant       *assistant.Module
+	AssistantTexts  *texts.Localizer
 }
 
 // GetStorage returns the shared application database.

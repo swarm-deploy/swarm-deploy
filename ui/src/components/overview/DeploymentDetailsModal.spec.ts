@@ -4,6 +4,7 @@ import { defineComponent } from "vue";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createMemoryHistory, createRouter } from "vue-router";
 import type { Deployment } from "../../api/types";
+import { i18n } from "../../i18n";
 import { useOverviewStore } from "../../stores/overview";
 import CommitDetailsModal from "./CommitDetailsModal.vue";
 import DeploymentDetailsModal from "./DeploymentDetailsModal.vue";
@@ -13,13 +14,10 @@ const apiMocks = vi.hoisted(() => ({ fetchDeploymentInitJobLogs: vi.fn() }));
 const assistantStore = vi.hoisted(() => ({
   enabled: true,
   pending: false,
-  newChat: vi.fn(),
   sendMessage: vi.fn(async () => undefined),
 }));
-const uiStore = vi.hoisted(() => ({ openAssistantDrawer: vi.fn() }));
 
 vi.mock("../../stores/assistant", () => ({ useAssistantStore: () => assistantStore }));
-vi.mock("../../stores/ui", () => ({ useUIStore: () => uiStore }));
 vi.mock("../../api/overview", () => ({ fetchDeploymentInitJobLogs: apiMocks.fetchDeploymentInitJobLogs }));
 
 const ModalHost = defineComponent({
@@ -71,12 +69,11 @@ describe("Deployment Details modal", () => {
     config.global.plugins = [router];
     assistantStore.enabled = true;
     assistantStore.pending = false;
-    assistantStore.newChat.mockClear();
     assistantStore.sendMessage.mockClear();
-    uiStore.openAssistantDrawer.mockClear();
     apiMocks.fetchDeploymentInitJobLogs.mockReset();
   });
-  afterEach(() => { config.global.plugins = []; });
+  afterEach(() => {
+    i18n.global.locale.value = "en"; config.global.plugins = []; });
 
   it("closes the modal and restores focus before navigating to the stack", async () => {
     const store = useOverviewStore();
@@ -258,7 +255,18 @@ describe("Deployment Details modal", () => {
     wrapper.unmount();
   });
 
-  it("starts a new assistant chat with deployment and diagnostic context", async () => {
+  it.each([
+    {
+      locale: "en", label: "Explain",
+      context: ["Explain this deployment error.", "", "deployment_id: one", "stack_name: app", "service_name: api", "error:"],
+    },
+    {
+      locale: "ru", label: "Объяснить",
+      context: ["Объясни ошибку деплоя.", "", "ID деплоя: one", "Стек: app", "Сервис: api", "Ошибка:"],
+    },
+  ] as const)("starts a chat with deployment and diagnostic context in $locale", async ({ locale, label, context }) => {
+    i18n.global.locale.value = locale;
+    await router.push("/deployments?deployment_id=one&tab=recent#details");
     const store = useOverviewStore();
     const details = deployment("failed");
     details.services = [
@@ -270,24 +278,14 @@ describe("Deployment Details modal", () => {
     const wrapper = mount(DeploymentDetailsModal);
 
     await wrapper.get(".deployment-attempt-row summary").trigger("click");
-    await wrapper.findAll(".deployment-attempt-details button")[0].trigger("click");
+    const button = wrapper.findAll(".deployment-attempt-details button")[0];
+    expect(button.text()).toBe(label);
+    await button.trigger("click");
     await flushPromises();
 
     expect(store.deploymentDetailsModalOpen).toBe(false);
-    expect(assistantStore.newChat).toHaveBeenCalledOnce();
-    expect(uiStore.openAssistantDrawer).toHaveBeenCalledOnce();
-    expect(assistantStore.sendMessage).toHaveBeenCalledWith([
-      "Explain this deployment error.",
-      "",
-      "deployment_id: one",
-      "stack_name: app",
-      "service_name: api",
-      "error:",
-      "update service api: image not found",
-    ].join("\n"));
-    expect(assistantStore.newChat.mock.invocationCallOrder[0]).toBeLessThan(
-      assistantStore.sendMessage.mock.invocationCallOrder[0],
-    );
+    expect(router.currentRoute.value.fullPath).toBe("/deployments?tab=recent&assistant=new#details");
+    expect(assistantStore.sendMessage).toHaveBeenCalledWith([...context, "update service api: image not found"].join("\n"));
     wrapper.unmount();
   });
 

@@ -7,11 +7,19 @@ The assistant helps with environment debugging using:
 
 Assistant is available only when `assistant.enabled: true`.
 
+## Language
+
+`system.language` selects English (`en`, the default) or Russian (`ru`) for the assistant UI, new replies, and execution progress. The assistant uses the installation language even when the question or earlier messages are in another language. Changing the installation language applies to the next reply in an existing chat. Saved messages and their activity remain in their original form. The installation language takes precedence over language instructions in `assistant.systemPrompt`.
+
+Both `yes` / `no` and `да` / `нет` work for operation confirmations. Resource names, identifiers, commands, and quoted tool output keep their original spelling.
+
 ## Request routing
 
-For a regular chat turn the configured model classifies the current message and up to six recent messages without calling tools. The selected profile is one of `general`, `platform`, `services`, `cluster`, `deployments`, `diagnostics`, `lookups`, or `out_of_scope`. Exact greetings and acknowledgements use a local fast path. An invalid router response fails the request.
+For a regular chat turn the configured model classifies the user's goal using the current message and up to six recent messages without calling tools. The assistant handles swarm-deploy usage and practical infrastructure tasks, including deployment, configuration, observability, operations, and troubleshooting. Supported tasks use the `platform`, `services`, `cluster`, `deployments`, `diagnostics`, or `lookups` profile. Exact greetings and acknowledgements use a local fast path. An invalid router response fails the request.
 
-`platform` covers stable infrastructure guidance as well as swarm-deploy itself. Questions about the actual installation can request the configuration capability. Capabilities select operational tools independently of the response profile; only `service_context` requests service catalog retrieval. Pure platform guidance and a preliminary `out_of_scope` decision reach the response model with conversation history and only the security-report tool. This lets the assistant correct a misunderstanding while keeping unrelated requests outside its specialization.
+The `general` and `out_of_scope` routes return a brief description of the assistant's specialization. The `needs_clarification` route asks which infrastructure task the user wants to solve. These turns end after routing, before retrieval, answer generation, or tool execution. For mixed requests, the router selects capabilities and passes the supported part to service retrieval and the response model. The original request text is stored in the conversation.
+
+`platform` covers stable infrastructure guidance as well as swarm-deploy itself. Questions about the actual installation can request the configuration capability. Capabilities select operational tools independently of the response profile. Only `service_context` requests service catalog retrieval. Pure platform guidance reaches the response model with conversation history and the security-report tool.
 
 ## Terminal service actions
 
@@ -24,12 +32,20 @@ While an action awaits confirmation, only an explicit yes or no consumes that co
 ## API
 
 - `POST /api/v1/assistant/chat`
+- `GET /api/assistant/suggestions`
 - `GET /api/v1/assistant/chats`
 - `GET /api/v1/assistant/chats/{conversation_id}`
+- `GET /api/v1/assistant/usage?from=2026-11-01&to=2026-12-01&interval=weekly`
 
 The chat endpoint supports start and poll with the same route. Chat history endpoints return persisted conversations ordered by latest activity and the full message history for a selected chat.
 
 While a run is in progress, responses may include an `activity` array with safe execution progress such as request routing, context lookup, response generation, and MCP tool execution. The UI uses short long-poll requests while a run is active so these updates appear promptly. Activity intentionally excludes model chain-of-thought, tool arguments, and tool results. Completed assistant turns persist this activity metadata alongside the message, so reopening a chat restores the execution trace. Activity is not included in subsequent model context.
+
+### Empty-chat suggestions
+
+The suggestions endpoint returns a `suggestions` array with `id`, `title`, and `prompt` for each item. The drawer displays the localized title and sends the full prompt. The endpoint lists the most recently changed deployed service and the newest alert when available, followed by cluster state and today's deployments. If either dynamic source fails, the other suggestions are still returned with HTTP 200.
+
+Alert suggestions use the alert kind and selected metadata, including the alert ID, status, and creation time in UTC. They omit the original alert title and message and ask the assistant to verify the cause against deployment and cluster data.
 
 ### Start request
 
@@ -68,7 +84,17 @@ While a run is in progress, responses may include an `activity` array with safe 
 
 ## Chat history
 
-Completed user/assistant turns are persisted in the `assistant_chats` and `assistant_turns` tables of `<dataDir>/swarm-deploy.sqlite`. Assistant turns may also contain an optional `activity` array with the safe execution trace shown by the UI. The chat list reads metadata from SQLite without loading full message histories. The UI creates chats lazily on the first message, derives the title from the first user message, and can reopen older chats. When an older chat is continued after the in-memory context cache expires or the process restarts, recent turns are restored from the persisted SQLite history.
+User/assistant turns are persisted in the `assistant_chats` and `assistant_turns` tables of `<dataDir>/swarm-deploy.sqlite`. A user question is saved before the model is called, and the reply is appended when it is ready; a chat therefore appears in history as soon as its first question is accepted. If the question cannot be saved, the request fails without calling the model. If the reply cannot be saved, the request fails with a save error and the reply is not added to model context. An operation becomes eligible for confirmation once its confirmation prompt is saved. Questions rejected by prompt injection protection before generation are not saved. A question whose reply failed stays in the chat and in subsequent model context, and the UI marks it as having no reply. Assistant turns may also contain an optional `activity` array with the safe execution trace shown by the UI. The chat list reads metadata from SQLite without loading full message histories. The UI derives the title from the first user message and can reopen older chats.
+
+A chat accepts one request at a time: a new message while a reply is being generated fails with an error. While a reply is running, the chat history endpoint returns `active_request` with its `request_id` and activity, so the UI continues polling after a page reload. Reopening a chat after a connection failure reloads its history and resumes any running reply. Active requests are kept in process memory, so a reply that was running during a restart is lost and its question stays unanswered. When an older chat is continued after the in-memory context cache expires or the process restarts, recent turns are restored from the persisted SQLite history.
+
+## Token usage
+
+The Usage screen groups each chat's accumulated token totals by its UTC creation date. It includes chats created before the Usage feature was introduced. Further activity in an existing chat increases the totals in its original bucket.
+
+The usage endpoint takes required UTC dates in `YYYY-MM-DD` format and an `interval` of `daily`, `weekly`, or `monthly`. The range includes `from` and excludes `to`. Weeks start on Monday and months on the first. Each bucket counts chats created within the requested range.
+
+The response contains ascending `buckets` with `start`, `input_tokens`, `output_tokens`, and provider-reported `total_tokens`. Empty intervals between populated buckets are returned as zeros. A range without chats with token totals returns an empty array.
 
 ## Built-in tools
 
@@ -110,6 +136,7 @@ Completed user/assistant turns are persisted in the `assistant_chats` and `assis
 - `service_replicas_set` - updates desired replicas count for a specific stack service
 - `service_restart_trigger` - restarts service by scaling replicas to `0` and restoring previous count
 - `service_webroute_ping` - checks web routes for a specific service from `service.store` and returns HTTP results for each route
+- `tls_certificate_check` - checks a live TLS endpoint and validates its server certificate against the system trust store
 - `dependency_graph_get` - returns service dependency graph with nodes, endpoints, and direct dependencies inferred from service environment variables
 - `registry_image_version_get` - resolves актуальный тег и digest Docker-образа в registry (Docker Hub и совместимые)
   - registry is selected automatically by tool logic
@@ -138,13 +165,45 @@ Tool access is controlled by `assistant.tools`:
 
 Each assistant run permits at most three tool execution rounds. After the third round, the model receives one tool-free instruction to produce its final answer from the evidence already collected. Any further tool request is not executed, and the run terminates gracefully instead of restarting the tool loop.
 
+## TLS certificate checks
+
+Ask “When does the TLS certificate for registry.example.com expire?” or “Проверь TLS на 10.0.0.15:8443 с именем api.example.com”. The `tls` capability is available for focused lookups and diagnostics. General questions about TLS can be answered without a live check. Add `tls_certificate_check` to `assistant.tools` if you use an explicit tool allowlist.
+
+| Argument | Meaning |
+| --- | --- |
+| `host` | Required DNS hostname or IPv4/IPv6 address without a scheme, path, or port. Use an ASCII DNS name for internationalized domains. |
+| `port` | Optional TCP port from 1 to 65535. Defaults to 443. |
+| `server_name` | Optional certificate identity. A DNS name is also sent as SNI. Defaults to `host`. With an IP identity the check uses the IP SAN and sends no SNI. |
+
+```json
+{"host":"registry.example.com"}
+```
+
+```json
+{"host":"10.0.0.15","port":8443,"server_name":"api.example.com"}
+```
+
+The check runs from the swarm-deploy process and accepts any reachable public or internal endpoint, including loopback. It attempts one direct TLS handshake without sending HTTP or other application data. TCP connection and handshake each have a five-second timeout and honor request cancellation. The client offers TLS 1.2 or later using Go's supported suites. The result reports the negotiated version and cipher suite for that handshake.
+
+| Result | Meaning |
+| --- | --- |
+| `connection` | Effective target, TCP connection status, handshake status if attempted, and the version and cipher suite on success. |
+| `certificate` | Leaf subject, issuer, DNS and IP SANs, UTC validity dates, signed remaining seconds, self-signature status, and hex SHA-256 fingerprint. Available certificate details survive handshake or validation failures. |
+| `chain` | Certificates presented by the peer and the result of path and signature verification against the process's system trust store at the time of the check. Path verification is independent of the requested hostname and TLS Server Authentication usage. |
+| `validation` | Leaf validity period, hostname or IP SAN match, TLS Server Authentication suitability when known, and overall certificate status of `valid`, `invalid`, or `not_checked`. Unavailable individual results are omitted. Certificate status describes X.509 validation. Check the connection section separately for handshake success. |
+| `warnings` / `errors` | Diagnostic codes with a stage and technical detail. Network failures may also include a reason of `timeout` or `canceled`. |
+
+`connection_failed` and `tls_handshake_failed` identify different network stages. Certificate findings include `certificate_expired`, `certificate_not_yet_valid`, `hostname_mismatch`, `unknown_authority`, and `server_auth_incompatible`. The tool reports `certificate_expiring_soon` for a currently valid leaf expiring within 30 days. It reports `incomplete_chain` when verified paths prove that the peer omitted an intermediate. If the available certificates cannot establish why trust verification failed, the result retains `unknown_authority` and the verifier's detail. A root trust anchor may be omitted from the peer's certificate list.
+
+The check covers one endpoint per call. It does not perform OCSP/CRL checks, load PEM files, fetch issuer certificates, scan networks, schedule monitoring, renew certificates, or create Alerts or Recommendations.
+
 ## Questions about running configuration
 
 Ask “What is enabled in my swarm-deploy?”, “How are notifications configured?” or “How much time does an init job have?”. The assistant uses the `configuration` capability and calls `swarm_deploy_config_get` with `{}` for the overview or with a single `section`.
 
 The supported sections are `gitops`, `deployments`, `event`, `system`, `notifications`, `web`, `healthServer`, `assistant`, and `hostings`. For example, `{"section":"deployments"}` gives the poll interval and default timeout per init job. A job can define its own timeout in Compose. Other arguments and unsupported section names are rejected. If you use an explicit `assistant.tools` allowlist, add `swarm_deploy_config_get` to enable the tool.
 
-In the `assistant` section, `toolAccess.allowedTools` lists recognized entries from the configured global allowlist. The actual tools available for a request follow the capability and security rules above.
+The `system` section reports the effective `language`. In the `assistant` section, `toolAccess.allowedTools` lists recognized entries from the configured global allowlist. The actual tools available for a request follow the capability and security rules above.
 
 GitOps settings describe the global policy. In webhook mode, local reconciliation still runs on a timer and periodic Git polling is disabled. For a question about self-heal on a particular stack, the assistant can check the global policy and available runtime evidence. The stack or service override requires separate evidence.
 
@@ -155,6 +214,8 @@ Only explicitly selected fields from startup configuration are sent to the model
 ## Configuration
 
 ```yaml
+system:
+  language: en
 assistant:
   enabled: true
   tools: []

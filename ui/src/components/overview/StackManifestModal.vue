@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t } from "../../i18n";
 import yaml from "@speed-highlight/core/languages/yaml.js";
 import { tokenizeWith } from "@speed-highlight/core/tokenize";
 import { computed, ref, watch } from "vue";
@@ -12,17 +13,17 @@ type ManifestTab = "desired" | "live";
 const overviewStore = useOverviewStore();
 const activeTab = ref<ManifestTab>("desired");
 const tabs = [
-  { value: "desired", label: "Desired", id: "desired-manifest-tab", panelId: "stack-manifest-panel" },
-  { value: "live", label: "Live", id: "live-manifest-tab", panelId: "stack-manifest-panel" },
+  { value: "desired", label: t("stack.desired"), id: "desired-manifest-tab", panelId: "stack-manifest-panel" },
+  { value: "live", label: t("stack.live"), id: "live-manifest-tab", panelId: "stack-manifest-panel" },
 ] as const;
 
 const modalTitle = computed(() => {
   const stackName = String(overviewStore.stackManifestStack || "").trim();
   if (!stackName) {
-    return "Stack manifest";
+    return t("stack.manifest");
   }
 
-  return `${stackName} manifest`;
+  return t("stack.manifestFor", { stack: stackName });
 });
 const desiredManifest = computed(() => overviewStore.stackManifestDesired);
 const liveManifest = computed(() => overviewStore.stackManifestLive);
@@ -33,10 +34,10 @@ const activeManifestHtml = computed(() =>
   activeTab.value === "desired" ? desiredManifestHtml.value : liveManifestHtml.value,
 );
 const activeManifestLabel = computed(() =>
-  activeTab.value === "desired" ? "Desired manifest yaml" : "Live manifest yaml",
+  activeTab.value === "desired" ? t("stack.desiredYaml") : t("stack.liveYaml"),
 );
 const activeManifestEmptyMessage = computed(() =>
-  activeTab.value === "desired" ? "Desired manifest is empty." : "Live manifest is empty.",
+  activeTab.value === "desired" ? t("stack.desiredEmpty") : t("stack.liveEmpty"),
 );
 
 function escapeHtml(value: string) {
@@ -91,16 +92,16 @@ watch(
     </template>
 
     <div class="modal-body">
-      <p v-if="overviewStore.stackManifestLoading" class="meta">Loading manifest...</p>
+      <p v-if="overviewStore.stackManifestLoading" class="meta">{{ t('stack.loadingManifest') }}</p>
       <p v-else-if="overviewStore.stackManifestError" class="meta">
-        Failed to load manifest: {{ overviewStore.stackManifestError }}
+        {{ t('stack.manifestError', { error: overviewStore.stackManifestError }) }}
       </p>
       <template v-else>
         <AppTabs
           class="manifest-tabs"
           :model-value="activeTab"
           :tabs="tabs"
-          label="Stack manifest tabs"
+          :label="t('stack.manifestTabs')"
           @update:model-value="setActiveTab"
         />
 

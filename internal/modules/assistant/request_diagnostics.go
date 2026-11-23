@@ -5,6 +5,7 @@ import (
 	"encoding/json/v2"
 	"unicode/utf8"
 
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/llm"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/tools/routing"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/tracing"
 	"go.opentelemetry.io/otel/attribute"
@@ -30,7 +31,7 @@ type modelRequestDiagnostics struct {
 }
 
 func calculateModelRequestDiagnostics(
-	req modelRequest,
+	req llm.Request,
 	prepared preparedRequestSizes,
 ) modelRequestDiagnostics {
 	historyChars := prepared.historyChars
@@ -79,7 +80,7 @@ func textChars(value string) int {
 	return utf8.RuneCountInString(value)
 }
 
-func modelMessageChars(message modelMessage) int {
+func modelMessageChars(message llm.Message) int {
 	chars := utf8.RuneCountInString(message.Content) +
 		utf8.RuneCountInString(message.Name) +
 		utf8.RuneCountInString(message.ToolCallID)

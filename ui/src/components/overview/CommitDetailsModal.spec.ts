@@ -1,19 +1,18 @@
-import { flushPromises, mount } from "@vue/test-utils";
+import { config, flushPromises, mount } from "@vue/test-utils";
 import { createPinia, setActivePinia } from "pinia";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createMemoryHistory, createRouter } from "vue-router";
+import { i18n } from "../../i18n";
 import { useOverviewStore } from "../../stores/overview";
 import CommitDetailsModal from "./CommitDetailsModal.vue";
 
 const assistantStore = vi.hoisted(() => ({
   enabled: true,
   pending: false,
-  newChat: vi.fn(),
   sendMessage: vi.fn(async () => undefined),
 }));
-const uiStore = vi.hoisted(() => ({ openAssistantDrawer: vi.fn() }));
 
 vi.mock("../../stores/assistant", () => ({ useAssistantStore: () => assistantStore }));
-vi.mock("../../stores/ui", () => ({ useUIStore: () => uiStore }));
 
 function openCommitDetails() {
   const store = useOverviewStore();
@@ -30,13 +29,20 @@ function openCommitDetails() {
 }
 
 describe("Commit Details modal", () => {
-  beforeEach(() => {
+  let router: ReturnType<typeof createRouter>;
+  beforeEach(async () => {
+    router = createRouter({ history: createMemoryHistory(), routes: [{ path: "/", component: { template: "<div />" } }] });
+    await router.push("/?assistant=previous&tab=services#commit");
+    config.global.plugins = [router];
     setActivePinia(createPinia());
     assistantStore.enabled = true;
     assistantStore.pending = false;
-    assistantStore.newChat.mockClear();
     assistantStore.sendMessage.mockClear();
-    uiStore.openAssistantDrawer.mockClear();
+  });
+
+  afterEach(() => {
+    config.global.plugins = [];
+    i18n.global.locale.value = "en";
   });
 
   it("shows an icon-only explanation action immediately before close", () => {
@@ -68,20 +74,20 @@ describe("Commit Details modal", () => {
     wrapper.unmount();
   });
 
-  it("preserves the existing AI explanation behavior", async () => {
+  it.each([
+    { locale: "en", label: "Explain commit", prompt: "Explain changes in git commit: abcdef012345" },
+    { locale: "ru", label: "Объяснить коммит", prompt: "Объясни изменения в коммите Git: abcdef012345" },
+  ] as const)("opens an assistant chat with the commit prompt in $locale", async ({ locale, label, prompt }) => {
+    i18n.global.locale.value = locale;
     const store = openCommitDetails();
     const wrapper = mount(CommitDetailsModal);
 
-    await wrapper.get('[aria-label="Explain commit"]').trigger("click");
+    await wrapper.get(`[aria-label="${label}"]`).trigger("click");
     await flushPromises();
 
     expect(store.commitDetailsModalOpen).toBe(false);
-    expect(assistantStore.newChat).toHaveBeenCalledOnce();
-    expect(uiStore.openAssistantDrawer).toHaveBeenCalledOnce();
-    expect(assistantStore.sendMessage).toHaveBeenCalledWith("Explain changes in git commit: abcdef012345");
-    expect(assistantStore.newChat.mock.invocationCallOrder[0]).toBeLessThan(
-      assistantStore.sendMessage.mock.invocationCallOrder[0],
-    );
+    expect(router.currentRoute.value.fullPath).toBe("/?assistant=new&tab=services#commit");
+    expect(assistantStore.sendMessage).toHaveBeenCalledWith(prompt);
     wrapper.unmount();
   });
 });

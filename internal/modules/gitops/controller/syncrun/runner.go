@@ -121,18 +121,12 @@ func (r *Runner) Poll(ctx context.Context) {
 	))
 	defer span.End()
 
-	gitResult, err := r.puller.Pull(ctx, string(TriggerPoll))
+	gitResult, err := r.pullGit(ctx, TriggerPoll)
 	if err != nil {
 		tracing.FailSpan(span, err)
-		r.updatePollState(ctx, syncRunResultError, err)
 		return
 	}
 
-	pollResult := syncRunResultNoChange
-	if gitResult.Updated {
-		pollResult = syncRunResultUpdated
-	}
-	r.updatePollState(ctx, pollResult, nil)
 	span.AddEvent("git pull completed", trace.WithAttributes(tracing.SyncGitUpdated.Bool(gitResult.Updated)))
 	if gitResult.Updated {
 		r.run(ctx, Task{Reason: TriggerPoll}, &gitResult)
@@ -332,16 +326,22 @@ func (r *Runner) resolveGitState(
 		}
 		return gitx.PullResult{OldRevision: revision, NewRevision: revision}, nil
 	}
-	return r.puller.Pull(ctx, string(reason))
+	return r.pullGit(ctx, reason)
 }
 
-func (r *Runner) updatePollState(ctx context.Context, result string, err error) {
+func (r *Runner) pullGit(ctx context.Context, reason TriggerReason) (gitx.PullResult, error) {
+	gitResult, err := r.puller.Pull(ctx, string(reason))
+	result, diagnostic := syncRunResultNoChange, ""
+	switch {
+	case err != nil:
+		result, diagnostic = syncRunResultError, err.Error()
+	case gitResult.Updated:
+		result = syncRunResultUpdated
+	}
 	_ = r.updateState(ctx, func(state *model.Runtime) {
-		state.LastPollAt, state.LastPollResult, state.LastPollError = time.Now(), result, ""
-		if err != nil {
-			state.LastPollError = err.Error()
-		}
+		state.LastPollAt, state.LastPollResult, state.LastPollError = time.Now(), result, diagnostic
 	})
+	return gitResult, err
 }
 
 func (r *Runner) updateState(ctx context.Context, fn func(*model.Runtime)) error {

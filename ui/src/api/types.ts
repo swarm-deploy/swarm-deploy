@@ -121,6 +121,11 @@ export interface SwarmService {
   replicas: SwarmServiceReplicas;
   configured_replicas?: number;
   updated_at: string;
+  created_at?: string;
+  endpoint_mode?: string;
+  published_ports?: Array<{ published_port: number; target_port: number; protocol: string }>;
+  update_parallelism?: number;
+  network_targets?: string[];
 }
 
 export interface SwarmServicesResponse {
@@ -253,12 +258,6 @@ export interface AlertsResponse {
 }
 
 export type RecommendationSeverity = "high" | "medium" | "low";
-export type RecommendationType =
-  | "service.resources.unspecified"
-  | "service.resources.limits.unspecified"
-  | "service.image.latest"
-  | "service.image.digest.unspecified";
-
 export interface RecommendationSubject {
   stack: string;
   service: string;
@@ -272,7 +271,7 @@ export interface RecommendationSource {
 
 export interface Recommendation {
   severity: RecommendationSeverity;
-  type: RecommendationType;
+  type: string;
   source: RecommendationSource;
   subject: RecommendationSubject;
   title: string;
@@ -305,6 +304,7 @@ export interface ServiceSpecLabelsResponse {
 export interface ServiceSpecResponse {
   image: string;
   mode: string;
+  configs?: Array<{ config_id?: string; config_name: string; target?: string }>;
   replicas: number;
   requested_ram_bytes: number;
   requested_cpu_nano: number;
@@ -360,7 +360,7 @@ export interface TaskLogCountsEvent {
   counts: Partial<Record<TaskLogLevel, number>>;
 }
 
-export type ServiceDeploymentStatus = "running" | "succeeded" | "failed" | "interrupted";
+export type ServiceDeploymentStatus = "running" | "succeeded" | "failed" | "interrupted" | "superseded";
 
 export interface ServiceDeploymentResponse {
   id: string;
@@ -414,6 +414,7 @@ export interface NetworkInfo {
   options?: Record<string, string>;
   stack_name?: string;
   managed: boolean;
+  ipam?: Array<{ subnet?: string; gateway?: string }>;
 }
 
 export interface NetworksResponse {
@@ -550,6 +551,7 @@ export interface AssistantChatResponse {
   request_id: string;
   conversation_id: string;
   answer?: string;
+  answer_sequence?: number;
   error_message?: string;
   poll_after_ms?: number;
   activity?: string[];
@@ -561,8 +563,25 @@ export interface AssistantTokenUsage {
   total_tokens: number;
 }
 
+export type AssistantUsageInterval = "daily" | "weekly" | "monthly";
+
+export interface AssistantUsageQuery {
+  from: string;
+  to: string;
+  interval: AssistantUsageInterval;
+}
+
+export interface AssistantUsageBucket extends AssistantTokenUsage {
+  start: string;
+}
+
+export interface AssistantUsageResponse {
+  buckets: AssistantUsageBucket[];
+}
+
 export interface AssistantChatSummary {
   id: string;
+  unread: boolean;
   title: string;
   created_at: string;
   updated_at: string;
@@ -584,13 +603,20 @@ export interface AssistantSuggestionsResponse {
 }
 
 export interface AssistantChatMessage {
+  sequence: number;
   role: "user" | "assistant" | "system";
   content: string;
   activity?: string[];
 }
 
+export interface AssistantActiveChatRequest {
+  request_id: string;
+  activity?: string[];
+}
+
 export interface AssistantChatHistory extends AssistantChatSummary {
   messages: AssistantChatMessage[];
+  active_request?: AssistantActiveChatRequest;
 }
 export type DeploymentStatus = "running" | "succeeded" | "failed" | "interrupted" | "superseded";
 export type DeploymentPhase = "apply" | "verification" | "cleanup" | "completed";

@@ -1,9 +1,13 @@
-package assistant
+package llm
 
 import (
+	"bytes"
 	"context"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
 	"slices"
 	"strings"
 	"time"
@@ -16,11 +20,13 @@ import (
 
 const defaultOpenAIRequestTimeout = 60 * time.Second
 
-type openAIClient struct {
+// OpenAIClient calls OpenAI-compatible chat completion and embedding endpoints.
+type OpenAIClient struct {
 	client openai.Client
 }
 
-func newOpenAIClient(baseURL, token, organizationID, customPrompt string) *openAIClient {
+// NewOpenAIClient configures the provider client. The exact custom prompt suffix is omitted from traces.
+func NewOpenAIClient(baseURL, token, organizationID, customPromptSuffix string) *OpenAIClient {
 	baseURL = strings.TrimSpace(baseURL)
 	token = strings.TrimSpace(token)
 	organizationID = strings.TrimSpace(organizationID)
@@ -36,20 +42,21 @@ func newOpenAIClient(baseURL, token, organizationID, customPrompt string) *openA
 		options = append(options, option.WithOrganization(organizationID))
 	}
 	if tracing.Enabled() {
-		options = append(options, option.WithMiddleware(newOpenAITracing(customPrompt)))
+		options = append(options, option.WithMiddleware(newOpenAITracing(customPromptSuffix)))
 	}
 
-	return &openAIClient{
+	return &OpenAIClient{
 		client: openai.NewClient(options...),
 	}
 }
 
-func (c *openAIClient) complete(ctx context.Context, req modelRequest) (modelResponse, error) {
+// Complete returns a chat completion and any usage reported by the provider, including on error.
+func (c *OpenAIClient) Complete(ctx context.Context, req Request) (Response, error) {
 	messages := make([]openai.ChatCompletionMessageParamUnion, 0, len(req.Messages))
 	for _, message := range req.Messages {
 		converted, err := toOpenAIMessage(message)
 		if err != nil {
-			return modelResponse{}, err
+			return Response{}, err
 		}
 		messages = append(messages, converted)
 	}
@@ -70,86 +77,98 @@ func (c *openAIClient) complete(ctx context.Context, req modelRequest) (modelRes
 		}
 	}
 
+	var httpResponse *http.Response
 	response, err := c.client.Chat.Completions.New(ctx, openai.ChatCompletionNewParams{
 		Model:       strings.TrimSpace(req.Model),
 		Messages:    messages,
 		Temperature: openai.Float(req.Temperature),
 		MaxTokens:   openai.Int(int64(req.MaxTokens)),
 		Tools:       tools,
-	})
+	}, option.WithResponseInto(&httpResponse))
+	var result Response
+	if response != nil {
+		result.Usage = providerTokenUsage(
+			response.Usage.PromptTokens, response.Usage.CompletionTokens, response.Usage.TotalTokens,
+		)
+	} else if err != nil {
+		result.Usage = httpErrorTokenUsage(httpResponse)
+	}
 	if err != nil {
-		return modelResponse{}, safeChatCompletionError(err)
+		return result, safeChatCompletionError(err)
 	}
 	if response == nil || len(response.Choices) == 0 {
-		return modelResponse{}, fmt.Errorf("chat completion response does not contain choices")
+		return result, fmt.Errorf("chat completion response does not contain choices")
 	}
 
 	message := response.Choices[0].Message
-	toolCalls := make([]modelToolCall, 0, len(message.ToolCalls))
+	toolCalls := make([]ToolCall, 0, len(message.ToolCalls))
 	for _, toolCall := range message.ToolCalls {
 		functionCall, ok := toolCall.AsAny().(openai.ChatCompletionMessageFunctionToolCall)
 		if !ok {
 			continue
 		}
-		toolCalls = append(toolCalls, modelToolCall{
+		toolCalls = append(toolCalls, ToolCall{
 			ID:        functionCall.ID,
 			Name:      functionCall.Function.Name,
 			Arguments: functionCall.Function.Arguments,
 		})
 	}
 
-	usage := conversation.TokenUsage{
-		InputTokens:  response.Usage.PromptTokens,
-		OutputTokens: response.Usage.CompletionTokens,
-		TotalTokens:  response.Usage.TotalTokens,
-	}
-	if usage.TotalTokens == 0 && (usage.InputTokens != 0 || usage.OutputTokens != 0) {
-		usage.TotalTokens = usage.InputTokens + usage.OutputTokens
-	}
-
-	return modelResponse{
-		Content:   strings.TrimSpace(message.Content),
-		ToolCalls: toolCalls,
-		Usage:     usage,
-	}, nil
+	result.Content = strings.TrimSpace(message.Content)
+	result.ToolCalls = toolCalls
+	return result, nil
 }
 
 // Provider and transport errors can include arbitrary response content and URLs.
 func safeChatCompletionError(err error) error {
+	return safeProviderError("chat completion", err)
+}
+
+func safeProviderError(operation string, err error) error {
 	var apiError *openai.Error
 	switch {
 	case errors.As(err, &apiError):
 		switch apiError.Code {
 		case "model_not_found", "unsupported_parameter", "unsupported_value", "context_length_exceeded",
 			"invalid_api_key", "insufficient_quota", "rate_limit_exceeded":
-			return fmt.Errorf("chat completion request failed with HTTP status %d (%s)", apiError.StatusCode, apiError.Code)
+			return fmt.Errorf("%s request failed with HTTP status %d (%s)", operation, apiError.StatusCode, apiError.Code)
 		}
-		return fmt.Errorf("chat completion request failed with HTTP status %d", apiError.StatusCode)
+		return fmt.Errorf("%s request failed with HTTP status %d", operation, apiError.StatusCode)
 	case errors.Is(err, context.Canceled):
-		return fmt.Errorf("chat completion request failed: %w", context.Canceled)
+		return fmt.Errorf("%s request failed: %w", operation, context.Canceled)
 	case errors.Is(err, context.DeadlineExceeded):
-		return fmt.Errorf("chat completion request failed: %w", context.DeadlineExceeded)
+		return fmt.Errorf("%s request failed: %w", operation, context.DeadlineExceeded)
 	default:
-		return errors.New("chat completion request failed")
+		return fmt.Errorf("%s request failed", operation)
 	}
 }
 
-func (c *openAIClient) Embed(ctx context.Context, model string, inputs []string) ([][]float64, error) {
+// Embed returns vectors in input order and any usage reported by the provider, including on error.
+func (c *OpenAIClient) Embed(
+	ctx context.Context, model string, inputs []string,
+) ([][]float64, conversation.TokenUsage, error) {
+	var httpResponse *http.Response
 	response, err := c.client.Embeddings.New(ctx, openai.EmbeddingNewParams{
 		Model: strings.TrimSpace(model),
 		Input: openai.EmbeddingNewParamsInputUnion{
 			OfArrayOfStrings: inputs,
 		},
-	})
+	}, option.WithResponseInto(&httpResponse))
+	var usage conversation.TokenUsage
+	if response != nil {
+		usage = providerTokenUsage(response.Usage.PromptTokens, 0, response.Usage.TotalTokens)
+	} else if err != nil {
+		usage = httpErrorTokenUsage(httpResponse)
+	}
 	if err != nil {
-		return nil, fmt.Errorf("embeddings request failed: %w", err)
+		return nil, usage, safeProviderError("embeddings", err)
 	}
 
 	if response == nil {
-		return nil, fmt.Errorf("unexpected embeddings size: got 0, expected %d", len(inputs))
+		return nil, usage, fmt.Errorf("unexpected embeddings size: got 0, expected %d", len(inputs))
 	}
 	if len(response.Data) != len(inputs) {
-		return nil, fmt.Errorf("unexpected embeddings size: got %d, expected %d", len(response.Data), len(inputs))
+		return nil, usage, fmt.Errorf("unexpected embeddings size: got %d, expected %d", len(response.Data), len(inputs))
 	}
 
 	slices.SortFunc(response.Data, func(left, right openai.Embedding) int {
@@ -159,18 +178,47 @@ func (c *openAIClient) Embed(ctx context.Context, model string, inputs []string)
 	vectors := make([][]float64, 0, len(response.Data))
 	for idx, item := range response.Data {
 		if int(item.Index) != idx {
-			return nil, fmt.Errorf("unexpected embeddings index %d at position %d", item.Index, idx)
+			return nil, usage, fmt.Errorf("unexpected embeddings index %d at position %d", item.Index, idx)
 		}
 		if len(item.Embedding) == 0 {
-			return nil, fmt.Errorf("empty embedding at index %d", idx)
+			return nil, usage, fmt.Errorf("empty embedding at index %d", idx)
 		}
 		vectors = append(vectors, item.Embedding)
 	}
 
-	return vectors, nil
+	return vectors, usage, nil
 }
 
-func toOpenAIMessage(message modelMessage) (openai.ChatCompletionMessageParamUnion, error) {
+func httpErrorTokenUsage(response *http.Response) conversation.TokenUsage {
+	if response == nil || response.StatusCode < http.StatusBadRequest || response.Body == nil {
+		return conversation.TokenUsage{}
+	}
+
+	// The SDK replaces the HTTP error body with an in-memory copy before returning.
+	body, err := io.ReadAll(response.Body)
+	if err != nil {
+		return conversation.TokenUsage{}
+	}
+	response.Body = io.NopCloser(bytes.NewReader(body))
+
+	var payload struct {
+		Usage openai.CompletionUsage `json:"usage"`
+	}
+	if err = json.Unmarshal(body, &payload); err != nil {
+		return conversation.TokenUsage{}
+	}
+	usage := payload.Usage
+	return providerTokenUsage(usage.PromptTokens, usage.CompletionTokens, usage.TotalTokens)
+}
+
+func providerTokenUsage(input, output, total int64) conversation.TokenUsage {
+	if total == 0 {
+		total = input + output
+	}
+	return conversation.TokenUsage{InputTokens: input, OutputTokens: output, TotalTokens: total}
+}
+
+func toOpenAIMessage(message Message) (openai.ChatCompletionMessageParamUnion, error) {
 	switch strings.ToLower(strings.TrimSpace(message.Role)) {
 	case "system":
 		return openai.SystemMessage(message.Content), nil

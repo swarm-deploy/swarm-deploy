@@ -541,14 +541,44 @@ func (s *AlertsResponse) SetAlerts(val []Alert) {
 	s.Alerts = val
 }
 
+// Reply that is still being generated. Poll it with request_id to continue the chat after a page
+// reload.
+// Ref: #/components/schemas/AssistantActiveChatRequest
+type AssistantActiveChatRequest struct {
+	RequestID string   `json:"request_id"`
+	Activity  []string `json:"activity"`
+}
+
+// GetRequestID returns the value of RequestID.
+func (s *AssistantActiveChatRequest) GetRequestID() string {
+	return s.RequestID
+}
+
+// GetActivity returns the value of Activity.
+func (s *AssistantActiveChatRequest) GetActivity() []string {
+	return s.Activity
+}
+
+// SetRequestID sets the value of RequestID.
+func (s *AssistantActiveChatRequest) SetRequestID(val string) {
+	s.RequestID = val
+}
+
+// SetActivity sets the value of Activity.
+func (s *AssistantActiveChatRequest) SetActivity(val []string) {
+	s.Activity = val
+}
+
 // Ref: #/components/schemas/AssistantChatHistory
 type AssistantChatHistory struct {
-	ID         string                 `json:"id"`
-	Title      string                 `json:"title"`
-	CreatedAt  time.Time              `json:"created_at"`
-	UpdatedAt  time.Time              `json:"updated_at"`
-	TokenUsage OptAssistantTokenUsage `json:"token_usage"`
-	Messages   []AssistantChatMessage `json:"messages"`
+	ID            string                        `json:"id"`
+	Title         string                        `json:"title"`
+	CreatedAt     time.Time                     `json:"created_at"`
+	UpdatedAt     time.Time                     `json:"updated_at"`
+	Unread        bool                          `json:"unread"`
+	TokenUsage    OptAssistantTokenUsage        `json:"token_usage"`
+	Messages      []AssistantChatMessage        `json:"messages"`
+	ActiveRequest OptAssistantActiveChatRequest `json:"active_request"`
 }
 
 // GetID returns the value of ID.
@@ -571,6 +601,11 @@ func (s *AssistantChatHistory) GetUpdatedAt() time.Time {
 	return s.UpdatedAt
 }
 
+// GetUnread returns the value of Unread.
+func (s *AssistantChatHistory) GetUnread() bool {
+	return s.Unread
+}
+
 // GetTokenUsage returns the value of TokenUsage.
 func (s *AssistantChatHistory) GetTokenUsage() OptAssistantTokenUsage {
 	return s.TokenUsage
@@ -579,6 +614,11 @@ func (s *AssistantChatHistory) GetTokenUsage() OptAssistantTokenUsage {
 // GetMessages returns the value of Messages.
 func (s *AssistantChatHistory) GetMessages() []AssistantChatMessage {
 	return s.Messages
+}
+
+// GetActiveRequest returns the value of ActiveRequest.
+func (s *AssistantChatHistory) GetActiveRequest() OptAssistantActiveChatRequest {
+	return s.ActiveRequest
 }
 
 // SetID sets the value of ID.
@@ -601,6 +641,11 @@ func (s *AssistantChatHistory) SetUpdatedAt(val time.Time) {
 	s.UpdatedAt = val
 }
 
+// SetUnread sets the value of Unread.
+func (s *AssistantChatHistory) SetUnread(val bool) {
+	s.Unread = val
+}
+
 // SetTokenUsage sets the value of TokenUsage.
 func (s *AssistantChatHistory) SetTokenUsage(val OptAssistantTokenUsage) {
 	s.TokenUsage = val
@@ -611,11 +656,22 @@ func (s *AssistantChatHistory) SetMessages(val []AssistantChatMessage) {
 	s.Messages = val
 }
 
+// SetActiveRequest sets the value of ActiveRequest.
+func (s *AssistantChatHistory) SetActiveRequest(val OptAssistantActiveChatRequest) {
+	s.ActiveRequest = val
+}
+
 // Ref: #/components/schemas/AssistantChatMessage
 type AssistantChatMessage struct {
+	Sequence int                      `json:"sequence"`
 	Role     AssistantChatMessageRole `json:"role"`
 	Content  string                   `json:"content"`
 	Activity []string                 `json:"activity"`
+}
+
+// GetSequence returns the value of Sequence.
+func (s *AssistantChatMessage) GetSequence() int {
+	return s.Sequence
 }
 
 // GetRole returns the value of Role.
@@ -631,6 +687,11 @@ func (s *AssistantChatMessage) GetContent() string {
 // GetActivity returns the value of Activity.
 func (s *AssistantChatMessage) GetActivity() []string {
 	return s.Activity
+}
+
+// SetSequence sets the value of Sequence.
+func (s *AssistantChatMessage) SetSequence(val int) {
+	s.Sequence = val
 }
 
 // SetRole sets the value of Role.
@@ -696,6 +757,22 @@ func (s *AssistantChatMessageRole) UnmarshalText(data []byte) error {
 	}
 }
 
+// Ref: #/components/schemas/AssistantChatReadRequest
+type AssistantChatReadRequest struct {
+	// Persisted sequence of the assistant reply that was viewed.
+	Sequence int `json:"sequence"`
+}
+
+// GetSequence returns the value of Sequence.
+func (s *AssistantChatReadRequest) GetSequence() int {
+	return s.Sequence
+}
+
+// SetSequence sets the value of Sequence.
+func (s *AssistantChatReadRequest) SetSequence(val int) {
+	s.Sequence = val
+}
+
 // Ref: #/components/schemas/AssistantChatRequest
 type AssistantChatRequest struct {
 	ConversationID OptString `json:"conversation_id"`
@@ -750,9 +827,11 @@ type AssistantChatResponse struct {
 	RequestID      string                      `json:"request_id"`
 	ConversationID string                      `json:"conversation_id"`
 	Answer         OptString                   `json:"answer"`
-	ErrorMessage   OptString                   `json:"error_message"`
-	PollAfterMs    OptInt32                    `json:"poll_after_ms"`
-	Activity       []string                    `json:"activity"`
+	// Persisted sequence of the completed answer, when available.
+	AnswerSequence OptInt    `json:"answer_sequence"`
+	ErrorMessage   OptString `json:"error_message"`
+	PollAfterMs    OptInt32  `json:"poll_after_ms"`
+	Activity       []string  `json:"activity"`
 }
 
 // GetStatus returns the value of Status.
@@ -773,6 +852,11 @@ func (s *AssistantChatResponse) GetConversationID() string {
 // GetAnswer returns the value of Answer.
 func (s *AssistantChatResponse) GetAnswer() OptString {
 	return s.Answer
+}
+
+// GetAnswerSequence returns the value of AnswerSequence.
+func (s *AssistantChatResponse) GetAnswerSequence() OptInt {
+	return s.AnswerSequence
 }
 
 // GetErrorMessage returns the value of ErrorMessage.
@@ -808,6 +892,11 @@ func (s *AssistantChatResponse) SetConversationID(val string) {
 // SetAnswer sets the value of Answer.
 func (s *AssistantChatResponse) SetAnswer(val OptString) {
 	s.Answer = val
+}
+
+// SetAnswerSequence sets the value of AnswerSequence.
+func (s *AssistantChatResponse) SetAnswerSequence(val OptInt) {
+	s.AnswerSequence = val
 }
 
 // SetErrorMessage sets the value of ErrorMessage.
@@ -893,6 +982,7 @@ type AssistantChatSummary struct {
 	Title      string                 `json:"title"`
 	CreatedAt  time.Time              `json:"created_at"`
 	UpdatedAt  time.Time              `json:"updated_at"`
+	Unread     bool                   `json:"unread"`
 	TokenUsage OptAssistantTokenUsage `json:"token_usage"`
 }
 
@@ -914,6 +1004,11 @@ func (s *AssistantChatSummary) GetCreatedAt() time.Time {
 // GetUpdatedAt returns the value of UpdatedAt.
 func (s *AssistantChatSummary) GetUpdatedAt() time.Time {
 	return s.UpdatedAt
+}
+
+// GetUnread returns the value of Unread.
+func (s *AssistantChatSummary) GetUnread() bool {
+	return s.Unread
 }
 
 // GetTokenUsage returns the value of TokenUsage.
@@ -939,6 +1034,11 @@ func (s *AssistantChatSummary) SetCreatedAt(val time.Time) {
 // SetUpdatedAt sets the value of UpdatedAt.
 func (s *AssistantChatSummary) SetUpdatedAt(val time.Time) {
 	s.UpdatedAt = val
+}
+
+// SetUnread sets the value of Unread.
+func (s *AssistantChatSummary) SetUnread(val bool) {
+	s.Unread = val
 }
 
 // SetTokenUsage sets the value of TokenUsage.
@@ -1048,6 +1148,122 @@ func (s *AssistantTokenUsage) SetOutputTokens(val int64) {
 // SetTotalTokens sets the value of TotalTokens.
 func (s *AssistantTokenUsage) SetTotalTokens(val int64) {
 	s.TotalTokens = val
+}
+
+// Merged schema.
+// Ref: #/components/schemas/AssistantUsageBucket
+type AssistantUsageBucket struct {
+	InputTokens  int64 `json:"input_tokens"`
+	OutputTokens int64 `json:"output_tokens"`
+	TotalTokens  int64 `json:"total_tokens"`
+	// UTC calendar bucket start. A partial bucket counts only chats created within the requested range.
+	Start time.Time `json:"start"`
+}
+
+// GetInputTokens returns the value of InputTokens.
+func (s *AssistantUsageBucket) GetInputTokens() int64 {
+	return s.InputTokens
+}
+
+// GetOutputTokens returns the value of OutputTokens.
+func (s *AssistantUsageBucket) GetOutputTokens() int64 {
+	return s.OutputTokens
+}
+
+// GetTotalTokens returns the value of TotalTokens.
+func (s *AssistantUsageBucket) GetTotalTokens() int64 {
+	return s.TotalTokens
+}
+
+// GetStart returns the value of Start.
+func (s *AssistantUsageBucket) GetStart() time.Time {
+	return s.Start
+}
+
+// SetInputTokens sets the value of InputTokens.
+func (s *AssistantUsageBucket) SetInputTokens(val int64) {
+	s.InputTokens = val
+}
+
+// SetOutputTokens sets the value of OutputTokens.
+func (s *AssistantUsageBucket) SetOutputTokens(val int64) {
+	s.OutputTokens = val
+}
+
+// SetTotalTokens sets the value of TotalTokens.
+func (s *AssistantUsageBucket) SetTotalTokens(val int64) {
+	s.TotalTokens = val
+}
+
+// SetStart sets the value of Start.
+func (s *AssistantUsageBucket) SetStart(val time.Time) {
+	s.Start = val
+}
+
+// Ref: #/components/schemas/AssistantUsageInterval
+type AssistantUsageInterval string
+
+const (
+	AssistantUsageIntervalDaily   AssistantUsageInterval = "daily"
+	AssistantUsageIntervalWeekly  AssistantUsageInterval = "weekly"
+	AssistantUsageIntervalMonthly AssistantUsageInterval = "monthly"
+)
+
+// AllValues returns all AssistantUsageInterval values.
+func (AssistantUsageInterval) AllValues() []AssistantUsageInterval {
+	return []AssistantUsageInterval{
+		AssistantUsageIntervalDaily,
+		AssistantUsageIntervalWeekly,
+		AssistantUsageIntervalMonthly,
+	}
+}
+
+// MarshalText implements encoding.TextMarshaler.
+func (s AssistantUsageInterval) MarshalText() ([]byte, error) {
+	switch s {
+	case AssistantUsageIntervalDaily:
+		return []byte(s), nil
+	case AssistantUsageIntervalWeekly:
+		return []byte(s), nil
+	case AssistantUsageIntervalMonthly:
+		return []byte(s), nil
+	default:
+		return nil, errors.Errorf("invalid value: %q", s)
+	}
+}
+
+// UnmarshalText implements encoding.TextUnmarshaler.
+func (s *AssistantUsageInterval) UnmarshalText(data []byte) error {
+	switch AssistantUsageInterval(data) {
+	case AssistantUsageIntervalDaily:
+		*s = AssistantUsageIntervalDaily
+		return nil
+	case AssistantUsageIntervalWeekly:
+		*s = AssistantUsageIntervalWeekly
+		return nil
+	case AssistantUsageIntervalMonthly:
+		*s = AssistantUsageIntervalMonthly
+		return nil
+	default:
+		return errors.Errorf("invalid value: %q", data)
+	}
+}
+
+// Ref: #/components/schemas/AssistantUsageResponse
+type AssistantUsageResponse struct {
+	// Ascending buckets with zeros between populated buckets. Empty when no chats with token totals were
+	// created in the range.
+	Buckets []AssistantUsageBucket `json:"buckets"`
+}
+
+// GetBuckets returns the value of Buckets.
+func (s *AssistantUsageResponse) GetBuckets() []AssistantUsageBucket {
+	return s.Buckets
+}
+
+// SetBuckets sets the value of Buckets.
+func (s *AssistantUsageResponse) SetBuckets(val []AssistantUsageBucket) {
+	s.Buckets = val
 }
 
 // Ref: #/components/schemas/CreateExternalSecretRequest
@@ -3879,6 +4095,9 @@ func (s *LastWebhookStatus) SetQueued(val OptBool) {
 	s.Queued = val
 }
 
+// MarkAssistantChatReadNoContent is response for MarkAssistantChatRead operation.
+type MarkAssistantChatReadNoContent struct{}
+
 // Ref: #/components/schemas/NetworkInfo
 type NetworkInfo struct {
 	ID         string                `json:"id"`
@@ -3892,6 +4111,7 @@ type NetworkInfo struct {
 	Options    OptNetworkInfoOptions `json:"options"`
 	StackName  OptString             `json:"stack_name"`
 	Managed    bool                  `json:"managed"`
+	Ipam       []NetworkInfoIpamItem `json:"ipam"`
 }
 
 // GetID returns the value of ID.
@@ -3949,6 +4169,11 @@ func (s *NetworkInfo) GetManaged() bool {
 	return s.Managed
 }
 
+// GetIpam returns the value of Ipam.
+func (s *NetworkInfo) GetIpam() []NetworkInfoIpamItem {
+	return s.Ipam
+}
+
 // SetID sets the value of ID.
 func (s *NetworkInfo) SetID(val string) {
 	s.ID = val
@@ -4002,6 +4227,36 @@ func (s *NetworkInfo) SetStackName(val OptString) {
 // SetManaged sets the value of Managed.
 func (s *NetworkInfo) SetManaged(val bool) {
 	s.Managed = val
+}
+
+// SetIpam sets the value of Ipam.
+func (s *NetworkInfo) SetIpam(val []NetworkInfoIpamItem) {
+	s.Ipam = val
+}
+
+type NetworkInfoIpamItem struct {
+	Subnet  OptString `json:"subnet"`
+	Gateway OptString `json:"gateway"`
+}
+
+// GetSubnet returns the value of Subnet.
+func (s *NetworkInfoIpamItem) GetSubnet() OptString {
+	return s.Subnet
+}
+
+// GetGateway returns the value of Gateway.
+func (s *NetworkInfoIpamItem) GetGateway() OptString {
+	return s.Gateway
+}
+
+// SetSubnet sets the value of Subnet.
+func (s *NetworkInfoIpamItem) SetSubnet(val OptString) {
+	s.Subnet = val
+}
+
+// SetGateway sets the value of Gateway.
+func (s *NetworkInfoIpamItem) SetGateway(val OptString) {
+	s.Gateway = val
 }
 
 type NetworkInfoLabels map[string]string
@@ -4443,6 +4698,52 @@ func (o OptAlertStatus) Get() (v AlertStatus, ok bool) {
 
 // Or returns value if set, or given parameter if does not.
 func (o OptAlertStatus) Or(d AlertStatus) AlertStatus {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptAssistantActiveChatRequest returns new OptAssistantActiveChatRequest with value set to v.
+func NewOptAssistantActiveChatRequest(v AssistantActiveChatRequest) OptAssistantActiveChatRequest {
+	return OptAssistantActiveChatRequest{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptAssistantActiveChatRequest is optional AssistantActiveChatRequest.
+type OptAssistantActiveChatRequest struct {
+	Value AssistantActiveChatRequest
+	Set   bool
+}
+
+// IsSet returns true if OptAssistantActiveChatRequest was set.
+func (o OptAssistantActiveChatRequest) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptAssistantActiveChatRequest) Reset() {
+	var v AssistantActiveChatRequest
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptAssistantActiveChatRequest) SetTo(v AssistantActiveChatRequest) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptAssistantActiveChatRequest) Get() (v AssistantActiveChatRequest, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptAssistantActiveChatRequest) Or(d AssistantActiveChatRequest) AssistantActiveChatRequest {
 	if v, ok := o.Get(); ok {
 		return v
 	}
@@ -7161,16 +7462,17 @@ func (s *ServiceSpecNetworkResponse) SetAliases(val []string) {
 
 // Ref: #/components/schemas/ServiceSpecResponse
 type ServiceSpecResponse struct {
-	Image             string                       `json:"image"`
-	Mode              string                       `json:"mode"`
-	Replicas          int64                        `json:"replicas"`
-	RequestedRAMBytes int64                        `json:"requested_ram_bytes"`
-	RequestedCPUNano  int64                        `json:"requested_cpu_nano"`
-	LimitRAMBytes     int64                        `json:"limit_ram_bytes"`
-	LimitCPUNano      int64                        `json:"limit_cpu_nano"`
-	Labels            OptServiceSpecLabelsResponse `json:"labels"`
-	Secrets           []ServiceSpecSecretResponse  `json:"secrets"`
-	Network           []ServiceSpecNetworkResponse `json:"network"`
+	Image             string                           `json:"image"`
+	Mode              string                           `json:"mode"`
+	Replicas          int64                            `json:"replicas"`
+	RequestedRAMBytes int64                            `json:"requested_ram_bytes"`
+	RequestedCPUNano  int64                            `json:"requested_cpu_nano"`
+	LimitRAMBytes     int64                            `json:"limit_ram_bytes"`
+	LimitCPUNano      int64                            `json:"limit_cpu_nano"`
+	Labels            OptServiceSpecLabelsResponse     `json:"labels"`
+	Secrets           []ServiceSpecSecretResponse      `json:"secrets"`
+	Network           []ServiceSpecNetworkResponse     `json:"network"`
+	Configs           []ServiceSpecResponseConfigsItem `json:"configs"`
 }
 
 // GetImage returns the value of Image.
@@ -7223,6 +7525,11 @@ func (s *ServiceSpecResponse) GetNetwork() []ServiceSpecNetworkResponse {
 	return s.Network
 }
 
+// GetConfigs returns the value of Configs.
+func (s *ServiceSpecResponse) GetConfigs() []ServiceSpecResponseConfigsItem {
+	return s.Configs
+}
+
 // SetImage sets the value of Image.
 func (s *ServiceSpecResponse) SetImage(val string) {
 	s.Image = val
@@ -7271,6 +7578,47 @@ func (s *ServiceSpecResponse) SetSecrets(val []ServiceSpecSecretResponse) {
 // SetNetwork sets the value of Network.
 func (s *ServiceSpecResponse) SetNetwork(val []ServiceSpecNetworkResponse) {
 	s.Network = val
+}
+
+// SetConfigs sets the value of Configs.
+func (s *ServiceSpecResponse) SetConfigs(val []ServiceSpecResponseConfigsItem) {
+	s.Configs = val
+}
+
+type ServiceSpecResponseConfigsItem struct {
+	ConfigID   OptString `json:"config_id"`
+	ConfigName string    `json:"config_name"`
+	Target     OptString `json:"target"`
+}
+
+// GetConfigID returns the value of ConfigID.
+func (s *ServiceSpecResponseConfigsItem) GetConfigID() OptString {
+	return s.ConfigID
+}
+
+// GetConfigName returns the value of ConfigName.
+func (s *ServiceSpecResponseConfigsItem) GetConfigName() string {
+	return s.ConfigName
+}
+
+// GetTarget returns the value of Target.
+func (s *ServiceSpecResponseConfigsItem) GetTarget() OptString {
+	return s.Target
+}
+
+// SetConfigID sets the value of ConfigID.
+func (s *ServiceSpecResponseConfigsItem) SetConfigID(val OptString) {
+	s.ConfigID = val
+}
+
+// SetConfigName sets the value of ConfigName.
+func (s *ServiceSpecResponseConfigsItem) SetConfigName(val string) {
+	s.ConfigName = val
+}
+
+// SetTarget sets the value of Target.
+func (s *ServiceSpecResponseConfigsItem) SetTarget(val OptString) {
+	s.Target = val
 }
 
 // Ref: #/components/schemas/ServiceSpecSecretResponse
@@ -7777,8 +8125,13 @@ type SwarmService struct {
 	Mode     string               `json:"mode"`
 	Replicas SwarmServiceReplicas `json:"replicas"`
 	// Configured ServiceSpec replica count, present only for replicated services.
-	ConfiguredReplicas OptInt64  `json:"configured_replicas"`
-	UpdatedAt          time.Time `json:"updated_at"`
+	ConfiguredReplicas OptInt64                         `json:"configured_replicas"`
+	UpdatedAt          time.Time                        `json:"updated_at"`
+	CreatedAt          OptDateTime                      `json:"created_at"`
+	EndpointMode       OptString                        `json:"endpoint_mode"`
+	PublishedPorts     []SwarmServicePublishedPortsItem `json:"published_ports"`
+	UpdateParallelism  OptInt64                         `json:"update_parallelism"`
+	NetworkTargets     []string                         `json:"network_targets"`
 }
 
 // GetID returns the value of ID.
@@ -7826,6 +8179,31 @@ func (s *SwarmService) GetUpdatedAt() time.Time {
 	return s.UpdatedAt
 }
 
+// GetCreatedAt returns the value of CreatedAt.
+func (s *SwarmService) GetCreatedAt() OptDateTime {
+	return s.CreatedAt
+}
+
+// GetEndpointMode returns the value of EndpointMode.
+func (s *SwarmService) GetEndpointMode() OptString {
+	return s.EndpointMode
+}
+
+// GetPublishedPorts returns the value of PublishedPorts.
+func (s *SwarmService) GetPublishedPorts() []SwarmServicePublishedPortsItem {
+	return s.PublishedPorts
+}
+
+// GetUpdateParallelism returns the value of UpdateParallelism.
+func (s *SwarmService) GetUpdateParallelism() OptInt64 {
+	return s.UpdateParallelism
+}
+
+// GetNetworkTargets returns the value of NetworkTargets.
+func (s *SwarmService) GetNetworkTargets() []string {
+	return s.NetworkTargets
+}
+
 // SetID sets the value of ID.
 func (s *SwarmService) SetID(val string) {
 	s.ID = val
@@ -7869,6 +8247,67 @@ func (s *SwarmService) SetConfiguredReplicas(val OptInt64) {
 // SetUpdatedAt sets the value of UpdatedAt.
 func (s *SwarmService) SetUpdatedAt(val time.Time) {
 	s.UpdatedAt = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *SwarmService) SetCreatedAt(val OptDateTime) {
+	s.CreatedAt = val
+}
+
+// SetEndpointMode sets the value of EndpointMode.
+func (s *SwarmService) SetEndpointMode(val OptString) {
+	s.EndpointMode = val
+}
+
+// SetPublishedPorts sets the value of PublishedPorts.
+func (s *SwarmService) SetPublishedPorts(val []SwarmServicePublishedPortsItem) {
+	s.PublishedPorts = val
+}
+
+// SetUpdateParallelism sets the value of UpdateParallelism.
+func (s *SwarmService) SetUpdateParallelism(val OptInt64) {
+	s.UpdateParallelism = val
+}
+
+// SetNetworkTargets sets the value of NetworkTargets.
+func (s *SwarmService) SetNetworkTargets(val []string) {
+	s.NetworkTargets = val
+}
+
+type SwarmServicePublishedPortsItem struct {
+	PublishedPort int64  `json:"published_port"`
+	TargetPort    int64  `json:"target_port"`
+	Protocol      string `json:"protocol"`
+}
+
+// GetPublishedPort returns the value of PublishedPort.
+func (s *SwarmServicePublishedPortsItem) GetPublishedPort() int64 {
+	return s.PublishedPort
+}
+
+// GetTargetPort returns the value of TargetPort.
+func (s *SwarmServicePublishedPortsItem) GetTargetPort() int64 {
+	return s.TargetPort
+}
+
+// GetProtocol returns the value of Protocol.
+func (s *SwarmServicePublishedPortsItem) GetProtocol() string {
+	return s.Protocol
+}
+
+// SetPublishedPort sets the value of PublishedPort.
+func (s *SwarmServicePublishedPortsItem) SetPublishedPort(val int64) {
+	s.PublishedPort = val
+}
+
+// SetTargetPort sets the value of TargetPort.
+func (s *SwarmServicePublishedPortsItem) SetTargetPort(val int64) {
+	s.TargetPort = val
+}
+
+// SetProtocol sets the value of Protocol.
+func (s *SwarmServicePublishedPortsItem) SetProtocol(val string) {
+	s.Protocol = val
 }
 
 // Ref: #/components/schemas/SwarmServiceReplicas

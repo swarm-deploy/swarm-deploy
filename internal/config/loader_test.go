@@ -67,6 +67,34 @@ func TestLoadRejectsMalformedCustomValues(t *testing.T) {
 	}
 }
 
+func TestLoadSystemLanguage(t *testing.T) {
+	tests := []struct {
+		name string
+		yaml string
+		want Language
+	}{
+		{name: "absent", want: LanguageEnglish},
+		{name: "English", yaml: "system: {language: en}\n", want: LanguageEnglish},
+		{name: "Russian", yaml: "system: {language: ru}\n", want: LanguageRussian},
+		{name: "old English value", yaml: "system: {language: english}\n"},
+		{name: "old Russian value", yaml: "system: {language: russian}\n"},
+		{name: "unsupported", yaml: "system: {language: fr}\n"},
+		{name: "empty", yaml: "system: {language: ''}\n"},
+		{name: "mapping", yaml: "system: {language: {name: ru}}\n"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg, err := Load(writeRuntimeYAML(t, minimalRuntimeYAML+tt.yaml))
+			if tt.want == "" {
+				require.ErrorContains(t, err, `system.language must be "en" or "ru"`)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, cfg.Spec.System.Language)
+		})
+	}
+}
+
 func TestLoadRuntimeModuleDefaults(t *testing.T) {
 	cfg, err := Load(writeRuntimeYAML(t, minimalRuntimeYAML))
 	require.NoError(t, err)

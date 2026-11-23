@@ -1,4 +1,5 @@
 <script setup lang="ts" generic="T extends string | number, Multiple extends boolean = false">
+import { formatNumber, locale, t } from "../../i18n";
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, useId } from "vue";
 
 interface AppSelectOption {
@@ -14,6 +15,7 @@ const props = withDefaults(defineProps<{
   modelValue: ModelValue;
   multiple?: Multiple & boolean;
   options: AppSelectOption[];
+  resetOption?: AppSelectOption;
   label: string;
   placeholder?: string;
   heading?: string;
@@ -27,9 +29,9 @@ const props = withDefaults(defineProps<{
   placeholder: "",
   selectionLabel: "",
   searchable: false,
-  searchLabel: "Search options",
-  searchPlaceholder: "Search",
-  emptyMessage: "No matching options",
+  searchLabel: t("common.searchOptions"),
+  searchPlaceholder: t("common.search"),
+  emptyMessage: t("common.noMatchingOptions"),
   descriptive: false,
 });
 
@@ -42,20 +44,26 @@ const selectionId = useId();
 const selectedValues = computed<T[]>(() => Array.isArray(props.modelValue) ? props.modelValue : [props.modelValue as T]);
 
 const filteredOptions = computed(() => {
-  const query = search.value.trim().toLocaleLowerCase();
+  const query = search.value.trim().toLocaleLowerCase(locale());
   if (!query) return props.options;
   return props.options.filter((option) => (
     option.searchText ?? `${option.label} ${option.description ?? ""}`
-  ).toLocaleLowerCase().includes(query));
+  ).toLocaleLowerCase(locale()).includes(query));
 });
+const menuOptions = computed(() => props.resetOption
+  ? [props.resetOption, ...filteredOptions.value]
+  : filteredOptions.value);
 
 const summary = computed(() => {
   if (props.selectionLabel) return props.selectionLabel;
   if (selectedValues.value.length === 0) return props.placeholder;
   const labels = selectedValues.value.map((value) => (
-    props.options.find((option) => option.value === value)?.label ?? value
+    props.resetOption?.value === value
+      ? props.resetOption.label
+      : props.options.find((option) => option.value === value)?.label ?? value
   ));
-  return labels.length <= 2 ? labels.join(", ") : `${labels.length} selected`;
+  return labels.length <= 2 ? new Intl.ListFormat(locale(), { style: "short", type: "unit" }).format(labels.map(String))
+    : t("common.selected", { count: formatNumber(labels.length) });
 });
 
 function select(value: T): void {
@@ -131,7 +139,7 @@ function dismiss(): boolean {
   return true;
 }
 
-defineExpose({ dismiss });
+defineExpose({ close, dismiss });
 
 onMounted(() => document.addEventListener("click", handleDocumentClick));
 onBeforeUnmount(() => document.removeEventListener("click", handleDocumentClick));
@@ -155,7 +163,7 @@ onBeforeUnmount(() => document.removeEventListener("click", handleDocumentClick)
     <div class="app-select-menu">
       <div v-if="heading || multiple" class="app-select-header">
         <strong>{{ heading }}</strong>
-        <button v-if="multiple" type="button" :disabled="selectedValues.length === 0" @click="clear">Clear</button>
+        <button v-if="multiple" type="button" :disabled="selectedValues.length === 0" @click="clear">{{ t('common.clear') }}</button>
       </div>
       <input
         v-if="searchable"
@@ -167,7 +175,7 @@ onBeforeUnmount(() => document.removeEventListener("click", handleDocumentClick)
       />
       <component
         :is="multiple ? 'label' : 'button'"
-        v-for="option in filteredOptions"
+        v-for="option in menuOptions"
         :key="option.value"
         class="app-select-option"
         :type="multiple ? undefined : 'button'"
@@ -189,7 +197,7 @@ onBeforeUnmount(() => document.removeEventListener("click", handleDocumentClick)
           <small v-if="option.description">{{ option.description }}</small>
         </span>
       </component>
-      <p v-if="filteredOptions.length === 0" class="app-select-empty">{{ emptyMessage }}</p>
+      <p v-if="filteredOptions.length === 0 && (searchable || !resetOption)" class="app-select-empty">{{ emptyMessage }}</p>
     </div>
   </details>
 </template>

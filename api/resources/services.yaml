@@ -350,6 +350,18 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/ServiceSpecNetworkResponse'
+        configs:
+          type: array
+          items:
+            type: object
+            required: [config_name]
+            properties:
+              config_id:
+                type: string
+              config_name:
+                type: string
+              target:
+                type: string
     ServiceSpecLabelsResponse:
       type: object
       properties:
@@ -472,6 +484,33 @@ components:
         updated_at:
           type: string
           format: date-time
+        created_at:
+          type: string
+          format: date-time
+        endpoint_mode:
+          type: string
+        published_ports:
+          type: array
+          items:
+            type: object
+            required: [published_port, target_port, protocol]
+            properties:
+              published_port:
+                type: integer
+                format: int64
+              target_port:
+                type: integer
+                format: int64
+              protocol:
+                type: string
+        update_parallelism:
+          type: integer
+          format: int64
+          minimum: 0
+        network_targets:
+          type: array
+          items:
+            type: string
     SwarmServicesResponse:
       type: object
       required: [services]

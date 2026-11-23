@@ -18,7 +18,32 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	sqlitemigrations "github.com/swarm-deploy/swarm-deploy/migrations/sqlite"
+	"github.com/uptrace/opentelemetry-go-extra/otelsql"
+	"github.com/uptrace/opentelemetry-go-extra/otelsqlx"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 )
+
+func TestWithoutSQLTracingSuppressesDriverSpans(t *testing.T) {
+	recorder := tracetest.NewSpanRecorder()
+	provider := sdktrace.NewTracerProvider(
+		sdktrace.WithSampler(sdktrace.AlwaysSample()),
+		sdktrace.WithSpanProcessor(recorder),
+	)
+	t.Cleanup(func() { require.NoError(t, provider.Shutdown(context.Background())) })
+	db, err := otelsqlx.Connect("sqlite", ":memory:", otelsql.WithTracerProvider(sqlTracerProvider{provider}))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+
+	before := len(recorder.Started())
+	var count int
+	require.NoError(t, db.GetContext(WithoutSQLTracing(t.Context()), &count, "SELECT 1"))
+	require.Equal(t, 1, count)
+	require.Len(t, recorder.Started(), before)
+
+	require.NoError(t, db.GetContext(t.Context(), &count, "SELECT 1"))
+	assert.Greater(t, len(recorder.Started()), before)
+}
 
 func openAtMigration1(t *testing.T) (*SQLXDatabase, *goose.Provider) {
 	t.Helper()
@@ -439,7 +464,7 @@ func TestFreshDatabaseEnforcesForeignKeysAndChecks(t *testing.T) {
 	var appliedVersions int
 	require.NoError(t, db.Get(t.Context(), &appliedVersions,
 		"SELECT count(*) FROM goose_db_version WHERE version_id > 0 AND is_applied = 1"))
-	assert.Equal(t, 7, appliedVersions)
+	assert.Equal(t, 9, appliedVersions)
 }
 
 func TestRestartAndRollback(t *testing.T) {

@@ -96,6 +96,9 @@ The UI and REST API are served by the same web server. The UI includes:
 For frontend development without a running backend, use the
 [OpenAPI mock workflow](./ui/README.md#development-with-the-mock-api).
 
+For local testing with Docker Swarm, GitOps, the assistant, and Jaeger MCP, use the
+[test environment](./testenv).
+
 ## Quick start
 
 Start with the [basic example](./example/01-basic) or generate a configuration with the [configuration wizard](https://swarm-deploy.github.io/swarm-deploy/docs/configurator/).
@@ -128,6 +131,9 @@ gitops:
   networks:
     file: ./networks.yaml
 
+system:
+  language: ru
+
 web:
   address: ":8080"
   # Optional URL prefix for both UI and API. Defaults to /.
@@ -146,6 +152,8 @@ healthServer:
 The 0.15.0 runtime configuration uses module sections. Update older configurations before starting this version. The loader rejects unknown fields, including legacy paths. Stack and network definition files keep their existing formats.
 
 `web.basePath` defaults to `/`. A trailing slash is normalized, so `/infrastructure/swarm/` serves the UI at `/infrastructure/swarm/` and the API below `/infrastructure/swarm/api/`. Path segments must use URL-unreserved ASCII characters (letters, digits, `-`, `_`, `.`, `~`); percent-encoding and ServeMux wildcard syntax are not accepted. The configured value is authoritative; `X-Forwarded-Prefix` is not used. Health, metrics, and webhook endpoints keep their independently configured paths.
+
+`system.language` sets the web interface language for the entire installation. Use `en` for English (the default) or `ru` for Russian. After editing the setting, restart swarm-deploy and refresh the page. The installation setting takes precedence over browser language preferences.
 
 Stacks are declared separately:
 

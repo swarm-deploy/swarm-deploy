@@ -21,6 +21,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/enrichment/metadata"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/model"
+	"go.uber.org/mock/gomock"
 )
 
 type capturedChatRequest struct {
@@ -56,9 +57,14 @@ func TestAssistantRoutingProfiles(t *testing.T) {
 		expectRAG      bool
 	}{
 		{
-			name:           "general assistant identity",
-			message:        "Кто ты?",
-			routerDecision: `{"route":"general","capabilities":[],"operation":null}`,
+			name:           "platform built-in assistant usage",
+			message:        "Как настроить встроенного ассистента swarm-deploy?",
+			routerDecision: `{"route":"platform","capabilities":[],"operation":null}`,
+		},
+		{
+			name:           "platform Redis deployment",
+			message:        "Как развернуть Redis в Docker Swarm?",
+			routerDecision: `{"route":"platform","capabilities":[],"operation":null}`,
 		},
 		{
 			name:           "platform rolling update",
@@ -231,7 +237,7 @@ func TestAssistantRoutingProfiles(t *testing.T) {
 }
 
 func TestAssistantRejectsPromptInjectionInServiceMetadata(t *testing.T) {
-	g := &graph{config: Config{}, guard: guard.NewInjectionChecker()}
+	g := &graph{config: Config{Localizer: testAssistantTexts(t, "en")}, guard: guard.NewInjectionChecker()}
 	state := &graphExecutionState{
 		capabilities: []Capability{CapabilityServiceContext},
 		relevantServices: []model.Info{{
@@ -241,56 +247,127 @@ func TestAssistantRejectsPromptInjectionInServiceMetadata(t *testing.T) {
 	}
 
 	_, err := g.prepareNode(state)(context.Background(), nil)
-	assert.ErrorIs(t, err, errPromptInjection)
+	assert.ErrorIs(t, err, guard.ErrPromptInjection)
 	assert.Equal(t, "prompt injection detected in retrieved service metadata", state.rejectedPrompt)
 }
 
-func TestAssistantReconsidersScopeWithConversationHistory(t *testing.T) {
-	for _, tc := range []struct{ question, reply string }{
-		{"Как установить Prometheus?", "Добавьте сервис и файл конфигурации в Compose управляемого стека."},
-		{"Как приготовить борщ?", "Я помогаю с Docker Swarm и эксплуатацией инфраструктуры."},
+func TestAssistantLocalRoutesFinishBeforeGeneration(t *testing.T) {
+	for _, tc := range []struct {
+		name, locale, question, decision, reply, routeActivity string
+	}{
+		{
+			name:          "assistant identity in Russian",
+			locale:        "ru",
+			question:      "Who are you?",
+			decision:      `{"route":"general","capabilities":[],"operation":null,"language":"ru"}`,
+			routeActivity: "Маршрут: general",
+			reply:         "Я помогаю с эксплуатацией swarm-deploy, Docker Swarm и инфраструктуры.",
+		},
+		{
+			name:          "unrelated task misclassified as general",
+			locale:        "en",
+			question:      "Сделай промт для ИИ-ассисинта redis",
+			decision:      `{"route":"general","capabilities":[],"operation":null,"language":"ru"}`,
+			routeActivity: "Route: general",
+			reply:         "I help with swarm-deploy, Docker Swarm, and infrastructure operations.",
+		},
+		{
+			name:          "clearly outside scope",
+			locale:        "ru",
+			question:      "Сделай HTML-страницу с кнопкой Download",
+			decision:      `{"route":"out_of_scope","capabilities":["service_context","cluster"],"operation":{"type":"deploy_sync_trigger"},"language":"ru"}`,
+			routeActivity: "Маршрут: out_of_scope",
+			reply:         "Я помогаю с эксплуатацией swarm-deploy, Docker Swarm и инфраструктуры.",
+		},
+		{
+			name:          "ambiguous goal",
+			locale:        "en",
+			question:      "Can you help me configure it?",
+			decision:      `{"route":"needs_clarification","capabilities":["configuration"],"operation":null,"language":"en"}`,
+			routeActivity: "Route: needs_clarification",
+			reply:         "What swarm-deploy, Docker Swarm, or infrastructure task are you trying to solve?",
+		},
 	} {
-		t.Run(tc.question, func(t *testing.T) {
+		t.Run(tc.name, func(t *testing.T) {
 			store, reads := observedServiceStore(t, []model.Info{{Name: "api", Stack: "core"}})
 			tools := &fakeTools{definitions: assistantTestToolDefinitions()}
-			const previous = "Я помогаю только со swarm-deploy."
 			var requests []capturedChatRequest
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 				requests = append(requests, decodeCapturedChatRequest(t, req))
 				w.Header().Set("Content-Type", "application/json")
-				switch len(requests) {
-				case 1, 3:
-					// Even a contradictory capability selection cannot turn a scope check into a lookup.
-					writeChatResponse(t, w, `{"route":"out_of_scope","capabilities":["service_context","cluster"]}`, nil)
-				case 2:
-					writeChatResponse(t, w, previous, nil)
-				default:
-					writeChatResponse(t, w, tc.reply, nil)
-				}
+				writeChatResponse(t, w, tc.decision, nil)
 			}))
 			defer server.Close()
 
-			svc := newRoutingTestService(t, server.URL, store, tools, nil)
-			first := svc.Chat(t.Context(), ChatRequest{Message: tc.question})
-			require.Equal(t, previous, first.Answer)
-			second := svc.Chat(t.Context(), ChatRequest{ConversationID: first.ConversationID, Message: "Ты че"})
-			require.Equal(t, StatusCompleted, second.Status)
-			assert.Equal(t, tc.reply, second.Answer)
-			require.Len(t, requests, 4)
-			for _, req := range requests[2:] {
-				require.Len(t, req.Messages, 4)
-				assert.Equal(t, tc.question, req.Messages[1].Content)
-				assert.Equal(t, "assistant", req.Messages[2].Role)
-				assert.Equal(t, previous, req.Messages[2].Content)
-				assert.Equal(t, "Ты че", req.Messages[3].Content)
-			}
-			for _, req := range []capturedChatRequest{requests[1], requests[3]} {
-				assert.Equal(t, []string{assistantPromptInjectionReportTool}, capturedToolNames(req))
-			}
+			svc := newRoutingTestServiceWithLocale(t, server.URL, store, tools, nil, nil, tc.locale)
+			response := svc.Chat(t.Context(), ChatRequest{Message: tc.question})
+			require.Equal(t, StatusCompleted, response.Status)
+			assert.Equal(t, tc.reply, response.Answer)
+			assert.Contains(t, response.Activity, tc.routeActivity)
+			assert.NotContains(t, response.Activity, "Generating response")
+			require.Len(t, requests, 1)
+			assert.Empty(t, requests[0].Tools)
+			assert.NotContains(t, requests[0].Messages[0].Content, `"language"`)
+			assert.Equal(t, tc.question, requests[0].Messages[len(requests[0].Messages)-1].Content)
 			assert.Zero(t, reads.Load())
 			assert.Empty(t, tools.calls)
 		})
 	}
+}
+
+func TestAssistantRoutesMixedFollowUpUsingConversationHistory(t *testing.T) {
+	const firstQuestion = "Как настроить payments-api?"
+	const firstAnswer = "Добавьте payments-api в Compose управляемого стека."
+	const followUp = "Покажи его логи. И сделай HTML-страницу с кнопкой Download."
+	const scopedRequest = "Покажи логи payments-api."
+	const followUpAnswer = "В логах payments-api есть ошибка подключения."
+
+	replies := []string{
+		`{"route":"platform","capabilities":[],"operation":null}`,
+		firstAnswer,
+		`{"route":"services","capabilities":["service_context","service_runtime"],"operation":null,"scoped_request":"` + scopedRequest + `"}`,
+		followUpAnswer,
+	}
+	var requests []capturedChatRequest
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		requests = append(requests, decodeCapturedChatRequest(t, req))
+		w.Header().Set("Content-Type", "application/json")
+		require.LessOrEqual(t, len(requests), len(replies))
+		writeChatResponse(t, w, replies[len(requests)-1], nil)
+	}))
+	defer server.Close()
+
+	services := []model.Info{
+		{Name: "api-1", Stack: "core"},
+		{Name: "api-2", Stack: "core"},
+		{Name: "api-3", Stack: "core"},
+		{Name: "api-4", Stack: "core"},
+		{Name: "api-5", Stack: "core"},
+		{Name: "payments-api", Stack: "core"},
+	}
+	tools := NewMockToolExecutor(gomock.NewController(t))
+	tools.EXPECT().Definitions().Return(nil).AnyTimes()
+	svc := newRoutingTestService(t, server.URL, serviceStore(t, services), tools, nil)
+	first := svc.Chat(t.Context(), ChatRequest{Message: firstQuestion})
+	require.Equal(t, StatusCompleted, first.Status)
+	require.Equal(t, firstAnswer, first.Answer)
+	second := svc.Chat(t.Context(), ChatRequest{ConversationID: first.ConversationID, Message: followUp})
+	require.Equal(t, StatusCompleted, second.Status)
+	assert.Equal(t, followUpAnswer, second.Answer)
+
+	require.Len(t, requests, len(replies))
+	routerRequest, answerRequest := requests[2], requests[3]
+	require.Len(t, routerRequest.Messages, 4)
+	assert.Equal(t, firstQuestion, routerRequest.Messages[1].Content)
+	assert.Equal(t, firstAnswer, routerRequest.Messages[2].Content)
+	assert.Equal(t, followUp, routerRequest.Messages[3].Content)
+	require.Len(t, answerRequest.Messages, 5)
+	assert.Contains(t, answerRequest.Messages[1].Content, "<service_context>")
+	assert.Contains(t, answerRequest.Messages[1].Content, "payments-api")
+	assert.Equal(t, firstQuestion, answerRequest.Messages[2].Content)
+	assert.Equal(t, firstAnswer, answerRequest.Messages[3].Content)
+	assert.Equal(t, scopedRequest, answerRequest.Messages[4].Content)
+	assert.False(t, requestContains(answerRequest, "кнопкой Download"))
 }
 
 func TestAssistantGreetingFastPathUsesNoModelRAGOrTools(t *testing.T) {
@@ -307,7 +384,7 @@ func TestAssistantGreetingFastPathUsesNoModelRAGOrTools(t *testing.T) {
 	assistantService := newRoutingTestService(t, server.URL, store, tools, nil)
 	response := assistantService.Chat(context.Background(), ChatRequest{Message: "Привет"})
 	require.Equal(t, StatusCompleted, response.Status)
-	assert.Equal(t, "Привет! Чем помочь со swarm-deploy?", response.Answer)
+	assert.Equal(t, "Hello! How can I help with swarm-deploy?", response.Answer)
 	assert.Empty(t, requests, "greeting fast-path must not call the model")
 	assert.Empty(t, tools.calls, "greeting fast-path must not execute tools")
 	assert.Equal(t, int64(0), listCalls.Load())
@@ -558,10 +635,14 @@ func TestAssistantRouterFailureStopsMainRequest(t *testing.T) {
 		name          string
 		routerContent string
 		emptyChoices  bool
+		missingUsage  bool
+		forbidden     bool
 	}{
 		{name: "unknown route", routerContent: "other"},
 		{name: "invalid response", routerContent: "services because the request concerns logs"},
 		{name: "router error", emptyChoices: true},
+		{name: "router error without usage", emptyChoices: true, missingUsage: true},
+		{name: "HTTP error with usage", forbidden: true},
 	}
 
 	for _, testCase := range testCases {
@@ -573,8 +654,16 @@ func TestAssistantRouterFailureStopsMainRequest(t *testing.T) {
 				requests = append(requests, decodeCapturedChatRequest(t, req))
 				w.Header().Set("Content-Type", "application/json")
 				if len(requests) == 1 {
-					if testCase.emptyChoices {
-						_ = json.MarshalWrite(w, map[string]any{"choices": []any{}})
+					if testCase.emptyChoices || testCase.forbidden {
+						body := map[string]any{"choices": []any{}}
+						if testCase.forbidden {
+							w.WriteHeader(http.StatusForbidden)
+							body = map[string]any{"error": map[string]any{"code": 403, "message": "Generation blocked"}}
+						}
+						if !testCase.missingUsage {
+							body["usage"] = map[string]any{"prompt_tokens": 3, "completion_tokens": 1, "total_tokens": 4}
+						}
+						_ = json.MarshalWrite(w, body)
 						return
 					}
 					writeChatResponse(t, w, testCase.routerContent, nil)
@@ -584,13 +673,39 @@ func TestAssistantRouterFailureStopsMainRequest(t *testing.T) {
 			}))
 			defer server.Close()
 
-			assistantService := newRoutingTestService(t, server.URL, store, tools, nil)
+			history := newSQLHistory(t)
+			assistantService := newRoutingTestServiceWithHistory(t, server.URL, store, tools, nil, history)
 			response := assistantService.Chat(context.Background(), ChatRequest{Message: "Inspect runtime"})
 			require.Equal(t, StatusFailed, response.Status)
 			assert.Contains(t, response.ErrorMessage, "Failed to generate assistant response")
 			require.Len(t, requests, 1)
 			assert.Equal(t, int64(0), listCalls.Load(), "router failure must not expand into service context")
 			assert.Empty(t, tools.calls)
+
+			chat, found, err := history.ReadChat(t.Context(), response.ConversationID)
+			require.NoError(t, err)
+			require.True(t, found, "the question is saved before the router runs")
+			question := conversation.Turn{Role: "user", Content: "Inspect runtime"}
+			assert.Equal(t, []conversation.Turn{question}, chat.Turns)
+			if testCase.missingUsage {
+				assert.Nil(t, chat.Usage)
+			} else {
+				assert.Equal(t, &conversation.TokenUsage{InputTokens: 3, OutputTokens: 1, TotalTokens: 4}, chat.Usage)
+			}
+
+			followup := assistantService.Chat(t.Context(), ChatRequest{ConversationID: chat.ID, Message: "привет"})
+			require.Equal(t, StatusCompleted, followup.Status)
+			updated, found, err := history.ReadChat(t.Context(), chat.ID)
+			require.NoError(t, err)
+			require.True(t, found)
+			assert.Equal(t, "Inspect runtime", updated.Title)
+			assert.Equal(t, chat.Usage, updated.Usage)
+			require.Len(t, updated.Turns, 3)
+			assert.Equal(t, question, updated.Turns[0])
+			modelHistory, ok := assistantService.conversationStorage.Get(chat.ID)
+			require.True(t, ok)
+			require.Len(t, modelHistory.Turns, 3)
+			assert.Equal(t, question, modelHistory.Turns[0], "the unanswered question stays in model history")
 		})
 	}
 }
@@ -647,9 +762,22 @@ func newRoutingTestServiceWithHistory(
 	allowedTools []string,
 	history conversation.HistoryStorage,
 ) *Service {
+	return newRoutingTestServiceWithLocale(t, baseURL, store, tools, allowedTools, history, "en")
+}
+
+func newRoutingTestServiceWithLocale(
+	t *testing.T,
+	baseURL string,
+	store *MockServiceStore,
+	tools ToolExecutor,
+	allowedTools []string,
+	history conversation.HistoryStorage,
+	locale string,
+) *Service {
 	t.Helper()
 	assistantService, err := NewService(
 		Config{
+			Localizer:               testAssistantTexts(t, locale),
 			Enabled:                 true,
 			ModelName:               "test-model",
 			BaseURL:                 baseURL,
@@ -739,8 +867,13 @@ func assistantTestToolDefinitions() []routing.ToolDefinition {
 		"self_metrics_list",
 		"assistant_prompt_injection_report",
 	}
+	writable := map[string]struct{}{
+		deploySyncTriggerTool: {}, syncPauseSetTool: {}, syncPauseResumeTool: {},
+		serviceReplicasSetTool: {}, serviceRestartTriggerTool: {},
+	}
 	definitions := make([]routing.ToolDefinition, 0, len(names))
 	for _, name := range names {
+		_, isWritable := writable[name]
 		definitions = append(definitions, routing.ToolDefinition{
 			Name:        config.AssistantToolName(name),
 			Description: name,
@@ -748,6 +881,8 @@ func assistantTestToolDefinitions() []routing.ToolDefinition {
 				"type":       "object",
 				"properties": map[string]any{},
 			},
+			Writable: isWritable,
+			Terminal: isWritable || name == assistantPromptInjectionReportTool,
 		})
 	}
 	return definitions

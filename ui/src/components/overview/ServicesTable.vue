@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { enumLabel, t } from "../../i18n";
 import { useRouter } from "vue-router";
 import type { ServiceInfo, ServiceSyncStatus } from "../../api/types";
 import AppStatusBadge from "../common/AppStatusBadge.vue";
@@ -12,7 +13,7 @@ const props = withDefaults(defineProps<{
 }>(), {
   minWidth: "720px",
   variant: "default",
-  emptyMessage: "No services captured yet.",
+  emptyMessage: t("stack.noCapturedServices"),
 });
 const router = useRouter();
 async function openServiceDetails(stack: string, service: string) {
@@ -46,17 +47,17 @@ function syncStatusVariant(status: ServiceSyncStatus | string | undefined): "suc
 function syncStatusLabel(status: ServiceSyncStatus | string | undefined): string {
   const normalizedStatus = String(status || "").trim().toLowerCase();
   if (normalizedStatus === "synced") {
-    return "Synced";
+    return t("stack.synced");
   }
   if (normalizedStatus === "outofsync") {
-    return "OutOfSync";
+    return t("stack.serviceOutOfSync");
   }
 
-  return "unknown";
+  return t("stack.serviceSyncUnknown");
 }
 
 function syncErrorText(syncError: string | undefined): string {
-  return String(syncError || "").trim();
+  return syncError ?? "";
 }
 </script>
 
@@ -72,10 +73,10 @@ function syncErrorText(syncError: string | undefined): string {
     </template>
     <template #head>
       <tr>
-        <th>Name</th>
-        <th>{{ variant === "stack-detail" ? "Version" : "Sync Status" }}</th>
-        <th>Type</th>
-        <th>{{ variant === "stack-detail" ? "Status" : "Version" }}</th>
+        <th>{{ t('common.name') }}</th>
+        <th>{{ variant === "stack-detail" ? t('common.version') : t('stack.syncStatus') }}</th>
+        <th>{{ t('common.type') }}</th>
+        <th>{{ variant === "stack-detail" ? t('common.status') : t('common.version') }}</th>
       </tr>
     </template>
     <tr v-if="services.length === 0">
@@ -87,14 +88,14 @@ function syncErrorText(syncError: string | undefined): string {
       class="app-table-row--clickable"
       tabindex="0"
       role="button"
-      :aria-label="`Open details for ${service.name || 'service'}`"
+      :aria-label="t('stack.openService', { service: service.name || t('common.service').toLocaleLowerCase() })"
       @click="openServiceDetails(service.stack, service.name)"
       @keydown.enter="openServiceDetails(service.stack, service.name)"
       @keydown.space.prevent="openServiceDetails(service.stack, service.name)"
     >
       <td class="services-cell-name" :title="service.name || undefined">
         <span class="stack-service-name-wrap">
-          <strong class="stack-service-name">{{ service.name || "unknown" }}</strong>
+          <strong class="stack-service-name">{{ service.name || t('stack.serviceSyncUnknown') }}</strong>
         </span>
       </td>
       <td v-if="variant === 'stack-detail'" class="services-cell-image" :title="service.image">{{ service.image_version || "—" }}</td>
@@ -116,7 +117,7 @@ function syncErrorText(syncError: string | undefined): string {
           </p>
         </div>
       </td>
-      <td class="services-cell-type">{{ service.type_title || service.type }}</td>
+      <td class="services-cell-type">{{ enumLabel('serviceTypes', service.type, service.type_title || service.type || t('common.notApplicable')) }}</td>
       <td v-if="variant === 'stack-detail'" class="services-cell-sync-status">
         <div class="stack-service-sync-status">
           <AppStatusBadge

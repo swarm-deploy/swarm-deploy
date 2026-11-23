@@ -52,6 +52,57 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AssistantChatHistory'
+  /api/v1/assistant/chats/{conversationID}/read:
+    put:
+      operationId: markAssistantChatRead
+      parameters:
+        - in: path
+          name: conversationID
+          required: true
+          schema:
+            type: string
+            minLength: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AssistantChatReadRequest'
+      responses:
+        '204':
+          description: Read state updated if the viewed reply is still the latest.
+  /api/v1/assistant/usage:
+    get:
+      operationId: getAssistantUsage
+      summary: Read assistant token totals grouped by chat creation date
+      parameters:
+        - in: query
+          name: from
+          required: true
+          description: Inclusive start date in UTC.
+          schema:
+            type: string
+            format: date
+        - in: query
+          name: to
+          required: true
+          description: Exclusive end date in UTC.
+          schema:
+            type: string
+            format: date
+        - in: query
+          name: interval
+          required: true
+          description: Calendar bucket size in UTC. Weeks start on Monday.
+          schema:
+            $ref: '#/components/schemas/AssistantUsageInterval'
+      responses:
+        '200':
+          description: Accumulated token totals grouped by the UTC creation dates of chats.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssistantUsageResponse'
 components:
   schemas:
     AssistantSuggestion:
@@ -100,6 +151,10 @@ components:
           type: string
         answer:
           type: string
+        answer_sequence:
+          type: integer
+          minimum: 0
+          description: Persisted sequence of the completed answer, when available.
         error_message:
           type: string
         poll_after_ms:
@@ -128,7 +183,7 @@ components:
           minimum: 0
     AssistantChatSummary:
       type: object
-      required: [id, title, created_at, updated_at]
+      required: [id, title, created_at, updated_at, unread]
       properties:
         id:
           type: string
@@ -140,6 +195,8 @@ components:
         updated_at:
           type: string
           format: date-time
+        unread:
+          type: boolean
         token_usage:
           $ref: '#/components/schemas/AssistantTokenUsage'
     AssistantChatsResponse:
@@ -150,10 +207,21 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/AssistantChatSummary'
+    AssistantChatReadRequest:
+      type: object
+      required: [sequence]
+      properties:
+        sequence:
+          type: integer
+          minimum: 0
+          description: Persisted sequence of the assistant reply that was viewed.
     AssistantChatMessage:
       type: object
-      required: [role, content]
+      required: [role, content, sequence]
       properties:
+        sequence:
+          type: integer
+          minimum: 0
         role:
           type: string
           enum: [user, assistant, system]
@@ -165,7 +233,7 @@ components:
             type: string
     AssistantChatHistory:
       type: object
-      required: [id, title, created_at, updated_at, messages]
+      required: [id, title, created_at, updated_at, unread, messages]
       properties:
         id:
           type: string
@@ -177,9 +245,47 @@ components:
         updated_at:
           type: string
           format: date-time
+        unread:
+          type: boolean
         token_usage:
           $ref: '#/components/schemas/AssistantTokenUsage'
         messages:
           type: array
           items:
             $ref: '#/components/schemas/AssistantChatMessage'
+        active_request:
+          $ref: '#/components/schemas/AssistantActiveChatRequest'
+    AssistantActiveChatRequest:
+      type: object
+      description: Reply that is still being generated. Poll it with request_id to continue the chat after a page reload.
+      required: [request_id]
+      properties:
+        request_id:
+          type: string
+        activity:
+          type: array
+          items:
+            type: string
+
+    AssistantUsageInterval:
+      type: string
+      enum: [daily, weekly, monthly]
+    AssistantUsageBucket:
+      allOf:
+        - $ref: '#/components/schemas/AssistantTokenUsage'
+        - type: object
+          required: [start]
+          properties:
+            start:
+              type: string
+              format: date
+              description: UTC calendar bucket start. A partial bucket counts only chats created within the requested range.
+    AssistantUsageResponse:
+      type: object
+      required: [buckets]
+      properties:
+        buckets:
+          type: array
+          description: Ascending buckets with zeros between populated buckets. Empty when no chats with token totals were created in the range.
+          items:
+            $ref: '#/components/schemas/AssistantUsageBucket'

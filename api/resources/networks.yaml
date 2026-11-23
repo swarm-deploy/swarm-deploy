@@ -58,3 +58,12 @@ components:
           type: string
         managed:
           type: boolean
+        ipam:
+          type: array
+          items:
+            type: object
+            properties:
+              subnet:
+                type: string
+              gateway:
+                type: string

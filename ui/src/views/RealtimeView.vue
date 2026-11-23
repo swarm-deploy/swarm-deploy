@@ -1,5 +1,8 @@
 <script setup lang="ts">
+import { syncPauseDurationOptions } from "../utils/syncPause";
+import { formatNumber, plural, t } from "../i18n";
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
+import { useRoute } from "vue-router";
 
 import AppModal from "../components/common/AppModal.vue";
 import { ApiError } from "../api/client";
@@ -8,7 +11,6 @@ import {
   expirationForDuration,
   getServiceSyncPause,
   setServiceSyncPause,
-  syncPauseDurations,
 } from "../api/syncPauses";
 import type { ServiceRealtimeTask, ServiceSyncPauseResponse, SwarmService, SwarmTaskDetails } from "../api/types";
 import AppButton from "../components/common/AppButton.vue";
@@ -21,7 +23,7 @@ import TaskDetailsPanel from "../components/services/TaskDetailsPanel.vue";
 import TaskStatusBadge from "../components/services/TaskStatusBadge.vue";
 import TaskLogsModal from "../components/services/TaskLogsModal.vue";
 import { copyText } from "../utils/clipboard";
-import { formatDate } from "../utils/format";
+import { formatDate, formatRelativeTime } from "../utils/format";
 import { serviceRuntimeState, type RuntimeState } from "../utils/realtime";
 
 interface TaskListState {
@@ -32,15 +34,15 @@ interface TaskListState {
 
 const REFRESH_INTERVAL_STORAGE_KEY = "realtime.refreshInterval";
 const refreshIntervals = [
-  { label: "Off", value: 0 },
-  { label: "5s", value: 5_000 },
-  { label: "10s", value: 10_000 },
-  { label: "30s", value: 30_000 },
-  { label: "1m", value: 60_000 },
-  { label: "5m", value: 300_000 },
-  { label: "15m", value: 900_000 },
-  { label: "30m", value: 1_800_000 },
-  { label: "1h", value: 3_600_000 },
+  { label: t("realtime.refreshOff"), value: 0 },
+  { label: t("common.secondsCompact", { count: formatNumber(5) }), value: 5_000 },
+  { label: t("common.secondsCompact", { count: formatNumber(10) }), value: 10_000 },
+  { label: t("common.secondsCompact", { count: formatNumber(30) }), value: 30_000 },
+  { label: t("common.minutesCompact", { count: formatNumber(1) }), value: 60_000 },
+  { label: t("common.minutesCompact", { count: formatNumber(5) }), value: 300_000 },
+  { label: t("common.minutesCompact", { count: formatNumber(15) }), value: 900_000 },
+  { label: t("common.minutesCompact", { count: formatNumber(30) }), value: 1_800_000 },
+  { label: t("common.hoursCompact", { count: formatNumber(1) }), value: 3_600_000 },
 ] as const;
 
 type RefreshInterval = typeof refreshIntervals[number]["value"];
@@ -56,6 +58,9 @@ function readRefreshInterval(): RefreshInterval {
   }
 }
 
+const route = useRoute();
+const linkedService = computed(() => typeof route.query.service === "string" ? route.query.service : "");
+const linkedStack = computed(() => typeof route.query.stack === "string" ? route.query.stack : "");
 const services = ref<SwarmService[]>([]);
 const initialLoading = ref(true);
 const refreshing = ref(false);
@@ -63,11 +68,11 @@ const refreshError = ref("");
 const selectedStacks = ref<string[]>([]);
 const stateFilter = ref<RuntimeState | "all">("all");
 const stateOptions: { value: RuntimeState | "all"; label: string }[] = [
-  { value: "all", label: "All states" },
-  { value: "running", label: "Running" },
-  { value: "degraded", label: "Degraded" },
-  { value: "scaled-down", label: "Scaled down" },
-  { value: "unknown", label: "Unknown" },
+  { value: "all", label: t("realtime.allStates") },
+  { value: "running", label: t("realtime.running") },
+  { value: "degraded", label: t("realtime.degraded") },
+  { value: "scaled-down", label: t("realtime.scaledDown") },
+  { value: "unknown", label: t("common.unknown") },
 ];
 const searchQuery = ref("");
 const refreshInterval = ref<RefreshInterval>(readRefreshInterval());
@@ -129,7 +134,7 @@ async function submitRestart(): Promise<void> {
   } catch (reason) {
     if (!disposed) {
       restartFailed.value = true;
-      restartError.value = `${errorMessage(reason)}. Replica state may have changed; check the current replica count before trying again.`;
+      restartError.value = t("realtime.restartWarning", { error: errorMessage(reason) });
     }
   } finally {
     if (!disposed) {
@@ -155,7 +160,7 @@ const scalePauseDuration = ref("1");
 const scalePauseState = ref<ServiceSyncPauseResponse | null>(null);
 const scalePausePersisted = ref(false);
 const scalePauseLookupFailed = ref(false);
-const scalePauseDurationOptions: { value: string; label: string }[] = syncPauseDurations.map(({ value, label }) => ({ value, label }));
+const scalePauseDurationOptions = syncPauseDurationOptions();
 let scalePauseRequest = 0;
 
 const validScaleInput = computed(() => (
@@ -171,14 +176,14 @@ const canScale = computed(() => (
 
 const scaleEffectivePauseLabel = computed(() => {
   const source = scalePauseState.value?.effective_source;
-  if (source === "both") return "Stack and service";
-  if (source === "stack") return "Stack";
-  if (source === "service") return "Service";
+  if (source === "both") return t("realtime.stackAndService");
+  if (source === "stack") return t("common.stack");
+  if (source === "service") return t("common.service");
   return "";
 });
 
 function pauseUntil(expiresAt: string | null | undefined): string {
-  return expiresAt ? formatDate(expiresAt) : "No expiration";
+  return expiresAt ? formatDate(expiresAt) : t("realtime.noExpiration");
 }
 
 function showScalePauseHelp(event: PointerEvent): void {
@@ -277,7 +282,7 @@ async function submitScale(): Promise<void> {
   } catch (reason) {
     if (!disposed) {
       scaleError.value = scalePausePersisted.value
-        ? `Sync is paused, but scaling failed: ${errorMessage(reason)}`
+        ? t("realtime.scaleAfterPauseFailed", { error: errorMessage(reason) })
         : errorMessage(reason);
     }
   } finally {
@@ -302,14 +307,15 @@ const stackOptions = computed(() => {
 });
 
 const selectedStackSummary = computed(() => {
-  if (selectedStacks.value.length === 0) return "All stacks";
+  if (selectedStacks.value.length === 0) return t("realtime.allStacks");
   if (selectedStacks.value.length <= 2) return selectedStacks.value.map(stackLabel).join(", ");
-  return `${selectedStacks.value.length} stacks selected`;
+  return plural("common.stacksSelected", selectedStacks.value.length);
 });
 
 const filteredServices = computed(() => {
   const query = searchQuery.value.trim().toLocaleLowerCase();
   return services.value.filter((service) => {
+    if (linkedService.value && (service.name !== linkedService.value || service.stack !== linkedStack.value)) return false;
     if (selectedStacks.value.length > 0 && !selectedStacks.value.includes(service.stack)) return false;
     if (stateFilter.value !== "all" && serviceRuntimeState(service) !== stateFilter.value) return false;
     if (!query) return true;
@@ -320,20 +326,19 @@ const filteredServices = computed(() => {
 
 const automaticRefresh = computed(() => refreshInterval.value !== 0);
 const refreshIntervalLabel = computed(() => (
-  refreshIntervals.find((interval) => interval.value === refreshInterval.value)?.label ?? "5s"
+  refreshIntervals.find((interval) => interval.value === refreshInterval.value)?.label ?? refreshIntervals[1].label
 ));
 
 function errorMessage(reason: unknown): string {
-  return reason instanceof Error ? reason.message : "Request failed";
+  return reason instanceof Error ? reason.message : t("common.requestFailed");
 }
 
 function stateLabel(state: RuntimeState): string {
-  if (state === "scaled-down") return "Scaled down";
-  return state.charAt(0).toUpperCase() + state.slice(1);
+  return stateOptions.find((option) => option.value === state)?.label ?? t("common.unknown");
 }
 
 function stackLabel(stack: string): string {
-  return stack || "Standalone";
+  return stack || t("realtime.standalone");
 }
 
 function selectStacks(stacks: string[]): void {
@@ -347,21 +352,9 @@ function stateVariant(state: RuntimeState): "success" | "warning" | "neutral" {
 }
 
 function shortID(id: string): string {
-  if (!id) return "n/a";
+  if (!id) return t("common.notApplicable");
   if (id.length <= 18) return id;
   return `${id.slice(0, 10)}…${id.slice(-6)}`;
-}
-
-function formatRelativeTime(raw: string | undefined): string {
-  if (!raw) return "n/a";
-  const timestamp = new Date(raw).valueOf();
-  if (Number.isNaN(timestamp)) return raw;
-
-  const elapsedSeconds = Math.max(0, Math.floor((Date.now() - timestamp) / 1_000));
-  if (elapsedSeconds < 60) return "now";
-  if (elapsedSeconds < 3_600) return `${Math.floor(elapsedSeconds / 60)}m ago`;
-  if (elapsedSeconds < 86_400) return `${Math.floor(elapsedSeconds / 3_600)}h ago`;
-  return `${Math.floor(elapsedSeconds / 86_400)}d ago`;
 }
 
 function isFailedTask(state: string): boolean {
@@ -528,6 +521,13 @@ function handleRefreshMenuKeydown(event: KeyboardEvent): void {
 
 watch(refreshInterval, startPolling);
 
+watch([linkedService, linkedStack, services], ([name, stack], previous) => {
+  if (!name) return;
+  const service = services.value.find((item) => item.name === name && item.stack === stack);
+  if (service && (name !== previous?.[0] || stack !== previous?.[1] || !previous?.[2]?.length)
+      && !expandedServiceIDs.value.has(service.id)) toggleService(service);
+});
+
 onMounted(() => {
   document.addEventListener("visibilitychange", handleVisibilityChange);
   document.addEventListener("click", handleDocumentClick, true);
@@ -551,12 +551,12 @@ onUnmounted(() => {
     <header class="realtime-header">
       <div class="realtime-heading">
         <div class="realtime-title-row">
-          <h2>Realtime</h2>
+          <h2>{{ t('common.realtime') }}</h2>
           <span class="live-indicator realtime-live-indicator" :class="{ 'live-indicator--paused': !automaticRefresh }">
-            <span aria-hidden="true" />{{ automaticRefresh ? "Live" : "Paused" }}
+            <span aria-hidden="true" />{{ automaticRefresh ? t('realtime.active') : t('realtime.paused') }}
           </span>
         </div>
-        <p>Live Docker Swarm services and tasks</p>
+        <p>{{ t('realtime.description') }}</p>
       </div>
       <div class="realtime-refresh-control">
         <AppButton
@@ -567,14 +567,14 @@ onUnmounted(() => {
           @click="loadServices()"
         >
           <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M16.5 6.5V2.8m0 0h-3.7m3.7 0-2.2 2.1a6.5 6.5 0 1 0 1.4 6.9" /></svg>
-          Refresh
+          {{ t('realtime.refresh') }}
         </AppButton>
         <details ref="refreshMenu" class="realtime-refresh-dropdown" @keydown="handleRefreshMenuKeydown">
-          <summary :aria-label="`Refresh interval: ${refreshIntervalLabel}`">
+          <summary :aria-label="t('realtime.refreshIntervalValue', { interval: refreshIntervalLabel })">
             <span>{{ refreshIntervalLabel }}</span>
             <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4" /></svg>
           </summary>
-          <div class="realtime-refresh-menu" role="menu" aria-label="Refresh interval">
+          <div class="realtime-refresh-menu" role="menu" :aria-label="t('realtime.refreshInterval')">
             <button
               v-for="interval in refreshIntervals"
               :key="interval.value"
@@ -594,14 +594,18 @@ onUnmounted(() => {
     </header>
 
     <p v-if="refreshError && services.length > 0" class="realtime-stale-warning" role="status">
-      Live data may be stale: {{ refreshError }}
+      {{ t('realtime.staleDataWarning', { error: refreshError }) }}
+    </p>
+    <p v-if="linkedService" class="meta">
+      {{ linkedStack ? `${linkedStack}/${linkedService}` : linkedService }} ·
+      <RouterLink class="assistant-md-link" :to="{ name: 'realtime' }">{{ t('realtime.showAllServices') }}</RouterLink>
     </p>
 
-    <div class="realtime-filters" aria-label="Service filters">
+    <div class="realtime-filters" :aria-label="t('realtime.filters')">
       <label class="realtime-search">
         <svg class="realtime-filter-icon" viewBox="0 0 20 20" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.5" /><path d="m12.5 12.5 4 4" /></svg>
-        <span class="sr-only">Search services</span>
-        <input v-model="searchQuery" type="search" placeholder="Search services, stacks, or images" />
+        <span class="sr-only">{{ t('realtime.searchServices') }}</span>
+        <input v-model="searchQuery" type="search" :placeholder="t('realtime.searchPlaceholder')" />
       </label>
       <div class="realtime-filter-field">
         <AppSelect
@@ -609,9 +613,9 @@ onUnmounted(() => {
           class="realtime-stack-filter"
           :model-value="selectedStacks"
           :options="stackOptions"
-          label="Filter services by stack"
-          placeholder="All stacks"
-          heading="Stacks"
+          :label="t('realtime.filterStack')"
+          :placeholder="t('realtime.allStacks')"
+          :heading="t('common.stacks')"
           :selection-label="selectedStackSummary"
           @update:model-value="selectStacks"
         >
@@ -624,7 +628,7 @@ onUnmounted(() => {
         v-model="stateFilter"
         class="realtime-filter-field realtime-state-filter"
         :options="stateOptions"
-        label="Filter services by state"
+        :label="t('realtime.filterState')"
       >
         <template #icon>
           <SidebarIcon class="realtime-filter-icon" name="realtime" />
@@ -634,15 +638,15 @@ onUnmounted(() => {
 
     <div class="realtime-workspace" :class="{ 'realtime-workspace--details': selectedTaskID }">
       <div class="realtime-services-panel">
-        <AppTableEmpty v-if="initialLoading && services.length === 0" message="Loading Swarm services..." />
+        <AppTableEmpty v-if="initialLoading && services.length === 0" :message="t('realtime.loadingServices')" />
         <AppTableEmpty v-else-if="refreshError && services.length === 0" role="alert">
-          Failed to load Swarm services: {{ refreshError }}
-          <AppButton variant="secondary" compact @click="loadServices()">Retry</AppButton>
+          {{ t('realtime.loadServicesError', { error: refreshError }) }}
+          <AppButton variant="secondary" compact @click="loadServices()">{{ t('common.retry') }}</AppButton>
         </AppTableEmpty>
-        <AppTableEmpty v-else-if="services.length === 0" message="No Swarm services found." />
-        <AppTableEmpty v-else-if="filteredServices.length === 0" message="No services match the current filters." />
+        <AppTableEmpty v-else-if="services.length === 0" :message="t('realtime.noServices')" />
+        <AppTableEmpty v-else-if="filteredServices.length === 0" :message="t('realtime.noFilterMatches')" />
 
-        <AppTable v-else fixed min-width="900px" table-class="realtime-services-table" aria-label="Swarm services">
+        <AppTable v-else fixed min-width="900px" table-class="realtime-services-table" :aria-label="t('realtime.swarmServices')">
           <template #colgroup>
             <col class="realtime-col-service" />
             <col class="realtime-col-stack" />
@@ -652,14 +656,14 @@ onUnmounted(() => {
             <col class="realtime-col-actions" />
           </template>
           <template #head>
-            <tr><th>Service</th><th>Stack</th><th>Replicas</th><th>State</th><th>Updated</th><th>Actions</th></tr>
+            <tr><th>{{ t('common.service') }}</th><th>{{ t('common.stack') }}</th><th>{{ t('common.replicas') }}</th><th>{{ t('common.state') }}</th><th>{{ t('common.updated') }}</th><th>{{ t('common.action') }}</th></tr>
           </template>
           <template v-for="service in filteredServices" :key="service.id">
             <tr class="realtime-service-row" :class="{ 'realtime-service-row--expanded': expandedServiceIDs.has(service.id) }" @click="toggleService(service)">
-              <td class="realtime-service-name-cell" data-label="Service">
+              <td class="realtime-service-name-cell" :data-label="t('common.service')">
                 <div>
                   <span class="realtime-service-title">
-                    <button type="button" class="realtime-expand-button" :aria-expanded="expandedServiceIDs.has(service.id)" :aria-label="`${expandedServiceIDs.has(service.id) ? 'Collapse' : 'Expand'} ${service.name}`" @click.stop="toggleService(service)">
+                    <button type="button" class="realtime-expand-button" :aria-expanded="expandedServiceIDs.has(service.id)" :aria-label="t(expandedServiceIDs.has(service.id) ? 'realtime.collapseService' : 'realtime.expandService', { service: service.name || service.full_name })" @click.stop="toggleService(service)">
                       <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m6 3 5 5-5 5" /></svg>
                     </button>
                     <strong>{{ service.name || service.full_name }}</strong>
@@ -667,31 +671,31 @@ onUnmounted(() => {
                   <small v-if="service.full_name !== service.name">{{ service.full_name }}</small>
                 </div>
               </td>
-              <td data-label="Stack"><span :class="{ 'realtime-standalone': !service.stack }">{{ service.stack || "Standalone" }}</span></td>
-              <td class="realtime-replicas" data-label="Replicas">
+              <td :data-label="t('common.stack')"><span :class="{ 'realtime-standalone': !service.stack }">{{ service.stack || t('realtime.standalone') }}</span></td>
+              <td class="realtime-replicas" :data-label="t('common.replicas')">
                 <div class="realtime-replicas-content">
-                  <span class="realtime-replica-count"><strong :class="{ 'realtime-replicas-running--degraded': serviceRuntimeState(service) === 'degraded' }">{{ service.replicas.running }}</strong><span>/</span>{{ service.replicas.desired }}</span>
+                  <span class="realtime-replica-count"><strong :class="{ 'realtime-replicas-running--degraded': serviceRuntimeState(service) === 'degraded' }">{{ formatNumber(service.replicas.running) }}</strong><span>/</span>{{ formatNumber(service.replicas.desired) }}</span>
                 </div>
               </td>
-              <td data-label="State"><AppStatusBadge class="realtime-state" :variant="stateVariant(serviceRuntimeState(service))" dot>{{ stateLabel(serviceRuntimeState(service)) }}</AppStatusBadge></td>
-              <td data-label="Updated"><time :datetime="service.updated_at" :title="formatDate(service.updated_at)">{{ formatRelativeTime(service.updated_at) }}</time></td>
-              <td class="realtime-actions-cell" data-label="Actions" @click.stop>
-                <button v-if="service.mode === 'replicated'" class="realtime-actions-button" type="button" :aria-label="`Actions for ${service.name || service.full_name}`" :aria-expanded="actionsService?.id === service.id" aria-haspopup="true" :disabled="restartPending" @click.stop="toggleActions(service, $event)" @focusout="handleActionsFocusout">⋯</button>
+              <td :data-label="t('common.state')"><AppStatusBadge class="realtime-state" :variant="stateVariant(serviceRuntimeState(service))" dot>{{ stateLabel(serviceRuntimeState(service)) }}</AppStatusBadge></td>
+              <td :data-label="t('common.updated')"><time :datetime="service.updated_at" :title="formatDate(service.updated_at)">{{ formatRelativeTime(service.updated_at) }}</time></td>
+              <td class="realtime-actions-cell" :data-label="t('common.action')" @click.stop>
+                <button v-if="service.mode === 'replicated'" class="realtime-actions-button" type="button" :aria-label="t('realtime.actionsForService', { service: service.name || service.full_name })" :aria-expanded="actionsService?.id === service.id" aria-haspopup="true" :disabled="restartPending" @click.stop="toggleActions(service, $event)" @focusout="handleActionsFocusout">⋯</button>
               </td>
             </tr>
             <template v-if="expandedServiceIDs.has(service.id)">
               <tr v-if="tasksFor(service.id).loading && tasksFor(service.id).tasks.length === 0" class="realtime-task-message-row">
-                <td colspan="6"><span>Loading tasks...</span></td>
+                <td colspan="6"><span>{{ t('realtime.loadingTasks') }}</span></td>
               </tr>
               <tr v-else-if="tasksFor(service.id).error && tasksFor(service.id).tasks.length === 0" class="realtime-task-message-row realtime-task-message-row--error">
-                <td colspan="6"><span role="alert">Failed to load tasks: {{ tasksFor(service.id).error }}</span></td>
+                <td colspan="6"><span role="alert">{{ t('realtime.loadTasksError', { error: tasksFor(service.id).error }) }}</span></td>
               </tr>
               <tr v-else-if="tasksFor(service.id).tasks.length === 0" class="realtime-task-message-row">
-                <td colspan="6"><span>No tasks for this service.</span></td>
+                <td colspan="6"><span>{{ t('realtime.noTasks') }}</span></td>
               </tr>
               <template v-else>
                 <tr v-if="tasksFor(service.id).error" class="realtime-task-message-row realtime-task-message-row--warning">
-                  <td colspan="6"><span role="status">Task data may be stale: {{ tasksFor(service.id).error }}</span></td>
+                  <td colspan="6"><span role="status">{{ t('realtime.staleTasksWarning', { error: tasksFor(service.id).error }) }}</span></td>
                 </tr>
                 <tr
                   v-for="task in tasksFor(service.id).tasks"
@@ -701,8 +705,8 @@ onUnmounted(() => {
                 >
                   <td colspan="6">
                     <div class="realtime-task-grid">
-                      <button type="button" class="realtime-task-select" @click="selectTask(task)"><strong>Slot {{ task.slot }}</strong><code>{{ shortID(task.id) }}</code></button>
-                      <span class="realtime-task-node">{{ task.node_name || task.node || "Unavailable" }}</span>
+                      <button type="button" class="realtime-task-select" @click="selectTask(task)"><strong>{{ t('realtime.slotNumber', { slot: formatNumber(task.slot) }) }}</strong><code>{{ shortID(task.id) }}</code></button>
+                      <span class="realtime-task-node">{{ task.node_name || task.node || t('common.unavailable') }}</span>
                       <TaskStatusBadge class="realtime-task-state" :state="task.current_state" />
                       <time :datetime="task.updated_at" :title="formatDate(task.updated_at)">{{ formatRelativeTime(task.updated_at) }}</time>
                       <span class="realtime-task-error-cell" :class="{ 'realtime-task-error-cell--failed': task.error && isFailedTask(task.current_state) }">
@@ -711,8 +715,8 @@ onUnmounted(() => {
                           v-if="task.error"
                           type="button"
                           class="realtime-task-error-copy"
-                          :aria-label="copiedErrorTaskID === task.id ? 'Task error copied' : 'Copy full task error'"
-                          :title="copiedErrorTaskID === task.id ? 'Copied' : 'Copy full error'"
+                          :aria-label="copiedErrorTaskID === task.id ? t('realtime.taskErrorCopied') : t('realtime.copyTaskError')"
+                          :title="copiedErrorTaskID === task.id ? t('common.copied') : t('realtime.copyFullError')"
                           @click="copyTaskError(task)"
                         >
                           <svg v-if="copiedErrorTaskID === task.id" class="realtime-task-error-copy-check" viewBox="0 0 16 16" aria-hidden="true"><path d="m3 8.5 3 3L13 4.8" /></svg>
@@ -720,10 +724,10 @@ onUnmounted(() => {
                         </button>
                       </span>
                       <span class="realtime-task-actions">
-                        <button type="button" class="realtime-task-action-button" :aria-label="`Open details for task ${task.id}`" title="Task details" @click="selectTask(task)">
+                        <button type="button" class="realtime-task-action-button" :aria-label="t('realtime.openTaskDetails', { task: task.id })" :title="t('realtime.taskDetails')" @click="selectTask(task)">
                           <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="3" cy="4" r=".7" /><circle cx="3" cy="8" r=".7" /><circle cx="3" cy="12" r=".7" /><path d="M6 4h7M6 8h7M6 12h7" /></svg>
                         </button>
-                        <button type="button" class="realtime-task-action-button" :aria-label="`Open logs for task ${task.id}`" title="Task logs" @click="openLogs(task.id)">
+                        <button type="button" class="realtime-task-action-button" :aria-label="t('realtime.openTaskLogs', { task: task.id })" :title="t('realtime.taskLogs')" @click="openLogs(task.id)">
                           <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2h5l3 3v9H4zM9 2v3h3M6 8h4M6 10.5h4" /></svg>
                         </button>
                       </span>
@@ -736,7 +740,7 @@ onUnmounted(() => {
         </AppTable>
       </div>
 
-      <button v-if="selectedTaskID" type="button" class="realtime-mobile-panel-backdrop" aria-label="Close task details" @click="closeTaskDetails" />
+      <button v-if="selectedTaskID" type="button" class="realtime-mobile-panel-backdrop" :aria-label="t('realtime.closeTaskDetails')" @click="closeTaskDetails" />
       <TaskDetailsPanel
         v-if="selectedTaskID"
         :task="selectedTask"
@@ -747,23 +751,23 @@ onUnmounted(() => {
     </div>
 
     <Teleport to="body">
-      <div v-if="actionsService" ref="actionsMenu" class="realtime-actions-menu" :style="actionsPosition" aria-label="Service actions" @click.stop @keydown.esc.stop.prevent="closeActions" @focusout="handleActionsFocusout">
+      <div v-if="actionsService" ref="actionsMenu" class="realtime-actions-menu" :style="actionsPosition" :aria-label="t('realtime.serviceActions')" @click.stop @keydown.esc.stop.prevent="closeActions" @focusout="handleActionsFocusout">
         <button v-if="(actionsService.configured_replicas ?? 0) > 0 && actionsService.replicas.desired > 0" type="button" @click="openRestart(actionsService)">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5M6.1 6.1a8 8 0 0 1 13.2 3M4.7 14.9a8 8 0 0 0 13.2 3" /></svg>Restart service
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5M6.1 6.1a8 8 0 0 1 13.2 3M4.7 14.9a8 8 0 0 0 13.2 3" /></svg>{{ t('realtime.restartService') }}
         </button>
-        <button type="button" class="realtime-scale-button" :aria-label="`Scale ${actionsService.name || actionsService.full_name}`" @click="openScale(actionsService)">
-          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 4h6M8 1v6M5 12h6" /></svg>Scale replicas
+        <button type="button" class="realtime-scale-button" :aria-label="t('realtime.scaleNamedService', { service: actionsService.name || actionsService.full_name })" @click="openScale(actionsService)">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 4h6M8 1v6M5 12h6" /></svg>{{ t('realtime.scaleReplicas') }}
         </button>
       </div>
     </Teleport>
     <AppModal :open="Boolean(restartingService)" labelledby="realtime-restart-title" card-class="realtime-scale-card" :busy="restartPending" :close-disabled="restartPending" @close="restartingService = null">
-      <template #title><h2 id="realtime-restart-title">Restart service</h2></template>
+      <template #title><h2 id="realtime-restart-title">{{ t('realtime.restartService') }}</h2></template>
       <div class="modal-body">
-        <p>Restart <strong>{{ restartingService?.name || restartingService?.full_name }}</strong>? All replicas will temporarily stop before the original count is restored.</p>
+        <p>{{ t('realtime.confirmRestart', { service: restartingService?.name || restartingService?.full_name || '' }) }}</p>
         <p v-if="restartError" class="realtime-scale-error" role="alert">{{ restartError }}</p>
         <div class="realtime-scale-actions">
-          <AppButton variant="secondary" :disabled="restartPending" @click="restartingService = null">{{ restartFailed ? "Close" : "Cancel" }}</AppButton>
-          <AppButton v-if="!restartFailed" :disabled="restartPending" @click="submitRestart">{{ restartPending ? "Restarting..." : "Restart" }}</AppButton>
+          <AppButton variant="secondary" :disabled="restartPending" @click="restartingService = null">{{ restartFailed ? t('common.close') : t('common.cancel') }}</AppButton>
+          <AppButton v-if="!restartFailed" :disabled="restartPending" @click="submitRestart">{{ restartPending ? t('realtime.restarting') : t('realtime.restart') }}</AppButton>
         </div>
       </div>
     </AppModal>
@@ -778,7 +782,7 @@ onUnmounted(() => {
       :busy="scalePending"
       :close-disabled="scalePending"
       :close-on-escape="!scalePauseHelp"
-      close-label="Close scaling modal"
+      :close-label="t('realtime.closeScaling')"
       initial-focus="#realtime-scale-replicas"
       @pointerdown="dismissScalePauseHelp"
       @escape="onScaleEscape"
@@ -786,46 +790,46 @@ onUnmounted(() => {
       @close="closeScale"
     >
       <template #title>
-        <h2 id="realtime-scale-title">Scale service</h2>
+        <h2 id="realtime-scale-title">{{ t('realtime.scaleService') }}</h2>
       </template>
       <div class="modal-body">
-        <p class="realtime-scale-section-label">Service details</p>
+        <p class="realtime-scale-section-label">{{ t('realtime.serviceDetails') }}</p>
         <dl class="realtime-scale-summary">
-          <dt>Service</dt><dd>{{ scalingService.name || scalingService.full_name }}</dd>
-          <dt>Stack</dt><dd>{{ stackLabel(scalingService.stack) }}</dd>
-          <dt>Current scale</dt><dd>{{ scalingService.configured_replicas ?? "Unavailable" }}</dd>
+          <dt>{{ t('common.service') }}</dt><dd>{{ scalingService.name || scalingService.full_name }}</dd>
+          <dt>{{ t('common.stack') }}</dt><dd>{{ stackLabel(scalingService.stack) }}</dd>
+          <dt>{{ t('realtime.currentScale') }}</dt><dd>{{ scalingService.configured_replicas == null ? t('common.unavailable') : formatNumber(scalingService.configured_replicas) }}</dd>
         </dl>
         <hr class="realtime-scale-divider" />
-        <p class="realtime-scale-section-label">Scale</p>
-        <label for="realtime-scale-replicas">Desired replicas</label>
+        <p class="realtime-scale-section-label">{{ t('realtime.scale') }}</p>
+        <label for="realtime-scale-replicas">{{ t('realtime.desiredReplicas') }}</label>
         <div class="realtime-scale-input">
-          <AppButton variant="secondary" compact aria-label="Decrease replicas" :disabled="scalePending || scaleInput === 0" @click="stepScale(-1)">−</AppButton>
+          <AppButton variant="secondary" compact :aria-label="t('realtime.decreaseReplicas')" :disabled="scalePending || scaleInput === 0" @click="stepScale(-1)">−</AppButton>
           <input id="realtime-scale-replicas" ref="scaleInputElement" v-model.number="scaleInput" type="number" min="0" step="1" :max="Number.MAX_SAFE_INTEGER" required :disabled="scalePending" :aria-invalid="!validScaleInput" />
-          <AppButton variant="secondary" compact aria-label="Increase replicas" :disabled="scalePending || scaleInput === Number.MAX_SAFE_INTEGER" @click="stepScale(1)">+</AppButton>
+          <AppButton variant="secondary" compact :aria-label="t('realtime.increaseReplicas')" :disabled="scalePending || scaleInput === Number.MAX_SAFE_INTEGER" @click="stepScale(1)">+</AppButton>
         </div>
         <p v-if="scalePauseLoading || scalePauseState?.effective_paused || scalePauseChecked" class="form-helper" role="note">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 11v6m0-10h.01" /></svg>
-          <span v-if="scalePauseLoading">Checking GitOps Pause Sync state...</span>
-          <span v-else-if="scalePauseState?.effective_paused">Pause Sync is active. Scaling starts immediately.</span>
-          <span v-else>Pause Sync will be enabled first. Scaling starts immediately afterward.</span>
+          <span v-if="scalePauseLoading">{{ t('realtime.checkingPause') }}</span>
+          <span v-else-if="scalePauseState?.effective_paused">{{ t('realtime.scaleDuringPause') }}</span>
+          <span v-else>{{ t('realtime.scaleAfterPause') }}</span>
         </p>
         <template v-if="scalePauseManaged && !scalePauseLoading">
           <div v-if="scalePauseState?.effective_paused" class="realtime-scale-pause-state" role="status">
-            <strong>Sync paused by: {{ scaleEffectivePauseLabel }}</strong>
-            <span v-if="scalePauseState.stack_pause">Stack pause until: {{ pauseUntil(scalePauseState.stack_pause.expires_at) }}</span>
-            <span v-if="scalePauseState.service_pause">Service pause until: {{ pauseUntil(scalePauseState.service_pause.expires_at) }}</span>
+            <strong>{{ t('realtime.pausedByScope', { scope: scaleEffectivePauseLabel }) }}</strong>
+            <span v-if="scalePauseState.stack_pause">{{ t('realtime.stackPauseExpires', { expiration: pauseUntil(scalePauseState.stack_pause.expires_at) }) }}</span>
+            <span v-if="scalePauseState.service_pause">{{ t('realtime.servicePauseExpires', { expiration: pauseUntil(scalePauseState.service_pause.expires_at) }) }}</span>
           </div>
           <template v-else>
             <div class="realtime-scale-pause-row">
               <label class="realtime-scale-pause-toggle">
                 <input v-model="scalePauseChecked" type="checkbox" :disabled="scalePending || scalePausePersisted" />
-                <span>Pause sync</span>
+                <span>{{ t('common.pauseSync') }}</span>
               </label>
               <div class="realtime-scale-pause-help" @pointerenter="showScalePauseHelp" @pointerleave="hideScalePauseHelp">
                 <button
                   type="button"
                   class="realtime-scale-pause-help-button"
-                  aria-label="About Pause Sync"
+                  :aria-label="t('realtime.aboutPause')"
                   :aria-expanded="Boolean(scalePauseHelp)"
                   :aria-describedby="scalePauseHelp ? 'realtime-scale-pause-tooltip' : undefined"
                   @click="scalePauseHelp = scalePauseHelp === 'pinned' ? null : 'pinned'"
@@ -833,23 +837,23 @@ onUnmounted(() => {
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M9.5 9.5a2.5 2.5 0 0 1 5 0c0 1.5-2.5 2-2.5 3.5m0 3h.01" /></svg>
                 </button>
                 <div v-if="scalePauseHelp" id="realtime-scale-pause-tooltip" class="realtime-scale-pause-tooltip" role="tooltip">
-                  Manual scaling may be overwritten by the next GitOps synchronization.
+                  {{ t('realtime.scaleMayBeOverwritten') }}
                 </div>
               </div>
             </div>
             <div v-if="scalePauseChecked" class="realtime-scale-pause-duration">
-              <span>Pause duration</span>
-              <AppSelect v-model="scalePauseDuration" :options="scalePauseDurationOptions" label="Pause duration" />
+              <span>{{ t('realtime.pauseDuration') }}</span>
+              <AppSelect v-model="scalePauseDuration" :options="scalePauseDurationOptions" :label="t('realtime.pauseDuration')" />
             </div>
           </template>
         </template>
         <p v-if="scalePausePersisted && scaleError" class="form-helper" role="status">
-          Pause Sync remains active. Retry will only retry scaling.
+          {{ t('realtime.retryScaling') }}
         </p>
         <p v-if="scaleError" class="realtime-scale-error" role="alert">{{ scaleError }}</p>
         <div class="realtime-scale-actions">
-          <AppButton variant="secondary" :disabled="scalePending" @click="closeScale">Cancel</AppButton>
-          <AppButton type="submit" :disabled="!canScale">{{ scalePending ? "Scaling..." : "Scale" }}</AppButton>
+          <AppButton variant="secondary" :disabled="scalePending" @click="closeScale">{{ t('common.cancel') }}</AppButton>
+          <AppButton type="submit" :disabled="!canScale">{{ scalePending ? t('realtime.scaling') : t('realtime.scale') }}</AppButton>
         </div>
       </div>
     </AppModal>

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { formatNumber, plural, t } from "../../i18n";
 import { computed } from "vue";
 
 import type { StackView } from "../../api/types";
@@ -27,8 +28,8 @@ const statusVariant = computed(() => ({
   unknown: "neutral",
 } as const)[statusKind.value]);
 
-const serviceLabel = computed(() => `${props.serviceCount} ${props.serviceCount === 1 ? "service" : "services"}`);
-const pausedLabel = computed(() => `${props.stack.effectively_paused_services ?? 0} paused`);
+const serviceLabel = computed(() => plural("common.serviceCount", props.serviceCount));
+const pausedLabel = computed(() => t("stack.pausedCount", { count: formatNumber(props.stack.effectively_paused_services ?? 0) }));
 const stackAnchor = computed(() => `stack-${encodeURIComponent(props.stack.name)}`);
 </script>
 
@@ -52,33 +53,33 @@ const stackAnchor = computed(() => `stack-${encodeURIComponent(props.stack.name)
 
     <dl class="overview-stack-card-metadata">
       <div>
-        <dt>Last deploy</dt>
+        <dt>{{ t('stack.lastDeploy') }}</dt>
         <dd>{{ formatDate(stack.last_deploy_at) }}</dd>
       </div>
       <div>
-        <dt>Commit</dt>
+        <dt>{{ t('common.commit') }}</dt>
         <dd>
           <button
             v-if="stack.last_commit"
             type="button"
             class="overview-commit-badge overview-stack-commit-badge"
-            :aria-label="`Open commit ${shortCommitHash(stack.last_commit)}`"
+            :aria-label="t('common.openCommit', { commit: shortCommitHash(stack.last_commit) })"
             :title="stack.last_commit"
             @click.stop="emit('commit', stack.last_commit)"
           >
             {{ shortCommitHash(stack.last_commit) }}
           </button>
-          <span v-else class="overview-stack-metadata-empty">n/a</span>
+          <span v-else class="overview-stack-metadata-empty">{{ t('common.notApplicable') }}</span>
         </dd>
       </div>
     </dl>
 
     <footer class="overview-stack-card-actions">
       <button type="button" class="overview-stack-card-action" @click.stop="emit('compare', stack.name)">
-        Compare state
+        {{ t('stack.compareState') }}
       </button>
       <button type="button" class="overview-stack-card-action" @click.stop="emit('pause', stack.name)">
-        Pause sync
+        {{ t('common.pauseSync') }}
       </button>
     </footer>
   </AppCard>

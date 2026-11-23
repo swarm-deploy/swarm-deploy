@@ -8,6 +8,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/conversation"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/enrichment/metadata"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/model"
@@ -19,11 +20,11 @@ type countingEmbedder struct {
 	result [][]float64
 }
 
-func (c *countingEmbedder) Embed(_ context.Context, _ string, inputs []string) ([][]float64, error) {
+func (c *countingEmbedder) Embed(_ context.Context, _ string, inputs []string) ([][]float64, conversation.TokenUsage, error) {
 	copied := make([]string, len(inputs))
 	copy(copied, inputs)
 	c.inputs = append(c.inputs, copied)
-	return c.result, nil
+	return c.result, conversation.TokenUsage{}, nil
 }
 
 type subscriberObserverCapture struct {

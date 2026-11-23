@@ -3,6 +3,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import RealtimeView from "./RealtimeView.vue";
 
+const route = vi.hoisted(() => ({ query: {} as Record<string, string> }));
+vi.mock("vue-router", () => ({ useRoute: () => route }));
+
 const apiMocks = vi.hoisted(() => ({
   fetchSwarmServices: vi.fn(),
   fetchSwarmServiceTasks: vi.fn(),
@@ -52,14 +55,25 @@ function taskDetails(id: string) {
 }
 
 async function mountView() {
-  const wrapper = mount(RealtimeView, { global: { stubs: { Teleport: true } } });
+  const wrapper = mount(RealtimeView, { global: { stubs: { Teleport: true, RouterLink: true } } });
   await flushPromises();
   return wrapper;
 }
 
 describe("RealtimeView", () => {
+  it("opens a service-scoped link on the exact service and expands its tasks", async () => {
+    route.query = { stack: "infra", service: "api" };
+    const wrapper = await mountView();
+    expect(wrapper.findAll(".realtime-service-row")).toHaveLength(1);
+    expect(wrapper.get(".realtime-service-row").text()).toContain("infra_api");
+    expect(wrapper.get('[aria-label="Collapse api"]').attributes("aria-expanded")).toBe("true");
+    expect(apiMocks.fetchSwarmServiceTasks).toHaveBeenCalledExactlyOnceWith("one");
+    wrapper.unmount();
+  });
+
   beforeEach(() => {
     window.localStorage.clear();
+    route.query = {};
     apiMocks.fetchSwarmServices.mockResolvedValue({ services });
     apiMocks.fetchSwarmServiceTasks.mockResolvedValue({ tasks });
     apiMocks.scaleSwarmService.mockResolvedValue(undefined);
@@ -316,7 +330,7 @@ describe("RealtimeView", () => {
 
   it("refreshes every five seconds, preserves expanded rows, and retains data on temporary errors", async () => {
     vi.useFakeTimers();
-    const wrapper = mount(RealtimeView, { global: { stubs: { Teleport: true } } });
+    const wrapper = mount(RealtimeView, { global: { stubs: { Teleport: true, RouterLink: true } } });
     await flushPromises();
     await wrapper.findAll(".realtime-expand-button")[0].trigger("click");
     await flushPromises();
@@ -338,7 +352,7 @@ describe("RealtimeView", () => {
   it("pauses polling while hidden and refreshes when the tab becomes visible", async () => {
     vi.useFakeTimers();
     Object.defineProperty(document, "hidden", { configurable: true, value: false });
-    const wrapper = mount(RealtimeView, { global: { stubs: { Teleport: true } } });
+    const wrapper = mount(RealtimeView, { global: { stubs: { Teleport: true, RouterLink: true } } });
     await flushPromises();
     expect(apiMocks.fetchSwarmServices).toHaveBeenCalledTimes(1);
 

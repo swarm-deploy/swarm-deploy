@@ -8,14 +8,12 @@ import (
 )
 
 const maxToolRoundsPlaceholder = "{{max_tool_rounds}}"
+const replyLanguagePlaceholder = "{{reply_language}}"
 
 const customPromptHeading = "\n\nProject-specific instructions:\n"
 
 //go:embed prompts/base.md
 var basePrompt string
-
-//go:embed prompts/general.md
-var generalPrompt string
 
 //go:embed prompts/platform.md
 var platformPrompt string
@@ -35,18 +33,22 @@ var diagnosticsPrompt string
 //go:embed prompts/lookups.md
 var lookupsPrompt string
 
-func buildSystemPrompt(customPrompt, routePrompt string) string {
+func buildSystemPrompt(customPrompt, routePrompt, replyLanguage string) string {
 	prompt := strings.ReplaceAll(
 		strings.TrimSpace(basePrompt), maxToolRoundsPlaceholder, strconv.Itoa(maxToolIterations),
 	)
+	prompt = strings.ReplaceAll(prompt, replyLanguagePlaceholder, replyLanguage)
 	if routePrompt = strings.TrimSpace(routePrompt); routePrompt != "" {
 		prompt = fmt.Sprintf("%s\n\n%s", prompt, routePrompt)
 	}
 
-	customPrompt = strings.TrimSpace(customPrompt)
-	if customPrompt != "" {
-		prompt += customPromptHeading + customPrompt
-	}
+	return prompt + customPromptSuffix(customPrompt)
+}
 
-	return prompt
+func customPromptSuffix(customPrompt string) string {
+	customPrompt = strings.TrimSpace(customPrompt)
+	if customPrompt == "" {
+		return ""
+	}
+	return customPromptHeading + customPrompt
 }

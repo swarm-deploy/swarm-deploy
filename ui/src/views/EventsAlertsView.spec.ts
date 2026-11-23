@@ -1,9 +1,10 @@
 import { flushPromises, mount } from "@vue/test-utils";
 import { createMemoryHistory, createRouter } from "vue-router";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { fetchAlerts, fetchEventFilters, fetchEvents } from "../api/overview";
 import type { Alert } from "../api/types";
+import { i18n } from "../i18n";
 import EventsAlertsView from "./EventsAlertsView.vue";
 
 vi.mock("../api/overview", () => ({ fetchEvents: vi.fn(), fetchEventFilters: vi.fn(), fetchAlerts: vi.fn() }));
@@ -54,6 +55,10 @@ function tab(wrapper: ReturnType<typeof mount>, label: string) {
   return wrapper.findAll('[role="tab"]').find((item) => item.text() === label)!;
 }
 
+function filter(wrapper: ReturnType<typeof mount>, label: string) {
+  return wrapper.get<HTMLDetailsElement>(`details:has(> summary[aria-label="Filter ${label}"])`);
+}
+
 describe("Events & Alerts", () => {
   it("loads alerts for the linked stack and retains the stack navigation", async () => {
     vi.mocked(fetchAlerts).mockImplementation(async (options = {}) => ({ alerts: options.stack === "app" ? [{ ...activeAlert, resourceType: "stack", resourceId: "app" }] : [activeAlert] }));
@@ -83,6 +88,16 @@ describe("Events & Alerts", () => {
     }] });
     vi.mocked(fetchAlerts).mockReset();
     vi.mocked(fetchAlerts).mockResolvedValue({ alerts: [activeAlert, resolvedAlert] });
+  });
+
+  afterEach(() => { i18n.global.locale.value = "en"; });
+
+  it("translates the standard node diagnostic in the alert list", async () => {
+    i18n.global.locale.value = "ru";
+    vi.mocked(fetchAlerts).mockResolvedValue({ alerts: [{ ...activeAlert, message: "Swarm node is not ready" }] });
+    const { wrapper } = await mountView();
+    expect(wrapper.get(".alerts-message").text()).toBe("Узел Swarm не готов к работе");
+    wrapper.unmount();
   });
 
   it("shows all alerts by default and sorts by the displayed timestamp", async () => {
@@ -136,20 +151,20 @@ describe("Events & Alerts", () => {
 
   it("searches resources, combines filters and links to the selected alert", async () => {
     const { wrapper, router } = await mountView("/events?severity=warn");
-    const status = wrapper.get('[aria-label="Filter alerts by status"]');
-    const type = wrapper.get('[aria-label="Filter alerts by type"]');
-    const resource = wrapper.get("#alerts-filter-panel .events-search-filter");
+    const status = filter(wrapper, "alerts by status");
+    const type = filter(wrapper, "alerts by type");
+    const resource = filter(wrapper, "alerts by resource");
     const search = resource.get<HTMLInputElement>('[aria-label="Search resources"]');
 
-    await status.setValue("open");
+    await status.findAll("button").find((button) => button.text() === "Active")!.trigger("click");
     expect(wrapper.findAll(".alerts-title").map((title) => title.text())).toEqual(["Node disconnected"]);
-    await status.setValue("resolved");
+    await status.findAll("button").find((button) => button.text() === "Resolved")!.trigger("click");
     expect(wrapper.findAll(".alerts-title").map((title) => title.text())).toEqual(["Service drift detected"]);
 
-    await type.setValue("node_disconnected");
+    await type.findAll("button").find((button) => button.text() === "node disconnected")!.trigger("click");
     expect(wrapper.text()).toContain("No alerts match the selected filters.");
-    await type.setValue("service_drift");
-    (resource.element as HTMLDetailsElement).open = true;
+    await type.findAll("button").find((button) => button.text() === "service drift")!.trigger("click");
+    resource.element.open = true;
     await search.setValue("WORKER");
     expect(resource.findAll("button").map((button) => button.text())).toEqual(["All resources", "worker (node)"]);
     await resource.findAll("button")[1].trigger("click");
@@ -169,14 +184,15 @@ describe("Events & Alerts", () => {
 
   it("preserves filters in both tabs across tab switches", async () => {
     const { wrapper, router } = await mountView();
-    const status = wrapper.get<HTMLSelectElement>('[aria-label="Filter alerts by status"]');
-    const resource = wrapper.get("#alerts-filter-panel .events-search-filter");
-    await status.setValue("resolved");
+    const status = filter(wrapper, "alerts by status");
+    const resource = filter(wrapper, "alerts by resource");
+    const severity = filter(wrapper, "events by severity");
+    await status.findAll("button").find((button) => button.text() === "Resolved")!.trigger("click");
     await resource.findAll("button").find((button) => button.text() === "app/api (service)")!.trigger("click");
     await tab(wrapper, "Events").trigger("click");
     await flushPromises();
 
-    await wrapper.find("#events-filter-panel .events-filter-field select").setValue("error");
+    await severity.findAll("button").find((button) => button.text() === "Error")!.trigger("click");
     await flushPromises();
     const typeOption = wrapper
       .findAll(".events-type-filter .app-select-option")
@@ -194,12 +210,12 @@ describe("Events & Alerts", () => {
     await tab(wrapper, "Events").trigger("click");
     await flushPromises();
 
-    expect((wrapper.find("#events-filter-panel .events-filter-field select").element as HTMLSelectElement).value).toBe("error");
+    expect(severity.get("button[aria-pressed=true]").text()).toBe("Error");
     expect((typeOption.find("input").element as HTMLInputElement).checked).toBe(true);
 
     await tab(wrapper, "Alerts").trigger("click");
-    expect(status.element.value).toBe("resolved");
-    expect(resource.get(".events-filter-selection").text()).toBe("app/api (service)");
+    expect(status.get("button[aria-pressed=true]").text()).toBe("Resolved");
+    expect(resource.get("summary").text()).toBe("app/api (service)");
     wrapper.unmount();
   });
 });

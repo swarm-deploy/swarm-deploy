@@ -115,7 +115,7 @@ func TestAssistantToolExecutionLimitDoesNotExecuteFourthRound(t *testing.T) {
 	response := assistantService.Chat(context.Background(), ChatRequest{Message: "Investigate the deployment"})
 
 	require.Equal(t, StatusCompleted, response.Status)
-	assert.Equal(t, toolLimitFallbackAnswer, response.Answer)
+	assert.Contains(t, response.Answer, "I reached the tool execution limit")
 	require.Len(t, requests, 5, "router, three tool-generating completions, and one bounded finalization are expected")
 	assert.Empty(t, requests[4].Tools)
 	assert.True(t, requestContains(requests[4], toolLimitFinalAnswer))

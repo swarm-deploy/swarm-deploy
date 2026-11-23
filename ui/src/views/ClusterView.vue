@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { enumLabel, formatNumber, plural, t } from "../i18n";
 import { computed, onMounted, ref } from "vue";
 
 import AppModal from "../components/common/AppModal.vue";
@@ -52,7 +53,12 @@ const nodeSummary = computed(() => {
   const managers = nodes.value.filter((node) => isManager(node)).length;
   const workers = total - managers;
 
-  return `${total} ${plural(total, "node")} / ${ready} ready / ${managers} ${plural(managers, "manager")} / ${workers} ${plural(workers, "worker")}`;
+  return t("cluster.nodeSummary", {
+    nodes: plural("cluster.nodeCount", total),
+    ready: formatNumber(ready),
+    managers: plural("cluster.managerCount", managers),
+    workers: plural("cluster.workerCount", workers),
+  });
 });
 
 function statusClass(status: string): string {
@@ -78,13 +84,13 @@ function roleClass(node: NodeInfo): string {
 function roleLabel(node: NodeInfo): string {
   const managerStatus = normalize(node.manager_status);
   if (managerStatus === "leader") {
-    return "Leader";
+    return t("cluster.leader");
   }
   if (isManager(node)) {
-    return "Manager";
+    return t("cluster.manager");
   }
 
-  return "Worker";
+  return t("cluster.worker");
 }
 
 function availabilityClass(availability: string): string {
@@ -97,19 +103,19 @@ function showAvailability(node: NodeInfo): boolean {
 }
 
 function nodeCPU(node: NodeInfo): string {
-  return node.cpu_nano > 0 ? formatNanoCPU(node.cpu_nano) : "n/a";
+  return node.cpu_nano > 0 ? formatNanoCPU(node.cpu_nano) : t("common.notApplicable");
 }
 
 function nodeRAM(node: NodeInfo): string {
-  return node.memory_bytes > 0 ? formatBytes(node.memory_bytes) : "n/a";
+  return node.memory_bytes > 0 ? formatBytes(node.memory_bytes) : t("common.notApplicable");
 }
 
 function nodeResources(node: NodeInfo): string {
-  return `${nodeCPU(node)} · ${nodeRAM(node)} RAM`;
+  return t("cluster.cpuAndMemory", { cpu: nodeCPU(node), memory: nodeRAM(node) });
 }
 
 function nodeEngine(node: NodeInfo): string {
-  return node.engine_version ? `Docker ${node.engine_version}` : "Docker n/a";
+  return `Docker ${node.engine_version || t("common.notApplicable")}`;
 }
 
 function labelEntries(labels?: Record<string, string>): LabelEntry[] {
@@ -131,7 +137,7 @@ async function loadNodes() {
     const nextNodes = Array.isArray(response.nodes) ? response.nodes : [];
     nodes.value = [...nextNodes].sort((left, right) => left.hostname.localeCompare(right.hostname));
   } catch (error) {
-    loadingError.value = error instanceof Error ? error.message : "Failed to load nodes";
+    loadingError.value = error instanceof Error ? error.message : t("cluster.loadNodesFailed");
     nodes.value = [];
   } finally {
     loading.value = false;
@@ -178,7 +184,7 @@ async function submitLabelDialog() {
 
   const key = dialog.key.trim();
   if (dialog.mode === "add" && !key) {
-    dialog.error = "Label key is required.";
+    dialog.error = t("cluster.labelKeyRequired");
     return;
   }
 
@@ -194,7 +200,7 @@ async function submitLabelDialog() {
     await loadNodes();
     labelDialog.value = null;
   } catch (error) {
-    dialog.error = error instanceof Error ? error.message : "Failed to update node label";
+    dialog.error = error instanceof Error ? error.message : t("cluster.updateLabelFailed");
   } finally {
     dialog.saving = false;
   }
@@ -214,7 +220,7 @@ async function removeCurrentLabel() {
     await loadNodes();
     labelDialog.value = null;
   } catch (error) {
-    dialog.error = error instanceof Error ? error.message : "Failed to remove node label";
+    dialog.error = error instanceof Error ? error.message : t("cluster.removeLabelFailed");
   } finally {
     dialog.saving = false;
   }
@@ -229,9 +235,6 @@ function isManager(node: NodeInfo): boolean {
   return managerStatus !== "" && managerStatus !== "worker";
 }
 
-function plural(count: number, single: string): string {
-  return count === 1 ? single : `${single}s`;
-}
 
 onMounted(() => {
   void loadNodes();
@@ -242,21 +245,21 @@ onMounted(() => {
   <section class="services-page nodes-page">
     <header class="services-header nodes-header">
       <div>
-        <h2>Nodes</h2>
+        <h2>{{ t('cluster.nodes') }}</h2>
         <p class="meta nodes-summary">{{ nodeSummary }}</p>
       </div>
     </header>
 
     <div v-if="loading && nodes.length === 0" class="services-empty">
-      <p class="meta">Loading...</p>
+      <p class="meta">{{ t('common.loading') }}</p>
     </div>
 
     <div v-else-if="loadingError" class="services-empty">
-      <p class="meta">Failed to load nodes: {{ loadingError }}</p>
+      <p class="meta">{{ t('cluster.loadError', { error: loadingError }) }}</p>
     </div>
 
     <div v-else-if="nodes.length === 0" class="services-empty">
-      <p class="meta">No nodes found.</p>
+      <p class="meta">{{ t('cluster.noNodes') }}</p>
     </div>
 
     <div v-else class="node-list">
@@ -264,59 +267,58 @@ onMounted(() => {
         <div class="node-main-row">
           <div class="node-title-group">
             <span class="node-status-dot" :class="statusClass(node.status || '')" aria-hidden="true"></span>
-            <h3 class="node-name" :title="node.hostname || 'unknown'">{{ node.hostname || "unknown" }}</h3>
+            <h3 class="node-name" :title="node.hostname || t('nodeStates.unknown')">{{ node.hostname || t('nodeStates.unknown') }}</h3>
           </div>
 
           <div class="node-state-group">
             <span v-if="showNodeStatus(node)" class="node-state-text">
-              {{ node.status || "unknown" }}
+              {{ enumLabel('nodeStates', normalize(node.status) || 'unknown') }}
             </span>
             <span class="node-role" :class="roleClass(node)">
               {{ roleLabel(node) }}
             </span>
             <span v-if="showAvailability(node)" class="node-availability" :class="availabilityClass(node.availability)">
-              {{ node.availability }}
+              {{ enumLabel('nodeStates', normalize(node.availability)) }}
             </span>
           </div>
         </div>
 
         <p v-if="possibleStaleNodeIDs.has(node.id)" class="node-stale-hint" role="note">
-          <strong>Possible stale worker entry.</strong>
-          Another Ready worker has the same hostname but a different Node ID. This can happen after rejoining a Swarm.
-          Verify with <code>docker node ls</code> on a manager before taking action.
+          <strong>{{ t('cluster.staleWorker') }}</strong>
+          {{ t('cluster.staleWorkerHint', { command: 'docker node ls' }) }}
         </p>
 
         <div class="node-meta-list">
           <div class="node-meta-row">
-            <span class="node-meta-key">Address</span>
-            <span class="node-meta-value">{{ node.addr || "n/a" }}</span>
+            <span class="node-meta-key">{{ t('cluster.address') }}</span>
+            <span class="node-meta-value">{{ node.addr || t('common.notApplicable') }}</span>
           </div>
 
           <div class="node-meta-row">
-            <span class="node-meta-key">Resources</span>
+            <span class="node-meta-key">{{ t('common.resources') }}</span>
             <span class="node-meta-value">{{ nodeResources(node) }}</span>
           </div>
 
           <div class="node-meta-row">
-            <span class="node-meta-key">Engine</span>
+            <span class="node-meta-key">{{ t('cluster.engine') }}</span>
             <span class="node-meta-value">{{ nodeEngine(node) }}</span>
           </div>
 
           <div class="node-meta-row">
-            <span class="node-meta-key">Labels</span>
+            <span class="node-meta-key">{{ t('common.labels') }}</span>
             <div class="node-meta-value node-label-list">
               <button
                 v-for="label in labelEntries(node.labels)"
                 :key="label.key"
                 type="button"
                 class="node-label-chip"
-                :title="`Edit ${label.text}`"
+                :title="t('cluster.editNamedLabel', { label: label.text })"
                 @click="openEditLabel(node, label)"
               >
                 {{ label.text }}
               </button>
-              <span v-if="labelEntries(node.labels).length === 0" class="meta node-label-empty">none</span>
-              <button type="button" class="node-label-add" @click="openAddLabel(node)">+ Add label</button>
+              <span v-if="labelEntries(node.labels).length === 0" class="meta node-label-empty">{{ t('cluster.none') }}</span>
+              <button type="button" class="node-label-add" @click="openAddLabel(node)">{{ t('cluster.addLabel') }}</button>
             </div>
           </div>
         </div>
@@ -333,18 +335,18 @@ onMounted(() => {
     >
       <template #title>
         <h2 id="node-label-title">
-          {{ labelDialog.mode === "add" ? "Add label" : "Edit label" }}
+          {{ labelDialog.mode === "add" ? t('common.addLabel') : t('common.editLabel') }}
         </h2>
       </template>
 
       <form class="modal-body node-label-form" @submit.prevent="submitLabelDialog">
         <label>
-          <span>Key</span>
+          <span>{{ t('common.key') }}</span>
           <input v-model="labelDialog.key" type="text" :readonly="labelDialog.mode === 'edit'" :disabled="labelDialog.saving" />
         </label>
 
         <label>
-          <span>Value</span>
+          <span>{{ t('common.value') }}</span>
           <input v-model="labelDialog.value" type="text" :disabled="labelDialog.saving" />
         </label>
 
@@ -357,12 +359,12 @@ onMounted(() => {
             :disabled="labelDialog.saving"
             @click="removeCurrentLabel"
           >
-            Remove
+            {{ t('common.remove') }}
           </AppButton>
           <span class="node-label-dialog-spacer"></span>
-          <AppButton variant="secondary" :disabled="labelDialog.saving" @click="closeLabelDialog">Cancel</AppButton>
+          <AppButton variant="secondary" :disabled="labelDialog.saving" @click="closeLabelDialog">{{ t('common.cancel') }}</AppButton>
           <AppButton type="submit" :disabled="labelDialog.saving">
-            {{ labelDialog.saving ? "Saving..." : labelDialog.mode === "add" ? "Add" : "Save" }}
+            {{ labelDialog.saving ? t('common.saving') : labelDialog.mode === "add" ? t('common.add') : t('common.save') }}
           </AppButton>
         </div>
       </form>

@@ -75,7 +75,7 @@ func TestSetServiceReplicasReturnsSuccessWhenEventPublishFails(t *testing.T) {
 	payload, ok := response.Payload.(ServiceActionResult)
 	require.True(t, ok)
 	assert.Equal(t, uint64(5), payload.Replicas)
-	assert.Contains(t, payload.Warning, "audit event")
+	assert.Equal(t, ServiceActionWarningAuditEventNotPersisted, payload.Warning)
 }
 
 func TestSetServiceReplicasExecuteFailsOnValidation(t *testing.T) {

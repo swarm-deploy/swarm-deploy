@@ -36,6 +36,8 @@ func NewSetServiceReplicas(manager swarm.ServiceManager, eventDispatcher dispatc
 func (s *SetServiceReplicas) Definition() routing.ToolDefinition {
 	return routing.ToolDefinition{
 		Name:        config.AssistantToolNameServiceReplicasSet,
+		Writable:    true,
+		Terminal:    true,
 		Description: "Updates replicas count for a stack service.",
 		ParametersJSONSchema: map[string]any{
 			"type": "object",
@@ -118,7 +120,7 @@ func (s *SetServiceReplicas) Execute(ctx context.Context, request routing.Reques
 			slog.String("service", target.ServiceName()),
 			slog.Any("err", err),
 		)
-		payload.Warning = "replicas were updated, but the audit event could not be persisted"
+		payload.Warning = ServiceActionWarningAuditEventNotPersisted
 	}
 
 	return routing.Response{

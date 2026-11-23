@@ -1,16 +1,18 @@
 <script setup lang="ts">
+import { t } from "../../i18n";
 import { computed, ref } from "vue";
 
+import { useRouter } from "vue-router";
 import AppModal from "../common/AppModal.vue";
 import AppTable from "../common/AppTable.vue";
 import { useAssistantStore } from "../../stores/assistant";
 import { useOverviewStore } from "../../stores/overview";
-import { useUIStore } from "../../stores/ui";
+import { openNewAssistantChat } from "../../router/assistant";
 import { formatDate, shortCommitHash } from "../../utils/format";
 
+const router = useRouter();
 const overviewStore = useOverviewStore();
 const assistantStore = useAssistantStore();
-const uiStore = useUIStore();
 const modal = ref<InstanceType<typeof AppModal> | null>(null);
 
 const commitDetails = computed(() => overviewStore.commitDetailsData);
@@ -19,17 +21,17 @@ const shortHash = computed(() => {
   return shortCommitHash(currentCommitHash.value);
 });
 const titleText = computed(() => {
-  const author = commitDetails.value?.author?.trim() || "unknown";
+  const author = commitDetails.value?.author || t("commit.unknownAuthor");
   if (!currentCommitHash.value.trim()) {
-    return "Commit details";
+    return t("commit.details");
   }
 
-  return `Commit ${shortHash.value} by ${author}`;
+  return t("commit.byAuthor", { commit: shortHash.value, author });
 });
 const changedFilesText = computed(() => {
   const files = Array.isArray(commitDetails.value?.changed_files) ? commitDetails.value?.changed_files : [];
   if (!files || files.length === 0) {
-    return "n/a";
+    return t("common.notApplicable");
   }
 
   return files.join(", ");
@@ -37,7 +39,7 @@ const changedFilesText = computed(() => {
 const commitMessageText = computed(() => {
   const message = commitDetails.value?.message?.trim();
   if (!message) {
-    return "n/a";
+    return t("common.notApplicable");
   }
 
   return message;
@@ -64,10 +66,9 @@ async function explainWithAI() {
   }
 
   modal.value?.forgetReturnFocus();
+  if (!await openNewAssistantChat(router)) return;
   closeCommitDetailsModal();
-  assistantStore.newChat();
-  uiStore.openAssistantDrawer();
-  await assistantStore.sendMessage(`Explain changes in git commit: ${commitHash}`);
+  await assistantStore.sendMessage(t("assistant.explainCommitPrompt", { commit: commitHash }));
 }
 </script>
 
@@ -87,8 +88,8 @@ async function explainWithAI() {
       <button
         class="commit-header-icon-button commit-explain-button"
         type="button"
-        aria-label="Explain commit"
-        title="Explain commit"
+        :aria-label="t('assistant.explainCommit')"
+        :title="t('assistant.explainCommit')"
         :disabled="explainDisabled"
         @click="explainWithAI"
       >
@@ -100,29 +101,29 @@ async function explainWithAI() {
     </template>
 
     <div class="modal-body">
-      <p v-if="overviewStore.commitDetailsLoading" class="meta">Loading commit details...</p>
+      <p v-if="overviewStore.commitDetailsLoading" class="meta">{{ t('commit.loading') }}</p>
       <p v-else-if="overviewStore.commitDetailsError" class="meta">
-        Failed to load commit details: {{ overviewStore.commitDetailsError }}
+        {{ t('commit.loadError', { error: overviewStore.commitDetailsError }) }}
       </p>
-      <AppTable v-else summary aria-label="Commit details">
+      <AppTable v-else summary :aria-label="t('commit.details')">
           <tr>
-            <th scope="row">Commit Hash</th>
-            <td>{{ currentCommitHash || "n/a" }}</td>
+            <th scope="row">{{ t('commit.hash') }}</th>
+            <td>{{ currentCommitHash || t('common.notApplicable') }}</td>
           </tr>
           <tr>
-            <th scope="row">Author</th>
-            <td>{{ commitDetails?.author || "n/a" }}</td>
+            <th scope="row">{{ t('common.author') }}</th>
+            <td>{{ commitDetails?.author || t('common.notApplicable') }}</td>
           </tr>
           <tr>
-            <th scope="row">Message</th>
+            <th scope="row">{{ t('common.message') }}</th>
             <td class="commit-details-message">{{ commitMessageText }}</td>
           </tr>
           <tr>
-            <th scope="row">Date</th>
+            <th scope="row">{{ t('common.date') }}</th>
             <td>{{ formatDate(commitDetails?.date) }}</td>
           </tr>
           <tr>
-            <th scope="row">Changed files</th>
+            <th scope="row">{{ t('commit.changedFiles') }}</th>
             <td>{{ changedFilesText }}</td>
           </tr>
       </AppTable>

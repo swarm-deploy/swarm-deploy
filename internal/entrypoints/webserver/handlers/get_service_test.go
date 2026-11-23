@@ -52,6 +52,7 @@ func TestHandlerGetService(t *testing.T) {
 						Target:     "/run/secrets/payments_db_password",
 					},
 				},
+				Configs: []swarm.ServiceConfig{{ConfigID: "config-id", ConfigName: "api-config", Target: "/etc/api.yaml"}},
 				Network: []swarm.ServiceNetwork{
 					{
 						Target:  "payments_default",
@@ -113,6 +114,10 @@ func TestHandlerGetService(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, "secret-id", secret.ID)
 	assert.Equal(t, int64(3), secret.VersionID)
+	require.Len(t, resp.Spec.Configs, 1)
+	assert.Equal(t, "config-id", resp.Spec.Configs[0].ConfigID.Value)
+	assert.Equal(t, "api-config", resp.Spec.Configs[0].ConfigName)
+	assert.Equal(t, "/etc/api.yaml", resp.Spec.Configs[0].Target.Value)
 	require.Len(t, resp.Spec.Network, 1)
 	assert.Equal(t, "payments_default", resp.Spec.Network[0].Target)
 }

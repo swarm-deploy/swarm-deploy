@@ -20,6 +20,23 @@ describe("Deployments page", () => {
       { stack_name: "app", service_name: "api" }, { stack_name: "infra", service_name: "proxy" },
     ] });
   });
+  it("retries the failed destination cursor", async () => {
+    vi.mocked(fetchDeployments)
+      .mockResolvedValueOnce({ deployments: [], next_cursor: "p2" })
+      .mockRejectedValueOnce(new Error("temporary error"))
+      .mockResolvedValueOnce({ deployments: [] });
+    const wrapper = mount(DeploymentsView);
+    await flushPromises();
+    await wrapper.get(".deployment-pages button:last-child").trigger("click");
+    await flushPromises();
+    expect(wrapper.get(".deployment-pages").text()).toContain("Page 1");
+    await wrapper.get("[role=alert] button").trigger("click");
+    await flushPromises();
+    expect(vi.mocked(fetchDeployments).mock.calls.map(([q]) => q?.cursor)).toEqual([undefined, "p2", "p2"]);
+    expect(wrapper.get(".deployment-pages").text()).toContain("Page 2");
+    wrapper.unmount();
+  });
+
   it("renders the compact columns in descending order and keeps commit independent from the row", async () => {
     const older = { id: "d1", stack: "app", status: "succeeded", commit: "abcdef012345",
       started_at: "2026-10-10T10:00:00Z", comparison_basis: "none",

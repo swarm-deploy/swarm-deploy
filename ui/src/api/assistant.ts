@@ -5,6 +5,8 @@ import type {
   AssistantChatResponse,
   AssistantChatsResponse,
   AssistantSuggestionsResponse,
+  AssistantUsageQuery,
+  AssistantUsageResponse,
 } from "./types";
 
 export function getAssistantSuggestions(): Promise<AssistantSuggestionsResponse> {
@@ -25,6 +27,22 @@ export function listAssistantChats(): Promise<AssistantChatsResponse> {
   return apiRequest<AssistantChatsResponse>("/api/v1/assistant/chats");
 }
 
-export function getAssistantChat(conversationID: string): Promise<AssistantChatHistory> {
-  return apiRequest<AssistantChatHistory>(`/api/v1/assistant/chats/${encodeURIComponent(conversationID)}`);
+export function getAssistantChat(conversationID: string, signal?: AbortSignal): Promise<AssistantChatHistory> {
+  return apiRequest<AssistantChatHistory>(`/api/v1/assistant/chats/${encodeURIComponent(conversationID)}`, { signal });
+}
+
+export function markAssistantChatRead(conversationID: string, sequence: number): Promise<void> {
+  return apiRequest<void>(`/api/v1/assistant/chats/${encodeURIComponent(conversationID)}/read`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ sequence }),
+  });
+}
+
+export function getAssistantUsage(
+  query: AssistantUsageQuery,
+  signal?: AbortSignal,
+): Promise<AssistantUsageResponse> {
+  const params = new URLSearchParams({ from: query.from, to: query.to, interval: query.interval });
+  return apiRequest<AssistantUsageResponse>(`/api/v1/assistant/usage?${params}`, { signal });
 }

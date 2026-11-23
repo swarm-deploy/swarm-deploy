@@ -135,32 +135,23 @@ func (r *Repository) Claim(ctx context.Context, now time.Time, lease time.Durati
 	return d, err
 }
 
+// checkDueDelivery returns sql.ErrNoRows when there is nothing to claim.
+func (r *Repository) checkDueDelivery(ctx context.Context, now time.Time) error {
+	now = now.UTC()
+	query, args, err := dueDeliveries(r.db.Dialect(), now, now).Select(goqu.L("1")).Limit(1).ToSQL()
+	if err != nil {
+		return err
+	}
+	var found int
+	return r.db.Get(ctx, &found, query, args...)
+}
+
 func claimStatement(
 	dialect goqu.DialectWrapper,
 	now, expired time.Time, token string, leaseUntil, updatedAt time.Time,
 ) (string, []any, error) {
-	candidate := goqu.T("outbox_deliveries").As("candidate")
-	candidateEvent := goqu.T("outbox_events").As("candidate_event")
-	earlierEvent := goqu.T("outbox_events").As("earlier_event")
-	earlierPending := dialect.From(goqu.L("outbox_deliveries AS earlier INDEXED BY idx_outbox_active_subscription")).
-		Prepared(true).
-		Join(earlierEvent, goqu.On(goqu.I("earlier_event.id").Eq(goqu.I("earlier.event_id")))).
-		Select(goqu.L("1")).
-		Where(
-			goqu.I("earlier.subscription_id").Eq(goqu.I("candidate.subscription_id")),
-			goqu.L("earlier.status IN ('pending','processing')"),
-			goqu.I("earlier_event.sequence").Lt(goqu.I("candidate_event.sequence")),
-		)
-	due := dialect.From(candidate).Prepared(true).
-		Join(candidateEvent, goqu.On(goqu.I("candidate_event.id").Eq(goqu.I("candidate.event_id")))).
+	due := dueDeliveries(dialect, now, expired).
 		Select(goqu.I("candidate.event_id"), goqu.I("candidate.subscription_id")).
-		Where(
-			goqu.Or(
-				goqu.And(goqu.I("candidate.status").Eq("pending"), goqu.I("candidate.available_at").Lte(now)),
-				goqu.And(goqu.I("candidate.status").Eq("processing"), goqu.I("candidate.lease_until").Lte(expired)),
-			),
-			goqu.L("NOT EXISTS ?", earlierPending),
-		).
 		Order(
 			goqu.I("candidate.available_at").Asc(),
 			goqu.I("candidate_event.sequence").Asc(),
@@ -178,6 +169,30 @@ func claimStatement(
 		}).
 		Where(goqu.L("(event_id,subscription_id) IN ?", dialect.From("due").Select("event_id", "subscription_id"))).
 		ToSQL()
+}
+
+func dueDeliveries(dialect goqu.DialectWrapper, now, expired time.Time) *goqu.SelectDataset {
+	candidate := goqu.T("outbox_deliveries").As("candidate")
+	candidateEvent := goqu.T("outbox_events").As("candidate_event")
+	earlierEvent := goqu.T("outbox_events").As("earlier_event")
+	earlierPending := dialect.From(goqu.L("outbox_deliveries AS earlier INDEXED BY idx_outbox_active_subscription")).
+		Prepared(true).
+		Join(earlierEvent, goqu.On(goqu.I("earlier_event.id").Eq(goqu.I("earlier.event_id")))).
+		Select(goqu.L("1")).
+		Where(
+			goqu.I("earlier.subscription_id").Eq(goqu.I("candidate.subscription_id")),
+			goqu.L("earlier.status IN ('pending','processing')"),
+			goqu.I("earlier_event.sequence").Lt(goqu.I("candidate_event.sequence")),
+		)
+	return dialect.From(candidate).Prepared(true).
+		Join(candidateEvent, goqu.On(goqu.I("candidate_event.id").Eq(goqu.I("candidate.event_id")))).
+		Where(
+			goqu.Or(
+				goqu.And(goqu.I("candidate.status").Eq("pending"), goqu.I("candidate.available_at").Lte(now)),
+				goqu.And(goqu.I("candidate.status").Eq("processing"), goqu.I("candidate.lease_until").Lte(expired)),
+			),
+			goqu.L("NOT EXISTS ?", earlierPending),
+		)
 }
 
 // Load decodes the publication associated with a claimed delivery.

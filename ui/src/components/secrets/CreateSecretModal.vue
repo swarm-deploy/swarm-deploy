@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t } from "../../i18n";
 import json from "@speed-highlight/core/languages/json.js";
 import { tokenizeWith } from "@speed-highlight/core/tokenize";
 import { computed, onUnmounted, ref, watch } from "vue";
@@ -54,7 +55,7 @@ const databaseService = computed(() => dsnSuggestions.value.find((item) => item.
 
 function serviceDescription(service: DSNSuggestion): string {
   const engine = service.engine === "postgresql" ? "PostgreSQL"
-    : service.engine === "mysql" ? "MySQL" : "Unknown engine";
+    : service.engine === "mysql" ? "MySQL" : t("secrets.unknownEngine");
   return [engine, service.port, service.stack].filter(Boolean).join(" · ");
 }
 
@@ -91,7 +92,7 @@ async function loadDSNSuggestions(): Promise<void> {
     dsnLoaded.value = true;
   } catch {
     if (request !== dsnRequest) return;
-    dsnError.value = "Unable to load database services. You can enter a DSN manually.";
+    dsnError.value = t("secrets.loadDatabaseFailed");
   } finally {
     if (request === dsnRequest) dsnLoading.value = false;
   }
@@ -141,7 +142,7 @@ const destinationTabs = computed(() => [
   { value: "docker", label: "Docker Swarm" },
   { value: "cloud", label: "Cloud Secrets" },
 ]);
-const resultProviderName = computed(() => resultManager.value?.provider?.name || "the external provider");
+const resultProviderName = computed(() => resultManager.value?.provider?.name || t("secrets.externalProvider"));
 const resultManagerIdentity = computed(() => (
   resultManager.value ? managerIdentity(resultManager.value) : ""
 ));
@@ -150,28 +151,28 @@ const resultExternalPath = computed(() => (
   createdKey.value ? `${normalizedPath.value}/${createdKey.value}` : normalizedPath.value
 ));
 const resultHeading = computed(() => {
-  if (submissionStage.value === "syncing" || submissionStage.value === "retrying") return "Secret created";
-  if (resultState.value === "success") return "Secret created successfully";
-  if (resultState.value === "partial") return "Secret created, but synchronization failed";
-  return "Secret created";
+  if (submissionStage.value === "syncing" || submissionStage.value === "retrying") return t("secrets.created");
+  if (resultState.value === "success") return t("secrets.createdAndSynced");
+  if (resultState.value === "partial") return t("secrets.createdSyncFailed");
+  return t("secrets.created");
 });
 const resultSupportingText = computed(() => {
   if (submissionStage.value === "syncing" || submissionStage.value === "retrying") {
-    return `The secret was created in ${resultProviderName.value} and is being synchronized to Docker Swarm.`;
+    return t("secrets.createdSyncing", { provider: resultProviderName.value });
   }
   if (resultState.value === "success") {
-    return `The secret was created in ${resultProviderName.value} and synchronized to Docker Swarm.`;
+    return t("secrets.createdSynced", { provider: resultProviderName.value });
   }
   if (resultState.value === "partial") {
-    return `The secret was created in ${resultProviderName.value}, but could not be synchronized to Docker Swarm.`;
+    return t("secrets.createdNotSynced", { provider: resultProviderName.value });
   }
-  return `The secret was created in ${resultProviderName.value}.`;
+  return t("secrets.createdAtProvider", { provider: resultProviderName.value });
 });
 const syncStatusLabel = computed(() => {
   if (submissionStage.value === "syncing" || submissionStage.value === "retrying") {
-    return "Synchronizing to Docker Swarm…";
+    return t("secrets.syncingToSwarm");
   }
-  return resultState.value === "success" ? "Completed" : "Failed";
+  return resultState.value === "success" ? t("secrets.syncCompleted") : t("common.failed");
 });
 const jsonError = computed(() => {
   if (valueMode.value !== "json" || value.value === "") return "";
@@ -179,7 +180,7 @@ const jsonError = computed(() => {
     JSON.parse(value.value);
     return "";
   } catch (error) {
-    return error instanceof SyntaxError ? error.message : "Invalid JSON";
+    return error instanceof SyntaxError ? error.message : t("secrets.invalidJson");
   }
 });
 
@@ -200,8 +201,8 @@ const formValid = computed(() => {
 });
 
 const submitLabel = computed(() => {
-  if (submissionStage.value === "creating") return "Creating secret…";
-  return destination.value === "docker" ? "Create Secret" : "Create & Sync";
+  if (submissionStage.value === "creating") return t("secrets.creating");
+  return destination.value === "docker" ? t("secrets.create") : t("secrets.createAndSync");
 });
 
 function resetForm(): void {
@@ -307,7 +308,7 @@ async function synchronizeCreatedSecret(retry: boolean): Promise<void> {
   } catch {
     synchronizedSecret.value = undefined;
     resultState.value = "partial";
-    errorMessage.value = "Failed to synchronize the secret to Docker Swarm. You can retry synchronization without creating the secret again.";
+    errorMessage.value = t("secrets.retryCreatedSecretSync");
   } finally {
     submissionStage.value = "";
   }
@@ -347,7 +348,7 @@ async function submit(): Promise<void> {
         value: value.value,
         ...(description.value.trim() ? { description: description.value.trim() } : {}),
       });
-      emit("created", `Docker secret ${name.value.trim()} created.`);
+      emit("created", t("secrets.dockerCreated", { secret: name.value.trim() }));
       return;
     }
 
@@ -368,7 +369,7 @@ async function submit(): Promise<void> {
     value.value = "";
     await synchronizeCreatedSecret(false);
   } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : "Secret creation failed";
+    errorMessage.value = error instanceof Error ? error.message : t("secrets.createFailed");
   } finally {
     if (submissionStage.value === "creating") {
       submissionStage.value = "";
@@ -391,7 +392,7 @@ onUnmounted(() => {
     @close="close"
   >
     <template #title>
-      <h2 id="create-secret-title">Create Secret</h2>
+      <h2 id="create-secret-title">{{ t('secrets.create') }}</h2>
     </template>
 
     <form v-if="!resultVisible" class="modal-body create-secret-form" @submit.prevent="submit">
@@ -399,30 +400,30 @@ onUnmounted(() => {
         class="create-secret-tabs"
         :model-value="destination"
         :tabs="destinationTabs"
-        label="Secret destination"
+        :label="t('secrets.destination')"
         density="compact"
         @update:model-value="setDestination"
       />
 
       <label v-if="destination === 'docker'" class="create-secret-control">
-        <span class="create-secret-control-icon" title="Name" aria-hidden="true">
+        <span class="create-secret-control-icon" :title="t('common.name')" aria-hidden="true">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 5.5h9.2L20 12l-6.8 6.5H4z" /><circle cx="8" cy="9.5" r="1" /></svg>
         </span>
-        <input v-model="name" type="text" autocomplete="off" aria-label="Name" placeholder="Secret name" :disabled="pending" required />
+        <input v-model="name" type="text" autocomplete="off" :aria-label="t('common.name')" :placeholder="t('secrets.secretName')" :disabled="pending" required />
       </label>
 
       <template v-else>
         <label class="create-secret-control create-secret-manager-control">
-          <span class="create-secret-control-icon" title="Secret Manager" aria-hidden="true">
+          <span class="create-secret-control-icon" :title="t('secrets.manager')" aria-hidden="true">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="m12 3 8 5-8 5-8-5z" /><path d="m4 12 8 5 8-5M4 16l8 5 8-5" /></svg>
           </span>
-          <select v-model="selectedManagerKey" aria-label="Secret Manager" :disabled="pending || availableManagers.length === 0" required>
+          <select v-model="selectedManagerKey" :aria-label="t('secrets.manager')" :disabled="pending || availableManagers.length === 0" required>
             <option v-for="manager in availableManagers" :key="managerIdentity(manager)" :value="managerIdentity(manager)">
               {{ manager.stack }}/{{ manager.service }} — {{ manager.provider?.name }}
             </option>
           </select>
           <span class="create-secret-manager-copy" aria-hidden="true">
-            <strong>{{ selectedManager ? managerIdentity(selectedManager) : "Select Secret Manager" }}</strong>
+            <strong>{{ selectedManager ? managerIdentity(selectedManager) : t('secrets.selectManager') }}</strong>
             <small v-if="selectedManager?.provider?.name">{{ selectedManager.provider.name }}</small>
           </span>
           <span class="create-secret-chevron" aria-hidden="true">
@@ -431,7 +432,7 @@ onUnmounted(() => {
         </label>
 
         <p v-if="availableManagers.length === 0" class="create-secret-notice create-secret-notice--warning">
-          No available, controllable Vault or Cloud.ru Secret Manager was discovered. Docker Swarm creation remains available.
+          {{ t('secrets.noControllableManager') }}
         </p>
 
         <PathInput
@@ -442,39 +443,39 @@ onUnmounted(() => {
         />
 
         <label v-if="selectedProviderKind === 'vault'" class="create-secret-control">
-          <span class="create-secret-control-icon" title="Key" aria-hidden="true">
+          <span class="create-secret-control-icon" :title="t('common.key')" aria-hidden="true">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="8.5" cy="15.5" r="4" /><path d="m11.5 12.5 8-8m-2 2 2 2m-5 1 2 2" /></svg>
           </span>
-          <input v-model="key" type="text" autocomplete="off" aria-label="Key" placeholder="Secret key" :disabled="pending" required />
+          <input v-model="key" type="text" autocomplete="off" :aria-label="t('common.key')" :placeholder="t('secrets.secretKey')" :disabled="pending" required />
         </label>
       </template>
 
       <label v-if="destination === 'docker' || selectedProviderKind === 'cloudru'" class="create-secret-control">
-        <span class="create-secret-control-icon" title="Description" aria-hidden="true">
+        <span class="create-secret-control-icon" :title="t('common.description')" aria-hidden="true">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M5 4h14v16H5zM8 8h8m-8 4h8m-8 4h5" /></svg>
         </span>
-        <input v-model="description" type="text" autocomplete="off" aria-label="Description" placeholder="Description (optional)" :disabled="pending" />
+        <input v-model="description" type="text" autocomplete="off" :aria-label="t('common.description')" :placeholder="t('secrets.optionalDescription')" :disabled="pending" />
       </label>
 
       <div class="create-secret-editor" :class="{ 'create-secret-editor--error': Boolean(jsonError) }">
         <div class="create-secret-editor-toolbar">
-          <span class="create-secret-editor-icon" title="Value" aria-hidden="true">
+          <span class="create-secret-editor-icon" :title="t('common.value')" aria-hidden="true">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="m8 7-5 5 5 5m8-10 5 5-5 5m-2-13-4 16" /></svg>
           </span>
           <div class="create-secret-value-tools">
-            <div class="create-secret-mode-toggle" aria-label="Value format">
-              <button type="button" :class="{ active: valueMode === 'text' }" :aria-pressed="valueMode === 'text'" @click="setValueMode('text')">Text</button>
+            <div class="create-secret-mode-toggle" :aria-label="t('secrets.valueFormat')">
+              <button type="button" :class="{ active: valueMode === 'text' }" :aria-pressed="valueMode === 'text'" @click="setValueMode('text')">{{ t('secrets.text') }}</button>
               <button type="button" :class="{ active: valueMode === 'json' }" :aria-pressed="valueMode === 'json'" @click="setValueMode('json')">JSON</button>
               <button type="button" :class="{ active: valueMode === 'dsn' }" :aria-pressed="valueMode === 'dsn'" @click="setValueMode('dsn')">DSN</button>
             </div>
             <span class="create-secret-tool-divider" aria-hidden="true" />
             <button v-if="valueMode !== 'json'" type="button" class="create-secret-small-action" @click="revealValue = !revealValue">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z" /><circle cx="12" cy="12" r="2.5" /></svg>
-              {{ revealValue ? "Hide" : "Reveal" }}
+              {{ revealValue ? t('common.hide') : t('secrets.reveal') }}
             </button>
             <button v-else type="button" class="create-secret-small-action" :disabled="Boolean(jsonError) || value === ''" @click="formatJSON">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M4 4h6v2H6v4H4zm16 0h-6v2h4v4h2zM4 20h6v-2H6v-4H4zm16 0h-6v-2h4v-4h2z" /></svg>
-              Format
+              {{ t('secrets.format') }}
             </button>
           </div>
         </div>
@@ -487,49 +488,49 @@ onUnmounted(() => {
           spellcheck="false"
           autocomplete="new-password"
           :disabled="pending"
-          aria-label="Value"
+          :aria-label="t('common.value')"
           required
         />
         <div v-else-if="valueMode === 'dsn'" class="create-secret-dsn">
           <label class="create-secret-dsn-field">
-            <span>Database service <span class="create-secret-dsn-info" title="Swarm DNS is reachable from containers on a shared overlay network." aria-label="Swarm DNS is reachable from containers on a shared overlay network.">ⓘ</span></span>
+            <span>{{ t('secrets.databaseService') }} <span class="create-secret-dsn-info" :title="t('secrets.swarmDnsHint')" :aria-label="t('secrets.swarmDnsHint')">ⓘ</span></span>
             <div class="create-secret-control create-secret-manager-control">
               <span class="create-secret-control-icon" aria-hidden="true">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><ellipse cx="12" cy="5" rx="7" ry="3" /><path d="M5 5v14c0 4 14 4 14 0V5M5 10c0 4 14 4 14 0M5 15c0 4 14 4 14 0" /></svg>
               </span>
               <span class="create-secret-manager-copy">
-                <strong>{{ databaseService?.service_name || (dsnLoading ? "Loading database services…" : "Select database service") }}</strong>
+                <strong>{{ databaseService?.service_name || (dsnLoading ? t('secrets.loadingDatabaseServices') : t('secrets.selectDatabaseService')) }}</strong>
                 <small v-if="databaseService">{{ serviceDescription(databaseService) }}</small>
               </span>
               <span class="create-secret-chevron" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="m6 9 6 6 6-6" /></svg></span>
-              <select v-model="databaseServiceName" aria-label="Database service" :disabled="pending || dsnLoading" @change="generateDSN">
-                <option value="" disabled>Select database service</option>
+              <select v-model="databaseServiceName" :aria-label="t('secrets.databaseService')" :disabled="pending || dsnLoading" @change="generateDSN">
+                <option value="" disabled>{{ t('secrets.selectDatabaseService') }}</option>
                 <option v-for="service in dsnSuggestions" :key="service.service_name" :value="service.service_name">{{ service.service_name }} — {{ serviceDescription(service) }}</option>
               </select>
             </div>
           </label>
-          <p v-if="dsnLoading" class="form-helper" role="status">Loading database services…</p>
-          <p v-else-if="dsnError" class="create-secret-inline-error" role="alert">{{ dsnError }} <button type="button" class="create-secret-dsn-action" @click="loadDSNSuggestions">Retry</button></p>
-          <p v-else-if="dsnLoaded && !dsnSuggestions.length" class="form-helper">No database services found. Enter a DSN manually.</p>
-          <p v-else-if="databaseService && !databaseService.engine" class="form-helper">Engine could not be identified. Enter a DSN manually.</p>
+          <p v-if="dsnLoading" class="form-helper" role="status">{{ t('secrets.loadingDatabaseServices') }}</p>
+          <p v-else-if="dsnError" class="create-secret-inline-error" role="alert">{{ dsnError }} <button type="button" class="create-secret-dsn-action" @click="loadDSNSuggestions">{{ t('common.retry') }}</button></p>
+          <p v-else-if="dsnLoaded && !dsnSuggestions.length" class="form-helper">{{ t('secrets.noDatabaseServices') }}</p>
+          <p v-else-if="databaseService && !databaseService.engine" class="form-helper">{{ t('secrets.cannotIdentifyEngine') }}</p>
           <div class="create-secret-dsn-fields">
-            <label class="create-secret-dsn-field">Database name
-              <input v-model="databaseName" aria-label="Database name" autocomplete="off" :disabled="pending" @input="generateDSN" />
+            <label class="create-secret-dsn-field">{{ t('secrets.databaseName') }}
+              <input v-model="databaseName" :aria-label="t('secrets.databaseName')" autocomplete="off" :disabled="pending" @input="generateDSN" />
             </label>
-            <label class="create-secret-dsn-field">User
-              <input v-model="databaseUser" aria-label="User" autocomplete="off" :disabled="pending" @input="generateDSN" />
+            <label class="create-secret-dsn-field">{{ t('common.user') }}
+              <input v-model="databaseUser" :aria-label="t('common.user')" autocomplete="off" :disabled="pending" @input="generateDSN" />
             </label>
-            <label class="create-secret-dsn-field">Password
-              <input v-model="databasePassword" aria-label="Password" :type="revealValue ? 'text' : 'password'" autocomplete="new-password" :disabled="pending" @input="generateDSN" />
+            <label class="create-secret-dsn-field">{{ t('common.password') }}
+              <input v-model="databasePassword" :aria-label="t('common.password')" :type="revealValue ? 'text' : 'password'" autocomplete="new-password" :disabled="pending" @input="generateDSN" />
             </label>
           </div>
           <label class="create-secret-dsn-field">
-            <span class="create-secret-dsn-value-label">Secret value (DSN)
-              <button v-if="dsnManual && databaseService?.engine" type="button" class="create-secret-dsn-action" :disabled="pending" title="Replace the manual DSN and resume automatic updates from the fields above." @click.prevent="resumeDSNGeneration">Generate from fields</button>
+            <span class="create-secret-dsn-value-label">{{ t('secrets.dsnValue') }}
+              <button v-if="dsnManual && databaseService?.engine" type="button" class="create-secret-dsn-action" :disabled="pending" :title="t('secrets.generateFromFieldsHint')" @click.prevent="resumeDSNGeneration">{{ t('secrets.generateFromFields') }}</button>
             </span>
             <span class="create-secret-dsn-value">
-              <input v-model="value" aria-label="Secret value (DSN)" :type="revealValue ? 'text' : 'password'" spellcheck="false" autocomplete="new-password" :disabled="pending" required @input="dsnManual = true" />
-              <button type="button" class="create-secret-result-copy" aria-label="Copy DSN" title="Copy DSN" :disabled="!value || pending" @click="copyText(value)">
+              <input v-model="value" :aria-label="t('secrets.dsnValue')" :type="revealValue ? 'text' : 'password'" spellcheck="false" autocomplete="new-password" :disabled="pending" required @input="dsnManual = true" />
+              <button type="button" class="create-secret-result-copy" :aria-label="t('secrets.copyDsn')" :title="t('secrets.copyDsn')" :disabled="!value || pending" @click="copyText(value)">
                 <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="11" height="11" rx="2" /><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" /></svg>
               </button>
             </span>
@@ -544,7 +545,7 @@ onUnmounted(() => {
             spellcheck="false"
             autocomplete="off"
             :disabled="pending"
-            aria-label="Value"
+            :aria-label="t('common.value')"
             :aria-invalid="Boolean(jsonError)"
             :aria-describedby="jsonError ? 'create-secret-json-error' : undefined"
             required
@@ -552,21 +553,21 @@ onUnmounted(() => {
           />
         </div>
       </div>
-      <p v-if="jsonError" id="create-secret-json-error" class="create-secret-inline-error">Invalid JSON: {{ jsonError }}</p>
+      <p v-if="jsonError" id="create-secret-json-error" class="create-secret-inline-error">{{ t('secrets.invalidJsonError', { error: jsonError }) }}</p>
 
       <p v-if="destination === 'cloud'" class="create-secret-helper form-helper">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 11v6m0-10h.01" /></svg>
-        <span>The secret is created in the external provider first, then synchronized into Docker Swarm.</span>
+        <span>{{ t('secrets.externalCreateHint') }}</span>
       </p>
 
       <p v-if="submissionStage === 'creating'" class="create-secret-stage" role="status">
         <span class="create-secret-spinner" aria-hidden="true" />
-        Creating secret…
+        {{ t('secrets.creating') }}
       </p>
       <p v-if="errorMessage" class="create-secret-inline-error" role="alert">{{ errorMessage }}</p>
 
       <div class="create-secret-actions">
-        <AppButton variant="secondary" :disabled="pending" @click="close">Cancel</AppButton>
+        <AppButton variant="secondary" :disabled="pending" @click="close">{{ t('common.cancel') }}</AppButton>
         <AppButton type="submit" class="create-secret-submit" :disabled="!formValid || pending">{{ submitLabel }}</AppButton>
       </div>
     </form>
@@ -591,16 +592,16 @@ onUnmounted(() => {
       <div class="create-secret-result-secret">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="8.5" cy="15.5" r="4" /><path d="m11.5 12.5 8-8m-2 2 2 2m-5 1 2 2" /></svg>
         <div>
-          <span>{{ synchronizedSecret ? "Docker Swarm secret" : "External secret path" }}</span>
+          <span>{{ synchronizedSecret ? t('secrets.swarmSecret') : t('secrets.externalSecretPath') }}</span>
           <code>{{ synchronizedSecret?.name || resultExternalPath }}</code>
-          <small v-if="resultState === 'success' && !synchronizedSecret">Docker Swarm resource could not be identified.</small>
+          <small v-if="resultState === 'success' && !synchronizedSecret">{{ t('secrets.unknownSwarmResource') }}</small>
         </div>
         <button
           v-if="synchronizedSecret"
           type="button"
           class="create-secret-result-copy"
-          :aria-label="secretNameCopied ? 'Docker Swarm secret name copied' : 'Copy Docker Swarm secret name'"
-          :title="secretNameCopied ? 'Copied' : 'Copy Docker Swarm secret name'"
+          :aria-label="secretNameCopied ? t('secrets.swarmNameCopied') : t('secrets.copySwarmName')"
+          :title="secretNameCopied ? t('common.copied') : t('secrets.copySwarmName')"
           @click="copySynchronizedSecretName"
         >
           <svg v-if="secretNameCopied" class="create-secret-result-copy-check" viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12.5 4.2 4.2L19 7" /></svg>
@@ -612,7 +613,7 @@ onUnmounted(() => {
         <div>
           <dt>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="m12 3 8 5-8 5-8-5z" /><path d="m4 12 8 5 8-5M4 16l8 5 8-5" /></svg>
-            Secret manager
+            {{ t('secrets.resultManager') }}
           </dt>
           <dd>
             <strong>{{ resultProviderName }}</strong>
@@ -622,7 +623,7 @@ onUnmounted(() => {
         <div>
           <dt>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M20 7v5h-5" /><path d="M4 17v-5h5" /><path d="M6.1 9a7 7 0 0 1 11.5-2L20 9M4 15l2.4 2a7 7 0 0 0 11.5-2" /></svg>
-            Docker Swarm synchronization
+            {{ t('secrets.swarmSync') }}
           </dt>
           <dd>
             <span
@@ -657,13 +658,13 @@ onUnmounted(() => {
         rel="noopener noreferrer"
       >
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M14 5h5v5" /><path d="m19 5-9 9" /><path d="M19 13v5a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5" /></svg>
-        Open secret in {{ resultProviderName }}
+        {{ t('secrets.openAtProvider', { provider: resultProviderName }) }}
       </a>
 
       <div class="create-secret-result-actions">
-        <AppButton :variant="resultState === 'success' ? 'primary' : 'secondary'" :class="{ 'create-secret-submit': resultState === 'success' }" :disabled="pending" @click="close">Done</AppButton>
+        <AppButton :variant="resultState === 'success' ? 'primary' : 'secondary'" :class="{ 'create-secret-submit': resultState === 'success' }" :disabled="pending" @click="close">{{ t('common.done') }}</AppButton>
         <AppButton v-if="resultState === 'partial'" class="create-secret-submit" :disabled="pending" @click="retrySync">
-          {{ submissionStage === "retrying" ? "Retrying Sync…" : "Retry Sync" }}
+          {{ submissionStage === "retrying" ? t('secrets.retryingSync') : t('secrets.retrySync') }}
         </AppButton>
       </div>
     </section>

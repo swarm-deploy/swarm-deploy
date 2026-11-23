@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { enumLabel, plural, t } from "../i18n";
 import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
@@ -6,36 +7,30 @@ import { fetchEventFilters, fetchEvents } from "../api/overview";
 import type { EventCategory, EventFilterOptions, EventFilterService, EventHistoryItem, EventSeverity } from "../api/types";
 import AppFilterPanel from "../components/common/AppFilterPanel.vue";
 import AppSelect from "../components/common/AppSelect.vue";
-import AppSearchFilter from "../components/common/AppSearchFilter.vue";
 import AppTable from "../components/common/AppTable.vue";
 import AppTableEmpty from "../components/common/AppTableEmpty.vue";
 import AppPagination from "../components/common/AppPagination.vue";
 import SeverityIcon from "../components/common/SeverityIcon.vue";
 import SidebarIcon from "../components/layout/SidebarIcon.vue";
-import { eventTypeDescriptions, eventTypeMetadata } from "../utils/eventMetadata";
+import { eventFilterTypes } from "../utils/eventMetadata";
+import { eventCategoryLabel, eventDetailLabel, eventMessage, eventSeverityLabel } from "../utils/eventPresentation";
 import { formatDate } from "../utils/format";
 
 const severityOptions: EventSeverity[] = ["info", "warn", "error"];
-const severityLabels: Record<EventSeverity, string> = {
-  info: "Info",
-  warn: "Warning",
-  error: "Error",
-  alert: "Alert",
-};
 
 type SortKey = "time" | "severity";
 type SortDirection = "asc" | "desc";
 
 const categoryOptions: EventCategory[] = ["sync", "security", "swarm"];
+const severitySelectOptions = computed(() => severityOptions.map((value) => ({
+  value, label: eventSeverityLabel(value),
+})));
+const categorySelectOptions = computed(() => categoryOptions.map((value) => ({
+  value, label: eventCategoryLabel(value),
+})));
 
 const route = useRoute();
 const router = useRouter();
-const loading = ref(false);
-const loadingError = ref("");
-const events = ref<EventHistoryItem[]>([]);
-const nextCursor = ref("");
-const cursors = ref<string[]>([""]);
-const page = ref(0);
 const selectedTypes = ref<string[]>(normalizeTypesQuery(route.query.types));
 const selectedSeverity = ref(normalizeSeverityQuery(route.query.severity));
 const selectedCategory = ref(normalizeCategoryQuery(route.query.category));
@@ -44,27 +39,22 @@ const selectedService = ref(normalizeTextQuery(route.query.service_name));
 const sortKey = ref<SortKey>(normalizeSortQuery(route.query.sort));
 const sortDirection = ref<SortDirection>(normalizeSortDirectionQuery(route.query.order));
 const expandedKey = ref("");
-const stackFilter = ref<InstanceType<typeof AppSearchFilter> | null>(null);
-const serviceFilter = ref<HTMLDetailsElement | null>(null);
+const stackFilter = ref<{ close(): void } | null>(null);
 const filterOptions = ref<EventFilterOptions>({ stacks: [], services: [] });
-const serviceSearch = ref("");
-
-let requestID = 0;
 
 const typeFilterOptions = computed(() => {
-  const options = eventTypeMetadata.map((metadata) => ({ ...metadata }));
-  for (const type of selectedTypes.value) {
-    if (!options.some((option) => option.type === type)) {
-      options.push({ type, description: eventTypeDescriptions.get(type) ?? "Custom event type" });
-    }
-  }
-  return options.map((option) => ({ value: option.type, label: option.type, description: option.description }));
+  const types = new Set([...eventFilterTypes, ...selectedTypes.value]);
+  return Array.from(types, (type) => ({
+    value: type,
+    label: type,
+    description: enumLabel("eventTypeDescriptions", type, t("events.customType")),
+  }));
 });
 
 const selectedTypeSummary = computed(() => {
-  if (selectedTypes.value.length === 0) return "All types";
+  if (selectedTypes.value.length === 0) return t("activity.allTypes");
   if (selectedTypes.value.length <= 2) return selectedTypes.value.join(", ");
-  return `${selectedTypes.value.length} types selected`;
+  return plural("events.typesSelected", selectedTypes.value.length);
 });
 
 const activeFilterCount = computed(() => [
@@ -98,19 +88,31 @@ const serviceFilterOptions = computed(() => {
   )) {
     options.push({ stack_name: "", service_name: selectedService.value });
   }
-  const search = serviceSearch.value.trim().toLocaleLowerCase();
   return options.sort((left, right) =>
     left.stack_name.localeCompare(right.stack_name) || left.service_name.localeCompare(right.service_name),
-  ).filter((service) => !search || `${service.stack_name} ${service.service_name}`.toLocaleLowerCase().includes(search));
+  );
 });
 
+const serviceSelectOptions = computed(() => serviceFilterOptions.value.map((service) => ({
+  value: serviceKey(service),
+  label: service.service_name,
+  description: selectedStack.value ? undefined : service.stack_name,
+  searchText: `${service.stack_name} ${service.service_name}`,
+})));
+const selectedServiceKey = computed(() => selectedService.value
+  ? serviceKey({ stack_name: selectedStack.value, service_name: selectedService.value })
+  : "");
+
 const selectedServiceLabel = computed(() => {
-  if (!selectedService.value) return "All services";
+  if (!selectedService.value) return t("deployments.allServices");
   if (selectedStack.value) return selectedService.value;
   const matches = filterOptions.value.services.filter((service) => service.service_name === selectedService.value);
   return matches.length === 1 ? `${matches[0].service_name} — ${matches[0].stack_name}` : selectedService.value;
 });
 
+function serviceKey(service: EventFilterService): string {
+  return JSON.stringify([service.stack_name, service.service_name]);
+}
 
 function firstQueryValue(value: unknown): unknown {
   return Array.isArray(value) ? value[0] : value;
@@ -198,15 +200,15 @@ function selectStack(stackName: string): void {
   selectedStack.value = stackName;
 }
 
-function selectService(service?: EventFilterService): void {
-  if (!service) {
+function selectService(value: string): void {
+  if (!value) {
     selectedService.value = "";
-  } else {
-    if (!selectedStack.value && service.stack_name) selectedStack.value = service.stack_name;
-    selectedService.value = service.service_name;
+    return;
   }
-  serviceSearch.value = "";
-  if (serviceFilter.value) serviceFilter.value.open = false;
+  const service = serviceFilterOptions.value.find((option) => serviceKey(option) === value);
+  if (!service) return;
+  if (!selectedStack.value && service.stack_name) selectedStack.value = service.stack_name;
+  selectedService.value = service.service_name;
 }
 
 function changeSort(key: SortKey): void {
@@ -235,54 +237,21 @@ function sortIndicator(key: SortKey): string {
 
 const PAGE_SIZE = 50;
 
-function eventQuery(cursor?: string) {
-  return {
-    types: selectedTypes.value,
-    severities: selectedSeverity.value ? [selectedSeverity.value] : [],
-    ...(selectedCategory.value ? { categories: [selectedCategory.value] } : {}),
-    ...(selectedStack.value ? { stackNames: [selectedStack.value] } : {}),
-    ...(selectedService.value ? { serviceNames: [selectedService.value] } : {}),
-    limit: PAGE_SIZE,
-    sort: sortKey.value,
-    order: sortDirection.value,
-    ...(cursor ? { cursor } : {}),
-  };
-}
+const pageQuery = computed(() => ({
+  types: selectedTypes.value,
+  severities: selectedSeverity.value ? [selectedSeverity.value] : [],
+  ...(selectedCategory.value ? { categories: [selectedCategory.value] } : {}),
+  ...(selectedStack.value ? { stackNames: [selectedStack.value] } : {}),
+  ...(selectedService.value ? { serviceNames: [selectedService.value] } : {}),
+  limit: PAGE_SIZE,
+  sort: sortKey.value,
+  order: sortDirection.value,
+}));
 
-async function loadEvents() {
-  ++requestID;
-  page.value = 0;
-  cursors.value = [""];
-  events.value = [];
-  nextCursor.value = "";
-  await loadPage(0, "");
-}
-
-async function loadPage(index: number, cursor: string) {
-  const currentRequestID = ++requestID;
-  loading.value = true;
-  loadingError.value = "";
+async function loadEvents(filters: typeof pageQuery.value, cursor?: string) {
   expandedKey.value = "";
-
-  try {
-    const response = await fetchEvents(eventQuery(cursor));
-    if (currentRequestID !== requestID) {
-      return;
-    }
-    events.value = Array.isArray(response.events) ? response.events : [];
-    nextCursor.value = response.nextCursor ?? "";
-    page.value = index;
-    cursors.value[index] = cursor;
-  } catch (error) {
-    if (currentRequestID !== requestID) {
-      return;
-    }
-    loadingError.value = error instanceof Error ? error.message : "Failed to load events";
-  } finally {
-    if (currentRequestID === requestID) {
-      loading.value = false;
-    }
-  }
+  const response = await fetchEvents(cursor ? { ...filters, cursor } : filters);
+  return { items: Array.isArray(response.events) ? response.events : [], nextCursor: response.nextCursor };
 }
 
 async function loadFilterOptions() {
@@ -295,14 +264,6 @@ async function loadFilterOptions() {
   } catch {
     filterOptions.value = { stacks: [], services: [] };
   }
-}
-
-function nextPage(): void {
-  if (!loading.value && nextCursor.value) void loadPage(page.value + 1, nextCursor.value);
-}
-
-function previousPage(): void {
-  if (!loading.value && page.value > 0) void loadPage(page.value - 1, cursors.value[page.value - 1] ?? "");
 }
 
 async function persistFilters(): Promise<void> {
@@ -391,179 +352,173 @@ watch(
 );
 
 watch([selectedTypes, selectedSeverity, selectedCategory, selectedStack, selectedService], () => {
-  expandedKey.value = "";
   void persistFilters();
-  void loadEvents();
-});
-
-watch([sortKey, sortDirection], () => {
-  expandedKey.value = "";
-  void loadEvents();
 });
 
 onMounted(() => {
   void loadFilterOptions();
-  void loadEvents();
 });
 </script>
 
 <template>
   <section class="services-page events-page">
     <AppFilterPanel panel-id="events-filter-panel" :active-count="activeFilterCount" :columns="5">
-      <div class="events-filter-field">
-        <AppSelect
-          multiple
-          class="events-type-filter"
-          :model-value="selectedTypes"
-          :options="typeFilterOptions"
-          label="Filter events by type"
-          placeholder="All types"
-          heading="Event types"
-          :selection-label="selectedTypeSummary"
-          descriptive
-          @update:model-value="selectTypes"
-        >
-          <template #icon>
-            <svg class="events-filter-icon" viewBox="0 0 20 20" aria-hidden="true">
-              <path d="M3.5 5h13l-5 5.7v4.1l-3 1.5v-5.6L3.5 5Z" />
-            </svg>
-          </template>
-        </AppSelect>
-      </div>
+      <AppSelect
+        multiple
+        class="events-type-filter"
+        :model-value="selectedTypes"
+        :options="typeFilterOptions"
+        :label="t('events.filterType')"
+        :placeholder="t('activity.allTypes')"
+        :heading="t('events.types')"
+        :selection-label="selectedTypeSummary"
+        descriptive
+        @update:model-value="selectTypes"
+      >
+        <template #icon>
+          <svg class="events-filter-icon" viewBox="0 0 20 20" aria-hidden="true">
+            <path d="M3.5 5h13l-5 5.7v4.1l-3 1.5v-5.6L3.5 5Z" />
+          </svg>
+        </template>
+      </AppSelect>
 
-      <label class="events-filter-field events-filter-field--select">
-        <SeverityIcon class="events-filter-icon" />
-        <select v-model="selectedSeverity" aria-label="Filter events by severity">
-          <option value="">All severities</option>
-          <option v-for="severity in severityOptions" :key="severity" :value="severity">{{ severityLabels[severity] }}</option>
-        </select>
-      </label>
+      <AppSelect
+        v-model="selectedSeverity"
+        :options="severitySelectOptions"
+        :reset-option="{ value: '', label: t('activity.allSeverities') }"
+        :label="t('events.filterSeverity')"
+      >
+        <template #icon><SeverityIcon class="events-filter-icon" /></template>
+      </AppSelect>
 
-      <label class="events-filter-field events-filter-field--select">
-        <svg class="events-filter-icon" viewBox="0 0 20 20" aria-hidden="true">
-          <path d="M3.5 4.5v5.3l6.7 6.7 6.3-6.3-6.7-6.7H4.5a1 1 0 0 0-1 1Z" />
-          <circle cx="7" cy="7" r="1" />
-        </svg>
-        <select v-model="selectedCategory" aria-label="Filter events by category">
-          <option value="">All categories</option>
-          <option v-for="category in categoryOptions" :key="category" :value="category">
-            {{ category.charAt(0).toUpperCase() + category.slice(1) }}
-          </option>
-        </select>
-      </label>
+      <AppSelect
+        v-model="selectedCategory"
+        :options="categorySelectOptions"
+        :reset-option="{ value: '', label: t('activity.allCategories') }"
+        :label="t('events.filterCategory')"
+      >
+        <template #icon>
+          <svg class="events-filter-icon" viewBox="0 0 20 20" aria-hidden="true">
+            <path d="M3.5 4.5v5.3l6.7 6.7 6.3-6.3-6.7-6.7H4.5a1 1 0 0 0-1 1Z" />
+            <circle cx="7" cy="7" r="1" />
+          </svg>
+        </template>
+      </AppSelect>
 
-      <AppSearchFilter
+      <AppSelect
         ref="stackFilter"
         :model-value="selectedStack"
         :options="stackFilterOptions"
-        label="Filter events by stack"
-        placeholder="All stacks"
-        search-label="Search stacks"
-        empty-message="No matching stacks"
+        :reset-option="{ value: '', label: t('deployments.allStacks') }"
+        :label="t('events.filterStack')"
+        searchable
+        :search-label="t('common.searchStacks')"
+        :search-placeholder="t('common.searchStacks')"
+        :empty-message="t('common.noMatchingStacks')"
         @update:model-value="selectStack"
       >
         <template #icon>
           <SidebarIcon class="events-filter-icon" name="services" />
         </template>
-      </AppSearchFilter>
+      </AppSelect>
 
-      <div class="events-filter-field">
-        <details ref="serviceFilter" class="events-search-filter events-filter-dropdown">
-          <summary aria-label="Filter events by service">
-            <svg class="events-filter-icon" viewBox="0 0 20 20" aria-hidden="true">
-              <path d="m10 2.8 6.5 3.6v7.2L10 17.2l-6.5-3.6V6.4L10 2.8Z" />
-              <path d="m3.8 6.5 6.2 3.4 6.2-3.4M10 9.9v7" />
-            </svg>
-            <span class="events-filter-selection" :class="{ 'events-filter-placeholder': !selectedService }">{{ selectedServiceLabel }}</span>
-            <span class="events-filter-chevron" aria-hidden="true">⌄</span>
-          </summary>
-          <div class="events-search-filter-menu">
-            <input v-model="serviceSearch" type="search" placeholder="Search services" aria-label="Search services" />
-            <button type="button" :class="{ selected: !selectedService }" @click="selectService()">All services</button>
-            <button
-              v-for="service in serviceFilterOptions"
-              :key="`${service.stack_name}/${service.service_name}`"
-              type="button"
-              :class="{ selected: selectedService === service.service_name && (!selectedStack || selectedStack === service.stack_name) }"
-              @click="selectService(service)"
-            >
-              <span>{{ service.service_name }}</span>
-              <small v-if="!selectedStack && service.stack_name">{{ service.stack_name }}</small>
-            </button>
-            <p v-if="serviceFilterOptions.length === 0" class="events-filter-empty">No matching services</p>
-          </div>
-        </details>
-      </div>
+      <AppSelect
+        :model-value="selectedServiceKey"
+        :options="serviceSelectOptions"
+        :reset-option="{ value: '', label: t('deployments.allServices') }"
+        :selection-label="selectedServiceLabel"
+        :label="t('events.filterService')"
+        searchable
+        :search-label="t('common.searchServices')"
+        :search-placeholder="t('common.searchServices')"
+        :empty-message="t('common.noMatchingServices')"
+        @update:model-value="selectService"
+      >
+        <template #icon>
+          <svg class="events-filter-icon" viewBox="0 0 20 20" aria-hidden="true">
+            <path d="m10 2.8 6.5 3.6v7.2L10 17.2l-6.5-3.6V6.4L10 2.8Z" />
+            <path d="m3.8 6.5 6.2 3.4 6.2-3.4M10 9.9v7" />
+          </svg>
+        </template>
+      </AppSelect>
     </AppFilterPanel>
 
-    <AppTableEmpty v-if="loading && events.length === 0" message="Loading events..." />
+    <AppPagination
+      class="events-pagination"
+      :label="t('events.pages')"
+      :query="pageQuery"
+      :load-page="loadEvents"
+      hide-when-empty
+      v-slot="{ items: events, loading, error: loadingError }"
+    >
+      <AppTableEmpty v-if="loading && events.length === 0" :message="t('events.loading')" />
 
-    <AppTableEmpty v-else-if="loadingError && events.length === 0">Failed to load events: {{ loadingError }}</AppTableEmpty>
+      <AppTableEmpty v-else-if="loadingError && events.length === 0" role="alert">{{ t('events.loadError', { error: loadingError }) }}</AppTableEmpty>
 
-    <AppTableEmpty v-else-if="events.length === 0" message="No events match the selected filters." />
+      <AppTableEmpty v-else-if="events.length === 0" :message="t('events.empty')" />
 
-    <AppTable v-else fixed min-width="720px" table-class="events-table">
-      <template #head>
+      <AppTable v-else fixed min-width="720px" table-class="events-table">
+        <template #head>
           <tr>
             <th :aria-sort="ariaSort('time')">
               <button class="app-table-sort" type="button" @click="changeSort('time')">
-                Time <span class="app-table-sort-indicator" aria-hidden="true">{{ sortIndicator("time") }}</span>
+                {{ t('common.time') }} <span class="app-table-sort-indicator" aria-hidden="true">{{ sortIndicator("time") }}</span>
               </button>
             </th>
             <th :aria-sort="ariaSort('severity')">
               <button class="app-table-sort" type="button" @click="changeSort('severity')">
-                Severity <span class="app-table-sort-indicator" aria-hidden="true">{{ sortIndicator("severity") }}</span>
+                {{ t('activity.severity') }} <span class="app-table-sort-indicator" aria-hidden="true">{{ sortIndicator("severity") }}</span>
               </button>
             </th>
-            <th>Type</th>
-            <th>Message</th>
+            <th>{{ t('common.type') }}</th>
+            <th>{{ t('common.message') }}</th>
           </tr>
-      </template>
-          <template v-for="event in events" :key="event.id">
-            <tr
-              class="app-table-row--clickable"
-              tabindex="0"
-              role="button"
-              :aria-expanded="expandedKey === event.id"
-              :aria-label="`Toggle details for ${event.type || 'event'}`"
-              @click="toggleDetails(event)"
-              @keydown.enter="toggleDetails(event)"
-              @keydown.space.prevent="toggleDetails(event)"
-            >
-              <td>{{ formatDate(event.created_at) }}</td>
-              <td>
-                <span class="event-severity" :class="`event-severity-${normalizedSeverity(event)}`">
-                  {{ severityLabels[normalizedSeverity(event)] }}
-                </span>
-              </td>
-              <td>{{ event.type || "unknown" }}</td>
-              <td>{{ event.message || "No message" }}</td>
-            </tr>
-            <tr v-if="expandedKey === event.id" class="events-details-row">
-              <td colspan="4">
-                <ul v-if="sortedEventDetails(event).length > 0" class="event-details">
-                  <li v-for="[key, value] in sortedEventDetails(event)" :key="key" class="event-detail">
-                    <span class="event-detail-key">{{ key }}</span>
-                    <span class="event-detail-content">
-                      <code class="event-detail-value">{{ value }}</code>
-                      <button
-                        v-if="canFilterDetail(key)"
-                        class="event-detail-filter"
-                        type="button"
-                        :aria-label="`Filter by ${key} ${value}`"
-                        @click.stop="applyDetailFilter(key, value, event)"
-                      >
-                        Filter
-                      </button>
-                    </span>
-                  </li>
-                </ul>
-                <p v-else class="meta">details: n/a</p>
-              </td>
-            </tr>
-          </template>
-    </AppTable>
-    <p v-if="loadingError && events.length > 0" class="meta" role="alert">Failed to load events: {{ loadingError }}</p>
-    <AppPagination v-if="events.length > 0 || page > 0" class="events-pagination" label="Event pages" :page="page" :loading="loading" :has-next="Boolean(nextCursor)" @previous="previousPage" @next="nextPage" />
+        </template>
+        <template v-for="event in events" :key="event.id">
+          <tr
+            class="app-table-row--clickable"
+            tabindex="0"
+            role="button"
+            :aria-expanded="expandedKey === event.id"
+            :aria-label="t('events.toggleDetails', { type: event.type || t('events.event') })"
+            @click="toggleDetails(event)"
+            @keydown.enter="toggleDetails(event)"
+            @keydown.space.prevent="toggleDetails(event)"
+          >
+            <td>{{ formatDate(event.created_at) }}</td>
+            <td>
+              <span class="event-severity" :class="`event-severity-${normalizedSeverity(event)}`">
+                {{ eventSeverityLabel(event.severity) }}
+              </span>
+            </td>
+            <td>{{ event.type || t('common.unknown') }}</td>
+            <td>{{ eventMessage(event) }}</td>
+          </tr>
+          <tr v-if="expandedKey === event.id" class="events-details-row">
+            <td colspan="4">
+              <ul v-if="sortedEventDetails(event).length > 0" class="event-details">
+                <li v-for="[key, value] in sortedEventDetails(event)" :key="key" class="event-detail">
+                  <span class="event-detail-key">{{ eventDetailLabel(key) }}</span>
+                  <span class="event-detail-content">
+                    <code class="event-detail-value">{{ value }}</code>
+                    <button
+                      v-if="canFilterDetail(key)"
+                      class="event-detail-filter"
+                      type="button"
+                      :aria-label="t('events.filterDetail', { field: eventDetailLabel(key), value })"
+                      @click.stop="applyDetailFilter(key, value, event)"
+                    >
+                      {{ t('activity.filter') }}
+                    </button>
+                  </span>
+                </li>
+              </ul>
+              <p v-else class="meta">{{ t('events.noDetails') }}</p>
+            </td>
+          </tr>
+        </template>
+      </AppTable>
+      <p v-if="loadingError && events.length > 0" class="meta" role="alert">{{ t('events.loadError', { error: loadingError }) }}</p>
+    </AppPagination>
   </section>
 </template>

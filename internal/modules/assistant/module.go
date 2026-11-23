@@ -10,9 +10,12 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/conversation"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/texts"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/tools"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/recommendations"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources"
@@ -48,9 +51,9 @@ type Container interface {
 }
 
 // InitModule initializes the assistant and its built-in tools.
-func InitModule(_ context.Context, cfg *config.Config, cnt Container) (*Module, error) {
+func InitModule(_ context.Context, cfg *config.Config, cnt Container, localizer *texts.Localizer) (*Module, error) {
 	if !cfg.Spec.Assistant.Enabled {
-		return &Module{Service: &DisabledAssistant{}}, nil
+		return &Module{Service: NewDisabledAssistant(localizer)}, nil
 	}
 
 	temperature, err := cfg.Spec.Assistant.Model.OpenAI.ResolveTemperature()
@@ -87,6 +90,7 @@ func InitModule(_ context.Context, cfg *config.Config, cnt Container) (*Module, 
 	)
 
 	service, err := NewService(Config{
+		Localizer:               localizer,
 		Enabled:                 cfg.Spec.Assistant.Enabled,
 		ModelName:               cfg.Spec.Assistant.Model.Name,
 		EmbeddingModelName:      cfg.Spec.Assistant.Model.EmbeddingName,
@@ -99,9 +103,17 @@ func InitModule(_ context.Context, cfg *config.Config, cnt Container) (*Module, 
 		AllowedTools:            cfg.Spec.Assistant.Tools,
 		ConversationInMemoryTTL: cfg.Spec.Assistant.Conversation.Storage.InMemory.TTL.Value,
 		ConversationHistory:     conversation.NewSQLHistoryStorage(cnt.GetStorage()),
+		SyncPauses:              gitopsModule.SyncPauses,
 	}, resourcesModule.ServiceStore, toolExecutor, eventModule.Dispatcher, cnt.GetMetrics().Assistant)
 	if err != nil {
 		return nil, err
+	}
+
+	err = eventModule.Dispatcher.Subscribe(
+		events.TypeNameServiceCatalogUpdated, "assistant-rag-index", dispatcher.External(service.RAGIndexSubscriber()),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("subscribe assistant RAG index: %w", err)
 	}
 
 	return &Module{Service: service}, nil

@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { formatDate } from "../utils/format";
+import { formatNumber, locale, t } from "../i18n";
 import { computed, onMounted, ref } from "vue";
 
 import { fetchSecretManagers, fetchSecrets, syncSecretManager } from "../api/secrets";
@@ -26,7 +28,7 @@ type SortDirection = "ascending" | "descending";
 
 const sortKey = ref<SortKey>("name");
 const sortDirection = ref<SortDirection>("ascending");
-const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
+const collator = new Intl.Collator(locale(), { numeric: true, sensitivity: "base" });
 
 const normalizedQuery = computed(() => searchQuery.value.trim().toLowerCase());
 
@@ -130,7 +132,7 @@ async function loadSecrets() {
     const response = await fetchSecrets();
     secrets.value = Array.isArray(response.secrets) ? response.secrets : [];
   } catch (error) {
-    loadingError.value = error instanceof Error ? error.message : "Failed to load secrets";
+    loadingError.value = error instanceof Error ? error.message : t("secrets.loadFailed");
     secrets.value = [];
   } finally {
     loading.value = false;
@@ -157,7 +159,12 @@ function managerKey(manager: SecretManagerInfo): string {
 }
 
 function syncSummary(result: SecretManagerSyncResponse): string {
-  return `Sync complete: ${result.created} created, ${result.updated} updated, ${result.removed} removed, ${result.unchanged} unchanged`;
+  return t("secrets.syncComplete", {
+    created: formatNumber(result.created),
+    updated: formatNumber(result.updated),
+    removed: formatNumber(result.removed),
+    unchanged: formatNumber(result.unchanged),
+  });
 }
 
 async function triggerManagerSync(manager: SecretManagerInfo) {
@@ -173,7 +180,7 @@ async function triggerManagerSync(manager: SecretManagerInfo) {
   } catch (error) {
     managerFeedback.value[key] = {
       kind: "error",
-      message: error instanceof Error ? error.message : "Failed to synchronize secrets",
+      message: error instanceof Error ? error.message : t("secrets.syncFailed"),
     };
   } finally {
     syncingManager.value = "";
@@ -195,20 +202,12 @@ async function handleSecretCreated(message?: string) {
   }
 }
 
-function formatDate(value: string): string {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return value || "n/a";
-  }
-
-  return date.toLocaleString();
-}
 </script>
 
 <template>
   <section class="services-page">
     <header class="services-header">
-      <h2>Secrets</h2>
+      <h2>{{ t('common.secrets') }}</h2>
     </header>
 
     <p v-if="createFeedback" class="secrets-create-feedback" role="status">{{ createFeedback }}</p>
@@ -231,46 +230,46 @@ function formatDate(value: string): string {
         v-model="searchQuery"
         type="search"
         class="secrets-search-input"
-        placeholder="Search by name, service, description, version, external path..."
-        aria-label="Search secrets"
+        :placeholder="t('secrets.searchPlaceholder')"
+        :aria-label="t('secrets.search')"
       />
-      <AppButton compact class="secrets-create-button" @click="createModalOpen = true">Create Secret</AppButton>
+      <AppButton compact class="secrets-create-button" @click="createModalOpen = true">{{ t('secrets.create') }}</AppButton>
     </div>
 
-    <AppTableEmpty v-if="loading && secrets.length === 0" message="Loading..." />
+    <AppTableEmpty v-if="loading && secrets.length === 0" :message="t('common.loading')" />
 
-    <AppTableEmpty v-else-if="loadingError">Failed to load secrets: {{ loadingError }}</AppTableEmpty>
+    <AppTableEmpty v-else-if="loadingError">{{ t('secrets.loadError', { error: loadingError }) }}</AppTableEmpty>
 
-    <AppTableEmpty v-else-if="secrets.length === 0" message="No secrets found." />
+    <AppTableEmpty v-else-if="secrets.length === 0" :message="t('secrets.empty')" />
 
-    <AppTableEmpty v-else-if="filteredSecrets.length === 0" message="No secrets match your search." />
+    <AppTableEmpty v-else-if="filteredSecrets.length === 0" :message="t('secrets.noSearchMatches')" />
 
     <AppTable v-else class="secrets-table" fixed :min-width="showDescriptionColumn ? '900px' : '720px'">
       <template #head>
           <tr>
             <th :aria-sort="ariaSort('name')">
               <button class="app-table-sort" type="button" @click="changeSort('name')">
-                Name <span class="app-table-sort-indicator" aria-hidden="true">{{ sortIndicator('name') }}</span>
+                {{ t('common.name') }} <span class="app-table-sort-indicator" aria-hidden="true">{{ sortIndicator('name') }}</span>
               </button>
             </th>
             <th v-if="showDescriptionColumn" :aria-sort="ariaSort('description')">
               <button class="app-table-sort" type="button" @click="changeSort('description')">
-                Description <span class="app-table-sort-indicator" aria-hidden="true">{{ sortIndicator('description') }}</span>
+                {{ t('common.description') }} <span class="app-table-sort-indicator" aria-hidden="true">{{ sortIndicator('description') }}</span>
               </button>
             </th>
             <th :aria-sort="ariaSort('createdAt')">
               <button class="app-table-sort" type="button" @click="changeSort('createdAt')">
-                Date Added <span class="app-table-sort-indicator" aria-hidden="true">{{ sortIndicator('createdAt') }}</span>
+                {{ t('secrets.dateAdded') }} <span class="app-table-sort-indicator" aria-hidden="true">{{ sortIndicator('createdAt') }}</span>
               </button>
             </th>
             <th :aria-sort="ariaSort('externalPath')">
               <button class="app-table-sort" type="button" @click="changeSort('externalPath')">
-                External Path <span class="app-table-sort-indicator" aria-hidden="true">{{ sortIndicator('externalPath') }}</span>
+                {{ t('secrets.externalPath') }} <span class="app-table-sort-indicator" aria-hidden="true">{{ sortIndicator('externalPath') }}</span>
               </button>
             </th>
             <th :aria-sort="ariaSort('externalVersionID')">
               <button class="app-table-sort" type="button" @click="changeSort('externalVersionID')">
-                External Version ID <span class="app-table-sort-indicator" aria-hidden="true">{{ sortIndicator('externalVersionID') }}</span>
+                {{ t('secrets.externalVersionId') }} <span class="app-table-sort-indicator" aria-hidden="true">{{ sortIndicator('externalVersionID') }}</span>
               </button>
             </th>
           </tr>
@@ -281,16 +280,16 @@ function formatDate(value: string): string {
             class="app-table-row--clickable"
             tabindex="0"
             role="button"
-            :aria-label="`Open details for ${secret.name}`"
+            :aria-label="t('secrets.openDetails', { secret: secret.name })"
             @click="openSecretDetails(secret.name)"
             @keydown.enter="openSecretDetails(secret.name)"
             @keydown.space.prevent="openSecretDetails(secret.name)"
           >
-            <td>{{ secret.name || "n/a" }}</td>
-            <td v-if="showDescriptionColumn">{{ secret.description || "n/a" }}</td>
+            <td>{{ secret.name || t('common.notApplicable') }}</td>
+            <td v-if="showDescriptionColumn">{{ secret.description || t('common.notApplicable') }}</td>
             <td>{{ formatDate(secret.created_at) }}</td>
-            <td>{{ secret.external?.path || "n/a" }}</td>
-            <td>{{ secret.external?.version_id || "n/a" }}</td>
+            <td>{{ secret.external?.path || t('common.notApplicable') }}</td>
+            <td>{{ secret.external?.version_id || t('common.notApplicable') }}</td>
           </tr>
     </AppTable>
 

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t } from "../../i18n";
 defineProps<{
   title: string;
   description: string;
@@ -12,7 +13,7 @@ defineProps<{
   <section>
     <article class="stack-card">
       <h2>{{ title }}</h2>
-      <p class="meta">Scaffold page. Functional implementation is planned for next iteration.</p>
+      <p class="meta">{{ t('common.scaffold') }}</p>
     </article>
   </section>
 </template>

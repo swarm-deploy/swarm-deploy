@@ -153,7 +153,7 @@ func TestConfigurationThroughChat(t *testing.T) {
 			assert.True(t, requestContains(router, tt.userMessage))
 			assert.True(t, requestContains(router, "configuration: read actual global"))
 			assert.False(t, requestContains(router, configChatPrompt))
-			assert.True(t, requestContains(generation, configChatPrompt))
+			assert.True(t, requestContains(generation, "\n\nProject-specific instructions:\n"+configChatPrompt))
 			assert.False(t, requestContains(generation, "initJobDefaultTimeout"))
 			assert.Equal(t, !tt.concept && !tt.forbidden,
 				slices.Contains(capturedToolNames(generation), configurationToolName))
@@ -174,13 +174,20 @@ func TestConfigurationThroughChat(t *testing.T) {
 					assert.Equal(t, `{"alerts":[]}`, messageForToolCall(followup, "call-alert"))
 					assert.True(t, requestContains(generation, "has not checked the stack override"))
 				}
-				if tt.arguments == configChatInvalid {
-					for _, message := range followup.Messages {
-						for _, call := range message.ToolCalls {
-							assert.Equal(t, "{}", call.Function.Arguments)
+				wantArguments := tt.arguments
+				if wantArguments == configChatInvalid {
+					wantArguments = "{}"
+				}
+				var configCallFound bool
+				for _, message := range followup.Messages {
+					for _, call := range message.ToolCalls {
+						if call.ID == "call-config" {
+							configCallFound = true
+							assert.Equal(t, wantArguments, call.Function.Arguments)
 						}
 					}
 				}
+				assert.True(t, configCallFound)
 			}
 
 			var traceText strings.Builder
@@ -191,6 +198,7 @@ func TestConfigurationThroughChat(t *testing.T) {
 			}
 			traces := traceText.String()
 			assert.Contains(t, traces, tt.userMessage)
+			assert.NotContains(t, traces, "Project-specific instructions:")
 			assert.NotContains(t, traces, "canary")
 			assert.NotContains(t, traces, "99117823")
 			assert.NotContains(t, logs.String()[loggerOffset:], "canary")
@@ -199,6 +207,10 @@ func TestConfigurationThroughChat(t *testing.T) {
 				assert.NotContains(t, fmt.Sprint(response.Activity), tt.wantResult)
 				assert.Contains(t, traces, "[configuration result omitted]")
 				assert.NotContains(t, traces, tt.wantResult)
+				if tt.arguments != "{}" {
+					assert.NotContains(t, traces, tt.arguments)
+					assert.NotContains(t, traces, strings.ReplaceAll(tt.arguments, `"`, `\"`))
+				}
 			}
 			if tt.diagnostic {
 				assert.Contains(t, traces, "resource_id")
@@ -215,7 +227,8 @@ func newConfigurationChatService(t *testing.T, baseURL string, spec config.Spec)
 		&alertmanagement.Module{Store: alertstore.NewSQLStore(db)}, &event.Module{}, &swarm.Swarm{},
 		nil, nil, nil, nil, nil, metrics.NewGroup(metrics.CreateGroupParams{}).MCP, spec)
 	service, err := NewService(Config{
-		Enabled: true, ModelName: "test-model", BaseURL: baseURL, APIToken: "test-token",
+		Localizer: testAssistantTexts(t, "en"),
+		Enabled:   true, ModelName: "test-model", BaseURL: baseURL, APIToken: "test-token",
 		MaxTokens: 200, AllowedTools: spec.Assistant.Tools, SystemPrompt: spec.Assistant.SystemPrompt,
 		ConversationInMemoryTTL: time.Hour, ConversationHistory: conversation.NewSQLHistoryStorage(db),
 	}, nil, executor, &dispatcher.NopDispatcher{}, metrics.NopAssistant{})

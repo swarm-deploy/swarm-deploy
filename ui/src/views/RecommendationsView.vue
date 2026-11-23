@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { formatNumber, t } from "../i18n";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
@@ -7,6 +8,7 @@ import type { Recommendation, RecommendationSeverity } from "../api/types";
 import AppTable from "../components/common/AppTable.vue";
 import AppTableEmpty from "../components/common/AppTableEmpty.vue";
 import SidebarIcon from "../components/layout/SidebarIcon.vue";
+import { recommendationAdvice, recommendationSeverityLabel } from "../utils/recommendationPresentation";
 
 const severityOptions: RecommendationSeverity[] = ["high", "medium", "low"];
 const severityRank: Record<RecommendationSeverity, number> = {
@@ -97,7 +99,7 @@ async function loadRecommendations() {
     }
 
     recommendations.value = [];
-    loadingError.value = error instanceof Error ? error.message : "Failed to load recommendations";
+    loadingError.value = error instanceof Error ? error.message : t("common.unknownError");
   } finally {
     if (currentRequestID === requestID) {
       loading.value = false;
@@ -127,7 +129,7 @@ onBeforeUnmount(() => {
 <template>
   <section class="services-page recommendations-page">
     <header class="services-header events-header recommendations-header">
-      <h2>Recommendations</h2>
+      <h2>{{ t('recommendations.title') }}</h2>
       <button
         class="recommendations-mobile-filter-toggle"
         type="button"
@@ -135,7 +137,7 @@ onBeforeUnmount(() => {
         aria-controls="recommendations-filter-panel"
         @click="mobileFiltersOpen = !mobileFiltersOpen"
       >
-        Filters ({{ activeFilterCount }})
+        {{ t('common.activeFilters', { count: formatNumber(activeFilterCount) }) }}
       </button>
       <div
         id="recommendations-filter-panel"
@@ -145,14 +147,14 @@ onBeforeUnmount(() => {
       >
         <div class="recommendations-filter-field">
           <details ref="stackFilter" class="recommendations-filter-dropdown">
-            <summary aria-label="Filter recommendations by stack">
+            <summary :aria-label="t('recommendations.filterStack')">
               <SidebarIcon class="recommendations-filter-icon" name="services" />
-              <span class="recommendations-filter-selection">{{ selectedStack || "All stacks" }}</span>
+              <span class="recommendations-filter-selection">{{ selectedStack || t('deployments.allStacks') }}</span>
               <span class="recommendations-filter-chevron" aria-hidden="true">⌄</span>
             </summary>
             <div class="recommendations-search-filter-menu">
-              <input v-model="stackSearch" type="search" placeholder="Search stacks" aria-label="Search stacks" />
-              <button type="button" :class="{ selected: !selectedStack }" @click="selectStack('')">All stacks</button>
+              <input v-model="stackSearch" type="search" :placeholder="t('common.searchStacks')" :aria-label="t('common.searchStacks')" />
+              <button type="button" :class="{ selected: !selectedStack }" @click="selectStack('')">{{ t('deployments.allStacks') }}</button>
               <button
                 v-for="stack in stackOptions"
                 :key="stack"
@@ -162,7 +164,7 @@ onBeforeUnmount(() => {
               >
                 {{ stack }}
               </button>
-              <p v-if="stackOptions.length === 0" class="recommendations-filter-empty">No matching stacks</p>
+              <p v-if="stackOptions.length === 0" class="recommendations-filter-empty">{{ t('common.noMatchingStacks') }}</p>
             </div>
           </details>
         </div>
@@ -171,36 +173,36 @@ onBeforeUnmount(() => {
           <svg class="recommendations-filter-icon recommendations-severity-filter-icon" viewBox="0 0 20 20" aria-hidden="true">
             <path d="M5 12.5v2.5M10 9v6M15 5v10" />
           </svg>
-          <select v-model="selectedSeverity" aria-label="Filter recommendations by severity">
-            <option value="">All severities</option>
-            <option v-for="severity in severityOptions" :key="severity" :value="severity">{{ severity }}</option>
+          <select v-model="selectedSeverity" :aria-label="t('recommendations.filterSeverity')">
+            <option value="">{{ t('activity.allSeverities') }}</option>
+            <option v-for="severity in severityOptions" :key="severity" :value="severity">{{ recommendationSeverityLabel(severity) }}</option>
           </select>
         </label>
       </div>
     </header>
 
-    <AppTableEmpty v-if="loading && recommendations.length === 0" message="Loading recommendations..." />
+    <AppTableEmpty v-if="loading && recommendations.length === 0" :message="t('recommendations.loading')" />
 
-    <AppTableEmpty v-else-if="loadingError">Failed to load recommendations: {{ loadingError }}</AppTableEmpty>
+    <AppTableEmpty v-else-if="loadingError" role="alert">{{ t('recommendations.loadError', { error: loadingError }) }}</AppTableEmpty>
 
     <AppTableEmpty
       v-else-if="visibleRecommendations.length === 0"
-      message="No recommendations match the selected filters."
+      :message="t('recommendations.emptyFiltered')"
     />
 
     <AppTable v-else fixed table-class="recommendations-table" wrap-class="recommendations-table-wrap">
       <template #head>
           <tr>
-            <th>Severity</th>
-            <th>Recommendation</th>
-            <th>Service</th>
-            <th>Stack</th>
+            <th>{{ t('activity.severity') }}</th>
+            <th>{{ t('recommendations.recommendation') }}</th>
+            <th>{{ t('common.service') }}</th>
+            <th>{{ t('common.stack') }}</th>
           </tr>
       </template>
           <tr v-for="recommendation in visibleRecommendations" :key="recommendationKey(recommendation)">
             <td>
               <span class="recommendation-severity" :class="severityClass(recommendation.severity)">
-                {{ recommendation.severity }}
+                {{ recommendationSeverityLabel(recommendation.severity) }}
               </span>
             </td>
             <td>
@@ -208,14 +210,14 @@ onBeforeUnmount(() => {
                 <span
                   class="overview-recommendation-severity-dot recommendation-mobile-severity-dot"
                   :class="severityDotClass(recommendation.severity)"
-                  :title="recommendation.severity"
+                  :title="recommendationSeverityLabel(recommendation.severity)"
                   aria-hidden="true"
                 ></span>
-                <span>{{ recommendation.recommendation || "No recommendation" }}</span>
+                <span>{{ recommendationAdvice(recommendation) }}</span>
               </span>
             </td>
-            <td>{{ recommendation.subject.service || "unknown service" }}</td>
-            <td>{{ recommendation.subject.stack || "unknown stack" }}</td>
+            <td>{{ recommendation.subject.service || t('recommendations.unknownService') }}</td>
+            <td>{{ recommendation.subject.stack || t('overview.unknownStack') }}</td>
           </tr>
     </AppTable>
   </section>

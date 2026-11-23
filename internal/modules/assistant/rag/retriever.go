@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/conversation"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/model"
 	webroute "github.com/swarm-deploy/webroute/api"
 )
@@ -68,62 +69,48 @@ func (p *RetrievalPlan) Branch() string {
 	return p.branch
 }
 
-// Plan prepares data and selects retrieval branch.
-func (r *Retriever) Plan(ctx context.Context, query string) (*RetrievalPlan, error) {
+// Plan selects a retrieval branch and returns the query embedding usage.
+func (r *Retriever) Plan(ctx context.Context, query string) (*RetrievalPlan, conversation.TokenUsage, error) {
 	services, err := r.store.ReadAll(ctx)
 	if err != nil {
-		return nil, err
+		return nil, conversation.TokenUsage{}, err
 	}
 	if len(services) == 0 {
 		return &RetrievalPlan{
 			query:    query,
 			services: services,
 			branch:   RetrievalPlanBranchNone,
-		}, nil
+		}, conversation.TokenUsage{}, nil
 	}
 
+	plan := &RetrievalPlan{query: query, services: services, branch: RetrievalPlanBranchLexical}
 	indexed := r.index.get()
 	if !sameServices(indexed.services, services) {
 		r.recordFallback("index_stale")
 		slog.DebugContext(ctx, "[assistant-rag] fallback to lexical: stale index snapshot")
-		return &RetrievalPlan{
-			query:    query,
-			services: services,
-			branch:   RetrievalPlanBranchLexical,
-		}, nil
+		return plan, conversation.TokenUsage{}, nil
 	}
 
 	if len(indexed.services) == 0 || len(indexed.embeddings) == 0 {
 		r.recordFallback("index_empty")
 		slog.DebugContext(ctx, "[assistant-rag] fallback to lexical: empty index")
-		return &RetrievalPlan{
-			query:    query,
-			services: services,
-			branch:   RetrievalPlanBranchLexical,
-		}, nil
+		return plan, conversation.TokenUsage{}, nil
 	}
 
-	queryEmbeddings, err := r.embedder.Embed(ctx, r.modelName, []string{query})
+	queryEmbeddings, usage, err := r.embedder.Embed(ctx, r.modelName, []string{query})
 	if err != nil {
 		r.recordFallback("query_embedding_error")
 		slog.WarnContext(ctx, "[assistant-rag] fallback to lexical: query embedding failed", slog.Any("err", err))
-		return &RetrievalPlan{
-			query:    query,
-			services: services,
-			branch:   RetrievalPlanBranchLexical,
-		}, nil
+		return plan, usage, nil
 	}
 	if len(queryEmbeddings) != 1 {
-		return nil, fmt.Errorf("invalid query embeddings size: got %d, expected 1", len(queryEmbeddings))
+		return nil, usage, fmt.Errorf("invalid query embeddings size: got %d, expected 1", len(queryEmbeddings))
 	}
 
-	return &RetrievalPlan{
-		query:       query,
-		services:    services,
-		indexed:     indexed,
-		queryVector: queryEmbeddings[0],
-		branch:      RetrievalPlanBranchSemantic,
-	}, nil
+	plan.indexed = indexed
+	plan.queryVector = queryEmbeddings[0]
+	plan.branch = RetrievalPlanBranchSemantic
+	return plan, usage, nil
 }
 
 // RetrieveSemantic runs semantic ranking for a semantic plan.

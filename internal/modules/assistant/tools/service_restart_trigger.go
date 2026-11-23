@@ -35,6 +35,8 @@ func NewRestartService(manager swarm.ServiceManager, eventDispatcher dispatcher.
 func (s *RestartService) Definition() routing.ToolDefinition {
 	return routing.ToolDefinition{
 		Name:        config.AssistantToolNameServiceRestartTrigger,
+		Writable:    true,
+		Terminal:    true,
 		Description: "Restarts a stack service by scaling replicas to zero and restoring previous count.",
 		ParametersJSONSchema: map[string]any{
 			"type": "object",
@@ -89,7 +91,7 @@ func (s *RestartService) Execute(ctx context.Context, request routing.Request) (
 			slog.String("service", target.ServiceName()),
 			slog.Any("err", publishErr),
 		)
-		payload.Warning = "the service was restarted, but its audit event could not be persisted"
+		payload.Warning = ServiceActionWarningAuditEventNotPersisted
 	}
 
 	return routing.Response{

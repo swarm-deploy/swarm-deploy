@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/conversation"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/texts"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/tools/routing"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/model"
 )
@@ -37,7 +38,7 @@ type ToolCall struct {
 	Error string
 }
 
-// ChatRequest is a chat API request payload for start/poll workflow.
+// ChatRequest holds input for starting or polling an assistant run.
 type ChatRequest struct {
 	// ConversationID identifies a multi-message conversation thread.
 	ConversationID string
@@ -45,6 +46,8 @@ type ChatRequest struct {
 	RequestID string
 	// Message is a user message for a new run.
 	Message string
+	// CreatedBy is the authenticated username to use if the chat is first persisted by this run.
+	CreatedBy string
 	// WaitTimeoutMS is a server-side long-poll wait timeout in milliseconds.
 	WaitTimeoutMS int
 }
@@ -59,6 +62,8 @@ type ChatResponse struct {
 	RequestID string
 	// Answer is a final assistant answer for completed runs.
 	Answer string
+	// AnswerSequence identifies the stored reply when a completed run has persistent history.
+	AnswerSequence *int
 	// ErrorMessage contains a user-safe error when run failed or was rejected.
 	ErrorMessage string
 	// PollAfterMS is a suggested delay before next poll request.
@@ -69,6 +74,8 @@ type ChatResponse struct {
 
 // ChatMessage is a user-visible persisted chat message.
 type ChatMessage struct {
+	// Sequence identifies this persisted turn within its chat.
+	Sequence int `json:"sequence"`
 	// Role is a participant role.
 	Role string `json:"role"`
 	// Content is the message text.
@@ -80,6 +87,12 @@ type ChatMessage struct {
 // TokenUsage contains aggregate model token consumption for a chat.
 type TokenUsage = conversation.TokenUsage
 
+// UsageInterval is a UTC calendar grouping for assistant token consumption.
+type UsageInterval = conversation.UsageInterval
+
+// UsageBucket contains recorded token consumption for one calendar interval.
+type UsageBucket = conversation.UsageBucket
+
 // ChatSummary describes a persisted assistant chat without messages.
 type ChatSummary struct {
 	// ID identifies the chat.
@@ -90,6 +103,8 @@ type ChatSummary struct {
 	CreatedAt time.Time `json:"created_at"`
 	// UpdatedAt is the timestamp of the latest message.
 	UpdatedAt time.Time `json:"updated_at"`
+	// Unread indicates that the latest persisted assistant reply is unread.
+	Unread bool `json:"unread"`
 	// Usage contains aggregate token consumption when reported by the model provider.
 	Usage *TokenUsage `json:"token_usage,omitempty"`
 }
@@ -104,14 +119,28 @@ type ChatHistory struct {
 	CreatedAt time.Time `json:"created_at"`
 	// UpdatedAt is the timestamp of the latest message.
 	UpdatedAt time.Time `json:"updated_at"`
+	// Unread indicates that the latest persisted assistant reply is unread.
+	Unread bool `json:"unread"`
 	// Usage contains aggregate token consumption when reported by the model provider.
 	Usage *TokenUsage `json:"token_usage,omitempty"`
 	// Messages contains the full persisted user-visible history.
 	Messages []ChatMessage `json:"messages"`
+	// ActiveRequest describes a reply that is still being generated, so clients can resume polling.
+	ActiveRequest *ActiveChatRequest `json:"active_request,omitempty"`
+}
+
+// ActiveChatRequest describes an unfinished assistant request of a chat.
+type ActiveChatRequest struct {
+	// RequestID identifies the run to poll.
+	RequestID string `json:"request_id"`
+	// Activity contains safe user-visible execution progress of the run.
+	Activity []string `json:"activity,omitempty"`
 }
 
 // Config contains runtime assistant settings.
 type Config struct {
+	// Localizer renders new assistant responses in the installation language.
+	Localizer *texts.Localizer
 	// Enabled toggles assistant execution.
 	Enabled bool
 	// ModelName is the model identifier used for chat completion.
@@ -136,6 +165,9 @@ type Config struct {
 	ConversationInMemoryTTL time.Duration
 	// ConversationHistory optionally supplies persistent chat storage; production uses SQLite.
 	ConversationHistory conversation.HistoryStorage
+	// SyncPauses optionally supplies GitOps Pause Sync state for pending operation target validation.
+	// Pause Sync operations are unavailable when it is nil.
+	SyncPauses SyncPauseTargetResolver
 }
 
 // ServiceStore reads current service metadata used by RAG retrieval.

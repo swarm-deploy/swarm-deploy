@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t } from "../i18n";
 import { computed } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
@@ -10,10 +11,10 @@ type EventsAlertsTab = "alerts" | "events";
 
 const route = useRoute();
 const router = useRouter();
-const tabs = [
-  { value: "alerts", label: "Alerts", id: "alerts-tab", panelId: "alerts-panel" },
-  { value: "events", label: "Events", id: "events-tab", panelId: "events-panel" },
-] as const;
+const tabs = computed(() => [
+  { value: "alerts", label: t("alerts.tab"), id: "alerts-tab", panelId: "alerts-panel" },
+  { value: "events", label: t("events.tab"), id: "events-tab", panelId: "events-panel" },
+]);
 const activeTab = computed<EventsAlertsTab>(() => route.query.tab === "events" ? "events" : "alerts");
 
 function selectTab(tab: string): void {
@@ -31,12 +32,12 @@ function selectTab(tab: string): void {
 
 <template>
   <div class="events-alerts-page">
-    <h1>Events &amp; Alerts</h1>
+    <h1>{{ t('navigation.eventsAlerts') }}</h1>
     <AppTabs
       class="events-alerts-tabs"
       :model-value="activeTab"
       :tabs="tabs"
-      label="Events and alerts views"
+      :label="t('events.tabs')"
       @update:model-value="selectTab"
     />
 

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t } from "../../i18n";
 import { computed } from "vue";
 import { useRouter } from "vue-router";
 
@@ -51,55 +52,55 @@ async function openService(usage: SecretServiceUsage) {
   >
     <template #title>
       <h2 id="secret-details-title">
-        {{ secretDetailsStore.secret ? secretDetailsStore.secret.name : secretDetailsStore.selectedName || "Secret details" }}
+        {{ secretDetailsStore.secret ? secretDetailsStore.secret.name : secretDetailsStore.selectedName || t('secrets.details') }}
       </h2>
     </template>
 
     <div class="modal-body">
-      <p v-if="secretDetailsStore.loading" class="meta">Loading secret details...</p>
+      <p v-if="secretDetailsStore.loading" class="meta">{{ t('secrets.loadingDetails') }}</p>
       <p v-else-if="secretDetailsStore.error" class="meta">
-        Failed to load secret details: {{ secretDetailsStore.error }}
+        {{ t('secrets.detailsError', { error: secretDetailsStore.error }) }}
       </p>
       <div v-else-if="secretDetailsStore.secret" class="service-metrics">
-        <AppTable summary aria-label="Secret summary">
+        <AppTable summary :aria-label="t('secrets.summary')">
             <tr>
               <th scope="row">ID</th>
               <td><code>{{ secretDetailsStore.secret.id }}</code></td>
             </tr>
             <tr>
-              <th scope="row">Name</th>
+              <th scope="row">{{ t('common.name') }}</th>
               <td>{{ secretDetailsStore.secret.name }}</td>
             </tr>
             <tr>
-              <th scope="row">Description</th>
-              <td>{{ secretDescription || "n/a" }}</td>
+              <th scope="row">{{ t('common.description') }}</th>
+              <td>{{ secretDescription || t('common.notApplicable') }}</td>
             </tr>
             <tr>
-              <th scope="row">Version ID</th>
+              <th scope="row">{{ t('secrets.versionId') }}</th>
               <td>{{ secretDetailsStore.secret.version_id }}</td>
             </tr>
             <tr>
-              <th scope="row">Created At</th>
+              <th scope="row">{{ t('secrets.createdAt') }}</th>
               <td>{{ formatDate(secretDetailsStore.secret.created_at) }}</td>
             </tr>
             <tr>
-              <th scope="row">Updated At</th>
+              <th scope="row">{{ t('secrets.updatedAt') }}</th>
               <td>{{ formatDate(secretDetailsStore.secret.updated_at) }}</td>
             </tr>
             <tr>
-              <th scope="row">Driver</th>
-              <td>{{ secretDetailsStore.secret.driver || "n/a" }}</td>
+              <th scope="row">{{ t('common.driver') }}</th>
+              <td>{{ secretDetailsStore.secret.driver || t('common.notApplicable') }}</td>
             </tr>
             <tr>
-              <th scope="row">External Path</th>
-              <td>{{ secretDetailsStore.secret.external?.path || "n/a" }}</td>
+              <th scope="row">{{ t('secrets.externalPath') }}</th>
+              <td>{{ secretDetailsStore.secret.external?.path || t('common.notApplicable') }}</td>
             </tr>
             <tr>
-              <th scope="row">External Version ID</th>
-              <td>{{ secretDetailsStore.secret.external?.version_id || "n/a" }}</td>
+              <th scope="row">{{ t('secrets.externalVersionId') }}</th>
+              <td>{{ secretDetailsStore.secret.external?.version_id || t('common.notApplicable') }}</td>
             </tr>
             <tr>
-              <th scope="row">Labels</th>
+              <th scope="row">{{ t('common.labels') }}</th>
               <td>
                 <ul v-if="secretLabels.length > 0" class="event-details">
                   <li v-for="[key, value] in secretLabels" :key="key" class="event-detail">
@@ -107,13 +108,13 @@ async function openService(usage: SecretServiceUsage) {
                     <code class="event-detail-value">{{ value }}</code>
                   </li>
                 </ul>
-                <span v-else class="meta">No labels.</span>
+                <span v-else class="meta">{{ t('common.noLabels') }}</span>
               </td>
             </tr>
         </AppTable>
 
         <section class="secret-used-by" aria-labelledby="secret-used-by-title">
-          <h3 id="secret-used-by-title">Used by services</h3>
+          <h3 id="secret-used-by-title">{{ t('secrets.usedByServices') }}</h3>
           <ul v-if="usedByServices.length > 0" class="secret-used-by-list">
             <li v-for="usage in usedByServices" :key="`${usage.stack}/${usage.service}/${usage.target || ''}`">
               <button type="button" class="secret-used-by-service" @click="openService(usage)">
@@ -122,7 +123,7 @@ async function openService(usage: SecretServiceUsage) {
               </button>
             </li>
           </ul>
-          <p v-else class="meta">Not used by any service</p>
+          <p v-else class="meta">{{ t('secrets.unused') }}</p>
         </section>
       </div>
     </div>

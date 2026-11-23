@@ -186,8 +186,9 @@ network reconciliation and queue dispatch succeeded (a run during shutdown, whos
 no longer accepts, is reported as `error`), **not** that any stack deployed successfully.
 The `GET /api/v1/stacks` response exposes this input-side state as a compact `sync` object:
 
-- `last_poll` is present only in `pull` and `hybrid` modes and reports the latest polling attempt as
-  `updated`, `no_change`, or `error` with its sanitized diagnostic;
+- `last_poll` is present only in `pull` and `hybrid` modes and reports the latest Git pull attempt as
+  `updated`, `no_change`, or `error` with its sanitized diagnostic. Scheduled polls, startup, webhooks,
+  and manual syncs all update it after pulling Git;
 - `last_webhook` is present only when webhooks are enabled and reports the latest retained
   `WebhookReceived` event. Its `queued` value means accepted for reconciliation scheduling, not deployed;
 - `last_revision` is the full revision most recently dispatched to the stack queue.
