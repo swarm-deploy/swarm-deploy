@@ -1,9 +1,11 @@
 import { flushPromises, mount } from "@vue/test-utils";
 import { createMemoryHistory, createRouter } from "vue-router";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { fetchEventFilters, fetchEvents } from "../api/overview";
 import type { EventHistoryItem } from "../api/types";
+import EventDetailsModal from "../components/overview/EventDetailsModal.vue";
+import { i18n } from "../i18n";
 import EventsView from "./EventsView.vue";
 
 vi.mock("../api/overview", () => ({
@@ -27,7 +29,7 @@ const events: EventHistoryItem[] = [
     severity: "info",
     category: "sync",
     created_at: "2026-10-06T16:00:00Z",
-    message: "Older info",
+    message: "Manual sync started",
   },
   {
     id: "newer-info",
@@ -102,6 +104,50 @@ describe("EventsView", () => {
       });
       return { events: sorted };
     });
+  });
+
+  afterEach(() => { i18n.global.locale.value = "en"; });
+
+  it.each([
+    ["en", "Service prod/api replicas increased from 0 to 3"],
+    ["ru", "Для сервиса prod/api число реплик увеличено с 0 до 3"],
+  ] as const)("renders the same message in the event list and modal in %s", async (locale, expected) => {
+    i18n.global.locale.value = locale;
+    const scaled: EventHistoryItem = {
+      ...events[0], type: "ServiceReplicasIncreased", message: "Stored scale message",
+      details: { stack_name: "prod", service_name: "api", previous_replicas: "0", current_replicas: "3" },
+    };
+    const legacy = { ...scaled, id: "legacy", details: { stack_name: "prod" }, message: "Legacy scaling details" };
+    const unknown = { ...scaled, id: "unknown", type: "FutureEvent", message: "Future diagnostic details" };
+    vi.mocked(fetchEvents).mockResolvedValueOnce({ events: [scaled, legacy, unknown] });
+    const { wrapper } = await mountView("/events?severity=info");
+
+    expect(renderedMessages(wrapper)).toEqual([expected, legacy.message, unknown.message]);
+    expect(fetchEvents).toHaveBeenCalledWith(expect.objectContaining({ severities: ["info"] }));
+    const modal = mount(EventDetailsModal, {
+      props: { open: true, event: scaled, loading: false, error: "" },
+    });
+    expect(modal.get("tr:nth-child(5) td").text()).toBe(expected);
+    await modal.setProps({ event: legacy });
+    expect(modal.get("tr:nth-child(5) td").text()).toBe(legacy.message);
+    await modal.setProps({ event: unknown });
+    expect(modal.get("tr:nth-child(5) td").text()).toBe(unknown.message);
+    modal.unmount();
+    wrapper.unmount();
+  });
+
+  it("localizes a sync pause outside the default type options", async () => {
+    i18n.global.locale.value = "ru";
+    vi.mocked(fetchEvents).mockResolvedValueOnce({ events: [{
+      ...events[0], type: "SyncPaused", message: "Stored sync pause",
+      details: { scope: "service", stack_name: "prod", service_name: "api" },
+    }] });
+    const { wrapper } = await mountView("/events?types=SyncPaused");
+
+    expect(renderedMessages(wrapper)).toEqual(["Синхронизация для prod/api приостановлена"]);
+    expect(wrapper.get(".events-type-filter .app-select-menu").text()).toContain("Синхронизация приостановлена");
+    expect(fetchEvents).toHaveBeenCalledWith(expect.objectContaining({ types: ["SyncPaused"] }));
+    wrapper.unmount();
   });
 
   it.each(["success", "error"])("ignores stale cursor %s after a filter change", async (outcome) => {
@@ -270,7 +316,7 @@ describe("EventsView", () => {
   it("sorts by time descending by default and toggles time direction", async () => {
     const { wrapper } = await mountView();
 
-    expect(renderedMessages(wrapper)).toEqual(["Newer info", "Warning", "Older info", "Error"]);
+    expect(renderedMessages(wrapper)).toEqual(["Newer info", "Warning", "Manual sync started", "Error"]);
 
     const timeButton = wrapper.findAll("thead button").find((button) => button.text().startsWith("Time"));
     expect(timeButton).toBeDefined();
@@ -279,7 +325,7 @@ describe("EventsView", () => {
     await timeButton!.trigger("click");
     await flushPromises();
 
-    expect(renderedMessages(wrapper)).toEqual(["Error", "Older info", "Warning", "Newer info"]);
+    expect(renderedMessages(wrapper)).toEqual(["Error", "Manual sync started", "Warning", "Newer info"]);
     const refreshedTimeButton = wrapper.findAll("thead button").find((button) => button.text().startsWith("Time"));
     expect(refreshedTimeButton!.element.closest("th")?.getAttribute("aria-sort")).toBe("ascending");
   });
@@ -293,14 +339,14 @@ describe("EventsView", () => {
     await severityButton!.trigger("click");
     await flushPromises();
 
-    expect(renderedMessages(wrapper)).toEqual(["Error", "Warning", "Newer info", "Older info"]);
+    expect(renderedMessages(wrapper)).toEqual(["Error", "Warning", "Newer info", "Manual sync started"]);
     expect(router.currentRoute.value.query.sort).toBe("severity");
     expect(router.currentRoute.value.query.order).toBe("desc");
 
     await severityButton!.trigger("click");
     await flushPromises();
 
-    expect(renderedMessages(wrapper)).toEqual(["Newer info", "Older info", "Warning", "Error"]);
+    expect(renderedMessages(wrapper)).toEqual(["Newer info", "Manual sync started", "Warning", "Error"]);
     expect(router.currentRoute.value.query.order).toBe("asc");
   });
 
@@ -320,7 +366,7 @@ describe("EventsView", () => {
     expect(fetchEvents).toHaveBeenLastCalledWith({
       types: [], severities: [], limit: 50, sort: "time", order: "desc", cursor: "page-2",
     });
-    expect(renderedMessages(wrapper)).toEqual(["Older info", "Error"]);
+    expect(renderedMessages(wrapper)).toEqual(["Manual sync started", "Error"]);
     expect(wrapper.find(".events-pagination").text()).toContain("Page 2");
     expect(wrapper.findAll(".events-pagination button")[1].attributes("disabled")).toBeDefined();
 
@@ -344,13 +390,13 @@ describe("EventsView", () => {
     expect(fetchEvents).toHaveBeenLastCalledWith({
       types: [], severities: [], limit: 50, sort: "time", order: "asc",
     });
-    expect(renderedMessages(wrapper)).toEqual(["Error", "Older info"]);
+    expect(renderedMessages(wrapper)).toEqual(["Error", "Manual sync started"]);
   });
 
   it("restores sorting from the URL", async () => {
     const { wrapper } = await mountView("/events?sort=severity&order=asc");
 
-    expect(renderedMessages(wrapper)).toEqual(["Newer info", "Older info", "Warning", "Error"]);
+    expect(renderedMessages(wrapper)).toEqual(["Newer info", "Manual sync started", "Warning", "Error"]);
     const severityHeader = wrapper.findAll("th").find((header) => header.text().startsWith("Severity"));
     expect(severityHeader?.attributes("aria-sort")).toBe("ascending");
   });
@@ -384,14 +430,14 @@ describe("EventsView", () => {
 
     const filterButtons = wrapper.findAll(".event-detail-filter");
     expect(filterButtons).toHaveLength(2);
-    await filterButtons.find((button) => button.attributes("aria-label")?.includes("stack_name"))!.trigger("click");
+    await filterButtons.find((button) => button.attributes("aria-label") === "Filter by Stack payments")!.trigger("click");
     await flushPromises();
     expect(router.currentRoute.value.query.stack_name).toBe("payments");
     expect(fetchEvents).toHaveBeenLastCalledWith(expect.objectContaining({ stackNames: ["payments"] }));
 
     await wrapper.find("tbody tr.app-table-row--clickable").trigger("click");
     await wrapper.findAll(".event-detail-filter")
-      .find((button) => button.attributes("aria-label")?.includes("service_name"))!.trigger("click");
+      .find((button) => button.attributes("aria-label") === "Filter by Service api")!.trigger("click");
     await flushPromises();
     expect(router.currentRoute.value.query.service_name).toBe("api");
     expect(fetchEvents).toHaveBeenLastCalledWith(expect.objectContaining({

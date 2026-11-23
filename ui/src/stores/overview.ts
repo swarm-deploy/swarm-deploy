@@ -290,8 +290,8 @@ export const useOverviewStore = defineStore("overview", {
       } catch (error) {
         if (request === this.alertDetailsRequest) {
           this.alertDetailsError = error instanceof ApiError && error.status === 404
-            ? "This alert was not found."
-            : `Failed to load alert details: ${error instanceof Error ? error.message : "Unknown error"}`;
+            ? t("alerts.notFound")
+            : t("alerts.detailsLoadError", { error: error instanceof Error ? error.message : t("common.unknownError") });
         }
       } finally {
         if (request === this.alertDetailsRequest) this.alertDetailsLoading = false;

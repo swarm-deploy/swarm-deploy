@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { computed } from "vue";
+import { enumLabel, formatNumber, plural, t } from "../../i18n";
 
 import AppButton from "../common/AppButton.vue";
 import AppModal from "../common/AppModal.vue";
 import AppStatusBadge from "../common/AppStatusBadge.vue";
 import DeploymentIcon from "./DeploymentIcon.vue";
 import { useOverviewStore } from "../../stores/overview";
+import { alertFindingTitle, alertKindLabel, alertResourceLabel, alertStatusLabel, alertTitle } from "../../utils/alertPresentation";
 import { formatDate, shortCommitHash } from "../../utils/format";
 
 const props = defineProps<{ linked?: boolean }>();
@@ -14,22 +16,13 @@ const overviewStore = useOverviewStore();
 const timestampOptions: Intl.DateTimeFormatOptions = {
   month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23",
 };
-const detailTimestamp = new Intl.DateTimeFormat(undefined, { ...timestampOptions, year: "numeric" });
-const footerTimestamp = new Intl.DateTimeFormat(undefined, timestampOptions);
-
-function formatTimestamp(raw: string, formatter: Intl.DateTimeFormat) {
-  const date = new Date(raw);
-  return Number.isNaN(date.valueOf()) ? formatDate(raw) : formatter.format(date);
-}
+const detailTimestamp: Intl.DateTimeFormatOptions = { ...timestampOptions, year: "numeric" };
 
 const alert = computed(() => overviewStore.alertDetailsAlert);
 const isResolved = computed(() => alert.value?.status === "resolved");
 const resolutionTitle = computed(() => {
-  switch (alert.value?.resolution?.reason) {
-    case "recovered": return "Recovered successfully";
-    case "resource_removed": return "Resource removed";
-    default: return "Resolved";
-  }
+  const reason = alert.value?.resolution?.reason;
+  return reason ? enumLabel("alertResolutions", reason) : alertStatusLabel("resolved");
 });
 const stackTarget = computed(() => {
   if (alert.value?.resourceType !== "stack" || !alert.value.resourceId) return null;
@@ -83,11 +76,11 @@ function openCommit() {
     @close="closeAlertDetailsModal"
   >
     <template #title>
-      <h2 id="alert-details-title">Alert details</h2>
+      <h2 id="alert-details-title">{{ t('alerts.details') }}</h2>
     </template>
 
     <div v-if="overviewStore.alertDetailsLoading" class="modal-body alert-details-body">
-      <p class="meta" role="status">Loading alert details...</p>
+      <p class="meta" role="status">{{ t('alerts.loadingDetails') }}</p>
     </div>
     <div v-else-if="overviewStore.alertDetailsError" class="modal-body alert-details-body">
       <p class="meta" role="alert">{{ overviewStore.alertDetailsError }}</p>
@@ -97,12 +90,12 @@ function openCommit() {
         <div>
           <div class="alert-details-heading">
             <div>
-              <span class="alert-details-kind">{{ alert.kind.replaceAll("_", " ") }}</span>
-              <h3>{{ alert.title || "Alert" }}</h3>
+              <span class="alert-details-kind">{{ alertKindLabel(alert.kind) }}</span>
+              <h3>{{ alertTitle(alert) }}</h3>
             </div>
             <AppStatusBadge :variant="isResolved ? 'success' : 'error'" filled>
               <DeploymentIcon v-if="isResolved" name="check" />
-              {{ isResolved ? "Resolved" : "Active" }}
+              {{ alertStatusLabel(alert.status) }}
             </AppStatusBadge>
           </div>
           <div class="alert-details-resource">
@@ -111,37 +104,37 @@ function openCommit() {
             </svg>
             <DeploymentIcon v-else-if="alert.resourceType === 'service'" name="service" />
             <span>
-              {{ alert.resourceType }} /
+              {{ alertResourceLabel(alert.resourceType) }} /
               <RouterLink v-if="resourceTarget" :to="resourceTarget" class="alert-details-link" @click="closeOnResourceNavigation">
                 {{ alert.resourceId }}
               </RouterLink>
-              <strong v-else>{{ alert.resourceId || "unknown" }}</strong>
+              <strong v-else>{{ alert.resourceId || t('alerts.unknownResource') }}</strong>
             </span>
-            <span class="alert-details-occurrences">{{ alert.occurrences }} {{ alert.occurrences === 1 ? "occurrence" : "occurrences" }}</span>
+            <span class="alert-details-occurrences">{{ plural('alerts.occurrenceCount', alert.occurrences) }}</span>
           </div>
         </div>
 
-        <section v-if="isResolved" class="alert-details-resolution" aria-label="Resolution">
+        <section v-if="isResolved" class="alert-details-resolution" :aria-label="t('alerts.resolution')">
           <DeploymentIcon v-if="alert.resolution?.reason === 'recovered'" name="check" class="alert-details-recovery-icon" />
           <div class="alert-details-resolution-message">
             <h4>{{ resolutionTitle }}</h4>
             <p v-if="alert.resolution?.message">{{ alert.resolution.message }}</p>
           </div>
           <time v-if="alert.resolvedAt" :datetime="alert.resolvedAt" :title="formatDate(alert.resolvedAt)">
-            {{ new Date(alert.resolvedAt).toLocaleTimeString() }}
+            {{ formatDate(alert.resolvedAt, { timeStyle: "medium" }) }}
           </time>
         </section>
 
         <section>
-          <h4>What happened</h4>
+          <h4>{{ t('alerts.diagnostic') }}</h4>
           <p class="alert-details-diagnostic" :class="{ 'alert-details-diagnostic--open': !isResolved }">
-            {{ alert.message || "No detailed diagnostic was recorded." }}
+            {{ alert.message || t('alerts.noDiagnostic') }}
           </p>
         </section>
 
         <details v-if="alert.findings?.length" :key="alert.id" class="alert-details-findings">
           <summary>
-            Findings <span class="alert-details-count">{{ alert.findings.length }}</span>
+            {{ t('alerts.findings') }} <span class="alert-details-count">{{ formatNumber(alert.findings.length) }}</span>
             <svg class="alert-details-chevron" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
               <path d="m4 6 4 4 4-4" />
             </svg>
@@ -149,32 +142,36 @@ function openCommit() {
           <ul>
             <li v-for="finding in alert.findings" :key="finding.code">
               <div class="alert-details-finding">
-                <strong>{{ finding.summary }}</strong>
-                <div class="alert-details-finding-code">Code <code>{{ finding.code }}</code></div>
+                <strong>{{ alertFindingTitle(finding) }}</strong>
+                <div v-if="finding.summary && finding.summary !== alertFindingTitle(finding)" class="alert-details-finding-summary">
+                  {{ finding.summary }}
+                </div>
+                <div class="alert-details-finding-code">{{ t('alerts.code') }} <code>{{ finding.code }}</code></div>
               </div>
             </li>
           </ul>
         </details>
 
         <section class="alert-details-metadata">
-          <h4>Details</h4>
+          <h4>{{ t('common.details') }}</h4>
           <dl>
             <div>
-              <dt>Opened</dt>
-              <dd><time :datetime="alert.openedAt">{{ formatTimestamp(alert.openedAt, detailTimestamp) }}</time></dd>
+              <dt>{{ t('alerts.openedAt') }}</dt>
+              <dd><time :datetime="alert.openedAt">{{ formatDate(alert.openedAt, detailTimestamp) }}</time></dd>
             </div>
             <div v-if="isResolved && alert.resolvedAt">
-              <dt>Resolved</dt>
-              <dd><time :datetime="alert.resolvedAt">{{ formatTimestamp(alert.resolvedAt, detailTimestamp) }}</time></dd>
+              <dt>{{ t('alerts.resolvedAt') }}</dt>
+              <dd><time :datetime="alert.resolvedAt">{{ formatDate(alert.resolvedAt, detailTimestamp) }}</time></dd>
             </div>
             <div v-if="alert.errorCode">
-              <dt>Technical code</dt>
+              <dt>{{ t('alerts.technicalCode') }}</dt>
               <dd><code>{{ alert.errorCode }}</code></dd>
             </div>
             <div v-if="alert.commit">
-              <dt>Commit</dt>
+              <dt>{{ t('common.commit') }}</dt>
               <dd>
-                <button type="button" class="alert-details-link" :title="alert.commit" @click="openCommit">
+                <button type="button" class="alert-details-link" :title="alert.commit"
+                  :aria-label="t('common.openCommit', { commit: alert.commit })" @click="openCommit">
                   {{ shortCommitHash(alert.commit) }}
                 </button>
               </dd>
@@ -184,11 +181,11 @@ function openCommit() {
       </div>
 
       <footer class="alert-details-footer">
-        <span>Updated <time :datetime="alert.updatedAt" :title="formatDate(alert.updatedAt)">{{ formatTimestamp(alert.updatedAt, footerTimestamp) }}</time></span>
-        <nav v-if="stackTarget || alert.deploymentId" class="alert-details-actions" aria-label="Related resources">
-          <AppButton v-if="stackTarget" :to="stackTarget" variant="secondary" compact @click="closeOnResourceNavigation">View stack</AppButton>
+        <span>{{ t('common.updated') }} <time :datetime="alert.updatedAt" :title="formatDate(alert.updatedAt)">{{ formatDate(alert.updatedAt, timestampOptions) }}</time></span>
+        <nav v-if="stackTarget || alert.deploymentId" class="alert-details-actions" :aria-label="t('alerts.relatedResources')">
+          <AppButton v-if="stackTarget" :to="stackTarget" variant="secondary" compact @click="closeOnResourceNavigation">{{ t('alerts.viewStack') }}</AppButton>
           <AppButton v-if="alert.deploymentId" compact @click="openDeployment">
-            View deployment <span aria-hidden="true">↗</span>
+            {{ t('alerts.viewDeployment') }} <span aria-hidden="true">↗</span>
           </AppButton>
         </nav>
       </footer>
@@ -343,7 +340,8 @@ function openCommit() {
 .alert-details-findings li:last-child { padding-bottom: 0; }
 .alert-details-findings li + li { border-top: 1px solid var(--alert-details-divider); }
 .alert-details-finding { border-inline-start: 2px solid var(--alert-details-incident-line); padding: 3px 0 3px 13px; }
-.alert-details-finding strong { white-space: pre-wrap; }
+.alert-details-finding strong,
+.alert-details-finding-summary { white-space: pre-wrap; }
 .alert-details-finding-code {
   display: flex;
   align-items: baseline;

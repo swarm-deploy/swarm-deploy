@@ -14,6 +14,7 @@ import RecentDeploymentsPanel from "../components/overview/RecentDeploymentsPane
 import ServicesTable from "../components/overview/ServicesTable.vue";
 import DeploymentActivityChart from "../components/stack/DeploymentActivityChart.vue";
 import { useOverviewStore } from "../stores/overview";
+import { alertTitle } from "../utils/alertPresentation";
 import { formatDate, shortCommitHash } from "../utils/format";
 import { stackSyncStatus } from "../utils/stackStatus";
 
@@ -177,19 +178,19 @@ onUnmounted(() => { request++; });
         </div>
       </dl>
 
-      <p v-if="alertsError" class="stack-inline-error" role="alert">Failed to load alerts: {{ alertsError }}</p>
+      <p v-if="alertsError" class="stack-inline-error" role="alert">{{ t('alerts.loadError', { error: alertsError }) }}</p>
       <section v-else-if="alerts.length" class="stack-panel stack-alert-panel" aria-labelledby="stack-alerts-title">
         <header class="overview-summary-panel-header">
           <div class="service-panel-heading">
             <span class="overview-summary-panel-icon" aria-hidden="true">
               <DeploymentIcon name="warning" />
             </span>
-            <h3 id="stack-alerts-title" class="overview-panel-title">Active Alerts</h3>
+            <h3 id="stack-alerts-title" class="overview-panel-title">{{ t('alerts.activeTitle') }}</h3>
           </div>
         </header>
         <button v-for="alert in alerts" :key="alert.id" type="button" class="stack-alert-row"
-          :aria-label="`Open alert: ${alert.title}`" @click="store.openAlertDetailsModal(alert)">
-          <DeploymentIcon name="warning" /><span>{{ alert.title }}</span><time :datetime="alert.updatedAt">{{ formatDate(alert.updatedAt) }}</time>
+          :aria-label="t('alerts.open', { title: alertTitle(alert) })" @click="store.openAlertDetailsModal(alert)">
+          <DeploymentIcon name="warning" /><span>{{ alertTitle(alert) }}</span><time :datetime="alert.updatedAt">{{ formatDate(alert.updatedAt) }}</time>
         </button>
       </section>
 

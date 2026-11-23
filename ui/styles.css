@@ -1600,12 +1600,12 @@ a.overview-summary-row:focus-visible {
 
 .events-table th:nth-child(1),
 .events-table td:nth-child(1) {
-  width: 24%;
+  width: 21%;
 }
 
 .events-table th:nth-child(2),
 .events-table td:nth-child(2) {
-  width: 13%;
+  width: 23%;
 }
 
 .events-table th:nth-child(3),
@@ -1615,7 +1615,11 @@ a.overview-summary-row:focus-visible {
 
 .events-table th:nth-child(4),
 .events-table td:nth-child(4) {
-  width: 40%;
+  width: 33%;
+}
+
+.events-table td:nth-child(n + 3) {
+  overflow-wrap: anywhere;
 }
 
 .events-details-row td {
