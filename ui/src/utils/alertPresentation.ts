@@ -15,6 +15,21 @@ export function alertTitle(alert: Alert): string {
   return enumLabel("alertTitles", alert.kind, t("alerts.alert"));
 }
 
+export function alertMessage(alert: Alert): string {
+  if (alert.kind === "node_disconnected" && alert.message === en.alerts.nodeNotReady) {
+    return t("alerts.nodeNotReady");
+  }
+  return alert.message;
+}
+
+export function alertResolutionMessage(alert: Alert): string {
+  const resolution = alert.resolution;
+  if (alert.kind === "node_disconnected" && resolution?.reason === "recovered" && resolution.message === en.alerts.nodeReconnected) {
+    return t("alerts.nodeReconnected");
+  }
+  return resolution?.message ?? "";
+}
+
 export function alertKindLabel(kind: string): string {
   return enumLabel("alertKinds", kind);
 }

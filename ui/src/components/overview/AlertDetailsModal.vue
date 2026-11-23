@@ -7,7 +7,9 @@ import AppModal from "../common/AppModal.vue";
 import AppStatusBadge from "../common/AppStatusBadge.vue";
 import DeploymentIcon from "./DeploymentIcon.vue";
 import { useOverviewStore } from "../../stores/overview";
-import { alertFindingTitle, alertKindLabel, alertResourceLabel, alertStatusLabel, alertTitle } from "../../utils/alertPresentation";
+import {
+  alertFindingTitle, alertKindLabel, alertMessage, alertResolutionMessage, alertResourceLabel, alertStatusLabel, alertTitle,
+} from "../../utils/alertPresentation";
 import { formatDate, shortCommitHash } from "../../utils/format";
 
 const props = defineProps<{ linked?: boolean }>();
@@ -118,7 +120,7 @@ function openCommit() {
           <DeploymentIcon v-if="alert.resolution?.reason === 'recovered'" name="check" class="alert-details-recovery-icon" />
           <div class="alert-details-resolution-message">
             <h4>{{ resolutionTitle }}</h4>
-            <p v-if="alert.resolution?.message">{{ alert.resolution.message }}</p>
+            <p v-if="alert.resolution?.message">{{ alertResolutionMessage(alert) }}</p>
           </div>
           <time v-if="alert.resolvedAt" :datetime="alert.resolvedAt" :title="formatDate(alert.resolvedAt)">
             {{ formatDate(alert.resolvedAt, { timeStyle: "medium" }) }}
@@ -128,7 +130,7 @@ function openCommit() {
         <section>
           <h4>{{ t('alerts.diagnostic') }}</h4>
           <p class="alert-details-diagnostic" :class="{ 'alert-details-diagnostic--open': !isResolved }">
-            {{ alert.message || t('alerts.noDiagnostic') }}
+            {{ alertMessage(alert) || t('alerts.noDiagnostic') }}
           </p>
         </section>
 

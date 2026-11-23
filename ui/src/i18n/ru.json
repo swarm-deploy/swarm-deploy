@@ -66,6 +66,8 @@
     "loadError": "Не удалось загрузить оповещения: {error}",
     "loading": "Загрузка оповещений…",
     "loadingDetails": "Загрузка сведений об оповещении…",
+    "nodeNotReady": "Узел Swarm не готов к работе",
+    "nodeReconnected": "Узел Swarm снова подключён",
     "noActive": "Нет активных оповещений",
     "noDiagnostic": "Подробная диагностика отсутствует.",
     "noMatchingResources": "Подходящих ресурсов нет",

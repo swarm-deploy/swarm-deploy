@@ -66,6 +66,8 @@
     "loadError": "Failed to load alerts: {error}",
     "loading": "Loading alerts...",
     "loadingDetails": "Loading alert details...",
+    "nodeNotReady": "Swarm node is not ready",
+    "nodeReconnected": "Swarm node reconnected",
     "noActive": "No active alerts",
     "noDiagnostic": "No detailed diagnostic was recorded.",
     "noMatchingResources": "No matching resources",

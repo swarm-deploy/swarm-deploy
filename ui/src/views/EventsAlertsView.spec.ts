@@ -1,9 +1,10 @@
 import { flushPromises, mount } from "@vue/test-utils";
 import { createMemoryHistory, createRouter } from "vue-router";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { fetchAlerts, fetchEventFilters, fetchEvents } from "../api/overview";
 import type { Alert } from "../api/types";
+import { i18n } from "../i18n";
 import EventsAlertsView from "./EventsAlertsView.vue";
 
 vi.mock("../api/overview", () => ({ fetchEvents: vi.fn(), fetchEventFilters: vi.fn(), fetchAlerts: vi.fn() }));
@@ -87,6 +88,16 @@ describe("Events & Alerts", () => {
     }] });
     vi.mocked(fetchAlerts).mockReset();
     vi.mocked(fetchAlerts).mockResolvedValue({ alerts: [activeAlert, resolvedAlert] });
+  });
+
+  afterEach(() => { i18n.global.locale.value = "en"; });
+
+  it("translates the standard node diagnostic in the alert list", async () => {
+    i18n.global.locale.value = "ru";
+    vi.mocked(fetchAlerts).mockResolvedValue({ alerts: [{ ...activeAlert, message: "Swarm node is not ready" }] });
+    const { wrapper } = await mountView();
+    expect(wrapper.get(".alerts-message").text()).toBe("Узел Swarm не готов к работе");
+    wrapper.unmount();
   });
 
   it("shows all alerts by default and sorts by the displayed timestamp", async () => {

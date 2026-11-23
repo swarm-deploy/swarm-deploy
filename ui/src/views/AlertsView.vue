@@ -11,7 +11,7 @@ import AppSelect from "../components/common/AppSelect.vue";
 import AppStatusBadge from "../components/common/AppStatusBadge.vue";
 import AppTable from "../components/common/AppTable.vue";
 import AppTableEmpty from "../components/common/AppTableEmpty.vue";
-import { alertKindLabel, alertResourceLabel, alertStatusLabel, alertTitle } from "../utils/alertPresentation";
+import { alertKindLabel, alertMessage, alertResourceLabel, alertStatusLabel, alertTitle } from "../utils/alertPresentation";
 import { formatDate } from "../utils/format";
 
 const route = useRoute();
@@ -184,7 +184,7 @@ onMounted(() => void loadAlerts());
         </td>
         <td>
           <RouterLink :to="alertDetailsLocation(alert.id)" class="alerts-title" @click.stop>{{ alertTitle(alert) }}</RouterLink>
-          <span v-if="alert.message && alert.message !== alert.title" class="alerts-message">{{ alert.message }}</span>
+          <span v-if="alert.message && alert.message !== alert.title" class="alerts-message">{{ alertMessage(alert) }}</span>
         </td>
         <td class="alerts-resource">{{ alert.resourceId || t('alerts.unknownResource') }}</td>
         <td>{{ formatNumber(alert.occurrences) }}</td>

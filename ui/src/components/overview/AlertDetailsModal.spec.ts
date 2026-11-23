@@ -51,6 +51,21 @@ describe("Alert details modal", () => {
     wrapper.unmount();
   });
 
+  it.each([
+    ["Swarm node is not ready", "Swarm node reconnected", "Узел Swarm не готов к работе", "Узел Swarm снова подключён"],
+    ["Swarm node is not ready: worker-2", "Swarm node reconnected via eth1",
+      "Swarm node is not ready: worker-2", "Swarm node reconnected via eth1"],
+  ])("presents the recorded node diagnostic and recovery: %s", (message, recovery, expectedMessage, expectedRecovery) => {
+    i18n.global.locale.value = "ru";
+    const { wrapper } = mountAlert({
+      kind: "node_disconnected", resourceType: "node", resourceId: "worker-2", title: "Node disconnected",
+      message, status: "resolved", resolution: { reason: "recovered", message: recovery, eventId: "four" },
+    });
+    expect(wrapper.get(".alert-details-diagnostic").text()).toBe(expectedMessage);
+    expect(wrapper.get(".alert-details-resolution p").text()).toBe(expectedRecovery);
+    wrapper.unmount();
+  });
+
   it("shows the recorded resolution and keeps a single finding collapsed", () => {
     const { wrapper } = mountAlert({
       status: "resolved",
