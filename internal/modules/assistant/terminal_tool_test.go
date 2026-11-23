@@ -23,12 +23,14 @@ import (
 func TestFinalizeTerminalServiceActionResult(t *testing.T) {
 	testCases := []struct {
 		name           string
+		locale         string
 		toolName       string
 		toolResult     string
 		answerContains []string
 	}{
 		{
-			name:       "restart",
+			name:       "restart with an unrecognized warning",
+			locale:     "en",
 			toolName:   serviceRestartTriggerTool,
 			toolResult: `{"stack":"infra","service":"postgres","replicas":1,"warning":"audit unavailable"}`,
 			answerContains: []string{
@@ -38,17 +40,28 @@ func TestFinalizeTerminalServiceActionResult(t *testing.T) {
 		},
 		{
 			name:       "replicas",
+			locale:     "en",
 			toolName:   serviceReplicasSetTool,
 			toolResult: `{"stack":"core","service":"api","replicas":4}`,
 			answerContains: []string{
 				"replicas updated successfully", `stack "core"`, `service "api"`, "replicas set to 4",
 			},
 		},
+		{
+			name:       "replicas with an audit warning in Russian",
+			locale:     "ru",
+			toolName:   serviceReplicasSetTool,
+			toolResult: `{"stack":"core","service":"api","replicas":4,"warning":"audit_event_not_persisted"}`,
+			answerContains: []string{
+				`Число реплик сервиса "api" в стеке "core" изменено на 4.`,
+				"Предупреждение: не удалось сохранить событие аудита.",
+			},
+		},
 	}
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			answer, err := finalizeTerminalToolResult(testAssistantTexts(t, "en"), testCase.toolName, testCase.toolResult)
+			answer, err := finalizeTerminalToolResult(testAssistantTexts(t, testCase.locale), testCase.toolName, testCase.toolResult)
 			require.NoError(t, err)
 			assert.NotEqual(t, testCase.toolResult, answer, "raw JSON must not be returned")
 			for _, expected := range testCase.answerContains {

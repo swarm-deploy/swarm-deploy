@@ -19,6 +19,9 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 
+// ServiceActionWarningAuditEventNotPersisted marks an audit write failure after a successful mutation.
+const ServiceActionWarningAuditEventNotPersisted = "audit_event_not_persisted"
+
 // ServiceActionResult describes the resulting state of a service action.
 type ServiceActionResult struct {
 	// Stack is the stack containing the service.

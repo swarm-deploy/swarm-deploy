@@ -227,7 +227,7 @@ onUnmounted(() => {
         :disabled="!assistantEnabled"
         @click="emit('toggleAssistant')"
       >
-        <span class="topbar-assistant-label">Assistant</span>
+        <span class="topbar-assistant-label">{{ t('assistant.name') }}</span>
         <span class="topbar-assistant-icon" :title="t('assistant.name')" aria-hidden="true">
           <svg
             width="26"

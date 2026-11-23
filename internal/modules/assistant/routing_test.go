@@ -21,6 +21,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/enrichment/metadata"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/model"
+	"go.uber.org/mock/gomock"
 )
 
 type capturedChatRequest struct {
@@ -315,16 +316,16 @@ func TestAssistantLocalRoutesFinishBeforeGeneration(t *testing.T) {
 }
 
 func TestAssistantRoutesMixedFollowUpUsingConversationHistory(t *testing.T) {
-	const firstQuestion = "Как установить Prometheus?"
-	const firstAnswer = "Добавьте Prometheus в Compose управляемого стека."
-	const followUp = "А какие настройки добавить? И сделай HTML-страницу с кнопкой Download."
-	const scopedRequest = "Какие настройки Prometheus добавить в Compose?"
-	const followUpAnswer = "Добавьте конфигурацию scrape в файл prometheus.yml."
+	const firstQuestion = "Как настроить payments-api?"
+	const firstAnswer = "Добавьте payments-api в Compose управляемого стека."
+	const followUp = "Покажи его логи. И сделай HTML-страницу с кнопкой Download."
+	const scopedRequest = "Покажи логи payments-api."
+	const followUpAnswer = "В логах payments-api есть ошибка подключения."
 
 	replies := []string{
 		`{"route":"platform","capabilities":[],"operation":null}`,
 		firstAnswer,
-		`{"route":"platform","capabilities":[],"operation":null,"scoped_request":"Какие настройки Prometheus добавить в Compose?"}`,
+		`{"route":"services","capabilities":["service_context","service_runtime"],"operation":null,"scoped_request":"` + scopedRequest + `"}`,
 		followUpAnswer,
 	}
 	var requests []capturedChatRequest
@@ -336,7 +337,17 @@ func TestAssistantRoutesMixedFollowUpUsingConversationHistory(t *testing.T) {
 	}))
 	defer server.Close()
 
-	svc := newRoutingTestService(t, server.URL, serviceStore(t, nil), &fakeTools{}, nil)
+	services := []model.Info{
+		{Name: "api-1", Stack: "core"},
+		{Name: "api-2", Stack: "core"},
+		{Name: "api-3", Stack: "core"},
+		{Name: "api-4", Stack: "core"},
+		{Name: "api-5", Stack: "core"},
+		{Name: "payments-api", Stack: "core"},
+	}
+	tools := NewMockToolExecutor(gomock.NewController(t))
+	tools.EXPECT().Definitions().Return(nil).AnyTimes()
+	svc := newRoutingTestService(t, server.URL, serviceStore(t, services), tools, nil)
 	first := svc.Chat(t.Context(), ChatRequest{Message: firstQuestion})
 	require.Equal(t, StatusCompleted, first.Status)
 	require.Equal(t, firstAnswer, first.Answer)
@@ -346,13 +357,16 @@ func TestAssistantRoutesMixedFollowUpUsingConversationHistory(t *testing.T) {
 
 	require.Len(t, requests, len(replies))
 	routerRequest, answerRequest := requests[2], requests[3]
-	for _, req := range []capturedChatRequest{routerRequest, answerRequest} {
-		require.Len(t, req.Messages, 4)
-		assert.Equal(t, firstQuestion, req.Messages[1].Content)
-		assert.Equal(t, firstAnswer, req.Messages[2].Content)
-	}
+	require.Len(t, routerRequest.Messages, 4)
+	assert.Equal(t, firstQuestion, routerRequest.Messages[1].Content)
+	assert.Equal(t, firstAnswer, routerRequest.Messages[2].Content)
 	assert.Equal(t, followUp, routerRequest.Messages[3].Content)
-	assert.Equal(t, scopedRequest, answerRequest.Messages[3].Content)
+	require.Len(t, answerRequest.Messages, 5)
+	assert.Contains(t, answerRequest.Messages[1].Content, "<service_context>")
+	assert.Contains(t, answerRequest.Messages[1].Content, "payments-api")
+	assert.Equal(t, firstQuestion, answerRequest.Messages[2].Content)
+	assert.Equal(t, firstAnswer, answerRequest.Messages[3].Content)
+	assert.Equal(t, scopedRequest, answerRequest.Messages[4].Content)
 	assert.False(t, requestContains(answerRequest, "кнопкой Download"))
 }
 

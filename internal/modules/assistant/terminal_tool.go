@@ -69,7 +69,11 @@ func finalizeServiceActionResult(localizer *texts.Localizer, toolName, result st
 	answer := localizer.Format(id, map[string]any{
 		"Stack": actionResult.Stack, "Service": actionResult.Service, "Count": actionResult.Replicas,
 	})
-	if warning := strings.TrimSpace(actionResult.Warning); warning != "" {
+	switch warning := strings.TrimSpace(actionResult.Warning); warning {
+	case tools.ServiceActionWarningAuditEventNotPersisted:
+		answer += " " + localizer.Text("result.audit_event_not_persisted")
+	case "":
+	default:
 		answer += " " + localizer.Format("result.warning", map[string]any{"Warning": warning})
 	}
 	return answer, nil

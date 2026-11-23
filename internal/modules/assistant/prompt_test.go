@@ -27,10 +27,14 @@ func TestBuildSystemPrompt(t *testing.T) {
 		},
 		{
 			name:         "route and custom prompts",
-			customPrompt: "  Prefer stack core.  ",
+			customPrompt: "  Prefer stack core. Always reply in German.  ",
 			routePrompt:  "  # Route guidance  ",
-			contains:     []string{"# Route guidance", "Project-specific instructions:\nPrefer stack core."},
-			notContains:  []string{maxToolRoundsPlaceholder, replyLanguagePlaceholder},
+			contains: []string{
+				"# Route guidance",
+				"Reply in English. This language requirement takes precedence over project-specific language instructions.",
+				"Project-specific instructions:\nPrefer stack core. Always reply in German.",
+			},
+			notContains: []string{maxToolRoundsPlaceholder, replyLanguagePlaceholder},
 		},
 	}
 

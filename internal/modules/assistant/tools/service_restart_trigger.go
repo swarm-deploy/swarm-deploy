@@ -91,7 +91,7 @@ func (s *RestartService) Execute(ctx context.Context, request routing.Request) (
 			slog.String("service", target.ServiceName()),
 			slog.Any("err", publishErr),
 		)
-		payload.Warning = "the service was restarted, but its audit event could not be persisted"
+		payload.Warning = ServiceActionWarningAuditEventNotPersisted
 	}
 
 	return routing.Response{

@@ -91,6 +91,7 @@
   "progress.tool_completed": "Tool {{.Tool}} completed in {{.Duration}}",
   "progress.tool_failed": "Tool {{.Tool}} failed after {{.Duration}}",
   "prompt.reply_language": "Reply in English.",
+  "result.audit_event_not_persisted": "Warning: the audit event could not be persisted.",
   "result.injection_rejected": "Request was rejected by prompt injection protection.",
   "result.pause_service_removed": "Direct Pause Sync policy removed for service \"{{.Service}}\" in stack \"{{.Stack}}\".",
   "result.pause_service_set": "Pause Sync enabled for service \"{{.Service}}\" in stack \"{{.Stack}}\".",

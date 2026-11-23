@@ -9,7 +9,7 @@ Assistant is available only when `assistant.enabled: true`.
 
 ## Language
 
-`system.language` selects English (`en`, the default) or Russian (`ru`) for the assistant UI, new replies, and execution progress. The assistant uses the installation language even when the question or earlier messages are in another language. Changing the installation language applies to the next reply in an existing chat. Saved messages and their activity remain in their original form.
+`system.language` selects English (`en`, the default) or Russian (`ru`) for the assistant UI, new replies, and execution progress. The assistant uses the installation language even when the question or earlier messages are in another language. Changing the installation language applies to the next reply in an existing chat. Saved messages and their activity remain in their original form. The installation language takes precedence over language instructions in `assistant.systemPrompt`.
 
 Both `yes` / `no` and `да` / `нет` work for operation confirmations. Resource names, identifiers, commands, and quoted tool output keep their original spelling.
 
@@ -17,7 +17,7 @@ Both `yes` / `no` and `да` / `нет` work for operation confirmations. Resour
 
 For a regular chat turn the configured model classifies the user's goal using the current message and up to six recent messages without calling tools. The assistant handles swarm-deploy usage and practical infrastructure tasks, including deployment, configuration, observability, operations, and troubleshooting. Supported tasks use the `platform`, `services`, `cluster`, `deployments`, `diagnostics`, or `lookups` profile. Exact greetings and acknowledgements use a local fast path. An invalid router response fails the request.
 
-The `general` and `out_of_scope` routes return a brief description of the assistant's specialization. The `needs_clarification` route asks which infrastructure task the user wants to solve. These turns end after routing, before retrieval, answer generation, or tool execution. For mixed requests, the router selects capabilities and sends the supported part to the response model. Routing and service retrieval use the original request text, which is also stored in the conversation.
+The `general` and `out_of_scope` routes return a brief description of the assistant's specialization. The `needs_clarification` route asks which infrastructure task the user wants to solve. These turns end after routing, before retrieval, answer generation, or tool execution. For mixed requests, the router selects capabilities and passes the supported part to service retrieval and the response model. The original request text is stored in the conversation.
 
 `platform` covers stable infrastructure guidance as well as swarm-deploy itself. Questions about the actual installation can request the configuration capability. Capabilities select operational tools independently of the response profile. Only `service_context` requests service catalog retrieval. Pure platform guidance reaches the response model with conversation history and the security-report tool.
 

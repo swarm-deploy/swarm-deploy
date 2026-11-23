@@ -120,7 +120,7 @@ func (s *SetServiceReplicas) Execute(ctx context.Context, request routing.Reques
 			slog.String("service", target.ServiceName()),
 			slog.Any("err", err),
 		)
-		payload.Warning = "replicas were updated, but the audit event could not be persisted"
+		payload.Warning = ServiceActionWarningAuditEventNotPersisted
 	}
 
 	return routing.Response{

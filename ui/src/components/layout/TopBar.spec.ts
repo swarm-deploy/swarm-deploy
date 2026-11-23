@@ -4,6 +4,7 @@ import { createMemoryHistory, createRouter } from "vue-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { fetchSearch } from "../../api/search";
+import { i18n } from "../../i18n";
 import TopBar from "./TopBar.vue";
 
 vi.mock("../../api/search", () => ({
@@ -18,6 +19,7 @@ describe("TopBar search", () => {
   });
 
   afterEach(() => {
+    i18n.global.locale.value = "en";
     vi.useRealTimers();
   });
 
@@ -65,6 +67,25 @@ describe("TopBar search", () => {
     await flushPromises();
 
     expect(router.currentRoute.value.path).toBe("/stacks/payments");
+    wrapper.unmount();
+  });
+
+  it("localizes the visible and accessible assistant labels", async () => {
+    i18n.global.locale.value = "ru";
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: "/", component: { template: "<div />" } }],
+    });
+    await router.push("/");
+
+    const wrapper = mount(TopBar, {
+      props: { assistantEnabled: true },
+      global: { plugins: [router] },
+    });
+
+    const button = wrapper.get(".topbar-assistant-button");
+    expect(button.get(".topbar-assistant-label").text()).toBe("Ассистент");
+    expect(button.attributes("aria-label")).toBe("Ассистент");
     wrapper.unmount();
   });
 });

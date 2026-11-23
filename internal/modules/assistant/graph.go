@@ -74,7 +74,6 @@ type graphExecutionState struct {
 	operationTurn           *operationTurn
 	history                 []conversation.Turn
 	userMessage             string
-	scopedRequest           string
 	route                   Route
 	profile                 RouteProfile
 	capabilities            []Capability
@@ -316,7 +315,7 @@ func (g *graph) routeNode(
 				executionState.rejectedPrompt = "prompt injection detected in scoped request"
 				return messages, &guard.PromptInjectionError{Prompt: executionState.rejectedPrompt}
 			}
-			executionState.scopedRequest = result.ScopedRequest
+			executionState.userMessage = result.ScopedRequest
 		}
 
 		profile, ok := routeProfile(route)
@@ -419,9 +418,6 @@ func (g *graph) prepareNode(
 			})
 		}
 		userMessage := executionState.userMessage
-		if executionState.scopedRequest != "" {
-			userMessage = executionState.scopedRequest
-		}
 		messages = append(messages, llm.Message{
 			Role:    "user",
 			Content: userMessage,

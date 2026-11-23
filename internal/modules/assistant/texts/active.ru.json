@@ -103,6 +103,7 @@
   "progress.tool_completed": "Инструмент {{.Tool}} завершил работу за {{.Duration}}",
   "progress.tool_failed": "Инструмент {{.Tool}} завершился с ошибкой за {{.Duration}}",
   "prompt.reply_language": "Reply in Russian.",
+  "result.audit_event_not_persisted": "Предупреждение: не удалось сохранить событие аудита.",
   "result.injection_rejected": "Защита от внедрения инструкций отклонила запрос.",
   "result.pause_service_removed": "Прямая политика Pause Sync удалена для сервиса \"{{.Service}}\" в стеке \"{{.Stack}}\".",
   "result.pause_service_set": "Pause Sync включена для сервиса \"{{.Service}}\" в стеке \"{{.Stack}}\".",
