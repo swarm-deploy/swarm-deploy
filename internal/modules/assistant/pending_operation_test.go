@@ -20,6 +20,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/selfheal"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/syncpause"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/model"
+	"github.com/swarm-deploy/swarm-deploy/internal/usecase"
 	"go.uber.org/mock/gomock"
 )
 
@@ -105,21 +106,24 @@ func TestPendingOperationResolution(t *testing.T) {
 
 func TestPendingSelfHealRequiresConfirmation(t *testing.T) {
 	const stack = "infra-monitoring"
-	store := serviceStore(t, []model.Info{{Stack: stack, Name: "infra-prometheus"}, {Stack: stack, Name: "infra-prometheus-pushgateway"}})
 	executor := &fakeTools{
 		definitions: []routing.ToolDefinition{{Name: serviceSelfHealEnableTool, Writable: true, Terminal: true}},
 		executeFunc: func(req routing.Request) (string, error) {
 			payload, ok := req.Payload.(string)
 			require.True(t, ok)
-			assert.JSONEq(t, `{"stack":"infra-monitoring","service":"infra-prometheus","source":"stack"}`, payload)
+			assert.JSONEq(t, `{"stack":"infra-monitoring","service":"infra-prometheus","policy":{"source":"stack","enabled":false}}`, payload)
 			return `{"branch":"proposal","branchUrl":"https://example.com/branch"}`, nil
 		},
 	}
-	flow := newPendingTestFlow(t, store, executor)
-	flow.previewSelfHeal = func(_ context.Context, stackName, service string) (selfheal.State, error) {
-		assert.Equal(t, stack, stackName)
-		assert.Equal(t, "infra-prometheus", service)
-		return selfheal.State{Source: "stack"}, nil
+	flow := newPendingTestFlow(t, nil, executor)
+	flow.prepareSelfHeal = func(_ context.Context, target string) (usecase.ServiceSelfHealPlan, error) {
+		if target == "prometheus" {
+			return usecase.ServiceSelfHealPlan{}, &usecase.AmbiguousServiceTargetError{
+				Candidates: []string{stack + "/infra-prometheus", stack + "/infra-prometheus-pushgateway"},
+			}
+		}
+		require.Equal(t, stack+"/infra-prometheus", target)
+		return usecase.ServiceSelfHealPlan{Stack: stack, Service: "infra-prometheus", Policy: selfheal.State{Source: "stack"}}, nil
 	}
 	turn := flow.beginTurn("chat")
 	answer, _ := turn.startPendingOperation(t.Context(), OperationIntent{Type: OperationServiceSelfHealEnable, Target: "prometheus"})

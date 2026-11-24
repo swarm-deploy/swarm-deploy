@@ -18,9 +18,9 @@ const label = labelsdict.ServiceSyncPolicySelfHealLabelKey
 // State describes the effective self-heal setting in the proposal base.
 type State struct {
 	// Source is the service, stack or global policy level.
-	Source string
+	Source string `json:"source"`
 	// Enabled reports whether automatic drift repair is enabled.
-	Enabled bool
+	Enabled bool `json:"enabled"`
 }
 
 func prepare(original []byte, service string, stack *bool, global bool) (State, []byte, error) {

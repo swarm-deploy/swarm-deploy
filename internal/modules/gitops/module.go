@@ -2,7 +2,6 @@ package gitops
 
 import (
 	"context"
-	"fmt"
 	"path/filepath"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
@@ -17,9 +16,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/differ"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/modelstore"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/selfheal"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/syncpause"
-
 	"github.com/swarm-deploy/swarm-deploy/internal/storage"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
@@ -31,8 +28,6 @@ type Module struct {
 	Differ        *differ.Differ
 	// SyncPauses owns persistent stack and service pause policy.
 	SyncPauses *syncpause.Service
-	// SelfHealProposals proposes enabling service self-heal from the assistant when enabled.
-	SelfHealProposals *selfheal.Service
 
 	cfg *config.Config
 }
@@ -58,14 +53,6 @@ func InitModule(
 		cfg:           cfg,
 		GitRepository: git.NewRepository(cfg.Spec.GitOps.Git, filepath.Join(cfg.Spec.DataDir, "repo")),
 		Differ:        differ.New(),
-	}
-	if cfg.Spec.Assistant.Enabled {
-		updater, err := selfheal.New(cnt.GetConfigStore(), cfg.Spec.GitOps.Sync.Policy.SelfHeal,
-			cfg.Spec.GitOps.Git, cfg.Spec.DataDir)
-		if err != nil {
-			return nil, fmt.Errorf("initialize GitOps self-heal proposals: %w", err)
-		}
-		srv.SelfHealProposals = updater
 	}
 
 	srv.Store = modelstore.NewSQLStore(cnt.GetStorage())

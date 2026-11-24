@@ -12,6 +12,9 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
 )
 
+// ErrPolicyChanged indicates that publication needs a new plan for the current policy.
+var ErrPolicyChanged = errors.New("self-heal policy changed after preparation. Prepare a new plan")
+
 // Service proposes enabling self-heal in the configured Git write repository.
 type Service struct {
 	stacks  config.StackProvider
@@ -59,8 +62,8 @@ func (s *Service) Preview(ctx context.Context, stack, service string) (State, er
 	return change.state, nil
 }
 
-// Enable rechecks the confirmed policy on a fresh checkout before publishing.
-func (s *Service) Enable(ctx context.Context, stack, service, source, author string) (Result, error) {
+// Enable rechecks the policy observed during preparation on a fresh checkout before publishing.
+func (s *Service) Enable(ctx context.Context, stack, service string, expected State, author string) (Result, error) {
 	change, err := s.prepare(ctx, stack, service)
 	if err != nil {
 		return Result{}, err
@@ -69,8 +72,8 @@ func (s *Service) Enable(ctx context.Context, stack, service, source, author str
 	if change.state.Enabled {
 		return Result{AlreadyEnabled: change.state.Source}, nil
 	}
-	if change.state.Source != source {
-		return Result{}, errors.New("self-heal policy changed since confirmation; request a new preview")
+	if change.state != expected {
+		return Result{}, ErrPolicyChanged
 	}
 	branch := fmt.Sprintf("%s-%s-enable-self-heal", branchPart(stack), branchPart(service))
 	title := fmt.Sprintf("chore: enable self-heal for %s/%s", stack, service)

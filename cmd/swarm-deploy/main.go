@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"log/slog"
 	"os"
 	"time"
@@ -28,6 +29,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/logx"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops"
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/selfheal"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/notifications"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/recommendations"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources"
@@ -38,6 +40,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/tracing"
 	"github.com/swarm-deploy/swarm-deploy/internal/storage"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
+	"github.com/swarm-deploy/swarm-deploy/internal/usecase"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 )
 
@@ -109,13 +112,28 @@ var modules = []module{
 		},
 	},
 	{
+		Name:       "usecases",
+		Initialize: initializeUseCases,
+	},
+	{
 		Name: "assistant",
 		Initialize: func(ctx context.Context, cfg *config.Config, cnt *container) error {
-			mod, err := assistant.InitModule(ctx, cfg, cnt, cnt.AssistantTexts)
+			mod, err := assistant.InitModule(ctx, cfg, cnt, cnt.AssistantTexts, cnt.ServiceSelfHealEnabler)
 			cnt.Assistant = mod
 			return err
 		},
 	},
+}
+
+func initializeUseCases(_ context.Context, cfg *config.Config, cnt *container) error {
+	proposals, err := selfheal.New(
+		cnt.ConfigStore, cfg.Spec.GitOps.Sync.Policy.SelfHeal, cfg.Spec.GitOps.Git, cfg.Spec.DataDir,
+	)
+	if err != nil {
+		return fmt.Errorf("initialize GitOps self-heal proposals: %w", err)
+	}
+	cnt.ServiceSelfHealEnabler = usecase.NewServiceSelfHealEnabler(cnt.Resources.ServiceStore, proposals)
+	return nil
 }
 
 //nolint:funlen//not need
@@ -373,6 +391,8 @@ type container struct {
 	AlertManagement *alertmanagement.Module
 	Assistant       *assistant.Module
 	AssistantTexts  *texts.Localizer
+	// ServiceSelfHealEnabler coordinates catalog and GitOps policy proposals.
+	ServiceSelfHealEnabler *usecase.ServiceSelfHealEnabler
 }
 
 // GetStorage returns the shared application database.
