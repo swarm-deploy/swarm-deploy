@@ -1,4 +1,4 @@
-package main
+package usecase
 
 import (
 	"os"
@@ -11,18 +11,14 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
-	"github.com/swarm-deploy/swarm-deploy/internal/configstore"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/selfheal"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/labelsdict"
 	"github.com/swarm-deploy/swarm-deploy/internal/testutil"
-	"github.com/swarm-deploy/swarm-deploy/internal/usecase"
 )
 
-func TestServiceSelfHealEnablerWithoutAssistant(t *testing.T) {
+func TestServiceSelfHealEnablerPrepareAndPublish(t *testing.T) {
 	dir := t.TempDir()
 	repo, err := gogit.PlainInit(dir, false)
 	require.NoError(t, err)
@@ -49,32 +45,30 @@ func TestServiceSelfHealEnablerWithoutAssistant(t *testing.T) {
 			Git:    config.GitSpec{Repository: "unused", Branch: "other", Push: &config.GitPushSpec{Repository: dir, Branch: base.Name().Short()}},
 		},
 	}}
-	require.False(t, cfg.Spec.Assistant.Enabled)
-	ctx := t.Context()
-	catalog := modelstore.NewSQLStore(testutil.OpenSQLite(t))
-	cnt := &container{
-		ConfigStore: configstore.New(cfg, &dispatcher.NopDispatcher{}),
-		Resources:   &resources.Module{ServiceStore: catalog},
-	}
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "stacks.yaml"), []byte("stacks:\n  - name: core\n    composeFile: stack.yaml\n"), 0o600))
-	require.NoError(t, cnt.ConfigStore.Reload(ctx, dir))
-	require.NoError(t, initializeUseCases(ctx, cfg, cnt))
-	enabler := cnt.ServiceSelfHealEnabler
+	_, err = cfg.Reload(dir)
+	require.NoError(t, err)
+	proposals, err := selfheal.New(cfg, cfg.Spec.GitOps.Sync.Policy.SelfHeal, cfg.Spec.GitOps.Git, cfg.Spec.DataDir)
+	require.NoError(t, err)
+	catalog := modelstore.NewSQLStore(testutil.OpenSQLite(t))
+	enabler := NewServiceSelfHealEnabler(catalog, proposals)
+
+	ctx := t.Context()
 	require.NoError(t, catalog.ReplaceStack(ctx, "core", []model.Info{{Stack: "core", Name: "api"}}))
 	require.NoError(t, catalog.ReplaceStack(ctx, "backup", []model.Info{{Stack: "backup", Name: "api"}}))
 	_, err = enabler.Prepare(ctx, "api")
-	var ambiguous *usecase.AmbiguousServiceTargetError
+	var ambiguous *AmbiguousServiceTargetError
 	require.ErrorAs(t, err, &ambiguous)
 	assert.Equal(t, []string{"backup/api", "core/api"}, ambiguous.Candidates)
 	_, err = enabler.Prepare(ctx, "missing")
-	require.ErrorIs(t, err, usecase.ErrServiceNotFound)
+	require.ErrorIs(t, err, ErrServiceNotFound)
 
 	plan, err := enabler.Prepare(ctx, "CORE/API")
 	require.NoError(t, err)
-	require.Equal(t, usecase.ServiceSelfHealPlan{Stack: "core", Service: "api", Policy: selfheal.State{Source: "global"}}, plan)
+	require.Equal(t, ServiceSelfHealPlan{Stack: "core", Service: "api", Policy: selfheal.State{Source: "global"}}, plan)
 	require.NoError(t, catalog.ReplaceStack(ctx, "core", []model.Info{{Stack: "core", Name: "api-backup"}}))
 	_, err = enabler.Publish(ctx, plan, "test")
-	require.ErrorIs(t, err, usecase.ErrServiceNotFound)
+	require.ErrorIs(t, err, ErrServiceNotFound)
 	branches, err := repo.Branches()
 	require.NoError(t, err)
 	var names []string
