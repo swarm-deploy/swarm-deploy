@@ -8,12 +8,14 @@ import (
 
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/texts"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/tools"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/selfheal"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/syncpause"
 )
 
 const (
 	serviceRestartTriggerTool          = "service_restart_trigger"
 	serviceReplicasSetTool             = "service_replicas_set"
+	serviceSelfHealEnableTool          = "service_self_heal_enable"
 	deploySyncTriggerTool              = "deploy_sync_trigger"
 	syncPauseGetTool                   = "sync_pause_get"
 	syncPauseSetTool                   = "sync_pause_set"
@@ -32,9 +34,36 @@ func finalizeTerminalToolResult(localizer *texts.Localizer, toolName, result str
 		return finalizePauseToolResult(localizer, toolName, result)
 	case serviceRestartTriggerTool, serviceReplicasSetTool:
 		return finalizeServiceActionResult(localizer, toolName, result)
+	case serviceSelfHealEnableTool:
+		return finalizeSelfHeal(localizer, result)
 	default:
 		return "", fmt.Errorf("terminal formatter is not configured for tool %q", toolName)
 	}
+}
+
+func finalizeSelfHeal(localizer *texts.Localizer, result string) (string, error) {
+	var update selfheal.Result
+	if err := json.Unmarshal([]byte(result), &update); err != nil {
+		return "", fmt.Errorf("decode self-heal proposal: %w", err)
+	}
+	if update.AlreadyEnabled != "" {
+		return localizer.Text("result.self_heal_unchanged"), nil
+	}
+	if update.Branch == "" {
+		return "", errors.New("self-heal proposal must contain the branch name")
+	}
+	data := map[string]any{"Branch": update.Branch}
+	answer := localizer.Format("result.self_heal", data)
+	if update.BranchURL != "" {
+		answer += " " + localizer.Format("result.self_heal_branch", map[string]any{"URL": update.BranchURL})
+	}
+	if update.PullRequestURL != "" {
+		answer += " " + localizer.Format("result.self_heal_pr", map[string]any{"URL": update.PullRequestURL})
+	}
+	if update.PullRequestFailed {
+		answer += " " + localizer.Text("result.self_heal_pr_failed")
+	}
+	return answer, nil
 }
 
 func finalizeSyncToolResult(localizer *texts.Localizer, result string) (string, error) {

@@ -29,6 +29,7 @@ Path: `internal/modules/gitops`.
 ### Responsibilities
 
 - Own Git access, revision-pinned source reads, sync scheduling, stack queue admission, reconciliation, drift detection, and self-heal decisions.
+- Own Compose self-heal policy proposals and publish their branches from isolated write checkouts.
 - Prepare effective desired state: image policy, env files, bind paths, Downward injection, managed labels, and config/secret name rotation.
 - Own GitOps runtime/sync state, configured-network reconciliation, and rotated-resource cleanup scheduling.
 
@@ -209,7 +210,7 @@ Path: `internal/modules/assistant`.
 ### Responsibilities
 
 - Own chat/request lifecycle, conversation history, model clients, routing/capabilities, RAG retrieval/indexing, prompt-injection checks, and built-in tool orchestration.
-- Own deterministic pending-operation target resolution and confirmation for supported mutations.
+- Own user clarification and confirmation for supported mutations. For self-heal, present catalog choices and the plan returned by the application use case.
 
 ### Non-responsibilities
 
@@ -236,12 +237,13 @@ below describe their current role and the established constraints to preserve.
 | Area | Responsibilities and dependencies | Outside its responsibility / invariants |
 | --- | --- | --- |
 | `cmd/swarm-deploy/main.go` | Composition root: shared SQLite, Docker client/Swarm managers, module initialization, worker/server lifecycle. | Wire existing components; do not place reconciliation or domain transitions here. Module containers expose dependencies; runtime components use their injected contracts. |
+| `internal/usecase` | Application workflows across modules. `ServiceSelfHealEnabler` prepares an exact service target and revalidates it against the Resources catalog before publishing a GitOps self-heal proposal. The composition root wires it independently of Assistant. | Natural-language target resolution, chat state, and confirmation belong to Assistant. GitOps owns policy precedence, Compose edits and Git publication. |
 | `internal/swarm` | Docker SDK adapter: service/task, image, config, secret, node, network, plugin operations and shared Docker event stream (`interfaces.go`, `swarm.go`, `events.go`). Uses shared faults/tracing. | All new Docker Engine/Swarm operations go through these managers, per `go.md`. No GitOps or deployment orchestration. SDK data types may cross the boundary; duplicate DTOs/parallel clients are not required. |
 | `internal/compose` | Compose models, parsing, validation, normalization, referenced-file loading and digests; injectable file reader (`file.go`). Uses shared helpers. | No Docker operations or final application ServiceSpec conversion. Repository values stay literal; do not read controller environment variables for interpolation (`interpolation.go`, `docs/reconciler.md`). GitOps supplies revision-pinned reads and preparation policy. |
 | `internal/config`, `internal/configstore` | YAML types/loading/defaults/validation and accepted stack/network snapshots; ConfigStore coordinates reload and emits `ConfigurationChanged`. Config references hosting, alert, event and notification contract types. | Configuration does not execute synchronization/deployment. Preserve `StackProvider` and snapshot/readiness semantics; this is not a module-independent leaf package. Keep config docs/examples aligned with changes. |
 | `internal/storage`, `migrations/sqlite` | Shared SQLite connection, embedded Goose schema, context-aware transactions and projection helpers (`db.go`, `projection.go`). | Domain repositories own domain queries; services/handlers must not implement SQL. Reuse `storage.Database`, goqu and bound parameters. No parallel transaction infrastructure or sharing a transaction context across concurrent goroutines. Nested `WithinTransaction` calls join the active transaction without savepoints or independent rollback. |
 | `internal/registry` | `AuthManager` resolves Docker registry credentials; `ImageVersionResolver` resolves image digests and uses `swarm.ImageManager` for Docker Engine distribution inspection. Used by Deployments and Assistant. | No GitOps scheduling or deployment lifecycle. Keep credentials out of specs, events and logs. |
-| `internal/githosting` | `ProviderManager` resolves repository URLs to provider adapters; `Provider` currently exposes latest-release reads for Assistant. | Does not own Git checkout or reconciliation; Git repository reads/pulls belong to `gitops/git`. Git write/PR capabilities are not implemented here today; ownership for future workflows requires a separate decision. |
+| `internal/githosting` | `ProviderManager` resolves repository URLs to latest-release adapters. The GitHub adapter also opens pull requests for GitOps proposals. | Git checkouts, reads, pulls, and proposal-branch pushes belong to `gitops/git`. |
 | `internal/security` | User context, logging and Event user enrichment; web entrypoints implement authentication/authorization. | Not deployment policy or a separate identity service. Preserve authenticated user propagation through existing request/event contracts. |
 | `internal/metrics`, `internal/shared` | Prometheus groups, tracing, build info, filesystem helpers, labels, typed faults, dotenv/image utilities and shared log parsing. Metrics uses Event types; `shared/logparser.Service` uses `swarm.ServiceManager`. | Not a place to relocate business ownership. Shared packages are not all dependency-free. Preserve `faults.Coded` (`Error`, `FaultCode`, `FaultSummary`), sanitization boundaries, and centrally defined tracing keys. |
 | `internal/entrypoints/webserver`, `api` | Authenticated REST/SSE/UI serving, request validation, response mapping and query aggregation over module repositories/services and Swarm managers (`handlers/handler.go`). `api/api-server.yaml` is the ogen contract. | No direct SQL/SDK calls or deployment lifecycle implementation. Current handlers also perform standalone scale, node-label and secret operations through managers; not every mutation is a Deployment. Regenerate contracts with `make gen` when editing OpenAPI, per `openapi.md`. |

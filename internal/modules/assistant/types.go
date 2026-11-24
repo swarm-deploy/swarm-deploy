@@ -8,6 +8,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/texts"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/tools/routing"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/model"
+	"github.com/swarm-deploy/swarm-deploy/internal/usecase"
 )
 
 // Status is an assistant chat run state.
@@ -168,6 +169,8 @@ type Config struct {
 	// SyncPauses optionally supplies GitOps Pause Sync state for pending operation target validation.
 	// Pause Sync operations are unavailable when it is nil.
 	SyncPauses SyncPauseTargetResolver
+	// PrepareSelfHeal prepares a GitOps proposal for an exact catalog service when available.
+	PrepareSelfHeal func(ctx context.Context, stack, service string) (usecase.ServiceSelfHealPlan, error)
 }
 
 // ServiceStore reads current service metadata used by RAG retrieval.

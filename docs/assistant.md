@@ -133,6 +133,7 @@ The response contains ascending `buckets` with `start`, `input_tokens`, `output_
 - `service_task_logs_get` - returns bounded logs for a Docker task, with optional shared JSON/logfmt parsing, normalized level filters, and time bounds
 - `service_replicas_set` - updates desired replicas count for a specific stack service
 - `service_restart_trigger` - restarts service by scaling replicas to `0` and restoring previous count
+- `service_self_heal_enable` - proposes enabling automatic drift repair for one GitOps service after user confirmation
 - `service_webroute_ping` - checks web routes for a specific service from `service.store` and returns HTTP results for each route
 - `tls_certificate_check` - checks a live TLS endpoint and validates its server certificate against the system trust store
 - `dependency_graph_get` - returns service dependency graph with nodes, endpoints, and direct dependencies inferred from service environment variables
@@ -242,6 +243,20 @@ Assistant requests are protected by:
 - immutable safety instructions inside system prompt
 
 When protection is triggered, response status is `rejected`.
+
+### Enable self-heal for a service
+
+Ask the assistant to enable self-heal for a managed service. It checks the service label in the write base
+and the configured stack and global policies. If repair is already enabled, it reports the policy source.
+Otherwise it asks for confirmation to set `org.swarm-deploy.service.sync.policy.selfHeal: "true"` under the
+service's Compose `deploy.labels`. It publishes a proposal branch and returns the link. The policy takes
+effect when the change reaches the tracked branch and GitOps syncs it.
+
+The writer uses `gitops.git.repository` and `gitops.git.branch` by default. Set `gitops.git.push.repository`,
+`gitops.git.push.branch`, or `gitops.git.push.auth` to override those settings. Write auth inherits sync
+credentials only when using the sync repository. For GitHub, set `gitops.git.push.apiTokenPath` to a mounted
+token file with permission to open pull requests in the write repository. The assistant returns the branch
+and, when available, the pull request link.
 
 ### Git repository diagnostics
 

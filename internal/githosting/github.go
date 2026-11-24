@@ -2,6 +2,7 @@ package githosting
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"time"
 
@@ -40,6 +41,25 @@ func (g *GithubProvider) GetLatestRelease(ctx context.Context, repo RepositoryRe
 	}
 
 	return g.mapRelease(release), nil
+}
+
+// CreatePullRequest opens a pull request between two branches of the same GitHub repository.
+func (g *GithubProvider) CreatePullRequest(
+	ctx context.Context, repo RepositoryReference, base, head, title, body string,
+) (string, error) {
+	if err := repo.validateGitHubPath(); err != nil {
+		return "", err
+	}
+	pr, _, err := g.client.PullRequests.Create(ctx, repo.Owner, repo.Name, &github.NewPullRequest{
+		Base: &base, Head: &head, Title: &title, Body: &body,
+	})
+	if err != nil {
+		return "", err
+	}
+	if pr.GetHTMLURL() == "" {
+		return "", errors.New("GitHub returned a pull request without a URL")
+	}
+	return pr.GetHTMLURL(), nil
 }
 
 func (g *GithubProvider) mapRelease(release *github.RepositoryRelease) *Release {

@@ -3,6 +3,7 @@ package assistant
 import (
 	"context"
 	"encoding/json/v2"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math"
@@ -20,6 +21,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/tools/routing"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/syncpause"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/model"
+	"github.com/swarm-deploy/swarm-deploy/internal/usecase"
 )
 
 const defaultPendingOperationTTL = 15 * time.Minute
@@ -36,15 +38,16 @@ type SyncPauseTargetResolver interface {
 
 // operationFlow runs the deterministic collect, confirm, and execute workflow for supported mutations.
 type operationFlow struct {
-	texts          *texts.Localizer
-	modelName      string
-	chat           modelCompleter
-	store          ServiceStore
-	tools          ToolExecutor
-	guard          *guard.InjectionChecker
-	allowedToolSet map[string]struct{}
-	pauseTargets   SyncPauseTargetResolver
-	pending        *pendingOperationStore
+	texts           *texts.Localizer
+	modelName       string
+	chat            modelCompleter
+	store           ServiceStore
+	tools           ToolExecutor
+	guard           *guard.InjectionChecker
+	allowedToolSet  map[string]struct{}
+	prepareSelfHeal func(context.Context, string, string) (usecase.ServiceSelfHealPlan, error)
+	pauseTargets    SyncPauseTargetResolver
+	pending         *pendingOperationStore
 }
 
 func newOperationFlow(
@@ -56,15 +59,16 @@ func newOperationFlow(
 	allowedToolSet map[string]struct{},
 ) *operationFlow {
 	return &operationFlow{
-		texts:          config.Localizer,
-		modelName:      config.ModelName,
-		chat:           chat,
-		store:          store,
-		tools:          tools,
-		guard:          injectionGuard,
-		allowedToolSet: allowedToolSet,
-		pauseTargets:   config.SyncPauses,
-		pending:        newPendingOperationStore(config.ConversationInMemoryTTL),
+		texts:           config.Localizer,
+		modelName:       config.ModelName,
+		chat:            chat,
+		store:           store,
+		tools:           tools,
+		guard:           injectionGuard,
+		allowedToolSet:  allowedToolSet,
+		pauseTargets:    config.SyncPauses,
+		prepareSelfHeal: config.PrepareSelfHeal,
+		pending:         newPendingOperationStore(config.ConversationInMemoryTTL),
 	}
 }
 
@@ -80,6 +84,8 @@ const (
 	OperationServiceRestart OperationType = serviceRestartTriggerTool
 	// OperationServiceReplicasSet changes a service replica count.
 	OperationServiceReplicasSet OperationType = serviceReplicasSetTool
+	// OperationServiceSelfHealEnable proposes enabling GitOps self-heal.
+	OperationServiceSelfHealEnable OperationType = serviceSelfHealEnableTool
 	// OperationDeploySync triggers a GitOps synchronization.
 	OperationDeploySync OperationType = deploySyncTriggerTool
 	// OperationSyncPauseSet creates or changes a direct GitOps pause.
@@ -92,7 +98,7 @@ const (
 type PendingOperationStage string
 
 const (
-	// PendingOperationCollecting waits for missing target or replica data.
+	// PendingOperationCollecting waits for a target or another required argument.
 	PendingOperationCollecting PendingOperationStage = "collecting"
 	// PendingOperationConfirmation waits for explicit user confirmation.
 	PendingOperationConfirmation PendingOperationStage = "confirmation"
@@ -126,6 +132,8 @@ type PendingOperation struct {
 	Service string
 	// Replicas is the desired count for a replica change.
 	Replicas *uint64
+	// SelfHealPlan is the complete plan shown for confirmation.
+	SelfHealPlan usecase.ServiceSelfHealPlan
 	// Scope is stack or service for Pause Sync operations.
 	Scope string
 	// PauseExpiresAt is nil for a pause without expiration.
@@ -188,6 +196,7 @@ func (s *pendingOperationStore) claim(conversationID string, expected PendingOpe
 	if current.Type != expected.Type || current.Stage != expected.Stage ||
 		current.Target != expected.Target || current.Stack != expected.Stack ||
 		current.Service != expected.Service || !current.ExpiresAt.Equal(expected.ExpiresAt) ||
+		current.SelfHealPlan != expected.SelfHealPlan ||
 		!equalOptionalUint64(current.Replicas, expected.Replicas) {
 		return false
 	}
@@ -242,33 +251,29 @@ func (t *operationTurn) startPendingOperation(
 		Scope:          strings.TrimSpace(intent.Scope),
 		PauseExpiresAt: intent.ExpiresAt,
 	}
+	if op.Type == OperationServiceSelfHealEnable {
+		return t.collectSelfHeal(ctx, op, op.Target)
+	}
 	if op.Type == OperationDeploySync {
-		op.Stage = PendingOperationConfirmation
-		t.next = &op
-		return t.confirmationMessage(op), conversation.TokenUsage{}
+		return t.confirmOperation(op), conversation.TokenUsage{}
 	}
 	if op.Type == OperationSyncPauseSet || op.Type == OperationSyncPauseResume {
 		return t.startPauseOperation(ctx, op)
 	}
-	services, err := t.store.ReadAll(ctx)
+	resolution, usage, err := t.lookupService(ctx, op.Target)
 	if err != nil {
-		return t.texts.Text("operation.catalog_failed"), conversation.TokenUsage{}
-	}
-	resolution, usage := t.resolveOperationTarget(ctx, services, op.Target)
-	if resolution.ok {
-		op.Stack, op.Service = resolution.stack, resolution.service
+		return t.texts.Text("operation.catalog_failed"), usage
 	}
 	if !resolution.ok {
 		t.next = &op
 		return resolution.message, usage
 	}
+	op.Stack, op.Service = resolution.stack, resolution.service
 	if op.Type == OperationServiceReplicasSet && op.Replicas == nil {
 		t.next = &op
 		return t.texts.Format("operation.ask_replicas", operationTargetData(op)), usage
 	}
-	op.Stage = PendingOperationConfirmation
-	t.next = &op
-	return t.confirmationMessage(op), usage
+	return t.confirmOperation(op), usage
 }
 
 //nolint:nestif // Scope-specific target revalidation keeps stack and service warnings explicit.
@@ -309,9 +314,7 @@ func (t *operationTurn) startPauseOperation(
 			return t.texts.Text("operation.gitops_service_not_found"), conversation.TokenUsage{}
 		}
 	}
-	op.Stage = PendingOperationConfirmation
-	t.next = &op
-	return t.confirmationMessage(op), conversation.TokenUsage{}
+	return t.confirmOperation(op), conversation.TokenUsage{}
 }
 
 func (t *operationTurn) handlePendingOperation(
@@ -363,15 +366,23 @@ func (t *operationTurn) handlePendingCollection(
 	message string,
 	op PendingOperation,
 ) (bool, string, conversation.TokenUsage, error) {
-	if isUnrelatedPendingMessage(message) {
+	if isUnrelatedPendingMessage(message) && (op.Service != "" || !isServiceReferenceReply(message)) {
 		t.pending.delete(t.conversationID)
 		return false, "", conversation.TokenUsage{}, nil
 	}
 
+	if op.Type == OperationServiceSelfHealEnable {
+		target := op.replyTarget(message)
+		answer, usage := t.collectSelfHeal(ctx, op, target)
+		return true, answer, usage, nil
+	}
 	var usage conversation.TokenUsage
 	if op.Stack == "" || op.Service == "" {
-		resolution, resolutionUsage := t.resolvePendingTarget(ctx, message, &op)
+		resolution, resolutionUsage, err := t.lookupService(ctx, op.replyTarget(message))
 		usage.Add(resolutionUsage)
+		if err != nil {
+			resolution.message = t.texts.Text("operation.catalog_failed")
+		}
 		if !resolution.ok {
 			t.next = &op
 			return true, resolution.message, usage, nil
@@ -387,29 +398,29 @@ func (t *operationTurn) handlePendingCollection(
 		}
 		op.Replicas = &replicas
 	}
-	op.Stage = PendingOperationConfirmation
-	t.next = &op
-	return true, t.confirmationMessage(op), usage, nil
+	return true, t.confirmOperation(op), usage, nil
 }
 
-func (f *operationFlow) resolvePendingTarget(
-	ctx context.Context,
-	message string,
-	op *PendingOperation,
-) (serviceResolution, conversation.TokenUsage) {
+func (op *PendingOperation) replyTarget(message string) string {
 	target := strings.TrimSpace(message)
 	if isSelfResolveRequest(target) {
-		target = op.Target
-	} else if op.Target == "" {
+		return op.Target
+	}
+	if op.Target == "" {
 		op.Target = target
 	}
+	return target
+}
+
+func (f *operationFlow) lookupService(
+	ctx context.Context, target string,
+) (serviceResolution, conversation.TokenUsage, error) {
 	services, err := f.store.ReadAll(ctx)
 	if err != nil {
-		return serviceResolution{
-			message: f.texts.Text("operation.catalog_failed"),
-		}, conversation.TokenUsage{}
+		return serviceResolution{}, conversation.TokenUsage{}, err
 	}
-	return f.resolveOperationTarget(ctx, services, target)
+	resolution, usage := f.resolveOperationTarget(ctx, services, target)
+	return resolution, usage, nil
 }
 
 func (t *operationTurn) executePendingOperation(
@@ -427,18 +438,20 @@ func (t *operationTurn) executePendingOperation(
 		return aborted, nil
 	}
 
-	effectiveTools := t.toolSet([]Capability{capability})
-	if _, ok := effectiveTools[string(op.Type)]; !ok {
+	if !t.operationAllowed(capability, op.Type) {
 		return t.texts.Text("operation.forbidden"), nil
-	}
-	if op.Type == OperationServiceReplicasSet {
-		arguments["replicas"] = op.Replicas
 	}
 	payload, err := json.Marshal(arguments)
 	if err != nil {
 		return "", fmt.Errorf("encode pending operation arguments: %w", err)
 	}
 	result, err := t.tools.Execute(ctx, routing.Request{ToolName: string(op.Type), Payload: string(payload)})
+	if errors.Is(err, usecase.ErrServiceNotFound) {
+		return t.texts.Text("operation.service_changed"), nil
+	}
+	if errors.Is(err, usecase.ErrServiceCatalogUnavailable) {
+		return t.texts.Text("operation.catalog_failed"), nil
+	}
 	if err != nil {
 		return t.texts.Format("operation.failed", map[string]any{"Error": strings.TrimSpace(err.Error())}), nil
 	}
@@ -461,12 +474,15 @@ func (t *operationTurn) executePendingOperation(
 func (f *operationFlow) pendingOperationArguments(
 	ctx context.Context,
 	op PendingOperation,
-) (Capability, map[string]any, string, error) {
+) (Capability, any, string, error) {
 	switch op.Type {
 	case OperationSyncPauseSet, OperationSyncPauseResume:
-		return f.pauseOperationArguments(ctx, op)
+		args, aborted := f.pauseOperationArguments(ctx, op)
+		return CapabilityPauseSync, args, aborted, nil
 	case OperationDeploySync:
 		return CapabilityDeploymentSync, map[string]any{}, "", nil
+	case OperationServiceSelfHealEnable:
+		return CapabilityServiceOperations, op.SelfHealPlan, "", nil
 	case OperationServiceRestart, OperationServiceReplicasSet:
 		services, err := f.store.ReadAll(ctx)
 		if err != nil {
@@ -478,20 +494,43 @@ func (f *operationFlow) pendingOperationArguments(
 			return CapabilityServiceOperations, nil,
 				f.texts.Text("operation.service_changed"), nil
 		}
-		return CapabilityServiceOperations, map[string]any{
-			"stack": resolution.stack, "service": resolution.service,
-		}, "", nil
+		args := map[string]any{"stack": resolution.stack, "service": resolution.service}
+		if op.Type == OperationServiceReplicasSet {
+			args["replicas"] = op.Replicas
+		}
+		return CapabilityServiceOperations, args, "", nil
 	default:
 		return "", nil, "", fmt.Errorf("unsupported pending operation %q", op.Type)
 	}
 }
 
+func (t *operationTurn) confirmOperation(op PendingOperation) string {
+	op.Stage = PendingOperationConfirmation
+	t.next = &op
+	return t.confirmationMessage(op)
+}
+
+func (f *operationFlow) operationAllowed(capability Capability, operation OperationType) bool {
+	if _, ok := f.toolSet([]Capability{capability})[string(operation)]; !ok {
+		return false
+	}
+	if operation != OperationServiceSelfHealEnable {
+		return true
+	}
+	if f.prepareSelfHeal == nil {
+		return false
+	}
+	return slices.ContainsFunc(f.tools.Definitions(), func(tool routing.ToolDefinition) bool {
+		return string(tool.Name) == serviceSelfHealEnableTool && tool.Writable && tool.Terminal
+	})
+}
+
 func (f *operationFlow) pauseOperationArguments(
 	ctx context.Context,
 	op PendingOperation,
-) (Capability, map[string]any, string, error) {
+) (map[string]any, string) {
 	if f.pauseTargets == nil {
-		return CapabilityPauseSync, nil, f.texts.Text("operation.pause_unavailable"), nil
+		return nil, f.texts.Text("operation.pause_unavailable")
 	}
 	arguments := map[string]any{"scope": op.Scope, "stack": op.Stack}
 	if op.Scope == string(syncpause.ScopeService) {
@@ -502,16 +541,14 @@ func (f *operationFlow) pauseOperationArguments(
 	}
 	if op.Scope == string(syncpause.ScopeStack) {
 		if !f.stackPauseTargetValid(ctx, op.Stack) {
-			return CapabilityPauseSync, nil,
-				f.texts.Text("operation.gitops_stack_changed"), nil
+			return nil, f.texts.Text("operation.gitops_stack_changed")
 		}
-		return CapabilityPauseSync, arguments, "", nil
+		return arguments, ""
 	}
 	if !f.servicePauseTargetValid(ctx, op.Stack, op.Service) {
-		return CapabilityPauseSync, nil,
-			f.texts.Text("operation.gitops_service_changed"), nil
+		return nil, f.texts.Text("operation.gitops_service_changed")
 	}
-	return CapabilityPauseSync, arguments, "", nil
+	return arguments, ""
 }
 
 func (f *operationFlow) stackPauseTargetValid(ctx context.Context, stack string) bool {
@@ -584,76 +621,22 @@ func (f *operationFlow) resolveServiceTarget(services []model.Info, target strin
 		return serviceResolution{message: f.texts.Text("operation.ask_target")}
 	}
 
-	for _, item := range services {
-		if strings.EqualFold(serviceTarget(item), target) {
-			return resolvedService(item)
-		}
-	}
-
-	matches := matchingServices(services, func(item model.Info) bool {
-		return strings.EqualFold(item.Name, target)
-	})
-	if len(matches) == 1 {
+	matches := model.MatchServiceTarget(services, target)
+	switch len(matches) {
+	case 0:
+		return serviceResolution{message: f.texts.Format("operation.target_not_found", map[string]any{"Target": target})}
+	case 1:
 		return resolvedService(matches[0])
+	default:
+		return f.ambiguousServiceResolution(model.QualifiedNames(matches))
 	}
-	if len(matches) > 1 {
-		return f.ambiguousServiceResolution(matches)
-	}
-
-	matches = matchingServices(services, func(item model.Info) bool {
-		return strings.EqualFold(item.Stack, target)
-	})
-	if len(matches) == 1 {
-		return resolvedService(matches[0])
-	}
-	if len(matches) > 1 {
-		return f.ambiguousServiceResolution(matches)
-	}
-
-	normalizedTarget := strings.ToLower(target)
-	matches = matchingServices(services, func(item model.Info) bool {
-		return strings.Contains(strings.ToLower(serviceTarget(item)), normalizedTarget) ||
-			strings.Contains(strings.ToLower(item.Name), normalizedTarget) ||
-			strings.Contains(strings.ToLower(item.Stack), normalizedTarget)
-	})
-	if len(matches) == 1 {
-		return resolvedService(matches[0])
-	}
-	if len(matches) > 1 {
-		return f.ambiguousServiceResolution(matches)
-	}
-
-	return serviceResolution{
-		message: f.texts.Format("operation.target_not_found", map[string]any{"Target": target}),
-	}
-}
-
-func matchingServices(services []model.Info, matches func(model.Info) bool) []model.Info {
-	result := make([]model.Info, 0)
-	for _, item := range services {
-		if matches(item) {
-			result = append(result, item)
-		}
-	}
-	return result
 }
 
 func resolvedService(item model.Info) serviceResolution {
 	return serviceResolution{stack: item.Stack, service: item.Name, ok: true}
 }
 
-func (f *operationFlow) ambiguousServiceResolution(services []model.Info) serviceResolution {
-	targets := make([]string, 0, len(services))
-	seen := make(map[string]struct{}, len(services))
-	for _, item := range services {
-		target := serviceTarget(item)
-		if _, ok := seen[target]; ok {
-			continue
-		}
-		seen[target] = struct{}{}
-		targets = append(targets, target)
-	}
-	slices.Sort(targets)
+func (f *operationFlow) ambiguousServiceResolution(targets []string) serviceResolution {
 	quoted := make([]string, 0, len(targets))
 	for _, target := range targets {
 		quoted = append(quoted, "`"+target+"`")
@@ -662,10 +645,6 @@ func (f *operationFlow) ambiguousServiceResolution(services []model.Info) servic
 		message:   f.texts.Format("operation.ambiguous_target", map[string]any{"Targets": strings.Join(quoted, ", ")}),
 		ambiguous: true,
 	}
-}
-
-func serviceTarget(item model.Info) string {
-	return strings.TrimSpace(item.Stack) + "/" + strings.TrimSpace(item.Name)
 }
 
 type targetResolverDecision struct {
@@ -684,11 +663,7 @@ func (f *operationFlow) resolveOperationTarget(
 		return deterministic, conversation.TokenUsage{}
 	}
 
-	candidates := make([]string, 0, len(services))
-	for _, item := range services {
-		candidates = append(candidates, serviceTarget(item))
-	}
-	slices.Sort(candidates)
+	candidates := model.QualifiedNames(services)
 	completion, err := f.chat.Complete(ctx, llm.Request{
 		Model:       f.modelName,
 		Temperature: 0,
@@ -718,14 +693,14 @@ func (f *operationFlow) validateTargetResolverDecision(services []model.Info, co
 	switch strings.ToLower(strings.TrimSpace(decision.Status)) {
 	case "exact":
 		for _, item := range services {
-			if strings.EqualFold(serviceTarget(item), strings.TrimSpace(decision.Candidate)) {
+			if strings.EqualFold(item.QualifiedName(), strings.TrimSpace(decision.Candidate)) {
 				return resolvedService(item)
 			}
 		}
 	case "ambiguous":
 		matches := targetResolverMatches(services, decision.Candidates)
 		if len(matches) > 1 {
-			return f.ambiguousServiceResolution(matches)
+			return f.ambiguousServiceResolution(model.QualifiedNames(matches))
 		}
 	case "not_found":
 		return serviceResolution{}
@@ -738,7 +713,7 @@ func targetResolverMatches(services []model.Info, candidates []string) []model.I
 	seen := make(map[string]struct{}, len(candidates))
 	for _, candidate := range candidates {
 		for _, item := range services {
-			canonical := serviceTarget(item)
+			canonical := item.QualifiedName()
 			if !strings.EqualFold(canonical, strings.TrimSpace(candidate)) {
 				continue
 			}
@@ -788,6 +763,8 @@ func (f *operationFlow) confirmationMessage(op PendingOperation) string {
 		return question
 	case OperationServiceRestart:
 		return f.texts.Format("operation.confirm_restart", data)
+	case OperationServiceSelfHealEnable:
+		return f.texts.Format("operation.confirm_self_heal", f.selfHealMessageData(op.SelfHealPlan))
 	default:
 		return ""
 	}
@@ -847,6 +824,12 @@ func parseConfirmation(message string) confirmationValue {
 func parseReplicas(message string) (uint64, bool) {
 	value, err := strconv.ParseUint(strings.TrimSpace(message), 10, 64)
 	return value, err == nil && value > 0
+}
+
+func isServiceReferenceReply(message string) bool {
+	stack, service, ok := strings.Cut(strings.TrimSpace(message), "/")
+	return ok && stack != "" && service != "" && !strings.Contains(service, "/") &&
+		!strings.ContainsFunc(message, unicode.IsSpace)
 }
 
 func isUnrelatedPendingMessage(message string) bool {

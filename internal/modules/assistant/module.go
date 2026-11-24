@@ -23,6 +23,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/logparser"
 	"github.com/swarm-deploy/swarm-deploy/internal/storage"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
+	"github.com/swarm-deploy/swarm-deploy/internal/usecase"
 )
 
 // Module contains assistant services exposed to application entrypoints.
@@ -51,7 +52,10 @@ type Container interface {
 }
 
 // InitModule initializes the assistant and its built-in tools.
-func InitModule(_ context.Context, cfg *config.Config, cnt Container, localizer *texts.Localizer) (*Module, error) {
+func InitModule(
+	_ context.Context, cfg *config.Config, cnt Container, localizer *texts.Localizer,
+	selfHeal *usecase.ServiceSelfHealEnabler,
+) (*Module, error) {
 	if !cfg.Spec.Assistant.Enabled {
 		return &Module{Service: NewDisabledAssistant(localizer)}, nil
 	}
@@ -76,6 +80,7 @@ func InitModule(_ context.Context, cfg *config.Config, cnt Container, localizer 
 	toolExecutor := tools.NewExecutor(
 		resourcesModule,
 		gitopsModule,
+		selfHeal,
 		cnt.GetDeploymentsModule().Store,
 		cnt.GetAlertManagementModule(),
 		eventModule,
@@ -104,6 +109,7 @@ func InitModule(_ context.Context, cfg *config.Config, cnt Container, localizer 
 		ConversationInMemoryTTL: cfg.Spec.Assistant.Conversation.Storage.InMemory.TTL.Value,
 		ConversationHistory:     conversation.NewSQLHistoryStorage(cnt.GetStorage()),
 		SyncPauses:              gitopsModule.SyncPauses,
+		PrepareSelfHeal:         selfHeal.Prepare,
 	}, resourcesModule.ServiceStore, toolExecutor, eventModule.Dispatcher, cnt.GetMetrics().Assistant)
 	if err != nil {
 		return nil, err

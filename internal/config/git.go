@@ -37,6 +37,38 @@ type GitSpec struct {
 	Pull GitPullSpec `yaml:"pull"`
 	// Auth contains git authentication settings.
 	Auth GitAuthSpec `yaml:"auth"`
+	// Push optionally overrides the repository used for assistant-proposed Git changes.
+	Push *GitPushSpec `yaml:"push,omitempty"`
+}
+
+// ForPush resolves the write repository, base branch, Git credentials and optional API token.
+func (spec GitSpec) ForPush() (GitSpec, string) {
+	push := spec.Push
+	if push == nil {
+		return spec, ""
+	}
+	if push.Repository != "" && push.Repository != spec.Repository {
+		spec.Repository = push.Repository
+		spec.Auth = GitAuthSpec{}
+	}
+	if push.Branch != "" {
+		spec.Branch = push.Branch
+	}
+	if push.Auth != nil {
+		spec.Auth = *push.Auth
+	}
+	return spec, strings.TrimSpace(string(push.APIToken.Content))
+}
+
+type GitPushSpec struct {
+	// Repository is the write repository URL. Empty uses the sync repository.
+	Repository string `yaml:"repository,omitempty"`
+	// Branch is the base for proposed changes. Empty uses the sync branch.
+	Branch string `yaml:"branch,omitempty"`
+	// Auth supplies write credentials. Omitted credentials are inherited only for the sync repository.
+	Auth *GitAuthSpec `yaml:"auth,omitempty"`
+	// APIToken optionally authorizes creating a GitHub pull request after pushing.
+	APIToken specw.File `yaml:"apiTokenPath,omitempty" json:"-"`
 }
 
 type GitPullSpec struct {

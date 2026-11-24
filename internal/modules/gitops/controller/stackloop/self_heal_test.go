@@ -6,6 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackloop/policies"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/labelsdict"
 )
 
@@ -38,7 +39,7 @@ func TestResolveSelfHeal(t *testing.T) {
 			if tt.label != "" {
 				labels[labelsdict.ServiceSyncPolicySelfHealLabelKey] = tt.label
 			}
-			actualName, actual, err := resolveSelfHeal(compose.Service{
+			actualName, actual, err := policies.ResolveSelfHeal(compose.Service{
 				Deploy: compose.ServiceDeploy{Labels: compose.Labels{Map: labels}},
 			}, tt.stack, tt.global)
 			assert.Equal(t, tt.wantName, actualName)

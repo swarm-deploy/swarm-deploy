@@ -14,6 +14,15 @@ gitops:
       interval: 30s
       # Maximum time for Git pull, including waiting for repository access. Defaults to 2m.
       timeout: 2m
+    # Optional Git settings for assistant-proposed service policy changes.
+    # push:
+    #   repository: https://github.com/your-org/your-stacks-repo.git
+    #   branch: main
+    #   auth:
+    #     type: http
+    #     http:
+    #       tokenPath: /run/secrets/git_push_token
+    #   apiTokenPath: /run/secrets/github_pr_token
 
   # Git-to-deploy synchronization settings.
   sync:

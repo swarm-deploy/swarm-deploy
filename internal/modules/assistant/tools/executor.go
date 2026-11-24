@@ -25,6 +25,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/logparser"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/tracing"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
+	"github.com/swarm-deploy/swarm-deploy/internal/usecase"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/codes"
 	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
@@ -47,6 +48,7 @@ type Executor struct {
 func NewExecutor(
 	resourcesModule *resources.Module,
 	gitopsModule *gitops.Module,
+	selfHeal *usecase.ServiceSelfHealEnabler,
 	deployments *deploymentstore.Store,
 	alertModule *alertmanagement.Module,
 	eventModule *event.Module,
@@ -96,6 +98,9 @@ func NewExecutor(
 		NewDate(),
 		NewSelfMetricsList(prometheus.DefaultGatherer, selfMetricsNamePrefix),
 		NewReportPromptInjection(eventModule.Dispatcher),
+	}
+	if selfHeal != nil {
+		toolComponents = append(toolComponents, &serviceSelfHealEnable{enabler: selfHeal})
 	}
 
 	allowed := config.NormalizeAssistantToolAllowlist(spec.Assistant.Tools)

@@ -28,51 +28,45 @@ func NewProviderManager(cfg Config) (*ProviderManager, error) {
 	}, nil
 }
 
-const (
-	githubPathParts = 2
-)
+const githubPathParts = 2
 
 func (m *ProviderManager) Get(uri string) (*ReferencedProvider, error) {
+	uri = strings.TrimSpace(uri)
 	repoURI, err := url.Parse(uri)
 	if err != nil {
 		return nil, fmt.Errorf("parse uri: %w", err)
 	}
 	if repoURI.Host == "" && repoURI.Scheme == "" {
-		repoURI, err = url.Parse("https://" + strings.Trim(strings.TrimSpace(uri), "/"))
+		repoURI, err = url.Parse("https://" + strings.Trim(uri, "/"))
 		if err != nil {
 			return nil, fmt.Errorf("parse uri without scheme: %w", err)
 		}
 	}
 
-	var (
-		repoRef  RepositoryReference
-		provider Provider
-	)
-
-	switch repoURI.Host {
-	case "github.com":
-		repoRef, err = m.resolveGithubRepositoryReference(repoURI)
-		if err != nil {
-			return nil, fmt.Errorf("resolve github repository reference: %w", err)
-		}
-
-		provider = m.github
-	default:
+	if !strings.EqualFold(repoURI.Host, githubHost) {
 		return nil, ErrProviderNotSupported
 	}
+	repoRef, err := parseGithubRepositoryReference(repoURI)
+	if err != nil {
+		return nil, fmt.Errorf("resolve github repository reference: %w", err)
+	}
 
-	return NewReferencedProvider(provider, repoRef), nil
+	return NewReferencedProvider(m.github, repoRef), nil
 }
 
-func (m *ProviderManager) resolveGithubRepositoryReference(repoURI *url.URL) (RepositoryReference, error) {
+func parseGithubRepositoryReference(repoURI *url.URL) (RepositoryReference, error) {
 	trimmedPath := strings.Trim(strings.TrimSpace(repoURI.Path), "/")
 	parts := strings.Split(trimmedPath, "/")
 	if len(parts) < githubPathParts || parts[0] == "" || parts[1] == "" {
-		return RepositoryReference{}, errors.New("url not has repo name")
+		return RepositoryReference{}, errors.New("expected a GitHub owner and repository name")
+	}
+	name := strings.TrimSuffix(parts[1], ".git")
+	if name == "" {
+		return RepositoryReference{}, errors.New("expected a GitHub owner and repository name")
 	}
 
 	return RepositoryReference{
 		Owner: parts[0],
-		Name:  parts[1],
+		Name:  name,
 	}, nil
 }
