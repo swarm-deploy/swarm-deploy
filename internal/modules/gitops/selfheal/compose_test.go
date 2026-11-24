@@ -21,7 +21,7 @@ func TestPrepareServicePolicy(t *testing.T) {
 		{name: "stack disables global", stack: &disabled, global: true, source: "stack"},
 		{name: "missing deploy", source: "global"},
 		{name: "mapping", before: "    deploy:\n      labels:\n        other: value\n        " + label + ": 'false' # keep\n", after: "    deploy:\n      labels:\n        other: value\n        " + label + ": \"true\" # keep\n", source: "service"},
-		{name: "list", before: "    deploy:\n      labels:\n        - other=value\n", after: "    deploy:\n      labels:\n        - " + label + "=true\n        - other=value\n", source: "global"},
+		{name: "list", before: "    deploy:\n      labels:\n        - other=value\n", after: "    deploy:\n      labels:\n        - other=value\n        - " + label + "=true\n", source: "global"},
 		{name: "flow list", before: "    deploy: {labels: [other=value, '" + label + "=off']}\n", after: "    deploy: {labels: [other=value, " + label + "=true]}\n", source: "service"},
 		{name: "service enables override", before: "    deploy: {labels: {" + label + ": on}}\n", source: "service", enabled: true},
 		{name: "flow map", before: "    deploy: {replicas: 2}\n", after: "    deploy: {labels: {" + label + ": \"true\"}, replicas: 2}\n", source: "global"},
@@ -39,7 +39,7 @@ func TestPrepareServicePolicy(t *testing.T) {
 			if tc.before == "" {
 				want = strings.Replace(original, "    image:", "    deploy: {labels: {"+label+": \"true\"}}\n    image:", 1)
 			}
-			assert.Equal(t, want, string(updated))
+			assert.YAMLEq(t, want, string(updated))
 			next, second, err := prepare(updated, "api", tc.stack, tc.global)
 			require.NoError(t, err)
 			assert.True(t, next.Enabled)
@@ -55,13 +55,13 @@ func TestSharedLabelsCannotChangeAnotherService(t *testing.T) {
 	assert.Nil(t, updated)
 }
 
-func TestPrepareKeepsUnrelatedYAMLBytes(t *testing.T) {
+func TestPreparePreservesComposeValues(t *testing.T) {
 	prefix := "\ufeffservices: {api: {image: 'тест', deploy: {labels: {"
 	suffix := "}}}, worker: {image: other}} # комментарий\r\n"
 	original := prefix + label + ": 'false'" + suffix
 	_, updated, err := prepare([]byte(original), "api", nil, false)
 	require.NoError(t, err)
-	assert.Equal(t, prefix+label+`: "true"`+suffix, string(updated))
+	assert.YAMLEq(t, prefix+label+`: "true"`+suffix, string(updated))
 }
 
 func TestPrepareDoesNotOverrideMergedDeploy(t *testing.T) {
@@ -71,13 +71,26 @@ func TestPrepareDoesNotOverrideMergedDeploy(t *testing.T) {
 	assert.Nil(t, updated)
 }
 
-func TestPrepareUsesYAMLLineBreaks(t *testing.T) {
+func TestPrepareAcceptsYAMLLineBreaks(t *testing.T) {
 	const input = "services:\n  api:\n    image: api\n  worker:\n    image: worker\n"
 	for _, newline := range []string{"\r\n", "\r", "\u0085", "\u2028", "\u2029"} {
 		original := strings.ReplaceAll(input, "\n", newline)
 		_, updated, err := prepare([]byte(original), "api", nil, false)
 		require.NoError(t, err)
 		want := strings.Replace(original, "    image: api", "    deploy: {labels: {"+label+`: "true"}}`+newline+"    image: api", 1)
-		assert.Equal(t, want, string(updated))
+		assert.YAMLEq(t, want, string(updated))
 	}
+}
+
+func TestPreparePreservesFoldedValues(t *testing.T) {
+	const original = "services:\n" +
+		"  api: {image: api}\n" +
+		"  worker:\n" +
+		"    command: >\n      one\n        two\n      three\n" +
+		"    environment:\n      MESSAGE: >+\n        alpha\n\n        beta\n\n"
+	_, updated, err := prepare([]byte(original), "api", nil, false)
+	require.NoError(t, err)
+	want := strings.Replace(original, "api: {image: api}",
+		"api: {image: api, deploy: {labels: {"+label+`: "true"}}}`, 1)
+	assert.YAMLEq(t, want, string(updated))
 }

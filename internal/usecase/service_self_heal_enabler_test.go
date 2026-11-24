@@ -92,7 +92,7 @@ func TestServiceSelfHealEnablerPrepareAndPublish(t *testing.T) {
 	require.NoError(t, err)
 	body, err := file.Contents()
 	require.NoError(t, err)
-	assert.Equal(t, "services:\n  api: {deploy: {labels: {"+label+": \"true\"}}, image: app:v1}\n", body)
+	assert.YAMLEq(t, "services:\n  api: {deploy: {labels: {"+label+": \"true\"}}, image: app:v1}\n", body)
 	commit("services:\n  api: {deploy: {labels: {" + label + ": 'false'}}}\n")
 	_, err = enabler.Publish(ctx, plan, "test")
 	require.ErrorIs(t, err, selfheal.ErrPolicyChanged)

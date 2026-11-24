@@ -53,61 +53,128 @@ func prepare(original []byte, service string, stack *bool, global bool) (State, 
 	if enabled {
 		return state, nil, nil
 	}
-	updated, err := enableLabel(original, target)
-	return state, updated, err
+	if editErr := enableLabel(target); editErr != nil {
+		return State{}, nil, editErr
+	}
+	quoteFoldedScalars(&doc)
+	updated, err := yaml.Marshal(&doc)
+	if err != nil {
+		return State{}, nil, errors.New("could not marshal Compose YAML")
+	}
+	return state, updated, nil
 }
 
-func enableLabel(raw []byte, service *yaml.Node) ([]byte, error) {
-	const entry = label + `: "true"`
+// yaml.v3 can introduce extra newlines when re-emitting folded scalars.
+func quoteFoldedScalars(node *yaml.Node) {
+	if node.Style&yaml.FoldedStyle != 0 {
+		node.Style = node.Style&^yaml.FoldedStyle | yaml.DoubleQuotedStyle
+	}
+	for _, child := range node.Content {
+		quoteFoldedScalars(child)
+	}
+}
+
+func enableLabel(service *yaml.Node) error {
 	deploy, err := localField(service, "deploy")
 	if err != nil {
-		return nil, err
+		return err
 	}
 	if deploy == nil {
-		return insertEntry(raw, service, "deploy: {labels: {"+entry+"}}")
+		deploy = appendMapping(service, "deploy")
 	}
 	labels, err := localField(deploy, "labels")
 	if err != nil {
-		return nil, err
+		return err
 	}
 	if labels == nil {
-		return insertEntry(raw, deploy, "labels: {"+entry+"}")
+		labels = appendMapping(deploy, "labels")
 	}
 	if labels.Anchor != "" || labels.Style&yaml.TaggedStyle != 0 {
-		return nil, errors.New("expected local deploy labels without an explicit YAML tag or anchor")
+		return errors.New("expected local deploy labels without an explicit YAML tag or anchor")
 	}
-	return setLabel(raw, labels)
+	if labels.Kind == yaml.SequenceNode {
+		return enableListLabel(labels)
+	}
+	current, err := localField(labels, label)
+	if err != nil {
+		return err
+	}
+	if current == nil {
+		labels.Content = append(labels.Content, stringNode(label), stringNode("true"))
+		return nil
+	}
+	return setLabelValue(current, "true")
 }
 
-func setLabel(raw []byte, labels *yaml.Node) ([]byte, error) {
-	if labels.Kind == yaml.MappingNode {
-		value, err := localField(labels, label)
-		if err != nil {
-			return nil, err
-		}
-		if value != nil {
-			return replaceScalar(raw, value, `"true"`)
-		}
-		return insertEntry(raw, labels, label+`: "true"`)
-	}
-	if labels.Kind != yaml.SequenceNode {
-		return nil, errors.New("expected a local deploy.labels mapping or list")
-	}
+func enableListLabel(labels *yaml.Node) error {
 	var found *yaml.Node
 	for _, item := range labels.Content {
-		key, _, _ := strings.Cut(item.Value, "=")
 		if item.Kind != yaml.ScalarNode {
-			return nil, errors.New("expected literal Compose deploy labels")
+			return errors.New("expected literal Compose deploy labels")
 		}
-		if key == label {
-			if found != nil {
-				return nil, errors.New("duplicate self-heal label")
+		key, _, _ := strings.Cut(item.Value, "=")
+		if key != label {
+			continue
+		}
+		if found != nil {
+			return errors.New("duplicate self-heal label")
+		}
+		found = item
+	}
+	if found == nil {
+		labels.Content = append(labels.Content, stringNode(label+"=true"))
+		return nil
+	}
+	return setLabelValue(found, label+"=true")
+}
+
+func setLabelValue(node *yaml.Node, value string) error {
+	if node.Kind != yaml.ScalarNode || node.Anchor != "" || node.Style&yaml.TaggedStyle != 0 {
+		return errors.New("expected a local self-heal label value without an explicit YAML tag or anchor")
+	}
+	node.Tag = "!!str"
+	node.Value = value
+	return nil
+}
+
+func appendMapping(parent *yaml.Node, key string) *yaml.Node {
+	mapping := &yaml.Node{Kind: yaml.MappingNode}
+	parent.Content = append(parent.Content, stringNode(key), mapping)
+	return mapping
+}
+
+func stringNode(value string) *yaml.Node {
+	return &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: value}
+}
+
+// localField prevents an edit through a shared anchor or the accidental shadowing
+// of a merged mapping that also contains unrelated settings.
+func localField(mapping *yaml.Node, key string) (*yaml.Node, error) {
+	if mapping.Kind != yaml.MappingNode || mapping.Anchor != "" || mapping.Style&yaml.TaggedStyle != 0 {
+		return nil, errors.New("expected a locally defined Compose mapping")
+	}
+	var local *yaml.Node
+	var merged bool
+	for i := 0; i < len(mapping.Content); i += 2 {
+		field := mapping.Content[i]
+		switch {
+		case field.Tag == "!!merge":
+			merged = true
+		case field.Value == key:
+			if local != nil {
+				return nil, fmt.Errorf("duplicate Compose key %q", key)
 			}
-			found = item
+			local = mapping.Content[i+1]
 		}
 	}
-	if found != nil {
-		return replaceScalar(raw, found, label+"=true")
+	if local == nil && merged {
+		var effective map[string]yaml.Node
+		if err := mapping.Decode(&effective); err != nil {
+			return nil, errors.New("invalid merged Compose mapping")
+		}
+		if _, inherited := effective[key]; inherited {
+			return nil, fmt.Errorf("field %q is inherited from a YAML merge", key)
+		}
 	}
-	return insertEntry(raw, labels, label+"=true")
+	return local, nil
 }
