@@ -555,6 +555,7 @@ export interface AssistantChatResponse {
   error_message?: string;
   poll_after_ms?: number;
   activity?: string[];
+  selection?: AssistantSelection;
 }
 
 export interface AssistantTokenUsage {
@@ -607,6 +608,17 @@ export interface AssistantChatMessage {
   role: "user" | "assistant" | "system";
   content: string;
   activity?: string[];
+  selection?: AssistantSelection;
+}
+
+export interface AssistantSelection {
+  options: AssistantSelectionOption[];
+}
+
+export interface AssistantSelectionOption {
+  label: string;
+  description?: string;
+  value: string;
 }
 
 export interface AssistantActiveChatRequest {

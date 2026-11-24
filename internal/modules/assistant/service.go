@@ -210,7 +210,7 @@ func (s *Service) startRun(ctx context.Context, run *chatRun, createdBy string) 
 	select {
 	case s.runSlots <- struct{}{}:
 	default:
-		run.finish(StatusFailed, "", s.config.Localizer.Text("chat.busy"), nil)
+		run.finish(StatusFailed, "", s.config.Localizer.Text("chat.busy"), nil, nil)
 		return
 	}
 
@@ -234,19 +234,19 @@ func (s *Service) startRun(ctx context.Context, run *chatRun, createdBy string) 
 func (s *Service) prepareRun(ctx context.Context, run *chatRun, createdBy string) ([]conversation.Turn, bool) {
 	if s.graph.guard.Check(run.message) {
 		s.publishPromptRejection(ctx, run.message)
-		run.finish(StatusRejected, "", s.config.Localizer.Text("chat.rejected"), nil)
+		run.finish(StatusRejected, "", s.config.Localizer.Text("chat.rejected"), nil, nil)
 		return nil, false
 	}
 
 	history, err := s.getConversation(ctx, run.conversationID)
 	if err != nil {
-		run.finish(StatusFailed, "", s.config.Localizer.Text("chat.history_read_failed"), nil)
+		run.finish(StatusFailed, "", s.config.Localizer.Text("chat.history_read_failed"), nil, nil)
 		return nil, false
 	}
 
 	unlock, err := s.lockChatHistory(ctx, run.conversationID)
 	if err != nil {
-		run.finish(StatusFailed, "", s.config.Localizer.Text("chat.save_message_failed"), nil)
+		run.finish(StatusFailed, "", s.config.Localizer.Text("chat.save_message_failed"), nil, nil)
 		return nil, false
 	}
 	defer unlock()
@@ -254,7 +254,7 @@ func (s *Service) prepareRun(ctx context.Context, run *chatRun, createdBy string
 	question := conversation.Turn{Role: "user", Content: run.message}
 	_, err = s.persistConversation(ctx, run.conversationID, createdBy, conversation.TokenUsage{}, question)
 	if err != nil {
-		run.finish(StatusFailed, "", s.config.Localizer.Text("chat.save_message_failed"), nil)
+		run.finish(StatusFailed, "", s.config.Localizer.Text("chat.save_message_failed"), nil, nil)
 		return nil, false
 	}
 
@@ -284,7 +284,7 @@ func (s *Service) runAssistant(ctx context.Context, createdBy string, history []
 
 			s.publishPromptRejection(runCtx, rejectedPrompt)
 			_, _ = s.persistConversation(ctx, conversationID, createdBy, usage)
-			run.finish(StatusRejected, "", s.config.Localizer.Text("chat.rejected"), nil)
+			run.finish(StatusRejected, "", s.config.Localizer.Text("chat.rejected"), nil, nil)
 			return
 		}
 
@@ -296,7 +296,7 @@ func (s *Service) runAssistant(ctx context.Context, createdBy string, history []
 			slog.String("request_id", run.requestID),
 			slog.Any("err", err),
 		)
-		run.finish(StatusFailed, "", s.config.Localizer.Text("chat.generation_failed"), nil)
+		run.finish(StatusFailed, "", s.config.Localizer.Text("chat.generation_failed"), nil, nil)
 		return
 	}
 
@@ -305,7 +305,9 @@ func (s *Service) runAssistant(ctx context.Context, createdBy string, history []
 		answer = s.config.Localizer.Text("chat.no_answer")
 	}
 
-	reply := conversation.Turn{Role: "assistant", Content: answer, Activity: run.activitySnapshot()}
+	reply := conversation.Turn{
+		Role: "assistant", Content: answer, Activity: run.activitySnapshot(), Selection: turn.selection,
+	}
 
 	var sequence int
 	unlock, err := s.lockChatHistory(ctx, conversationID)
@@ -316,7 +318,7 @@ func (s *Service) runAssistant(ctx context.Context, createdBy string, history []
 	if err != nil {
 		// Keep the model context equal to the saved history: the question stays, the lost reply does not.
 		s.conversationStorage.Append(conversationID, question)
-		run.finish(StatusFailed, "", s.config.Localizer.Text("chat.save_response_failed"), nil)
+		run.finish(StatusFailed, "", s.config.Localizer.Text("chat.save_response_failed"), nil, nil)
 		return
 	}
 	turn.publish()
@@ -326,7 +328,7 @@ func (s *Service) runAssistant(ctx context.Context, createdBy string, history []
 	if sequence >= 0 {
 		answerSequence = &sequence
 	}
-	run.finish(StatusCompleted, answer, "", answerSequence)
+	run.finish(StatusCompleted, answer, "", answerSequence, turn.selection)
 }
 
 func (s *Service) persistConversation(
@@ -610,7 +612,8 @@ func (s *Service) GetChat(ctx context.Context, id string) (ChatHistory, bool, er
 	messages := make([]ChatMessage, 0, len(chat.Turns))
 	for _, turn := range chat.Turns {
 		messages = append(messages, ChatMessage{
-			Sequence: turn.Sequence, Role: turn.Role, Content: turn.Content, Activity: append([]string(nil), turn.Activity...),
+			Sequence: turn.Sequence, Role: turn.Role, Content: turn.Content,
+			Activity: append([]string(nil), turn.Activity...), Selection: turn.Selection,
 		})
 	}
 
@@ -651,6 +654,7 @@ type chatRun struct {
 	error      string
 	finishedAt time.Time
 	activity   []string
+	selection  *Selection
 }
 
 func newChatRun(requestID, conversationID, message string, newConversation bool) *chatRun {
@@ -713,7 +717,13 @@ func (r *chatRun) isFinished() bool {
 	return r.status != StatusInProgress
 }
 
-func (r *chatRun) finish(status Status, answer string, errorMessage string, sequence *int) {
+func (r *chatRun) finish(
+	status Status,
+	answer string,
+	errorMessage string,
+	sequence *int,
+	selection *Selection,
+) {
 	r.mu.Lock()
 	if r.status != StatusInProgress {
 		r.mu.Unlock()
@@ -723,6 +733,7 @@ func (r *chatRun) finish(status Status, answer string, errorMessage string, sequ
 	r.status = status
 	r.answer = strings.TrimSpace(answer)
 	r.sequence = sequence
+	r.selection = selection
 	r.error = strings.TrimSpace(errorMessage)
 	r.finishedAt = time.Now()
 	r.mu.Unlock()
@@ -747,6 +758,7 @@ func (r *chatRun) snapshot() ChatResponse {
 		AnswerSequence: r.sequence,
 		ErrorMessage:   r.error,
 		Activity:       append([]string(nil), r.activity...),
+		Selection:      r.selection,
 	}
 }
 func (s *Service) publishPromptRejection(ctx context.Context, prompt string) {

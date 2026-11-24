@@ -27,6 +27,7 @@ func (t *operationTurn) collectSelfHeal(
 	}
 	if !resolution.ok {
 		t.next = &op
+		t.selection = resolution.selection
 		return resolution.message, usage
 	}
 	plan, err := t.prepareSelfHeal(ctx, resolution.stack, resolution.service)

@@ -42,10 +42,11 @@ func (h *handler) GetAssistantChat(
 	messages := make([]generated.AssistantChatMessage, 0, len(chat.Messages))
 	for _, message := range chat.Messages {
 		messages = append(messages, generated.AssistantChatMessage{
-			Sequence: message.Sequence,
-			Role:     toGeneratedAssistantChatMessageRole(message.Role),
-			Content:  message.Content,
-			Activity: append([]string(nil), message.Activity...),
+			Sequence:  message.Sequence,
+			Role:      toGeneratedAssistantChatMessageRole(message.Role),
+			Content:   message.Content,
+			Activity:  append([]string(nil), message.Activity...),
+			Selection: toGeneratedAssistantSelection(message.Selection),
 		})
 	}
 

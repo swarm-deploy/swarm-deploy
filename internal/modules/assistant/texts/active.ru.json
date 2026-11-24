@@ -26,7 +26,7 @@
   "http.request_too_large": "Запрос к ассистенту слишком большой.",
   "http.usage_failed": "Не удалось загрузить данные о расходе токенов ассистента",
   "http.usage_invalid_range": "Начало периода (from) должно предшествовать концу (to).",
-  "operation.ambiguous_target": "Найдено несколько сервисов: {{.Targets}}. Уточните цель.",
+  "operation.ambiguous_target": "Найдено несколько сервисов. Уточните цель.",
   "operation.ask_confirmation": "Ответьте явно: `да` для подтверждения или `нет` для отмены.",
   "operation.ask_gitops_service": "Укажите GitOps-сервис в формате `stack/service`.",
   "operation.ask_replicas": "Сколько реплик установить для `{{.Service}}` в стеке `{{.Stack}}`?",

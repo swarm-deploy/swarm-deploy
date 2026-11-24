@@ -71,6 +71,8 @@ type ChatResponse struct {
 	PollAfterMS int
 	// Activity contains safe user-visible execution progress for the current run.
 	Activity []string
+	// Selection contains structured reply options for completed runs.
+	Selection *Selection
 }
 
 // ChatMessage is a user-visible persisted chat message.
@@ -83,7 +85,15 @@ type ChatMessage struct {
 	Content string `json:"content"`
 	// Activity contains persisted execution trace metadata for assistant messages.
 	Activity []string `json:"activity,omitempty"`
+	// Selection contains structured reply options for assistant messages.
+	Selection *Selection `json:"selection,omitempty"`
 }
+
+// Selection contains structured single-choice reply options.
+type Selection = conversation.Selection
+
+// SelectionOption describes one selectable reply value.
+type SelectionOption = conversation.SelectionOption
 
 // TokenUsage contains aggregate model token consumption for a chat.
 type TokenUsage = conversation.TokenUsage

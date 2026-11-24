@@ -565,6 +565,59 @@ describe("Assistant Drawer", () => {
     wrapper.unmount();
   });
 
+  it("renders persisted response options and submits the exact selected value", async () => {
+    const chat = savedChat();
+    chat.messages.push({
+      role: "assistant",
+      content: "Multiple services found. Specify the target.",
+      sequence: 1,
+      selection: {
+        options: [
+          {
+            label: "infra-prometheus",
+            description: "infra-monitoring",
+            value: "infra-monitoring/infra-prometheus",
+          },
+          {
+            label: "infra-prometheus-pushgateway",
+            description: "infra-monitoring",
+            value: "infra-monitoring/infra-prometheus-pushgateway",
+          },
+        ],
+      },
+    });
+    vi.spyOn(assistantApi, "getAssistantChat").mockResolvedValue(chat);
+    vi.spyOn(assistantApi, "listAssistantChats").mockResolvedValue({ chats: [chat] });
+    const send = vi.spyOn(assistantApi, "sendAssistantChat").mockResolvedValue({
+      status: "completed",
+      conversation_id: chat.id,
+      request_id: "selection-request",
+      answer: "Restart infra-prometheus-pushgateway?",
+      answer_sequence: 3,
+    });
+
+    const { wrapper } = await mountDrawer(`/?assistant=${chat.id}`);
+    const options = wrapper.findAll(".assistant-selection-option");
+    expect(options).toHaveLength(2);
+    expect(options[0].text()).toContain("infra-prometheus");
+    expect(options[0].text()).toContain("infra-monitoring");
+
+    await options[1].trigger("click");
+    await flushPromises();
+
+    expect(send).toHaveBeenCalledWith(expect.objectContaining({
+      conversation_id: chat.id,
+      message: "infra-monitoring/infra-prometheus-pushgateway",
+    }));
+    expect(wrapper.findAll(".assistant-chat-message-user").at(-1)?.text()).toBe(
+      "infra-monitoring/infra-prometheus-pushgateway",
+    );
+    const renderedOptions = wrapper.findAll(".assistant-selection-option");
+    expect(renderedOptions.every((option) => option.attributes("disabled") !== undefined)).toBe(true);
+    expect(renderedOptions[1].classes()).toContain("selected");
+    wrapper.unmount();
+  });
+
   it("keeps normal chat submission working when suggestions fail", async () => {
     const fetchMock = vi.fn().mockRejectedValue(new Error("suggestions unavailable"));
     vi.stubGlobal("fetch", fetchMock);

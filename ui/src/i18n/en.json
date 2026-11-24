@@ -134,6 +134,7 @@
     "pin": "Pin assistant",
     "placeholder": "Ask the assistant…",
     "requestFailed": "Assistant failed: {message}",
+    "responseOptions": "Response options",
     "searchChats": "Search chats",
     "send": "Send message",
     "sending": "Sending message",

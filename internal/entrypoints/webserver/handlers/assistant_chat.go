@@ -46,6 +46,7 @@ func toGeneratedAssistantChatResponse(resp assistant.ChatResponse) *generated.As
 		Answer:         toOptString(resp.Answer),
 		ErrorMessage:   toOptString(resp.ErrorMessage),
 		Activity:       append([]string(nil), resp.Activity...),
+		Selection:      toGeneratedAssistantSelection(resp.Selection),
 	}
 	if resp.AnswerSequence != nil {
 		generatedResp.AnswerSequence = generated.NewOptInt(*resp.AnswerSequence)
@@ -60,6 +61,20 @@ func toGeneratedAssistantChatResponse(resp assistant.ChatResponse) *generated.As
 	}
 
 	return generatedResp
+}
+
+func toGeneratedAssistantSelection(selection *assistant.Selection) generated.OptAssistantSelection {
+	if selection == nil {
+		return generated.OptAssistantSelection{}
+	}
+
+	options := make([]generated.AssistantSelectionOption, 0, len(selection.Options))
+	for _, option := range selection.Options {
+		options = append(options, generated.AssistantSelectionOption{
+			Label: option.Label, Description: toOptString(option.Description), Value: option.Value,
+		})
+	}
+	return generated.NewOptAssistantSelection(generated.AssistantSelection{Options: options})
 }
 
 func toGeneratedAssistantStatus(status assistant.Status) generated.AssistantChatResponseStatus {

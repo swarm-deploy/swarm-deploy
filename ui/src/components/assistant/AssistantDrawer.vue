@@ -5,7 +5,7 @@ import { useRoute, useRouter } from "vue-router";
 import { openNewAssistantChat } from "../../router/assistant";
 import { getAssistantSuggestions } from "../../api/assistant";
 import { formatNumber, locale, t } from "../../i18n";
-import type { AssistantSuggestion } from "../../api/types";
+import type { AssistantSelectionOption, AssistantSuggestion } from "../../api/types";
 import { useAssistantStore } from "../../stores/assistant";
 import { useUIStore } from "../../stores/ui";
 import { renderAssistantMarkdown } from "../../utils/assistantMarkdown";
@@ -53,6 +53,18 @@ function replyMissing(index: number): boolean {
   }
   const next = messages.value[index + 1];
   return next ? next.role === "user" : !pending.value;
+}
+
+function selectionResponse(index: number): string | undefined {
+  return messages.value.slice(index + 1).find((message) => message.role === "user")?.text;
+}
+
+function selectionDisabled(index: number): boolean {
+  return pending.value || selectionResponse(index) !== undefined;
+}
+
+function selectionSelected(index: number, option: AssistantSelectionOption): boolean {
+  return selectionResponse(index) === option.value;
 }
 const chats = computed(() => assistantStore.chats);
 const usageOpen = computed(() => isOpen.value && route.query.assistant === "usage");
@@ -513,6 +525,16 @@ async function submitSuggestion(suggestion: AssistantSuggestion) {
   inputRef.value?.focus();
 }
 
+async function submitSelection(index: number, option: AssistantSelectionOption) {
+  if (selectionDisabled(index)) {
+    return;
+  }
+
+  await assistantStore.sendMessage(option.value);
+  await nextTick();
+  inputRef.value?.focus();
+}
+
 function renderMessageText(role: string, text: string): string {
   if (role === "assistant") {
     return renderAssistantMarkdown(text);
@@ -760,6 +782,25 @@ function renderMessageText(role: string, text: string): string {
                 :data-reply-sequence="message.role === 'assistant' ? message.sequence : undefined"
                 v-html="renderMessageText(message.role, message.text)"
               />
+              <div
+                v-if="message.selection?.options.length"
+                class="assistant-selection"
+                role="group"
+                :aria-label="t('assistant.responseOptions')"
+              >
+                <button
+                  v-for="option in message.selection.options"
+                  :key="option.value"
+                  type="button"
+                  class="assistant-selection-option"
+                  :class="{ selected: selectionSelected(index, option) }"
+                  :disabled="selectionDisabled(index)"
+                  @click="submitSelection(index, option)"
+                >
+                  <strong>{{ option.label }}</strong>
+                  <span v-if="option.description">{{ option.description }}</span>
+                </button>
+              </div>
               <details v-if="message.activity?.length" class="assistant-activity-details">
                 <summary>{{ t('assistant.activity') }}</summary>
                 <ol>

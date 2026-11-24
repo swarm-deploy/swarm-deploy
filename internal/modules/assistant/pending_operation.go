@@ -227,6 +227,7 @@ type operationTurn struct {
 	*operationFlow
 	conversationID string
 	next           *PendingOperation
+	selection      *conversation.Selection
 }
 
 func (f *operationFlow) beginTurn(conversationID string) *operationTurn {
@@ -266,6 +267,7 @@ func (t *operationTurn) startPendingOperation(
 	}
 	if !resolution.ok {
 		t.next = &op
+		t.selection = resolution.selection
 		return resolution.message, usage
 	}
 	op.Stack, op.Service = resolution.stack, resolution.service
@@ -385,6 +387,7 @@ func (t *operationTurn) handlePendingCollection(
 		}
 		if !resolution.ok {
 			t.next = &op
+			t.selection = resolution.selection
 			return true, resolution.message, usage, nil
 		}
 		op.Stack, op.Service = resolution.stack, resolution.service
@@ -611,6 +614,7 @@ type serviceResolution struct {
 	stack     string
 	service   string
 	message   string
+	selection *conversation.Selection
 	ambiguous bool
 	ok        bool
 }
@@ -637,14 +641,25 @@ func resolvedService(item model.Info) serviceResolution {
 }
 
 func (f *operationFlow) ambiguousServiceResolution(targets []string) serviceResolution {
-	quoted := make([]string, 0, len(targets))
-	for _, target := range targets {
-		quoted = append(quoted, "`"+target+"`")
-	}
 	return serviceResolution{
-		message:   f.texts.Format("operation.ambiguous_target", map[string]any{"Targets": strings.Join(quoted, ", ")}),
+		message:   f.texts.Text("operation.ambiguous_target"),
+		selection: serviceTargetSelection(targets),
 		ambiguous: true,
 	}
+}
+
+func serviceTargetSelection(targets []string) *conversation.Selection {
+	options := make([]conversation.SelectionOption, 0, len(targets))
+	for _, target := range targets {
+		stack, service, ok := strings.Cut(target, "/")
+		option := conversation.SelectionOption{Label: target, Value: target}
+		if ok {
+			option.Label = service
+			option.Description = stack
+		}
+		options = append(options, option)
+	}
+	return &conversation.Selection{Options: options}
 }
 
 type targetResolverDecision struct {

@@ -67,6 +67,42 @@ func TestPendingOperationFullRestartSkipsMainGenerationAndConfirmationSkipsModel
 	assert.Equal(t, int64(4), chats[0].Usage.TotalTokens, "zero-usage confirmation must preserve prior usage")
 }
 
+func TestPendingOperationReturnsAndPersistsAmbiguousServiceSelection(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		require.NoError(t, json.MarshalWrite(w, map[string]any{
+			"choices": []map[string]any{{"message": map[string]any{"content": `{"route":"services","operation":{"type":"service_restart_trigger","target":"prometheus"}}`}}},
+		}))
+	}))
+	defer server.Close()
+
+	history := newSQLHistory(t)
+	assistantService, err := NewService(Config{
+		Localizer: testAssistantTexts(t, "en"), Enabled: true, ModelName: "test-model",
+		BaseURL: server.URL, APIToken: "token", MaxTokens: 64,
+		ConversationInMemoryTTL: time.Hour, ConversationHistory: history,
+	}, serviceStore(t, []model.Info{
+		{Stack: "infra-monitoring", Name: "infra-prometheus"},
+		{Stack: "infra-monitoring", Name: "infra-prometheus-pushgateway"},
+	}), &fakeTools{}, &dispatcher.NopDispatcher{}, metrics.NopAssistant{})
+	require.NoError(t, err)
+
+	response := assistantService.Chat(t.Context(), ChatRequest{Message: "Restart prometheus"})
+	require.Equal(t, StatusCompleted, response.Status)
+	require.NotNil(t, response.Selection)
+	assert.Equal(t, []conversation.SelectionOption{
+		{Label: "infra-prometheus", Description: "infra-monitoring", Value: "infra-monitoring/infra-prometheus"},
+		{Label: "infra-prometheus-pushgateway", Description: "infra-monitoring", Value: "infra-monitoring/infra-prometheus-pushgateway"},
+	}, response.Selection.Options)
+
+	chat, ok, readErr := assistantService.GetChat(t.Context(), response.ConversationID)
+	require.NoError(t, readErr)
+	require.True(t, ok)
+	require.Len(t, chat.Messages, 2)
+	require.NotNil(t, chat.Messages[1].Selection)
+	assert.Equal(t, response.Selection.Options, chat.Messages[1].Selection.Options)
+}
+
 func TestPendingOperationResolution(t *testing.T) {
 	services := []model.Info{
 		{Stack: "core", Name: "api"},
@@ -128,7 +164,12 @@ func TestPendingSelfHealRequiresConfirmation(t *testing.T) {
 	}
 	turn := flow.beginTurn("chat")
 	answer, _ := turn.startPendingOperation(t.Context(), OperationIntent{Type: OperationServiceSelfHealEnable, Target: "prometheus"})
-	assert.Contains(t, answer, "infra-prometheus-pushgateway")
+	assert.Equal(t, "Multiple services found. Specify the target.", answer)
+	require.NotNil(t, turn.selection)
+	assert.Equal(t, []conversation.SelectionOption{
+		{Label: "infra-prometheus", Description: stack, Value: "infra-monitoring/infra-prometheus"},
+		{Label: "infra-prometheus-pushgateway", Description: stack, Value: "infra-monitoring/infra-prometheus-pushgateway"},
+	}, turn.selection.Options)
 	turn.publish()
 	turn = flow.beginTurn("chat")
 	handled, answer, _, err := turn.handlePendingOperation(t.Context(), "infra-monitoring/infra-prometheus")

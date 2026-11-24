@@ -1354,6 +1354,65 @@ body {
   color: var(--muted);
 }
 
+.assistant-selection {
+  display: grid;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.assistant-selection-option {
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  display: grid;
+  gap: 2px;
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+  background: var(--surface-muted);
+  color: var(--text);
+  padding: 9px 12px;
+  font: inherit;
+  text-align: left;
+}
+
+.assistant-selection-option:hover:not(:disabled) {
+  border-color: var(--border-strong);
+  background: var(--surface-hover);
+  filter: none;
+}
+
+.assistant-selection-option:focus-visible {
+  outline: 2px solid var(--accent-focus);
+  outline-offset: 2px;
+}
+
+.assistant-selection-option:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.assistant-selection-option.selected {
+  border-color: var(--accent-border);
+  background: var(--surface-selected);
+  opacity: 1;
+}
+
+.assistant-selection-option strong,
+.assistant-selection-option span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.assistant-selection-option strong {
+  font-size: 0.86rem;
+  font-weight: 600;
+}
+
+.assistant-selection-option span {
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+
 .assistant-activity-live {
   display: flex;
   align-items: center;

@@ -26,7 +26,7 @@
   "http.request_too_large": "Assistant request is too large.",
   "http.usage_failed": "Could not load assistant token usage",
   "http.usage_invalid_range": "from must be before to",
-  "operation.ambiguous_target": "Multiple services found: {{.Targets}}. Specify the target.",
+  "operation.ambiguous_target": "Multiple services found. Specify the target.",
   "operation.ask_confirmation": "Reply `yes` to confirm or `no` to cancel.",
   "operation.ask_gitops_service": "Specify the GitOps service as `stack/service`.",
   "operation.ask_replicas": "How many replicas should be set for `{{.Service}}` in stack `{{.Stack}}`?",
