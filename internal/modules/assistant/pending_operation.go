@@ -85,7 +85,7 @@ const (
 	// OperationServiceReplicasSet changes a service replica count.
 	OperationServiceReplicasSet OperationType = serviceReplicasSetTool
 	// OperationServiceSelfHealEnable proposes enabling GitOps self-heal.
-	OperationServiceSelfHealEnable OperationType = OperationType(serviceSelfHealEnableTool)
+	OperationServiceSelfHealEnable OperationType = serviceSelfHealEnableTool
 	// OperationDeploySync triggers a GitOps synchronization.
 	OperationDeploySync OperationType = deploySyncTriggerTool
 	// OperationSyncPauseSet creates or changes a direct GitOps pause.

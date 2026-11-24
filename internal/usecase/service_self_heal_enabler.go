@@ -4,10 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/selfheal"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/modelstore"
 )
 
@@ -38,44 +36,8 @@ var ErrServiceCatalogUnavailable = errors.New("could not read service catalog")
 // ErrServiceNotFound indicates that the target is absent from the catalog.
 var ErrServiceNotFound = errors.New("service not found in catalog")
 
-// AmbiguousServiceTargetError provides the matching services for a caller to choose from.
-type AmbiguousServiceTargetError struct {
-	// Candidates are sorted, fully qualified stack/service names.
-	Candidates []string
-}
-
-func (e *AmbiguousServiceTargetError) Error() string {
-	return "multiple matching services: " + strings.Join(e.Candidates, ", ")
-}
-
-// Prepare resolves a target and reads the current policy without publishing a change.
-func (e *ServiceSelfHealEnabler) Prepare(ctx context.Context, target string) (ServiceSelfHealPlan, error) {
-	services, err := e.catalog.ReadAll(ctx)
-	if err != nil {
-		return ServiceSelfHealPlan{}, fmt.Errorf("%w: %w", ErrServiceCatalogUnavailable, err)
-	}
-	matches := model.MatchServiceTarget(services, target)
-	if len(matches) == 0 {
-		return ServiceSelfHealPlan{}, fmt.Errorf("%w: %q", ErrServiceNotFound, target)
-	}
-	if len(matches) > 1 {
-		return ServiceSelfHealPlan{}, &AmbiguousServiceTargetError{Candidates: model.QualifiedNames(matches)}
-	}
-	service := matches[0]
-	return e.prepareService(ctx, service.Stack, service.Name)
-}
-
-// PrepareService reads policy for an exact, already resolved catalog service.
-func (e *ServiceSelfHealEnabler) PrepareService(
-	ctx context.Context, stack, service string,
-) (ServiceSelfHealPlan, error) {
-	if err := e.requireService(ctx, stack, service); err != nil {
-		return ServiceSelfHealPlan{}, err
-	}
-	return e.prepareService(ctx, stack, service)
-}
-
-func (e *ServiceSelfHealEnabler) prepareService(
+// Prepare reads policy for an exact service without publishing a change.
+func (e *ServiceSelfHealEnabler) Prepare(
 	ctx context.Context, stack, service string,
 ) (ServiceSelfHealPlan, error) {
 	policy, err := e.proposals.Preview(ctx, stack, service)

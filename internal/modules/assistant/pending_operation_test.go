@@ -11,7 +11,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/conversation"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/guard"
@@ -108,7 +107,7 @@ func TestPendingOperationResolution(t *testing.T) {
 func TestPendingSelfHealRequiresConfirmation(t *testing.T) {
 	const stack = "infra-monitoring"
 	executor := &fakeTools{
-		definitions: []routing.ToolDefinition{{Name: config.AssistantToolNameServiceSelfHealEnable, Writable: true, Terminal: true}},
+		definitions: []routing.ToolDefinition{{Name: serviceSelfHealEnableTool, Writable: true, Terminal: true}},
 		executeFunc: func(req routing.Request) (string, error) {
 			payload, ok := req.Payload.(string)
 			require.True(t, ok)

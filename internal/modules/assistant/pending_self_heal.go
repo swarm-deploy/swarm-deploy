@@ -35,9 +35,6 @@ func (t *operationTurn) collectSelfHeal(
 		if errors.Is(err, usecase.ErrServiceCatalogUnavailable) {
 			return t.texts.Text("operation.catalog_failed"), usage
 		}
-		if errors.Is(err, usecase.ErrServiceNotFound) {
-			return t.texts.Text("operation.service_changed"), usage
-		}
 		return t.texts.Format("operation.failed", map[string]any{"Error": err.Error()}), usage
 	}
 	if plan.Policy.Enabled {

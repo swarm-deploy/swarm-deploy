@@ -109,7 +109,7 @@ func InitModule(
 		ConversationInMemoryTTL: cfg.Spec.Assistant.Conversation.Storage.InMemory.TTL.Value,
 		ConversationHistory:     conversation.NewSQLHistoryStorage(cnt.GetStorage()),
 		SyncPauses:              gitopsModule.SyncPauses,
-		PrepareSelfHeal:         selfHeal.PrepareService,
+		PrepareSelfHeal:         selfHeal.Prepare,
 	}, resourcesModule.ServiceStore, toolExecutor, eventModule.Dispatcher, cnt.GetMetrics().Assistant)
 	if err != nil {
 		return nil, err
