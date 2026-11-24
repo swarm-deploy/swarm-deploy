@@ -11,24 +11,31 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestParseGitRemote(t *testing.T) {
+func TestNewProposalRemote(t *testing.T) {
 	for _, tc := range []struct {
-		remote, owner, name, branchURL string
-		github                         bool
+		remote, token, owner, name, branchURL string
+		github                                bool
 	}{
-		{"git@github.com:team/app.git", "team", "app", "https://github.com/team/app/tree/proposal", true},
-		{"github.com:team/app.git", "team", "app", "https://github.com/team/app/tree/proposal", true},
-		{"ssh://git@gitlab.com:22/team/group/app.git", "team/group", "app", "https://gitlab.com/team/group/app/-/tree/proposal", false},
-		{"https://user:password@host:8443/team/app.git?token=private#fragment", "team", "app", "https://host:8443/team/app/tree/proposal", false},
-		{"/local/repo", "", "", "", false},
-		{"file:///local/repo", "", "", "", false},
-		{"github.com/team/app", "", "", "", false}, // Git interprets this clone address as a local path.
+		{"git@github.com:team/app.git", "write-token", "team", "app", "https://github.com/team/app/tree/proposal", true},
+		{"github.com:team/app.git", "write-token", "team", "app", "https://github.com/team/app/tree/proposal", true},
+		{"git@github.com:team/app.git", "", "team", "app", "https://github.com/team/app/tree/proposal", false},
+		{"ssh://git@gitlab.com:22/team/group/app.git", "write-token", "team/group", "app", "https://gitlab.com/team/group/app/-/tree/proposal", false},
+		{"https://user:password@host:8443/team/app.git?token=private#fragment", "write-token", "team", "app", "https://host:8443/team/app/tree/proposal", false},
+		{"/local/repo", "write-token", "", "", "", false},
+		{"file:///local/repo", "write-token", "", "", "", false},
+		{"github.com/team/app", "write-token", "", "", "", false}, // Git interprets this clone address as a local path.
 	} {
-		repo := ParseGitRemote(tc.remote)
-		assert.Equal(t, tc.owner, repo.Owner)
-		assert.Equal(t, tc.name, repo.Name)
-		assert.Equal(t, tc.branchURL, repo.BranchURL("proposal"))
-		assert.Equal(t, tc.github, repo.IsGitHub())
+		remote, err := NewProposalRemote(tc.remote, tc.token)
+		require.NoError(t, err)
+		assert.Equal(t, tc.owner, remote.repo.Owner)
+		assert.Equal(t, tc.name, remote.repo.Name)
+		assert.Equal(t, tc.branchURL, remote.BranchURL("proposal"))
+		assert.Equal(t, tc.github, remote.github != nil)
+		if !tc.github {
+			pr, openErr := remote.OpenPullRequest(t.Context(), "deploy", "proposal", "enable self-heal", "details")
+			require.NoError(t, openErr)
+			assert.Empty(t, pr)
+		}
 	}
 }
 
@@ -49,9 +56,11 @@ func TestOpenPullRequestUsesPublishedBranchAndConfiguredBase(t *testing.T) {
 
 	client, err := github.NewClient(github.WithURLs(&server.URL, nil), github.WithAuthToken("write-token"))
 	require.NoError(t, err)
-	provider := &GithubProvider{client: client}
-	repo := ParseGitRemote("git@github.com:team/app.git")
-	pr, err := provider.CreatePullRequest(t.Context(), repo, "deploy", "proposal", "enable self-heal", "details")
+	remote, err := NewProposalRemote("git@github.com:team/app.git", "write-token")
+	require.NoError(t, err)
+	require.NotNil(t, remote.github)
+	remote.github.client = client
+	pr, err := remote.OpenPullRequest(t.Context(), "deploy", "proposal", "enable self-heal", "details")
 	require.NoError(t, err)
 	assert.Equal(t, link, pr)
 }

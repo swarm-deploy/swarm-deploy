@@ -25,7 +25,7 @@ func NewProviderManager(cfg Config) (*ProviderManager, error) {
 
 func (m *ProviderManager) Get(uri string) (*ReferencedProvider, error) {
 	repo := parseRepositoryReference(uri, true)
-	if !repo.IsGitHub() {
+	if !repo.isGitHub() {
 		return nil, ErrProviderNotSupported
 	}
 	if err := repo.validateGitHubPath(); err != nil {

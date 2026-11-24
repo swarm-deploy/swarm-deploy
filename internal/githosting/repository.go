@@ -23,11 +23,6 @@ type RepositoryReference struct {
 	origin url.URL
 }
 
-// ParseGitRemote resolves a clone address once. Local Git repositories have no hosting reference.
-func ParseGitRemote(remote string) RepositoryReference {
-	return parseRepositoryReference(remote, false)
-}
-
 func parseRepositoryReference(raw string, fromWebPage bool) RepositoryReference {
 	raw = strings.TrimSpace(raw)
 	if fromWebPage && strings.HasPrefix(strings.ToLower(strings.TrimLeft(raw, "/")), githubHost+"/") {
@@ -54,7 +49,7 @@ func parseRepositoryReference(raw string, fromWebPage bool) RepositoryReference 
 	}
 	repo := RepositoryReference{origin: origin}
 	parts := strings.Split(strings.Trim(endpoint.Path, "/"), "/")
-	if fromWebPage && repo.IsGitHub() && len(parts) > githubPathParts {
+	if fromWebPage && repo.isGitHub() && len(parts) > githubPathParts {
 		parts = parts[:githubPathParts]
 	}
 	last := len(parts) - 1
@@ -63,8 +58,7 @@ func parseRepositoryReference(raw string, fromWebPage bool) RepositoryReference 
 	return repo
 }
 
-// IsGitHub reports whether the repository belongs to the public GitHub API.
-func (r RepositoryReference) IsGitHub() bool {
+func (r RepositoryReference) isGitHub() bool {
 	return strings.EqualFold(r.origin.Host, githubHost)
 }
 
@@ -73,15 +67,4 @@ func (r RepositoryReference) validateGitHubPath() error {
 		return errors.New("expected a GitHub owner and repository name")
 	}
 	return nil
-}
-
-// BranchURL returns a credential-free web link for a published branch, when available.
-func (r RepositoryReference) BranchURL(branch string) string {
-	if r.origin.Host == "" || r.Name == "" {
-		return ""
-	}
-	if strings.EqualFold(r.origin.Hostname(), "gitlab.com") {
-		return r.origin.JoinPath(r.Owner, r.Name, "-", "tree", branch).String()
-	}
-	return r.origin.JoinPath(r.Owner, r.Name, "tree", branch).String()
 }
