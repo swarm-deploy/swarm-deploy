@@ -11,6 +11,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/conversation"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/guard"
@@ -107,7 +108,7 @@ func TestPendingOperationResolution(t *testing.T) {
 func TestPendingSelfHealRequiresConfirmation(t *testing.T) {
 	const stack = "infra-monitoring"
 	executor := &fakeTools{
-		definitions: []routing.ToolDefinition{{Name: serviceSelfHealEnableTool, Writable: true, Terminal: true}},
+		definitions: []routing.ToolDefinition{{Name: config.AssistantToolNameServiceSelfHealEnable, Writable: true, Terminal: true}},
 		executeFunc: func(req routing.Request) (string, error) {
 			payload, ok := req.Payload.(string)
 			require.True(t, ok)
@@ -115,15 +116,16 @@ func TestPendingSelfHealRequiresConfirmation(t *testing.T) {
 			return `{"branch":"proposal","branchUrl":"https://example.com/branch"}`, nil
 		},
 	}
-	flow := newPendingTestFlow(t, nil, executor)
-	flow.prepareSelfHeal = func(_ context.Context, target string) (usecase.ServiceSelfHealPlan, error) {
-		if target == "prometheus" {
-			return usecase.ServiceSelfHealPlan{}, &usecase.AmbiguousServiceTargetError{
-				Candidates: []string{stack + "/infra-prometheus", stack + "/infra-prometheus-pushgateway"},
-			}
-		}
-		require.Equal(t, stack+"/infra-prometheus", target)
-		return usecase.ServiceSelfHealPlan{Stack: stack, Service: "infra-prometheus", Policy: selfheal.State{Source: "stack"}}, nil
+	store := NewMockServiceStore(gomock.NewController(t))
+	store.EXPECT().ReadAll(gomock.Any()).Return([]model.Info{
+		{Stack: stack, Name: "infra-prometheus"},
+		{Stack: stack, Name: "infra-prometheus-pushgateway"},
+	}, nil).Times(2)
+	flow := newPendingTestFlow(t, store, executor)
+	flow.prepareSelfHeal = func(_ context.Context, selectedStack, service string) (usecase.ServiceSelfHealPlan, error) {
+		require.Equal(t, stack, selectedStack)
+		require.Equal(t, "infra-prometheus", service)
+		return usecase.ServiceSelfHealPlan{Stack: stack, Service: service, Policy: selfheal.State{Source: "stack"}}, nil
 	}
 	turn := flow.beginTurn("chat")
 	answer, _ := turn.startPendingOperation(t.Context(), OperationIntent{Type: OperationServiceSelfHealEnable, Target: "prometheus"})
@@ -141,6 +143,22 @@ func TestPendingSelfHealRequiresConfirmation(t *testing.T) {
 	require.True(t, handled)
 	assert.Contains(t, answer, "[Open branch]")
 	assert.Equal(t, []string{serviceSelfHealEnableTool}, executor.calls)
+}
+
+func TestStartServiceOperationCatalogErrorLeavesNoPendingOperation(t *testing.T) {
+	for _, operation := range []OperationType{OperationServiceRestart, OperationServiceReplicasSet} {
+		t.Run(string(operation), func(t *testing.T) {
+			store := NewMockServiceStore(gomock.NewController(t))
+			store.EXPECT().ReadAll(gomock.Any()).Return(nil, errors.New("catalog unavailable"))
+			flow := newPendingTestFlow(t, store, nil)
+			turn := flow.beginTurn("chat")
+			answer, _ := turn.startPendingOperation(t.Context(), OperationIntent{Type: operation, Target: "core/api"})
+			assert.Equal(t, flow.texts.Text("operation.catalog_failed"), answer)
+			turn.publish()
+			_, found := flow.pending.get("chat")
+			assert.False(t, found)
+		})
+	}
 }
 
 func TestPendingOperationDeterministicTurns(t *testing.T) {

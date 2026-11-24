@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/texts"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/tools"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/selfheal"
@@ -15,7 +16,7 @@ import (
 const (
 	serviceRestartTriggerTool          = "service_restart_trigger"
 	serviceReplicasSetTool             = "service_replicas_set"
-	serviceSelfHealEnableTool          = "service_self_heal_enable"
+	serviceSelfHealEnableTool          = string(config.AssistantToolNameServiceSelfHealEnable)
 	deploySyncTriggerTool              = "deploy_sync_trigger"
 	syncPauseGetTool                   = "sync_pause_get"
 	syncPauseSetTool                   = "sync_pause_set"

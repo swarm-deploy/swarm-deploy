@@ -20,26 +20,23 @@ func (t *operationTurn) collectSelfHeal(
 		t.next = &op
 		return t.texts.Text("operation.ask_target"), usage
 	}
-	plan, err := t.prepareSelfHeal(ctx, target)
-	if errors.Is(err, usecase.ErrServiceNotFound) {
-		// Natural-language fallback belongs to the chat. Prepare the chosen catalog name again.
-		resolution, tokens := t.lookupService(ctx, target)
-		usage = tokens
-		if !resolution.ok {
-			t.next = &op
-			return resolution.message, usage
-		}
-		plan, err = t.prepareSelfHeal(ctx, resolution.stack+"/"+resolution.service)
+	resolution, usage, err := t.lookupService(ctx, target)
+	if err != nil {
+		t.pending.delete(t.conversationID)
+		return t.texts.Text("operation.catalog_failed"), usage
 	}
-	var ambiguous *usecase.AmbiguousServiceTargetError
-	if errors.As(err, &ambiguous) {
+	if !resolution.ok {
 		t.next = &op
-		return t.ambiguousServiceResolution(ambiguous.Candidates).message, usage
+		return resolution.message, usage
 	}
+	plan, err := t.prepareSelfHeal(ctx, resolution.stack, resolution.service)
 	if err != nil {
 		t.pending.delete(t.conversationID)
 		if errors.Is(err, usecase.ErrServiceCatalogUnavailable) {
 			return t.texts.Text("operation.catalog_failed"), usage
+		}
+		if errors.Is(err, usecase.ErrServiceNotFound) {
+			return t.texts.Text("operation.service_changed"), usage
 		}
 		return t.texts.Format("operation.failed", map[string]any{"Error": err.Error()}), usage
 	}

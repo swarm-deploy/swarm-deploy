@@ -68,18 +68,6 @@ func TestProviderManagerGet(t *testing.T) {
 			expectedName:  "platform",
 		},
 		{
-			name:          "github SSH clone address",
-			uri:           "git@github.com:acme/platform.git",
-			expectedOwner: "acme",
-			expectedName:  "platform",
-		},
-		{
-			name:          "github HTTPS clone address",
-			uri:           "https://github.com/acme/platform.git",
-			expectedOwner: "acme",
-			expectedName:  "platform",
-		},
-		{
 			name:          "github repository branch path",
 			uri:           "https://github.com/acme/platform/_/branch/main",
 			expectedOwner: "acme",

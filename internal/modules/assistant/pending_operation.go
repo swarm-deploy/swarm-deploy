@@ -45,7 +45,7 @@ type operationFlow struct {
 	tools           ToolExecutor
 	guard           *guard.InjectionChecker
 	allowedToolSet  map[string]struct{}
-	prepareSelfHeal func(context.Context, string) (usecase.ServiceSelfHealPlan, error)
+	prepareSelfHeal func(context.Context, string, string) (usecase.ServiceSelfHealPlan, error)
 	pauseTargets    SyncPauseTargetResolver
 	pending         *pendingOperationStore
 }
@@ -85,7 +85,7 @@ const (
 	// OperationServiceReplicasSet changes a service replica count.
 	OperationServiceReplicasSet OperationType = serviceReplicasSetTool
 	// OperationServiceSelfHealEnable proposes enabling GitOps self-heal.
-	OperationServiceSelfHealEnable OperationType = serviceSelfHealEnableTool
+	OperationServiceSelfHealEnable OperationType = OperationType(serviceSelfHealEnableTool)
 	// OperationDeploySync triggers a GitOps synchronization.
 	OperationDeploySync OperationType = deploySyncTriggerTool
 	// OperationSyncPauseSet creates or changes a direct GitOps pause.
@@ -260,7 +260,10 @@ func (t *operationTurn) startPendingOperation(
 	if op.Type == OperationSyncPauseSet || op.Type == OperationSyncPauseResume {
 		return t.startPauseOperation(ctx, op)
 	}
-	resolution, usage := t.lookupService(ctx, op.Target)
+	resolution, usage, err := t.lookupService(ctx, op.Target)
+	if err != nil {
+		return t.texts.Text("operation.catalog_failed"), usage
+	}
 	if !resolution.ok {
 		t.next = &op
 		return resolution.message, usage
@@ -375,8 +378,11 @@ func (t *operationTurn) handlePendingCollection(
 	}
 	var usage conversation.TokenUsage
 	if op.Stack == "" || op.Service == "" {
-		resolution, resolutionUsage := t.lookupService(ctx, op.replyTarget(message))
+		resolution, resolutionUsage, err := t.lookupService(ctx, op.replyTarget(message))
 		usage.Add(resolutionUsage)
+		if err != nil {
+			resolution.message = t.texts.Text("operation.catalog_failed")
+		}
 		if !resolution.ok {
 			t.next = &op
 			return true, resolution.message, usage, nil
@@ -406,14 +412,15 @@ func (op *PendingOperation) replyTarget(message string) string {
 	return target
 }
 
-func (f *operationFlow) lookupService(ctx context.Context, target string) (serviceResolution, conversation.TokenUsage) {
+func (f *operationFlow) lookupService(
+	ctx context.Context, target string,
+) (serviceResolution, conversation.TokenUsage, error) {
 	services, err := f.store.ReadAll(ctx)
 	if err != nil {
-		return serviceResolution{
-			message: f.texts.Text("operation.catalog_failed"),
-		}, conversation.TokenUsage{}
+		return serviceResolution{}, conversation.TokenUsage{}, err
 	}
-	return f.resolveOperationTarget(ctx, services, target)
+	resolution, usage := f.resolveOperationTarget(ctx, services, target)
+	return resolution, usage, nil
 }
 
 func (t *operationTurn) executePendingOperation(

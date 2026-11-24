@@ -1,6 +1,11 @@
 package githosting
 
-import "fmt"
+import (
+	"errors"
+	"fmt"
+	"net/url"
+	"strings"
+)
 
 type ProviderManager struct {
 	github *GithubProvider
@@ -23,13 +28,51 @@ func NewProviderManager(cfg Config) (*ProviderManager, error) {
 	}, nil
 }
 
+const (
+	githubPathParts = 2
+)
+
 func (m *ProviderManager) Get(uri string) (*ReferencedProvider, error) {
-	repo := parseRepositoryReference(uri, true)
-	if !repo.isGitHub() {
+	repoURI, err := url.Parse(uri)
+	if err != nil {
+		return nil, fmt.Errorf("parse uri: %w", err)
+	}
+	if repoURI.Host == "" && repoURI.Scheme == "" {
+		repoURI, err = url.Parse("https://" + strings.Trim(strings.TrimSpace(uri), "/"))
+		if err != nil {
+			return nil, fmt.Errorf("parse uri without scheme: %w", err)
+		}
+	}
+
+	var (
+		repoRef  RepositoryReference
+		provider Provider
+	)
+
+	switch repoURI.Host {
+	case "github.com":
+		repoRef, err = m.resolveGithubRepositoryReference(repoURI)
+		if err != nil {
+			return nil, fmt.Errorf("resolve github repository reference: %w", err)
+		}
+
+		provider = m.github
+	default:
 		return nil, ErrProviderNotSupported
 	}
-	if err := repo.validateGitHubPath(); err != nil {
-		return nil, err
+
+	return NewReferencedProvider(provider, repoRef), nil
+}
+
+func (m *ProviderManager) resolveGithubRepositoryReference(repoURI *url.URL) (RepositoryReference, error) {
+	trimmedPath := strings.Trim(strings.TrimSpace(repoURI.Path), "/")
+	parts := strings.Split(trimmedPath, "/")
+	if len(parts) < githubPathParts || parts[0] == "" || parts[1] == "" {
+		return RepositoryReference{}, errors.New("url not has repo name")
 	}
-	return NewReferencedProvider(m.github, repo), nil
+
+	return RepositoryReference{
+		Owner: parts[0],
+		Name:  parts[1],
+	}, nil
 }

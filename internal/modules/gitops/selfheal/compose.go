@@ -23,7 +23,7 @@ type State struct {
 	Enabled bool `json:"enabled"`
 }
 
-func prepare(original []byte, service string, stack *bool, global bool) (State, []byte, error) {
+func prepare(original []byte, service string, stack *bool, global bool) (State, *yaml.Node, error) {
 	decoder := yaml.NewDecoder(bytes.NewReader(original))
 	var doc, extra yaml.Node
 	if err := decoder.Decode(&doc); err != nil || len(doc.Content) != 1 {
@@ -56,12 +56,16 @@ func prepare(original []byte, service string, stack *bool, global bool) (State, 
 	if editErr := enableLabel(target); editErr != nil {
 		return State{}, nil, editErr
 	}
-	quoteFoldedScalars(&doc)
-	updated, err := yaml.Marshal(&doc)
+	return state, &doc, nil
+}
+
+func marshalCompose(doc *yaml.Node) ([]byte, error) {
+	quoteFoldedScalars(doc)
+	updated, err := yaml.Marshal(doc)
 	if err != nil {
-		return State{}, nil, errors.New("could not marshal Compose YAML")
+		return nil, errors.New("could not marshal Compose YAML")
 	}
-	return state, updated, nil
+	return updated, nil
 }
 
 // yaml.v3 can introduce extra newlines when re-emitting folded scalars.

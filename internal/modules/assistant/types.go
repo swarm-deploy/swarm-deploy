@@ -169,8 +169,8 @@ type Config struct {
 	// SyncPauses optionally supplies GitOps Pause Sync state for pending operation target validation.
 	// Pause Sync operations are unavailable when it is nil.
 	SyncPauses SyncPauseTargetResolver
-	// PrepareSelfHeal resolves a catalog target and prepares its GitOps proposal when available.
-	PrepareSelfHeal func(context.Context, string) (usecase.ServiceSelfHealPlan, error)
+	// PrepareSelfHeal prepares a GitOps proposal for an exact catalog service when available.
+	PrepareSelfHeal func(ctx context.Context, stack, service string) (usecase.ServiceSelfHealPlan, error)
 }
 
 // ServiceStore reads current service metadata used by RAG retrieval.

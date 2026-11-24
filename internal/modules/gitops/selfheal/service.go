@@ -10,6 +10,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/githosting"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
+	"go.yaml.in/yaml/v3"
 )
 
 // ErrPolicyChanged indicates that publication needs a new plan for the current policy.
@@ -37,8 +38,6 @@ type Result struct {
 	PullRequestFailed bool `json:"pullRequestFailed,omitempty"`
 	// AlreadyEnabled identifies the policy source when publication is unnecessary.
 	AlreadyEnabled string `json:"alreadyEnabled,omitempty"`
-	// Commit is the pushed Git commit hash.
-	Commit string `json:"commit"`
 }
 
 // New creates the self-heal proposal service with an isolated Git write path.
@@ -76,13 +75,17 @@ func (s *Service) Enable(ctx context.Context, stack, service string, expected St
 	if change.state != expected {
 		return Result{}, ErrPolicyChanged
 	}
-	branch := fmt.Sprintf("%s-%s-enable-self-heal", branchPart(stack), branchPart(service))
-	title := fmt.Sprintf("chore: enable self-heal for %s/%s", stack, service)
-	commit, err := change.file.Push(ctx, branch, title, author, change.updated)
+	updated, err := marshalCompose(change.doc)
 	if err != nil {
 		return Result{}, err
 	}
-	result := Result{Commit: commit, Branch: branch, BranchURL: s.repo.BranchURL(branch)}
+	branch := fmt.Sprintf("%s-%s-enable-self-heal", branchPart(stack), branchPart(service))
+	title := fmt.Sprintf("chore: enable self-heal for %s/%s", stack, service)
+	_, err = change.file.Push(ctx, branch, title, author, updated)
+	if err != nil {
+		return Result{}, err
+	}
+	result := Result{Branch: branch, BranchURL: s.repo.BranchURL(branch)}
 	if s.github != nil {
 		result.PullRequestURL, err = s.github.CreatePullRequest(ctx, s.repo, s.spec.Branch, branch, title,
 			"Enable automatic drift repair for this service by setting its Compose deploy label.")
@@ -92,9 +95,9 @@ func (s *Service) Enable(ctx context.Context, stack, service string, expected St
 }
 
 type proposal struct {
-	file    *git.ProposalFile
-	state   State
-	updated []byte
+	file  *git.ProposalFile
+	state State
+	doc   *yaml.Node
 }
 
 func (s *Service) prepare(ctx context.Context, stack, service string) (proposal, error) {
@@ -106,12 +109,12 @@ func (s *Service) prepare(ctx context.Context, stack, service string) (proposal,
 		if err != nil {
 			return proposal{}, err
 		}
-		state, updated, err := prepare(file.Original, service, spec.Sync.Policy.SelfHeal, s.global)
+		state, doc, err := prepare(file.Original, service, spec.Sync.Policy.SelfHeal, s.global)
 		if err != nil {
 			file.Close(ctx)
 			return proposal{}, err
 		}
-		return proposal{file: file, state: state, updated: updated}, nil
+		return proposal{file: file, state: state, doc: doc}, nil
 	}
 	return proposal{}, fmt.Errorf("GitOps stack %q has no Compose file", stack)
 }

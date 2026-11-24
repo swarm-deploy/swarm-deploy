@@ -9,10 +9,7 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/transport"
 )
 
-const (
-	githubHost      = "github.com"
-	githubPathParts = 2
-)
+const githubHost = "github.com"
 
 // RepositoryReference identifies a repository on its hosting service.
 type RepositoryReference struct {
@@ -23,11 +20,8 @@ type RepositoryReference struct {
 	origin url.URL
 }
 
-func parseRepositoryReference(raw string, fromWebPage bool) RepositoryReference {
+func parsePushRepository(raw string) RepositoryReference {
 	raw = strings.TrimSpace(raw)
-	if fromWebPage && strings.HasPrefix(strings.ToLower(strings.TrimLeft(raw, "/")), githubHost+"/") {
-		raw = "https://" + strings.TrimLeft(raw, "/")
-	}
 	// go-git includes query and fragment in Endpoint.Path. Neither is part of the repository name.
 	if i := strings.IndexAny(raw, "?#"); i >= 0 {
 		raw = raw[:i]
@@ -49,9 +43,6 @@ func parseRepositoryReference(raw string, fromWebPage bool) RepositoryReference 
 	}
 	repo := RepositoryReference{origin: origin}
 	parts := strings.Split(strings.Trim(endpoint.Path, "/"), "/")
-	if fromWebPage && repo.isGitHub() && len(parts) > githubPathParts {
-		parts = parts[:githubPathParts]
-	}
 	last := len(parts) - 1
 	repo.Owner = strings.Join(parts[:last], "/")
 	repo.Name = strings.TrimSuffix(parts[last], ".git")
@@ -71,7 +62,7 @@ func (r RepositoryReference) validateGitHubPath() error {
 
 // ResolvePushRepository parses the write repository and configures its optional GitHub client.
 func ResolvePushRepository(remote, token string) (RepositoryReference, *GithubProvider, error) {
-	repo := parseRepositoryReference(remote, false)
+	repo := parsePushRepository(remote)
 	if token == "" || !repo.isGitHub() {
 		return repo, nil, nil
 	}

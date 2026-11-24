@@ -62,23 +62,46 @@ func (e *ServiceSelfHealEnabler) Prepare(ctx context.Context, target string) (Se
 		return ServiceSelfHealPlan{}, &AmbiguousServiceTargetError{Candidates: model.QualifiedNames(matches)}
 	}
 	service := matches[0]
-	policy, err := e.proposals.Preview(ctx, service.Stack, service.Name)
+	return e.prepareService(ctx, service.Stack, service.Name)
+}
+
+// PrepareService reads policy for an exact, already resolved catalog service.
+func (e *ServiceSelfHealEnabler) PrepareService(
+	ctx context.Context, stack, service string,
+) (ServiceSelfHealPlan, error) {
+	if err := e.requireService(ctx, stack, service); err != nil {
+		return ServiceSelfHealPlan{}, err
+	}
+	return e.prepareService(ctx, stack, service)
+}
+
+func (e *ServiceSelfHealEnabler) prepareService(
+	ctx context.Context, stack, service string,
+) (ServiceSelfHealPlan, error) {
+	policy, err := e.proposals.Preview(ctx, stack, service)
 	if err != nil {
 		return ServiceSelfHealPlan{}, err
 	}
-	return ServiceSelfHealPlan{Stack: service.Stack, Service: service.Name, Policy: policy}, nil
+	return ServiceSelfHealPlan{Stack: stack, Service: service, Policy: policy}, nil
 }
 
 // Publish revalidates the exact catalog service and publishes against the current write base.
 func (e *ServiceSelfHealEnabler) Publish(
 	ctx context.Context, plan ServiceSelfHealPlan, author string,
 ) (selfheal.Result, error) {
-	_, found, err := e.catalog.Find(ctx, plan.Stack, plan.Service)
-	if err != nil {
-		return selfheal.Result{}, fmt.Errorf("%w: %w", ErrServiceCatalogUnavailable, err)
-	}
-	if !found {
-		return selfheal.Result{}, fmt.Errorf("%w: %s/%s", ErrServiceNotFound, plan.Stack, plan.Service)
+	if err := e.requireService(ctx, plan.Stack, plan.Service); err != nil {
+		return selfheal.Result{}, err
 	}
 	return e.proposals.Enable(ctx, plan.Stack, plan.Service, plan.Policy, author)
+}
+
+func (e *ServiceSelfHealEnabler) requireService(ctx context.Context, stack, service string) error {
+	_, found, err := e.catalog.Find(ctx, stack, service)
+	if err != nil {
+		return fmt.Errorf("%w: %w", ErrServiceCatalogUnavailable, err)
+	}
+	if !found {
+		return fmt.Errorf("%w: %s/%s", ErrServiceNotFound, stack, service)
+	}
+	return nil
 }
