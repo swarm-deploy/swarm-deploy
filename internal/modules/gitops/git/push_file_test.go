@@ -1,7 +1,6 @@
 package git
 
 import (
-	"context"
 	"os"
 	"testing"
 
@@ -12,20 +11,17 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 )
 
-func TestPushFileChangeCreatesOnlyProposalBranch(t *testing.T) {
+func TestProposalFileCreatesOnlyProposalBranch(t *testing.T) {
 	sourcePath, base := initSourceRepository(t)
 	scratch := t.TempDir()
 	spec := config.GitSpec{Repository: sourcePath, Branch: base.Name().Short()}
 	branch := "core-api-enable-self-heal"
 
-	original, err := ReadProposalFile(t.Context(), spec, scratch, "README.md")
+	file, err := OpenProposalFile(t.Context(), spec, scratch, "README.md")
 	require.NoError(t, err)
-	assert.Equal(t, "hello", string(original))
-	pushed, err := PushFileChange(t.Context(), spec, scratch, branch, "README.md", "update readme", "test",
-		func(_ context.Context, original []byte) ([]byte, error) {
-			assert.Equal(t, "hello", string(original))
-			return []byte("updated"), nil
-		})
+	assert.Equal(t, "hello", string(file.Original))
+	pushed, err := file.Push(t.Context(), branch, "update readme", "test", []byte("updated"))
+	file.Close(t.Context())
 	require.NoError(t, err)
 
 	repo, err := gogit.PlainOpen(sourcePath)
@@ -39,9 +35,9 @@ func TestPushFileChangeCreatesOnlyProposalBranch(t *testing.T) {
 	commit, err := repo.CommitObject(proposal.Hash())
 	require.NoError(t, err)
 	assert.Equal(t, []plumbing.Hash{base.Hash()}, commit.ParentHashes)
-	file, err := commit.File("README.md")
+	changed, err := commit.File("README.md")
 	require.NoError(t, err)
-	content, err := file.Contents()
+	content, err := changed.Contents()
 	require.NoError(t, err)
 	assert.Equal(t, "updated", content)
 	checkouts, err := os.ReadDir(scratch)

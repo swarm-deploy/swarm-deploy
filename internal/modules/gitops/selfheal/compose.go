@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"strings"
-	"unicode/utf8"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackloop/policies"
@@ -56,39 +55,6 @@ func prepare(original []byte, service string, stack *bool, global bool) (State, 
 	}
 	updated, err := enableLabel(original, target)
 	return state, updated, err
-}
-
-// localField prevents an edit through a shared anchor or the accidental shadowing
-// of a merged mapping that also contains unrelated settings.
-func localField(mapping *yaml.Node, key string) (*yaml.Node, error) {
-	if mapping.Kind != yaml.MappingNode || mapping.Anchor != "" || mapping.Style&yaml.TaggedStyle != 0 {
-		return nil, errors.New("expected a locally defined Compose mapping")
-	}
-	var found *yaml.Node
-	merged := false
-	for i := 0; i < len(mapping.Content); i += 2 {
-		field := mapping.Content[i]
-		if field.Tag == "!!merge" {
-			merged = true
-			continue
-		}
-		if field.Value == key {
-			if found != nil {
-				return nil, fmt.Errorf("duplicate Compose key %q", key)
-			}
-			found = mapping.Content[i+1]
-		}
-	}
-	if found == nil && merged {
-		var effective map[string]yaml.Node
-		if err := mapping.Decode(&effective); err != nil {
-			return nil, errors.New("invalid merged Compose mapping")
-		}
-		if _, ok := effective[key]; ok {
-			return nil, fmt.Errorf("field %q is inherited from a YAML merge", key)
-		}
-	}
-	return found, nil
 }
 
 func enableLabel(raw []byte, service *yaml.Node) ([]byte, error) {
@@ -144,82 +110,4 @@ func setLabel(raw []byte, labels *yaml.Node) ([]byte, error) {
 		return replaceScalar(raw, found, label+"=true")
 	}
 	return insertEntry(raw, labels, label+"=true")
-}
-
-// Apply the edit at the parser's source coordinates to preserve comments, CRLF,
-// formatting, and every byte belonging to other services.
-func offsetAt(raw []byte, node *yaml.Node) (int, error) {
-	pos := 0
-	for line := 1; line < node.Line; line++ {
-		index := bytes.IndexByte(raw[pos:], '\n')
-		if index < 0 {
-			return 0, errors.New("invalid YAML line position")
-		}
-		pos += index + 1
-	}
-	if node.Line == 1 {
-		pos += len(raw[pos:]) - len(bytes.TrimPrefix(raw[pos:], []byte{0xef, 0xbb, 0xbf}))
-	}
-	for column := 1; column < node.Column && pos < len(raw); column++ {
-		_, width := utf8.DecodeRune(raw[pos:])
-		pos += width
-	}
-	return pos, nil
-}
-
-func insertEntry(raw []byte, parent *yaml.Node, entry string) ([]byte, error) {
-	pos, err := offsetAt(raw, parent)
-	if err != nil {
-		return nil, err
-	}
-	if parent.Style&yaml.FlowStyle != 0 {
-		if pos >= len(raw) || (raw[pos] != '{' && raw[pos] != '[') {
-			return nil, errors.New("unsupported tagged YAML collection")
-		}
-		if len(parent.Content) > 0 {
-			entry += ", "
-		}
-		return splice(raw, pos+1, pos+1, entry), nil
-	}
-	if parent.Kind == yaml.SequenceNode {
-		entry = "- " + entry
-	}
-	newline := "\n"
-	if bytes.Contains(raw, []byte("\r\n")) {
-		newline = "\r\n"
-	}
-	return splice(raw, pos, pos, entry+newline+strings.Repeat(" ", parent.Column-1)), nil
-}
-
-func replaceScalar(raw []byte, value *yaml.Node, replacement string) ([]byte, error) {
-	if value.Kind != yaml.ScalarNode || value.Anchor != "" {
-		return nil, errors.New("expected a local self-heal label value")
-	}
-	pos, err := offsetAt(raw, value)
-	if err != nil {
-		return nil, err
-	}
-	literal := value.Value
-	switch value.Style { //nolint:exhaustive // Only plain or single-line quoted label values can be replaced verbatim.
-	case yaml.SingleQuotedStyle:
-		literal = "'" + literal + "'"
-	case yaml.DoubleQuotedStyle:
-		literal = `"` + literal + `"`
-	case 0:
-	default:
-		return nil, errors.New("expected a single-line literal self-heal label")
-	}
-	if !bytes.HasPrefix(raw[pos:], []byte(literal)) || strings.ContainsAny(literal, "\r\n") {
-		return nil, errors.New("could not locate the literal self-heal label")
-	}
-	return splice(raw, pos, pos+len(literal), replacement), nil
-}
-
-func splice(raw []byte, start, end int, replacement string) []byte {
-	var out bytes.Buffer
-	out.Grow(len(raw) + len(replacement))
-	out.Write(raw[:start])
-	out.WriteString(replacement)
-	out.Write(raw[end:])
-	return out.Bytes()
 }

@@ -19,105 +19,93 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 )
 
-type proposalCheckout struct {
-	repo     *gogit.Repository
-	dir      string
-	auth     transport.AuthMethod
-	file     string
-	original []byte
+// ProposalFile is a tracked file in an isolated checkout of the write branch.
+type ProposalFile struct {
+	// Original is the content at the base revision used for this proposal.
+	Original []byte
+
+	repo               *gogit.Repository
+	dir, filename      string
+	baseBranch, remote string
+	deadline           time.Time
+	auth               transport.AuthMethod
 }
 
-// ReadProposalFile reads the exact tracked file from a fresh checkout of the write base.
-func ReadProposalFile(ctx context.Context, spec config.GitSpec, dataDir, filename string) ([]byte, error) {
-	var content []byte
-	err := withProposalFile(ctx, spec, dataDir, filename, func(_ context.Context, checkout proposalCheckout) error {
-		content = checkout.original
-		return nil
-	})
-	return content, err
-}
-
-// PushFileChange edits one tracked file on a new branch in a disposable checkout.
-func PushFileChange(
-	ctx context.Context,
-	spec config.GitSpec,
-	dataDir, branch, filename, message, author string,
-	edit func(context.Context, []byte) ([]byte, error),
-) (string, error) {
-	ref := plumbing.NewBranchReferenceName(branch)
-	if branch == spec.Branch || ref.Validate() != nil {
-		return "", errors.New("invalid proposal branch")
-	}
-	var pushed string
-	err := withProposalFile(ctx, spec, dataDir, filename, func(ctx context.Context, checkout proposalCheckout) error {
-		worktree, err := checkout.repo.Worktree()
-		if err != nil {
-			return fmt.Errorf("open push worktree: %w", err)
-		}
-		if checkoutErr := worktree.Checkout(&gogit.CheckoutOptions{Branch: ref, Create: true}); checkoutErr != nil {
-			return fmt.Errorf("create local proposal branch: %w", checkoutErr)
-		}
-		updated, err := edit(ctx, checkout.original)
-		if err != nil {
-			return err
-		}
-		if writeErr := writeTrackedFile(checkout.dir, checkout.file, updated); writeErr != nil {
-			return writeErr
-		}
-		if _, addErr := worktree.Add(checkout.file); addErr != nil {
-			return fmt.Errorf("stage Compose change: %w", addErr)
-		}
-		commit, err := worktree.Commit(message, &gogit.CommitOptions{Author: &object.Signature{
-			Name: author, Email: "swarm-deploy@localhost", When: time.Now(),
-		}})
-		if err != nil {
-			return fmt.Errorf("commit Compose change: %w", err)
-		}
-		if pushErr := checkout.repo.PushContext(ctx, &gogit.PushOptions{
-			Auth: checkout.auth, RefSpecs: []gitconfig.RefSpec{gitconfig.RefSpec(ref.String() + ":" + ref.String())},
-			ProxyOptions: sshDeadlineProxyOptions(ctx, spec.Repository),
-		}); pushErr != nil {
-			return errors.New("could not push proposal branch; check write access and whether the branch already exists")
-		}
-		pushed = commit.String()
-		return nil
-	})
-	return pushed, err
-}
-
-func withProposalFile(ctx context.Context, spec config.GitSpec, dataDir, filename string,
-	use func(context.Context, proposalCheckout) error,
-) error {
+// OpenProposalFile checks out the write base. The caller must close the file to remove the checkout.
+func OpenProposalFile(ctx context.Context, spec config.GitSpec, dataDir, filename string) (*ProposalFile, error) {
 	filename = path.Clean(filename)
 	if !filepath.IsLocal(filename) || filename == "." {
-		return errors.New("compose file path must be repository-relative")
+		return nil, errors.New("compose file path must be repository-relative")
 	}
-	checkout, err := os.MkdirTemp(dataDir, "push-repo-")
-	if err != nil {
-		return fmt.Errorf("create push checkout: %w", err)
-	}
-	defer func() {
-		if cleanupErr := os.RemoveAll(checkout); cleanupErr != nil {
-			slog.WarnContext(ctx, "remove push checkout", slog.Any("err", cleanupErr))
-		}
-	}()
-
 	auth, err := resolveAuthMethod(spec.Auth)
 	if err != nil {
-		return fmt.Errorf("configure push authentication: %w", err)
+		return nil, fmt.Errorf("configure push authentication: %w", err)
+	}
+	dir, err := os.MkdirTemp(dataDir, "push-repo-")
+	if err != nil {
+		return nil, fmt.Errorf("create push checkout: %w", err)
 	}
 	ctx, cancel := context.WithTimeout(ctx, gitPullTimeout(spec))
 	defer cancel()
+	deadline, _ := ctx.Deadline()
+	file := &ProposalFile{
+		dir: dir, filename: filename, baseBranch: spec.Branch, remote: spec.Repository,
+		auth: auth, deadline: deadline,
+	}
+	file.repo, err = openRepository(ctx, dir, spec.Repository, spec.Branch, auth)
+	if err != nil {
+		file.Close(ctx)
+		return nil, ClassifyPullError(err, spec.Repository, spec.Auth.Type)
+	}
+	file.Original, err = readTrackedFile(file.repo, filename)
+	if err != nil {
+		file.Close(ctx)
+		return nil, err
+	}
+	return file, nil
+}
 
-	repo, err := openRepository(ctx, checkout, spec.Repository, spec.Branch, auth)
-	if err != nil {
-		return ClassifyPullError(err, spec.Repository, spec.Auth.Type)
+// Close removes the disposable checkout.
+func (f *ProposalFile) Close(ctx context.Context) {
+	if err := os.RemoveAll(f.dir); err != nil {
+		slog.WarnContext(ctx, "remove push checkout", slog.Any("err", err))
 	}
-	original, err := readTrackedFile(repo, filename)
-	if err != nil {
-		return err
+}
+
+// Push commits the edited file and publishes it on a proposal branch.
+func (f *ProposalFile) Push(ctx context.Context, branch, message, author string, updated []byte) (string, error) {
+	ref := plumbing.NewBranchReferenceName(branch)
+	if branch == f.baseBranch || ref.Validate() != nil {
+		return "", errors.New("invalid proposal branch")
 	}
-	return use(ctx, proposalCheckout{repo: repo, dir: checkout, auth: auth, file: filename, original: original})
+	worktree, err := f.repo.Worktree()
+	if err != nil {
+		return "", fmt.Errorf("open push worktree: %w", err)
+	}
+	if err = worktree.Checkout(&gogit.CheckoutOptions{Branch: ref, Create: true}); err != nil {
+		return "", fmt.Errorf("create local proposal branch: %w", err)
+	}
+	if err = writeTrackedFile(f.dir, f.filename, updated); err != nil {
+		return "", err
+	}
+	if _, err = worktree.Add(f.filename); err != nil {
+		return "", fmt.Errorf("stage Compose change: %w", err)
+	}
+	commit, err := worktree.Commit(message, &gogit.CommitOptions{Author: &object.Signature{
+		Name: author, Email: "swarm-deploy@localhost", When: time.Now(),
+	}})
+	if err != nil {
+		return "", fmt.Errorf("commit Compose change: %w", err)
+	}
+	ctx, cancel := context.WithDeadline(ctx, f.deadline)
+	defer cancel()
+	if err = f.repo.PushContext(ctx, &gogit.PushOptions{
+		Auth: f.auth, RefSpecs: []gitconfig.RefSpec{gitconfig.RefSpec(ref.String() + ":" + ref.String())},
+		ProxyOptions: sshDeadlineProxyOptions(ctx, f.remote),
+	}); err != nil {
+		return "", errors.New("could not push proposal branch; check write access and whether the branch already exists")
+	}
+	return commit.String(), nil
 }
 
 func readTrackedFile(repo *gogit.Repository, filename string) ([]byte, error) {

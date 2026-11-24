@@ -54,3 +54,30 @@ func TestSharedLabelsCannotChangeAnotherService(t *testing.T) {
 	require.Error(t, err)
 	assert.Nil(t, updated)
 }
+
+func TestPrepareKeepsUnrelatedYAMLBytes(t *testing.T) {
+	prefix := "\ufeffservices: {api: {image: 'тест', deploy: {labels: {"
+	suffix := "}}}, worker: {image: other}} # комментарий\r\n"
+	original := prefix + label + ": 'false'" + suffix
+	_, updated, err := prepare([]byte(original), "api", nil, false)
+	require.NoError(t, err)
+	assert.Equal(t, prefix+label+`: "true"`+suffix, string(updated))
+}
+
+func TestPrepareDoesNotOverrideMergedDeploy(t *testing.T) {
+	original := "x-base: &base {deploy: {replicas: 3}}\nservices:\n  api: {<<: *base, image: web}\n"
+	_, updated, err := prepare([]byte(original), "api", nil, false)
+	require.ErrorContains(t, err, "inherited")
+	assert.Nil(t, updated)
+}
+
+func TestPrepareUsesYAMLLineBreaks(t *testing.T) {
+	const input = "services:\n  api:\n    image: api\n  worker:\n    image: worker\n"
+	for _, newline := range []string{"\r\n", "\r", "\u0085", "\u2028", "\u2029"} {
+		original := strings.ReplaceAll(input, "\n", newline)
+		_, updated, err := prepare([]byte(original), "api", nil, false)
+		require.NoError(t, err)
+		want := strings.Replace(original, "    image: api", "    deploy: {labels: {"+label+`: "true"}}`+newline+"    image: api", 1)
+		assert.Equal(t, want, string(updated))
+	}
+}

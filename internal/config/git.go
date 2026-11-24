@@ -41,6 +41,25 @@ type GitSpec struct {
 	Push *GitPushSpec `yaml:"push,omitempty"`
 }
 
+// ForPush resolves the write repository, base branch, Git credentials and optional API token.
+func (spec GitSpec) ForPush() (GitSpec, string) {
+	push := spec.Push
+	if push == nil {
+		return spec, ""
+	}
+	if push.Repository != "" && push.Repository != spec.Repository {
+		spec.Repository = push.Repository
+		spec.Auth = GitAuthSpec{}
+	}
+	if push.Branch != "" {
+		spec.Branch = push.Branch
+	}
+	if push.Auth != nil {
+		spec.Auth = *push.Auth
+	}
+	return spec, strings.TrimSpace(string(push.APIToken.Content))
+}
+
 type GitPushSpec struct {
 	// Repository is the write repository URL. Empty uses the sync repository.
 	Repository string `yaml:"repository,omitempty"`

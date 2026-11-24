@@ -250,7 +250,7 @@ func (t *operationTurn) startPendingOperation(
 		Scope:          strings.TrimSpace(intent.Scope),
 		PauseExpiresAt: intent.ExpiresAt,
 	}
-	if op.Type == OperationServiceSelfHealEnable && !t.selfHealAvailable() {
+	if op.Type == OperationServiceSelfHealEnable && !t.operationAllowed(CapabilityServiceOperations, op.Type) {
 		return t.texts.Text("operation.forbidden"), conversation.TokenUsage{}
 	}
 	if op.Type == OperationDeploySync {
@@ -266,23 +266,16 @@ func (t *operationTurn) startPendingOperation(
 		return t.texts.Text("operation.catalog_failed"), conversation.TokenUsage{}
 	}
 	resolution, usage := t.resolveOperationTarget(ctx, services, op.Target)
-	if resolution.ok {
-		op.Stack, op.Service = resolution.stack, resolution.service
-	}
 	if !resolution.ok {
 		t.next = &op
 		return resolution.message, usage
 	}
+	op.Stack, op.Service = resolution.stack, resolution.service
 	if op.Type == OperationServiceReplicasSet && op.Replicas == nil {
 		t.next = &op
 		return t.texts.Format("operation.ask_replicas", operationTargetData(op)), usage
 	}
-	if op.Type == OperationServiceSelfHealEnable {
-		return t.prepareSelfHeal(ctx, op), usage
-	}
-	op.Stage = PendingOperationConfirmation
-	t.next = &op
-	return t.confirmationMessage(op), usage
+	return t.confirmServiceOperation(ctx, op), usage
 }
 
 //nolint:nestif // Scope-specific target revalidation keeps stack and service warnings explicit.
@@ -401,12 +394,7 @@ func (t *operationTurn) handlePendingCollection(
 		}
 		op.Replicas = &replicas
 	}
-	if op.Type == OperationServiceSelfHealEnable {
-		return true, t.prepareSelfHeal(ctx, op), usage, nil
-	}
-	op.Stage = PendingOperationConfirmation
-	t.next = &op
-	return true, t.confirmationMessage(op), usage, nil
+	return true, t.confirmServiceOperation(ctx, op), usage, nil
 }
 
 func (f *operationFlow) resolvePendingTarget(
@@ -444,18 +432,8 @@ func (t *operationTurn) executePendingOperation(
 		return aborted, nil
 	}
 
-	effectiveTools := t.toolSet([]Capability{capability})
-	if _, ok := effectiveTools[string(op.Type)]; !ok {
+	if !t.operationAllowed(capability, op.Type) {
 		return t.texts.Text("operation.forbidden"), nil
-	}
-	if op.Type == OperationServiceReplicasSet {
-		arguments["replicas"] = op.Replicas
-	}
-	if op.Type == OperationServiceSelfHealEnable {
-		if !t.selfHealAvailable() {
-			return t.texts.Text("operation.forbidden"), nil
-		}
-		arguments["source"] = op.PolicySource
 	}
 	payload, err := json.Marshal(arguments)
 	if err != nil {
@@ -501,34 +479,51 @@ func (f *operationFlow) pendingOperationArguments(
 			return CapabilityServiceOperations, nil,
 				f.texts.Text("operation.service_changed"), nil
 		}
-		return CapabilityServiceOperations, map[string]any{
-			"stack": resolution.stack, "service": resolution.service,
-		}, "", nil
+		args := map[string]any{"stack": resolution.stack, "service": resolution.service}
+		if op.Type == OperationServiceReplicasSet {
+			args["replicas"] = op.Replicas
+		}
+		if op.Type == OperationServiceSelfHealEnable {
+			args["source"] = op.PolicySource
+		}
+		return CapabilityServiceOperations, args, "", nil
 	default:
 		return "", nil, "", fmt.Errorf("unsupported pending operation %q", op.Type)
 	}
 }
 
-func (t *operationTurn) prepareSelfHeal(ctx context.Context, op PendingOperation) string {
-	state, err := t.previewSelfHeal(ctx, op.Stack, op.Service)
-	if err != nil || state.Enabled {
-		t.pending.delete(t.conversationID)
+func (t *operationTurn) confirmServiceOperation(ctx context.Context, op PendingOperation) string {
+	if op.Type == OperationServiceSelfHealEnable {
+		state, err := t.previewSelfHeal(ctx, op.Stack, op.Service)
+		if err != nil {
+			t.pending.delete(t.conversationID)
+			return t.texts.Format("operation.failed", map[string]any{"Error": err.Error()})
+		}
+		op.PolicySource = state.Source
+		if state.Enabled {
+			t.pending.delete(t.conversationID)
+			return t.texts.Format("result.self_heal_enabled", t.selfHealMessageData(op))
+		}
 	}
-	if err != nil {
-		return t.texts.Format("operation.failed", map[string]any{"Error": err.Error()})
-	}
-	if state.Enabled {
-		return t.texts.Format("result.self_heal_enabled_"+state.Source, operationTargetData(op))
-	}
-	op.PolicySource = state.Source
 	op.Stage = PendingOperationConfirmation
 	t.next = &op
 	return t.confirmationMessage(op)
 }
 
-func (f *operationFlow) selfHealAvailable() bool {
-	_, allowed := f.toolSet([]Capability{CapabilityServiceOperations})[serviceSelfHealEnableTool]
-	if !allowed || f.previewSelfHeal == nil {
+func (f *operationFlow) selfHealMessageData(op PendingOperation) map[string]any {
+	data := operationTargetData(op)
+	data["Source"] = f.texts.Text("policy.source_" + op.PolicySource)
+	return data
+}
+
+func (f *operationFlow) operationAllowed(capability Capability, operation OperationType) bool {
+	if _, ok := f.toolSet([]Capability{capability})[string(operation)]; !ok {
+		return false
+	}
+	if operation != OperationServiceSelfHealEnable {
+		return true
+	}
+	if f.previewSelfHeal == nil {
 		return false
 	}
 	return slices.ContainsFunc(f.tools.Definitions(), func(tool routing.ToolDefinition) bool {
@@ -839,7 +834,7 @@ func (f *operationFlow) confirmationMessage(op PendingOperation) string {
 	case OperationServiceRestart:
 		return f.texts.Format("operation.confirm_restart", data)
 	case OperationServiceSelfHealEnable:
-		return f.texts.Format("operation.confirm_self_heal_"+op.PolicySource, data)
+		return f.texts.Format("operation.confirm_self_heal", f.selfHealMessageData(op))
 	default:
 		return ""
 	}

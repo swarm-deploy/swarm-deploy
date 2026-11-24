@@ -2,6 +2,7 @@ package githosting
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"time"
 
@@ -51,6 +52,9 @@ func (g *GithubProvider) CreatePullRequest(
 	})
 	if err != nil {
 		return "", err
+	}
+	if pr.GetHTMLURL() == "" {
+		return "", errors.New("GitHub returned a pull request without a URL")
 	}
 	return pr.GetHTMLURL(), nil
 }
