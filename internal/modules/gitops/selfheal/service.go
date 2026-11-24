@@ -21,7 +21,8 @@ type Service struct {
 	global  bool
 	spec    config.GitSpec
 	dataDir string
-	remote  *githosting.ProposalRemote
+	repo    githosting.RepositoryReference
+	github  *githosting.GithubProvider // optional, uses the write repository API token
 }
 
 // Result describes the pushed branch and the optional pull request.
@@ -45,11 +46,16 @@ func New(
 	stacks config.StackProvider, global bool, spec config.GitSpec, dataDir string,
 ) (*Service, error) {
 	write, token := spec.ForPush()
-	remote, err := githosting.NewProposalRemote(write.Repository, token)
-	if err != nil {
-		return nil, fmt.Errorf("initialize proposal remote: %w", err)
+	repo := githosting.ParseGitRemote(write.Repository)
+	s := &Service{stacks: stacks, global: global, spec: write, dataDir: dataDir, repo: repo}
+	if token != "" && repo.IsGitHub() {
+		github, err := githosting.NewGithubProvider(token)
+		if err != nil {
+			return nil, fmt.Errorf("initialize GitHub pull request client: %w", err)
+		}
+		s.github = github
 	}
-	return &Service{stacks: stacks, global: global, spec: write, dataDir: dataDir, remote: remote}, nil
+	return s, nil
 }
 
 // Preview reads policy from the base branch of the configured write repository.
@@ -81,12 +87,13 @@ func (s *Service) Enable(ctx context.Context, stack, service string, expected St
 	if err != nil {
 		return Result{}, err
 	}
-	pr, err := s.remote.OpenPullRequest(ctx, s.spec.Branch, branch, title,
-		"Enable automatic drift repair for this service by setting its Compose deploy label.")
-	return Result{
-		Commit: commit, Branch: branch, BranchURL: s.remote.BranchURL(branch),
-		PullRequestURL: pr, PullRequestFailed: err != nil,
-	}, nil
+	result := Result{Commit: commit, Branch: branch, BranchURL: s.repo.BranchURL(branch)}
+	if s.github != nil {
+		result.PullRequestURL, err = s.github.CreatePullRequest(ctx, s.repo, s.spec.Branch, branch, title,
+			"Enable automatic drift repair for this service by setting its Compose deploy label.")
+		result.PullRequestFailed = err != nil
+	}
+	return result, nil
 }
 
 type proposal struct {

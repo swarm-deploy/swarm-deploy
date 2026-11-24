@@ -16,8 +16,3 @@ type Release struct {
 	URL         string
 	PublishedAt time.Time
 }
-
-type RepositoryReference struct {
-	Owner string
-	Name  string
-}

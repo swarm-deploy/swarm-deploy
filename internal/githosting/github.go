@@ -47,6 +47,9 @@ func (g *GithubProvider) GetLatestRelease(ctx context.Context, repo RepositoryRe
 func (g *GithubProvider) CreatePullRequest(
 	ctx context.Context, repo RepositoryReference, base, head, title, body string,
 ) (string, error) {
+	if err := repo.validateGitHubPath(); err != nil {
+		return "", err
+	}
 	pr, _, err := g.client.PullRequests.Create(ctx, repo.Owner, repo.Name, &github.NewPullRequest{
 		Base: &base, Head: &head, Title: &title, Body: &body,
 	})
