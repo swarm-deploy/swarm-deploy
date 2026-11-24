@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestNewProposalRemote(t *testing.T) {
+func TestResolvePushRepository(t *testing.T) {
 	for _, tc := range []struct {
 		remote, token, owner, name, branchURL string
 		github                                bool
@@ -25,17 +25,12 @@ func TestNewProposalRemote(t *testing.T) {
 		{"file:///local/repo", "write-token", "", "", "", false},
 		{"github.com/team/app", "write-token", "", "", "", false}, // Git interprets this clone address as a local path.
 	} {
-		remote, err := NewProposalRemote(tc.remote, tc.token)
+		repo, client, err := ResolvePushRepository(tc.remote, tc.token)
 		require.NoError(t, err)
-		assert.Equal(t, tc.owner, remote.repo.Owner)
-		assert.Equal(t, tc.name, remote.repo.Name)
-		assert.Equal(t, tc.branchURL, remote.BranchURL("proposal"))
-		assert.Equal(t, tc.github, remote.github != nil)
-		if !tc.github {
-			pr, openErr := remote.OpenPullRequest(t.Context(), "deploy", "proposal", "enable self-heal", "details")
-			require.NoError(t, openErr)
-			assert.Empty(t, pr)
-		}
+		assert.Equal(t, tc.owner, repo.Owner)
+		assert.Equal(t, tc.name, repo.Name)
+		assert.Equal(t, tc.branchURL, repo.BranchURL("proposal"))
+		assert.Equal(t, tc.github, client != nil)
 	}
 }
 
@@ -56,11 +51,11 @@ func TestOpenPullRequestUsesPublishedBranchAndConfiguredBase(t *testing.T) {
 
 	client, err := github.NewClient(github.WithURLs(&server.URL, nil), github.WithAuthToken("write-token"))
 	require.NoError(t, err)
-	remote, err := NewProposalRemote("git@github.com:team/app.git", "write-token")
+	repo, provider, err := ResolvePushRepository("git@github.com:team/app.git", "write-token")
 	require.NoError(t, err)
-	require.NotNil(t, remote.github)
-	remote.github.client = client
-	pr, err := remote.OpenPullRequest(t.Context(), "deploy", "proposal", "enable self-heal", "details")
+	require.NotNil(t, provider)
+	provider.client = client
+	pr, err := provider.CreatePullRequest(t.Context(), repo, "deploy", "proposal", "enable self-heal", "details")
 	require.NoError(t, err)
 	assert.Equal(t, link, pr)
 }

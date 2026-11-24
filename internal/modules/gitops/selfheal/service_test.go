@@ -8,22 +8,26 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 )
 
-func TestProposalUsesWriteRepository(t *testing.T) {
+func TestGitHubPublicationUsesWriteRepositoryAndToken(t *testing.T) {
 	const github = "git@github.com:team/app.git"
 	const gitlab = "git@gitlab.com:team/app.git"
 	for _, tc := range []struct {
-		name, syncRepo, pushRepo, branchURL string
+		name, syncRepo, pushRepo, token, branchURL string
+		wantPR                                     bool
 	}{
-		{"write override", gitlab, github, "https://github.com/team/app/tree/change"},
-		{"inherited repository", github, "", "https://github.com/team/app/tree/change"},
-		{"other write host", github, gitlab, "https://gitlab.com/team/app/-/tree/change"},
-		{"local write repository", github, "/repo", ""},
+		{"write override", gitlab, github, "write-token", "https://github.com/team/app/tree/change", true},
+		{"inherited repository", github, "", "write-token", "https://github.com/team/app/tree/change", true},
+		{"no API token", gitlab, github, "", "https://github.com/team/app/tree/change", false},
+		{"other write host", github, gitlab, "write-token", "https://gitlab.com/team/app/-/tree/change", false},
+		{"local write repository", github, "/repo", "write-token", "", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			push := &config.GitPushSpec{Repository: tc.pushRepo}
+			push.APIToken.Content = []byte(tc.token)
 			service, err := New(&config.Config{}, false, config.GitSpec{Repository: tc.syncRepo, Push: push}, t.TempDir())
 			require.NoError(t, err)
-			assert.Equal(t, tc.branchURL, service.remote.BranchURL("change"))
+			assert.Equal(t, tc.wantPR, service.github != nil)
+			assert.Equal(t, tc.branchURL, service.repo.BranchURL("change"))
 		})
 	}
 }

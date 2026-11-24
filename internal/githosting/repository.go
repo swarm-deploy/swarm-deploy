@@ -68,3 +68,27 @@ func (r RepositoryReference) validateGitHubPath() error {
 	}
 	return nil
 }
+
+// ResolvePushRepository parses the write repository and configures its optional GitHub client.
+func ResolvePushRepository(remote, token string) (RepositoryReference, *GithubProvider, error) {
+	repo := parseRepositoryReference(remote, false)
+	if token == "" || !repo.isGitHub() {
+		return repo, nil, nil
+	}
+	client, err := NewGithubProvider(token)
+	if err != nil {
+		return RepositoryReference{}, nil, err
+	}
+	return repo, client, nil
+}
+
+// BranchURL returns a credential-free web link for a published branch, when available.
+func (repo RepositoryReference) BranchURL(branch string) string {
+	if repo.origin.Host == "" || repo.Name == "" {
+		return ""
+	}
+	if strings.EqualFold(repo.origin.Hostname(), "gitlab.com") {
+		return repo.origin.JoinPath(repo.Owner, repo.Name, "-", "tree", branch).String()
+	}
+	return repo.origin.JoinPath(repo.Owner, repo.Name, "tree", branch).String()
+}
