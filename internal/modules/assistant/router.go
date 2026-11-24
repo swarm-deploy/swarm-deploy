@@ -130,13 +130,15 @@ func (r *llmRouter) Route(ctx context.Context, req RouteRequest) (RouteResult, e
 		)
 	}
 
-	operation := normalizeRouteOperation(route, decision.Operation, req.Message)
-	if operation != nil {
-		capability := operationCapability(operation.Type)
+	if decision.Operation != nil && !operationAllowedForRoute(route, decision.Operation.Type) {
+		decision.Operation = nil
+	}
+	if decision.Operation != nil {
+		capability := operationCapability(decision.Operation.Type)
 		if !hasCapability(normalizedCapabilities, capability) {
 			normalizedCapabilities = append(normalizedCapabilities, capability)
 		}
-		if operation.Type == OperationSyncPauseSet && operation.Replicas != nil &&
+		if decision.Operation.Type == OperationSyncPauseSet && decision.Operation.Replicas != nil &&
 			!hasCapability(normalizedCapabilities, CapabilityServiceOperations) {
 			normalizedCapabilities = append(normalizedCapabilities, CapabilityServiceOperations)
 		}
@@ -145,40 +147,10 @@ func (r *llmRouter) Route(ctx context.Context, req RouteRequest) (RouteResult, e
 	return RouteResult{
 		Route:         route,
 		Capabilities:  normalizedCapabilities,
-		Operation:     operation,
+		Operation:     decision.Operation,
 		ScopedRequest: strings.TrimSpace(decision.ScopedRequest),
 		Usage:         completion.Usage,
 	}, nil
-}
-
-func normalizeRouteOperation(route Route, operation *OperationIntent, message string) *OperationIntent {
-	if operation == nil || !operationAllowedForRoute(route, operation.Type) {
-		return nil
-	}
-	if operation.Type == OperationServiceImageUpdate && !messageContainsImageTag(message, operation.ImageVersion) {
-		operation.ImageVersion = ""
-	}
-	return operation
-}
-
-func messageContainsImageTag(message, tag string) bool {
-	if tag == "" {
-		return false
-	}
-	tokens := strings.FieldsFunc(message, func(r rune) bool {
-		switch {
-		case r >= '0' && r <= '9', r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r == '_', r == '-', r == '.':
-			return false
-		default:
-			return true
-		}
-	})
-	for _, token := range tokens {
-		if token == tag || strings.TrimSuffix(token, ".") == tag {
-			return true
-		}
-	}
-	return false
 }
 
 func localRouteMessageID(route Route) string {
@@ -210,7 +182,7 @@ func operationCapability(operation OperationType) Capability {
 		return CapabilityDeploymentSync
 	case OperationSyncPauseSet, OperationSyncPauseResume:
 		return CapabilityPauseSync
-	case OperationServiceRestart, OperationServiceReplicasSet, OperationServiceImageUpdate:
+	case OperationServiceRestart, OperationServiceReplicasSet, OperationServiceSelfHealEnable:
 		return CapabilityServiceOperations
 	default:
 		return CapabilityServiceOperations
@@ -219,7 +191,7 @@ func operationCapability(operation OperationType) Capability {
 
 func operationAllowedForRoute(route Route, operation OperationType) bool {
 	switch operation {
-	case OperationServiceRestart, OperationServiceReplicasSet, OperationServiceImageUpdate:
+	case OperationServiceRestart, OperationServiceReplicasSet, OperationServiceSelfHealEnable:
 		return route == RouteServices
 	case OperationDeploySync:
 		return route == RouteDeployments
@@ -285,7 +257,7 @@ For supported explanations and how-to questions choose platform with empty capab
 Do not add capabilities merely because a route commonly uses them. Add only what this request needs.
 Date/time uses the cross-cutting date tool and needs no capability.
 For restart or replica changes, operation is {"type":"service_restart_trigger|service_replicas_set","target":"literal target or empty","replicas":number-or-null}; include service_operations.
-For explicit requests to change a GitOps service image tag, use services with service_operations and operation {"type":"service_image_update","target":"literal target or empty","image_version":"literal tag or empty"}. Image version lookups use registry instead.
+For explicit requests to enable self-heal for a service, use services with service_operations and operation {"type":"service_self_heal_enable","target":"literal target or empty"}. Policy questions and requests to disable self-heal do not use this operation.
 For a request to start synchronization, use the deployments route and operation {"type":"deploy_sync_trigger","target":"","replicas":null}; include deployment_sync.
 For Pause Sync mutations, use operation {"type":"sync_pause_set|sync_pause_resume","target":"stack or stack/service","scope":"stack|service","expires_at":"absolute RFC3339 time or null","replicas":number-or-null}; include pause_sync. A replicas value combines pause-first with scaling.
 Target is copied from the current user message. Never infer a missing operation target from history.

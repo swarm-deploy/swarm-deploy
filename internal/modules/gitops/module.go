@@ -16,10 +16,10 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/deployment"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/differ"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/imageupdate"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/modelstore"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/selfheal"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/syncpause"
-	"github.com/swarm-deploy/swarm-deploy/internal/registry"
+
 	"github.com/swarm-deploy/swarm-deploy/internal/storage"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
@@ -31,8 +31,8 @@ type Module struct {
 	Differ        *differ.Differ
 	// SyncPauses owns persistent stack and service pause policy.
 	SyncPauses *syncpause.Service
-	// ImageUpdater proposes image updates from the assistant when enabled.
-	ImageUpdater *imageupdate.Service
+	// SelfHealProposals proposes enabling service self-heal from the assistant when enabled.
+	SelfHealProposals *selfheal.Service
 
 	cfg *config.Config
 }
@@ -60,12 +60,12 @@ func InitModule(
 		Differ:        differ.New(),
 	}
 	if cfg.Spec.Assistant.Enabled {
-		updater, err := imageupdate.New(cnt.GetConfigStore(), registry.NewImageVersionResolver(cnt.GetSwarm().Images),
+		updater, err := selfheal.New(cnt.GetConfigStore(), cfg.Spec.GitOps.Sync.Policy.SelfHeal,
 			cfg.Spec.GitOps.Git, cfg.Spec.DataDir)
 		if err != nil {
-			return nil, fmt.Errorf("initialize GitOps image updater: %w", err)
+			return nil, fmt.Errorf("initialize GitOps self-heal proposals: %w", err)
 		}
-		srv.ImageUpdater = updater
+		srv.SelfHealProposals = updater
 	}
 
 	srv.Store = modelstore.NewSQLStore(cnt.GetStorage())

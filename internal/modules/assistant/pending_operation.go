@@ -18,7 +18,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/llm"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/texts"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/tools/routing"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/imageupdate"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/selfheal"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/syncpause"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/model"
 )
@@ -37,15 +37,16 @@ type SyncPauseTargetResolver interface {
 
 // operationFlow runs the deterministic collect, confirm, and execute workflow for supported mutations.
 type operationFlow struct {
-	texts          *texts.Localizer
-	modelName      string
-	chat           modelCompleter
-	store          ServiceStore
-	tools          ToolExecutor
-	guard          *guard.InjectionChecker
-	allowedToolSet map[string]struct{}
-	pauseTargets   SyncPauseTargetResolver
-	pending        *pendingOperationStore
+	texts           *texts.Localizer
+	modelName       string
+	chat            modelCompleter
+	store           ServiceStore
+	tools           ToolExecutor
+	guard           *guard.InjectionChecker
+	allowedToolSet  map[string]struct{}
+	previewSelfHeal func(context.Context, string, string) (selfheal.State, error)
+	pauseTargets    SyncPauseTargetResolver
+	pending         *pendingOperationStore
 }
 
 func newOperationFlow(
@@ -57,15 +58,16 @@ func newOperationFlow(
 	allowedToolSet map[string]struct{},
 ) *operationFlow {
 	return &operationFlow{
-		texts:          config.Localizer,
-		modelName:      config.ModelName,
-		chat:           chat,
-		store:          store,
-		tools:          tools,
-		guard:          injectionGuard,
-		allowedToolSet: allowedToolSet,
-		pauseTargets:   config.SyncPauses,
-		pending:        newPendingOperationStore(config.ConversationInMemoryTTL),
+		texts:           config.Localizer,
+		modelName:       config.ModelName,
+		chat:            chat,
+		store:           store,
+		tools:           tools,
+		guard:           injectionGuard,
+		allowedToolSet:  allowedToolSet,
+		pauseTargets:    config.SyncPauses,
+		previewSelfHeal: config.PreviewSelfHeal,
+		pending:         newPendingOperationStore(config.ConversationInMemoryTTL),
 	}
 }
 
@@ -81,8 +83,8 @@ const (
 	OperationServiceRestart OperationType = serviceRestartTriggerTool
 	// OperationServiceReplicasSet changes a service replica count.
 	OperationServiceReplicasSet OperationType = serviceReplicasSetTool
-	// OperationServiceImageUpdate proposes a GitOps image change.
-	OperationServiceImageUpdate OperationType = serviceImageUpdateTool
+	// OperationServiceSelfHealEnable proposes enabling GitOps self-heal.
+	OperationServiceSelfHealEnable OperationType = serviceSelfHealEnableTool
 	// OperationDeploySync triggers a GitOps synchronization.
 	OperationDeploySync OperationType = deploySyncTriggerTool
 	// OperationSyncPauseSet creates or changes a direct GitOps pause.
@@ -109,8 +111,6 @@ type OperationIntent struct {
 	Target string `json:"target,omitempty"`
 	// Replicas is the requested replica count, when present.
 	Replicas *uint64 `json:"replicas,omitempty"`
-	// ImageVersion is the literal requested image tag.
-	ImageVersion string `json:"image_version,omitempty"`
 	// Scope is stack or service for Pause Sync operations.
 	Scope string `json:"scope,omitempty"`
 	// ExpiresAt is the absolute pause expiration; nil means no expiration.
@@ -131,8 +131,8 @@ type PendingOperation struct {
 	Service string
 	// Replicas is the desired count for a replica change.
 	Replicas *uint64
-	// ImageVersion is the desired image tag for the proposal.
-	ImageVersion string
+	// PolicySource is the source of the disabled policy shown for confirmation.
+	PolicySource string
 	// Scope is stack or service for Pause Sync operations.
 	Scope string
 	// PauseExpiresAt is nil for a pause without expiration.
@@ -195,7 +195,7 @@ func (s *pendingOperationStore) claim(conversationID string, expected PendingOpe
 	if current.Type != expected.Type || current.Stage != expected.Stage ||
 		current.Target != expected.Target || current.Stack != expected.Stack ||
 		current.Service != expected.Service || !current.ExpiresAt.Equal(expected.ExpiresAt) ||
-		current.ImageVersion != expected.ImageVersion ||
+		current.PolicySource != expected.PolicySource ||
 		!equalOptionalUint64(current.Replicas, expected.Replicas) {
 		return false
 	}
@@ -247,11 +247,10 @@ func (t *operationTurn) startPendingOperation(
 		Stage:          PendingOperationCollecting,
 		Target:         strings.TrimSpace(intent.Target),
 		Replicas:       intent.Replicas,
-		ImageVersion:   strings.TrimSpace(intent.ImageVersion),
 		Scope:          strings.TrimSpace(intent.Scope),
 		PauseExpiresAt: intent.ExpiresAt,
 	}
-	if op.Type == OperationServiceImageUpdate && !t.imageUpdateAvailable() {
+	if op.Type == OperationServiceSelfHealEnable && !t.selfHealAvailable() {
 		return t.texts.Text("operation.forbidden"), conversation.TokenUsage{}
 	}
 	if op.Type == OperationDeploySync {
@@ -278,10 +277,8 @@ func (t *operationTurn) startPendingOperation(
 		t.next = &op
 		return t.texts.Format("operation.ask_replicas", operationTargetData(op)), usage
 	}
-	if op.Type == OperationServiceImageUpdate && !imageupdate.ValidTag(op.ImageVersion) {
-		op.ImageVersion = ""
-		t.next = &op
-		return t.texts.Format("operation.ask_image_tag", operationTargetData(op)), usage
+	if op.Type == OperationServiceSelfHealEnable {
+		return t.prepareSelfHeal(ctx, op), usage
 	}
 	op.Stage = PendingOperationConfirmation
 	t.next = &op
@@ -380,7 +377,7 @@ func (t *operationTurn) handlePendingCollection(
 	message string,
 	op PendingOperation,
 ) (bool, string, conversation.TokenUsage, error) {
-	if isUnrelatedPendingMessage(message) {
+	if isUnrelatedPendingMessage(message) && (op.Service != "" || !isServiceReferenceReply(message)) {
 		t.pending.delete(t.conversationID)
 		return false, "", conversation.TokenUsage{}, nil
 	}
@@ -404,13 +401,8 @@ func (t *operationTurn) handlePendingCollection(
 		}
 		op.Replicas = &replicas
 	}
-	if op.Type == OperationServiceImageUpdate && !imageupdate.ValidTag(op.ImageVersion) {
-		version := strings.TrimSpace(message)
-		if !imageupdate.ValidTag(version) {
-			t.next = &op
-			return true, t.texts.Format("operation.ask_image_tag", operationTargetData(op)), usage, nil
-		}
-		op.ImageVersion = version
+	if op.Type == OperationServiceSelfHealEnable {
+		return true, t.prepareSelfHeal(ctx, op), usage, nil
 	}
 	op.Stage = PendingOperationConfirmation
 	t.next = &op
@@ -459,11 +451,11 @@ func (t *operationTurn) executePendingOperation(
 	if op.Type == OperationServiceReplicasSet {
 		arguments["replicas"] = op.Replicas
 	}
-	if op.Type == OperationServiceImageUpdate {
-		if !t.imageUpdateAvailable() || !imageupdate.ValidTag(op.ImageVersion) {
+	if op.Type == OperationServiceSelfHealEnable {
+		if !t.selfHealAvailable() {
 			return t.texts.Text("operation.forbidden"), nil
 		}
-		arguments["imageVersion"] = op.ImageVersion
+		arguments["source"] = op.PolicySource
 	}
 	payload, err := json.Marshal(arguments)
 	if err != nil {
@@ -498,7 +490,7 @@ func (f *operationFlow) pendingOperationArguments(
 		return f.pauseOperationArguments(ctx, op)
 	case OperationDeploySync:
 		return CapabilityDeploymentSync, map[string]any{}, "", nil
-	case OperationServiceRestart, OperationServiceReplicasSet, OperationServiceImageUpdate:
+	case OperationServiceRestart, OperationServiceReplicasSet, OperationServiceSelfHealEnable:
 		services, err := f.store.ReadAll(ctx)
 		if err != nil {
 			return "", nil, "", err
@@ -517,12 +509,30 @@ func (f *operationFlow) pendingOperationArguments(
 	}
 }
 
-func (f *operationFlow) imageUpdateAvailable() bool {
-	if _, allowed := f.toolSet([]Capability{CapabilityServiceOperations})[serviceImageUpdateTool]; !allowed {
+func (t *operationTurn) prepareSelfHeal(ctx context.Context, op PendingOperation) string {
+	state, err := t.previewSelfHeal(ctx, op.Stack, op.Service)
+	if err != nil || state.Enabled {
+		t.pending.delete(t.conversationID)
+	}
+	if err != nil {
+		return t.texts.Format("operation.failed", map[string]any{"Error": err.Error()})
+	}
+	if state.Enabled {
+		return t.texts.Format("result.self_heal_enabled_"+state.Source, operationTargetData(op))
+	}
+	op.PolicySource = state.Source
+	op.Stage = PendingOperationConfirmation
+	t.next = &op
+	return t.confirmationMessage(op)
+}
+
+func (f *operationFlow) selfHealAvailable() bool {
+	_, allowed := f.toolSet([]Capability{CapabilityServiceOperations})[serviceSelfHealEnableTool]
+	if !allowed || f.previewSelfHeal == nil {
 		return false
 	}
 	return slices.ContainsFunc(f.tools.Definitions(), func(tool routing.ToolDefinition) bool {
-		return string(tool.Name) == serviceImageUpdateTool && tool.Writable && tool.Terminal
+		return string(tool.Name) == serviceSelfHealEnableTool && tool.Writable && tool.Terminal
 	})
 }
 
@@ -828,9 +838,8 @@ func (f *operationFlow) confirmationMessage(op PendingOperation) string {
 		return question
 	case OperationServiceRestart:
 		return f.texts.Format("operation.confirm_restart", data)
-	case OperationServiceImageUpdate:
-		data["Tag"] = op.ImageVersion
-		return f.texts.Format("operation.confirm_image_update", data)
+	case OperationServiceSelfHealEnable:
+		return f.texts.Format("operation.confirm_self_heal_"+op.PolicySource, data)
 	default:
 		return ""
 	}
@@ -890,6 +899,12 @@ func parseConfirmation(message string) confirmationValue {
 func parseReplicas(message string) (uint64, bool) {
 	value, err := strconv.ParseUint(strings.TrimSpace(message), 10, 64)
 	return value, err == nil && value > 0
+}
+
+func isServiceReferenceReply(message string) bool {
+	stack, service, ok := strings.Cut(strings.TrimSpace(message), "/")
+	return ok && stack != "" && service != "" && !strings.Contains(service, "/") &&
+		!strings.ContainsFunc(message, unicode.IsSpace)
 }
 
 func isUnrelatedPendingMessage(message string) bool {

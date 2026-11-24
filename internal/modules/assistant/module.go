@@ -104,6 +104,7 @@ func InitModule(_ context.Context, cfg *config.Config, cnt Container, localizer 
 		ConversationInMemoryTTL: cfg.Spec.Assistant.Conversation.Storage.InMemory.TTL.Value,
 		ConversationHistory:     conversation.NewSQLHistoryStorage(cnt.GetStorage()),
 		SyncPauses:              gitopsModule.SyncPauses,
+		PreviewSelfHeal:         gitopsModule.SelfHealProposals.Preview,
 	}, resourcesModule.ServiceStore, toolExecutor, eventModule.Dispatcher, cnt.GetMetrics().Assistant)
 	if err != nil {
 		return nil, err

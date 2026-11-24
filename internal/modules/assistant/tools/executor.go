@@ -97,8 +97,8 @@ func NewExecutor(
 		NewSelfMetricsList(prometheus.DefaultGatherer, selfMetricsNamePrefix),
 		NewReportPromptInjection(eventModule.Dispatcher),
 	}
-	if gitopsModule.ImageUpdater != nil {
-		toolComponents = append(toolComponents, &serviceImageUpdate{updater: gitopsModule.ImageUpdater})
+	if gitopsModule.SelfHealProposals != nil {
+		toolComponents = append(toolComponents, &serviceSelfHealEnable{updater: gitopsModule.SelfHealProposals})
 	}
 
 	allowed := config.NormalizeAssistantToolAllowlist(spec.Assistant.Tools)

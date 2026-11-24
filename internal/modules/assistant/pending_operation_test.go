@@ -17,6 +17,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/llm"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/tools/routing"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/selfheal"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/syncpause"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/model"
 	"go.uber.org/mock/gomock"
@@ -102,36 +103,40 @@ func TestPendingOperationResolution(t *testing.T) {
 	}
 }
 
-func TestPendingImageUpdateRequiresConfirmation(t *testing.T) {
-	store := serviceStore(t, []model.Info{{Stack: "core", Name: "api"}})
+func TestPendingSelfHealRequiresConfirmation(t *testing.T) {
+	const stack = "infra-monitoring"
+	store := serviceStore(t, []model.Info{{Stack: stack, Name: "infra-prometheus"}, {Stack: stack, Name: "infra-prometheus-pushgateway"}})
 	executor := &fakeTools{
-		definitions: []routing.ToolDefinition{{Name: serviceImageUpdateTool, Writable: true, Terminal: true}},
+		definitions: []routing.ToolDefinition{{Name: serviceSelfHealEnableTool, Writable: true, Terminal: true}},
 		executeFunc: func(req routing.Request) (string, error) {
 			payload, ok := req.Payload.(string)
 			require.True(t, ok)
-			assert.JSONEq(t, `{"stack":"core","service":"api","imageVersion":"1.2.3"}`, payload)
-			return `{"branch":"core-api-up-image-1.2.3","newImage":"example/api:1.2.3","branchUrl":"https://example.com/branch"}`, nil
+			assert.JSONEq(t, `{"stack":"infra-monitoring","service":"infra-prometheus","source":"stack"}`, payload)
+			return `{"branch":"proposal","branchUrl":"https://example.com/branch"}`, nil
 		},
 	}
 	flow := newPendingTestFlow(t, store, executor)
-	turn := flow.beginTurn("conversation")
-	answer, _ := turn.startPendingOperation(t.Context(), OperationIntent{Type: OperationServiceImageUpdate, Target: "core/api"})
-	assert.Contains(t, answer, "Which image tag")
+	flow.previewSelfHeal = func(_ context.Context, stackName, service string) (selfheal.State, error) {
+		assert.Equal(t, stack, stackName)
+		assert.Equal(t, "infra-prometheus", service)
+		return selfheal.State{Source: "stack"}, nil
+	}
+	turn := flow.beginTurn("chat")
+	answer, _ := turn.startPendingOperation(t.Context(), OperationIntent{Type: OperationServiceSelfHealEnable, Target: "prometheus"})
+	assert.Contains(t, answer, "infra-prometheus-pushgateway")
 	turn.publish()
-
-	turn = flow.beginTurn("conversation")
-	handled, answer, _, err := turn.handlePendingOperation(t.Context(), "1.2.3")
+	turn = flow.beginTurn("chat")
+	handled, answer, _, err := turn.handlePendingOperation(t.Context(), "infra-monitoring/infra-prometheus")
 	require.NoError(t, err)
 	require.True(t, handled)
-	assert.Contains(t, answer, "image tag `1.2.3`")
+	assert.Contains(t, answer, "disabled by stack policy")
 	assert.Empty(t, executor.calls)
 	turn.publish()
-
-	handled, answer, _, err = flow.beginTurn("conversation").handlePendingOperation(t.Context(), "yes")
+	handled, answer, _, err = flow.beginTurn("chat").handlePendingOperation(t.Context(), "yes")
 	require.NoError(t, err)
 	require.True(t, handled)
-	assert.Contains(t, answer, "[Open branch](https://example.com/branch)")
-	assert.Equal(t, []string{serviceImageUpdateTool}, executor.calls)
+	assert.Contains(t, answer, "[Open branch]")
+	assert.Equal(t, []string{serviceSelfHealEnableTool}, executor.calls)
 }
 
 func TestPendingOperationDeterministicTurns(t *testing.T) {

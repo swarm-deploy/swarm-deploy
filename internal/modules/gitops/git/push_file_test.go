@@ -16,8 +16,11 @@ func TestPushFileChangeCreatesOnlyProposalBranch(t *testing.T) {
 	sourcePath, base := initSourceRepository(t)
 	scratch := t.TempDir()
 	spec := config.GitSpec{Repository: sourcePath, Branch: base.Name().Short()}
-	branch := "core-api-up-image-1.2.3"
+	branch := "core-api-enable-self-heal"
 
+	original, err := ReadProposalFile(t.Context(), spec, scratch, "README.md")
+	require.NoError(t, err)
+	assert.Equal(t, "hello", string(original))
 	pushed, err := PushFileChange(t.Context(), spec, scratch, branch, "README.md", "update readme", "test",
 		func(_ context.Context, original []byte) ([]byte, error) {
 			assert.Equal(t, "hello", string(original))

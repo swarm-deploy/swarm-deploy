@@ -11,6 +11,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackloop/drift"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackloop/policies"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/tracing"
@@ -68,7 +69,7 @@ func (r *Reconciler) healService(
 	))
 	defer span.End()
 
-	policyName, enabled, err := resolveSelfHeal(
+	policyName, enabled, err := policies.ResolveSelfHeal(
 		service,
 		payload.Stack.Sync.Policy.SelfHeal,
 		r.cfg.Spec.GitOps.Sync.Policy.SelfHeal,
@@ -212,19 +213,4 @@ func applySelfHealState(state model.Service, name string, payload *pipelinePaylo
 		state.SyncError = remediation.failure
 	}
 	return state
-}
-
-func resolveSelfHeal(service compose.Service, stack *bool, global bool) (string, bool, error) {
-	policy, specified, err := service.SelfHealPolicy()
-	if err != nil {
-		return "service", false, err
-	}
-	if specified {
-		return "service", policy, nil
-	}
-	if stack != nil {
-		return "stack", *stack, nil
-	}
-
-	return "global", global, nil
 }
