@@ -532,7 +532,7 @@ onMounted(() => {
               <td class="events-type">
                 <span class="events-type-content">
                   <SidebarIcon class="events-row-chevron" :class="{ 'events-row-chevron--open': expandedKey === event.id }" name="chevron" />
-                  <span>{{ event.type || t('common.unknown') }}</span>
+                  <span class="events-type-label" :title="event.type || t('common.unknown')">{{ event.type || t('common.unknown') }}</span>
                 </span>
               </td>
               <td class="events-severity">
@@ -590,12 +590,21 @@ onMounted(() => {
 
 .events-date-row,
 .events-time-compact { display: none; }
+.events-type { overflow: hidden; }
 .events-type-content {
+  width: 100%;
   min-width: 0;
   display: flex;
   align-items: center;
   gap: 7px;
+  overflow: hidden;
   font-weight: 600;
+}
+.events-type-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .events-row-chevron {
   width: 14px;
@@ -668,8 +677,18 @@ onMounted(() => {
     grid-column: 2;
     grid-row: 1;
     min-width: 0;
+    overflow: visible;
   }
-  .events-type-content { line-height: 1.25; }
+  .events-type-content {
+    overflow: visible;
+    line-height: 1.25;
+  }
+  .events-type-label {
+    overflow: visible;
+    text-overflow: clip;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
   .events-row-chevron { display: none; }
   .events-severity {
     grid-column: 3;
