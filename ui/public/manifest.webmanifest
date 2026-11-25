@@ -1,0 +1,30 @@
+{
+  "name": "Swarm Deploy",
+  "short_name": "Swarm Deploy",
+  "description": "GitOps controller for Docker Swarm",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "theme_color": "#07182c",
+  "background_color": "#07182c",
+  "icons": [
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}
