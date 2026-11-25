@@ -41,7 +41,7 @@ describe("Recommendation stack links", () => {
     expect(wrapper.text()).toContain("Рекомендации");
     expect(wrapper.text()).toContain("замените изменяемый тег latest");
     expect(wrapper.text()).toContain(legacyAdvice);
-    expect(wrapper.get("option[value=medium]").text()).toBe("Средний");
+    expect(wrapper.findAll(".app-select-option").map((option) => option.text())).toContain("Средний");
     wrapper.unmount();
   });
 
@@ -76,7 +76,7 @@ describe("Recommendation stack links", () => {
   });
   it("renders icon-led filters and supports searchable stack options", async () => {
     const { wrapper } = await render("/recommendations");
-    const controls = wrapper.findAll(".recommendations-filter-bar summary, .recommendations-filter-bar select");
+    const controls = wrapper.findAll(".recommendations-filter-bar summary");
 
     expect(controls.map((control) => control.attributes("aria-label"))).toEqual([
       "Filter recommendations by stack",
@@ -91,6 +91,21 @@ describe("Recommendation stack links", () => {
       "All stacks",
       "infra",
     ]);
+    wrapper.unmount();
+  });
+  it("filters recommendations by severity and resets the selection", async () => {
+    vi.mocked(fetchRecommendations).mockResolvedValue({ recommendations: [
+      { ...recommendation("app"), severity: "high" }, recommendation("infra"),
+    ] });
+    const { wrapper } = await render("/recommendations");
+    const select = wrapper.get(".app-select");
+    await select.findAll(".app-select-option").find((option) => option.text() === "High")!.trigger("click");
+    expect(wrapper.text()).toContain("Pin app image");
+    expect(wrapper.text()).not.toContain("Pin infra image");
+    expect(wrapper.get(".recommendations-mobile-filter-toggle").text()).toBe("Filters (1)");
+    await select.findAll(".app-select-option").find((option) => option.text() === "All severities")!.trigger("click");
+    expect(wrapper.text()).toContain("Pin infra image");
+    expect(wrapper.get(".recommendations-mobile-filter-toggle").text()).toBe("Filters (0)");
     wrapper.unmount();
   });
   it("closes the stack filter when clicking outside", async () => {
