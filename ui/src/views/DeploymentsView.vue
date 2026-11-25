@@ -379,11 +379,11 @@ onMounted(() => {
   :deep(.deployments-table tbody) { display: block; }
   :deep(.deployment-date-row) { display: block; }
   :deep(.deployments-table .deployment-row > td) { width: auto; }
-  :deep(.deployment-date-row th) {
+  :deep(.deployments-table .deployment-date-row > th:first-child) {
     display: block;
     width: 100%;
     border-bottom: 1px solid var(--border-subtle);
-    padding: 14px 10px 8px;
+    padding: 14px 0 8px;
     color: var(--muted);
     font-size: 0.78rem;
     font-weight: 600;
