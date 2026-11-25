@@ -243,23 +243,35 @@ func TestPreparationAndInterruptedFailuresShareDeploymentAlertLifecycle(t *testi
 	assert.Equal(t, model.AlertStatusResolved, alerts[0].Status)
 }
 
-func TestInterruptedAlertKeepsUnknownOutcomeAndResolvesOnSuccess(t *testing.T) {
+func TestProcessInterruptionWaitsForOneRecoveryAttemptAndResolvesOnSuccess(t *testing.T) {
 	ctx := t.Context()
 	_, store := openAlertStore(t)
 	subscriber := newTestSQLSubscriber(store)
 	at := time.Now().UTC()
 	require.NoError(t, subscriber.Handle(ctx, events.Envelope{
 		ID: "interrupted", OccurredAt: at,
-		Event: &events.DeployInterrupted{StackName: "app", Reason: "process_interrupted"},
+		Event: &events.DeployInterrupted{
+			StackName: "app", Reason: events.DeployInterruptReasonProcessInterrupted,
+		},
+	}))
+	_, err := store.FindOpenByFingerprint(ctx, model.SyncFailedFingerprint("app"))
+	require.ErrorIs(t, err, modelstore.ErrAlertNotFound)
+
+	require.NoError(t, subscriber.Handle(ctx, events.Envelope{
+		ID: "retry-interrupted", OccurredAt: at.Add(time.Second),
+		Event: &events.DeployInterrupted{
+			StackName: "app", Reason: events.DeployInterruptReasonProcessInterrupted,
+		},
 	}))
 	opened, err := store.FindOpenByFingerprint(ctx, model.SyncFailedFingerprint("app"))
 	require.NoError(t, err)
+	assert.EqualValues(t, 2, opened.Occurrences)
 	assert.Equal(t, "Synchronization outcome unknown", opened.Title)
 	assert.Equal(t, "Deployment outcome is unknown after interruption during an unknown stage. No detailed diagnostic was recorded.",
 		opened.Message)
 
 	require.NoError(t, subscriber.Handle(ctx, events.Envelope{
-		ID: "success", OccurredAt: at.Add(time.Second),
+		ID: "success", OccurredAt: at.Add(2 * time.Second),
 		Event: &events.DeploySuccess{DeployEvent: events.DeployEvent{StackName: "app"}},
 	}))
 	resolved, err := store.Get(ctx, opened.ID)

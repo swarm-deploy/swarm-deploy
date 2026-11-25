@@ -899,6 +899,7 @@ body {
     border-radius: 0;
     padding: 0;
     background: var(--backdrop-soft);
+    transition: opacity 160ms ease-out;
   }
 
   .mobile-more-scrim:hover {
@@ -915,12 +916,40 @@ body {
     border-bottom: 0;
     border-radius: 18px 18px 0 0;
     background: var(--surface-elevated);
-    padding: 10px 16px 18px;
+    padding: 0 16px 18px;
     outline: none;
+    transition: transform 180ms ease-out;
+    overscroll-behavior: contain;
+  }
+
+  .mobile-more-sheet--dragging {
+    transition: none;
+    user-select: none;
+    will-change: transform;
+  }
+
+  .mobile-more-drag-zone {
+    height: 32px;
+    margin-inline: -16px;
+    display: grid;
+    place-items: center;
+    cursor: grab;
+    touch-action: none;
+  }
+
+  .mobile-more-sheet--dragging .mobile-more-drag-zone {
+    cursor: grabbing;
+  }
+
+  .mobile-more-handle {
+    width: 44px;
+    height: 4px;
+    border-radius: 999px;
+    background: var(--border-strong);
   }
 
   .mobile-more-sheet h2 {
-    margin: 4px 0 12px;
+    margin: 0 0 12px;
     font-size: 1.2rem;
   }
 

@@ -31,6 +31,24 @@ function testRouter() {
   });
 }
 
+function dispatchPointer(
+  element: Element,
+  type: string,
+  clientY: number,
+): void {
+  const event = new MouseEvent(type, {
+    bubbles: true,
+    cancelable: true,
+    button: 0,
+    clientY,
+  });
+  Object.defineProperties(event, {
+    isPrimary: { value: true },
+    pointerId: { value: 1 },
+  });
+  element.dispatchEvent(event);
+}
+
 describe("MobileNavigation", () => {
   beforeEach(() => {
     setActivePinia(createPinia());
@@ -50,7 +68,7 @@ describe("MobileNavigation", () => {
     await wrapper.get('button[aria-controls="mobile-more-sheet"]').trigger("click");
 
     expect(wrapper.get(".mobile-more-sheet").attributes("role")).toBe("dialog");
-    expect(wrapper.find(".mobile-more-handle").exists()).toBe(false);
+    expect(wrapper.find(".mobile-more-handle").exists()).toBe(true);
     expect(wrapper.text()).toContain("Graph");
     expect(wrapper.text()).toContain("Cluster");
     expect(wrapper.text()).toContain("Networks");
@@ -61,6 +79,54 @@ describe("MobileNavigation", () => {
 
     expect(router.currentRoute.value.path).toBe("/cluster");
     expect(wrapper.find(".mobile-more-sheet").exists()).toBe(false);
+    wrapper.unmount();
+  });
+
+  it("closes More when its handle is dragged down", async () => {
+    const router = testRouter();
+    await router.push("/overview");
+    const wrapper = mount(MobileNavigation, {
+      attachTo: document.body,
+      props: { assistantEnabled: true },
+      global: { plugins: [router] },
+    });
+
+    await wrapper.get('button[aria-controls="mobile-more-sheet"]').trigger("click");
+    const dragZone = wrapper.get(".mobile-more-drag-zone");
+    dispatchPointer(dragZone.element, "pointerdown", 100);
+    dispatchPointer(dragZone.element, "pointermove", 190);
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.get(".mobile-more-sheet").attributes("style")).toContain("90px");
+    dispatchPointer(dragZone.element, "pointerup", 190);
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.find(".mobile-more-sheet").exists()).toBe(false);
+    wrapper.unmount();
+  });
+
+  it("returns More to its position after a short slow drag", async () => {
+    const router = testRouter();
+    await router.push("/overview");
+    const wrapper = mount(MobileNavigation, {
+      attachTo: document.body,
+      props: { assistantEnabled: true },
+      global: { plugins: [router] },
+    });
+    await wrapper.get('button[aria-controls="mobile-more-sheet"]').trigger("click");
+    const dragZone = wrapper.get(".mobile-more-drag-zone");
+    let currentTime = 0;
+    const now = vi.spyOn(Date, "now");
+    now.mockImplementation(() => currentTime);
+    dispatchPointer(dragZone.element, "pointerdown", 100);
+    currentTime = 200;
+    dispatchPointer(dragZone.element, "pointermove", 130);
+    dispatchPointer(dragZone.element, "pointerup", 130);
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.find(".mobile-more-sheet").exists()).toBe(true);
+    expect(wrapper.get(".mobile-more-sheet").attributes("style")).toContain("0px");
+    now.mockRestore();
     wrapper.unmount();
   });
 

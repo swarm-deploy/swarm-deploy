@@ -13,6 +13,8 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
 )
 
+const processInterruptionFailureThreshold = 2
+
 const (
 	syncFailureDiagnostic = "Synchronization failed during %s. No detailed diagnostic was recorded."
 	interruptedDiagnostic = "Deployment outcome is unknown after interruption during %s. " +
@@ -95,6 +97,9 @@ func (e *SyncEvaluator) failure(
 	}
 
 	findings, openAfter := classifySyncFailure(cause)
+	if incoming.ErrorCode == events.DeployInterruptReasonProcessInterrupted {
+		openAfter = processInterruptionFailureThreshold
+	}
 	return []model.AlertAction{model.NewRecordFailureAction(alert, openAfter, true, findings...)}, nil
 }
 

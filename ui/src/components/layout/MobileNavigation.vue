@@ -18,8 +18,17 @@ const route = useRoute();
 const uiStore = useUIStore();
 const moreOpen = ref(false);
 const appearanceOpen = ref(false);
+const dragOffset = ref(0);
+const dragging = ref(false);
 const moreButtonRef = ref<HTMLButtonElement | null>(null);
 const moreSheetRef = ref<HTMLElement | null>(null);
+
+const DRAG_CLOSE_DISTANCE = 80;
+const DRAG_CLOSE_VELOCITY = 0.5;
+const DRAG_FLICK_MIN_DISTANCE = 24;
+
+let dragStartY = 0;
+let dragStartedAt = 0;
 
 const themeOptions: Array<{ value: ThemeMode; label: string }> = [
   { value: "system", label: t("navigation.system") },
@@ -44,13 +53,20 @@ const currentThemeLabel = computed(
 const moreActive = computed(
   () => moreOpen.value || moreLinks.some((link) => route.path === link.to),
 );
+const scrimOpacity = computed(() => Math.max(0.35, 1 - dragOffset.value / 320));
 
 function isActive(path: string): boolean {
   return route.path === path;
 }
 
+function resetDrag(): void {
+  dragging.value = false;
+  dragOffset.value = 0;
+}
+
 function closeMore(returnFocus = true): void {
   if (!moreOpen.value) return;
+  resetDrag();
   moreOpen.value = false;
   appearanceOpen.value = false;
   if (returnFocus) {
@@ -77,6 +93,44 @@ function openAssistant(): void {
 function selectTheme(theme: ThemeMode): void {
   uiStore.setTheme(theme);
   appearanceOpen.value = false;
+}
+
+function startDrag(event: PointerEvent): void {
+  if (!event.isPrimary || event.button !== 0) return;
+  event.preventDefault();
+  dragStartY = event.clientY;
+  dragStartedAt = Date.now();
+  dragOffset.value = 0;
+  dragging.value = true;
+  (event.currentTarget as HTMLElement).setPointerCapture?.(event.pointerId);
+}
+
+function moveDrag(event: PointerEvent): void {
+  if (!dragging.value || !event.isPrimary) return;
+  dragOffset.value = Math.max(0, event.clientY - dragStartY);
+}
+
+function finishDrag(event: PointerEvent): void {
+  if (!dragging.value || !event.isPrimary) return;
+
+  const distance = Math.max(dragOffset.value, event.clientY - dragStartY, 0);
+  const elapsed = Math.max(Date.now() - dragStartedAt, 1);
+  const velocity = distance / elapsed;
+  dragging.value = false;
+
+  if (
+    distance >= DRAG_CLOSE_DISTANCE ||
+    (distance >= DRAG_FLICK_MIN_DISTANCE && velocity >= DRAG_CLOSE_VELOCITY)
+  ) {
+    closeMore();
+    return;
+  }
+
+  dragOffset.value = 0;
+}
+
+function cancelDrag(): void {
+  resetDrag();
 }
 
 function handleKeydown(event: KeyboardEvent): void {
@@ -112,17 +166,30 @@ onUnmounted(() => {
         type="button"
         class="mobile-more-scrim"
         :aria-label="t('navigation.closeMore')"
+        :style="{ opacity: scrimOpacity }"
         @click="closeMore()"
       />
       <section
         id="mobile-more-sheet"
         ref="moreSheetRef"
         class="mobile-more-sheet"
+        :class="{ 'mobile-more-sheet--dragging': dragging }"
+        :style="{ transform: `translate3d(0, ${dragOffset}px, 0)` }"
         role="dialog"
         aria-modal="true"
         aria-labelledby="mobile-more-title"
         tabindex="-1"
       >
+        <div
+          class="mobile-more-drag-zone"
+          aria-hidden="true"
+          @pointerdown="startDrag"
+          @pointermove="moveDrag"
+          @pointerup="finishDrag"
+          @pointercancel="cancelDrag"
+        >
+          <span class="mobile-more-handle" />
+        </div>
         <h2 id="mobile-more-title">{{ t('navigation.more') }}</h2>
 
         <nav class="mobile-more-links" :aria-label="t('navigation.moreNavigation')">
