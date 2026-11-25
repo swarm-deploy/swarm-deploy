@@ -63,6 +63,20 @@ describe("assistant launcher", () => {
     expect(push).toHaveBeenCalledOnce();
     wrapper.unmount();
   });
+
+  it("uses the same launcher from mobile navigation", async () => {
+    setActivePinia(createPinia());
+    assistantStore.enabled = true;
+    const router = testRouter();
+    await router.push("/events?tab=alerts");
+    const wrapper = shallowMount(AppShell, { global: { plugins: [router] } });
+
+    wrapper.getComponent({ name: "MobileNavigation" }).vm.$emit("toggle-assistant");
+    await flushPromises();
+
+    expect(router.currentRoute.value.query).toEqual({ tab: "alerts", assistant: "new" });
+    wrapper.unmount();
+  });
 });
 
 describe("deployment details deep link", () => {

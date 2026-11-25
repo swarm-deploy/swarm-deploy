@@ -88,4 +88,28 @@ describe("TopBar search", () => {
     expect(button.attributes("aria-label")).toBe("Ассистент");
     wrapper.unmount();
   });
+
+  it("expands the mobile search from its icon", async () => {
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: "/overview", name: "overview", component: { template: "<div />" } }],
+    });
+    await router.push("/overview");
+
+    const wrapper = mount(TopBar, {
+      attachTo: document.body,
+      props: { assistantEnabled: true },
+      global: { plugins: [router] },
+    });
+    const toggle = wrapper.get(".topbar-search-toggle");
+
+    expect(toggle.attributes("aria-expanded")).toBe("false");
+    expect(wrapper.get(".topbar-mobile-title").text()).toBe("Overview");
+    await toggle.trigger("click");
+
+    expect(toggle.attributes("aria-expanded")).toBe("true");
+    expect(wrapper.get(".topbar-search").classes()).toContain("mobile-open");
+    expect(document.activeElement).toBe(wrapper.get('input[type="search"]').element);
+    wrapper.unmount();
+  });
 });
