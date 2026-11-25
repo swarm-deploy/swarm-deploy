@@ -436,6 +436,7 @@
     "superseded": "Deploy superseded",
     "supersededDescription": "A newer desired state replaced this deployment. Its attempt history is preserved below.",
     "title": "Deployments",
+    "todayDate": "Today, {date}",
     "total": "Total",
     "unknownOutcome": "Apply outcome is unknown. The actual Swarm state may differ from this desired configuration.",
     "updated": "Deployment updated",
@@ -1162,3 +1163,4 @@
     "starting": "Starting"
   }
 }
+

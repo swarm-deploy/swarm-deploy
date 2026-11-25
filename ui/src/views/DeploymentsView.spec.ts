@@ -40,11 +40,12 @@ describe("Deployments page", () => {
   it("renders the compact columns in descending order and keeps commit independent from the row", async () => {
     const older = { id: "d1", stack: "app", status: "succeeded", commit: "abcdef012345",
       started_at: "2026-10-10T10:00:00Z", comparison_basis: "none",
+      attempt_count: 1,
       diff_available: true,
       summary: { added: 0, changed: 0, removed: 0, redacted: 0 },
       resources: { services: 1, configs: 0, secrets: 0, networks: 0, volumes: 0 } };
     const newer = { ...older, id: "d2", stack: "infra", status: "interrupted",
-      started_at: "2026-10-11T10:00:00Z", comparison_basis: "successful_baseline" };
+      started_at: "2026-10-11T10:00:00Z", comparison_basis: "successful_baseline", attempt_count: 2 };
     vi.mocked(fetchDeployments).mockResolvedValueOnce({ deployments: [older, newer], next_cursor: "cursor" } as never)
       .mockResolvedValueOnce({ deployments: [] } as never);
     const wrapper = mount(DeploymentsView);
@@ -54,9 +55,12 @@ describe("Deployments page", () => {
     expect(wrapper.findAll("thead th").map((header) => header.text())).toEqual(["Stack", "Status", "Started", "Commit"]);
     expect(wrapper.text()).not.toContain("Desired changes");
     expect(wrapper.text()).not.toContain("No configuration changes");
-    expect(wrapper.findAll("tbody tr").map((row) => row.find(".deployment-stack").text())).toEqual(["infra", "app"]);
+    expect(wrapper.findAll(".deployment-row").map((row) => row.find(".deployment-stack").text())).toEqual(["infra", "app"]);
+    expect(wrapper.findAll(".deployment-date-row")).toHaveLength(2);
+    expect(wrapper.findAll(".deployment-started-compact")).toHaveLength(2);
+    expect(wrapper.text()).not.toContain("2 attempts");
 
-    const rows = wrapper.findAll("tbody tr");
+    const rows = wrapper.findAll(".deployment-row");
     await rows[0].trigger("click");
     await rows[1].trigger("keydown", { key: "Enter" });
     await rows[0].trigger("keydown", { key: " " });
@@ -78,7 +82,7 @@ describe("Deployments page", () => {
 
   it("uses semantic status badges and a neutral fallback", async () => {
     const base = { id: "d", stack: "app", commit: "", started_at: "2026-10-10T10:00:00Z",
-      comparison_basis: "successful_baseline", diff_available: true,
+      comparison_basis: "successful_baseline", attempt_count: 3, diff_available: true,
       summary: { added: 0, changed: 0, removed: 0, redacted: 0 },
       resources: { services: 0, configs: 0, secrets: 0, networks: 0, volumes: 0 } };
     const statuses = ["succeeded", "failed", "running", "interrupted", "queued"];
@@ -139,3 +143,4 @@ describe("Deployments page", () => {
     wrapper.unmount();
   });
 });
+
