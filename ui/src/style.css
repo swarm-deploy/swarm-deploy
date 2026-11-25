@@ -857,8 +857,8 @@ body {
   }
 
   .mobile-navigation-item.active {
-    color: var(--control-primary);
-    background: var(--accent-muted);
+    color: var(--text);
+    background: var(--surface-hover-soft);
   }
 
   .mobile-navigation-item:disabled {
