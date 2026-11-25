@@ -46,24 +46,34 @@ func TestSyncEvaluatorKeepsThresholdAcrossTemporaryFailures(t *testing.T) {
 func TestSyncEvaluatorFailureDiagnostics(t *testing.T) {
 	evaluator := NewSyncEvaluator(modelstore.NewSQLStore(testutil.OpenSQLite(t)), &config.Config{})
 	for _, tc := range []struct {
-		name    string
-		event   events.Event
-		title   string
-		message string
-		stage   string
-		code    string
+		name      string
+		event     events.Event
+		title     string
+		message   string
+		stage     string
+		code      string
+		openAfter uint64
 	}{
 		{
 			name:  "preparation uses the known stage",
 			event: &events.DeployPreparationFailed{StackName: "app", ErrorCode: "preparation_failed", Stage: "validation"},
-			title: "Synchronization failed", stage: "validation", code: "preparation_failed",
+			title: "Synchronization failed", stage: "validation", code: "preparation_failed", openAfter: 1,
 			message: "Synchronization failed during validation. No detailed diagnostic was recorded.",
 		},
 		{
-			name:  "interruption keeps the outcome unknown",
-			event: &events.DeployInterrupted{StackName: "app", Reason: "process_interrupted"},
-			title: "Synchronization outcome unknown", code: "process_interrupted",
+			name:  "process interruption waits for one recovery attempt",
+			event: &events.DeployInterrupted{StackName: "app", Reason: events.DeployInterruptReasonProcessInterrupted},
+			title: "Synchronization outcome unknown", code: events.DeployInterruptReasonProcessInterrupted, openAfter: 2,
 			message: "Deployment outcome is unknown after interruption during an unknown stage. No detailed diagnostic was recorded.",
+		},
+		{
+			name: "verification interruption still opens immediately",
+			event: &events.DeployInterrupted{
+				StackName: "app", Reason: events.DeployInterruptReasonVerificationUnknown, Stage: "verification",
+			},
+			title: "Synchronization outcome unknown", stage: "verification",
+			code: events.DeployInterruptReasonVerificationUnknown, openAfter: 1,
+			message: "Deployment outcome is unknown after interruption during verification. No detailed diagnostic was recorded.",
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -71,7 +81,7 @@ func TestSyncEvaluatorFailureDiagnostics(t *testing.T) {
 			require.NoError(t, err)
 			require.Len(t, actions, 1)
 			action := actions[0]
-			assert.EqualValues(t, 1, action.OpenAfter)
+			assert.EqualValues(t, tc.openAfter, action.OpenAfter)
 			assert.Equal(t, tc.title, action.Alert.Title)
 			assert.Equal(t, tc.message, action.Alert.Message)
 			assert.Equal(t, tc.stage, action.Alert.FailureStage)
