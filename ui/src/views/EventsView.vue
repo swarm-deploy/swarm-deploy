@@ -724,10 +724,10 @@ onMounted(() => {
     border-bottom: 0;
   }
   .events-details-row .event-detail {
-    grid-template-columns: minmax(90px, 34%) minmax(0, 1fr);
-    gap: 8px;
-    padding: 6px 0;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 3px;
+    padding: 8px 0;
   }
-  .events-details-row .event-detail-content { align-items: center; }
+  .events-details-row .event-detail-content { align-items: flex-start; }
 }
 </style>
