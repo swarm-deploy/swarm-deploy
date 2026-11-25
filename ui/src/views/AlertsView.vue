@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { formatNumber, t } from "../i18n";
+import { formatNumber, locale, plural, t } from "../i18n";
 import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
@@ -51,6 +51,49 @@ const visibleAlerts = computed(() => alerts.value
     return newestFirst.value ? difference : -difference;
   }));
 
+interface AlertGroup {
+  key: string;
+  label: string;
+  alerts: Alert[];
+}
+
+function localDateKey(date: Date): string {
+  return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
+}
+
+function alertDateLabel(date: Date): string {
+  const dateLabel = date.toLocaleDateString(locale(), {
+    day: "numeric",
+    month: "long",
+    year: date.getFullYear() === new Date().getFullYear() ? undefined : "numeric",
+  });
+  return localDateKey(date) === localDateKey(new Date())
+    ? t("deployments.todayDate", { date: dateLabel })
+    : dateLabel;
+}
+
+function alertGroups(items: Alert[]): AlertGroup[] {
+  const groups = new Map<string, AlertGroup>();
+  for (const alert of items) {
+    const rawDate = updatedAt(alert);
+    const date = new Date(rawDate);
+    const validDate = !Number.isNaN(date.valueOf());
+    const key = validDate ? localDateKey(date) : rawDate;
+    const group = groups.get(key) ?? {
+      key,
+      label: validDate ? alertDateLabel(date) : rawDate,
+      alerts: [],
+    };
+    group.alerts.push(alert);
+    groups.set(key, group);
+  }
+  return [...groups.values()];
+}
+
+function formatAlertTime(raw: string): string {
+  return formatDate(raw, { hour: "2-digit", minute: "2-digit" });
+}
+
 function resourceKey(alert: Alert): string {
   return `${alert.resourceType}:${alert.resourceId}`;
 }
@@ -61,6 +104,12 @@ function updatedAt(alert: Alert): string {
 
 function alertDetailsLocation(id: string) {
   return { query: { ...route.query, tab: "alerts", alert_id: id }, hash: route.hash };
+}
+
+function openAlertFromKeyboard(event: KeyboardEvent, id: string): void {
+  if (event.target !== event.currentTarget || (event.key !== "Enter" && event.key !== " ")) return;
+  event.preventDefault();
+  void router.push(alertDetailsLocation(id));
 }
 
 function clearStackFilter() {
@@ -152,48 +201,68 @@ onMounted(() => void loadAlerts());
     <AppTableEmpty v-if="loading" :message="t('alerts.loading')" />
     <AppTableEmpty v-else-if="loadingError" role="alert">{{ t('alerts.loadError', { error: loadingError }) }}</AppTableEmpty>
     <AppTableEmpty v-else-if="visibleAlerts.length === 0" :message="t(activeFilterCount ? 'alerts.emptyFiltered' : 'alerts.empty')" />
-    <AppTable v-else fixed min-width="720px" table-class="alerts-table">
+    <AppTable v-else fixed table-class="alerts-table" wrap-class="alerts-table-wrap">
       <template #colgroup>
         <colgroup>
-          <col class="alerts-updated-column" />
-          <col class="alerts-status-column" />
           <col />
+          <col class="alerts-status-column" />
           <col class="alerts-resource-column" />
+          <col class="alerts-updated-column" />
           <col class="alerts-occurrences-column" />
         </colgroup>
       </template>
       <template #head>
         <tr>
+          <th>{{ t('alerts.alert') }}</th>
+          <th>{{ t('common.status') }}</th>
+          <th>{{ t('alerts.resource') }}</th>
           <th :aria-sort="newestFirst ? 'descending' : 'ascending'">
             <button class="app-table-sort" type="button" @click="newestFirst = !newestFirst">
               {{ t('common.updated') }} <span class="app-table-sort-indicator" aria-hidden="true">{{ newestFirst ? "↓" : "↑" }}</span>
             </button>
           </th>
-          <th>{{ t('common.status') }}</th>
-          <th>{{ t('alerts.alert') }}</th>
-          <th>{{ t('alerts.resource') }}</th>
           <th>{{ t('alerts.occurrences') }}</th>
         </tr>
       </template>
-      <tr v-for="alert in visibleAlerts" :key="alert.id" class="app-table-row--clickable" @click="router.push(alertDetailsLocation(alert.id))">
-        <td>{{ formatDate(updatedAt(alert)) }}</td>
-        <td>
-          <AppStatusBadge :variant="alert.status === 'resolved' ? 'neutral' : 'warning'" dot>
-            {{ alertStatusLabel(alert.status) }}
-          </AppStatusBadge>
-        </td>
-        <td>
-          <RouterLink :to="alertDetailsLocation(alert.id)" class="alerts-title" @click.stop>{{ alertTitle(alert) }}</RouterLink>
-          <span v-if="alert.message && alert.message !== alert.title" class="alerts-message">{{ alertMessage(alert) }}</span>
-        </td>
-        <td class="alerts-resource">{{ alert.resourceId || t('alerts.unknownResource') }}</td>
-        <td>{{ formatNumber(alert.occurrences) }}</td>
-      </tr>
+      <template v-for="group in alertGroups(visibleAlerts)" :key="group.key">
+        <tr class="alerts-date-row"><th colspan="5" scope="rowgroup">{{ group.label }}</th></tr>
+        <tr
+          v-for="alert in group.alerts"
+          :key="alert.id"
+          class="app-table-row--clickable alerts-row"
+          tabindex="0"
+          @click="router.push(alertDetailsLocation(alert.id))"
+          @keydown="openAlertFromKeyboard($event, alert.id)"
+        >
+          <td class="alerts-alert">
+            <RouterLink :to="alertDetailsLocation(alert.id)" class="alerts-title" @click.stop>{{ alertTitle(alert) }}</RouterLink>
+            <span v-if="alert.message && alert.message !== alert.title" class="alerts-message">{{ alertMessage(alert) }}</span>
+          </td>
+          <td class="alerts-status">
+            <AppStatusBadge :variant="alert.status === 'resolved' ? 'neutral' : 'warning'" dot>
+              {{ alertStatusLabel(alert.status) }}
+            </AppStatusBadge>
+          </td>
+          <td class="alerts-resource">{{ alert.resourceId || t('alerts.unknownResource') }}</td>
+          <td class="alerts-updated">
+            <time class="alerts-updated-full" :datetime="updatedAt(alert)">{{ formatDate(updatedAt(alert)) }}</time>
+            <time class="alerts-updated-compact" :datetime="updatedAt(alert)">{{ formatAlertTime(updatedAt(alert)) }}</time>
+          </td>
+          <td class="alerts-occurrences">
+            <span class="alerts-occurrences-full">{{ formatNumber(alert.occurrences) }}</span>
+            <span class="alerts-occurrences-compact">{{ plural('alerts.occurrenceCount', alert.occurrences) }}</span>
+          </td>
+        </tr>
+      </template>
     </AppTable>
   </section>
 </template>
 
 <style scoped>
+.alerts-page { min-width: 0; }
+.alerts-date-row,
+.alerts-updated-compact,
+.alerts-occurrences-compact { display: none; }
 .alerts-updated-column {
   width: 160px;
 }
@@ -206,6 +275,9 @@ onMounted(() => void loadAlerts());
 .alerts-occurrences-column {
   width: 106px;
 }
+.alerts-updated,
+.alerts-status,
+.alerts-occurrences { white-space: nowrap; }
 .alerts-title {
   display: block;
   color: inherit;
@@ -231,11 +303,79 @@ onMounted(() => void loadAlerts());
   overflow-wrap: anywhere;
 }
 @media (max-width: 720px) {
-  .alerts-updated-column {
-    width: 117px;
+  :deep(.alerts-table-wrap) { overflow-x: visible; }
+  :deep(.alerts-table) { min-width: 0; table-layout: auto; }
+  :deep(.alerts-table colgroup) { display: none; }
+  :deep(.alerts-table thead) { display: none; }
+  :deep(.alerts-table tbody) { display: block; width: 100%; }
+  :deep(.alerts-date-row) { display: block; }
+  :deep(.alerts-table .alerts-row > td) { width: auto; }
+  :deep(.alerts-table .alerts-date-row > th:first-child) {
+    display: block;
+    width: 100%;
+    border-bottom: 1px solid var(--border-subtle);
+    padding: 14px 0 8px;
+    color: var(--muted);
+    font-size: 0.78rem;
+    font-weight: 600;
+    letter-spacing: 0;
+    text-transform: none;
   }
-  .alerts-status-column {
-    width: 94px;
+  :deep(.alerts-row) {
+    display: grid;
+    width: 100%;
+    box-sizing: border-box;
+    grid-template-columns: 64px minmax(0, 1fr) auto;
+    grid-template-rows: auto auto;
+    gap: 5px 12px;
+    align-items: start;
+    padding: 12px 10px;
+    border-bottom: 1px solid var(--border-subtle);
   }
+  :deep(.alerts-table .alerts-row > td) {
+    border-bottom: 0;
+    padding: 0;
+  }
+  .alerts-alert {
+    grid-column: 2;
+    grid-row: 1;
+    min-width: 0;
+  }
+  .alerts-title { line-height: 1.25; }
+  .alerts-message {
+    margin-top: 3px;
+    -webkit-line-clamp: 2;
+    line-height: 1.3;
+  }
+  .alerts-status {
+    grid-column: 3;
+    grid-row: 1;
+  }
+  .alerts-resource {
+    grid-column: 2;
+    grid-row: 2;
+    color: var(--muted);
+    font-size: 0.78rem;
+    line-height: 1.3;
+  }
+  .alerts-updated {
+    grid-column: 1;
+    grid-row: 1 / span 2;
+    padding-top: 1px;
+    color: var(--text);
+    font-size: 0.84rem;
+    font-weight: 500;
+  }
+  .alerts-occurrences {
+    grid-column: 3;
+    grid-row: 2;
+    color: var(--muted);
+    font-size: 0.74rem;
+    text-align: right;
+  }
+  .alerts-updated-full,
+  .alerts-occurrences-full { display: none; }
+  .alerts-updated-compact,
+  .alerts-occurrences-compact { display: inline; }
 }
 </style>

@@ -103,25 +103,25 @@ describe("Events & Alerts", () => {
   it("shows all alerts by default and sorts by the displayed timestamp", async () => {
     const { wrapper, router } = await mountView();
 
-    expect(wrapper.find("h1").text()).toBe("Events & Alerts");
+    expect(wrapper.find("h2").text()).toBe("Events & Alerts");
     expect(tab(wrapper, "Alerts").attributes("aria-selected")).toBe("true");
     expect(tab(wrapper, "Events").attributes("aria-selected")).toBe("false");
     expect(wrapper.find("#alerts-panel").isVisible()).toBe(true);
     expect(wrapper.find("#events-panel").isVisible()).toBe(false);
     expect(router.currentRoute.value.query.tab).toBeUndefined();
     expect(fetchAlerts).toHaveBeenCalledWith({});
-    expect(wrapper.findAll(".alerts-table th").slice(1).map((column) => column.text()))
-      .toEqual(["Status", "Alert", "Resource", "Occurrences"]);
+    expect(wrapper.findAll(".alerts-table thead th").map((column) => column.text()))
+      .toEqual(["Alert", "Status", "Resource", "Updated ↓", "Occurrences"]);
     expect(wrapper.get(".app-table-sort").text()).toContain("Updated");
-    expect(wrapper.get(".alerts-table th").attributes("aria-sort")).toBe("descending");
+    expect(wrapper.findAll(".alerts-table thead th")[3].attributes("aria-sort")).toBe("descending");
     expect(wrapper.findAll(".alerts-title").map((title) => title.text()))
       .toEqual(["Service drift detected", "Node disconnected"]);
     expect(wrapper.get(".alerts-table").text()).not.toContain("Service recovered");
     await wrapper.get(".alerts-table .app-table-sort").trigger("click");
-    expect(wrapper.get(".alerts-table th").attributes("aria-sort")).toBe("ascending");
+    expect(wrapper.findAll(".alerts-table thead th")[3].attributes("aria-sort")).toBe("ascending");
     expect(wrapper.findAll(".alerts-title").map((title) => title.text()))
       .toEqual(["Node disconnected", "Service drift detected"]);
-    expect(wrapper.findAll("h2")).toHaveLength(0);
+    expect(wrapper.findAll("h2")).toHaveLength(1);
   });
 
   it("switches tabs and synchronizes the URL without dropping other query parameters", async () => {
@@ -176,7 +176,7 @@ describe("Events & Alerts", () => {
 
     const detailsURL = "/events?severity=warn&tab=alerts&alert_id=resolved-incident";
     expect(wrapper.get("a.alerts-title").attributes("href")).toBe(detailsURL);
-    await wrapper.get(".alerts-table tbody tr").trigger("click");
+    await wrapper.get(".alerts-table .alerts-row").trigger("click");
     await flushPromises();
     expect(router.currentRoute.value.fullPath).toBe(detailsURL);
     wrapper.unmount();

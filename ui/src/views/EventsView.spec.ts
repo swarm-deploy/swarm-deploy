@@ -78,7 +78,7 @@ async function mountView(path = "/events") {
 }
 
 function renderedMessages(wrapper: ReturnType<typeof mount>): string[] {
-  return wrapper.findAll("tbody tr:not(.events-details-row) td:nth-child(4)").map((cell) => cell.text());
+  return wrapper.findAll("tbody tr:not(.events-details-row) td:nth-child(3)").map((cell) => cell.text());
 }
 
 function filter(wrapper: ReturnType<typeof mount>, name: string) {
