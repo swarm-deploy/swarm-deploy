@@ -7,6 +7,13 @@ import { router } from "./router";
 import { useConfigStore } from "./stores/config";
 import "./style.css";
 
+if (/\bAndroid\b/i.test(navigator.userAgent) && window.matchMedia("(display-mode: standalone)").matches) {
+  const viewport = document.querySelector<HTMLMetaElement>('meta[name="viewport"]');
+  if (viewport) {
+    viewport.content += ", viewport-fit=cover";
+  }
+}
+
 const app = createApp(App);
 const pinia = createPinia();
 app.use(pinia);
