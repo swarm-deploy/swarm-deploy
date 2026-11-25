@@ -716,8 +716,10 @@ onMounted(() => {
     display: block;
     border-bottom: 1px solid var(--border-subtle);
   }
-  :deep(.events-details-row > td) {
+  :deep(.events-table .events-details-row > td) {
     display: block;
+    width: 100%;
+    box-sizing: border-box;
     padding: 0 10px 10px 86px;
     border-bottom: 0;
   }
