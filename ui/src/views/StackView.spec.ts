@@ -166,10 +166,12 @@ describe("Stack Details", () => {
     let reject!: (reason: Error) => void;
     vi.mocked(fetchStacks).mockReturnValueOnce(new Promise((_, fail) => { reject = fail; }));
     const { wrapper } = await render();
+    expect(wrapper.get(".stack-hero h2").text()).toBe("app");
     expect(wrapper.text()).toContain("Loading stack...");
     reject(new Error("offline"));
     await flushPromises();
     expect(wrapper.get('[role="alert"]').text()).toContain("offline");
+    expect(wrapper.get(".stack-hero h2").text()).toBe("app");
     await wrapper.get("button").trigger("click");
     await flushPromises();
     expect(wrapper.get("h2").text()).toBe("app");

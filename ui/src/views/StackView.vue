@@ -111,37 +111,37 @@ onUnmounted(() => { request++; });
 
 <template>
   <section class="stack-details-page">
+    <header v-if="stackName" class="stack-hero">
+      <div class="stack-hero-icon"><DeploymentIcon name="stack" /></div>
+      <div class="stack-hero-copy">
+        <div class="stack-hero-title">
+          <h2>{{ stackName }}</h2>
+          <span v-if="stack && !error" class="stack-state" :class="`stack-state--${syncStatus.kind}`">
+            <span class="stack-state-dot" />{{ syncStatus.label }}
+          </span>
+        </div>
+        <dl v-if="stack && !error" class="stack-hero-metadata">
+          <div><dt>{{ t('stack.composeLabel') }}</dt><dd>{{ stack.compose_file || t('common.notApplicable') }}</dd></div>
+          <div><dt>{{ t('stack.updatedLabel') }}</dt><dd>{{ formatDate(stack.last_deploy_at) }}</dd></div>
+          <div><dt>{{ t('stack.commitLabel') }}</dt><dd>
+            <button v-if="stack.last_commit" type="button" class="stack-commit-button"
+              :aria-label="t('common.openCommit', { commit: shortCommitHash(stack.last_commit) })"
+              @click="store.openCommitDetailsModal(stack.last_commit)">
+              {{ shortCommitHash(stack.last_commit) }}
+            </button>
+            <span v-else>{{ t('common.notApplicable') }}</span>
+          </dd></div>
+        </dl>
+      </div>
+      <AppButton v-if="stack && !error" variant="secondary" class="stack-compare-button" @click="store.openStackManifestModal(stack.name)">{{ t('stack.compareState') }}</AppButton>
+    </header>
+
     <AppTableEmpty v-if="loading" role="status" :message="t('stack.loadingStack')" />
     <AppTableEmpty v-else-if="error" role="alert">
       {{ t('stack.loadError', { error }) }} <AppButton variant="secondary" compact @click="load">{{ t('common.retry') }}</AppButton>
     </AppTableEmpty>
     <AppTableEmpty v-else-if="!stack" :message="t('stack.notFound')" />
     <template v-else>
-      <header class="stack-hero">
-        <div class="stack-hero-icon"><DeploymentIcon name="stack" /></div>
-        <div class="stack-hero-copy">
-          <div class="stack-hero-title">
-            <h2 class="mobile-title-duplicate">{{ stack.name }}</h2>
-            <span class="stack-state" :class="`stack-state--${syncStatus.kind}`">
-              <span class="stack-state-dot" />{{ syncStatus.label }}
-            </span>
-          </div>
-          <dl class="stack-hero-metadata">
-            <div><dt>{{ t('stack.composeLabel') }}</dt><dd>{{ stack.compose_file || t('common.notApplicable') }}</dd></div>
-            <div><dt>{{ t('stack.updatedLabel') }}</dt><dd>{{ formatDate(stack.last_deploy_at) }}</dd></div>
-            <div><dt>{{ t('stack.commitLabel') }}</dt><dd>
-              <button v-if="stack.last_commit" type="button" class="stack-commit-button"
-                :aria-label="t('common.openCommit', { commit: shortCommitHash(stack.last_commit) })"
-                @click="store.openCommitDetailsModal(stack.last_commit)">
-                {{ shortCommitHash(stack.last_commit) }}
-              </button>
-              <span v-else>{{ t('common.notApplicable') }}</span>
-            </dd></div>
-          </dl>
-        </div>
-        <AppButton variant="secondary" class="stack-compare-button" @click="store.openStackManifestModal(stack.name)">{{ t('stack.compareState') }}</AppButton>
-      </header>
-
       <p v-if="stack.last_error" class="stack-error" role="alert">{{ stack.last_error }}</p>
 
       <dl class="stack-summary" :aria-label="t('stack.summary')">
