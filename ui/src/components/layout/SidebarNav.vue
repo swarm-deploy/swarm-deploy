@@ -116,15 +116,6 @@ onUnmounted(() => {
     </div>
 
     <div class="sidebar-navigation">
-      <RouterLink
-        to="/overview"
-        class="sidebar-link sidebar-overview-mobile"
-        :class="{ active: isActive('/overview') }"
-        :aria-label="t('common.overview')"
-      >
-        <SidebarIcon name="overview" />
-      </RouterLink>
-
       <div class="sidebar-navigation-scroll">
         <nav class="sidebar-nav sidebar-nav-primary" :aria-label="t('navigation.primaryNavigation')">
           <RouterLink
@@ -132,7 +123,7 @@ onUnmounted(() => {
             :key="link.to"
             :to="link.to"
             class="sidebar-link"
-            :class="{ active: isActive(link.to), 'sidebar-link-overview': link.to === '/overview' }"
+            :class="{ active: isActive(link.to) }"
             :aria-label="link.label"
             :data-tooltip="link.label"
           >

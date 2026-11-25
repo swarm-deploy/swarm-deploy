@@ -207,7 +207,7 @@ async function handleSecretCreated(message?: string) {
 <template>
   <section class="services-page">
     <header class="services-header">
-      <h2>{{ t('common.secrets') }}</h2>
+      <h2 class="mobile-title-duplicate">{{ t('common.secrets') }}</h2>
     </header>
 
     <p v-if="createFeedback" class="secrets-create-feedback" role="status">{{ createFeedback }}</p>

@@ -163,7 +163,7 @@ onMounted(() => {
 
 <template>
   <section class="services-page deployments-page">
-    <header class="services-header"><h2>{{ t('deployments.title') }}</h2></header>
+    <header class="services-header"><h2 class="mobile-title-duplicate">{{ t('deployments.title') }}</h2></header>
     <div class="deployments-filter-bar" :aria-label="t('deployments.filters')">
       <div class="deployments-filter-field">
         <AppSelect

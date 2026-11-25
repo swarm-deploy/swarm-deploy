@@ -32,7 +32,7 @@ function selectTab(tab: string): void {
 
 <template>
   <div class="events-alerts-page">
-    <h1>{{ t('navigation.eventsAlerts') }}</h1>
+    <h1 class="mobile-title-duplicate">{{ t('navigation.eventsAlerts') }}</h1>
     <AppTabs
       class="events-alerts-tabs"
       :model-value="activeTab"

@@ -53,6 +53,29 @@ defineProps<{
       <path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9Z" />
       <path d="M10 21h4" />
     </template>
+    <template v-else-if="name === 'assistant'">
+      <path d="M5 5.5h14a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-8l-5 3v-3H5a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2Z" />
+      <path d="M8 10.5h8m-8 3h5" />
+    </template>
+    <template v-else-if="name === 'more'">
+      <circle cx="5" cy="12" r="1.25" fill="currentColor" stroke="none" />
+      <circle cx="12" cy="12" r="1.25" fill="currentColor" stroke="none" />
+      <circle cx="19" cy="12" r="1.25" fill="currentColor" stroke="none" />
+    </template>
+    <template v-else-if="name === 'search'">
+      <circle cx="10.5" cy="10.5" r="6.5" />
+      <path d="m15.5 15.5 5 5" />
+    </template>
+    <template v-else-if="name === 'close'">
+      <path d="m6 6 12 12M18 6 6 18" />
+    </template>
+    <template v-else-if="name === 'chevron'">
+      <path d="m9 5 7 7-7 7" />
+    </template>
+    <template v-else-if="name === 'appearance'">
+      <circle cx="12" cy="12" r="4" />
+      <path d="M12 2v2m0 16v2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4M2 12h2m16 0h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
+    </template>
     <template v-else-if="name === 'user'">
       <circle cx="12" cy="8" r="4" />
       <path d="M4.5 21a7.5 7.5 0 0 1 15 0" />

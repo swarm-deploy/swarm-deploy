@@ -121,7 +121,7 @@ onUnmounted(() => { request++; });
         <div class="stack-hero-icon"><DeploymentIcon name="stack" /></div>
         <div class="stack-hero-copy">
           <div class="stack-hero-title">
-            <h2>{{ stack.name }}</h2>
+            <h2 class="mobile-title-duplicate">{{ stack.name }}</h2>
             <span class="stack-state" :class="`stack-state--${syncStatus.kind}`">
               <span class="stack-state-dot" />{{ syncStatus.label }}
             </span>

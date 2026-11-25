@@ -127,7 +127,7 @@ onMounted(() => {
 <template>
   <section class="services-page networks-page">
     <header class="services-header">
-      <h2>{{ t('common.networks') }}</h2>
+      <h2 class="mobile-title-duplicate">{{ t('common.networks') }}</h2>
     </header>
 
     <div class="networks-filters" :aria-label="t('networks.filters')">

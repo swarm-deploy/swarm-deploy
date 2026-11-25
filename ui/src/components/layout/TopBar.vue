@@ -1,13 +1,14 @@
 <script setup lang="ts">
 import { t } from "../../i18n";
-import { computed, onMounted, onUnmounted, ref, watch } from "vue";
-import { useRouter } from "vue-router";
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
+import { useRoute, useRouter } from "vue-router";
 
 import { fetchSearch } from "../../api/search";
 import type { SearchResult } from "../../api/types";
 import { useOverviewStore } from "../../stores/overview";
 import { useSecretDetailsStore } from "../../stores/secretDetails";
 import AppButton from "../common/AppButton.vue";
+import SidebarIcon from "./SidebarIcon.vue";
 
 defineProps<{ assistantEnabled: boolean }>();
 
@@ -20,11 +21,14 @@ const SEARCH_DEBOUNCE_MS = 300;
 
 const overviewStore = useOverviewStore();
 const secretDetailsStore = useSecretDetailsStore();
+const route = useRoute();
 const router = useRouter();
 
 const searchRootRef = ref<HTMLElement | null>(null);
+const searchInputRef = ref<HTMLInputElement | null>(null);
 const searchQuery = ref("");
 const searchOpen = ref(false);
+const mobileSearchExpanded = ref(false);
 const searchLoading = ref(false);
 const searchError = ref("");
 const searchResults = ref<SearchResult[]>([]);
@@ -45,6 +49,36 @@ const showNoResults = computed(
     secretResults.value.length === 0 &&
     stackResults.value.length === 0,
 );
+const mobileTitle = computed(() => {
+  switch (route.name) {
+    case "overview":
+      return t("common.overview");
+    case "realtime":
+      return t("common.realtime");
+    case "events":
+      return t("navigation.eventsAlerts");
+    case "graph":
+      return t("navigation.graph");
+    case "cluster":
+      return t("navigation.cluster");
+    case "networks":
+      return t("common.networks");
+    case "secrets":
+      return t("common.secrets");
+    case "deployments":
+      return t("deployments.title");
+    case "recommendations":
+      return t("recommendations.title");
+    case "stack-details":
+      return String(route.params.stack ?? "Swarm Deploy");
+    case "service-details":
+      return String(route.params.service ?? "Swarm Deploy");
+    case "service-config":
+      return String(route.params.config ?? "Swarm Deploy");
+    default:
+      return "Swarm Deploy";
+  }
+});
 function resetSearchState() {
   searchResults.value = [];
   searchLoading.value = false;
@@ -53,6 +87,18 @@ function resetSearchState() {
 
 function closeSearch() {
   searchOpen.value = false;
+  mobileSearchExpanded.value = false;
+}
+
+async function toggleMobileSearch() {
+  if (mobileSearchExpanded.value) {
+    closeSearch();
+    return;
+  }
+
+  mobileSearchExpanded.value = true;
+  await nextTick();
+  searchInputRef.value?.focus();
 }
 
 function scheduleSearch() {
@@ -164,15 +210,26 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <header class="topbar-shell">
-    <div ref="searchRootRef" class="topbar-search">
+  <header class="topbar-shell" :class="{ 'mobile-search-expanded': mobileSearchExpanded }">
+    <h1 class="topbar-mobile-title">{{ mobileTitle }}</h1>
+    <div ref="searchRootRef" class="topbar-search" :class="{ 'mobile-open': mobileSearchExpanded }">
       <input
+        ref="searchInputRef"
         v-model="searchQuery"
         type="search"
         :placeholder="t('navigation.searchPlaceholder')"
         :aria-label="t('navigation.searchPlaceholder')"
         @focus="scheduleSearch"
       />
+      <button
+        type="button"
+        class="topbar-search-toggle"
+        :aria-label="mobileSearchExpanded ? t('assistant.closeSearch') : t('navigation.searchPlaceholder')"
+        :aria-expanded="mobileSearchExpanded"
+        @click="toggleMobileSearch"
+      >
+        <SidebarIcon :name="mobileSearchExpanded ? 'close' : 'search'" />
+      </button>
       <div v-if="searchOpen" class="topbar-search-dropdown">
         <p v-if="searchLoading" class="topbar-search-state">{{ t('navigation.searching') }}</p>
         <p v-else-if="searchError" class="topbar-search-state">{{ t('navigation.searchError', { error: searchError }) }}</p>

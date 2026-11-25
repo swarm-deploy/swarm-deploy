@@ -551,7 +551,7 @@ onUnmounted(() => {
     <header class="realtime-header">
       <div class="realtime-heading">
         <div class="realtime-title-row">
-          <h2>{{ t('common.realtime') }}</h2>
+          <h2 class="mobile-title-duplicate">{{ t('common.realtime') }}</h2>
           <span class="live-indicator realtime-live-indicator" :class="{ 'live-indicator--paused': !automaticRefresh }">
             <span aria-hidden="true" />{{ automaticRefresh ? t('realtime.active') : t('realtime.paused') }}
           </span>

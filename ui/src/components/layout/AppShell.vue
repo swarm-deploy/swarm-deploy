@@ -8,6 +8,7 @@ import { useCurrentUserStore } from "../../stores/currentUser";
 import { useOverviewStore } from "../../stores/overview";
 import { useUIStore } from "../../stores/ui";
 import AssistantDrawer from "../assistant/AssistantDrawer.vue";
+import MobileNavigation from "./MobileNavigation.vue";
 import SidebarNav from "./SidebarNav.vue";
 import TopBar from "./TopBar.vue";
 import ServiceStatusModal from "../overview/ServiceStatusModal.vue";
@@ -115,6 +116,10 @@ onMounted(() => {
         </div>
       </main>
     </div>
+    <MobileNavigation
+      :assistant-enabled="assistantStore.enabled"
+      @toggle-assistant="handleAssistantToggle"
+    />
     <ServiceStatusModal />
     <AlertDetailsModal :linked="Boolean(linkedAlertID)" />
     <DeploymentDetailsModal />
