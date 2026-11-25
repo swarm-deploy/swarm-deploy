@@ -176,7 +176,6 @@ onUnmounted(() => {
         :class="{ 'mobile-more-sheet--dragging': dragging }"
         :style="{ transform: `translate3d(0, ${dragOffset}px, 0)` }"
         role="dialog"
-        aria-modal="true"
         aria-labelledby="mobile-more-title"
         tabindex="-1"
       >
@@ -255,12 +254,12 @@ onUnmounted(() => {
     <nav
       class="mobile-navigation"
       :aria-label="t('navigation.mobileNavigation')"
-      :inert="moreOpen || undefined"
     >
       <RouterLink
         to="/overview"
         class="mobile-navigation-item"
         :class="{ active: isActive('/overview') && !moreOpen }"
+        @click="closeMore(false)"
       >
         <SidebarIcon name="overview" />
         <span>{{ t('common.overview') }}</span>
@@ -269,6 +268,7 @@ onUnmounted(() => {
         to="/realtime"
         class="mobile-navigation-item"
         :class="{ active: isActive('/realtime') && !moreOpen }"
+        @click="closeMore(false)"
       >
         <SidebarIcon name="realtime" />
         <span>{{ t('navigation.realtimeShort') }}</span>
@@ -277,6 +277,7 @@ onUnmounted(() => {
         to="/events"
         class="mobile-navigation-item"
         :class="{ active: isActive('/events') && !moreOpen }"
+        @click="closeMore(false)"
       >
         <SidebarIcon name="alerts" />
         <span>{{ t('alerts.tab') }}</span>

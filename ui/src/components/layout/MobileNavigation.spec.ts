@@ -82,6 +82,30 @@ describe("MobileNavigation", () => {
     wrapper.unmount();
   });
 
+  it("keeps primary destinations available while More is open", async () => {
+    const router = testRouter();
+    await router.push("/overview");
+    await router.isReady();
+    const wrapper = mount(MobileNavigation, {
+      attachTo: document.body,
+      props: { assistantEnabled: true },
+      global: { plugins: [router] },
+    });
+
+    await wrapper.get('button[aria-controls="mobile-more-sheet"]').trigger("click");
+
+    const navigation = wrapper.get(".mobile-navigation");
+    expect(navigation.attributes("inert")).toBeUndefined();
+    expect(wrapper.get(".mobile-more-sheet").attributes("aria-modal")).toBeUndefined();
+
+    await navigation.get('a[href="/realtime"]').trigger("click");
+    await flushPromises();
+
+    expect(router.currentRoute.value.path).toBe("/realtime");
+    expect(wrapper.find(".mobile-more-sheet").exists()).toBe(false);
+    wrapper.unmount();
+  });
+
   it("closes More when its handle is dragged down", async () => {
     const router = testRouter();
     await router.push("/overview");
