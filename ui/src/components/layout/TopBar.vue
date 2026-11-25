@@ -211,7 +211,7 @@ onUnmounted(() => {
 
 <template>
   <header class="topbar-shell" :class="{ 'mobile-search-expanded': mobileSearchExpanded }">
-    <strong class="topbar-mobile-title">{{ mobileTitle }}</strong>
+    <h1 class="topbar-mobile-title">{{ mobileTitle }}</h1>
     <div ref="searchRootRef" class="topbar-search" :class="{ 'mobile-open': mobileSearchExpanded }">
       <input
         ref="searchInputRef"

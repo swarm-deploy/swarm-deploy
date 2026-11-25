@@ -129,7 +129,7 @@ onBeforeUnmount(() => {
 <template>
   <section class="services-page recommendations-page">
     <header class="services-header events-header recommendations-header">
-      <h2>{{ t('recommendations.title') }}</h2>
+      <h2 class="mobile-title-duplicate">{{ t('recommendations.title') }}</h2>
       <button
         class="recommendations-mobile-filter-toggle"
         type="button"

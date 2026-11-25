@@ -123,7 +123,6 @@ onUnmounted(() => {
         aria-labelledby="mobile-more-title"
         tabindex="-1"
       >
-        <div class="mobile-more-handle" aria-hidden="true" />
         <h2 id="mobile-more-title">{{ t('navigation.more') }}</h2>
 
         <nav class="mobile-more-links" :aria-label="t('navigation.moreNavigation')">

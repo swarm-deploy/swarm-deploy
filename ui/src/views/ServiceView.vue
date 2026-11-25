@@ -220,7 +220,7 @@ watch([stackName, serviceName], ([stack, service], _, onCleanup) => {
       <div class="service-heading-content">
         <RouterLink :to="stackRoute" class="service-inline-link">{{ stackName }}</RouterLink>
         <div class="service-heading-summary">
-          <h2>{{ serviceName }}</h2>
+          <h2 class="mobile-title-duplicate">{{ serviceName }}</h2>
           <AppStatusBadge
             v-if="!loading || replicaCounts"
             class="service-replica-badge"

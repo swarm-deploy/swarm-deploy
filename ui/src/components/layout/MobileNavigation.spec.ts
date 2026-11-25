@@ -50,6 +50,7 @@ describe("MobileNavigation", () => {
     await wrapper.get('button[aria-controls="mobile-more-sheet"]').trigger("click");
 
     expect(wrapper.get(".mobile-more-sheet").attributes("role")).toBe("dialog");
+    expect(wrapper.find(".mobile-more-handle").exists()).toBe(false);
     expect(wrapper.text()).toContain("Graph");
     expect(wrapper.text()).toContain("Cluster");
     expect(wrapper.text()).toContain("Networks");

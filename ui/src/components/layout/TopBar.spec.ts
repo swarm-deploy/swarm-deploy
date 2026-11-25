@@ -105,6 +105,7 @@ describe("TopBar search", () => {
 
     expect(toggle.attributes("aria-expanded")).toBe("false");
     expect(wrapper.get(".topbar-mobile-title").text()).toBe("Overview");
+    expect(wrapper.get(".topbar-mobile-title").element.tagName).toBe("H1");
     await toggle.trigger("click");
 
     expect(toggle.attributes("aria-expanded")).toBe("true");
