@@ -481,3 +481,55 @@ func TestServiceHealthAgo(t *testing.T) {
 		assert.Equal(t, testCase.expected, serviceHealthAgo(serviceHealthTestNow, serviceHealthTestNow.Add(-testCase.elapsed)))
 	}
 }
+
+func TestServiceHealthRegistryPullFailureRespectsStartupGrace(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name         string
+		diagnostic   string
+		serviceAge   time.Duration
+		wantReason   faults.Code
+		wantPhase    string
+		wantSeverity string
+	}{
+		{"rate limit during startup", `error from registry: rate limit exceeded {"token":"private-value"}`,
+			10 * time.Second, faults.CodeImagePullFailed, serviceHealthPhaseTransient, serviceHealthSeverityWarning},
+		{"unavailable after startup grace", "error from registry: unexpected HTTP status: 503 Service Unavailable",
+			10 * time.Minute, faults.CodeImagePullFailed, serviceHealthPhaseActive, serviceHealthSeverityCritical},
+		{"access refusal during startup", "error from registry: unauthorized",
+			10 * time.Second, faults.CodeImagePullDenied, serviceHealthPhaseActive, serviceHealthSeverityCritical},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			live := serviceHealthTestLive(1, tc.serviceAge)
+			rejected := serviceHealthTestTask("rejected", 1, live.ServiceSpec.TaskTemplate, swarm.TaskStateRejected, 5*time.Second)
+			rejected.Error = tc.diagnostic
+
+			response := buildServiceHealthResponse(serviceHealthTestInput(live, rejected))
+			flag := findServiceHealthFlag(t, response.Flags, serviceHealthFlagNoRunningTasks)
+			assert.Equal(t, tc.wantPhase, flag.Phase)
+			assert.Equal(t, tc.wantSeverity, flag.Severity)
+			assert.Equal(t, string(tc.wantReason), flag.Reason)
+			require.Len(t, response.Tasks.RecentFailures, 1)
+			assert.NotContains(t, response.Tasks.RecentFailures[0].Error, "private-value")
+		})
+	}
+}
+
+func TestServiceHealthKeepsPermanentFaultAlongsideTemporaryRegistryFailure(t *testing.T) {
+	t.Parallel()
+
+	live := serviceHealthTestLive(2, 10*time.Second)
+	rejected := serviceHealthTestTask("rejected", 1, live.ServiceSpec.TaskTemplate, swarm.TaskStateRejected, 3*time.Second)
+	rejected.Error = "error from registry: toomanyrequests: rate limit exceeded"
+	rejected.DesiredState = swarm.TaskStateRunning
+	pending := serviceHealthTestTask("pending", 2, live.ServiceSpec.TaskTemplate, swarm.TaskStatePending, 5*time.Second)
+	pending.Error = "no suitable node"
+
+	response := buildServiceHealthResponse(serviceHealthTestInput(live, rejected, pending))
+	flag := findServiceHealthFlag(t, response.Flags, serviceHealthFlagNoRunningTasks)
+	assert.Equal(t, serviceHealthPhaseActive, flag.Phase)
+	assert.Equal(t, string(faults.CodeNoSuitableNode), flag.Reason)
+	require.NotNil(t, flag.Refs)
+	assert.Equal(t, pending.ID, flag.Refs.TaskID)
+}

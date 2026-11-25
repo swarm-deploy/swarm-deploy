@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"errors"
 	"fmt"
 	"slices"
 	"sort"
@@ -155,11 +156,8 @@ func analyzeServiceRuntime(
 	for _, task := range newestServiceTasksFirst(tasks) {
 		analysis.observeTask(task, template, readyNodes)
 	}
-	if analysis.fault == nil && len(analysis.failures) > 0 {
-		if fault := analysis.failures[0].Fault(); fault != nil {
-			analysis.fault = fault
-			analysis.faultTask = analysis.failures[0]
-		}
+	if len(analysis.failures) > 0 {
+		analysis.recordTaskFault(analysis.failures[0])
 	}
 	analysis.desired = serviceDesiredTaskCount(live, analysis.desiredTasks)
 
@@ -197,17 +195,32 @@ func (a *serviceRuntimeAnalysis) observeDesiredTask(task swarm.ServiceTask, curr
 		a.starting++
 	}
 	// A pending or rejected task Swarm still wants running explains the current deficit best.
-	if a.fault == nil {
-		if fault := task.Fault(); fault != nil {
-			a.fault = fault
-			a.faultTask = task
-		}
+	a.recordTaskFault(task)
+}
+
+func (a *serviceRuntimeAnalysis) recordTaskFault(task swarm.ServiceTask) {
+	if isPermanentTaskFault(a.fault) {
+		return
 	}
+	fault := task.Fault()
+	if fault != nil && (a.fault == nil || isPermanentTaskFault(fault)) {
+		a.fault = fault
+		a.faultTask = task
+	}
+}
+
+func isPermanentTaskFault(fault faults.Coded) bool {
+	if fault == nil {
+		return false
+	}
+	classified, ok := errors.AsType[faults.Error](fault)
+	return !ok || !classified.Temporary()
 }
 
 // hardEvidence reports failures that a rollout or startup cannot explain.
 func (a *serviceRuntimeAnalysis) hardEvidence() bool {
-	return a.fault != nil || a.unavailableNodeTasks > 0 || len(a.failures) >= serviceHealthRestartLoopThreshold
+	return isPermanentTaskFault(a.fault) || a.unavailableNodeTasks > 0 ||
+		len(a.failures) >= serviceHealthRestartLoopThreshold
 }
 
 func (a *serviceRuntimeAnalysis) transient() bool {
@@ -217,10 +230,12 @@ func (a *serviceRuntimeAnalysis) transient() bool {
 // deficitReason classifies why fewer tasks run than desired, from the most to the least specific evidence.
 func (a *serviceRuntimeAnalysis) deficitReason() (string, swarm.ServiceTask) {
 	switch {
-	case a.fault != nil:
+	case isPermanentTaskFault(a.fault):
 		return string(a.fault.FaultCode()), a.faultTask
 	case a.unavailableNodeTasks > 0:
 		return serviceHealthReasonNodeUnavailable, swarm.ServiceTask{}
+	case a.fault != nil:
+		return string(a.fault.FaultCode()), a.faultTask
 	case a.transient() && a.starting > 0:
 		return serviceHealthReasonStarting, swarm.ServiceTask{}
 	case len(a.failures) > 0:
@@ -466,7 +481,7 @@ func serviceHealthTaskView(task swarm.ServiceTask) serviceHealthTaskResponse {
 		ID:        task.ID,
 		Node:      task.Node,
 		State:     task.CurrentState,
-		Error:     serviceHealthText(task.Error),
+		Error:     serviceHealthText(faults.SafeDiagnostic(errors.New(task.Error))),
 		UpdatedAt: task.UpdatedAt,
 	}
 	if task.ExitCode != nil && slices.Contains(serviceHealthExitedStates, task.CurrentState) {

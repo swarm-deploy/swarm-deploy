@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	dockerswarm "github.com/docker/docker/api/types/swarm"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	deploymentmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/model"
@@ -19,6 +20,12 @@ import (
 
 func TestCompletePersistsLifecycleBaselineAndEvents(t *testing.T) {
 	observedAt := time.Date(2026, time.October, 30, 12, 0, 0, 0, time.UTC)
+	const maskedRegistryDiagnostic = `error from registry: unexpected response {"token":"****"}`
+	registryTask := swarm.ServiceTask{
+		CurrentState: swarm.TaskStateRejected,
+		Error:        `error from registry: unexpected response {"token":"private-value"}`,
+		Spec:         swarm.NewTaskSpec(dockerswarm.TaskSpec{ContainerSpec: &dockerswarm.ContainerSpec{Image: "api:2"}}),
+	}
 	tests := []struct {
 		name             string
 		completion       Completion
@@ -83,6 +90,23 @@ func TestCompletePersistsLifecycleBaselineAndEvents(t *testing.T) {
 			wantEvent: events.TypeNameDeployFailed, wantEventStage: "verification",
 		},
 		{
+			name:       "terminal convergence failure with a temporary registry cause",
+			completion: Completion{Outcome: CompletionConvergenceFailed, Diagnostic: registryTask.Fault()},
+			wantStatus: deploymentmodel.Failed, wantPhase: deploymentmodel.PhaseVerification,
+			wantApply: deploymentmodel.StageSucceeded, wantVerification: deploymentmodel.StageFailed,
+			wantCleanup: deploymentmodel.StageSkipped, wantActual: deploymentmodel.ActualStateUnknown,
+			wantEvent: events.TypeNameDeployFailed, wantEventStage: "verification", wantFault: faults.CodeImagePullFailed,
+		},
+		{
+			name: "verification timeout with a temporary registry cause",
+			completion: Completion{Outcome: CompletionVerificationInterrupted,
+				Diagnostic: errors.Join(context.DeadlineExceeded, registryTask.Fault())},
+			wantStatus: deploymentmodel.Interrupted, wantPhase: deploymentmodel.PhaseVerification,
+			wantApply: deploymentmodel.StageSucceeded, wantVerification: deploymentmodel.StageUnknown,
+			wantCleanup: deploymentmodel.StageSkipped, wantActual: deploymentmodel.ActualStateUnknown,
+			wantEvent: events.TypeNameDeployInterrupted, wantEventStage: "verification", wantFault: faults.CodeImagePullFailed,
+		},
+		{
 			name: "verification interruption",
 			completion: Completion{Outcome: CompletionVerificationInterrupted,
 				Diagnostic: errors.New("inspect failed: password=private-value")},
@@ -139,6 +163,17 @@ func TestCompletePersistsLifecycleBaselineAndEvents(t *testing.T) {
 			assert.Equal(t, stored.Status, stored.Attempts[0].Status)
 			assert.Equal(t, stored.Phase, stored.Attempts[0].Phase)
 			assert.NotContains(t, stored.ErrorDiagnostic, "private-value")
+			if testCase.wantFault == faults.CodeImagePullFailed {
+				assert.Contains(t, stored.ErrorDiagnostic, maskedRegistryDiagnostic)
+				assert.Equal(t, stored.ErrorCode, stored.Attempts[0].ErrorCode)
+				if testCase.completion.Outcome == CompletionConvergenceFailed {
+					assert.Equal(t, events.DeployErrorCodeConvergenceFailed, stored.ErrorCode)
+					assert.False(t, stored.Retryable)
+					assert.False(t, stored.Attempts[0].Retryable)
+				} else {
+					assert.Equal(t, events.DeployInterruptReasonVerificationUnknown, stored.ErrorCode)
+				}
+			}
 
 			assertCompletionPublication(t, db, testCase.wantEvent, attempt, testCase.completion, testCase.wantEventStage, testCase.wantFault)
 			baseline, baselineErr := deploymentstore.NewStore(db).BaselineDeploymentID(t.Context(), "app")
@@ -165,6 +200,7 @@ func assertCompletionPublication(
 	items := publications(t, db, wantType)
 	require.Len(t, items, 1)
 	event := items[0].Envelope.Event
+	var eventDiagnostic error
 	switch wantType {
 	case events.TypeNameDeploySuccess:
 		actual, ok := event.(*events.DeploySuccess)
@@ -183,17 +219,8 @@ func assertCompletionPublication(
 		assert.Equal(t, "commit", actual.Commit)
 		require.Len(t, actual.Services, 1)
 		assert.Equal(t, completion.ErrorCode(), actual.ErrorCode)
-		var coded faults.Coded
-		if wantFault == "" {
-			assert.NotErrorAs(t, actual.Error, &coded)
-		} else {
-			require.ErrorAs(t, actual.Error, &coded)
-			assert.Equal(t, wantFault, coded.FaultCode())
-		}
 		assert.Equal(t, wantStage, actual.Stage)
-		if actual.Error != nil {
-			assert.NotContains(t, actual.Error.Error(), "private-value")
-		}
+		eventDiagnostic = actual.Error
 	case events.TypeNameDeployInterrupted:
 		actual, ok := event.(*events.DeployInterrupted)
 		require.True(t, ok)
@@ -204,12 +231,27 @@ func assertCompletionPublication(
 		require.Len(t, actual.Services, 1)
 		assert.Equal(t, completion.ErrorCode(), actual.Reason)
 		assert.Equal(t, wantStage, actual.Stage)
-		if actual.Error != nil {
-			assert.NotContains(t, actual.Error.Error(), "private-value")
-		}
+		eventDiagnostic = actual.Error
 	default:
 		t.Fatalf("unsupported event type %q", wantType)
 	}
+
+	if eventDiagnostic != nil {
+		assert.NotContains(t, eventDiagnostic.Error(), "private-value")
+	}
+	var coded faults.Coded
+	if wantFault == "" {
+		assert.NotErrorAs(t, eventDiagnostic, &coded)
+		return
+	}
+	require.ErrorAs(t, eventDiagnostic, &coded)
+	assert.Equal(t, wantFault, coded.FaultCode())
+	if wantFault == faults.CodeImagePullFailed {
+		assert.Equal(t, []faults.Cause{
+			{Code: wantFault, Summary: "Docker could not pull the image.", Temporary: true},
+		}, faults.Causes(eventDiagnostic))
+	}
+
 }
 
 func TestFailedCompletionDoesNotReplaceSuccessfulBaseline(t *testing.T) {

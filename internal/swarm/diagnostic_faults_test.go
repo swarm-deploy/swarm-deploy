@@ -69,6 +69,7 @@ func TestDockerDiagnosticFaultsAvoidFalsePositives(t *testing.T) {
 		"pull access denied for app",
 		"unauthorized", "access denied", "permission denied", "registry request failed: context deadline exceeded",
 		"container startup failed", "container exited with code 1", "exec /entrypoint: no such file or directory",
+		"error from registry: unsupported", "error from registry: blob unknown",
 		"failed to create shim task: OCI runtime create failed: executable file not found in $PATH",
 		"failed to create endpoint: network not found", "volume data not found",
 		"NotFound: lease does not exist: not found", "failed to prepare extraction snapshot: image not found",
@@ -163,4 +164,97 @@ func TestServiceTaskFaults(t *testing.T) {
 			assert.Equal(t, tc.code == faults.CodeImageNotFound, task.ImageNotFound())
 		})
 	}
+}
+
+func TestServiceTaskRegistryPullFault(t *testing.T) {
+	for _, tc := range []struct {
+		diagnostic string
+		code       faults.Code
+		temporary  bool
+	}{
+		{"error from registry: toomanyrequests: rate limit exceeded", faults.CodeImagePullFailed, true},
+		{"error from registry: unexpected HTTP status: 503 Service Unavailable", faults.CodeImagePullFailed, true},
+		{"error from registry: an unexpected response", faults.CodeImagePullFailed, true},
+		{"error from registry: backend failed to mount storage", faults.CodeImagePullFailed, true},
+		{"error from registry: backend returned no suitable node", faults.CodeImagePullFailed, true},
+		{"error from registry: blob unknown", faults.CodeImagePullFailed, true},
+		{"error from registry: access denied for the cached copy only", faults.CodeImagePullFailed, true},
+		{"error from registry: denied by a backend guard", faults.CodeImagePullFailed, true},
+		{"error from registry: backend says denied: requested access to the resource is denied", faults.CodeImagePullFailed, true},
+		{"error from registry: unsupported for this request", faults.CodeImagePullFailed, true},
+		{"error from registry: denied\nbackend unavailable", faults.CodeImagePullFailed, true},
+		{"error from registry: unauthorized", faults.CodeImagePullDenied, false},
+		{"error from registry: denied - access to repository app", faults.CodeImagePullDenied, false},
+		{"error from registry: authentication required", faults.CodeImagePullDenied, false},
+		{"error from registry: requested access to the resource is denied", faults.CodeImagePullDenied, false},
+		{"error from registry: unauthorized: authentication required", faults.CodeImagePullDenied, false},
+		{"error from registry: denied - repository app\ndenied - repository app", faults.CodeImagePullDenied, false},
+		{"error from registry: denied - repository app\ndenied - repository base", faults.CodeImagePullDenied, false},
+		{"error from registry: unauthorized\nerror from registry: denied - repository base", faults.CodeImagePullDenied, false},
+		{"error from registry: backend unavailable\nerror from registry: denied", faults.CodeImagePullFailed, true},
+		{"error from registry: unsupported", faults.CodeImagePullFailed, false},
+		{"error from registry: The operation is unsupported. - registry detail", faults.CodeImagePullFailed, false},
+		{"error from registry: The operation is unsupported.: The operation is unsupported.", faults.CodeImagePullFailed, false},
+		{"error from registry: unsupported\nerror from registry: unsupported", faults.CodeImagePullFailed, false},
+		{"error from registry: failed to prepare extraction snapshot: lease does not exist", faults.CodeImageExtractionFailed, false},
+		{"unsupported", faults.CodeImagePullFailed, false},
+		{"unsupported: The operation is unsupported.", faults.CodeImagePullFailed, false},
+		{"denied", faults.CodeImagePullDenied, false},
+		{"unauthorized", faults.CodeImagePullDenied, false},
+		{"unknown: backend unavailable", "", false},
+		{"unsupported container runtime", "", false},
+		{"error from registry:   ", "", false},
+		{"while creating task: error from registry: unsupported", "", false},
+		{"pull access denied for app, repository does not exist or may require 'docker login'", "", false},
+		{"pull app: context deadline exceeded", "", false},
+		{"registry reported HTTP 503", "", false},
+		{"blob unknown", "", false},
+	} {
+		t.Run(tc.diagnostic, func(t *testing.T) {
+			task := ServiceTask{CurrentState: TaskStateRejected, Error: tc.diagnostic,
+				Spec: NewTaskSpec(dockerswarm.TaskSpec{ContainerSpec: &dockerswarm.ContainerSpec{Image: "api:2"}})}
+			fault := task.Fault()
+			if tc.code == "" {
+				assert.Nil(t, fault)
+				return
+			}
+			require.NotNil(t, fault)
+			assert.Equal(t, tc.code, fault.FaultCode())
+			assert.EqualError(t, fault, tc.diagnostic)
+			assert.NotErrorIs(t, fault, ErrImageNotFound)
+			var classified faults.Error
+			if tc.code != faults.CodeImagePullFailed {
+				assert.NotErrorAs(t, fault, &classified)
+				return
+			}
+			require.ErrorAs(t, fault, &classified)
+			assert.Equal(t, tc.temporary, classified.Temporary())
+			assert.Equal(t, "Docker could not pull the image.", fault.FaultSummary())
+		})
+	}
+}
+
+func TestServiceTaskRegistryPullFaultRequiresRejectedContainerWithImage(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		state TaskState
+		spec  *dockerswarm.ContainerSpec
+	}{
+		{"missing container spec", TaskStateRejected, nil},
+		{"missing image", TaskStateRejected, &dockerswarm.ContainerSpec{}},
+		{"failed container", TaskStateFailed, &dockerswarm.ContainerSpec{Image: "api:2"}},
+		{"pending container", TaskStatePending, &dockerswarm.ContainerSpec{Image: "api:2"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, diagnostic := range []string{"error from registry: unsupported", "unsupported", "denied"} {
+				task := ServiceTask{CurrentState: tc.state, Error: diagnostic,
+					Spec: NewTaskSpec(dockerswarm.TaskSpec{ContainerSpec: tc.spec})}
+				assert.Nil(t, task.Fault(), diagnostic)
+			}
+		})
+	}
+	assert.Nil(t, (ServiceTask{
+		CurrentState: TaskStateRejected, Message: "error from registry: unsupported",
+		Spec: NewTaskSpec(dockerswarm.TaskSpec{ContainerSpec: &dockerswarm.ContainerSpec{Image: "api:2"}}),
+	}).Fault())
 }

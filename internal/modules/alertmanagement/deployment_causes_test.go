@@ -26,24 +26,33 @@ func TestDeploymentCompletionOutboxDeliversAllCauses(t *testing.T) {
 	otherMount := faults.Cause{Code: mount.Code, Summary: "mount failed on another volume", Temporary: true}
 	for _, tc := range []struct {
 		name         string
+		interrupted  bool
 		causes       []faults.Cause
 		wantCauses   []faults.Cause
 		openAfter    int
 		wantFindings []faults.Cause
 	}{
-		{"permanent first", []faults.Cause{pull, mount}, []faults.Cause{pull, maskedMount}, 1, []faults.Cause{pull, maskedMount}},
-		{"temporary first", []faults.Cause{mount, pull}, []faults.Cause{maskedMount, pull}, 1, []faults.Cause{pull, maskedMount}},
-		{"two temporary summaries", []faults.Cause{mount, otherMount}, []faults.Cause{maskedMount, otherMount},
+		{"permanent first", false, []faults.Cause{pull, mount}, []faults.Cause{pull, maskedMount}, 1, []faults.Cause{pull, maskedMount}},
+		{"temporary first", false, []faults.Cause{mount, pull}, []faults.Cause{maskedMount, pull}, 1, []faults.Cause{pull, maskedMount}},
+		{"interruption with two temporary summaries", true, []faults.Cause{mount, otherMount}, []faults.Cause{maskedMount, otherMount},
 			3, []faults.Cause{maskedMount, otherMount}},
-		{"same finding on two services", []faults.Cause{pull, pull}, []faults.Cause{pull, pull}, 1, []faults.Cause{pull}},
-		{"single cause", []faults.Cause{pull}, []faults.Cause{pull}, 1, []faults.Cause{pull}},
+		{"terminal failure with two temporary summaries", false, []faults.Cause{mount, otherMount}, []faults.Cause{maskedMount, otherMount},
+			1, []faults.Cause{maskedMount, otherMount}},
+		{"same finding on two services", false, []faults.Cause{pull, pull}, []faults.Cause{pull, pull}, 1, []faults.Cause{pull}},
+		{"single cause", false, []faults.Cause{pull}, []faults.Cause{pull}, 1, []faults.Cause{pull}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := t.Context()
 			db, repo := openAlertStore(t)
 			bus := dispatcher.NewOutboxDispatcher(outbox.New(db))
 			subscriber := newTestSQLSubscriber(repo)
-			require.NoError(t, bus.Subscribe(events.TypeNameDeployFailed, "alerts", subscriber))
+			eventType := events.TypeNameDeployFailed
+			outcome := deployments.CompletionConvergenceFailed
+			if tc.interrupted {
+				eventType = events.TypeNameDeployInterrupted
+				outcome = deployments.CompletionVerificationInterrupted
+			}
+			require.NoError(t, bus.Subscribe(eventType, "alerts", subscriber))
 			service := deployments.NewService(db, bus)
 			desired := compose.File{Compose: compose.Compose{Services: compose.Services{
 				{Name: "api", Image: "api:2"}, {Name: "worker", Image: "worker:2"},
@@ -59,16 +68,25 @@ func TestDeploymentCompletionOutboxDeliversAllCauses(t *testing.T) {
 				require.NoError(t, err)
 				require.NotNil(t, attempt)
 				require.NoError(t, service.Complete(ctx, attempt.ID, deployments.Completion{
-					Outcome: deployments.CompletionConvergenceFailed, Diagnostic: diagnostic,
+					Outcome: outcome, Diagnostic: diagnostic,
 				}))
 				var payloads []string
-				require.NoError(t, db.Select(ctx, &payloads, "SELECT payload FROM outbox_events WHERE event_type=?", events.TypeNameDeployFailed))
+				require.NoError(t, db.Select(ctx, &payloads, "SELECT payload FROM outbox_events WHERE event_type=?", eventType))
 				require.Len(t, payloads, 1)
 				assert.NotContains(t, payloads[0], "private-value")
 				assert.NotContains(t, payloads[0], "fault_code")
-				event, err := codec.Decode(events.TypeNameDeployFailed, codec.Version, []byte(payloads[0]))
+				event, err := codec.Decode(eventType, codec.Version, []byte(payloads[0]))
 				require.NoError(t, err)
-				assert.Equal(t, tc.wantCauses, faults.Causes(event.(*events.DeployFailed).Error))
+				var eventDiagnostic error
+				switch actual := event.(type) {
+				case *events.DeployFailed:
+					eventDiagnostic = actual.Error
+				case *events.DeployInterrupted:
+					eventDiagnostic = actual.Error
+				default:
+					t.Fatalf("unexpected event type %T", event)
+				}
+				assert.Equal(t, tc.wantCauses, faults.Causes(eventDiagnostic))
 
 				processed, err := bus.ProcessNext(ctx)
 				require.NoError(t, err)
