@@ -40,6 +40,7 @@ describe("TopBar search", () => {
       routes: [
         { path: "/", component: { template: "<div />" } },
         { path: "/stacks/:stack", name: "stack-details", component: { template: "<div />" } },
+        { path: "/services/:stack/:service", name: "service-details", component: { template: "<div />" } },
       ],
     });
     await router.push("/");
@@ -67,6 +68,10 @@ describe("TopBar search", () => {
     await flushPromises();
 
     expect(router.currentRoute.value.path).toBe("/stacks/payments");
+    expect(wrapper.find(".topbar-mobile-title").exists()).toBe(false);
+
+    await router.push("/services/payments/api");
+    expect(wrapper.find(".topbar-mobile-title").exists()).toBe(false);
     wrapper.unmount();
   });
 

@@ -70,9 +70,8 @@ const mobileTitle = computed(() => {
     case "recommendations":
       return t("recommendations.title");
     case "stack-details":
-      return String(route.params.stack ?? "Swarm Deploy");
     case "service-details":
-      return String(route.params.service ?? "Swarm Deploy");
+      return null;
     case "service-config":
       return String(route.params.config ?? "Swarm Deploy");
     default:
@@ -211,7 +210,7 @@ onUnmounted(() => {
 
 <template>
   <header class="topbar-shell" :class="{ 'mobile-search-expanded': mobileSearchExpanded }">
-    <h1 class="topbar-mobile-title">{{ mobileTitle }}</h1>
+    <h1 v-if="mobileTitle" class="topbar-mobile-title">{{ mobileTitle }}</h1>
     <div ref="searchRootRef" class="topbar-search" :class="{ 'mobile-open': mobileSearchExpanded }">
       <input
         ref="searchInputRef"
