@@ -133,6 +133,16 @@ afterEach(() => {
 });
 
 describe("ServiceView", () => {
+  it("closes the service actions when clicking outside", async () => {
+    const wrapper = await mountPage();
+    const menu = wrapper.get<HTMLDetailsElement>(".service-actions");
+    menu.element.open = true;
+    await menu.get(".service-actions-items").trigger("click");
+    expect(menu.element.open).toBe(true);
+    document.body.click();
+    expect(menu.element.open).toBe(false);
+  });
+
   it("shows service metadata and the live status with a scoped Realtime link", async () => {
     const wrapper = await mountPage();
     const header = wrapper.get(".service-heading");
@@ -237,7 +247,7 @@ describe("ServiceView", () => {
     await wrapper.get(".service-labels-show").trigger("click");
     const labels = wrapper.get('.modal[aria-hidden="false"] [role="dialog"][aria-labelledby="service-labels-title"]');
     expect(labels.get("h2").text()).toBe("Service labels");
-    expect(labels.findAll(".service-labels-group-header span").map((item) => item.text())).toEqual(["2", "1", "1"]);
+    expect(labels.findAll(".service-labels-group-header span")).toHaveLength(0);
     expect(labels.findAll("h3").map((item) => item.text())).toEqual(["Custom", "Docker", "Swarm Deploy"]);
     expect(labels.text()).toContain("com.docker.stack.namespace");
     expect(labels.text()).toContain("swarm-deploy.gitops");
