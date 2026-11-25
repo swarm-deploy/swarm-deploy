@@ -5,12 +5,17 @@ import { useRoute, useRouter } from "vue-router";
 
 import { fetchRecommendations } from "../api/overview";
 import type { Recommendation, RecommendationSeverity } from "../api/types";
+import AppSelect from "../components/common/AppSelect.vue";
 import AppTable from "../components/common/AppTable.vue";
 import AppTableEmpty from "../components/common/AppTableEmpty.vue";
 import SidebarIcon from "../components/layout/SidebarIcon.vue";
 import { recommendationAdvice, recommendationSeverityLabel } from "../utils/recommendationPresentation";
 
 const severityOptions: RecommendationSeverity[] = ["high", "medium", "low"];
+const severitySelectOptions = computed(() => severityOptions.map((severity) => ({
+  value: severity,
+  label: recommendationSeverityLabel(severity),
+})));
 const severityRank: Record<RecommendationSeverity, number> = {
   high: 0,
   medium: 1,
@@ -169,15 +174,18 @@ onBeforeUnmount(() => {
           </details>
         </div>
 
-        <label class="recommendations-filter-field recommendations-filter-field--select">
-          <svg class="recommendations-filter-icon recommendations-severity-filter-icon" viewBox="0 0 20 20" aria-hidden="true">
-            <path d="M5 12.5v2.5M10 9v6M15 5v10" />
-          </svg>
-          <select v-model="selectedSeverity" :aria-label="t('recommendations.filterSeverity')">
-            <option value="">{{ t('activity.allSeverities') }}</option>
-            <option v-for="severity in severityOptions" :key="severity" :value="severity">{{ recommendationSeverityLabel(severity) }}</option>
-          </select>
-        </label>
+        <AppSelect
+          v-model="selectedSeverity"
+          :options="severitySelectOptions"
+          :reset-option="{ value: '', label: t('activity.allSeverities') }"
+          :label="t('recommendations.filterSeverity')"
+        >
+          <template #icon>
+            <svg class="recommendations-filter-icon recommendations-severity-filter-icon" viewBox="0 0 20 20" aria-hidden="true">
+              <path d="M5 12.5v2.5M10 9v6M15 5v10" />
+            </svg>
+          </template>
+        </AppSelect>
       </div>
     </header>
 
@@ -258,7 +266,6 @@ onBeforeUnmount(() => {
   position: relative;
   min-width: 0;
 }
-.recommendations-filter-field select,
 .recommendations-filter-dropdown > summary {
   box-sizing: border-box;
   width: 100%;
@@ -269,9 +276,6 @@ onBeforeUnmount(() => {
   color: var(--text);
   font: inherit;
   font-size: 0.83rem;
-}
-.recommendations-filter-field select {
-  padding: 7px 10px 7px 36px;
 }
 .recommendations-filter-icon {
   width: 17px;
@@ -284,13 +288,6 @@ onBeforeUnmount(() => {
   stroke-linecap: round;
   stroke-linejoin: round;
   pointer-events: none;
-}
-.recommendations-filter-field--select > .recommendations-filter-icon {
-  position: absolute;
-  z-index: 1;
-  top: 50%;
-  left: 11px;
-  transform: translateY(-50%);
 }
 .recommendations-severity-filter-icon {
   stroke-width: 1.35;
@@ -373,7 +370,6 @@ onBeforeUnmount(() => {
   color: var(--muted);
   font-size: 0.78rem;
 }
-.recommendations-filter-field select:focus-visible,
 .recommendations-filter-dropdown > summary:focus-visible {
   outline: 2px solid var(--accent-focus);
   outline-offset: 2px;
@@ -403,9 +399,6 @@ onBeforeUnmount(() => {
   .recommendations-search-filter-menu {
     width: 100%;
     max-width: 100%;
-  }
-  .recommendations-filter-field select {
-    font-size: 16px;
   }
 }
 </style>
