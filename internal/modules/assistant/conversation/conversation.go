@@ -12,6 +12,24 @@ type Turn struct {
 	Content string `json:"content"`
 	// Activity contains safe execution trace metadata for assistant turns.
 	Activity []string `json:"activity,omitempty"`
+	// Selection contains structured reply options rendered by clients.
+	Selection *Selection `json:"selection,omitempty"`
+}
+
+// Selection contains a single-choice prompt attached to an assistant turn.
+type Selection struct {
+	// Options contains the values available for selection.
+	Options []SelectionOption `json:"options"`
+}
+
+// SelectionOption describes one value that can be sent as the next user message.
+type SelectionOption struct {
+	// Label is the primary user-visible option text.
+	Label string `json:"label"`
+	// Description is optional secondary context for the option.
+	Description string `json:"description,omitempty"`
+	// Value is the exact message submitted when the option is selected.
+	Value string `json:"value"`
 }
 
 // Conversation contains conversation messages and metadata.

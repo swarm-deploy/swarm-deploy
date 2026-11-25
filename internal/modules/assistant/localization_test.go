@@ -91,9 +91,9 @@ func TestAssistantLocalGreetingAndValidationUseInstallationLanguage(t *testing.T
 }
 
 func TestAssistantConfirmsAndCancelsInBothLanguages(t *testing.T) {
-	for _, tc := range []struct{ locale, yes, no, question, confirmed, cancelled string }{
-		{"en", "да", "нет", "Start GitOps synchronization?", "Synchronization request queued successfully.", "Operation cancelled."},
-		{"ru", "yes", "no", "Запустить синхронизацию GitOps?", "Запрос на синхронизацию добавлен в очередь.", "Операция отменена."},
+	for _, tc := range []struct{ locale, yes, no, question, confirmed, cancelled, yesLabel, noLabel string }{
+		{"en", "да", "нет", "Start GitOps synchronization?", "Synchronization request queued successfully.", "Operation cancelled.", "Yes", "No"},
+		{"ru", "yes", "no", "Запустить синхронизацию GitOps?", "Запрос на синхронизацию добавлен в очередь.", "Операция отменена.", "Да", "Нет"},
 	} {
 		t.Run(tc.locale, func(t *testing.T) {
 			tools := NewMockToolExecutor(gomock.NewController(t))
@@ -105,6 +105,11 @@ func TestAssistantConfirmsAndCancelsInBothLanguages(t *testing.T) {
 				turn := operation.beginTurn("chat")
 				question, _ := turn.startPendingOperation(t.Context(), OperationIntent{Type: OperationDeploySync})
 				assert.Equal(t, tc.question, question)
+				require.NotNil(t, turn.selection)
+				assert.Equal(t, []conversation.SelectionOption{
+					{Label: tc.yesLabel, Value: tc.yesLabel},
+					{Label: tc.noLabel, Value: tc.noLabel},
+				}, turn.selection.Options)
 				turn.publish()
 
 				handled, answer, _, err := operation.beginTurn("chat").handlePendingOperation(t.Context(), reply.input)

@@ -5,6 +5,7 @@ import type {
   AssistantChatRequest,
   AssistantChatResponse,
   AssistantChatSummary,
+  AssistantSelection,
 } from "../api/types";
 import { t } from "../i18n";
 import { useUIStore } from "./ui";
@@ -21,6 +22,7 @@ export interface AssistantMessage {
   role: AssistantMessageRole;
   text: string;
   activity?: string[];
+  selection?: AssistantSelection;
   sequence?: number;
 }
 
@@ -66,8 +68,14 @@ export const useAssistantStore = defineStore("assistant", {
         uiStore.closeAssistantDrawer();
       }
     },
-    pushMessage(role: AssistantMessageRole, text: string, activity?: string[], sequence?: number) {
-      this.messages.push({ role, text, activity, sequence });
+    pushMessage(
+      role: AssistantMessageRole,
+      text: string,
+      activity?: string[],
+      sequence?: number,
+      selection?: AssistantSelection,
+    ) {
+      this.messages.push({ role, text, activity, sequence, selection });
     },
     async requestAssistant(payload: AssistantChatRequest): Promise<AssistantChatResponse> {
       return sendAssistantChat(payload);
@@ -157,6 +165,7 @@ export const useAssistantStore = defineStore("assistant", {
         role: message.role,
         text: message.content,
         activity: message.activity,
+        selection: message.selection,
         sequence: message.sequence,
       }));
       this.unreadReplySequence = chat.unread
@@ -235,6 +244,7 @@ export const useAssistantStore = defineStore("assistant", {
           response.answer || t("assistant.emptyAnswer"),
           this.activity.length > 0 ? [...this.activity] : undefined,
           response.answer_sequence,
+          response.selection,
         );
         this.unreadReplySequence = response.answer_sequence;
         this.activity = [];

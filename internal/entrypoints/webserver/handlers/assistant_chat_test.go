@@ -40,3 +40,19 @@ func TestAssistantChatAcceptsRequestAtLimit(t *testing.T) {
 	require.NotNil(t, response)
 	assert.Equal(t, generated.AssistantChatResponseStatusDisabled, response.Status)
 }
+
+func TestGeneratedAssistantChatResponseIncludesSelection(t *testing.T) {
+	response := toGeneratedAssistantChatResponse(assistant.ChatResponse{
+		Status: assistant.StatusCompleted,
+		Selection: &assistant.Selection{Options: []assistant.SelectionOption{{
+			Label: "api", Description: "core", Value: "core/api",
+		}}},
+	})
+
+	selection, ok := response.Selection.Get()
+	require.True(t, ok)
+	require.Len(t, selection.Options, 1)
+	assert.Equal(t, "api", selection.Options[0].Label)
+	assert.Equal(t, "core", selection.Options[0].Description.Value)
+	assert.Equal(t, "core/api", selection.Options[0].Value)
+}

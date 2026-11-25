@@ -51,6 +51,11 @@ func TestPendingOperationFullRestartSkipsMainGenerationAndConfirmationSkipsModel
 	first := assistantService.Chat(context.Background(), ChatRequest{Message: "Перезапусти core/api"})
 	require.Equal(t, StatusCompleted, first.Status)
 	assert.Equal(t, "Restart `api` in stack `core`?", first.Answer)
+	require.NotNil(t, first.Selection)
+	assert.Equal(t, []conversation.SelectionOption{
+		{Label: "Yes", Value: "Yes"},
+		{Label: "No", Value: "No"},
+	}, first.Selection.Options)
 	assert.Equal(t, 1, requests, "initial turn must call only the router")
 	assert.Empty(t, tools.calls)
 
@@ -65,6 +70,42 @@ func TestPendingOperationFullRestartSkipsMainGenerationAndConfirmationSkipsModel
 	require.Len(t, chats, 1)
 	require.NotNil(t, chats[0].Usage)
 	assert.Equal(t, int64(4), chats[0].Usage.TotalTokens, "zero-usage confirmation must preserve prior usage")
+}
+
+func TestPendingOperationReturnsAndPersistsAmbiguousServiceSelection(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		require.NoError(t, json.MarshalWrite(w, map[string]any{
+			"choices": []map[string]any{{"message": map[string]any{"content": `{"route":"services","operation":{"type":"service_restart_trigger","target":"prometheus"}}`}}},
+		}))
+	}))
+	defer server.Close()
+
+	history := newSQLHistory(t)
+	assistantService, err := NewService(Config{
+		Localizer: testAssistantTexts(t, "en"), Enabled: true, ModelName: "test-model",
+		BaseURL: server.URL, APIToken: "token", MaxTokens: 64,
+		ConversationInMemoryTTL: time.Hour, ConversationHistory: history,
+	}, serviceStore(t, []model.Info{
+		{Stack: "infra-monitoring", Name: "infra-prometheus"},
+		{Stack: "infra-monitoring", Name: "infra-prometheus-pushgateway"},
+	}), &fakeTools{}, &dispatcher.NopDispatcher{}, metrics.NopAssistant{})
+	require.NoError(t, err)
+
+	response := assistantService.Chat(t.Context(), ChatRequest{Message: "Restart prometheus"})
+	require.Equal(t, StatusCompleted, response.Status)
+	require.NotNil(t, response.Selection)
+	assert.Equal(t, []conversation.SelectionOption{
+		{Label: "infra-prometheus", Description: "infra-monitoring", Value: "infra-monitoring/infra-prometheus"},
+		{Label: "infra-prometheus-pushgateway", Description: "infra-monitoring", Value: "infra-monitoring/infra-prometheus-pushgateway"},
+	}, response.Selection.Options)
+
+	chat, ok, readErr := assistantService.GetChat(t.Context(), response.ConversationID)
+	require.NoError(t, readErr)
+	require.True(t, ok)
+	require.Len(t, chat.Messages, 2)
+	require.NotNil(t, chat.Messages[1].Selection)
+	assert.Equal(t, response.Selection.Options, chat.Messages[1].Selection.Options)
 }
 
 func TestPendingOperationResolution(t *testing.T) {
@@ -128,7 +169,12 @@ func TestPendingSelfHealRequiresConfirmation(t *testing.T) {
 	}
 	turn := flow.beginTurn("chat")
 	answer, _ := turn.startPendingOperation(t.Context(), OperationIntent{Type: OperationServiceSelfHealEnable, Target: "prometheus"})
-	assert.Contains(t, answer, "infra-prometheus-pushgateway")
+	assert.Equal(t, "Multiple services found. Specify the target.", answer)
+	require.NotNil(t, turn.selection)
+	assert.Equal(t, []conversation.SelectionOption{
+		{Label: "infra-prometheus", Description: stack, Value: "infra-monitoring/infra-prometheus"},
+		{Label: "infra-prometheus-pushgateway", Description: stack, Value: "infra-monitoring/infra-prometheus-pushgateway"},
+	}, turn.selection.Options)
 	turn.publish()
 	turn = flow.beginTurn("chat")
 	handled, answer, _, err := turn.handlePendingOperation(t.Context(), "infra-monitoring/infra-prometheus")
@@ -162,14 +208,15 @@ func TestStartServiceOperationCatalogErrorLeavesNoPendingOperation(t *testing.T)
 
 func TestPendingOperationDeterministicTurns(t *testing.T) {
 	testCases := []struct {
-		name             string
-		message          string
-		configure        func(*operationFlow, *MockServiceStore, *fakeTools)
-		expectedHandled  bool
-		expectedAnswer   string
-		expectedCalls    int
-		expectedPending  bool
-		expectedRejected bool
+		name              string
+		message           string
+		configure         func(*operationFlow, *MockServiceStore, *fakeTools)
+		expectedHandled   bool
+		expectedAnswer    string
+		expectedCalls     int
+		expectedPending   bool
+		expectedSelection bool
+		expectedRejected  bool
 	}{
 		{
 			name: "negative confirmation", message: "нет", expectedHandled: true,
@@ -177,7 +224,7 @@ func TestPendingOperationDeterministicTurns(t *testing.T) {
 		},
 		{
 			name: "ambiguous confirmation", message: "возможно", expectedHandled: true,
-			expectedAnswer: "Reply `yes`", expectedPending: true,
+			expectedAnswer: "Reply `yes`", expectedPending: true, expectedSelection: true,
 		},
 		{
 			name: "resource changed", message: "да", expectedHandled: true,
@@ -218,7 +265,8 @@ func TestPendingOperationDeterministicTurns(t *testing.T) {
 				testCase.configure(flow, store, tools)
 			}
 
-			handled, answer, usage, err := flow.beginTurn("conversation").handlePendingOperation(context.Background(), testCase.message)
+			turn := flow.beginTurn("conversation")
+			handled, answer, usage, err := turn.handlePendingOperation(context.Background(), testCase.message)
 			assert.Equal(t, testCase.expectedHandled, handled)
 			assert.Contains(t, answer, testCase.expectedAnswer)
 			assert.True(t, usage.IsZero())
@@ -228,6 +276,7 @@ func TestPendingOperationDeterministicTurns(t *testing.T) {
 				require.NoError(t, err)
 			}
 			assert.Len(t, tools.calls, testCase.expectedCalls)
+			assert.Equal(t, testCase.expectedSelection, turn.selection != nil)
 			_, pending := flow.pending.get("conversation")
 			assert.Equal(t, testCase.expectedPending, pending)
 		})
@@ -363,6 +412,11 @@ func TestPendingPauseAndScaleFailureRetainsRetryForScaleOnly(t *testing.T) {
 	retryTurn.publish()
 	assert.True(t, handled)
 	assert.Contains(t, answer, "The pause remains active. Retry only scaling?")
+	require.NotNil(t, retryTurn.selection)
+	assert.Equal(t, []conversation.SelectionOption{
+		{Label: "Yes", Value: "Yes"},
+		{Label: "No", Value: "No"},
+	}, retryTurn.selection.Options)
 
 	op, ok := flow.pending.get("conversation")
 	require.True(t, ok)

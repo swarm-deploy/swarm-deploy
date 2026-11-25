@@ -663,10 +663,11 @@ func (s *AssistantChatHistory) SetActiveRequest(val OptAssistantActiveChatReques
 
 // Ref: #/components/schemas/AssistantChatMessage
 type AssistantChatMessage struct {
-	Sequence int                      `json:"sequence"`
-	Role     AssistantChatMessageRole `json:"role"`
-	Content  string                   `json:"content"`
-	Activity []string                 `json:"activity"`
+	Sequence  int                      `json:"sequence"`
+	Role      AssistantChatMessageRole `json:"role"`
+	Content   string                   `json:"content"`
+	Activity  []string                 `json:"activity"`
+	Selection OptAssistantSelection    `json:"selection"`
 }
 
 // GetSequence returns the value of Sequence.
@@ -689,6 +690,11 @@ func (s *AssistantChatMessage) GetActivity() []string {
 	return s.Activity
 }
 
+// GetSelection returns the value of Selection.
+func (s *AssistantChatMessage) GetSelection() OptAssistantSelection {
+	return s.Selection
+}
+
 // SetSequence sets the value of Sequence.
 func (s *AssistantChatMessage) SetSequence(val int) {
 	s.Sequence = val
@@ -707,6 +713,11 @@ func (s *AssistantChatMessage) SetContent(val string) {
 // SetActivity sets the value of Activity.
 func (s *AssistantChatMessage) SetActivity(val []string) {
 	s.Activity = val
+}
+
+// SetSelection sets the value of Selection.
+func (s *AssistantChatMessage) SetSelection(val OptAssistantSelection) {
+	s.Selection = val
 }
 
 type AssistantChatMessageRole string
@@ -828,10 +839,11 @@ type AssistantChatResponse struct {
 	ConversationID string                      `json:"conversation_id"`
 	Answer         OptString                   `json:"answer"`
 	// Persisted sequence of the completed answer, when available.
-	AnswerSequence OptInt    `json:"answer_sequence"`
-	ErrorMessage   OptString `json:"error_message"`
-	PollAfterMs    OptInt32  `json:"poll_after_ms"`
-	Activity       []string  `json:"activity"`
+	AnswerSequence OptInt                `json:"answer_sequence"`
+	ErrorMessage   OptString             `json:"error_message"`
+	PollAfterMs    OptInt32              `json:"poll_after_ms"`
+	Activity       []string              `json:"activity"`
+	Selection      OptAssistantSelection `json:"selection"`
 }
 
 // GetStatus returns the value of Status.
@@ -874,6 +886,11 @@ func (s *AssistantChatResponse) GetActivity() []string {
 	return s.Activity
 }
 
+// GetSelection returns the value of Selection.
+func (s *AssistantChatResponse) GetSelection() OptAssistantSelection {
+	return s.Selection
+}
+
 // SetStatus sets the value of Status.
 func (s *AssistantChatResponse) SetStatus(val AssistantChatResponseStatus) {
 	s.Status = val
@@ -912,6 +929,11 @@ func (s *AssistantChatResponse) SetPollAfterMs(val OptInt32) {
 // SetActivity sets the value of Activity.
 func (s *AssistantChatResponse) SetActivity(val []string) {
 	s.Activity = val
+}
+
+// SetSelection sets the value of Selection.
+func (s *AssistantChatResponse) SetSelection(val OptAssistantSelection) {
+	s.Selection = val
 }
 
 type AssistantChatResponseStatus string
@@ -1059,6 +1081,58 @@ func (s *AssistantChatsResponse) GetChats() []AssistantChatSummary {
 // SetChats sets the value of Chats.
 func (s *AssistantChatsResponse) SetChats(val []AssistantChatSummary) {
 	s.Chats = val
+}
+
+// Ref: #/components/schemas/AssistantSelection
+type AssistantSelection struct {
+	Options []AssistantSelectionOption `json:"options"`
+}
+
+// GetOptions returns the value of Options.
+func (s *AssistantSelection) GetOptions() []AssistantSelectionOption {
+	return s.Options
+}
+
+// SetOptions sets the value of Options.
+func (s *AssistantSelection) SetOptions(val []AssistantSelectionOption) {
+	s.Options = val
+}
+
+// Ref: #/components/schemas/AssistantSelectionOption
+type AssistantSelectionOption struct {
+	Label       string    `json:"label"`
+	Description OptString `json:"description"`
+	Value       string    `json:"value"`
+}
+
+// GetLabel returns the value of Label.
+func (s *AssistantSelectionOption) GetLabel() string {
+	return s.Label
+}
+
+// GetDescription returns the value of Description.
+func (s *AssistantSelectionOption) GetDescription() OptString {
+	return s.Description
+}
+
+// GetValue returns the value of Value.
+func (s *AssistantSelectionOption) GetValue() string {
+	return s.Value
+}
+
+// SetLabel sets the value of Label.
+func (s *AssistantSelectionOption) SetLabel(val string) {
+	s.Label = val
+}
+
+// SetDescription sets the value of Description.
+func (s *AssistantSelectionOption) SetDescription(val OptString) {
+	s.Description = val
+}
+
+// SetValue sets the value of Value.
+func (s *AssistantSelectionOption) SetValue(val string) {
+	s.Value = val
 }
 
 // Ref: #/components/schemas/AssistantSuggestion
@@ -4744,6 +4818,52 @@ func (o OptAssistantActiveChatRequest) Get() (v AssistantActiveChatRequest, ok b
 
 // Or returns value if set, or given parameter if does not.
 func (o OptAssistantActiveChatRequest) Or(d AssistantActiveChatRequest) AssistantActiveChatRequest {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptAssistantSelection returns new OptAssistantSelection with value set to v.
+func NewOptAssistantSelection(v AssistantSelection) OptAssistantSelection {
+	return OptAssistantSelection{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptAssistantSelection is optional AssistantSelection.
+type OptAssistantSelection struct {
+	Value AssistantSelection
+	Set   bool
+}
+
+// IsSet returns true if OptAssistantSelection was set.
+func (o OptAssistantSelection) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptAssistantSelection) Reset() {
+	var v AssistantSelection
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptAssistantSelection) SetTo(v AssistantSelection) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptAssistantSelection) Get() (v AssistantSelection, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptAssistantSelection) Or(d AssistantSelection) AssistantSelection {
 	if v, ok := o.Get(); ok {
 		return v
 	}
