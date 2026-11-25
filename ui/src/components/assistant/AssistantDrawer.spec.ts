@@ -58,6 +58,40 @@ describe("Assistant Drawer", () => {
     wrapper.unmount();
   });
 
+  it.each([
+    { device: "mobile", coarsePointer: true, refocus: false },
+    { device: "desktop", coarsePointer: false, refocus: true },
+  ])("restores composer focus after a reply as expected on $device", async ({ coarsePointer, refocus }) => {
+    const mediaQuery = window.matchMedia("(pointer: coarse)");
+    vi.spyOn(window, "matchMedia").mockImplementation((query) => ({
+      ...mediaQuery,
+      media: query,
+      matches: query === "(pointer: coarse)" && coarsePointer,
+    }));
+    vi.spyOn(assistantApi, "getAssistantSuggestions").mockResolvedValue({ suggestions: [] });
+    const pinia = createPinia();
+    const router = createRouter({ history: createMemoryHistory(), routes });
+    await router.push("/?assistant=new");
+    const store = useAssistantStore(pinia);
+    let finishReply!: () => void;
+    vi.spyOn(store, "sendMessage").mockImplementation(() => new Promise((resolve) => { finishReply = resolve; }));
+    const wrapper = mount(AssistantDrawer, {
+      attachTo: document.body,
+      global: { plugins: [pinia, router] },
+    });
+    await flushPromises();
+
+    const composer = wrapper.get<HTMLTextAreaElement>(".assistant-chat-form textarea");
+    await composer.setValue("Check the cluster");
+    await wrapper.get(".assistant-chat-form").trigger("submit");
+    composer.element.blur();
+    finishReply();
+    await flushPromises();
+
+    expect(document.activeElement === composer.element).toBe(refocus);
+    wrapper.unmount();
+  });
+
   it("opens Usage inside the drawer and refreshes the chat list on return", async () => {
     const pinia = createPinia();
     setActivePinia(pinia);

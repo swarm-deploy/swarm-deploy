@@ -173,12 +173,8 @@ watch(
     }
 
     await nextTick();
-    if (
-      chatOpen.value &&
-      route.query.assistant !== "chats" &&
-      !window.matchMedia("(pointer: coarse)").matches
-    ) {
-      inputRef.value?.focus();
+    if (chatOpen.value && route.query.assistant !== "chats") {
+      focusComposer();
     }
     if (chatOpen.value && bodyRef.value) scrollToBottom(bodyRef.value);
   },
@@ -311,6 +307,12 @@ watch(
 
 function scrollToBottom(body: HTMLElement) {
   body.scrollTop = body.scrollHeight;
+}
+
+function focusComposer() {
+  if (!window.matchMedia("(pointer: coarse)").matches) {
+    inputRef.value?.focus();
+  }
 }
 
 function findReply(body: HTMLElement, sequence: number) {
@@ -512,7 +514,7 @@ async function submitMessage() {
   messageInput.value = "";
   await assistantStore.sendMessage(text);
   await nextTick();
-  inputRef.value?.focus();
+  focusComposer();
 }
 
 async function submitSuggestion(suggestion: AssistantSuggestion) {
@@ -522,7 +524,7 @@ async function submitSuggestion(suggestion: AssistantSuggestion) {
 
   await assistantStore.sendMessage(suggestion.prompt);
   await nextTick();
-  inputRef.value?.focus();
+  focusComposer();
 }
 
 async function submitSelection(index: number, option: AssistantSelectionOption) {
@@ -532,7 +534,7 @@ async function submitSelection(index: number, option: AssistantSelectionOption) 
 
   await assistantStore.sendMessage(option.value);
   await nextTick();
-  inputRef.value?.focus();
+  focusComposer();
 }
 
 function renderMessageText(role: string, text: string): string {
