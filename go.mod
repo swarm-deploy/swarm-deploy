@@ -153,3 +153,6 @@ replace github.com/tmc/langgraphgo => github.com/NirAlon/langgraphgo v0.0.0-2026
 // Docker v28 still uses sockets.DialPipe, removed in go-connections v0.7.0.
 // Keep its existing transport dependency while the E2E-only Moby client coexists.
 replace github.com/docker/go-connections => github.com/docker/go-connections v0.6.0
+
+// Resolve the vanity module through its audited GitHub repository at the pinned commit.
+replace oneyaml.dev/go => github.com/recursive-ai-oss/oneyaml-go v1.0.1-0.20261117134354-7eb298cf2e5a
