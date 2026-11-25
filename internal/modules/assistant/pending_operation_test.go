@@ -51,6 +51,11 @@ func TestPendingOperationFullRestartSkipsMainGenerationAndConfirmationSkipsModel
 	first := assistantService.Chat(context.Background(), ChatRequest{Message: "Перезапусти core/api"})
 	require.Equal(t, StatusCompleted, first.Status)
 	assert.Equal(t, "Restart `api` in stack `core`?", first.Answer)
+	require.NotNil(t, first.Selection)
+	assert.Equal(t, []conversation.SelectionOption{
+		{Label: "Yes", Value: "Yes"},
+		{Label: "No", Value: "No"},
+	}, first.Selection.Options)
 	assert.Equal(t, 1, requests, "initial turn must call only the router")
 	assert.Empty(t, tools.calls)
 
@@ -203,14 +208,15 @@ func TestStartServiceOperationCatalogErrorLeavesNoPendingOperation(t *testing.T)
 
 func TestPendingOperationDeterministicTurns(t *testing.T) {
 	testCases := []struct {
-		name             string
-		message          string
-		configure        func(*operationFlow, *MockServiceStore, *fakeTools)
-		expectedHandled  bool
-		expectedAnswer   string
-		expectedCalls    int
-		expectedPending  bool
-		expectedRejected bool
+		name              string
+		message           string
+		configure         func(*operationFlow, *MockServiceStore, *fakeTools)
+		expectedHandled   bool
+		expectedAnswer    string
+		expectedCalls     int
+		expectedPending   bool
+		expectedSelection bool
+		expectedRejected  bool
 	}{
 		{
 			name: "negative confirmation", message: "нет", expectedHandled: true,
@@ -218,7 +224,7 @@ func TestPendingOperationDeterministicTurns(t *testing.T) {
 		},
 		{
 			name: "ambiguous confirmation", message: "возможно", expectedHandled: true,
-			expectedAnswer: "Reply `yes`", expectedPending: true,
+			expectedAnswer: "Reply `yes`", expectedPending: true, expectedSelection: true,
 		},
 		{
 			name: "resource changed", message: "да", expectedHandled: true,
@@ -259,7 +265,8 @@ func TestPendingOperationDeterministicTurns(t *testing.T) {
 				testCase.configure(flow, store, tools)
 			}
 
-			handled, answer, usage, err := flow.beginTurn("conversation").handlePendingOperation(context.Background(), testCase.message)
+			turn := flow.beginTurn("conversation")
+			handled, answer, usage, err := turn.handlePendingOperation(context.Background(), testCase.message)
 			assert.Equal(t, testCase.expectedHandled, handled)
 			assert.Contains(t, answer, testCase.expectedAnswer)
 			assert.True(t, usage.IsZero())
@@ -269,6 +276,7 @@ func TestPendingOperationDeterministicTurns(t *testing.T) {
 				require.NoError(t, err)
 			}
 			assert.Len(t, tools.calls, testCase.expectedCalls)
+			assert.Equal(t, testCase.expectedSelection, turn.selection != nil)
 			_, pending := flow.pending.get("conversation")
 			assert.Equal(t, testCase.expectedPending, pending)
 		})
@@ -404,6 +412,11 @@ func TestPendingPauseAndScaleFailureRetainsRetryForScaleOnly(t *testing.T) {
 	retryTurn.publish()
 	assert.True(t, handled)
 	assert.Contains(t, answer, "The pause remains active. Retry only scaling?")
+	require.NotNil(t, retryTurn.selection)
+	assert.Equal(t, []conversation.SelectionOption{
+		{Label: "Yes", Value: "Yes"},
+		{Label: "No", Value: "No"},
+	}, retryTurn.selection.Options)
 
 	op, ok := flow.pending.get("conversation")
 	require.True(t, ok)

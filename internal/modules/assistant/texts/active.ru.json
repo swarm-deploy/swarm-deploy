@@ -34,6 +34,7 @@
   "operation.ask_target": "Уточните стек или имя сервиса.",
   "operation.cancelled": "Операция отменена.",
   "operation.catalog_failed": "Не удалось прочитать каталог сервисов. Повторите запрос.",
+  "operation.confirm_no": "Нет",
   "operation.confirm_pause_scale_service": {
     "few": "Приостановить Sync для сервиса `{{.Service}}` в стеке `{{.Stack}}` бессрочно, затем установить {{.Count}} реплики?",
     "many": "Приостановить Sync для сервиса `{{.Service}}` в стеке `{{.Stack}}` бессрочно, затем установить {{.Count}} реплик?",
@@ -76,6 +77,7 @@
   "operation.confirm_resume_service": "Удалить прямую Pause Sync для сервиса `{{.Service}}` в стеке `{{.Stack}}`?",
   "operation.confirm_resume_stack": "Удалить прямую Pause Sync для стека `{{.Stack}}`?",
   "operation.confirm_sync": "Запустить синхронизацию GitOps?",
+  "operation.confirm_yes": "Да",
   "operation.failed": "Не удалось выполнить операцию: {{.Error}}",
   "operation.forbidden": "Эта операция запрещена настройкой `assistant.tools`.",
   "operation.gitops_service_changed": "Сервис изменился или больше не управляется GitOps. Операция отменена.",

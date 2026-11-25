@@ -356,6 +356,7 @@ func (t *operationTurn) handlePendingConfirmation(
 			t.pending.delete(t.conversationID)
 			return false, "", conversation.TokenUsage{}, nil
 		}
+		t.selection = t.confirmationSelection()
 		return true, t.texts.Text("operation.ask_confirmation"), conversation.TokenUsage{}, nil
 	default:
 		t.pending.delete(t.conversationID)
@@ -509,8 +510,22 @@ func (f *operationFlow) pendingOperationArguments(
 
 func (t *operationTurn) confirmOperation(op PendingOperation) string {
 	op.Stage = PendingOperationConfirmation
-	t.next = &op
+	t.stageConfirmation(op)
 	return t.confirmationMessage(op)
+}
+
+func (t *operationTurn) stageConfirmation(op PendingOperation) {
+	t.next = &op
+	t.selection = t.confirmationSelection()
+}
+
+func (t *operationTurn) confirmationSelection() *conversation.Selection {
+	yes := t.texts.Text("operation.confirm_yes")
+	no := t.texts.Text("operation.confirm_no")
+	return &conversation.Selection{Options: []conversation.SelectionOption{
+		{Label: yes, Value: yes},
+		{Label: no, Value: no},
+	}}
 }
 
 func (f *operationFlow) operationAllowed(capability Capability, operation OperationType) bool {
@@ -580,7 +595,7 @@ func (t *operationTurn) executeConfirmedPauseScale(
 		Target: op.Stack + "/" + op.Service, Stack: op.Stack, Service: op.Service, Replicas: op.Replicas}
 	serviceTools := t.toolSet([]Capability{CapabilityServiceOperations})
 	if _, ok := serviceTools[serviceReplicasSetTool]; !ok {
-		t.next = &retry
+		t.stageConfirmation(retry)
 		return t.texts.Format("operation.scale_forbidden", map[string]any{"PauseResult": pauseAnswer}), nil
 	}
 	scalePayload, err := json.Marshal(map[string]any{
@@ -593,7 +608,7 @@ func (t *operationTurn) executeConfirmedPauseScale(
 		ToolName: serviceReplicasSetTool, Payload: string(scalePayload),
 	})
 	if scaleErr != nil {
-		t.next = &retry
+		t.stageConfirmation(retry)
 		return t.texts.Format("operation.scale_failed", map[string]any{
 			"PauseResult": pauseAnswer, "Error": strings.TrimSpace(scaleErr.Error()),
 		}), nil
