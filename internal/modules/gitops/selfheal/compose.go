@@ -5,11 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackloop/policies"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/labelsdict"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/yamledit"
 	"go.yaml.in/yaml/v3"
 )
 
@@ -23,7 +25,23 @@ type State struct {
 	Enabled bool `json:"enabled"`
 }
 
-func prepare(original []byte, service string, stack *bool, global bool) (State, *yaml.Node, error) {
+func prepare(original []byte, service string, stack *bool, global bool) (State, []byte, error) {
+	state, target, err := inspect(original, service, stack, global)
+	if err != nil || state.Enabled {
+		return state, nil, err
+	}
+	updated, err := enableLabel(original, service, target)
+	if err != nil {
+		return State{}, nil, err
+	}
+	verified, _, err := inspect(updated, service, stack, global)
+	if err != nil || !verified.Enabled {
+		return State{}, nil, errors.New("could not verify edited Compose YAML")
+	}
+	return state, updated, nil
+}
+
+func inspect(original []byte, service string, stack *bool, global bool) (State, *yaml.Node, error) {
 	decoder := yaml.NewDecoder(bytes.NewReader(original))
 	var doc, extra yaml.Node
 	if err := decoder.Decode(&doc); err != nil || len(doc.Content) != 1 {
@@ -49,106 +67,83 @@ func prepare(original []byte, service string, stack *bool, global bool) (State, 
 	if err != nil {
 		return State{}, nil, errors.New("service self-heal label must have a literal boolean value")
 	}
-	state := State{Source: level, Enabled: enabled}
-	if enabled {
-		return state, nil, nil
-	}
-	if editErr := enableLabel(target); editErr != nil {
-		return State{}, nil, editErr
-	}
-	return state, &doc, nil
+	return State{Source: level, Enabled: enabled}, target, nil
 }
 
-func marshalCompose(doc *yaml.Node) ([]byte, error) {
-	quoteFoldedScalars(doc)
-	updated, err := yaml.Marshal(doc)
+func enableLabel(original []byte, service string, target *yaml.Node) ([]byte, error) {
+	deploy, err := localField(target, "deploy")
 	if err != nil {
-		return nil, errors.New("could not marshal Compose YAML")
-	}
-	return updated, nil
-}
-
-// yaml.v3 can introduce extra newlines when re-emitting folded scalars.
-func quoteFoldedScalars(node *yaml.Node) {
-	if node.Style&yaml.FoldedStyle != 0 {
-		node.Style = node.Style&^yaml.FoldedStyle | yaml.DoubleQuotedStyle
-	}
-	for _, child := range node.Content {
-		quoteFoldedScalars(child)
-	}
-}
-
-func enableLabel(service *yaml.Node) error {
-	deploy, err := localField(service, "deploy")
-	if err != nil {
-		return err
+		return nil, err
 	}
 	if deploy == nil {
-		deploy = appendMapping(service, "deploy")
+		return editCompose(original, []string{"services", service, "deploy"}, map[string]any{
+			"labels": map[string]string{label: "true"},
+		})
 	}
 	labels, err := localField(deploy, "labels")
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if labels == nil {
-		labels = appendMapping(deploy, "labels")
+		return editCompose(original, []string{"services", service, "deploy", "labels"},
+			map[string]string{label: "true"})
 	}
 	if labels.Anchor != "" || labels.Style&yaml.TaggedStyle != 0 {
-		return errors.New("expected local deploy labels without an explicit YAML tag or anchor")
+		return nil, errors.New("expected local deploy labels without an explicit YAML tag or anchor")
 	}
 	if labels.Kind == yaml.SequenceNode {
-		return enableListLabel(labels)
+		return enableListLabel(original, service, labels)
 	}
 	current, err := localField(labels, label)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	if current == nil {
-		labels.Content = append(labels.Content, stringNode(label), stringNode("true"))
-		return nil
+	if current != nil {
+		if validationErr := validateLabelValue(current); validationErr != nil {
+			return nil, validationErr
+		}
 	}
-	return setLabelValue(current, "true")
+	return editCompose(original, []string{"services", service, "deploy", "labels", label}, "true")
 }
 
-func enableListLabel(labels *yaml.Node) error {
-	var found *yaml.Node
-	for _, item := range labels.Content {
+func enableListLabel(original []byte, service string, labels *yaml.Node) ([]byte, error) {
+	found := -1
+	for i, item := range labels.Content {
 		if item.Kind != yaml.ScalarNode {
-			return errors.New("expected literal Compose deploy labels")
+			return nil, errors.New("expected literal Compose deploy labels")
 		}
 		key, _, _ := strings.Cut(item.Value, "=")
 		if key != label {
 			continue
 		}
-		if found != nil {
-			return errors.New("duplicate self-heal label")
+		if found >= 0 {
+			return nil, errors.New("duplicate self-heal label")
 		}
-		found = item
+		if err := validateLabelValue(item); err != nil {
+			return nil, err
+		}
+		found = i
 	}
-	if found == nil {
-		labels.Content = append(labels.Content, stringNode(label+"=true"))
-		return nil
+	item := "-"
+	if found >= 0 {
+		item = strconv.Itoa(found)
 	}
-	return setLabelValue(found, label+"=true")
+	return editCompose(original, []string{"services", service, "deploy", "labels", item}, label+"=true")
 }
 
-func setLabelValue(node *yaml.Node, value string) error {
+func validateLabelValue(node *yaml.Node) error {
 	if node.Kind != yaml.ScalarNode || node.Anchor != "" || node.Style&yaml.TaggedStyle != 0 {
 		return errors.New("expected a local self-heal label value without an explicit YAML tag or anchor")
 	}
-	node.Tag = "!!str"
-	node.Value = value
 	return nil
 }
 
-func appendMapping(parent *yaml.Node, key string) *yaml.Node {
-	mapping := &yaml.Node{Kind: yaml.MappingNode}
-	parent.Content = append(parent.Content, stringNode(key), mapping)
-	return mapping
-}
-
-func stringNode(value string) *yaml.Node {
-	return &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: value}
+func editCompose(original []byte, path []string, value any) ([]byte, error) {
+	updated, err := yamledit.Set(original, path, value)
+	if err != nil {
+		return nil, fmt.Errorf("could not edit Compose YAML: %w", err)
+	}
+	return updated, nil
 }
 
 // localField prevents an edit through a shared anchor or the accidental shadowing

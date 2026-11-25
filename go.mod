@@ -66,6 +66,7 @@ require (
 	google.golang.org/grpc v1.83.2
 	google.golang.org/protobuf v1.36.12
 	modernc.org/sqlite v1.55.0
+	oneyaml.dev/go v1.0.1-0.20261117134354-7eb298cf2e5a
 )
 
 require (

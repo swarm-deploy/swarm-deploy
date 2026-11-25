@@ -10,7 +10,6 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/githosting"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
-	"go.yaml.in/yaml/v3"
 )
 
 // ErrPolicyChanged indicates that publication needs a new plan for the current policy.
@@ -75,13 +74,9 @@ func (s *Service) Enable(ctx context.Context, stack, service string, expected St
 	if change.state != expected {
 		return Result{}, ErrPolicyChanged
 	}
-	updated, err := marshalCompose(change.doc)
-	if err != nil {
-		return Result{}, err
-	}
 	branch := fmt.Sprintf("%s-%s-enable-self-heal", branchPart(stack), branchPart(service))
 	title := fmt.Sprintf("chore: enable self-heal for %s/%s", stack, service)
-	_, err = change.file.Push(ctx, branch, title, author, updated)
+	_, err = change.file.Push(ctx, branch, title, author, change.updated)
 	if err != nil {
 		return Result{}, err
 	}
@@ -95,9 +90,9 @@ func (s *Service) Enable(ctx context.Context, stack, service string, expected St
 }
 
 type proposal struct {
-	file  *git.ProposalFile
-	state State
-	doc   *yaml.Node
+	file    *git.ProposalFile
+	state   State
+	updated []byte
 }
 
 func (s *Service) prepare(ctx context.Context, stack, service string) (proposal, error) {
@@ -109,12 +104,12 @@ func (s *Service) prepare(ctx context.Context, stack, service string) (proposal,
 		if err != nil {
 			return proposal{}, err
 		}
-		state, doc, err := prepare(file.Original, service, spec.Sync.Policy.SelfHeal, s.global)
+		state, updated, err := prepare(file.Original, service, spec.Sync.Policy.SelfHeal, s.global)
 		if err != nil {
 			file.Close(ctx)
 			return proposal{}, err
 		}
-		return proposal{file: file, state: state, doc: doc}, nil
+		return proposal{file: file, state: state, updated: updated}, nil
 	}
 	return proposal{}, fmt.Errorf("GitOps stack %q has no Compose file", stack)
 }
