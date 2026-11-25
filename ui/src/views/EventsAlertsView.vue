@@ -32,7 +32,9 @@ function selectTab(tab: string): void {
 
 <template>
   <div class="events-alerts-page">
-    <h1 class="mobile-title-duplicate">{{ t('navigation.eventsAlerts') }}</h1>
+    <header class="events-alerts-header">
+      <h2 class="mobile-title-duplicate">{{ t('navigation.eventsAlerts') }}</h2>
+    </header>
     <AppTabs
       class="events-alerts-tabs"
       :model-value="activeTab"
@@ -64,10 +66,11 @@ function selectTab(tab: string): void {
 .events-alerts-page {
   display: grid;
   gap: 16px;
+  min-width: 0;
 }
 
-.events-alerts-page h1 {
-  margin-bottom: 0;
+.events-alerts-header h2 {
+  margin: 0;
 }
 
 </style>

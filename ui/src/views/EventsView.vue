@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { enumLabel, plural, t } from "../i18n";
+import { enumLabel, locale, plural, t } from "../i18n";
 import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
@@ -160,6 +160,48 @@ function normalizedSeverity(item: EventHistoryItem): EventSeverity {
     default:
       return "info";
   }
+}
+
+interface EventGroup {
+  key: string;
+  label: string;
+  events: EventHistoryItem[];
+}
+
+function localDateKey(date: Date): string {
+  return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
+}
+
+function eventDateLabel(date: Date): string {
+  const dateLabel = date.toLocaleDateString(locale(), {
+    day: "numeric",
+    month: "long",
+    year: date.getFullYear() === new Date().getFullYear() ? undefined : "numeric",
+  });
+  return localDateKey(date) === localDateKey(new Date())
+    ? t("deployments.todayDate", { date: dateLabel })
+    : dateLabel;
+}
+
+function eventGroups(items: EventHistoryItem[]): EventGroup[] {
+  const groups = new Map<string, EventGroup>();
+  for (const event of items) {
+    const date = new Date(event.created_at);
+    const validDate = !Number.isNaN(date.valueOf());
+    const key = validDate ? localDateKey(date) : event.created_at;
+    const group = groups.get(key) ?? {
+      key,
+      label: validDate ? eventDateLabel(date) : event.created_at,
+      events: [],
+    };
+    group.events.push(event);
+    groups.set(key, group);
+  }
+  return [...groups.values()];
+}
+
+function formatEventTime(raw: string): string {
+  return formatDate(raw, { hour: "2-digit", minute: "2-digit" });
 }
 
 function sortedEventDetails(item: EventHistoryItem): [string, string][] {
@@ -457,68 +499,214 @@ onMounted(() => {
 
       <AppTableEmpty v-else-if="events.length === 0" :message="t('events.empty')" />
 
-      <AppTable v-else fixed min-width="720px" table-class="events-table">
+      <AppTable v-else fixed table-class="events-table" wrap-class="events-table-wrap">
         <template #head>
           <tr>
-            <th :aria-sort="ariaSort('time')">
-              <button class="app-table-sort" type="button" @click="changeSort('time')">
-                {{ t('common.time') }} <span class="app-table-sort-indicator" aria-hidden="true">{{ sortIndicator("time") }}</span>
-              </button>
-            </th>
+            <th>{{ t('common.type') }}</th>
             <th :aria-sort="ariaSort('severity')">
               <button class="app-table-sort" type="button" @click="changeSort('severity')">
                 {{ t('activity.severity') }} <span class="app-table-sort-indicator" aria-hidden="true">{{ sortIndicator("severity") }}</span>
               </button>
             </th>
-            <th>{{ t('common.type') }}</th>
             <th>{{ t('common.message') }}</th>
+            <th :aria-sort="ariaSort('time')">
+              <button class="app-table-sort" type="button" @click="changeSort('time')">
+                {{ t('common.time') }} <span class="app-table-sort-indicator" aria-hidden="true">{{ sortIndicator("time") }}</span>
+              </button>
+            </th>
           </tr>
         </template>
-        <template v-for="event in events" :key="event.id">
-          <tr
-            class="app-table-row--clickable"
-            tabindex="0"
-            role="button"
-            :aria-expanded="expandedKey === event.id"
-            :aria-label="t('events.toggleDetails', { type: event.type || t('events.event') })"
-            @click="toggleDetails(event)"
-            @keydown.enter="toggleDetails(event)"
-            @keydown.space.prevent="toggleDetails(event)"
-          >
-            <td>{{ formatDate(event.created_at) }}</td>
-            <td>
-              <span class="event-severity" :class="`event-severity-${normalizedSeverity(event)}`">
-                {{ eventSeverityLabel(event.severity) }}
-              </span>
-            </td>
-            <td>{{ event.type || t('common.unknown') }}</td>
-            <td>{{ eventMessage(event) }}</td>
-          </tr>
-          <tr v-if="expandedKey === event.id" class="events-details-row">
-            <td colspan="4">
-              <ul v-if="sortedEventDetails(event).length > 0" class="event-details">
-                <li v-for="[key, value] in sortedEventDetails(event)" :key="key" class="event-detail">
-                  <span class="event-detail-key">{{ eventDetailLabel(key) }}</span>
-                  <span class="event-detail-content">
-                    <code class="event-detail-value">{{ value }}</code>
-                    <button
-                      v-if="canFilterDetail(key)"
-                      class="event-detail-filter"
-                      type="button"
-                      :aria-label="t('events.filterDetail', { field: eventDetailLabel(key), value })"
-                      @click.stop="applyDetailFilter(key, value, event)"
-                    >
-                      {{ t('activity.filter') }}
-                    </button>
-                  </span>
-                </li>
-              </ul>
-              <p v-else class="meta">{{ t('events.noDetails') }}</p>
-            </td>
-          </tr>
+        <template v-for="group in eventGroups(events)" :key="group.key">
+          <tr class="events-date-row"><th colspan="4" scope="rowgroup">{{ group.label }}</th></tr>
+          <template v-for="event in group.events" :key="event.id">
+            <tr
+              class="app-table-row--clickable events-row"
+              tabindex="0"
+              role="button"
+              :aria-expanded="expandedKey === event.id"
+              :aria-label="t('events.toggleDetails', { type: event.type || t('events.event') })"
+              @click="toggleDetails(event)"
+              @keydown.enter="toggleDetails(event)"
+              @keydown.space.prevent="toggleDetails(event)"
+            >
+              <td class="events-type">
+                <span class="events-type-content">
+                  <SidebarIcon class="events-row-chevron" :class="{ 'events-row-chevron--open': expandedKey === event.id }" name="chevron" />
+                  <span>{{ event.type || t('common.unknown') }}</span>
+                </span>
+              </td>
+              <td class="events-severity">
+                <span class="event-severity" :class="`event-severity-${normalizedSeverity(event)}`">
+                  {{ eventSeverityLabel(event.severity) }}
+                </span>
+              </td>
+              <td class="events-message">{{ eventMessage(event) }}</td>
+              <td class="events-time">
+                <time class="events-time-full" :datetime="event.created_at">{{ formatDate(event.created_at) }}</time>
+                <time class="events-time-compact" :datetime="event.created_at">{{ formatEventTime(event.created_at) }}</time>
+              </td>
+            </tr>
+            <tr v-if="expandedKey === event.id" class="events-details-row">
+              <td colspan="4">
+                <ul v-if="sortedEventDetails(event).length > 0" class="event-details">
+                  <li v-for="[key, value] in sortedEventDetails(event)" :key="key" class="event-detail">
+                    <span class="event-detail-key">{{ eventDetailLabel(key) }}</span>
+                    <span class="event-detail-content">
+                      <code class="event-detail-value">{{ value }}</code>
+                      <button
+                        v-if="canFilterDetail(key)"
+                        class="event-detail-filter"
+                        type="button"
+                        :aria-label="t('events.filterDetail', { field: eventDetailLabel(key), value })"
+                        @click.stop="applyDetailFilter(key, value, event)"
+                      >
+                        {{ t('activity.filter') }}
+                      </button>
+                    </span>
+                  </li>
+                </ul>
+                <p v-else class="meta">{{ t('events.noDetails') }}</p>
+              </td>
+            </tr>
+          </template>
         </template>
       </AppTable>
       <p v-if="loadingError && events.length > 0" class="meta" role="alert">{{ t('events.loadError', { error: loadingError }) }}</p>
     </AppPagination>
   </section>
 </template>
+
+<style scoped>
+.events-page { min-width: 0; }
+:deep(.events-table) { min-width: 720px; }
+:deep(.events-table th:nth-child(1)),
+:deep(.events-table td:nth-child(1)) { width: 21%; }
+:deep(.events-table th:nth-child(2)),
+:deep(.events-table td:nth-child(2)) { width: 14%; }
+:deep(.events-table th:nth-child(3)),
+:deep(.events-table td:nth-child(3)) { width: 43%; }
+:deep(.events-table th:nth-child(4)),
+:deep(.events-table td:nth-child(4)) { width: 22%; }
+
+.events-date-row,
+.events-time-compact { display: none; }
+.events-type-content {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-weight: 600;
+}
+.events-row-chevron {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 14px;
+  color: var(--muted);
+  transform: rotate(-90deg);
+  transition: transform 120ms ease;
+}
+.events-row-chevron--open { transform: rotate(0deg); }
+.events-severity,
+.events-time { white-space: nowrap; }
+.events-message { overflow-wrap: anywhere; }
+.events-details-row .event-details {
+  margin: 0;
+  gap: 0;
+}
+.events-details-row .event-detail {
+  grid-template-columns: minmax(130px, 18%) minmax(0, 1fr);
+  gap: 12px;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.events-details-row .event-detail:last-child { border-bottom: 0; }
+.events-details-row .event-detail-key {
+  border-radius: 0;
+  background: transparent;
+  padding: 0;
+  color: var(--muted);
+}
+.events-details-row .event-detail-value {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding: 0;
+}
+
+@media (max-width: 720px) {
+  :deep(.events-table-wrap) { overflow-x: visible; }
+  :deep(.events-table) { min-width: 0; table-layout: auto; }
+  :deep(.events-table thead) { display: none; }
+  :deep(.events-table tbody) { display: block; }
+  :deep(.events-date-row) { display: block; }
+  :deep(.events-table .events-row > td) { width: auto; }
+  :deep(.events-table .events-date-row > th:first-child) {
+    display: block;
+    width: 100%;
+    border-bottom: 1px solid var(--border-subtle);
+    padding: 14px 0 8px;
+    color: var(--muted);
+    font-size: 0.78rem;
+    font-weight: 600;
+    letter-spacing: 0;
+    text-transform: none;
+  }
+  :deep(.events-row) {
+    display: grid;
+    grid-template-columns: 64px minmax(0, 1fr) auto;
+    grid-template-rows: auto auto;
+    gap: 4px 12px;
+    align-items: start;
+    padding: 12px 10px;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+  :deep(.events-table .events-row > td) {
+    border-bottom: 0;
+    padding: 0;
+  }
+  .events-type {
+    grid-column: 2;
+    grid-row: 1;
+    min-width: 0;
+  }
+  .events-type-content { line-height: 1.25; }
+  .events-row-chevron { display: none; }
+  .events-severity {
+    grid-column: 3;
+    grid-row: 1 / span 2;
+  }
+  .events-message {
+    grid-column: 2;
+    grid-row: 2;
+    min-width: 0;
+    color: var(--muted);
+    font-size: 0.82rem;
+    line-height: 1.3;
+  }
+  .events-time {
+    grid-column: 1;
+    grid-row: 1 / span 2;
+    padding-top: 1px;
+    color: var(--text);
+    font-size: 0.84rem;
+    font-weight: 500;
+  }
+  .events-time-full { display: none; }
+  .events-time-compact { display: inline; }
+  :deep(.events-details-row) {
+    display: block;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+  :deep(.events-details-row > td) {
+    display: block;
+    padding: 0 10px 10px 86px;
+    border-bottom: 0;
+  }
+  .events-details-row .event-detail {
+    grid-template-columns: minmax(90px, 34%) minmax(0, 1fr);
+    gap: 8px;
+    padding: 6px 0;
+  }
+  .events-details-row .event-detail-content { align-items: center; }
+}
+</style>
