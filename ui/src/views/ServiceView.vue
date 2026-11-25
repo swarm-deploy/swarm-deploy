@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { enumLabel, formatNumber, plural, t } from "../i18n";
-import { computed, ref, watch } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRoute } from "vue-router";
 
 import { fetchNetworks } from "../api/cluster";
@@ -54,6 +54,13 @@ const menu = ref<HTMLDetailsElement | null>(null);
 const labelsModalOpen = ref(false);
 const syncPauseOpen = ref(false);
 const selectedNetworkTarget = ref("");
+
+function handleDocumentClick(event: MouseEvent) {
+  if (menu.value && !menu.value.contains(event.target as Node)) menu.value.open = false;
+}
+
+onMounted(() => document.addEventListener("click", handleDocumentClick, true));
+onUnmounted(() => document.removeEventListener("click", handleDocumentClick, true));
 
 const spec = computed(() => serviceStatus.value?.spec);
 const liveService = computed(() => swarmServices.value?.find((service) =>
@@ -399,7 +406,6 @@ watch([stackName, serviceName], ([stack, service], _, onCleanup) => {
         <section v-for="group in labelGroups" :key="group.name" class="service-labels-group">
           <header class="service-labels-group-header">
             <h3>{{ group.label }}</h3>
-            <span :aria-label="plural('service.labelCount', group.labels.length)">{{ formatNumber(group.labels.length) }}</span>
           </header>
           <dl class="service-labels-list">
             <div v-for="[key, value] in group.labels" :key="key" class="service-labels-list-item">
