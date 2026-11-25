@@ -305,8 +305,9 @@ onMounted(() => void loadAlerts());
 @media (max-width: 720px) {
   :deep(.alerts-table-wrap) { overflow-x: visible; }
   :deep(.alerts-table) { min-width: 0; table-layout: auto; }
+  :deep(.alerts-table colgroup) { display: none; }
   :deep(.alerts-table thead) { display: none; }
-  :deep(.alerts-table tbody) { display: block; }
+  :deep(.alerts-table tbody) { display: block; width: 100%; }
   :deep(.alerts-date-row) { display: block; }
   :deep(.alerts-table .alerts-row > td) { width: auto; }
   :deep(.alerts-table .alerts-date-row > th:first-child) {
@@ -322,6 +323,8 @@ onMounted(() => void loadAlerts());
   }
   :deep(.alerts-row) {
     display: grid;
+    width: 100%;
+    box-sizing: border-box;
     grid-template-columns: 64px minmax(0, 1fr) auto;
     grid-template-rows: auto auto;
     gap: 5px 12px;
