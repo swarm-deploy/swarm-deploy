@@ -288,31 +288,37 @@ func TestPWAURLsFromServicePage(t *testing.T) {
 	}
 
 	for _, tc := range []struct {
-		name          string
-		basePath      string
-		prefix        string
-		pwa           config.WebPWASpec
-		wantName      string
-		wantShortName string
+		name              string
+		basePath          string
+		prefix            string
+		locale            string
+		pwa               config.WebPWASpec
+		wantName          string
+		wantShortName     string
+		wantShortcutNames [2]string
 	}{
 		{
-			name:          "root with default name",
-			basePath:      "/",
-			wantName:      "Swarm Deploy",
-			wantShortName: "Swarm Deploy",
+			name:              "root with default name",
+			basePath:          "/",
+			locale:            "en",
+			wantName:          "Swarm Deploy",
+			wantShortName:     "Swarm Deploy",
+			wantShortcutNames: [2]string{"Ask the assistant", "Events & Alerts"},
 		},
 		{
-			name:          "prefix with custom name",
-			basePath:      "/infra/swarm",
-			prefix:        "/infra/swarm",
-			pwa:           config.WebPWASpec{Name: "My Cluster", ShortName: "mc"},
-			wantName:      "My Cluster",
-			wantShortName: "mc",
+			name:              "prefix with custom name",
+			basePath:          "/infra/swarm",
+			prefix:            "/infra/swarm",
+			locale:            "ru",
+			pwa:               config.WebPWASpec{Name: "My Cluster", ShortName: "mc"},
+			wantName:          "My Cluster",
+			wantShortName:     "mc",
+			wantShortcutNames: [2]string{"Спросить ассистента", "События и алерты"},
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			const origin = "https://swarm.example"
-			handler := buildRouter(tc.basePath, "en", tc.pwa, http.NotFoundHandler(), uiFS)
+			handler := buildRouter(tc.basePath, tc.locale, tc.pwa, http.NotFoundHandler(), uiFS)
 			page := httptest.NewRequest(http.MethodGet, origin+tc.prefix+"/services/app/api", nil)
 			rec := httptest.NewRecorder()
 			handler.ServeHTTP(rec, page)
@@ -331,7 +337,9 @@ func TestPWAURLsFromServicePage(t *testing.T) {
 			assert.Equal(t, origin+tc.prefix+"/icons/apple-touch-icon.png", appleURL.String())
 
 			rec = httptest.NewRecorder()
-			handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, manifestURL.String(), nil))
+			manifestRequest := httptest.NewRequest(http.MethodGet, manifestURL.String(), nil)
+			manifestRequest.Header.Set("Accept-Language", "fr")
+			handler.ServeHTTP(rec, manifestRequest)
 			require.Equal(t, http.StatusOK, rec.Code)
 			assert.Equal(t, "application/manifest+json", rec.Header().Get("Content-Type"))
 			var manifest struct {
@@ -342,12 +350,22 @@ func TestPWAURLsFromServicePage(t *testing.T) {
 				Icons     []struct {
 					Src string `json:"src"`
 				} `json:"icons"`
+				Shortcuts []struct {
+					Name string `json:"name"`
+					URL  string `json:"url"`
+				} `json:"shortcuts"`
 			}
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &manifest))
 			assert.Equal(t, tc.wantName, manifest.Name)
 			assert.Equal(t, tc.wantShortName, manifest.ShortName)
 			assert.Equal(t, origin+tc.prefix+"/", resolvePWAURL(t, manifestURL, manifest.StartURL).String())
 			assert.Equal(t, origin+tc.prefix+"/", resolvePWAURL(t, manifestURL, manifest.Scope).String())
+
+			require.Len(t, manifest.Shortcuts, 2)
+			assert.Equal(t, tc.wantShortcutNames[0], manifest.Shortcuts[0].Name)
+			assert.Equal(t, tc.wantShortcutNames[1], manifest.Shortcuts[1].Name)
+			assert.Equal(t, origin+tc.prefix+"/overview?assistant=new", resolvePWAURL(t, manifestURL, manifest.Shortcuts[0].URL).String())
+			assert.Equal(t, origin+tc.prefix+"/events", resolvePWAURL(t, manifestURL, manifest.Shortcuts[1].URL).String())
 
 			var icons []string
 			for _, icon := range manifest.Icons {

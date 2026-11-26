@@ -50,7 +50,7 @@ func buildSPAFallbackHandler(uiFS fs.FS, basePath, locale string, pwaConfig conf
 		panic(fmt.Errorf("read embedded index.html: %w", indexErr))
 	}
 	indexBytes = injectRuntimeConfig(indexBytes, basePath, locale)
-	manifestBytes := preparePWAManifest(uiFS, pwaConfig)
+	manifestBytes := preparePWAManifest(uiFS, locale, pwaConfig)
 
 	serveIndex := func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -95,7 +95,7 @@ func buildSPAFallbackHandler(uiFS fs.FS, basePath, locale string, pwaConfig conf
 	})
 }
 
-func preparePWAManifest(uiFS fs.FS, pwaConfig config.WebPWASpec) []byte {
+func preparePWAManifest(uiFS fs.FS, locale string, pwaConfig config.WebPWASpec) []byte {
 	manifestBytes, err := fs.ReadFile(uiFS, pwaManifestFile)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
@@ -114,6 +114,17 @@ func preparePWAManifest(uiFS fs.FS, pwaConfig config.WebPWASpec) []byte {
 	}
 	if pwaConfig.ShortName != "" {
 		manifest.ShortName = pwaConfig.ShortName
+	}
+
+	askAssistant := "Ask the assistant"
+	eventsAlerts := "Events & Alerts"
+	if locale == string(config.LanguageRussian) {
+		askAssistant = "Спросить ассистента"
+		eventsAlerts = "События и алерты"
+	}
+	manifest.Shortcuts = []pwa.Shortcut{
+		{Name: askAssistant, URL: "./overview?assistant=new"},
+		{Name: eventsAlerts, URL: "./events"},
 	}
 
 	manifestBytes, err = json.Marshal(manifest)

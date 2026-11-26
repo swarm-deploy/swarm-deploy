@@ -20,6 +20,16 @@ type Manifest struct {
 	BackgroundColor string `json:"background_color"`
 	// Icons contains installable application icons.
 	Icons []Icon `json:"icons"`
+	// Shortcuts contains quick actions exposed by the installed application.
+	Shortcuts []Shortcut `json:"shortcuts,omitempty"`
+}
+
+// Shortcut describes a quick action in the installed application menu.
+type Shortcut struct {
+	// Name is the localized action label.
+	Name string `json:"name"`
+	// URL is the destination relative to the manifest URL.
+	URL string `json:"url"`
 }
 
 // Icon describes an image referenced by a web application manifest.
