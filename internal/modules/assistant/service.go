@@ -263,6 +263,11 @@ func (s *Service) prepareRun(ctx context.Context, run *chatRun, createdBy string
 }
 
 func (s *Service) runAssistant(ctx context.Context, createdBy string, history []conversation.Turn, run *chatRun) {
+	ctx, span := s.tracer.Start(ctx, "assistant.Run", trace.WithAttributes(
+		tracing.GenAIConversationID.String(run.conversationID),
+	))
+	defer span.End()
+
 	runCtx, cancel := context.WithTimeout(ctx, runExecutionTimeout)
 	defer cancel()
 

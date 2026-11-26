@@ -191,10 +191,24 @@ func TestConfigurationThroughChat(t *testing.T) {
 			}
 
 			var traceText strings.Builder
+			toolCallIDs := make(map[string]string)
 			for _, span := range recorder.Ended()[spanOffset:] {
+				if strings.HasPrefix(span.Name(), "tool ") {
+					for _, attr := range span.Attributes() {
+						if attr.Key == tracing.GenAIToolCallID {
+							toolCallIDs[span.Name()] = attr.Value.AsString()
+						}
+					}
+				}
 				if strings.HasPrefix(span.Name(), "chat.") || strings.HasPrefix(span.Name(), "tool ") {
 					fmt.Fprintln(&traceText, span.Name(), span.Attributes(), span.Status(), span.Events())
 				}
+			}
+			if !tt.concept && !tt.forbidden {
+				assert.Equal(t, "call-config", toolCallIDs["tool "+configurationToolName])
+			}
+			if tt.diagnostic {
+				assert.Equal(t, "call-alert", toolCallIDs["tool alert_list"])
 			}
 			traces := traceText.String()
 			assert.Contains(t, traces, tt.userMessage)

@@ -31,8 +31,9 @@ func (g *graph) executeToolCall(
 	}
 
 	result, runErr := g.tools.Execute(ctx, routing.Request{
-		ToolName: toolCall.Name,
-		Payload:  toolCall.Arguments,
+		ToolName:   toolCall.Name,
+		ToolCallID: toolCall.ID,
+		Payload:    toolCall.Arguments,
 	})
 	if runErr != nil {
 		return "", runErr

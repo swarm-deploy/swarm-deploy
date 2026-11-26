@@ -162,6 +162,9 @@ func (e *Executor) Execute(ctx context.Context, req routing.Request) (string, er
 		tracing.GenAIToolCallArguments.String(raw),
 	))
 	defer span.End()
+	if req.ToolCallID != "" {
+		span.SetAttributes(tracing.GenAIToolCallID.String(req.ToolCallID))
+	}
 
 	startedAt := time.Now()
 	success := false
@@ -223,6 +226,9 @@ func (e *Executor) executeConfigGet(ctx context.Context, req routing.Request) (e
 		semconv.GenAIOperationNameExecuteTool,
 		tracing.GenAIToolName.String(configGetToolName),
 	))
+	if req.ToolCallID != "" {
+		span.SetAttributes(tracing.GenAIToolCallID.String(req.ToolCallID))
+	}
 	startedAt := time.Now()
 	defer func() {
 		duration := time.Since(startedAt)
