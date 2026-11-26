@@ -30,6 +30,8 @@ type Shortcut struct {
 	Name string `json:"name"`
 	// URL is the destination relative to the manifest URL.
 	URL string `json:"url"`
+	// Icons contains images representing the shortcut in the application menu.
+	Icons []Icon `json:"icons,omitempty"`
 }
 
 // Icon describes an image referenced by a web application manifest.

@@ -123,8 +123,20 @@ func preparePWAManifest(uiFS fs.FS, locale string, pwaConfig config.WebPWASpec) 
 		eventsAlerts = "События и алерты"
 	}
 	manifest.Shortcuts = []pwa.Shortcut{
-		{Name: askAssistant, URL: "./overview?assistant=new"},
-		{Name: eventsAlerts, URL: "./events"},
+		{
+			Name: askAssistant,
+			URL:  "./overview?assistant=new",
+			Icons: []pwa.Icon{
+				{Src: "icons/shortcut-assistant.png", Sizes: "192x192", Type: "image/png", Purpose: "any"},
+			},
+		},
+		{
+			Name: eventsAlerts,
+			URL:  "./events",
+			Icons: []pwa.Icon{
+				{Src: "icons/shortcut-events.png", Sizes: "192x192", Type: "image/png", Purpose: "any"},
+			},
+		},
 	}
 
 	manifestBytes, err = json.Marshal(manifest)

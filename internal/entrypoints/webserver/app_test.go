@@ -3,6 +3,7 @@ package webserver
 import (
 	"encoding/json/v2"
 	"errors"
+	"image/png"
 	"io/fs"
 	"net/http"
 	"net/http/httptest"
@@ -274,6 +275,7 @@ func TestEmbeddedUIWithBasePath(t *testing.T) {
 }
 
 func TestPWAURLsFromServicePage(t *testing.T) {
+	shortcutIconPaths := []string{"icons/shortcut-assistant.png", "icons/shortcut-events.png"}
 	uiFS := ui.FS
 	if _, err := fs.Stat(uiFS, "assets"); errors.Is(err, fs.ErrNotExist) {
 		// A clean checkout embeds a placeholder index. Mirror Vite's production base for Go-only runs.
@@ -281,10 +283,16 @@ func TestPWAURLsFromServicePage(t *testing.T) {
 		require.NoError(t, err)
 		manifest, err := os.ReadFile("../../../ui/public/manifest.webmanifest")
 		require.NoError(t, err)
-		uiFS = fstest.MapFS{
+		files := fstest.MapFS{
 			"index.html":           {Data: []byte(strings.ReplaceAll(string(index), "%BASE_URL%", "./"))},
 			"manifest.webmanifest": {Data: manifest},
 		}
+		for _, iconPath := range shortcutIconPaths {
+			data, err := os.ReadFile("../../../ui/public/" + iconPath)
+			require.NoError(t, err)
+			files[iconPath] = &fstest.MapFile{Data: data}
+		}
+		uiFS = files
 	}
 
 	for _, tc := range []struct {
@@ -351,8 +359,14 @@ func TestPWAURLsFromServicePage(t *testing.T) {
 					Src string `json:"src"`
 				} `json:"icons"`
 				Shortcuts []struct {
-					Name string `json:"name"`
-					URL  string `json:"url"`
+					Name  string `json:"name"`
+					URL   string `json:"url"`
+					Icons []struct {
+						Src     string `json:"src"`
+						Sizes   string `json:"sizes"`
+						Type    string `json:"type"`
+						Purpose string `json:"purpose"`
+					} `json:"icons"`
 				} `json:"shortcuts"`
 			}
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &manifest))
@@ -366,6 +380,25 @@ func TestPWAURLsFromServicePage(t *testing.T) {
 			assert.Equal(t, tc.wantShortcutNames[1], manifest.Shortcuts[1].Name)
 			assert.Equal(t, origin+tc.prefix+"/overview?assistant=new", resolvePWAURL(t, manifestURL, manifest.Shortcuts[0].URL).String())
 			assert.Equal(t, origin+tc.prefix+"/events", resolvePWAURL(t, manifestURL, manifest.Shortcuts[1].URL).String())
+
+			for i, shortcut := range manifest.Shortcuts {
+				require.Len(t, shortcut.Icons, 1)
+				icon := shortcut.Icons[0]
+				assert.Equal(t, "192x192", icon.Sizes)
+				assert.Equal(t, "image/png", icon.Type)
+				assert.Equal(t, "any", icon.Purpose)
+				iconURL := resolvePWAURL(t, manifestURL, icon.Src)
+				assert.Equal(t, origin+tc.prefix+"/"+shortcutIconPaths[i], iconURL.String())
+
+				rec := httptest.NewRecorder()
+				handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, iconURL.String(), nil))
+				require.Equal(t, http.StatusOK, rec.Code)
+				assert.Equal(t, "image/png", rec.Header().Get("Content-Type"))
+				image, err := png.DecodeConfig(rec.Body)
+				require.NoError(t, err)
+				assert.Equal(t, 192, image.Width)
+				assert.Equal(t, 192, image.Height)
+			}
 
 			var icons []string
 			for _, icon := range manifest.Icons {
