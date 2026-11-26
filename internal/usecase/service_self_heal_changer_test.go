@@ -18,7 +18,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/testutil"
 )
 
-func TestServiceSelfHealEnablerPrepareAndPublish(t *testing.T) {
+func TestServiceSelfHealChangerPrepareAndPublish(t *testing.T) {
 	dir := t.TempDir()
 	repo, err := gogit.PlainInit(dir, false)
 	require.NoError(t, err)
@@ -51,15 +51,17 @@ func TestServiceSelfHealEnablerPrepareAndPublish(t *testing.T) {
 	proposals, err := selfheal.New(cfg, cfg.Spec.GitOps.Sync.Policy.SelfHeal, cfg.Spec.GitOps.Git, cfg.Spec.DataDir)
 	require.NoError(t, err)
 	catalog := modelstore.NewSQLStore(testutil.OpenSQLite(t))
-	enabler := NewServiceSelfHealEnabler(catalog, proposals)
+	changer := NewServiceSelfHealChanger(catalog, proposals)
 
 	ctx := t.Context()
 	require.NoError(t, catalog.ReplaceStack(ctx, "core", []model.Info{{Stack: "core", Name: "api"}}))
-	plan, err := enabler.Prepare(ctx, "core", "api")
+	plan, err := changer.Prepare(ctx, "core", "api", true)
 	require.NoError(t, err)
-	require.Equal(t, ServiceSelfHealPlan{Stack: "core", Service: "api", Policy: selfheal.State{Source: "global"}}, plan)
+	require.Equal(t, ServiceSelfHealPlan{
+		Stack: "core", Service: "api", Policy: selfheal.State{Source: "global"},
+	}, plan)
 	require.NoError(t, catalog.ReplaceStack(ctx, "core", []model.Info{{Stack: "core", Name: "api-backup"}}))
-	_, err = enabler.Publish(ctx, plan, "test")
+	_, err = changer.Publish(ctx, plan, true, "test")
 	require.ErrorIs(t, err, ErrServiceNotFound)
 	branches, err := repo.Branches()
 	require.NoError(t, err)
@@ -70,7 +72,7 @@ func TestServiceSelfHealEnablerPrepareAndPublish(t *testing.T) {
 	}))
 	assert.Equal(t, []string{base.Name().Short()}, names)
 	require.NoError(t, catalog.ReplaceStack(ctx, "core", []model.Info{{Stack: "core", Name: "api"}}))
-	published, err := enabler.Publish(ctx, plan, "test")
+	published, err := changer.Publish(ctx, plan, true, "test")
 	require.NoError(t, err)
 	head, err := repo.Head()
 	require.NoError(t, err)
@@ -86,16 +88,16 @@ func TestServiceSelfHealEnablerPrepareAndPublish(t *testing.T) {
 	require.NoError(t, err)
 	assert.YAMLEq(t, "services:\n  api: {deploy: {labels: {"+label+": \"true\"}}, image: app:v1}\n", body)
 	commit("services:\n  api: {deploy: {labels: {" + label + ": 'false'}}}\n")
-	_, err = enabler.Publish(ctx, plan, "test")
+	_, err = changer.Publish(ctx, plan, true, "test")
 	require.ErrorIs(t, err, selfheal.ErrPolicyChanged)
 	commit(body)
-	already, err := enabler.Publish(ctx, plan, "test")
+	already, err := changer.Publish(ctx, plan, true, "test")
 	require.NoError(t, err)
 	assert.Equal(t, selfheal.Result{AlreadyEnabled: "service"}, already)
-	enabledPlan, err := enabler.Prepare(ctx, "core", "api")
+	enabledPlan, err := changer.Prepare(ctx, "core", "api", true)
 	require.NoError(t, err)
 	require.True(t, enabledPlan.Policy.Enabled)
 	commit("services:\n  api: {deploy: {labels: {" + label + ": 'false'}}}\n")
-	_, err = enabler.Publish(ctx, enabledPlan, "test")
+	_, err = changer.Publish(ctx, enabledPlan, true, "test")
 	require.ErrorIs(t, err, selfheal.ErrPolicyChanged)
 }

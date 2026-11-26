@@ -48,7 +48,7 @@ type Executor struct {
 func NewExecutor(
 	resourcesModule *resources.Module,
 	gitopsModule *gitops.Module,
-	selfHeal *usecase.ServiceSelfHealEnabler,
+	selfHeal *usecase.ServiceSelfHealChanger,
 	deployments *deploymentstore.Store,
 	alertModule *alertmanagement.Module,
 	eventModule *event.Module,
@@ -101,8 +101,16 @@ func NewExecutor(
 	}
 	if selfHeal != nil {
 		toolComponents = append(toolComponents,
-			&serviceSelfHeal{name: config.AssistantToolNameServiceSelfHealEnable, publish: selfHeal.Publish},
-			&serviceSelfHeal{name: config.AssistantToolNameServiceSelfHealDisable, publish: selfHeal.PublishDisable},
+			&serviceSelfHeal{
+				name:           config.AssistantToolNameServiceSelfHealEnable,
+				desiredEnabled: true,
+				publish:        selfHeal.Publish,
+			},
+			&serviceSelfHeal{
+				name:           config.AssistantToolNameServiceSelfHealDisable,
+				desiredEnabled: false,
+				publish:        selfHeal.Publish,
+			},
 		)
 	}
 

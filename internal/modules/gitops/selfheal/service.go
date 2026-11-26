@@ -53,18 +53,9 @@ func New(
 	return &Service{stacks: stacks, global: global, spec: write, dataDir: dataDir, repo: repo, github: github}, nil
 }
 
-// Preview reads policy from the base branch of the configured write repository.
-func (s *Service) Preview(ctx context.Context, stack, service string) (State, error) {
-	return s.preview(ctx, stack, service, true)
-}
-
-// PreviewDisable reads policy and checks whether an override to disable self-heal is possible.
-func (s *Service) PreviewDisable(ctx context.Context, stack, service string) (State, error) {
-	return s.preview(ctx, stack, service, false)
-}
-
-func (s *Service) preview(ctx context.Context, stack, service string, enabled bool) (State, error) {
-	change, err := s.prepare(ctx, stack, service, enabled)
+// Preview reads policy and checks whether the requested self-heal override is possible.
+func (s *Service) Preview(ctx context.Context, stack, service string, desiredEnabled bool) (State, error) {
+	change, err := s.prepare(ctx, stack, service, desiredEnabled)
 	if err != nil {
 		return State{}, err
 	}
@@ -72,26 +63,17 @@ func (s *Service) preview(ctx context.Context, stack, service string, enabled bo
 	return change.state, nil
 }
 
-// Enable rechecks the policy observed during preparation on a fresh checkout before publishing.
-func (s *Service) Enable(ctx context.Context, stack, service string, expected State, author string) (Result, error) {
-	return s.publish(ctx, stack, service, expected, author, true)
-}
-
-// Disable rechecks the policy observed during preparation on a fresh checkout before publishing.
-func (s *Service) Disable(ctx context.Context, stack, service string, expected State, author string) (Result, error) {
-	return s.publish(ctx, stack, service, expected, author, false)
-}
-
-func (s *Service) publish(
-	ctx context.Context, stack, service string, expected State, author string, enabled bool,
+// Publish rechecks the policy observed during preparation on a fresh checkout before publishing.
+func (s *Service) Publish(
+	ctx context.Context, stack, service string, expected State, desiredEnabled bool, author string,
 ) (Result, error) {
-	change, err := s.prepare(ctx, stack, service, enabled)
+	change, err := s.prepare(ctx, stack, service, desiredEnabled)
 	if err != nil {
 		return Result{}, err
 	}
 	defer change.file.Close(ctx)
-	if change.state.Enabled == enabled {
-		if enabled {
+	if change.state.Enabled == desiredEnabled {
+		if desiredEnabled {
 			return Result{AlreadyEnabled: change.state.Source}, nil
 		}
 		return Result{AlreadyDisabled: change.state.Source}, nil
@@ -100,7 +82,7 @@ func (s *Service) publish(
 		return Result{}, ErrPolicyChanged
 	}
 	action, description := "enable", "Enable automatic drift repair for this service by setting its Compose deploy label."
-	if !enabled {
+	if !desiredEnabled {
 		action = "disable"
 		description = "Disable automatic drift repair for this service by setting its Compose deploy label."
 	}

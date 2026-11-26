@@ -39,17 +39,16 @@ type SyncPauseTargetResolver interface {
 
 // operationFlow runs the deterministic collect, confirm, and execute workflow for supported mutations.
 type operationFlow struct {
-	texts                  *texts.Localizer
-	modelName              string
-	chat                   modelCompleter
-	store                  ServiceStore
-	tools                  ToolExecutor
-	guard                  *guard.InjectionChecker
-	allowedToolSet         map[string]struct{}
-	prepareSelfHeal        func(context.Context, string, string) (usecase.ServiceSelfHealPlan, error)
-	prepareSelfHealDisable func(context.Context, string, string) (usecase.ServiceSelfHealPlan, error)
-	pauseTargets           SyncPauseTargetResolver
-	pending                *pendingOperationStore
+	texts           *texts.Localizer
+	modelName       string
+	chat            modelCompleter
+	store           ServiceStore
+	tools           ToolExecutor
+	guard           *guard.InjectionChecker
+	allowedToolSet  map[string]struct{}
+	prepareSelfHeal func(context.Context, string, string, bool) (usecase.ServiceSelfHealPlan, error)
+	pauseTargets    SyncPauseTargetResolver
+	pending         *pendingOperationStore
 }
 
 func newOperationFlow(
@@ -61,17 +60,16 @@ func newOperationFlow(
 	allowedToolSet map[string]struct{},
 ) *operationFlow {
 	return &operationFlow{
-		texts:                  config.Localizer,
-		modelName:              config.ModelName,
-		chat:                   chat,
-		store:                  store,
-		tools:                  tools,
-		guard:                  injectionGuard,
-		allowedToolSet:         allowedToolSet,
-		pauseTargets:           config.SyncPauses,
-		prepareSelfHeal:        config.PrepareSelfHeal,
-		prepareSelfHealDisable: config.PrepareSelfHealDisable,
-		pending:                newPendingOperationStore(config.ConversationInMemoryTTL),
+		texts:           config.Localizer,
+		modelName:       config.ModelName,
+		chat:            chat,
+		store:           store,
+		tools:           tools,
+		guard:           injectionGuard,
+		allowedToolSet:  allowedToolSet,
+		pauseTargets:    config.SyncPauses,
+		prepareSelfHeal: config.PrepareSelfHeal,
+		pending:         newPendingOperationStore(config.ConversationInMemoryTTL),
 	}
 }
 
@@ -543,7 +541,7 @@ func (f *operationFlow) operationAllowed(capability Capability, operation Operat
 	if !operation.isSelfHeal() {
 		return true
 	}
-	if f.selfHealPreparation(operation) == nil {
+	if f.prepareSelfHeal == nil {
 		return false
 	}
 	return slices.ContainsFunc(f.tools.Definitions(), func(tool routing.ToolDefinition) bool {

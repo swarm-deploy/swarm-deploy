@@ -12,15 +12,6 @@ func (op OperationType) isSelfHeal() bool {
 	return op == OperationServiceSelfHealEnable || op == OperationServiceSelfHealDisable
 }
 
-func (f *operationFlow) selfHealPreparation(
-	op OperationType,
-) func(context.Context, string, string) (usecase.ServiceSelfHealPlan, error) {
-	if op == OperationServiceSelfHealDisable {
-		return f.prepareSelfHealDisable
-	}
-	return f.prepareSelfHeal
-}
-
 func (t *operationTurn) collectSelfHeal(
 	ctx context.Context, op PendingOperation, target string,
 ) (string, conversation.TokenUsage) {
@@ -49,7 +40,8 @@ func (t *operationTurn) collectSelfHeal(
 func (t *operationTurn) prepareSelfHealOperation(
 	ctx context.Context, op PendingOperation, stack, service string,
 ) string {
-	plan, err := t.selfHealPreparation(op.Type)(ctx, stack, service)
+	desiredEnabled := op.Type == OperationServiceSelfHealEnable
+	plan, err := t.prepareSelfHeal(ctx, stack, service, desiredEnabled)
 	if err != nil {
 		t.pending.delete(t.conversationID)
 		if errors.Is(err, usecase.ErrServiceCatalogUnavailable) {
@@ -57,7 +49,7 @@ func (t *operationTurn) prepareSelfHealOperation(
 		}
 		return t.texts.Format("operation.failed", map[string]any{"Error": err.Error()})
 	}
-	if plan.Policy.Enabled == (op.Type == OperationServiceSelfHealEnable) {
+	if plan.Policy.Enabled == desiredEnabled {
 		t.pending.delete(t.conversationID)
 		message := "result.self_heal_enabled"
 		if op.Type == OperationServiceSelfHealDisable {

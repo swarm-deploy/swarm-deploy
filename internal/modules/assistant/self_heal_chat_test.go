@@ -183,7 +183,7 @@ func newSelfHealChat(
 	db := testutil.OpenSQLite(t)
 	catalog := modelstore.NewSQLStore(db)
 	require.NoError(t, catalog.ReplaceStack(t.Context(), "jobs", []model.Info{{Stack: "jobs", Name: "backup"}}))
-	selfHeal := usecase.NewServiceSelfHealEnabler(catalog, proposals)
+	selfHeal := usecase.NewServiceSelfHealChanger(catalog, proposals)
 	executor := tools.NewExecutor(&resources.Module{ServiceStore: catalog}, &gitops.Module{}, selfHeal, nil,
 		&alertmanagement.Module{}, &event.Module{}, &swarm.Swarm{}, nil, nil, nil, nil, nil,
 		metrics.NewGroup(metrics.CreateGroupParams{}).MCP, cfg.Spec)
@@ -191,9 +191,8 @@ func newSelfHealChat(
 		Localizer: testAssistantTexts(t, language), Enabled: true,
 		ModelName: "test-model", BaseURL: baseURL, APIToken: "test-token", MaxTokens: 200,
 		AllowedTools: allowed, ConversationInMemoryTTL: time.Hour,
-		ConversationHistory:    conversation.NewSQLHistoryStorage(db),
-		PrepareSelfHeal:        selfHeal.Prepare,
-		PrepareSelfHealDisable: selfHeal.PrepareDisable,
+		ConversationHistory: conversation.NewSQLHistoryStorage(db),
+		PrepareSelfHeal:     selfHeal.Prepare,
 	}, catalog, executor, &dispatcher.NopDispatcher{}, metrics.NopAssistant{})
 	require.NoError(t, err)
 	return service, repo, commit

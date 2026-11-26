@@ -12,8 +12,9 @@ import (
 )
 
 type serviceSelfHeal struct {
-	name    config.AssistantToolName
-	publish func(context.Context, usecase.ServiceSelfHealPlan, string) (selfheal.Result, error)
+	name           config.AssistantToolName
+	desiredEnabled bool
+	publish        func(context.Context, usecase.ServiceSelfHealPlan, bool, string) (selfheal.Result, error)
 }
 
 func (s *serviceSelfHeal) Definition() routing.ToolDefinition {
@@ -35,7 +36,7 @@ func (s *serviceSelfHeal) Execute(ctx context.Context, request routing.Request) 
 	if user, ok := security.UserFromContext(ctx); ok && strings.TrimSpace(user.Name) != "" {
 		author = strings.Join(strings.Fields(user.Name), " ")
 	}
-	result, err := s.publish(ctx, plan, author)
+	result, err := s.publish(ctx, plan, s.desiredEnabled, author)
 	if err != nil {
 		return routing.Response{}, err
 	}

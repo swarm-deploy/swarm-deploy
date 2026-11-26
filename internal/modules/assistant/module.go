@@ -54,7 +54,7 @@ type Container interface {
 // InitModule initializes the assistant and its built-in tools.
 func InitModule(
 	_ context.Context, cfg *config.Config, cnt Container, localizer *texts.Localizer,
-	selfHeal *usecase.ServiceSelfHealEnabler,
+	selfHeal *usecase.ServiceSelfHealChanger,
 ) (*Module, error) {
 	if !cfg.Spec.Assistant.Enabled {
 		return &Module{Service: NewDisabledAssistant(localizer)}, nil
@@ -110,7 +110,6 @@ func InitModule(
 		ConversationHistory:     conversation.NewSQLHistoryStorage(cnt.GetStorage()),
 		SyncPauses:              gitopsModule.SyncPauses,
 		PrepareSelfHeal:         selfHeal.Prepare,
-		PrepareSelfHealDisable:  selfHeal.PrepareDisable,
 	}, resourcesModule.ServiceStore, toolExecutor, eventModule.Dispatcher, cnt.GetMetrics().Assistant)
 	if err != nil {
 		return nil, err
