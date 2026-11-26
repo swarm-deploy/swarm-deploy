@@ -275,7 +275,7 @@ func TestEmbeddedUIWithBasePath(t *testing.T) {
 }
 
 func TestPWAURLsFromServicePage(t *testing.T) {
-	shortcutIconPaths := []string{"icons/icon-192.png", "icons/icon-192.png"}
+	shortcutIconPaths := []string{"icons/shortcut-assistant-mask.png", "icons/shortcut-events-mask.png"}
 	uiFS := ui.FS
 	if _, err := fs.Stat(uiFS, "assets"); errors.Is(err, fs.ErrNotExist) {
 		// A clean checkout embeds a placeholder index. Mirror Vite's production base for Go-only runs.
@@ -394,10 +394,22 @@ func TestPWAURLsFromServicePage(t *testing.T) {
 				handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, iconURL.String(), nil))
 				require.Equal(t, http.StatusOK, rec.Code)
 				assert.Equal(t, "image/png", rec.Header().Get("Content-Type"))
-				image, err := png.DecodeConfig(rec.Body)
+				image, err := png.Decode(rec.Body)
 				require.NoError(t, err)
-				assert.Equal(t, 192, image.Width)
-				assert.Equal(t, 192, image.Height)
+				assert.Equal(t, 192, image.Bounds().Dx())
+				assert.Equal(t, 192, image.Bounds().Dy())
+
+				transparentPixels := 0
+				for y := image.Bounds().Min.Y; y < image.Bounds().Max.Y; y++ {
+					for x := image.Bounds().Min.X; x < image.Bounds().Max.X; x++ {
+						_, _, _, alpha := image.At(x, y).RGBA()
+						if alpha == 0 {
+							transparentPixels++
+						}
+					}
+				}
+				assert.Greater(t, transparentPixels, image.Bounds().Dx()*image.Bounds().Dy()/2,
+					"shortcut icon alpha must describe the glyph, not an opaque background")
 			}
 
 			var icons []string
