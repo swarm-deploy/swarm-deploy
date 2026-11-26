@@ -91,11 +91,11 @@ func Prepare(uiFS fs.FS, locale string, pwaConfig config.WebPWASpec) ([]byte, er
 		return nil, fmt.Errorf("load PWA texts: %w", err)
 	}
 
-	assistantIcon, err := readShortcutIcon(uiFS, "icons/shortcut-assistant-mask.png")
+	assistantIcon, err := readShortcutIcon(uiFS, "icons/shortcut-assistant.png")
 	if err != nil {
 		return nil, err
 	}
-	eventsIcon, err := readShortcutIcon(uiFS, "icons/shortcut-events-mask.png")
+	eventsIcon, err := readShortcutIcon(uiFS, "icons/shortcut-events.png")
 	if err != nil {
 		return nil, err
 	}
