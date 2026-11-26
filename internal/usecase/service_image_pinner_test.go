@@ -3,7 +3,6 @@ package usecase
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	dockerswarm "github.com/docker/docker/api/types/swarm"
@@ -115,7 +114,6 @@ func TestServiceImagePinnerPublishesOnlySelectedImage(t *testing.T) {
 	assertNoImagePinBranch(t, repo)
 	result, err := pinner.Publish(t.Context(), plan.Plan, "test")
 	require.NoError(t, err)
-	assert.Equal(t, "prod-api-pin-image", result.Branch)
 
 	ref, err := repo.Reference(plumbing.NewBranchReferenceName(result.Branch), true)
 	require.NoError(t, err)
@@ -133,6 +131,38 @@ func TestServiceImagePinnerPublishesOnlySelectedImage(t *testing.T) {
 	head, err := repo.Head()
 	require.NoError(t, err)
 	assert.Equal(t, base, head.Hash())
+}
+
+func TestServiceImagePinnerPublishesWithPreviousBranchRetained(t *testing.T) {
+	repo, cfg, catalog, commit := setupImagePinRepo(t)
+	manager := swarm.NewMockServiceManager(gomock.NewController(t))
+	proposals, err := imagepin.New(cfg, cfg.Spec.GitOps.Git, cfg.Spec.DataDir)
+	require.NoError(t, err)
+	pinner := NewServiceImagePinner(catalog, manager, proposals)
+	pin := func(image, digest string) *plumbing.Reference {
+		t.Helper()
+		commit("services:\n  api: {image: " + image + "}\n")
+		manager.EXPECT().ListTasks(gomock.Any(), "prod_api").Return([]swarm.ServiceTask{
+			imagePinTask(image+"@"+digest, swarm.TaskStateRunning),
+		}, nil).Times(2)
+		assessment, err := pinner.Prepare(t.Context(), "prod", "api")
+		require.NoError(t, err)
+		require.Equal(t, ServiceImagePinReady, assessment.Status)
+		result, err := pinner.Publish(t.Context(), assessment.Plan, "test")
+		require.NoError(t, err)
+		ref, err := repo.Reference(plumbing.NewBranchReferenceName(result.Branch), true)
+		require.NoError(t, err)
+		return ref
+	}
+
+	first := pin("api:1.8", imageDigestA)
+	// Squash the first pin into the base, retaining its proposal branch.
+	commit("services:\n  api: {image: api:1.8@" + imageDigestA + "}\n")
+	second := pin("api:1.9", imageDigestB)
+	require.NotEqual(t, first.Name(), second.Name())
+	retained, err := repo.Reference(first.Name(), true)
+	require.NoError(t, err)
+	assert.Equal(t, first.Hash(), retained.Hash())
 }
 
 func TestServiceImagePinnerRejectsChangedRunningDigest(t *testing.T) {
@@ -224,12 +254,10 @@ func assertNoImagePinBranch(t *testing.T, repo *gogit.Repository) {
 	t.Helper()
 	branches, err := repo.Branches()
 	require.NoError(t, err)
-	var names []string
+	head, err := repo.Head()
+	require.NoError(t, err)
 	require.NoError(t, branches.ForEach(func(ref *plumbing.Reference) error {
-		names = append(names, ref.Name().Short())
+		assert.Equal(t, head.Name(), ref.Name())
 		return nil
 	}))
-	for _, name := range names {
-		assert.False(t, strings.HasSuffix(name, "-pin-image"), names)
-	}
 }

@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/githosting"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
@@ -90,7 +91,7 @@ func (s *Service) Publish(
 	if err != nil {
 		return Result{}, err
 	}
-	branch := fmt.Sprintf("%s-%s-pin-image", branchPart(stack), branchPart(service))
+	branch := fmt.Sprintf("%s-%s-pin-image-%s", branchPart(stack), branchPart(service), uuid.NewString())
 	title := fmt.Sprintf("chore: pin image for %s/%s", stack, service)
 	if _, err = file.Push(ctx, branch, title, author, updated); err != nil {
 		return Result{}, err

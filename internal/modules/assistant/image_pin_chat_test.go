@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -113,15 +114,20 @@ func TestPinRunningImageThroughChat(t *testing.T) {
 	assert.Contains(t, first.Answer, "Запущенных задач: 1")
 	assert.Contains(t, first.Answer, "`api:1.8`")
 	assert.Contains(t, first.Answer, "`api:1.8@"+digest+"`")
-	_, err = repo.Reference(plumbing.NewBranchReferenceName("prod-api-pin-image"), true)
-	require.ErrorIs(t, err, plumbing.ErrReferenceNotFound, "preparation must not publish a branch")
+	branches, err := repo.Branches()
+	require.NoError(t, err)
+	require.NoError(t, branches.ForEach(func(ref *plumbing.Reference) error {
+		assert.Equal(t, head.Name(), ref.Name(), "preparation must not publish a branch")
+		return nil
+	}))
 
 	confirmed := service.Chat(t.Context(), ChatRequest{ConversationID: first.ConversationID, Message: "да"})
 	require.Equal(t, StatusCompleted, confirmed.Status, confirmed.Answer)
 	assert.Nil(t, confirmed.Selection)
-	assert.Contains(t, confirmed.Answer, "prod-api-pin-image")
 	assert.EqualValues(t, 1, requests.Load(), "confirmation must not call the model")
-	proposal, err := repo.Reference(plumbing.NewBranchReferenceName("prod-api-pin-image"), true)
+	match := regexp.MustCompile("`(prod-api-pin-image-[^`]+)`").FindStringSubmatch(confirmed.Answer)
+	require.Len(t, match, 2, confirmed.Answer)
+	proposal, err := repo.Reference(plumbing.NewBranchReferenceName(match[1]), true)
 	require.NoError(t, err)
 	revision, err := repo.CommitObject(proposal.Hash())
 	require.NoError(t, err)
