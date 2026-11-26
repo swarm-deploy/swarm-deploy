@@ -83,6 +83,7 @@
   "operation.scale_failed": "{{.PauseResult}} Scaling failed: {{.Error}}. The pause remains active. Retry only scaling?",
   "operation.scale_forbidden": "{{.PauseResult}} Scaling is forbidden by `assistant.tools`. The pause remains active; confirm if scaling becomes allowed and should be retried.",
   "operation.scale_scope_required": "{{.PauseResult}} Scaling was not attempted because a combined Pause + Scale request requires service scope.",
+  "operation.restart_restore_failed": "Replicas were scaled to zero. The previous replica count could not be restored. {{.Error}}",
   "operation.service_changed": "The service changed or no longer exists. Operation cancelled.",
   "operation.stack_not_found": "The stack was not found in GitOps. Specify the stack name.",
   "operation.target_not_found": "No service found for `{{.Target}}`. Specify the stack or service name.",

@@ -20,6 +20,9 @@ var ErrServiceUpdateConflict = errors.New("service changed while updating replic
 // ErrServiceZeroReplicas means a stopped service cannot be restarted.
 var ErrServiceZeroReplicas = errors.New("cannot restart a service with zero configured replicas")
 
+// ErrServiceReplicaRestore marks a restart that scaled to zero but failed to restore the previous count.
+var ErrServiceReplicaRestore = errors.New("restore service replicas")
+
 // ServiceScaleResult describes the service and replica count before a successful scale.
 type ServiceScaleResult struct {
 	// Stack is the Docker stack namespace, or empty for standalone services.

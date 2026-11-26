@@ -24,7 +24,7 @@ func (t *operationTurn) collectSelfHeal(
 		t.next = &op
 		return t.texts.Text("operation.ask_target"), usage
 	}
-	resolution, usage, err := t.lookupService(ctx, target)
+	resolution, usage, err := t.serviceTargets.resolve(ctx, target)
 	if err != nil {
 		t.pending.delete(t.conversationID)
 		return t.texts.Text("operation.catalog_failed"), usage

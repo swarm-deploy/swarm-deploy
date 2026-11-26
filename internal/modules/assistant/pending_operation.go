@@ -5,7 +5,6 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"fmt"
-	"log/slog"
 	"math"
 	"slices"
 	"strconv"
@@ -16,18 +15,15 @@ import (
 
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/conversation"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/guard"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/llm"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/texts"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/tools/routing"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/selfheal"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/syncpause"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/model"
+	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	"github.com/swarm-deploy/swarm-deploy/internal/usecase"
 )
 
 const defaultPendingOperationTTL = 15 * time.Minute
-
-const targetResolverMaxTokens = 96
 
 // SyncPauseTargetResolver reads GitOps-owned Pause Sync state to validate pending operation targets.
 type SyncPauseTargetResolver interface {
@@ -40,9 +36,7 @@ type SyncPauseTargetResolver interface {
 // operationFlow runs the deterministic collect, confirm, and execute workflow for supported mutations.
 type operationFlow struct {
 	texts           *texts.Localizer
-	modelName       string
-	chat            modelCompleter
-	store           ServiceStore
+	serviceTargets  *serviceTargetResolver
 	tools           ToolExecutor
 	guard           *guard.InjectionChecker
 	allowedToolSet  map[string]struct{}
@@ -61,9 +55,7 @@ func newOperationFlow(
 ) *operationFlow {
 	return &operationFlow{
 		texts:           config.Localizer,
-		modelName:       config.ModelName,
-		chat:            chat,
-		store:           store,
+		serviceTargets:  newServiceTargetResolver(config.Localizer, config.ModelName, chat, store),
 		tools:           tools,
 		guard:           injectionGuard,
 		allowedToolSet:  allowedToolSet,
@@ -264,7 +256,7 @@ func (t *operationTurn) startPendingOperation(
 	if op.Type == OperationSyncPauseSet || op.Type == OperationSyncPauseResume {
 		return t.startPauseOperation(ctx, op)
 	}
-	resolution, usage, err := t.lookupService(ctx, op.Target)
+	resolution, usage, err := t.serviceTargets.resolve(ctx, op.Target)
 	if err != nil {
 		return t.texts.Text("operation.catalog_failed"), usage
 	}
@@ -384,7 +376,7 @@ func (t *operationTurn) handlePendingCollection(
 	}
 	var usage conversation.TokenUsage
 	if op.Stack == "" || op.Service == "" {
-		resolution, resolutionUsage, err := t.lookupService(ctx, op.replyTarget(message))
+		resolution, resolutionUsage, err := t.serviceTargets.resolve(ctx, op.replyTarget(message))
 		usage.Add(resolutionUsage)
 		if err != nil {
 			resolution.message = t.texts.Text("operation.catalog_failed")
@@ -419,17 +411,6 @@ func (op *PendingOperation) replyTarget(message string) string {
 	return target
 }
 
-func (f *operationFlow) lookupService(
-	ctx context.Context, target string,
-) (serviceResolution, conversation.TokenUsage, error) {
-	services, err := f.store.ReadAll(ctx)
-	if err != nil {
-		return serviceResolution{}, conversation.TokenUsage{}, err
-	}
-	resolution, usage := f.resolveOperationTarget(ctx, services, target)
-	return resolution, usage, nil
-}
-
 func (t *operationTurn) executePendingOperation(
 	ctx context.Context,
 	op PendingOperation,
@@ -456,7 +437,10 @@ func (t *operationTurn) executePendingOperation(
 	if op.Type == OperationServiceSelfHealDisable && errors.Is(err, selfheal.ErrPolicyChanged) {
 		return t.prepareSelfHealOperation(ctx, op, op.SelfHealPlan.Stack, op.SelfHealPlan.Service), nil
 	}
-	if errors.Is(err, usecase.ErrServiceNotFound) {
+	if errors.Is(err, swarm.ErrServiceReplicaRestore) {
+		return t.texts.Format("operation.restart_restore_failed", map[string]any{"Error": err.Error()}), nil
+	}
+	if errors.Is(err, usecase.ErrServiceNotFound) || errors.Is(err, swarm.ErrServiceNotFound) {
 		return t.texts.Text("operation.service_changed"), nil
 	}
 	if errors.Is(err, usecase.ErrServiceCatalogUnavailable) {
@@ -494,17 +478,7 @@ func (f *operationFlow) pendingOperationArguments(
 	case OperationServiceSelfHealEnable, OperationServiceSelfHealDisable:
 		return CapabilityServiceOperations, op.SelfHealPlan, "", nil
 	case OperationServiceRestart, OperationServiceReplicasSet:
-		services, err := f.store.ReadAll(ctx)
-		if err != nil {
-			return "", nil, "", err
-		}
-		resolution := f.resolveServiceTarget(services, op.Stack+"/"+op.Service)
-		if !resolution.ok || !strings.EqualFold(resolution.stack, op.Stack) ||
-			!strings.EqualFold(resolution.service, op.Service) {
-			return CapabilityServiceOperations, nil,
-				f.texts.Text("operation.service_changed"), nil
-		}
-		args := map[string]any{"stack": resolution.stack, "service": resolution.service}
+		args := map[string]any{"stack": op.Stack, "service": op.Service}
 		if op.Type == OperationServiceReplicasSet {
 			args["replicas"] = op.Replicas
 		}
@@ -630,145 +604,6 @@ func (t *operationTurn) executeConfirmedPauseScale(
 	recordTerminalTool(ctx, serviceReplicasSetTool)
 	return pauseAnswer + " " + scaleAnswer, nil
 }
-
-type serviceResolution struct {
-	stack     string
-	service   string
-	message   string
-	selection *conversation.Selection
-	ambiguous bool
-	ok        bool
-}
-
-func (f *operationFlow) resolveServiceTarget(services []model.Info, target string) serviceResolution {
-	target = strings.TrimSpace(target)
-	if target == "" {
-		return serviceResolution{message: f.texts.Text("operation.ask_target")}
-	}
-
-	matches := model.MatchServiceTarget(services, target)
-	switch len(matches) {
-	case 0:
-		return serviceResolution{message: f.texts.Format("operation.target_not_found", map[string]any{"Target": target})}
-	case 1:
-		return resolvedService(matches[0])
-	default:
-		return f.ambiguousServiceResolution(model.QualifiedNames(matches))
-	}
-}
-
-func resolvedService(item model.Info) serviceResolution {
-	return serviceResolution{stack: item.Stack, service: item.Name, ok: true}
-}
-
-func (f *operationFlow) ambiguousServiceResolution(targets []string) serviceResolution {
-	return serviceResolution{
-		message:   f.texts.Text("operation.ambiguous_target"),
-		selection: serviceTargetSelection(targets),
-		ambiguous: true,
-	}
-}
-
-func serviceTargetSelection(targets []string) *conversation.Selection {
-	options := make([]conversation.SelectionOption, 0, len(targets))
-	for _, target := range targets {
-		stack, service, ok := strings.Cut(target, "/")
-		option := conversation.SelectionOption{Label: target, Value: target}
-		if ok {
-			option.Label = service
-			option.Description = stack
-		}
-		options = append(options, option)
-	}
-	return &conversation.Selection{Options: options}
-}
-
-type targetResolverDecision struct {
-	Status     string   `json:"status"`
-	Candidate  string   `json:"candidate,omitempty"`
-	Candidates []string `json:"candidates,omitempty"`
-}
-
-func (f *operationFlow) resolveOperationTarget(
-	ctx context.Context,
-	services []model.Info,
-	target string,
-) (serviceResolution, conversation.TokenUsage) {
-	deterministic := f.resolveServiceTarget(services, target)
-	if deterministic.ok || deterministic.ambiguous || strings.TrimSpace(target) == "" || len(services) == 0 {
-		return deterministic, conversation.TokenUsage{}
-	}
-
-	candidates := model.QualifiedNames(services)
-	completion, err := f.chat.Complete(ctx, llm.Request{
-		Model:       f.modelName,
-		Temperature: 0,
-		MaxTokens:   targetResolverMaxTokens,
-		Messages: []llm.Message{
-			{Role: "system", Content: targetResolverSystemPrompt},
-			{Role: "user", Content: "Target: " + strings.TrimSpace(target) + "\nCandidates:\n" + strings.Join(candidates, "\n")},
-		},
-	})
-	if err != nil {
-		slog.WarnContext(ctx, "[assistant] service target resolver fallback failed", slog.Any("err", err))
-		return deterministic, completion.Usage
-	}
-
-	resolution := f.validateTargetResolverDecision(services, completion.Content)
-	if resolution.ok || resolution.message != "" {
-		return resolution, completion.Usage
-	}
-	return deterministic, completion.Usage
-}
-
-func (f *operationFlow) validateTargetResolverDecision(services []model.Info, content string) serviceResolution {
-	var decision targetResolverDecision
-	if err := json.Unmarshal([]byte(strings.TrimSpace(content)), &decision); err != nil {
-		return serviceResolution{}
-	}
-	switch strings.ToLower(strings.TrimSpace(decision.Status)) {
-	case "exact":
-		for _, item := range services {
-			if strings.EqualFold(item.QualifiedName(), strings.TrimSpace(decision.Candidate)) {
-				return resolvedService(item)
-			}
-		}
-	case "ambiguous":
-		matches := targetResolverMatches(services, decision.Candidates)
-		if len(matches) > 1 {
-			return f.ambiguousServiceResolution(model.QualifiedNames(matches))
-		}
-	case "not_found":
-		return serviceResolution{}
-	}
-	return serviceResolution{}
-}
-
-func targetResolverMatches(services []model.Info, candidates []string) []model.Info {
-	matches := make([]model.Info, 0, len(candidates))
-	seen := make(map[string]struct{}, len(candidates))
-	for _, candidate := range candidates {
-		for _, item := range services {
-			canonical := item.QualifiedName()
-			if !strings.EqualFold(canonical, strings.TrimSpace(candidate)) {
-				continue
-			}
-			if _, ok := seen[canonical]; ok {
-				continue
-			}
-			seen[canonical] = struct{}{}
-			matches = append(matches, item)
-		}
-	}
-	return matches
-}
-
-const targetResolverSystemPrompt = `Resolve one Docker Swarm service target against the provided candidates.
-Return compact JSON only, using one form:
-{"status":"exact","candidate":"stack/service"}
-{"status":"ambiguous","candidates":["stack/service"]}
-{"status":"not_found"}
-Candidate values must be copied exactly from the provided list. Do not use tools or outside knowledge.`
 
 func isSelfResolveRequest(message string) bool {
 	switch strings.ToLower(strings.TrimSpace(message)) {

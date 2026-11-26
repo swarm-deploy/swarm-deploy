@@ -343,7 +343,7 @@ func (m *serviceManager) restart(
 		return scaleErr
 	})
 	if err != nil {
-		return 0, fmt.Errorf("restore service replicas to %d: %w", currentReplicas, err)
+		return 0, fmt.Errorf("%w to %d: %w", ErrServiceReplicaRestore, currentReplicas, err)
 	}
 
 	return currentReplicas, nil

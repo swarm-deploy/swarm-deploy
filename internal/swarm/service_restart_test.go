@@ -128,6 +128,7 @@ func TestServiceManagerRestart(t *testing.T) {
 			assert.Equal(t, tc.updates, updates)
 			assert.Equal(t, tc.inspections, inspections)
 			if tc.restoreStatus != 0 {
+				assert.ErrorIs(t, err, ErrServiceReplicaRestore)
 				assert.Zero(t, *service.Spec.Mode.Replicated.Replicas, "failed restoration leaves service stopped")
 			}
 		})
