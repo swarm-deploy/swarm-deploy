@@ -73,7 +73,12 @@ type ChatResponse struct {
 	Activity []string
 	// Selection contains structured reply options for completed runs.
 	Selection *Selection
+	// Artifacts contains structured outputs produced by a completed run.
+	Artifacts []Artifact
 }
+
+// Artifact describes a durable output produced by an assistant operation.
+type Artifact = conversation.Artifact
 
 // ChatMessage is a user-visible persisted chat message.
 type ChatMessage struct {
@@ -87,6 +92,8 @@ type ChatMessage struct {
 	Activity []string `json:"activity,omitempty"`
 	// Selection contains structured reply options for assistant messages.
 	Selection *Selection `json:"selection,omitempty"`
+	// Artifacts contains structured outputs produced by an assistant operation.
+	Artifacts []Artifact `json:"artifacts,omitempty"`
 }
 
 // Selection contains structured single-choice reply options.
@@ -118,6 +125,8 @@ type ChatSummary struct {
 	Unread bool `json:"unread"`
 	// Usage contains aggregate token consumption when reported by the model provider.
 	Usage *TokenUsage `json:"token_usage,omitempty"`
+	// PrimaryArtifact is the latest pull request, or the latest other artifact when no pull request exists.
+	PrimaryArtifact *Artifact `json:"primary_artifact,omitempty"`
 }
 
 // ChatHistory contains a persisted assistant chat and its messages.

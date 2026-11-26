@@ -10,6 +10,7 @@ import { useAssistantStore } from "../../stores/assistant";
 import { useUIStore } from "../../stores/ui";
 import { renderAssistantMarkdown } from "../../utils/assistantMarkdown";
 import { escapeHtml } from "../../utils/escape";
+import AssistantArtifacts from "./AssistantArtifacts.vue";
 
 const AssistantUsage = defineAsyncComponent(() => import("./AssistantUsage.vue"));
 const tokenUsageIconPath = "M4 19V10M10 19V5M16 19v-7M22 19H2";
@@ -713,6 +714,11 @@ function renderMessageText(role: string, text: string): string {
               <span v-if="chat.unread" class="assistant-history-unread-dot" aria-hidden="true" />
               <span class="assistant-history-title" :class="{ unread: chat.unread }">{{ chat.title }}</span>
             </button>
+            <AssistantArtifacts
+              v-if="chat.primary_artifact"
+              :artifacts="[chat.primary_artifact]"
+              compact
+            />
             <div class="assistant-history-usage">
               <button
                 type="button"
@@ -783,6 +789,10 @@ function renderMessageText(role: string, text: string): string {
                 class="assistant-chat-markdown"
                 :data-reply-sequence="message.role === 'assistant' ? message.sequence : undefined"
                 v-html="renderMessageText(message.role, message.text)"
+              />
+              <AssistantArtifacts
+                v-if="message.artifacts?.length"
+                :artifacts="message.artifacts"
               />
               <div
                 v-if="message.selection?.options.length"

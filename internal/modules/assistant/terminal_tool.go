@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/conversation"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/texts"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/tools"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/imagepin"
@@ -26,11 +27,16 @@ const (
 	assistantPromptInjectionReportTool = "assistant_prompt_injection_report"
 )
 
+type terminalToolResult struct {
+	text      string
+	artifacts []conversation.Artifact
+}
+
 // finalizeTerminalToolResult formats the user-facing answer for a successful terminal tool result.
-func finalizeTerminalToolResult(localizer *texts.Localizer, toolName, result string) (string, error) {
+func finalizeTerminalToolResult(localizer *texts.Localizer, toolName, result string) (terminalToolResult, error) {
 	switch toolName {
 	case assistantPromptInjectionReportTool:
-		return localizer.Text("result.injection_rejected"), nil
+		return terminalText(localizer.Text("result.injection_rejected")), nil
 	case deploySyncTriggerTool:
 		return finalizeSyncToolResult(localizer, result)
 	case syncPauseSetTool, syncPauseResumeTool:
@@ -42,91 +48,106 @@ func finalizeTerminalToolResult(localizer *texts.Localizer, toolName, result str
 	case serviceImagePinTool:
 		return finalizeImagePin(localizer, result)
 	default:
-		return "", fmt.Errorf("terminal formatter is not configured for tool %q", toolName)
+		return terminalToolResult{}, fmt.Errorf("terminal formatter is not configured for tool %q", toolName)
 	}
 }
 
-func finalizeImagePin(localizer *texts.Localizer, result string) (string, error) {
+func finalizeImagePin(localizer *texts.Localizer, result string) (terminalToolResult, error) {
 	var update imagepin.Result
 	if err := json.Unmarshal([]byte(result), &update); err != nil {
-		return "", fmt.Errorf("decode image pin proposal: %w", err)
+		return terminalToolResult{}, fmt.Errorf("decode image pin proposal: %w", err)
 	}
 	if update.AlreadyPinned {
-		return localizer.Text("result.image_pin_unchanged"), nil
+		return terminalText(localizer.Text("result.image_pin_unchanged")), nil
 	}
 	if update.Branch == "" {
-		return "", errors.New("image pin proposal must contain the branch name")
+		return terminalToolResult{}, errors.New("image pin proposal must contain the branch name")
 	}
-	answer := localizer.Format("result.image_pin", map[string]any{"Branch": update.Branch})
-	if update.BranchURL != "" {
-		answer += " " + localizer.Format("result.image_pin_branch", map[string]any{"URL": update.BranchURL})
-	}
-	if update.PullRequestURL != "" {
-		answer += " " + localizer.Format("result.image_pin_pr", map[string]any{"URL": update.PullRequestURL})
-	}
+	answer := localizer.Text("result.image_pin")
 	if update.PullRequestFailed {
 		answer += " " + localizer.Text("result.image_pin_pr_failed")
 	}
-	return answer, nil
+	return terminalToolResult{
+		text: answer,
+		artifacts: gitPublicationArtifacts(
+			update.Branch, update.BranchURL, update.PullRequestURL, update.PullRequestNumber,
+		),
+	}, nil
 }
 
-func finalizeSelfHeal(localizer *texts.Localizer, toolName, result string) (string, error) {
+func finalizeSelfHeal(localizer *texts.Localizer, toolName, result string) (terminalToolResult, error) {
 	var update selfheal.Result
 	if err := json.Unmarshal([]byte(result), &update); err != nil {
-		return "", fmt.Errorf("decode self-heal proposal: %w", err)
+		return terminalToolResult{}, fmt.Errorf("decode self-heal proposal: %w", err)
 	}
 	if update.AlreadyEnabled != "" {
-		return localizer.Text("result.self_heal_unchanged"), nil
+		return terminalText(localizer.Text("result.self_heal_unchanged")), nil
 	}
 	if update.AlreadyDisabled != "" {
-		return localizer.Format("result.self_heal_disable_unchanged", map[string]any{
+		return terminalText(localizer.Format("result.self_heal_disable_unchanged", map[string]any{
 			"Source": localizer.Text("policy.source_" + update.AlreadyDisabled),
-		}), nil
+		})), nil
 	}
 	if update.Branch == "" {
-		return "", errors.New("self-heal proposal must contain the branch name")
+		return terminalToolResult{}, errors.New("self-heal proposal must contain the branch name")
 	}
-	data := map[string]any{"Branch": update.Branch}
 	message := "result.self_heal"
 	if toolName == serviceSelfHealDisableTool {
 		message = "result.self_heal_disable"
 	}
-	answer := localizer.Format(message, data)
-	if update.BranchURL != "" {
-		answer += " " + localizer.Format("result.self_heal_branch", map[string]any{"URL": update.BranchURL})
-	}
-	if update.PullRequestURL != "" {
-		answer += " " + localizer.Format("result.self_heal_pr", map[string]any{"URL": update.PullRequestURL})
-	}
+	answer := localizer.Text(message)
 	if update.PullRequestFailed {
 		answer += " " + localizer.Text("result.self_heal_pr_failed")
 	}
-	return answer, nil
+	return terminalToolResult{
+		text: answer,
+		artifacts: gitPublicationArtifacts(
+			update.Branch, update.BranchURL, update.PullRequestURL, update.PullRequestNumber,
+		),
+	}, nil
 }
 
-func finalizeSyncToolResult(localizer *texts.Localizer, result string) (string, error) {
+func gitPublicationArtifacts(branch, branchURL, pullRequestURL string, pullRequestNumber int) []conversation.Artifact {
+	var artifacts []conversation.Artifact
+	if pullRequestURL != "" {
+		label := "Pull request"
+		if pullRequestNumber > 0 {
+			label = fmt.Sprintf("PR #%d", pullRequestNumber)
+		}
+		artifacts = append(artifacts, conversation.Artifact{
+			Type: conversation.ArtifactTypePullRequest, Label: label, URL: pullRequestURL,
+		})
+	}
+	return append(artifacts, conversation.Artifact{
+		Type: conversation.ArtifactTypeGitBranch, Label: branch, URL: branchURL,
+	})
+}
+
+func terminalText(text string) terminalToolResult { return terminalToolResult{text: text} }
+
+func finalizeSyncToolResult(localizer *texts.Localizer, result string) (terminalToolResult, error) {
 	var syncResult struct {
 		Queued bool `json:"queued"`
 	}
 	if err := json.Unmarshal([]byte(result), &syncResult); err != nil {
-		return "", fmt.Errorf("decode terminal sync result: %w", err)
+		return terminalToolResult{}, fmt.Errorf("decode terminal sync result: %w", err)
 	}
 	if !syncResult.Queued {
-		return localizer.Text("result.sync_pending"), nil
+		return terminalText(localizer.Text("result.sync_pending")), nil
 	}
-	return localizer.Text("result.sync_queued"), nil
+	return terminalText(localizer.Text("result.sync_queued")), nil
 }
 
-func finalizeServiceActionResult(localizer *texts.Localizer, toolName, result string) (string, error) {
+func finalizeServiceActionResult(localizer *texts.Localizer, toolName, result string) (terminalToolResult, error) {
 	var actionResult tools.ServiceActionResult
 	if err := json.Unmarshal([]byte(result), &actionResult); err != nil {
-		return "", fmt.Errorf("decode terminal tool result: %w", err)
+		return terminalToolResult{}, fmt.Errorf("decode terminal tool result: %w", err)
 	}
 	if strings.TrimSpace(actionResult.Stack) == "" {
-		return "", errors.New("terminal tool result does not contain stack")
+		return terminalToolResult{}, errors.New("terminal tool result does not contain stack")
 	}
 	if strings.TrimSpace(actionResult.Service) == "" {
-		return "", errors.New("terminal tool result does not contain service")
+		return terminalToolResult{}, errors.New("terminal tool result does not contain service")
 	}
 
 	id := "result.restart"
@@ -143,10 +164,10 @@ func finalizeServiceActionResult(localizer *texts.Localizer, toolName, result st
 	default:
 		answer += " " + localizer.Format("result.warning", map[string]any{"Warning": warning})
 	}
-	return answer, nil
+	return terminalText(answer), nil
 }
 
-func finalizePauseToolResult(localizer *texts.Localizer, toolName, result string) (string, error) {
+func finalizePauseToolResult(localizer *texts.Localizer, toolName, result string) (terminalToolResult, error) {
 	var pauseResult struct {
 		Scope   syncpause.Scope `json:"scope"`
 		Stack   string          `json:"stack"`
@@ -154,10 +175,10 @@ func finalizePauseToolResult(localizer *texts.Localizer, toolName, result string
 		Changed *bool           `json:"changed"`
 	}
 	if err := json.Unmarshal([]byte(result), &pauseResult); err != nil {
-		return "", fmt.Errorf("decode Pause Sync result: %w", err)
+		return terminalToolResult{}, fmt.Errorf("decode Pause Sync result: %w", err)
 	}
 	if pauseResult.Changed != nil && !*pauseResult.Changed {
-		return localizer.Text("result.pause_unchanged"), nil
+		return terminalText(localizer.Text("result.pause_unchanged")), nil
 	}
 	data := map[string]any{"Stack": pauseResult.Stack, "Service": pauseResult.Service}
 	scope := string(syncpause.ScopeStack)
@@ -165,7 +186,7 @@ func finalizePauseToolResult(localizer *texts.Localizer, toolName, result string
 		scope = string(syncpause.ScopeService)
 	}
 	if toolName == syncPauseSetTool {
-		return localizer.Format("result.pause_"+scope+"_set", data), nil
+		return terminalText(localizer.Format("result.pause_"+scope+"_set", data)), nil
 	}
-	return localizer.Format("result.pause_"+scope+"_removed", data), nil
+	return terminalText(localizer.Format("result.pause_"+scope+"_removed", data)), nil
 }

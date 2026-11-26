@@ -370,6 +370,73 @@ func TestAssistantRoutesMixedFollowUpUsingConversationHistory(t *testing.T) {
 	assert.False(t, requestContains(answerRequest, "кнопкой Download"))
 }
 
+func TestAssistantFollowUpIncludesSavedArtifactsInModelHistory(t *testing.T) {
+	const conversationID = "self-heal-chat"
+	const firstQuestion = "Включи self-heal для prod/api"
+	const firstAnswer = "Предложение включить selfHeal опубликовано в Git."
+	const followUp = "Повтори ссылку на созданный PR"
+	const pullRequestURL = "https://github.com/example/infra/pull/42"
+	const branch = "prod-api-enable-self-heal"
+
+	for _, tc := range []struct {
+		name      string
+		artifacts []conversation.Artifact
+		want      string
+	}{
+		{
+			name: "with artifacts",
+			artifacts: []conversation.Artifact{
+				{Type: conversation.ArtifactTypePullRequest, Label: "PR #42", URL: pullRequestURL},
+				{Type: conversation.ArtifactTypeGitBranch, Label: branch},
+			},
+			want: firstAnswer + "\n\nArtifacts:\n- PR #42: " + pullRequestURL + "\n- " + branch,
+		},
+		{name: "without artifacts", want: firstAnswer},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var requests []capturedChatRequest
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+				requests = append(requests, decodeCapturedChatRequest(t, req))
+				w.Header().Set("Content-Type", "application/json")
+				if len(requests) == 1 {
+					writeChatResponse(t, w, `{"route":"platform","capabilities":[],"operation":null}`, nil)
+					return
+				}
+				writeChatResponse(t, w, "Готово.", nil)
+			}))
+			defer server.Close()
+
+			history := newSQLHistory(t)
+			_, err := history.SaveTurns(t.Context(), conversationID, "alice", conversation.TokenUsage{},
+				conversation.Turn{Role: "user", Content: firstQuestion},
+				conversation.Turn{Role: "assistant", Content: firstAnswer, Artifacts: tc.artifacts},
+			)
+			require.NoError(t, err)
+			tools := NewMockToolExecutor(gomock.NewController(t))
+			tools.EXPECT().Definitions().Return(nil).AnyTimes()
+			svc := newRoutingTestServiceWithHistory(t, server.URL, serviceStore(t, nil), tools, nil, history)
+
+			response := svc.Chat(t.Context(), ChatRequest{ConversationID: conversationID, Message: followUp})
+			require.Equal(t, StatusCompleted, response.Status, response.ErrorMessage)
+			assert.Equal(t, conversationID, response.ConversationID)
+			require.Len(t, requests, 2, "routing and answer generation both receive the history")
+			for _, request := range requests {
+				require.Len(t, request.Messages, 4)
+				assert.Equal(t, firstQuestion, request.Messages[1].Content)
+				assert.Equal(t, "assistant", request.Messages[2].Role)
+				assert.Equal(t, tc.want, request.Messages[2].Content)
+				assert.Equal(t, followUp, request.Messages[3].Content)
+			}
+			chat, found, err := svc.GetChat(t.Context(), conversationID)
+			require.NoError(t, err)
+			require.True(t, found)
+			require.Len(t, chat.Messages, 4)
+			assert.Equal(t, firstAnswer, chat.Messages[1].Content)
+			assert.Equal(t, tc.artifacts, chat.Messages[1].Artifacts)
+		})
+	}
+}
+
 func TestAssistantGreetingFastPathUsesNoModelRAGOrTools(t *testing.T) {
 	store, listCalls := observedServiceStore(t, []model.Info{{Name: "api", Stack: "core"}})
 	tools := &fakeTools{definitions: assistantTestToolDefinitions()}

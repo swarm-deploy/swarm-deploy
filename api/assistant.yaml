@@ -167,6 +167,23 @@ components:
             type: string
         selection:
           $ref: '#/components/schemas/AssistantSelection'
+        artifacts:
+          type: array
+          items:
+            $ref: '#/components/schemas/AssistantArtifact'
+    AssistantArtifact:
+      type: object
+      required: [type, label]
+      properties:
+        type:
+          type: string
+          minLength: 1
+          description: Extensible artifact kind. Initial values are pull_request and git_branch.
+        label:
+          type: string
+          minLength: 1
+        url:
+          type: string
     AssistantTokenUsage:
       type: object
       required: [input_tokens, output_tokens, total_tokens]
@@ -201,6 +218,8 @@ components:
           type: boolean
         token_usage:
           $ref: '#/components/schemas/AssistantTokenUsage'
+        primary_artifact:
+          $ref: '#/components/schemas/AssistantArtifact'
     AssistantChatsResponse:
       type: object
       required: [chats]
@@ -235,6 +254,10 @@ components:
             type: string
         selection:
           $ref: '#/components/schemas/AssistantSelection'
+        artifacts:
+          type: array
+          items:
+            $ref: '#/components/schemas/AssistantArtifact'
     AssistantSelection:
       type: object
       required: [options]

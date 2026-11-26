@@ -190,10 +190,14 @@ func TestPendingSelfHealRequiresConfirmation(t *testing.T) {
 	assert.Contains(t, answer, "disabled by stack policy")
 	assert.Empty(t, executor.calls)
 	turn.publish()
-	handled, answer, _, err = flow.beginTurn("chat").handlePendingOperation(t.Context(), "yes")
+	turn = flow.beginTurn("chat")
+	handled, answer, _, err = turn.handlePendingOperation(t.Context(), "yes")
 	require.NoError(t, err)
 	require.True(t, handled)
-	assert.Contains(t, answer, "[Open branch]")
+	assert.Contains(t, answer, "Published the service self-heal proposal to Git.")
+	assert.Equal(t, []conversation.Artifact{{
+		Type: conversation.ArtifactTypeGitBranch, Label: "proposal", URL: "https://example.com/branch",
+	}}, turn.artifacts)
 	assert.Equal(t, []string{serviceSelfHealEnableTool}, executor.calls)
 }
 

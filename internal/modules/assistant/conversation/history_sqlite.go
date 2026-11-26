@@ -33,7 +33,11 @@ func (s *SQLHistoryStorage) ReadChats(ctx context.Context) ([]ChatSummary, error
 	}
 	result := make([]ChatSummary, 0, len(rows))
 	for _, row := range rows {
-		result = append(result, row.summary())
+		summary, summaryErr := row.summary()
+		if summaryErr != nil {
+			return nil, summaryErr
+		}
+		result = append(result, summary)
 	}
 	return result, nil
 }
@@ -76,9 +80,13 @@ func (s *SQLHistoryStorage) readChatMetadata(ctx context.Context, id string) (Ch
 	if err != nil {
 		return Chat{}, false, err
 	}
-	meta := row.summary()
+	meta, err := row.summary()
+	if err != nil {
+		return Chat{}, false, err
+	}
 	return Chat{ID: meta.ID, Title: meta.Title, CreatedAt: meta.CreatedAt, CreatedBy: row.CreatedBy.String,
-		UpdatedAt: meta.UpdatedAt, Unread: meta.Unread, Usage: meta.Usage}, true, nil
+		UpdatedAt: meta.UpdatedAt, Unread: meta.Unread, Usage: meta.Usage,
+		PrimaryArtifact: meta.PrimaryArtifact}, true, nil
 }
 
 // MarkRead clears unread only when sequence still identifies the latest assistant reply.
@@ -139,6 +147,7 @@ func (s *SQLHistoryStorage) SaveTurns(
 		chat.Unread = chat.Unread || slices.ContainsFunc(turns, func(turn Turn) bool {
 			return turn.Role == "assistant"
 		})
+		chat.PrimaryArtifact = selectPrimaryArtifact(chat.PrimaryArtifact, turns)
 		if err = s.saveChatSummary(ctx, chat); err != nil {
 			return err
 		}
@@ -157,6 +166,7 @@ func (s *SQLHistoryStorage) Append(ctx context.Context, id string, turns ...Turn
 // Save atomically persists an entire chat, preserving timestamps during import.
 func (s *SQLHistoryStorage) Save(ctx context.Context, chat Chat) error {
 	return s.db.WithinTransaction(ctx, func(ctx context.Context) error {
+		chat.PrimaryArtifact = selectPrimaryArtifact(nil, chat.Turns)
 		if err := s.saveChatSummary(ctx, chat); err != nil {
 			return err
 		}
@@ -181,17 +191,27 @@ func (s *SQLHistoryStorage) saveChatSummary(ctx context.Context, chat Chat) erro
 	if chat.CreatedBy != "" {
 		createdBy = chat.CreatedBy
 	}
+	var primaryArtifact any
+	if chat.PrimaryArtifact != nil {
+		encoded, err := json.Marshal(chat.PrimaryArtifact)
+		if err != nil {
+			return err
+		}
+		primaryArtifact = string(encoded)
+	}
 	query, args, err := s.db.Dialect().Insert("assistant_chats").Prepared(true).
 		Rows(goqu.Record{
 			"id": chat.ID, "title": chat.Title, "created_at": chat.CreatedAt.UTC(), "created_by": createdBy,
 			"updated_at": chat.UpdatedAt.UTC(), "input_tokens": input,
 			"output_tokens": output, "total_tokens": total, "unread": chat.Unread,
+			"primary_artifact": primaryArtifact,
 		}).
 		OnConflict(goqu.DoUpdate("id", goqu.Record{
 			"title": goqu.I("excluded.title"), "created_at": goqu.I("excluded.created_at"),
 			"updated_at": goqu.I("excluded.updated_at"), "input_tokens": goqu.I("excluded.input_tokens"),
 			"output_tokens": goqu.I("excluded.output_tokens"), "total_tokens": goqu.I("excluded.total_tokens"),
-			"unread": goqu.I("excluded.unread"),
+			"unread":           goqu.I("excluded.unread"),
+			"primary_artifact": goqu.I("excluded.primary_artifact"),
 		})).ToSQL()
 	if err != nil {
 		return err
@@ -258,21 +278,23 @@ func (s *SQLHistoryStorage) queryTurns(ctx context.Context, query string, args .
 
 var chatColumns = []any{
 	"id", "title", "created_at", "updated_at", "unread", "input_tokens", "output_tokens", "total_tokens",
+	"primary_artifact",
 }
 
 type chatRow struct {
-	ID           string         `db:"id"`
-	Title        string         `db:"title"`
-	CreatedAt    time.Time      `db:"created_at"`
-	CreatedBy    sql.NullString `db:"created_by"`
-	UpdatedAt    time.Time      `db:"updated_at"`
-	Unread       bool           `db:"unread"`
-	InputTokens  sql.NullInt64  `db:"input_tokens"`
-	OutputTokens sql.NullInt64  `db:"output_tokens"`
-	TotalTokens  sql.NullInt64  `db:"total_tokens"`
+	ID              string         `db:"id"`
+	Title           string         `db:"title"`
+	CreatedAt       time.Time      `db:"created_at"`
+	CreatedBy       sql.NullString `db:"created_by"`
+	UpdatedAt       time.Time      `db:"updated_at"`
+	Unread          bool           `db:"unread"`
+	InputTokens     sql.NullInt64  `db:"input_tokens"`
+	OutputTokens    sql.NullInt64  `db:"output_tokens"`
+	TotalTokens     sql.NullInt64  `db:"total_tokens"`
+	PrimaryArtifact sql.NullString `db:"primary_artifact"`
 }
 
-func (r chatRow) summary() ChatSummary {
+func (r chatRow) summary() (ChatSummary, error) {
 	result := ChatSummary{
 		ID: r.ID, Title: r.Title, CreatedAt: r.CreatedAt.UTC(), UpdatedAt: r.UpdatedAt.UTC(), Unread: r.Unread,
 	}
@@ -281,7 +303,39 @@ func (r chatRow) summary() ChatSummary {
 			InputTokens: r.InputTokens.Int64, OutputTokens: r.OutputTokens.Int64, TotalTokens: r.TotalTokens.Int64,
 		}
 	}
-	return result
+	if r.PrimaryArtifact.Valid {
+		var artifact Artifact
+		if err := json.Unmarshal([]byte(r.PrimaryArtifact.String), &artifact); err != nil {
+			return ChatSummary{}, fmt.Errorf("decode assistant primary artifact: %w", err)
+		}
+		result.PrimaryArtifact = &artifact
+	}
+	return result, nil
+}
+
+func selectPrimaryArtifact(current *Artifact, turns []Turn) *Artifact {
+	var selected *Artifact
+	hasPullRequest := false
+	if current != nil {
+		selectedArtifact := *current
+		selected = &selectedArtifact
+		hasPullRequest = current.Type == ArtifactTypePullRequest
+	}
+	for _, turn := range turns {
+		for _, artifact := range turn.Artifacts {
+			if artifact.Type == ArtifactTypePullRequest {
+				selectedArtifact := artifact
+				selected = &selectedArtifact
+				hasPullRequest = true
+				continue
+			}
+			if !hasPullRequest {
+				selectedArtifact := artifact
+				selected = &selectedArtifact
+			}
+		}
+	}
+	return selected
 }
 
 func usageColumns(usage *TokenUsage) (any, any, any) {

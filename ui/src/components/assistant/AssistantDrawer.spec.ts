@@ -946,6 +946,56 @@ function savedChat(activeRequest?: AssistantChatHistory["active_request"]): Assi
   };
 }
 
+describe("Assistant artifacts", () => {
+  it("keeps chat and artifact links independent and restores message artifacts from history", async () => {
+    const branch = "prod-api-enable-self-heal-with-a-very-long-descriptive-branch-name";
+    const chat: AssistantChatHistory = {
+      ...savedChat(),
+      primary_artifact: { type: "pull_request", label: "PR #42", url: "https://example.com/pull/42" },
+      messages: [
+        { role: "user", content: "Enable self-heal", sequence: 0 },
+        {
+          role: "assistant",
+          content: "Published the proposal.",
+          sequence: 1,
+          activity: ["Published Git branch"],
+          artifacts: [
+            { type: "pull_request", label: "PR #42", url: "https://example.com/pull/42" },
+            { type: "git_branch", label: branch },
+          ],
+        },
+      ],
+    };
+    const listChats = vi.spyOn(assistantApi, "listAssistantChats").mockResolvedValue({ chats: [chat] });
+    const getChat = vi.spyOn(assistantApi, "getAssistantChat").mockResolvedValue(chat);
+    const clipboard = { writeText: vi.fn().mockResolvedValue(undefined) };
+    vi.stubGlobal("navigator", { clipboard });
+    vi.stubGlobal("isSecureContext", true);
+
+    const { wrapper, router } = await mountDrawer("/?assistant=chats");
+    const primaryLink = wrapper.get<HTMLAnchorElement>('.assistant-history-item .assistant-artifact-label');
+    expect(primaryLink.text()).toBe("PR #42");
+    expect(primaryLink.attributes("href")).toBe("https://example.com/pull/42");
+    expect(primaryLink.attributes("target")).toBe("_blank");
+    await primaryLink.trigger("click");
+    expect(router.currentRoute.value.query.assistant).toBe("chats");
+    expect(getChat).not.toHaveBeenCalled();
+
+    await wrapper.get(".assistant-history-open").trigger("click");
+    await flushPromises();
+    expect(router.currentRoute.value.query.assistant).toBe(chat.id);
+    expect(getChat).toHaveBeenCalledOnce();
+    expect(wrapper.findAll(".assistant-chat-message-assistant .assistant-artifact")).toHaveLength(2);
+    expect(wrapper.get(".assistant-chat-message-assistant .assistant-artifact-git-branch").text()).toContain(branch);
+    expect(wrapper.get(".assistant-activity-details").attributes()).not.toHaveProperty("open");
+
+    await wrapper.get('.assistant-artifact-git-branch button[aria-label="Copy branch name"]').trigger("click");
+    expect(clipboard.writeText).toHaveBeenCalledExactlyOnceWith(branch);
+    expect(listChats).toHaveBeenCalled();
+    wrapper.unmount();
+  });
+});
+
 describe("Assistant unread replies", () => {
   it("acknowledges the latest reply only when visible in the foreground and refreshes the list", async () => {
     const observers = mockReplyObserver();

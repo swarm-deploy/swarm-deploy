@@ -538,12 +538,12 @@ func TestServiceChatDeduplicatesAtRunCapacity(t *testing.T) {
 			)
 			require.NoError(t, err)
 			oldest := newChatRun("request-0", "conversation", "привет", false)
-			oldest.finish(StatusCompleted, "original answer", "", nil, nil)
+			oldest.finish(StatusCompleted, "original answer", "", nil, nil, nil)
 			oldest.finishedAt = time.Now().Add(-time.Minute)
 			serviceInstance.runs[oldest.requestID] = oldest
 			for index := 1; index < maxRetainedRuns; index++ {
 				run := newChatRun("request-"+strconv.Itoa(index), "conversation", "привет", false)
-				run.finish(StatusCompleted, "answer", "", nil, nil)
+				run.finish(StatusCompleted, "answer", "", nil, nil, nil)
 				serviceInstance.runs[run.requestID] = run
 			}
 
