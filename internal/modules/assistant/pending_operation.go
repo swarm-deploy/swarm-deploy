@@ -41,6 +41,7 @@ type operationFlow struct {
 	guard           *guard.InjectionChecker
 	allowedToolSet  map[string]struct{}
 	prepareSelfHeal func(context.Context, string, string, bool) (usecase.ServiceSelfHealPlan, error)
+	prepareImagePin func(context.Context, string, string) (usecase.ServiceImagePinAssessment, error)
 	pauseTargets    SyncPauseTargetResolver
 	pending         *pendingOperationStore
 }
@@ -61,6 +62,7 @@ func newOperationFlow(
 		allowedToolSet:  allowedToolSet,
 		pauseTargets:    config.SyncPauses,
 		prepareSelfHeal: config.PrepareSelfHeal,
+		prepareImagePin: config.PrepareImagePin,
 		pending:         newPendingOperationStore(config.ConversationInMemoryTTL),
 	}
 }
@@ -81,6 +83,8 @@ const (
 	OperationServiceSelfHealEnable OperationType = serviceSelfHealEnableTool
 	// OperationServiceSelfHealDisable proposes disabling GitOps self-heal.
 	OperationServiceSelfHealDisable OperationType = serviceSelfHealDisableTool
+	// OperationServiceImagePin proposes pinning the running image digest in Git.
+	OperationServiceImagePin OperationType = serviceImagePinTool
 	// OperationDeploySync triggers a GitOps synchronization.
 	OperationDeploySync OperationType = deploySyncTriggerTool
 	// OperationSyncPauseSet creates or changes a direct GitOps pause.
@@ -129,6 +133,8 @@ type PendingOperation struct {
 	Replicas *uint64
 	// SelfHealPlan is the complete plan shown for confirmation.
 	SelfHealPlan usecase.ServiceSelfHealPlan
+	// ImagePinPlan is the complete image pin plan shown for confirmation.
+	ImagePinPlan usecase.ServiceImagePinPlan
 	// Scope is stack or service for Pause Sync operations.
 	Scope string
 	// PauseExpiresAt is nil for a pause without expiration.
@@ -192,6 +198,7 @@ func (s *pendingOperationStore) claim(conversationID string, expected PendingOpe
 		current.Target != expected.Target || current.Stack != expected.Stack ||
 		current.Service != expected.Service || !current.ExpiresAt.Equal(expected.ExpiresAt) ||
 		current.SelfHealPlan != expected.SelfHealPlan ||
+		current.ImagePinPlan != expected.ImagePinPlan ||
 		!equalOptionalUint64(current.Replicas, expected.Replicas) {
 		return false
 	}
@@ -249,6 +256,9 @@ func (t *operationTurn) startPendingOperation(
 	}
 	if op.Type.isSelfHeal() {
 		return t.collectSelfHeal(ctx, op, op.Target)
+	}
+	if op.Type == OperationServiceImagePin {
+		return t.collectImagePin(ctx, op, op.Target)
 	}
 	if op.Type == OperationDeploySync {
 		return t.confirmOperation(op), conversation.TokenUsage{}
@@ -374,6 +384,11 @@ func (t *operationTurn) handlePendingCollection(
 		answer, usage := t.collectSelfHeal(ctx, op, target)
 		return true, answer, usage, nil
 	}
+	if op.Type == OperationServiceImagePin {
+		target := op.replyTarget(message)
+		answer, usage := t.collectImagePin(ctx, op, target)
+		return true, answer, usage, nil
+	}
 	var usage conversation.TokenUsage
 	if op.Stack == "" || op.Service == "" {
 		resolution, resolutionUsage, err := t.serviceTargets.resolve(ctx, op.replyTarget(message))
@@ -437,6 +452,9 @@ func (t *operationTurn) executePendingOperation(
 	if op.Type == OperationServiceSelfHealDisable && errors.Is(err, selfheal.ErrPolicyChanged) {
 		return t.prepareSelfHealOperation(ctx, op, op.SelfHealPlan.Stack, op.SelfHealPlan.Service), nil
 	}
+	if op.Type == OperationServiceImagePin && errors.Is(err, usecase.ErrImagePinPlanChanged) {
+		return t.prepareImagePinOperation(ctx, op, op.ImagePinPlan.Stack, op.ImagePinPlan.Service), nil
+	}
 	if errors.Is(err, swarm.ErrServiceReplicaRestore) {
 		return t.texts.Format("operation.restart_restore_failed", map[string]any{"Error": err.Error()}), nil
 	}
@@ -477,6 +495,8 @@ func (f *operationFlow) pendingOperationArguments(
 		return CapabilityDeploymentSync, map[string]any{}, "", nil
 	case OperationServiceSelfHealEnable, OperationServiceSelfHealDisable:
 		return CapabilityServiceOperations, op.SelfHealPlan, "", nil
+	case OperationServiceImagePin:
+		return CapabilityServiceOperations, op.ImagePinPlan, "", nil
 	case OperationServiceRestart, OperationServiceReplicasSet:
 		args := map[string]any{"stack": op.Stack, "service": op.Service}
 		if op.Type == OperationServiceReplicasSet {
@@ -512,11 +532,18 @@ func (f *operationFlow) operationAllowed(capability Capability, operation Operat
 	if _, ok := f.toolSet([]Capability{capability})[string(operation)]; !ok {
 		return false
 	}
-	if !operation.isSelfHeal() {
+	if !operation.isSelfHeal() && operation != OperationServiceImagePin {
 		return true
 	}
-	if f.prepareSelfHeal == nil {
-		return false
+	switch {
+	case operation.isSelfHeal():
+		if f.prepareSelfHeal == nil {
+			return false
+		}
+	case operation == OperationServiceImagePin:
+		if f.prepareImagePin == nil {
+			return false
+		}
 	}
 	return slices.ContainsFunc(f.tools.Definitions(), func(tool routing.ToolDefinition) bool {
 		return string(tool.Name) == string(operation) && tool.Writable && tool.Terminal
@@ -638,6 +665,8 @@ func (f *operationFlow) confirmationMessage(op PendingOperation) string {
 		return f.texts.Format("operation.confirm_self_heal", f.selfHealMessageData(op.SelfHealPlan))
 	case OperationServiceSelfHealDisable:
 		return f.texts.Format("operation.confirm_self_heal_disable", f.selfHealMessageData(op.SelfHealPlan))
+	case OperationServiceImagePin:
+		return f.texts.Format("operation.confirm_image_pin", imagePinMessageData(op.ImagePinPlan))
 	default:
 		return ""
 	}

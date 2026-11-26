@@ -37,6 +37,7 @@ const (
 	AssistantToolNameServiceRestartTrigger              AssistantToolName = "service_restart_trigger"
 	AssistantToolNameServiceSelfHealEnable              AssistantToolName = "service_self_heal_enable"
 	AssistantToolNameServiceSelfHealDisable             AssistantToolName = "service_self_heal_disable"
+	AssistantToolNameServiceImagePin                    AssistantToolName = "service_image_pin"
 	AssistantToolNameRegistryImageVersionGet            AssistantToolName = "registry_image_version_get"
 	AssistantToolNameGitRepositoryDiagnostics           AssistantToolName = "git_repository_diagnostics"
 	AssistantToolNameGitCommitList                      AssistantToolName = "git_commit_list"

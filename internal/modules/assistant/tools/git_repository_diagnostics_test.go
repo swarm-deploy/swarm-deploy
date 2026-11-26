@@ -54,7 +54,7 @@ func TestDiagnosticsJSONAndExecutorRegistration(t *testing.T) {
 		runtime.GitAccess = &model.GitAccess{Repository: diagnosticIdentity, Available: true}
 	}))
 	repository := expectLocalDiagnostics(t, nil, nil, nil)
-	executor := NewExecutor(&resources.Module{}, &gitops.Module{GitRepository: repository, Store: state}, nil, nil,
+	executor := NewExecutor(&resources.Module{}, &gitops.Module{GitRepository: repository, Store: state}, nil, nil, nil,
 		&alertmanagement.Module{Store: alertstore.NewSQLStore(db)}, &event.Module{}, &swarm.Swarm{}, nil, nil, nil, nil, nil,
 		metrics.NewGroup(metrics.CreateGroupParams{Namespace: "test_repository_diagnostics"}).MCP,
 		config.Spec{GitOps: config.GitOpsSpec{Git: config.GitSpec{Repository: diagnosticRemote}}})

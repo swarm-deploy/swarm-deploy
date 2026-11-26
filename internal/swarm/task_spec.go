@@ -31,6 +31,14 @@ func NewTaskSpec(spec dockerswarm.TaskSpec) TaskSpec {
 	return TaskSpec{value: normalizeTaskSpec(spec)}
 }
 
+// Image returns the container image captured in the task specification.
+func (s TaskSpec) Image() string {
+	if s.value.ContainerSpec == nil {
+		return ""
+	}
+	return s.value.ContainerSpec.Image
+}
+
 // CompareServiceTemplate compares an actual task specification with a service task template.
 func (s TaskSpec) CompareServiceTemplate(template dockerswarm.TaskSpec) TaskSpecComparison {
 	template = normalizeTaskSpec(template)

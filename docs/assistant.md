@@ -135,6 +135,7 @@ The response contains ascending `buckets` with `start`, `input_tokens`, `output_
 - `service_restart_trigger` - restarts service by scaling replicas to `0` and restoring previous count
 - `service_self_heal_enable` - proposes enabling automatic drift repair for one GitOps service after user confirmation
 - `service_self_heal_disable` - proposes disabling automatic drift repair for one GitOps service after user confirmation
+- `service_image_pin` - proposes pinning a GitOps service image to the digest used by all running Swarm tasks after user confirmation
 - `service_webroute_ping` - checks web routes for a specific service from `service.store` and returns HTTP results for each route
 - `tls_certificate_check` - checks a live TLS endpoint and validates its server certificate against the system trust store
 - `dependency_graph_get` - returns service dependency graph with nodes, endpoints, and direct dependencies inferred from service environment variables
@@ -264,6 +265,26 @@ The writer uses `gitops.git.repository` and `gitops.git.branch` by default. Set 
 credentials only when using the sync repository. For GitHub, set `gitops.git.push.apiTokenPath` to a mounted
 token file with permission to open pull requests in the write repository. The assistant returns the branch
 and, when available, the pull request link.
+
+### Pin the running service image in Git
+
+Ask the assistant to pin the image currently running for a managed service. It reads
+`services.<service>.image` from the write-base Compose file and calls `ServiceManager.ListTasks` for the exact
+stack/service selected through the normal service resolver. Only tasks whose current state is `running` are
+evidence; completed historical tasks are ignored, while both old and new running tasks during a rollout are
+included. The operation never resolves a tag through a registry.
+
+Every running task must expose a valid `sha256` digest in its task image reference. All running digests must be
+equal, and the normalized repository and tag must match the Compose value. The confirmation shows the exact
+service, running-task count, current Git image, and proposed image. The edit preserves the Compose image spelling
+and appends `@sha256:...` through `shared/yamledit`; no other Compose field is changed.
+
+The assistant does not ask for confirmation when Git already contains the same pin, running tasks are absent,
+a digest is missing, a rollout has multiple running digests, or Git contains another repository, tag, or digest.
+Before publishing it rereads both Compose and running tasks for the previously selected service. Changed evidence
+invalidates the confirmation and is evaluated again. A confirmed change uses the same proposal branch, push, and
+GitHub pull-request integration as self-heal proposals. Add `service_image_pin` to `assistant.tools` when an
+explicit allowlist is configured. Docker access in this workflow is read-only.
 
 ### Git repository diagnostics
 

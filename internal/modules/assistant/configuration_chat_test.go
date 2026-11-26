@@ -223,7 +223,7 @@ func TestConfigurationThroughChat(t *testing.T) {
 func newConfigurationChatService(t *testing.T, baseURL string, spec config.Spec) *Service {
 	t.Helper()
 	db := testutil.OpenSQLite(t)
-	executor := tools.NewExecutor(&resources.Module{}, &gitops.Module{}, nil, nil,
+	executor := tools.NewExecutor(&resources.Module{}, &gitops.Module{}, nil, nil, nil,
 		&alertmanagement.Module{Store: alertstore.NewSQLStore(db)}, &event.Module{}, &swarm.Swarm{},
 		nil, nil, nil, nil, nil, metrics.NewGroup(metrics.CreateGroupParams{}).MCP, spec)
 	service, err := NewService(Config{

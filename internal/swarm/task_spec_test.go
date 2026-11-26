@@ -106,6 +106,13 @@ func TestTaskSpecUnprovenNilAndEmptyCollectionsRemainStrict(t *testing.T) {
 	assert.Equal(t, []string{"TaskTemplate.ContainerSpec.Env"}, comparison.MismatchPaths())
 }
 
+func TestTaskSpecImage(t *testing.T) {
+	assert.Empty(t, NewTaskSpec(dockerswarm.TaskSpec{}).Image())
+	assert.Equal(t, "alpine:3", NewTaskSpec(dockerswarm.TaskSpec{
+		ContainerSpec: &dockerswarm.ContainerSpec{Image: "alpine:3"},
+	}).Image())
+}
+
 func cloneDockerTaskSpec(spec dockerswarm.TaskSpec) dockerswarm.TaskSpec {
 	clone := spec
 	if spec.ContainerSpec != nil {
