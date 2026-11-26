@@ -63,10 +63,53 @@ func TestFinalizeTerminalServiceActionResult(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			answer, err := finalizeTerminalToolResult(testAssistantTexts(t, testCase.locale), testCase.toolName, testCase.toolResult)
 			require.NoError(t, err)
-			assert.NotEqual(t, testCase.toolResult, answer, "raw JSON must not be returned")
+			assert.NotEqual(t, testCase.toolResult, answer.text, "raw JSON must not be returned")
 			for _, expected := range testCase.answerContains {
-				assert.Contains(t, answer, expected)
+				assert.Contains(t, answer.text, expected)
 			}
+		})
+	}
+}
+
+func TestFinalizeGitPublicationArtifacts(t *testing.T) {
+	testCases := []struct {
+		name      string
+		toolName  string
+		result    string
+		wantText  string
+		artifacts []conversation.Artifact
+	}{
+		{
+			name: "pull request and branch", toolName: serviceSelfHealEnableTool,
+			result: `{"branch":"prod-api-enable-self-heal","branchUrl":"https://example.com/tree/prod-api-enable-self-heal",` +
+				`"mergeRequestUrl":"https://example.com/pull/42","pullRequestNumber":42}`,
+			wantText: "Published the service self-heal proposal to Git.",
+			artifacts: []conversation.Artifact{
+				{Type: conversation.ArtifactTypePullRequest, Label: "PR #42", URL: "https://example.com/pull/42"},
+				{Type: conversation.ArtifactTypeGitBranch, Label: "prod-api-enable-self-heal", URL: "https://example.com/tree/prod-api-enable-self-heal"},
+			},
+		},
+		{
+			name: "pull request failed", toolName: serviceImagePinTool,
+			result:   `{"branch":"prod-api-pin-image","pullRequestFailed":true}`,
+			wantText: "The branch was pushed, but GitHub could not open the pull request.",
+			artifacts: []conversation.Artifact{
+				{Type: conversation.ArtifactTypeGitBranch, Label: "prod-api-pin-image"},
+			},
+		},
+		{
+			name: "already applied", toolName: serviceImagePinTool,
+			result:   `{"alreadyPinned":true}`,
+			wantText: "No new branch was created.",
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			result, err := finalizeTerminalToolResult(testAssistantTexts(t, "en"), testCase.toolName, testCase.result)
+			require.NoError(t, err)
+			assert.Contains(t, result.text, testCase.wantText)
+			assert.Equal(t, testCase.artifacts, result.artifacts)
 		})
 	}
 }
@@ -321,7 +364,7 @@ func TestFinalizeTerminalToolResultRejectsRawOrIncompletePayload(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			answer, err := finalizeTerminalToolResult(testAssistantTexts(t, "en"), testCase.toolName, testCase.result)
 			require.Error(t, err)
-			assert.True(t, strings.TrimSpace(answer) == "")
+			assert.True(t, strings.TrimSpace(answer.text) == "")
 		})
 	}
 }

@@ -569,6 +569,44 @@ func (s *AssistantActiveChatRequest) SetActivity(val []string) {
 	s.Activity = val
 }
 
+// Ref: #/components/schemas/AssistantArtifact
+type AssistantArtifact struct {
+	// Extensible artifact kind. Initial values are pull_request and git_branch.
+	Type  string    `json:"type"`
+	Label string    `json:"label"`
+	URL   OptString `json:"url"`
+}
+
+// GetType returns the value of Type.
+func (s *AssistantArtifact) GetType() string {
+	return s.Type
+}
+
+// GetLabel returns the value of Label.
+func (s *AssistantArtifact) GetLabel() string {
+	return s.Label
+}
+
+// GetURL returns the value of URL.
+func (s *AssistantArtifact) GetURL() OptString {
+	return s.URL
+}
+
+// SetType sets the value of Type.
+func (s *AssistantArtifact) SetType(val string) {
+	s.Type = val
+}
+
+// SetLabel sets the value of Label.
+func (s *AssistantArtifact) SetLabel(val string) {
+	s.Label = val
+}
+
+// SetURL sets the value of URL.
+func (s *AssistantArtifact) SetURL(val OptString) {
+	s.URL = val
+}
+
 // Ref: #/components/schemas/AssistantChatHistory
 type AssistantChatHistory struct {
 	ID            string                        `json:"id"`
@@ -668,6 +706,7 @@ type AssistantChatMessage struct {
 	Content   string                   `json:"content"`
 	Activity  []string                 `json:"activity"`
 	Selection OptAssistantSelection    `json:"selection"`
+	Artifacts []AssistantArtifact      `json:"artifacts"`
 }
 
 // GetSequence returns the value of Sequence.
@@ -695,6 +734,11 @@ func (s *AssistantChatMessage) GetSelection() OptAssistantSelection {
 	return s.Selection
 }
 
+// GetArtifacts returns the value of Artifacts.
+func (s *AssistantChatMessage) GetArtifacts() []AssistantArtifact {
+	return s.Artifacts
+}
+
 // SetSequence sets the value of Sequence.
 func (s *AssistantChatMessage) SetSequence(val int) {
 	s.Sequence = val
@@ -718,6 +762,11 @@ func (s *AssistantChatMessage) SetActivity(val []string) {
 // SetSelection sets the value of Selection.
 func (s *AssistantChatMessage) SetSelection(val OptAssistantSelection) {
 	s.Selection = val
+}
+
+// SetArtifacts sets the value of Artifacts.
+func (s *AssistantChatMessage) SetArtifacts(val []AssistantArtifact) {
+	s.Artifacts = val
 }
 
 type AssistantChatMessageRole string
@@ -844,6 +893,7 @@ type AssistantChatResponse struct {
 	PollAfterMs    OptInt32              `json:"poll_after_ms"`
 	Activity       []string              `json:"activity"`
 	Selection      OptAssistantSelection `json:"selection"`
+	Artifacts      []AssistantArtifact   `json:"artifacts"`
 }
 
 // GetStatus returns the value of Status.
@@ -891,6 +941,11 @@ func (s *AssistantChatResponse) GetSelection() OptAssistantSelection {
 	return s.Selection
 }
 
+// GetArtifacts returns the value of Artifacts.
+func (s *AssistantChatResponse) GetArtifacts() []AssistantArtifact {
+	return s.Artifacts
+}
+
 // SetStatus sets the value of Status.
 func (s *AssistantChatResponse) SetStatus(val AssistantChatResponseStatus) {
 	s.Status = val
@@ -934,6 +989,11 @@ func (s *AssistantChatResponse) SetActivity(val []string) {
 // SetSelection sets the value of Selection.
 func (s *AssistantChatResponse) SetSelection(val OptAssistantSelection) {
 	s.Selection = val
+}
+
+// SetArtifacts sets the value of Artifacts.
+func (s *AssistantChatResponse) SetArtifacts(val []AssistantArtifact) {
+	s.Artifacts = val
 }
 
 type AssistantChatResponseStatus string
@@ -1000,12 +1060,13 @@ func (s *AssistantChatResponseStatus) UnmarshalText(data []byte) error {
 
 // Ref: #/components/schemas/AssistantChatSummary
 type AssistantChatSummary struct {
-	ID         string                 `json:"id"`
-	Title      string                 `json:"title"`
-	CreatedAt  time.Time              `json:"created_at"`
-	UpdatedAt  time.Time              `json:"updated_at"`
-	Unread     bool                   `json:"unread"`
-	TokenUsage OptAssistantTokenUsage `json:"token_usage"`
+	ID              string                 `json:"id"`
+	Title           string                 `json:"title"`
+	CreatedAt       time.Time              `json:"created_at"`
+	UpdatedAt       time.Time              `json:"updated_at"`
+	Unread          bool                   `json:"unread"`
+	TokenUsage      OptAssistantTokenUsage `json:"token_usage"`
+	PrimaryArtifact OptAssistantArtifact   `json:"primary_artifact"`
 }
 
 // GetID returns the value of ID.
@@ -1038,6 +1099,11 @@ func (s *AssistantChatSummary) GetTokenUsage() OptAssistantTokenUsage {
 	return s.TokenUsage
 }
 
+// GetPrimaryArtifact returns the value of PrimaryArtifact.
+func (s *AssistantChatSummary) GetPrimaryArtifact() OptAssistantArtifact {
+	return s.PrimaryArtifact
+}
+
 // SetID sets the value of ID.
 func (s *AssistantChatSummary) SetID(val string) {
 	s.ID = val
@@ -1066,6 +1132,11 @@ func (s *AssistantChatSummary) SetUnread(val bool) {
 // SetTokenUsage sets the value of TokenUsage.
 func (s *AssistantChatSummary) SetTokenUsage(val OptAssistantTokenUsage) {
 	s.TokenUsage = val
+}
+
+// SetPrimaryArtifact sets the value of PrimaryArtifact.
+func (s *AssistantChatSummary) SetPrimaryArtifact(val OptAssistantArtifact) {
+	s.PrimaryArtifact = val
 }
 
 // Ref: #/components/schemas/AssistantChatsResponse
@@ -4818,6 +4889,52 @@ func (o OptAssistantActiveChatRequest) Get() (v AssistantActiveChatRequest, ok b
 
 // Or returns value if set, or given parameter if does not.
 func (o OptAssistantActiveChatRequest) Or(d AssistantActiveChatRequest) AssistantActiveChatRequest {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptAssistantArtifact returns new OptAssistantArtifact with value set to v.
+func NewOptAssistantArtifact(v AssistantArtifact) OptAssistantArtifact {
+	return OptAssistantArtifact{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptAssistantArtifact is optional AssistantArtifact.
+type OptAssistantArtifact struct {
+	Value AssistantArtifact
+	Set   bool
+}
+
+// IsSet returns true if OptAssistantArtifact was set.
+func (o OptAssistantArtifact) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptAssistantArtifact) Reset() {
+	var v AssistantArtifact
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptAssistantArtifact) SetTo(v AssistantArtifact) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptAssistantArtifact) Get() (v AssistantArtifact, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptAssistantArtifact) Or(d AssistantArtifact) AssistantArtifact {
 	if v, ok := o.Get(); ok {
 		return v
 	}

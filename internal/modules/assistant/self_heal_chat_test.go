@@ -92,6 +92,7 @@ func TestDisableSelfHealThroughChat(t *testing.T) {
 			first := service.Chat(t.Context(), ChatRequest{Message: "Отключи self-heal у jobs/backup"})
 			require.Equal(t, StatusCompleted, first.Status, first.Answer)
 			assert.Contains(t, first.Answer, tc.first)
+			assert.Empty(t, first.Artifacts)
 			assertNoProposal()
 			if tc.confirmed == "" {
 				assert.Nil(t, first.Selection)
@@ -123,7 +124,12 @@ func TestDisableSelfHealThroughChat(t *testing.T) {
 				assertNoProposal()
 				return
 			}
-			assert.Contains(t, response.Answer, branch)
+			require.Equal(t, []Artifact{{Type: conversation.ArtifactTypeGitBranch, Label: branch}}, response.Artifacts)
+			history, found, err := service.GetChat(t.Context(), response.ConversationID)
+			require.NoError(t, err)
+			require.True(t, found)
+			require.NotEmpty(t, history.Messages)
+			assert.Equal(t, response.Artifacts, history.Messages[len(history.Messages)-1].Artifacts)
 			proposal, err := repo.Reference(ref, true)
 			require.NoError(t, err)
 			revision, err := repo.CommitObject(proposal.Hash())

@@ -41,6 +41,8 @@ type Result struct {
 	BranchURL string `json:"branchUrl,omitempty"`
 	// PullRequestURL is the URL returned by GitHub.
 	PullRequestURL string `json:"pullRequestUrl,omitempty"`
+	// PullRequestNumber is the number returned by GitHub.
+	PullRequestNumber int `json:"pullRequestNumber,omitempty"`
 	// PullRequestFailed indicates that the branch was pushed but opening a PR failed.
 	PullRequestFailed bool `json:"pullRequestFailed,omitempty"`
 	// AlreadyPinned reports that another commit already applied the confirmed image.
@@ -101,10 +103,13 @@ func (s *Service) Publish(
 		description := fmt.Sprintf(
 			"Pin the Compose image for `%s/%s` to the digest observed on all running Swarm tasks.", stack, service,
 		)
-		result.PullRequestURL, err = s.github.CreatePullRequest(
+		var pullRequest githosting.PullRequest
+		pullRequest, err = s.github.CreatePullRequest(
 			ctx, s.repo, s.spec.Branch, branch, title, description,
 		)
 		result.PullRequestFailed = err != nil
+		result.PullRequestURL = pullRequest.URL
+		result.PullRequestNumber = pullRequest.Number
 	}
 	return result, nil
 }

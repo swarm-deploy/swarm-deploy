@@ -411,11 +411,9 @@ func (g *graph) prepareNode(
 
 		historyChars := 0
 		for _, turn := range executionState.history {
-			historyChars += textChars(turn.Content)
-			messages = append(messages, llm.Message{
-				Role:    turn.Role,
-				Content: turn.Content,
-			})
+			message := modelMessageFromTurn(turn)
+			historyChars += textChars(message.Content)
+			messages = append(messages, message)
 		}
 		userMessage := executionState.userMessage
 		messages = append(messages, llm.Message{
@@ -585,7 +583,8 @@ func (g *graph) finalizeTerminalResultNode(
 			return messages, nil
 		}
 
-		executionState.answer = answer
+		executionState.answer = answer.text
+		executionState.operationTurn.artifacts = append([]conversation.Artifact(nil), answer.artifacts...)
 		executionState.terminalTool = result.toolName
 		recordTerminalTool(ctx, result.toolName)
 		return messages, nil

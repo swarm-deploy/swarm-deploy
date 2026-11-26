@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/conversation"
 )
 
 func TestAssistantChatRejectsOversizedRequest(t *testing.T) {
@@ -47,6 +48,9 @@ func TestGeneratedAssistantChatResponseIncludesSelection(t *testing.T) {
 		Selection: &assistant.Selection{Options: []assistant.SelectionOption{{
 			Label: "api", Description: "core", Value: "core/api",
 		}}},
+		Artifacts: []assistant.Artifact{{
+			Type: conversation.ArtifactTypePullRequest, Label: "PR #42", URL: "https://example.com/pull/42",
+		}},
 	})
 
 	selection, ok := response.Selection.Get()
@@ -55,4 +59,8 @@ func TestGeneratedAssistantChatResponseIncludesSelection(t *testing.T) {
 	assert.Equal(t, "api", selection.Options[0].Label)
 	assert.Equal(t, "core", selection.Options[0].Description.Value)
 	assert.Equal(t, "core/api", selection.Options[0].Value)
+	require.Len(t, response.Artifacts, 1)
+	assert.Equal(t, "pull_request", response.Artifacts[0].Type)
+	assert.Equal(t, "PR #42", response.Artifacts[0].Label)
+	assert.Equal(t, "https://example.com/pull/42", response.Artifacts[0].URL.Value)
 }

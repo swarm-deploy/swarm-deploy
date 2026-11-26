@@ -47,6 +47,7 @@ func (h *handler) GetAssistantChat(
 			Content:   message.Content,
 			Activity:  append([]string(nil), message.Activity...),
 			Selection: toGeneratedAssistantSelection(message.Selection),
+			Artifacts: toGeneratedAssistantArtifacts(message.Artifacts),
 		})
 	}
 
@@ -112,12 +113,13 @@ func (h *handler) GetAssistantUsage(
 
 func toGeneratedAssistantChatSummary(chat assistant.ChatSummary) generated.AssistantChatSummary {
 	return generated.AssistantChatSummary{
-		ID:         chat.ID,
-		Title:      chat.Title,
-		CreatedAt:  chat.CreatedAt,
-		UpdatedAt:  chat.UpdatedAt,
-		Unread:     chat.Unread,
-		TokenUsage: toGeneratedAssistantTokenUsage(chat.Usage),
+		ID:              chat.ID,
+		Title:           chat.Title,
+		CreatedAt:       chat.CreatedAt,
+		UpdatedAt:       chat.UpdatedAt,
+		Unread:          chat.Unread,
+		TokenUsage:      toGeneratedAssistantTokenUsage(chat.Usage),
+		PrimaryArtifact: toGeneratedAssistantArtifact(chat.PrimaryArtifact),
 	}
 }
 

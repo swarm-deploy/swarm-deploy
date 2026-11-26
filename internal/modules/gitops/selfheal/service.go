@@ -33,6 +33,8 @@ type Result struct {
 	BranchURL string `json:"branchUrl,omitempty"`
 	// PullRequestURL is the URL returned by GitHub.
 	PullRequestURL string `json:"mergeRequestUrl,omitempty"`
+	// PullRequestNumber is the number returned by GitHub.
+	PullRequestNumber int `json:"pullRequestNumber,omitempty"`
 	// PullRequestFailed indicates that the branch was pushed but opening a PR failed.
 	PullRequestFailed bool `json:"pullRequestFailed,omitempty"`
 	// AlreadyEnabled identifies the policy source when publication is unnecessary.
@@ -94,9 +96,12 @@ func (s *Service) Publish(
 	}
 	result := Result{Branch: branch, BranchURL: s.repo.BranchURL(branch)}
 	if s.github != nil {
-		result.PullRequestURL, err = s.github.CreatePullRequest(ctx, s.repo, s.spec.Branch, branch, title,
+		var pullRequest githosting.PullRequest
+		pullRequest, err = s.github.CreatePullRequest(ctx, s.repo, s.spec.Branch, branch, title,
 			description)
 		result.PullRequestFailed = err != nil
+		result.PullRequestURL = pullRequest.URL
+		result.PullRequestNumber = pullRequest.Number
 	}
 	return result, nil
 }
