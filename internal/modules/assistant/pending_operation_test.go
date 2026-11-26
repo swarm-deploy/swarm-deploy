@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json/v2"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -20,6 +21,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/selfheal"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/syncpause"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/model"
+	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	"github.com/swarm-deploy/swarm-deploy/internal/usecase"
 	"go.uber.org/mock/gomock"
 )
@@ -233,10 +235,10 @@ func TestPendingOperationDeterministicTurns(t *testing.T) {
 		},
 		{
 			name: "resource changed", message: "да", expectedHandled: true,
-			configure: func(_ *operationFlow, store *MockServiceStore, _ *fakeTools) {
-				store.EXPECT().ReadAll(gomock.Any()).Return(nil, nil).AnyTimes()
+			configure: func(_ *operationFlow, _ *MockServiceStore, tools *fakeTools) {
+				tools.executeErr = fmt.Errorf("restart service: %w", swarm.ErrServiceNotFound)
 			},
-			expectedAnswer: "no longer exists", expectedPending: false,
+			expectedAnswer: "no longer exists", expectedCalls: 1, expectedPending: false,
 		},
 		{
 			name: "tool disallowed", message: "да", expectedHandled: true,
@@ -304,6 +306,31 @@ func TestPendingOperationExpiredFallsThrough(t *testing.T) {
 	assert.True(t, usage.IsZero())
 	_, pending := flow.pending.get("conversation")
 	assert.False(t, pending)
+}
+
+func TestPendingOperationMissingLiveServiceDoesNotResolveTargetAgain(t *testing.T) {
+	resolver := &recordingCompleter{response: llm.Response{
+		Content: `{"status":"exact","candidate":"core/worker"}`,
+	}}
+	store, catalogReads := observedServiceStore(t, []model.Info{{Stack: "core", Name: "worker"}})
+	tools := &fakeTools{
+		definitions: assistantTestToolDefinitions(),
+		executeErr:  fmt.Errorf("restart service: %w", swarm.ErrServiceNotFound),
+	}
+	flow := newPendingTestFlow(t, store, tools)
+	flow.serviceTargets.chat = resolver
+	flow.pending.set("conversation", PendingOperation{
+		Type: OperationServiceRestart, Stage: PendingOperationConfirmation, Stack: "core", Service: "api",
+	})
+
+	handled, answer, usage, err := flow.beginTurn("conversation").handlePendingOperation(t.Context(), "yes")
+	require.NoError(t, err)
+	assert.True(t, handled)
+	assert.Contains(t, answer, "no longer exists")
+	assert.True(t, usage.IsZero())
+	assert.Empty(t, resolver.requests)
+	assert.Zero(t, catalogReads.Load())
+	assert.Equal(t, []string{serviceRestartTriggerTool}, tools.calls)
 }
 
 func TestPendingOperationPromptGuardRunsBeforePendingHandling(t *testing.T) {

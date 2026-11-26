@@ -19,6 +19,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/tools/routing"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/selfheal"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/syncpause"
+	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	"github.com/swarm-deploy/swarm-deploy/internal/usecase"
 )
 
@@ -436,7 +437,7 @@ func (t *operationTurn) executePendingOperation(
 	if op.Type == OperationServiceSelfHealDisable && errors.Is(err, selfheal.ErrPolicyChanged) {
 		return t.prepareSelfHealOperation(ctx, op, op.SelfHealPlan.Stack, op.SelfHealPlan.Service), nil
 	}
-	if errors.Is(err, usecase.ErrServiceNotFound) {
+	if errors.Is(err, usecase.ErrServiceNotFound) || errors.Is(err, swarm.ErrServiceNotFound) {
 		return t.texts.Text("operation.service_changed"), nil
 	}
 	if errors.Is(err, usecase.ErrServiceCatalogUnavailable) {
@@ -474,16 +475,7 @@ func (f *operationFlow) pendingOperationArguments(
 	case OperationServiceSelfHealEnable, OperationServiceSelfHealDisable:
 		return CapabilityServiceOperations, op.SelfHealPlan, "", nil
 	case OperationServiceRestart, OperationServiceReplicasSet:
-		resolution, _, err := f.serviceTargets.resolve(ctx, op.Stack+"/"+op.Service)
-		if err != nil {
-			return "", nil, "", err
-		}
-		if !resolution.ok || !strings.EqualFold(resolution.stack, op.Stack) ||
-			!strings.EqualFold(resolution.service, op.Service) {
-			return CapabilityServiceOperations, nil,
-				f.texts.Text("operation.service_changed"), nil
-		}
-		args := map[string]any{"stack": resolution.stack, "service": resolution.service}
+		args := map[string]any{"stack": op.Stack, "service": op.Service}
 		if op.Type == OperationServiceReplicasSet {
 			args["replicas"] = op.Replicas
 		}
