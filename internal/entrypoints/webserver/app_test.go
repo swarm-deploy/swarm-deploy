@@ -218,7 +218,7 @@ func TestBuildRouterSupportsBasePath(t *testing.T) {
 				"index.html":    &fstest.MapFile{Data: []byte("<html><head></head><body>app</body></html>")},
 				"assets/app.js": &fstest.MapFile{Data: []byte("console.log('app')")},
 			}
-			handler := buildRouter(testCase.basePath, "en", apiHandler, uiFS)
+			handler := buildRouter(testCase.basePath, "en", config.WebPWASpec{}, apiHandler, uiFS)
 
 			rec := httptest.NewRecorder()
 			req := httptest.NewRequest(http.MethodGet, testCase.requestPath, nil)
@@ -238,7 +238,7 @@ func TestBuildSPAFallbackRejectsNonReadRequests(t *testing.T) {
 	uiFS := fstest.MapFS{
 		"index.html": &fstest.MapFile{Data: []byte("<html><head></head><body>app</body></html>")},
 	}
-	handler := buildSPAFallbackHandler(fs.FS(uiFS), "/", "en")
+	handler := buildSPAFallbackHandler(fs.FS(uiFS), "/", "en", config.WebPWASpec{})
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/overview", nil))
 
@@ -288,16 +288,31 @@ func TestPWAURLsFromServicePage(t *testing.T) {
 	}
 
 	for _, tc := range []struct {
-		name     string
-		basePath string
-		prefix   string
+		name          string
+		basePath      string
+		prefix        string
+		pwa           config.WebPWASpec
+		wantName      string
+		wantShortName string
 	}{
-		{name: "root", basePath: "/"},
-		{name: "prefix", basePath: "/infra/swarm", prefix: "/infra/swarm"},
+		{
+			name:          "root with default name",
+			basePath:      "/",
+			wantName:      "Swarm Deploy",
+			wantShortName: "Swarm Deploy",
+		},
+		{
+			name:          "prefix with custom name",
+			basePath:      "/infra/swarm",
+			prefix:        "/infra/swarm",
+			pwa:           config.WebPWASpec{Name: "My Cluster", ShortName: "mc"},
+			wantName:      "My Cluster",
+			wantShortName: "mc",
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			const origin = "https://swarm.example"
-			handler := buildRouter(tc.basePath, "en", http.NotFoundHandler(), uiFS)
+			handler := buildRouter(tc.basePath, "en", tc.pwa, http.NotFoundHandler(), uiFS)
 			page := httptest.NewRequest(http.MethodGet, origin+tc.prefix+"/services/app/api", nil)
 			rec := httptest.NewRecorder()
 			handler.ServeHTTP(rec, page)
@@ -320,13 +335,17 @@ func TestPWAURLsFromServicePage(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 			assert.Equal(t, "application/manifest+json", rec.Header().Get("Content-Type"))
 			var manifest struct {
-				StartURL string `json:"start_url"`
-				Scope    string `json:"scope"`
-				Icons    []struct {
+				Name      string `json:"name"`
+				ShortName string `json:"short_name"`
+				StartURL  string `json:"start_url"`
+				Scope     string `json:"scope"`
+				Icons     []struct {
 					Src string `json:"src"`
 				} `json:"icons"`
 			}
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &manifest))
+			assert.Equal(t, tc.wantName, manifest.Name)
+			assert.Equal(t, tc.wantShortName, manifest.ShortName)
 			assert.Equal(t, origin+tc.prefix+"/", resolvePWAURL(t, manifestURL, manifest.StartURL).String())
 			assert.Equal(t, origin+tc.prefix+"/", resolvePWAURL(t, manifestURL, manifest.Scope).String())
 

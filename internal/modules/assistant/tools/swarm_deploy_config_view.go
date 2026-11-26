@@ -97,8 +97,14 @@ type alertRouteSettings struct {
 }
 
 type webSettings struct {
-	BasePath       string `json:"basePath"`
-	Authentication string `json:"authentication"`
+	BasePath       string      `json:"basePath"`
+	Authentication string      `json:"authentication"`
+	PWA            pwaSettings `json:"pwa"`
+}
+
+type pwaSettings struct {
+	Name      string `json:"name"`
+	ShortName string `json:"shortName"`
 }
 
 type healthServerSettings struct {
@@ -150,7 +156,11 @@ func projectGlobalConfiguration(
 			Event:         eventSettings{HistoryCapacity: spec.Event.History.Capacity},
 			System:        projectSystem(spec.System),
 			Notifications: notifications,
-			Web:           webSettings{BasePath: spec.Web.BasePath, Authentication: spec.Web.Security.Authentication.Strategy()},
+			Web: webSettings{
+				BasePath:       spec.Web.BasePath,
+				Authentication: spec.Web.Security.Authentication.Strategy(),
+				PWA:            pwaSettings{Name: spec.Web.PWA.Name, ShortName: spec.Web.PWA.ShortName},
+			},
 			HealthServer: healthServerSettings{
 				HealthcheckPath: httpRoutePath(spec.HealthServer.Healthz.Path),
 				MetricsPath:     httpRoutePath(spec.HealthServer.Metrics.Path),

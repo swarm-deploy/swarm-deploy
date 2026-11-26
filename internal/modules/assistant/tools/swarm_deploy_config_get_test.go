@@ -84,6 +84,7 @@ notifications:
       telegram: [{chats: [default, chat-alias-canary], resolved: {action: edit}}]
 web:
   basePath: /swarm/
+  pwa: {name: "My Cluster", short_name: "mc"}
   security: {authentication: {authProxy: {loginHeader: X-Login-Canary}}}
 healthServer:
   address: health-bind-canary:8081
@@ -131,7 +132,8 @@ func TestSwarmDeployConfigGet(t *testing.T) {
   "deployments":{"pollInterval":"2s","initJobDefaultTimeout":"10m"},"event":{"historyCapacity":500},
   "system":{"language":"en","logLevel":"INFO","tracing":{"enabled":false}},
   "notifications":{"telegramConfigured":false,"eventTypes":[]},
-  "web":{"basePath":"/","authentication":"none"},"healthServer":{"healthcheckPath":"/healthz","metricsPath":"/metrics"},
+  "web":{"basePath":"/","authentication":"none","pwa":{"name":"Swarm Deploy","shortName":"Swarm Deploy"}},
+  "healthServer":{"healthcheckPath":"/healthz","metricsPath":"/metrics"},
   "assistant":{"enabled":false,"toolAccess":{"mode":"unrestricted"},"maxOutputTokens":800,"conversationInMemoryTTL":"1h"},
   "hostings":{"integrations":[{"type":"github","authMode":"anonymous"}]}
 }`, `{
@@ -140,7 +142,8 @@ func TestSwarmDeployConfigGet(t *testing.T) {
   "deployments":{"pollInterval":"4s","initJobDefaultTimeout":"7m"},"event":{"historyCapacity":17},
   "system":{"language":"ru","logLevel":"DEBUG","tracing":{"enabled":true,"sampler":{"strategy":"parentbased_traceidratio","ratio":0}}},
   "notifications":{"telegramConfigured":true,"telegramMaxAttemptsPerAction":7,"eventTypes":["DeploySuccess"]},
-  "web":{"basePath":"/swarm","authentication":"auth_proxy"},"healthServer":{"healthcheckPath":"/live","metricsPath":"/prometheus"},
+  "web":{"basePath":"/swarm","authentication":"auth_proxy","pwa":{"name":"My Cluster","shortName":"mc"}},
+  "healthServer":{"healthcheckPath":"/live","metricsPath":"/prometheus"},
   "assistant":{"enabled":true,"toolAccess":{"mode":"allowlist"},"maxOutputTokens":1200,"conversationInMemoryTTL":"30m"},
   "hostings":{"integrations":[{"type":"github","authMode":"authenticated"}]}
 }`},
@@ -153,7 +156,8 @@ func TestSwarmDeployConfigGet(t *testing.T) {
 		{"event", `{"historyCapacity":500}`, `{"historyCapacity":17}`},
 		{"system", `{"language":"en","logLevel":"INFO","tracing":{"enabled":false}}`,
 			`{"language":"ru","logLevel":"DEBUG","tracing":{"enabled":true,"sampler":{"strategy":"parentbased_traceidratio","ratio":0}}}`},
-		{"web", `{"basePath":"/","authentication":"none"}`, `{"basePath":"/swarm","authentication":"auth_proxy"}`},
+		{"web", `{"basePath":"/","authentication":"none","pwa":{"name":"Swarm Deploy","shortName":"Swarm Deploy"}}`,
+			`{"basePath":"/swarm","authentication":"auth_proxy","pwa":{"name":"My Cluster","shortName":"mc"}}`},
 		{"healthServer", `{"healthcheckPath":"/healthz","metricsPath":"/metrics"}`, `{"healthcheckPath":"/live","metricsPath":"/prometheus"}`},
 		{"assistant",
 			`{"enabled":false,"toolAccess":{"mode":"unrestricted"},"maxOutputTokens":800,"conversationInMemoryTTL":"1h"}`,

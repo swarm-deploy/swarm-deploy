@@ -31,6 +31,7 @@ const (
 
 	defaultWebAddress              = ":8080"
 	defaultWebBasePath             = "/"
+	defaultPWAName                 = "Swarm Deploy"
 	defaultWebhookAddress          = ":8082"
 	defaultEventHistoryCap         = 500
 	defaultGitPullInterval         = 30 * time.Second
@@ -359,6 +360,14 @@ func (c *Config) applyWebAndHealthDefaults() {
 		c.Spec.Web.Address = defaultWebAddress
 	}
 	c.Spec.Web.BasePath = normalizeWebBasePath(c.Spec.Web.BasePath)
+	c.Spec.Web.PWA.Name = strings.TrimSpace(c.Spec.Web.PWA.Name)
+	if c.Spec.Web.PWA.Name == "" {
+		c.Spec.Web.PWA.Name = defaultPWAName
+	}
+	c.Spec.Web.PWA.ShortName = strings.TrimSpace(c.Spec.Web.PWA.ShortName)
+	if c.Spec.Web.PWA.ShortName == "" {
+		c.Spec.Web.PWA.ShortName = defaultPWAName
+	}
 	if c.Spec.HealthServer.Address == "" {
 		c.Spec.HealthServer.Address = ":8081"
 	}

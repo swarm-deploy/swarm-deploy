@@ -7,10 +7,19 @@ type WebSpec struct {
 	Address string `yaml:"address"`
 	// BasePath is the URL path prefix for UI and API routes.
 	BasePath string `yaml:"basePath"`
+	// PWA contains installed web application settings.
+	PWA WebPWASpec `yaml:"pwa"`
 	// Security contains UI and API access settings.
 	Security SecuritySpec `yaml:"security"`
 	// UI contains settings exposed to the web UI.
 	UI WebUISpec `yaml:"ui"`
+}
+
+type WebPWASpec struct {
+	// Name is the full installed web application name.
+	Name string `yaml:"name"`
+	// ShortName is the installed web application name used when space is limited.
+	ShortName string `yaml:"short_name"`
 }
 
 type WebUISpec struct {
