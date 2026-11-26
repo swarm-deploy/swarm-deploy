@@ -26,15 +26,6 @@ function applyTheme(mode: ThemeMode) {
   document.documentElement.dataset.theme = resolvedTheme;
   document.documentElement.dataset.themeMode = mode;
   document.documentElement.style.colorScheme = resolvedTheme;
-
-  const viewport = document.querySelector<HTMLMetaElement>('meta[name="viewport"]');
-  if (viewport?.content.includes("viewport-fit=cover")) {
-    const themeColor = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
-    const background = getComputedStyle(document.documentElement).getPropertyValue("--shell-chrome-bg").trim();
-    if (themeColor && background) {
-      themeColor.content = background;
-    }
-  }
 }
 
 const initialThemeMode = loadThemeMode();

@@ -203,8 +203,8 @@ function openCommit() {
   --alert-details-incident-line: color-mix(in srgb, var(--error) 30%, var(--muted));
   display: flex;
   flex-direction: column;
-  max-width: min(830px, var(--modal-viewport-width));
-  max-height: calc(var(--modal-viewport-height) - 32px);
+  max-width: 830px;
+  max-height: calc(100dvh - 32px);
   margin-block: 16px;
   overflow: hidden;
   border-color: var(--border-strong);
@@ -391,8 +391,8 @@ function openCommit() {
 @media (max-width: 600px) {
   :deep(.alert-details-card) {
     --alert-details-inset: 12px;
-    max-width: calc(var(--modal-viewport-width) - 16px);
-    max-height: calc(var(--modal-viewport-height) - 16px);
+    max-width: calc(100vw - 16px);
+    max-height: calc(100dvh - 16px);
     margin-block: 8px;
   }
   :deep(.alert-details-header) { min-height: 48px; }

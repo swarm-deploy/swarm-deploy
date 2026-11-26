@@ -2331,13 +2331,9 @@ a.overview-summary-row:focus-visible {
 }
 
 .modal {
-  --modal-viewport-width: calc(100vw - env(safe-area-inset-left) - env(safe-area-inset-right));
-  --modal-viewport-height: calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom));
   position: fixed;
   inset: 0;
   z-index: 20;
-  padding: env(safe-area-inset-top) env(safe-area-inset-right)
-    env(safe-area-inset-bottom) env(safe-area-inset-left);
 }
 
 .modal.hidden {
@@ -2377,13 +2373,12 @@ a.overview-summary-row:focus-visible {
 .modal-card {
   position: relative;
   width: min(900px, 94vw);
-  max-width: var(--modal-viewport-width);
   margin: 5vh auto;
   border: 1px solid var(--line);
   border-radius: 10px;
   background: var(--surface-modal);
   padding: 0;
-  max-height: calc(90vh - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+  max-height: 90vh;
   overflow: auto;
 }
 
@@ -2909,7 +2904,7 @@ button.app-copy-button.service-image-copy-button {
   display: flex;
   flex-direction: column;
   width: min(1216px, calc(100% - 64px));
-  max-height: calc(var(--modal-viewport-height) - 64px);
+  max-height: calc(100dvh - 64px);
   margin: 32px auto;
   overflow: auto;
   border-color: var(--border-default);
@@ -3413,7 +3408,7 @@ button.app-copy-button.service-image-copy-button {
     --log-level-width: 45px;
     --log-column-gap: 6px;
     width: calc(100% - 16px);
-    max-height: calc(var(--modal-viewport-height) - 16px);
+    max-height: calc(100dvh - 16px);
     margin: 8px auto;
   }
 
@@ -3630,8 +3625,8 @@ button.app-copy-button.service-image-copy-button {
 
   .modal-card {
     width: calc(100vw - 16px);
-    max-width: calc(var(--modal-viewport-width) - 16px);
-    max-height: calc(var(--modal-viewport-height) - 16px);
+    max-width: calc(100vw - 16px);
+    max-height: calc(100dvh - 16px);
     margin: 8px auto;
   }
 
