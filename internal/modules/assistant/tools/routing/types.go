@@ -27,6 +27,9 @@ type ToolDefinition struct {
 type Request struct {
 	ToolName string
 
+	// ToolCallID is the model-provided call ID, empty for deterministic operations.
+	ToolCallID string
+
 	// Payload contains decoded tool arguments.
 	Payload any
 }
