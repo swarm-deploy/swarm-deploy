@@ -110,6 +110,7 @@ func InitModule(
 		ConversationHistory:     conversation.NewSQLHistoryStorage(cnt.GetStorage()),
 		SyncPauses:              gitopsModule.SyncPauses,
 		PrepareSelfHeal:         selfHeal.Prepare,
+		PrepareSelfHealDisable:  selfHeal.PrepareDisable,
 	}, resourcesModule.ServiceStore, toolExecutor, eventModule.Dispatcher, cnt.GetMetrics().Assistant)
 	if err != nil {
 		return nil, err

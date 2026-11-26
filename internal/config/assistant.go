@@ -36,6 +36,7 @@ const (
 	AssistantToolNameServiceReplicasSet                 AssistantToolName = "service_replicas_set"
 	AssistantToolNameServiceRestartTrigger              AssistantToolName = "service_restart_trigger"
 	AssistantToolNameServiceSelfHealEnable              AssistantToolName = "service_self_heal_enable"
+	AssistantToolNameServiceSelfHealDisable             AssistantToolName = "service_self_heal_disable"
 	AssistantToolNameRegistryImageVersionGet            AssistantToolName = "registry_image_version_get"
 	AssistantToolNameGitRepositoryDiagnostics           AssistantToolName = "git_repository_diagnostics"
 	AssistantToolNameGitCommitList                      AssistantToolName = "git_commit_list"

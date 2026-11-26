@@ -100,7 +100,10 @@ func NewExecutor(
 		NewReportPromptInjection(eventModule.Dispatcher),
 	}
 	if selfHeal != nil {
-		toolComponents = append(toolComponents, &serviceSelfHealEnable{enabler: selfHeal})
+		toolComponents = append(toolComponents,
+			&serviceSelfHeal{name: config.AssistantToolNameServiceSelfHealEnable, publish: selfHeal.Publish},
+			&serviceSelfHeal{name: config.AssistantToolNameServiceSelfHealDisable, publish: selfHeal.PublishDisable},
+		)
 	}
 
 	allowed := config.NormalizeAssistantToolAllowlist(spec.Assistant.Tools)
