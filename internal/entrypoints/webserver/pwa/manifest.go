@@ -94,14 +94,14 @@ func Prepare(uiFS fs.FS, locale string, pwaConfig config.WebPWASpec) ([]byte, er
 			Name: localizer.Text("shortcut.ask_assistant"),
 			URL:  "./overview?assistant=new",
 			Icons: []Icon{
-				{Src: "icons/shortcut-assistant.png", Sizes: "192x192", Type: "image/png", Purpose: "any"},
+				{Src: "icons/shortcut-assistant-mask.png", Sizes: "192x192", Type: "image/png", Purpose: "any"},
 			},
 		},
 		{
 			Name: localizer.Text("shortcut.events_alerts"),
 			URL:  "./events",
 			Icons: []Icon{
-				{Src: "icons/shortcut-events.png", Sizes: "192x192", Type: "image/png", Purpose: "any"},
+				{Src: "icons/shortcut-events-mask.png", Sizes: "192x192", Type: "image/png", Purpose: "any"},
 			},
 		},
 	}
