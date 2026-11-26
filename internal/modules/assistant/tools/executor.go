@@ -49,6 +49,7 @@ func NewExecutor(
 	resourcesModule *resources.Module,
 	gitopsModule *gitops.Module,
 	selfHeal *usecase.ServiceSelfHealChanger,
+	imagePinner *usecase.ServiceImagePinner,
 	deployments *deploymentstore.Store,
 	alertModule *alertmanagement.Module,
 	eventModule *event.Module,
@@ -112,6 +113,9 @@ func NewExecutor(
 				publish:        selfHeal.Publish,
 			},
 		)
+	}
+	if imagePinner != nil {
+		toolComponents = append(toolComponents, &serviceImagePin{publish: imagePinner.Publish})
 	}
 
 	allowed := config.NormalizeAssistantToolAllowlist(spec.Assistant.Tools)

@@ -183,6 +183,10 @@ type Config struct {
 	PrepareSelfHeal func(
 		ctx context.Context, stack, service string, desiredEnabled bool,
 	) (usecase.ServiceSelfHealPlan, error)
+	// PrepareImagePin assesses the running task images against Git for an exact service.
+	PrepareImagePin func(
+		ctx context.Context, stack, service string,
+	) (usecase.ServiceImagePinAssessment, error)
 }
 
 // ServiceStore reads current service metadata used by RAG retrieval.

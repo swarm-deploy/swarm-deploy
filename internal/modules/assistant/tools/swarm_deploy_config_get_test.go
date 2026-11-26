@@ -113,7 +113,7 @@ hostings: {github: {token: github-token-canary}}
 }
 
 func configToolExecutor(spec config.Spec) *Executor {
-	return NewExecutor(&resources.Module{}, &gitops.Module{}, nil, nil, &alertmanagement.Module{},
+	return NewExecutor(&resources.Module{}, &gitops.Module{}, nil, nil, nil, &alertmanagement.Module{},
 		&event.Module{}, &swarm.Swarm{}, nil, nil, nil, nil, nil,
 		metrics.NewGroup(metrics.CreateGroupParams{}).MCP, spec)
 }

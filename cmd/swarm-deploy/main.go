@@ -29,6 +29,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/logx"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops"
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/imagepin"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/selfheal"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/notifications"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/recommendations"
@@ -118,7 +119,9 @@ var modules = []module{
 	{
 		Name: "assistant",
 		Initialize: func(ctx context.Context, cfg *config.Config, cnt *container) error {
-			mod, err := assistant.InitModule(ctx, cfg, cnt, cnt.AssistantTexts, cnt.ServiceSelfHealChanger)
+			mod, err := assistant.InitModule(
+				ctx, cfg, cnt, cnt.AssistantTexts, cnt.ServiceSelfHealChanger, cnt.ServiceImagePinner,
+			)
 			cnt.Assistant = mod
 			return err
 		},
@@ -133,6 +136,13 @@ func initializeUseCases(_ context.Context, cfg *config.Config, cnt *container) e
 		return fmt.Errorf("initialize GitOps self-heal proposals: %w", err)
 	}
 	cnt.ServiceSelfHealChanger = usecase.NewServiceSelfHealChanger(cnt.Resources.ServiceStore, proposals)
+	imageProposals, err := imagepin.New(cnt.ConfigStore, cfg.Spec.GitOps.Git, cfg.Spec.DataDir)
+	if err != nil {
+		return fmt.Errorf("initialize GitOps image pin proposals: %w", err)
+	}
+	cnt.ServiceImagePinner = usecase.NewServiceImagePinner(
+		cnt.Resources.ServiceStore, cnt.Swarm.Services, imageProposals,
+	)
 	return nil
 }
 
@@ -393,6 +403,8 @@ type container struct {
 	AssistantTexts  *texts.Localizer
 	// ServiceSelfHealChanger coordinates catalog and GitOps policy proposals.
 	ServiceSelfHealChanger *usecase.ServiceSelfHealChanger
+	// ServiceImagePinner coordinates runtime task evidence and GitOps image proposals.
+	ServiceImagePinner *usecase.ServiceImagePinner
 }
 
 // GetStorage returns the shared application database.

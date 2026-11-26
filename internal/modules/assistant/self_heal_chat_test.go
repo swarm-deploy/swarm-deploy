@@ -184,7 +184,7 @@ func newSelfHealChat(
 	catalog := modelstore.NewSQLStore(db)
 	require.NoError(t, catalog.ReplaceStack(t.Context(), "jobs", []model.Info{{Stack: "jobs", Name: "backup"}}))
 	selfHeal := usecase.NewServiceSelfHealChanger(catalog, proposals)
-	executor := tools.NewExecutor(&resources.Module{ServiceStore: catalog}, &gitops.Module{}, selfHeal, nil,
+	executor := tools.NewExecutor(&resources.Module{ServiceStore: catalog}, &gitops.Module{}, selfHeal, nil, nil,
 		&alertmanagement.Module{}, &event.Module{}, &swarm.Swarm{}, nil, nil, nil, nil, nil,
 		metrics.NewGroup(metrics.CreateGroupParams{}).MCP, cfg.Spec)
 	service, err := NewService(Config{

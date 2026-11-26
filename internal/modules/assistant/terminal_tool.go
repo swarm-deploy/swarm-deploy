@@ -8,6 +8,7 @@ import (
 
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/texts"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/tools"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/imagepin"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/selfheal"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/syncpause"
 )
@@ -17,6 +18,7 @@ const (
 	serviceReplicasSetTool             = "service_replicas_set"
 	serviceSelfHealEnableTool          = "service_self_heal_enable"
 	serviceSelfHealDisableTool         = "service_self_heal_disable"
+	serviceImagePinTool                = "service_image_pin"
 	deploySyncTriggerTool              = "deploy_sync_trigger"
 	syncPauseGetTool                   = "sync_pause_get"
 	syncPauseSetTool                   = "sync_pause_set"
@@ -37,9 +39,35 @@ func finalizeTerminalToolResult(localizer *texts.Localizer, toolName, result str
 		return finalizeServiceActionResult(localizer, toolName, result)
 	case serviceSelfHealEnableTool, serviceSelfHealDisableTool:
 		return finalizeSelfHeal(localizer, toolName, result)
+	case serviceImagePinTool:
+		return finalizeImagePin(localizer, result)
 	default:
 		return "", fmt.Errorf("terminal formatter is not configured for tool %q", toolName)
 	}
+}
+
+func finalizeImagePin(localizer *texts.Localizer, result string) (string, error) {
+	var update imagepin.Result
+	if err := json.Unmarshal([]byte(result), &update); err != nil {
+		return "", fmt.Errorf("decode image pin proposal: %w", err)
+	}
+	if update.AlreadyPinned {
+		return localizer.Text("result.image_pin_unchanged"), nil
+	}
+	if update.Branch == "" {
+		return "", errors.New("image pin proposal must contain the branch name")
+	}
+	answer := localizer.Format("result.image_pin", map[string]any{"Branch": update.Branch})
+	if update.BranchURL != "" {
+		answer += " " + localizer.Format("result.image_pin_branch", map[string]any{"URL": update.BranchURL})
+	}
+	if update.PullRequestURL != "" {
+		answer += " " + localizer.Format("result.image_pin_pr", map[string]any{"URL": update.PullRequestURL})
+	}
+	if update.PullRequestFailed {
+		answer += " " + localizer.Text("result.image_pin_pr_failed")
+	}
+	return answer, nil
 }
 
 func finalizeSelfHeal(localizer *texts.Localizer, toolName, result string) (string, error) {

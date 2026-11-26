@@ -183,7 +183,7 @@ func operationCapability(operation OperationType) Capability {
 	case OperationSyncPauseSet, OperationSyncPauseResume:
 		return CapabilityPauseSync
 	case OperationServiceRestart, OperationServiceReplicasSet,
-		OperationServiceSelfHealEnable, OperationServiceSelfHealDisable:
+		OperationServiceSelfHealEnable, OperationServiceSelfHealDisable, OperationServiceImagePin:
 		return CapabilityServiceOperations
 	default:
 		return CapabilityServiceOperations
@@ -193,7 +193,7 @@ func operationCapability(operation OperationType) Capability {
 func operationAllowedForRoute(route Route, operation OperationType) bool {
 	switch operation {
 	case OperationServiceRestart, OperationServiceReplicasSet,
-		OperationServiceSelfHealEnable, OperationServiceSelfHealDisable:
+		OperationServiceSelfHealEnable, OperationServiceSelfHealDisable, OperationServiceImagePin:
 		return route == RouteServices
 	case OperationDeploySync:
 		return route == RouteDeployments
@@ -261,6 +261,8 @@ Date/time uses the cross-cutting date tool and needs no capability.
 For restart or replica changes, operation is {"type":"service_restart_trigger|service_replicas_set","target":"literal target or empty","replicas":number-or-null}; include service_operations.
 For an explicit request to enable or disable self-heal for a service, use services with service_operations and operation {"type":"service_self_heal_enable|service_self_heal_disable","target":"literal target or empty"}, choosing the operation for the requested policy value.
 A self-heal change is a GitOps proposal. Never route it as a restart, replica change, Pause Sync, or manual sync. Self-heal policy questions have null operation.
+For an explicit request to pin in Git the image currently running for a service, use services with service_operations and operation {"type":"service_image_pin","target":"literal target or empty"}.
+Image pinning uses digests from running Swarm tasks and never resolves the tag in a registry. Never route it as an image lookup, restart, or manual sync.
 For a request to start synchronization, use the deployments route and operation {"type":"deploy_sync_trigger","target":"","replicas":null}; include deployment_sync.
 For Pause Sync mutations, use operation {"type":"sync_pause_set|sync_pause_resume","target":"stack or stack/service","scope":"stack|service","expires_at":"absolute RFC3339 time or null","replicas":number-or-null}; include pause_sync. A replicas value combines pause-first with scaling.
 Target is copied from the current user message. Never infer a missing operation target from history.
@@ -279,6 +281,8 @@ Examples:
 "Сколько времени отведено init job?" -> {"route":"platform","capabilities":["configuration"],"operation":null}
 "Отключи self-heal у jobs/backup" -> {"route":"services","capabilities":["service_operations"],"operation":{"type":"service_self_heal_disable","target":"jobs/backup"}}
 "Disable self-heal for backup" -> {"route":"services","capabilities":["service_operations"],"operation":{"type":"service_self_heal_disable","target":"backup"}}
+"Закрепи в Git образ, который сейчас запущен у prod/api" -> {"route":"services","capabilities":["service_operations"],"operation":{"type":"service_image_pin","target":"prod/api"}}
+"Pin the image currently running for api in Git" -> {"route":"services","capabilities":["service_operations"],"operation":{"type":"service_image_pin","target":"api"}}
 "Что такое self-heal?" -> {"route":"platform","capabilities":[],"operation":null}
 "Почему у payments не сработал self-heal?" -> {"route":"diagnostics","capabilities":["configuration","deployment_history","alert_management","pause_sync"],"operation":null}
 "Какие деплои были вчера?" -> {"route":"deployments","capabilities":["deployment_history"],"operation":null}
