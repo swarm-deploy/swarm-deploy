@@ -6,10 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"regexp"
-	"strings"
 
-	"github.com/google/uuid"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/githosting"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
@@ -93,7 +90,10 @@ func (s *Service) Publish(
 	if err != nil {
 		return Result{}, err
 	}
-	branch := fmt.Sprintf("%s-%s-pin-image-%s", branchPart(stack), branchPart(service), uuid.NewString())
+	branch, err := git.NewProposalBranch(stack, service, "pin-image")
+	if err != nil {
+		return Result{}, err
+	}
 	title := fmt.Sprintf("chore: pin image for %s/%s", stack, service)
 	if _, err = file.Push(ctx, branch, title, author, updated); err != nil {
 		return Result{}, err
@@ -121,10 +121,4 @@ func (s *Service) open(ctx context.Context, stack string) (*git.ProposalFile, er
 		}
 	}
 	return nil, fmt.Errorf("GitOps stack %q has no Compose file", stack)
-}
-
-var invalidBranchPart = regexp.MustCompile(`[^a-zA-Z0-9._-]+`)
-
-func branchPart(value string) string {
-	return strings.Trim(invalidBranchPart.ReplaceAllString(value, "-"), ".-")
 }
