@@ -108,7 +108,7 @@ func TestPendingOperationReturnsAndPersistsAmbiguousServiceSelection(t *testing.
 	assert.Equal(t, response.Selection.Options, chat.Messages[1].Selection.Options)
 }
 
-func TestPendingOperationResolution(t *testing.T) {
+func TestServiceTargetResolverDeterministicResolution(t *testing.T) {
 	services := []model.Info{
 		{Stack: "core", Name: "api"},
 		{Stack: "core", Name: "worker"},
@@ -136,7 +136,7 @@ func TestPendingOperationResolution(t *testing.T) {
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			flow := newPendingTestFlow(t, nil, nil)
-			resolved := flow.resolveServiceTarget(services, testCase.target)
+			resolved := flow.serviceTargets.resolveDeterministic(services, testCase.target)
 			assert.Equal(t, testCase.expectedOK, resolved.ok)
 			assert.Equal(t, testCase.expectedStack, resolved.stack)
 			assert.Equal(t, testCase.expectedName, resolved.service)
@@ -474,8 +474,8 @@ func TestPendingOperationFindItYourselfUsesOriginalTarget(t *testing.T) {
 		Usage:   conversation.TokenUsage{InputTokens: 10, OutputTokens: 3, TotalTokens: 13},
 	}}
 	flow := newPendingTestFlow(t, store, &fakeTools{})
-	flow.chat = resolver
-	flow.modelName = "test-model"
+	flow.serviceTargets.chat = resolver
+	flow.serviceTargets.modelName = "test-model"
 	flow.pending.set("conversation", PendingOperation{
 		Type: OperationServiceRestart, Stage: PendingOperationCollecting, Target: "postgres infrastructure",
 	})
@@ -496,9 +496,10 @@ func TestTargetResolverRejectsCandidateMissingFromStore(t *testing.T) {
 		Content: `{"status":"exact","candidate":"prod/admin"}`,
 	}}
 	flow := newPendingTestFlow(t, serviceStore(t, services), &fakeTools{})
-	flow.chat = resolver
+	flow.serviceTargets.chat = resolver
 
-	resolution, _ := flow.resolveOperationTarget(context.Background(), services, "production API")
+	resolution, _, err := flow.serviceTargets.resolve(context.Background(), "production API")
+	require.NoError(t, err)
 	assert.False(t, resolution.ok)
 	assert.Contains(t, resolution.message, "No service found")
 }
