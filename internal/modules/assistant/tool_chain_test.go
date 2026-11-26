@@ -34,7 +34,7 @@ func TestAssistantToolExecutionRounds(t *testing.T) {
 			var previousCall *gomock.Call
 			for index, toolName := range testCase.toolNames {
 				round := strconv.Itoa(index + 1)
-				request := routing.Request{ToolName: toolName, Payload: `{"round":` + round + `}`}
+				request := routing.Request{ToolName: toolName, ToolCallID: "tool-" + round, Payload: `{"round":` + round + `}`}
 				executeCall := toolExecutor.EXPECT().Execute(gomock.Any(), request).
 					Return(`{"round":`+round+`}`, nil)
 				if previousCall != nil {
@@ -89,9 +89,9 @@ func TestAssistantToolExecutionLimitDoesNotExecuteFourthRound(t *testing.T) {
 	toolExecutor := NewMockToolExecutor(controller)
 	toolExecutor.EXPECT().Definitions().Return(toolChainDefinitions()).AnyTimes()
 	gomock.InOrder(
-		toolExecutor.EXPECT().Execute(gomock.Any(), routing.Request{ToolName: "alert_list", Payload: `{}`}).Return(`{"step":1}`, nil),
-		toolExecutor.EXPECT().Execute(gomock.Any(), routing.Request{ToolName: "deployment_list", Payload: `{}`}).Return(`{"step":2}`, nil),
-		toolExecutor.EXPECT().Execute(gomock.Any(), routing.Request{ToolName: "deployment_get", Payload: `{}`}).Return(`{"step":3}`, nil),
+		toolExecutor.EXPECT().Execute(gomock.Any(), routing.Request{ToolName: "alert_list", ToolCallID: "tool-limit", Payload: `{}`}).Return(`{"step":1}`, nil),
+		toolExecutor.EXPECT().Execute(gomock.Any(), routing.Request{ToolName: "deployment_list", ToolCallID: "tool-limit", Payload: `{}`}).Return(`{"step":2}`, nil),
+		toolExecutor.EXPECT().Execute(gomock.Any(), routing.Request{ToolName: "deployment_get", ToolCallID: "tool-limit", Payload: `{}`}).Return(`{"step":3}`, nil),
 	)
 
 	toolNames := []string{"alert_list", "deployment_list", "deployment_get"}
@@ -130,12 +130,14 @@ func TestAssistantAlertDeploymentToolChain(t *testing.T) {
 	toolExecutor.EXPECT().Definitions().Return(toolChainDefinitions()).AnyTimes()
 	gomock.InOrder(
 		toolExecutor.EXPECT().Execute(gomock.Any(), routing.Request{
-			ToolName: "alert_list",
-			Payload:  `{"status":"open","kind":"sync_failed","resource_type":"stack","resource_id":"infra-monitoring","limit":5}`,
+			ToolName:   "alert_list",
+			ToolCallID: "alert-list-1",
+			Payload:    `{"status":"open","kind":"sync_failed","resource_type":"stack","resource_id":"infra-monitoring","limit":5}`,
 		}).Return(alertResult, nil),
 		toolExecutor.EXPECT().Execute(gomock.Any(), routing.Request{
-			ToolName: "deployment_get",
-			Payload:  `{"id":"deploy-42"}`,
+			ToolName:   "deployment_get",
+			ToolCallID: "deployment-get-1",
+			Payload:    `{"id":"deploy-42"}`,
 		}).Return(deploymentResult, nil),
 	)
 
@@ -185,8 +187,9 @@ func TestAssistantAlertWithoutDeploymentDoesNotInventAttempt(t *testing.T) {
 	toolExecutor := NewMockToolExecutor(controller)
 	toolExecutor.EXPECT().Definitions().Return(toolChainDefinitions()).AnyTimes()
 	toolExecutor.EXPECT().Execute(gomock.Any(), routing.Request{
-		ToolName: "alert_list",
-		Payload:  `{"status":"open","resource_id":"infra-monitoring"}`,
+		ToolName:   "alert_list",
+		ToolCallID: "alert-list-1",
+		Payload:    `{"status":"open","resource_id":"infra-monitoring"}`,
 	}).Return(alertResult, nil)
 
 	var requests []capturedChatRequest
