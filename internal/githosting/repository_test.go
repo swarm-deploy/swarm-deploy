@@ -54,8 +54,10 @@ func TestOpenPullRequestUsesPublishedBranchAndConfiguredBase(t *testing.T) {
 	repo, provider, err := ResolvePushRepository("git@github.com:team/app.git", "write-token")
 	require.NoError(t, err)
 	require.NotNil(t, provider)
-	provider.client = client
-	pr, err := provider.CreatePullRequest(t.Context(), repo, "deploy", "proposal", "enable self-heal", "details")
+	githubProvider, ok := provider.(*GithubProvider)
+	require.True(t, ok)
+	githubProvider.client = client
+	pr, err := provider.CreateChangeRequest(t.Context(), repo, "deploy", "proposal", "enable self-heal", "details")
 	require.NoError(t, err)
-	assert.Equal(t, PullRequest{URL: link, Number: 42}, pr)
+	assert.Equal(t, ChangeRequest{URL: link, Number: 42}, pr)
 }

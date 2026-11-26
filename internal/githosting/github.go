@@ -13,14 +13,6 @@ type GithubProvider struct {
 	client *github.Client
 }
 
-// PullRequest identifies a pull request created by a hosting provider.
-type PullRequest struct {
-	// URL opens the pull request in the hosting provider.
-	URL string
-	// Number is the provider-assigned pull request number.
-	Number int
-}
-
 func NewGithubProvider(token string) (provider *GithubProvider, err error) {
 	provider = &GithubProvider{}
 
@@ -51,23 +43,23 @@ func (g *GithubProvider) GetLatestRelease(ctx context.Context, repo RepositoryRe
 	return g.mapRelease(release), nil
 }
 
-// CreatePullRequest opens a pull request between two branches of the same GitHub repository.
-func (g *GithubProvider) CreatePullRequest(
+// CreateChangeRequest opens a pull request between two branches of the same GitHub repository.
+func (g *GithubProvider) CreateChangeRequest(
 	ctx context.Context, repo RepositoryReference, base, head, title, body string,
-) (PullRequest, error) {
+) (ChangeRequest, error) {
 	if err := repo.validateGitHubPath(); err != nil {
-		return PullRequest{}, err
+		return ChangeRequest{}, err
 	}
 	pr, _, err := g.client.PullRequests.Create(ctx, repo.Owner, repo.Name, &github.NewPullRequest{
 		Base: &base, Head: &head, Title: &title, Body: &body,
 	})
 	if err != nil {
-		return PullRequest{}, err
+		return ChangeRequest{}, err
 	}
 	if pr.GetHTMLURL() == "" {
-		return PullRequest{}, errors.New("GitHub returned a pull request without a URL")
+		return ChangeRequest{}, errors.New("GitHub returned a pull request without a URL")
 	}
-	return PullRequest{URL: pr.GetHTMLURL(), Number: pr.GetNumber()}, nil
+	return ChangeRequest{URL: pr.GetHTMLURL(), Number: pr.GetNumber()}, nil
 }
 
 func (g *GithubProvider) mapRelease(release *github.RepositoryRelease) *Release {
