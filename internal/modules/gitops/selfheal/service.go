@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/githosting"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
 )
 
 // ErrPolicyChanged indicates that publication needs a new plan for the current policy.
@@ -15,12 +17,12 @@ var ErrPolicyChanged = errors.New("self-heal policy changed after preparation. P
 
 // Service proposes changes to service self-heal in the configured Git write repository.
 type Service struct {
-	stacks  config.StackProvider
-	global  bool
-	spec    config.GitSpec
-	dataDir string
-	repo    githosting.RepositoryReference
-	github  *githosting.GithubProvider
+	stacks         config.StackProvider
+	global         bool
+	spec           config.GitSpec
+	dataDir        string
+	repo           githosting.RepositoryReference
+	changeRequests githosting.ChangeRequestCreator
 }
 
 // Result describes the pushed branch and the optional pull request.
@@ -29,12 +31,14 @@ type Result struct {
 	Branch string `json:"branch"`
 	// BranchURL is the browser URL of the branch, when available.
 	BranchURL string `json:"branchUrl,omitempty"`
-	// PullRequestURL is the URL returned by GitHub.
+	// PullRequestURL is the URL returned by the configured hosting provider.
 	PullRequestURL string `json:"mergeRequestUrl,omitempty"`
-	// PullRequestNumber is the number returned by GitHub.
+	// PullRequestNumber is the number returned by the configured hosting provider.
 	PullRequestNumber int `json:"pullRequestNumber,omitempty"`
 	// PullRequestFailed indicates that the branch was pushed but opening a PR failed.
 	PullRequestFailed bool `json:"pullRequestFailed,omitempty"`
+	// PullRequestError contains a safe diagnostic when opening a PR failed.
+	PullRequestError string `json:"pullRequestError,omitempty"`
 	// AlreadyEnabled identifies the policy source when publication is unnecessary.
 	AlreadyEnabled string `json:"alreadyEnabled,omitempty"`
 	// AlreadyDisabled identifies the policy source when publication is unnecessary.
@@ -46,11 +50,14 @@ func New(
 	stacks config.StackProvider, global bool, spec config.GitSpec, dataDir string,
 ) (*Service, error) {
 	write, token := spec.ForPush()
-	repo, github, err := githosting.ResolvePushRepository(write.Repository, token)
+	repo, changeRequests, err := githosting.ResolvePushRepository(write.Repository, token)
 	if err != nil {
 		return nil, fmt.Errorf("initialize push repository: %w", err)
 	}
-	return &Service{stacks: stacks, global: global, spec: write, dataDir: dataDir, repo: repo, github: github}, nil
+	return &Service{
+		stacks: stacks, global: global, spec: write, dataDir: dataDir,
+		repo: repo, changeRequests: changeRequests,
+	}, nil
 }
 
 // Preview reads policy and checks whether the requested self-heal override is possible.
@@ -96,13 +103,20 @@ func (s *Service) Publish(
 		return Result{}, err
 	}
 	result := Result{Branch: branch, BranchURL: s.repo.BranchURL(branch)}
-	if s.github != nil {
-		var pullRequest githosting.PullRequest
-		pullRequest, err = s.github.CreatePullRequest(ctx, s.repo, s.spec.Branch, branch, title,
+	if s.changeRequests != nil {
+		var changeRequest githosting.ChangeRequest
+		changeRequest, err = s.changeRequests.CreateChangeRequest(ctx, s.repo, s.spec.Branch, branch, title,
 			description)
-		result.PullRequestFailed = err != nil
-		result.PullRequestURL = pullRequest.URL
-		result.PullRequestNumber = pullRequest.Number
+		if err != nil {
+			result.PullRequestFailed = true
+			result.PullRequestError = faults.SafeDiagnostic(err)
+			slog.ErrorContext(ctx, "create pull request for self-heal proposal",
+				"stack", stack, "service", service, "branch", branch,
+				"error", result.PullRequestError)
+		} else {
+			result.PullRequestURL = changeRequest.URL
+			result.PullRequestNumber = changeRequest.Number
+		}
 	}
 	return result, nil
 }

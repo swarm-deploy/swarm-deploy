@@ -117,6 +117,7 @@
   "result.pause_stack_removed": "Direct Pause Sync policy removed for stack \"{{.Stack}}\".",
   "result.pause_stack_set": "Pause Sync enabled for stack \"{{.Stack}}\".",
   "result.pause_unchanged": "Pause Sync policy was already in the requested state.",
+  "result.pull_request_failure_reason": "Reason: {{.Error}}",
   "result.replicas": "Service replicas updated successfully: stack \"{{.Stack}}\", service \"{{.Service}}\", replicas set to {{.Count}}.",
   "result.restart": "Service restart completed successfully: stack \"{{.Stack}}\", service \"{{.Service}}\", current replicas: {{.Count}}.",
   "result.self_heal": "Published the service self-heal proposal to Git.",

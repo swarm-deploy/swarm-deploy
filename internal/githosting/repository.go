@@ -60,8 +60,8 @@ func (r RepositoryReference) validateGitHubPath() error {
 	return nil
 }
 
-// ResolvePushRepository parses the write repository and configures its optional GitHub client.
-func ResolvePushRepository(remote, token string) (RepositoryReference, *GithubProvider, error) {
+// ResolvePushRepository parses the write repository and configures its optional change request creator.
+func ResolvePushRepository(remote, token string) (RepositoryReference, ChangeRequestCreator, error) {
 	repo := parsePushRepository(remote)
 	if token == "" || !repo.isGitHub() {
 		return repo, nil, nil

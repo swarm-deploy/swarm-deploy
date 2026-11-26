@@ -26,7 +26,7 @@ func TestGitHubPublicationUsesWriteRepositoryAndToken(t *testing.T) {
 			push.APIToken.Content = []byte(tc.token)
 			service, err := New(&config.Config{}, false, config.GitSpec{Repository: tc.syncRepo, Push: push}, t.TempDir())
 			require.NoError(t, err)
-			assert.Equal(t, tc.wantPR, service.github != nil)
+			assert.Equal(t, tc.wantPR, service.changeRequests != nil)
 			assert.Equal(t, tc.branchURL, service.repo.BranchURL("change"))
 		})
 	}

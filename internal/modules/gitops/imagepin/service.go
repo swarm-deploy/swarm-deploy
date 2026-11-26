@@ -6,10 +6,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/githosting"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
 )
 
 // ErrImageChanged indicates that the Compose image changed after preparation.
@@ -17,11 +19,11 @@ var ErrImageChanged = errors.New("compose image changed after preparation")
 
 // Service proposes digest pins in the configured Git write repository.
 type Service struct {
-	stacks  config.StackProvider
-	spec    config.GitSpec
-	dataDir string
-	repo    githosting.RepositoryReference
-	github  *githosting.GithubProvider
+	stacks         config.StackProvider
+	spec           config.GitSpec
+	dataDir        string
+	repo           githosting.RepositoryReference
+	changeRequests githosting.ChangeRequestCreator
 }
 
 // Source is the image value read from the proposal base.
@@ -36,12 +38,14 @@ type Result struct {
 	Branch string `json:"branch,omitempty"`
 	// BranchURL is the browser URL of the branch, when available.
 	BranchURL string `json:"branchUrl,omitempty"`
-	// PullRequestURL is the URL returned by GitHub.
+	// PullRequestURL is the URL returned by the configured hosting provider.
 	PullRequestURL string `json:"pullRequestUrl,omitempty"`
-	// PullRequestNumber is the number returned by GitHub.
+	// PullRequestNumber is the number returned by the configured hosting provider.
 	PullRequestNumber int `json:"pullRequestNumber,omitempty"`
 	// PullRequestFailed indicates that the branch was pushed but opening a PR failed.
 	PullRequestFailed bool `json:"pullRequestFailed,omitempty"`
+	// PullRequestError contains a safe diagnostic when opening a PR failed.
+	PullRequestError string `json:"pullRequestError,omitempty"`
 	// AlreadyPinned reports that another commit already applied the confirmed image.
 	AlreadyPinned bool `json:"alreadyPinned,omitempty"`
 }
@@ -49,11 +53,13 @@ type Result struct {
 // New creates the image pin proposal service with an isolated Git write path.
 func New(stacks config.StackProvider, spec config.GitSpec, dataDir string) (*Service, error) {
 	write, token := spec.ForPush()
-	repo, github, err := githosting.ResolvePushRepository(write.Repository, token)
+	repo, changeRequests, err := githosting.ResolvePushRepository(write.Repository, token)
 	if err != nil {
 		return nil, fmt.Errorf("initialize push repository: %w", err)
 	}
-	return &Service{stacks: stacks, spec: write, dataDir: dataDir, repo: repo, github: github}, nil
+	return &Service{
+		stacks: stacks, spec: write, dataDir: dataDir, repo: repo, changeRequests: changeRequests,
+	}, nil
 }
 
 // Preview reads the exact service image from the current write base.
@@ -99,17 +105,24 @@ func (s *Service) Publish(
 		return Result{}, err
 	}
 	result := Result{Branch: branch, BranchURL: s.repo.BranchURL(branch)}
-	if s.github != nil {
+	if s.changeRequests != nil {
 		description := fmt.Sprintf(
 			"Pin the Compose image for `%s/%s` to the digest observed on all running Swarm tasks.", stack, service,
 		)
-		var pullRequest githosting.PullRequest
-		pullRequest, err = s.github.CreatePullRequest(
+		var changeRequest githosting.ChangeRequest
+		changeRequest, err = s.changeRequests.CreateChangeRequest(
 			ctx, s.repo, s.spec.Branch, branch, title, description,
 		)
-		result.PullRequestFailed = err != nil
-		result.PullRequestURL = pullRequest.URL
-		result.PullRequestNumber = pullRequest.Number
+		if err != nil {
+			result.PullRequestFailed = true
+			result.PullRequestError = faults.SafeDiagnostic(err)
+			slog.ErrorContext(ctx, "create pull request for image pin proposal",
+				"stack", stack, "service", service, "branch", branch,
+				"error", result.PullRequestError)
+		} else {
+			result.PullRequestURL = changeRequest.URL
+			result.PullRequestNumber = changeRequest.Number
+		}
 	}
 	return result, nil
 }
