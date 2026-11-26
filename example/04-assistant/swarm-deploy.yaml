@@ -22,6 +22,8 @@ gitops:
     #     type: http
     #     http:
     #       tokenPath: /run/secrets/git_push_token
+    #   # Fine-grained GitHub PAT: Contents read, Pull requests read/write.
+    #   # This API token is separate from the Git credentials above.
     #   apiTokenPath: /run/secrets/github_pr_token
 
   # Git-to-deploy synchronization settings.

@@ -266,6 +266,19 @@ credentials only when using the sync repository. For GitHub, set `gitops.git.pus
 token file with permission to open pull requests in the write repository. The assistant returns the branch
 and, when available, the pull request link.
 
+For a fine-grained GitHub personal access token, select the write repository and grant these repository
+permissions:
+
+- **Contents:** Read-only
+- **Pull requests:** Read and write
+
+GitHub grants read access to repository metadata automatically. The token under `apiTokenPath` is used only
+for the GitHub API; Git authentication under `gitops.git.push.auth` is configured separately. A branch can
+therefore be pushed successfully even when the API token cannot create a pull request. In particular, a token
+without **Contents: Read-only** can cause GitHub to return `422 Validation Failed: not all refs are readable`.
+Editing the permissions of an existing token does not change its value, so the mounted secret does not need to
+be replaced unless the token is regenerated.
+
 ### Pin the running service image in Git
 
 Ask the assistant to pin the image currently running for a managed service. It reads
