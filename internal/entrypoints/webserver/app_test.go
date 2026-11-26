@@ -401,21 +401,21 @@ func TestPWAURLsFromServicePage(t *testing.T) {
 				assert.Equal(t, 192, image.Bounds().Dx())
 				assert.Equal(t, 192, image.Bounds().Dy())
 
-				darkPixels, lightPixels := 0, 0
+				darkPixels, transparentPixels := 0, 0
 				for y := image.Bounds().Min.Y; y < image.Bounds().Max.Y; y++ {
 					for x := image.Bounds().Min.X; x < image.Bounds().Max.X; x++ {
 						r, g, b, alpha := image.At(x, y).RGBA()
 						switch {
 						case alpha >= 0xe000 && max(r, g, b) <= 0x4000:
 							darkPixels++
-						case min(r, g, b) >= 0xe000:
-							lightPixels++
+						case alpha == 0:
+							transparentPixels++
 						}
 					}
 				}
-				assert.Greater(t, darkPixels, image.Bounds().Dx()*image.Bounds().Dy()/2,
-					"shortcut icon needs its own dark background for light launchers")
-				assert.Positive(t, lightPixels, "shortcut icon needs a light glyph")
+				pixels := image.Bounds().Dx() * image.Bounds().Dy()
+				assert.Greater(t, transparentPixels, pixels/2, "shortcut icon needs a transparent background")
+				assert.Greater(t, darkPixels, pixels/20, "shortcut glyph should be visible on a light launcher tile")
 			}
 
 			var icons []string
