@@ -3,6 +3,7 @@ package pwa
 
 import (
 	"embed"
+	"encoding/base64"
 	"encoding/json/v2"
 	"errors"
 	"fmt"
@@ -89,20 +90,26 @@ func Prepare(uiFS fs.FS, locale string, pwaConfig config.WebPWASpec) ([]byte, er
 	if err != nil {
 		return nil, fmt.Errorf("load PWA texts: %w", err)
 	}
+
+	assistantIcon, err := readShortcutIcon(uiFS, "icons/shortcut-assistant-mask.png")
+	if err != nil {
+		return nil, err
+	}
+	eventsIcon, err := readShortcutIcon(uiFS, "icons/shortcut-events-mask.png")
+	if err != nil {
+		return nil, err
+	}
+
 	manifest.Shortcuts = []Shortcut{
 		{
-			Name: localizer.Text("shortcut.ask_assistant"),
-			URL:  "./overview?assistant=new",
-			Icons: []Icon{
-				{Src: "icons/shortcut-assistant-mask.png", Sizes: "192x192", Type: "image/png", Purpose: "any"},
-			},
+			Name:  localizer.Text("shortcut.ask_assistant"),
+			URL:   "./overview?assistant=new",
+			Icons: []Icon{assistantIcon},
 		},
 		{
-			Name: localizer.Text("shortcut.events_alerts"),
-			URL:  "./events",
-			Icons: []Icon{
-				{Src: "icons/shortcut-events-mask.png", Sizes: "192x192", Type: "image/png", Purpose: "any"},
-			},
+			Name:  localizer.Text("shortcut.events_alerts"),
+			URL:   "./events",
+			Icons: []Icon{eventsIcon},
 		},
 	}
 
@@ -112,4 +119,20 @@ func Prepare(uiFS fs.FS, locale string, pwaConfig config.WebPWASpec) ([]byte, er
 	}
 
 	return manifestBytes, nil
+}
+
+func readShortcutIcon(uiFS fs.FS, path string) (Icon, error) {
+	data, err := fs.ReadFile(uiFS, path)
+	if err != nil {
+		return Icon{}, fmt.Errorf("read embedded PWA shortcut icon %s: %w", path, err)
+	}
+
+	// Android WebAPK fetches shortcut icon URLs without credentials.
+	const mediaType = "image/png"
+	return Icon{
+		Src:     "data:" + mediaType + ";base64," + base64.StdEncoding.EncodeToString(data),
+		Sizes:   "192x192",
+		Type:    mediaType,
+		Purpose: "any",
+	}, nil
 }

@@ -1,6 +1,8 @@
 package webserver
 
 import (
+	"bytes"
+	"encoding/base64"
 	"encoding/json/v2"
 	"errors"
 	"image/png"
@@ -387,14 +389,14 @@ func TestPWAURLsFromServicePage(t *testing.T) {
 				assert.Equal(t, "192x192", icon.Sizes)
 				assert.Equal(t, "image/png", icon.Type)
 				assert.Equal(t, "any", icon.Purpose)
-				iconURL := resolvePWAURL(t, manifestURL, icon.Src)
-				assert.Equal(t, origin+tc.prefix+"/"+shortcutIconPaths[i], iconURL.String())
-
-				rec := httptest.NewRecorder()
-				handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, iconURL.String(), nil))
-				require.Equal(t, http.StatusOK, rec.Code)
-				assert.Equal(t, "image/png", rec.Header().Get("Content-Type"))
-				image, err := png.Decode(rec.Body)
+				encoded, ok := strings.CutPrefix(icon.Src, "data:image/png;base64,")
+				require.True(t, ok, "shortcut icon must be embedded as a PNG data URL")
+				data, err := base64.StdEncoding.DecodeString(encoded)
+				require.NoError(t, err)
+				want, err := fs.ReadFile(uiFS, shortcutIconPaths[i])
+				require.NoError(t, err)
+				assert.Equal(t, want, data)
+				image, err := png.Decode(bytes.NewReader(data))
 				require.NoError(t, err)
 				assert.Equal(t, 192, image.Bounds().Dx())
 				assert.Equal(t, 192, image.Bounds().Dy())
