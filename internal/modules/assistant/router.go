@@ -89,7 +89,7 @@ func (r *llmRouter) Route(ctx context.Context, req RouteRequest) (RouteResult, e
 	messages := make([]llm.Message, 0, len(req.RecentHistory)+routerExtraMessages)
 	messages = append(messages, llm.Message{Role: "system", Content: routerSystemPrompt})
 	for _, turn := range recentTurns(req.RecentHistory, routerHistoryTurns) {
-		messages = append(messages, llm.Message{Role: turn.Role, Content: turn.Content})
+		messages = append(messages, modelMessageFromTurn(turn))
 	}
 	messages = append(messages, llm.Message{Role: "user", Content: strings.TrimSpace(req.Message)})
 

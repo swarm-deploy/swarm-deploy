@@ -411,11 +411,9 @@ func (g *graph) prepareNode(
 
 		historyChars := 0
 		for _, turn := range executionState.history {
-			historyChars += textChars(turn.Content)
-			messages = append(messages, llm.Message{
-				Role:    turn.Role,
-				Content: turn.Content,
-			})
+			message := modelMessageFromTurn(turn)
+			historyChars += textChars(message.Content)
+			messages = append(messages, message)
 		}
 		userMessage := executionState.userMessage
 		messages = append(messages, llm.Message{

@@ -125,13 +125,13 @@ a.assistant-artifact-label:hover {
 }
 
 .assistant-artifact-label.code {
-  font-family: var(--font-mono);
+  font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 0.76rem;
 }
 
 .assistant-artifacts.compact {
   max-width: min(42%, 130px);
-  flex: 0 1 auto;
+  flex-shrink: 0;
   margin: 0;
 }
 

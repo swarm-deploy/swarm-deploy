@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/conversation"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/llm"
 )
 
 const maxToolRoundsPlaceholder = "{{max_tool_rounds}}"
@@ -51,4 +54,25 @@ func customPromptSuffix(customPrompt string) string {
 		return ""
 	}
 	return customPromptHeading + customPrompt
+}
+
+func modelMessageFromTurn(turn conversation.Turn) llm.Message {
+	message := llm.Message{Role: turn.Role, Content: turn.Content}
+	if turn.Role != "assistant" || len(turn.Artifacts) == 0 {
+		return message
+	}
+
+	var content strings.Builder
+	content.WriteString(turn.Content)
+	content.WriteString("\n\nArtifacts:")
+	for _, artifact := range turn.Artifacts {
+		content.WriteString("\n- ")
+		content.WriteString(artifact.Label)
+		if artifact.URL != "" {
+			content.WriteString(": ")
+			content.WriteString(artifact.URL)
+		}
+	}
+	message.Content = content.String()
+	return message
 }
