@@ -6,10 +6,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/githosting"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
 )
 
 // ErrImageChanged indicates that the Compose image changed after preparation.
@@ -42,6 +44,8 @@ type Result struct {
 	PullRequestNumber int `json:"pullRequestNumber,omitempty"`
 	// PullRequestFailed indicates that the branch was pushed but opening a PR failed.
 	PullRequestFailed bool `json:"pullRequestFailed,omitempty"`
+	// PullRequestError contains a safe diagnostic when opening a PR failed.
+	PullRequestError string `json:"pullRequestError,omitempty"`
 	// AlreadyPinned reports that another commit already applied the confirmed image.
 	AlreadyPinned bool `json:"alreadyPinned,omitempty"`
 }
@@ -109,9 +113,16 @@ func (s *Service) Publish(
 		changeRequest, err = s.changeRequests.CreateChangeRequest(
 			ctx, s.repo, s.spec.Branch, branch, title, description,
 		)
-		result.PullRequestFailed = err != nil
-		result.PullRequestURL = changeRequest.URL
-		result.PullRequestNumber = changeRequest.Number
+		if err != nil {
+			result.PullRequestFailed = true
+			result.PullRequestError = faults.SafeDiagnostic(err)
+			slog.ErrorContext(ctx, "create pull request for image pin proposal",
+				"stack", stack, "service", service, "branch", branch,
+				"error", result.PullRequestError)
+		} else {
+			result.PullRequestURL = changeRequest.URL
+			result.PullRequestNumber = changeRequest.Number
+		}
 	}
 	return result, nil
 }

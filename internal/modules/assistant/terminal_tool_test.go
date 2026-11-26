@@ -91,8 +91,10 @@ func TestFinalizeGitPublicationArtifacts(t *testing.T) {
 		},
 		{
 			name: "pull request failed", toolName: serviceImagePinTool,
-			result:   `{"branch":"prod-api-pin-image","pullRequestFailed":true}`,
-			wantText: "The branch was pushed, but GitHub could not open the pull request.",
+			result: `{"branch":"prod-api-pin-image","pullRequestFailed":true,` +
+				`"pullRequestError":"GitHub API returned 422: validation failed"}`,
+			wantText: "The branch was pushed, but GitHub could not open the pull request. " +
+				"Reason: GitHub API returned 422: validation failed",
 			artifacts: []conversation.Artifact{
 				{Type: conversation.ArtifactTypeGitBranch, Label: "prod-api-pin-image"},
 			},

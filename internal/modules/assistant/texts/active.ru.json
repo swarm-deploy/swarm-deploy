@@ -129,6 +129,7 @@
   "result.pause_stack_removed": "Прямая политика Pause Sync удалена для стека \"{{.Stack}}\".",
   "result.pause_stack_set": "Pause Sync включена для стека \"{{.Stack}}\".",
   "result.pause_unchanged": "Политика Pause Sync уже была в запрошенном состоянии.",
+  "result.pull_request_failure_reason": "Причина: {{.Error}}",
   "result.replicas": "Число реплик сервиса \"{{.Service}}\" в стеке \"{{.Stack}}\" изменено на {{.Count}}.",
   "result.restart": "Сервис \"{{.Service}}\" в стеке \"{{.Stack}}\" перезапущен. Текущее число реплик: {{.Count}}.",
   "result.self_heal": "Предложение включить selfHeal опубликовано в Git.",

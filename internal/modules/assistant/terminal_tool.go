@@ -65,7 +65,7 @@ func finalizeImagePin(localizer *texts.Localizer, result string) (terminalToolRe
 	}
 	answer := localizer.Text("result.image_pin")
 	if update.PullRequestFailed {
-		answer += " " + localizer.Text("result.image_pin_pr_failed")
+		answer += " " + pullRequestFailureText(localizer, "result.image_pin_pr_failed", update.PullRequestError)
 	}
 	return terminalToolResult{
 		text: answer,
@@ -97,7 +97,7 @@ func finalizeSelfHeal(localizer *texts.Localizer, toolName, result string) (term
 	}
 	answer := localizer.Text(message)
 	if update.PullRequestFailed {
-		answer += " " + localizer.Text("result.self_heal_pr_failed")
+		answer += " " + pullRequestFailureText(localizer, "result.self_heal_pr_failed", update.PullRequestError)
 	}
 	return terminalToolResult{
 		text: answer,
@@ -105,6 +105,16 @@ func finalizeSelfHeal(localizer *texts.Localizer, toolName, result string) (term
 			update.Branch, update.BranchURL, update.PullRequestURL, update.PullRequestNumber,
 		),
 	}, nil
+}
+
+func pullRequestFailureText(localizer *texts.Localizer, message, diagnostic string) string {
+	result := localizer.Text(message)
+	if diagnostic = strings.TrimSpace(diagnostic); diagnostic != "" {
+		result += " " + localizer.Format("result.pull_request_failure_reason", map[string]any{
+			"Error": diagnostic,
+		})
+	}
+	return result
 }
 
 func gitPublicationArtifacts(branch, branchURL, pullRequestURL string, pullRequestNumber int) []conversation.Artifact {
