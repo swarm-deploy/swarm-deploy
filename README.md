@@ -141,7 +141,7 @@ web:
   # Optional names for the installed PWA. Both default to Swarm Deploy.
   pwa:
     name: "My Cluster"
-    short_name: "mc"
+    shortName: "mc"
 
 healthServer:
   address: ":8082"
@@ -157,7 +157,7 @@ The 0.15.0 runtime configuration uses module sections. Update older configuratio
 
 `web.basePath` defaults to `/`. A trailing slash is normalized, so `/infrastructure/swarm/` serves the UI at `/infrastructure/swarm/` and the API below `/infrastructure/swarm/api/`. Path segments must use URL-unreserved ASCII characters (letters, digits, `-`, `_`, `.`, `~`); percent-encoding and ServeMux wildcard syntax are not accepted. The configured value is authoritative; `X-Forwarded-Prefix` is not used. Health, metrics, and webhook endpoints keep their independently configured paths.
 
-`web.pwa.name` and `web.pwa.short_name` set the full and compact names shown for an installed PWA. Both default to `Swarm Deploy`. Restart swarm-deploy and reinstall the PWA after changing them so the browser picks up the updated manifest.
+`web.pwa.name` and `web.pwa.shortName` set the full and compact names shown for an installed PWA. Both default to `Swarm Deploy`. Restart swarm-deploy and reinstall the PWA after changing them so the browser picks up the updated manifest.
 
 `system.language` sets the web interface language for the entire installation. Use `en` for English (the default) or `ru` for Russian. After editing the setting, restart swarm-deploy and refresh the page. The installation setting takes precedence over browser language preferences.
 

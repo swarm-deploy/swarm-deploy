@@ -19,7 +19,7 @@ type WebPWASpec struct {
 	// Name is the full installed web application name.
 	Name string `yaml:"name"`
 	// ShortName is the installed web application name used when space is limited.
-	ShortName string `yaml:"short_name"`
+	ShortName string `yaml:"shortName"`
 }
 
 type WebUISpec struct {

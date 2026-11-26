@@ -84,7 +84,7 @@ notifications:
       telegram: [{chats: [default, chat-alias-canary], resolved: {action: edit}}]
 web:
   basePath: /swarm/
-  pwa: {name: "My Cluster", short_name: "mc"}
+  pwa: {name: "My Cluster", shortName: "mc"}
   security: {authentication: {authProxy: {loginHeader: X-Login-Canary}}}
 healthServer:
   address: health-bind-canary:8081

@@ -456,7 +456,7 @@ web:
   basePath: /infrastructure/swarm/
   pwa:
     name: "My Cluster"
-    short_name: "mc"
+    shortName: "mc"
   ui:
     logViewer:
       linkFields:
@@ -471,7 +471,7 @@ web:
 	assert.Equal(t, ":18080", cfg.Spec.Web.Address, "expected web.address")
 	assert.Equal(t, "/infrastructure/swarm", cfg.Spec.Web.BasePath, "expected normalized web.basePath")
 	assert.Equal(t, "My Cluster", cfg.Spec.Web.PWA.Name, "expected web.pwa.name")
-	assert.Equal(t, "mc", cfg.Spec.Web.PWA.ShortName, "expected web.pwa.short_name")
+	assert.Equal(t, "mc", cfg.Spec.Web.PWA.ShortName, "expected web.pwa.shortName")
 	assert.Equal(t, map[string]string{"trace-id": "http://tracer.example/{value}"}, cfg.Spec.Web.UI.LogViewer.LinkFields)
 	assert.Equal(t, defaultWebhookAddress, cfg.Spec.GitOps.Sync.Webhook.Address, "expected gitops.sync.webhook.address")
 }
@@ -506,7 +506,7 @@ gitops:
 	assert.Equal(t, defaultWebAddress, cfg.Spec.Web.Address, "expected web.address")
 	assert.Equal(t, defaultWebBasePath, cfg.Spec.Web.BasePath, "expected web.basePath")
 	assert.Equal(t, defaultPWAName, cfg.Spec.Web.PWA.Name, "expected web.pwa.name")
-	assert.Equal(t, defaultPWAName, cfg.Spec.Web.PWA.ShortName, "expected web.pwa.short_name")
+	assert.Equal(t, defaultPWAName, cfg.Spec.Web.PWA.ShortName, "expected web.pwa.shortName")
 	assert.Equal(t, defaultWebhookAddress, cfg.Spec.GitOps.Sync.Webhook.Address, "expected gitops.sync.webhook.address")
 }
 

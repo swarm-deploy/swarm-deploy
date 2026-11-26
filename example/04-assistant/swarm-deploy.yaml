@@ -202,7 +202,7 @@ web:
   # Optional names used when the web interface is installed as a PWA.
   # pwa:
   #   name: "My Cluster"
-  #   short_name: "mc"
+  #   shortName: "mc"
   # Uncomment to enable basic authentication with a mounted htpasswd file.
   # security:
   #   authentication:
