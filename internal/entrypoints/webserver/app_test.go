@@ -1,8 +1,11 @@
 package webserver
 
 import (
+	"bytes"
+	"encoding/base64"
 	"encoding/json/v2"
 	"errors"
+	"image/png"
 	"io/fs"
 	"net/http"
 	"net/http/httptest"
@@ -274,6 +277,7 @@ func TestEmbeddedUIWithBasePath(t *testing.T) {
 }
 
 func TestPWAURLsFromServicePage(t *testing.T) {
+	shortcutIconPaths := []string{"icons/shortcut-assistant.png", "icons/shortcut-events.png"}
 	uiFS := ui.FS
 	if _, err := fs.Stat(uiFS, "assets"); errors.Is(err, fs.ErrNotExist) {
 		// A clean checkout embeds a placeholder index. Mirror Vite's production base for Go-only runs.
@@ -281,38 +285,50 @@ func TestPWAURLsFromServicePage(t *testing.T) {
 		require.NoError(t, err)
 		manifest, err := os.ReadFile("../../../ui/public/manifest.webmanifest")
 		require.NoError(t, err)
-		uiFS = fstest.MapFS{
+		files := fstest.MapFS{
 			"index.html":           {Data: []byte(strings.ReplaceAll(string(index), "%BASE_URL%", "./"))},
 			"manifest.webmanifest": {Data: manifest},
 		}
+		for _, iconPath := range shortcutIconPaths {
+			data, err := os.ReadFile("../../../ui/public/" + iconPath)
+			require.NoError(t, err)
+			files[iconPath] = &fstest.MapFile{Data: data}
+		}
+		uiFS = files
 	}
 
 	for _, tc := range []struct {
-		name          string
-		basePath      string
-		prefix        string
-		pwa           config.WebPWASpec
-		wantName      string
-		wantShortName string
+		name              string
+		basePath          string
+		prefix            string
+		locale            string
+		pwa               config.WebPWASpec
+		wantName          string
+		wantShortName     string
+		wantShortcutNames [2]string
 	}{
 		{
-			name:          "root with default name",
-			basePath:      "/",
-			wantName:      "Swarm Deploy",
-			wantShortName: "Swarm Deploy",
+			name:              "root with default name",
+			basePath:          "/",
+			locale:            "en",
+			wantName:          "Swarm Deploy",
+			wantShortName:     "Swarm Deploy",
+			wantShortcutNames: [2]string{"Ask the assistant", "Events & Alerts"},
 		},
 		{
-			name:          "prefix with custom name",
-			basePath:      "/infra/swarm",
-			prefix:        "/infra/swarm",
-			pwa:           config.WebPWASpec{Name: "My Cluster", ShortName: "mc"},
-			wantName:      "My Cluster",
-			wantShortName: "mc",
+			name:              "prefix with custom name",
+			basePath:          "/infra/swarm",
+			prefix:            "/infra/swarm",
+			locale:            "ru",
+			pwa:               config.WebPWASpec{Name: "My Cluster", ShortName: "mc"},
+			wantName:          "My Cluster",
+			wantShortName:     "mc",
+			wantShortcutNames: [2]string{"Спросить ассистента", "События и алерты"},
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			const origin = "https://swarm.example"
-			handler := buildRouter(tc.basePath, "en", tc.pwa, http.NotFoundHandler(), uiFS)
+			handler := buildRouter(tc.basePath, tc.locale, tc.pwa, http.NotFoundHandler(), uiFS)
 			page := httptest.NewRequest(http.MethodGet, origin+tc.prefix+"/services/app/api", nil)
 			rec := httptest.NewRecorder()
 			handler.ServeHTTP(rec, page)
@@ -331,7 +347,9 @@ func TestPWAURLsFromServicePage(t *testing.T) {
 			assert.Equal(t, origin+tc.prefix+"/icons/apple-touch-icon.png", appleURL.String())
 
 			rec = httptest.NewRecorder()
-			handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, manifestURL.String(), nil))
+			manifestRequest := httptest.NewRequest(http.MethodGet, manifestURL.String(), nil)
+			manifestRequest.Header.Set("Accept-Language", "fr")
+			handler.ServeHTTP(rec, manifestRequest)
 			require.Equal(t, http.StatusOK, rec.Code)
 			assert.Equal(t, "application/manifest+json", rec.Header().Get("Content-Type"))
 			var manifest struct {
@@ -342,12 +360,63 @@ func TestPWAURLsFromServicePage(t *testing.T) {
 				Icons     []struct {
 					Src string `json:"src"`
 				} `json:"icons"`
+				Shortcuts []struct {
+					Name  string `json:"name"`
+					URL   string `json:"url"`
+					Icons []struct {
+						Src     string `json:"src"`
+						Sizes   string `json:"sizes"`
+						Type    string `json:"type"`
+						Purpose string `json:"purpose"`
+					} `json:"icons"`
+				} `json:"shortcuts"`
 			}
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &manifest))
 			assert.Equal(t, tc.wantName, manifest.Name)
 			assert.Equal(t, tc.wantShortName, manifest.ShortName)
 			assert.Equal(t, origin+tc.prefix+"/", resolvePWAURL(t, manifestURL, manifest.StartURL).String())
 			assert.Equal(t, origin+tc.prefix+"/", resolvePWAURL(t, manifestURL, manifest.Scope).String())
+
+			require.Len(t, manifest.Shortcuts, 2)
+			assert.Equal(t, tc.wantShortcutNames[0], manifest.Shortcuts[0].Name)
+			assert.Equal(t, tc.wantShortcutNames[1], manifest.Shortcuts[1].Name)
+			assert.Equal(t, origin+tc.prefix+"/overview?assistant=new", resolvePWAURL(t, manifestURL, manifest.Shortcuts[0].URL).String())
+			assert.Equal(t, origin+tc.prefix+"/events", resolvePWAURL(t, manifestURL, manifest.Shortcuts[1].URL).String())
+
+			for i, shortcut := range manifest.Shortcuts {
+				require.Len(t, shortcut.Icons, 1)
+				icon := shortcut.Icons[0]
+				assert.Equal(t, "192x192", icon.Sizes)
+				assert.Equal(t, "image/png", icon.Type)
+				assert.Equal(t, "any", icon.Purpose)
+				encoded, ok := strings.CutPrefix(icon.Src, "data:image/png;base64,")
+				require.True(t, ok, "shortcut icon must be embedded as a PNG data URL")
+				data, err := base64.StdEncoding.DecodeString(encoded)
+				require.NoError(t, err)
+				want, err := fs.ReadFile(uiFS, shortcutIconPaths[i])
+				require.NoError(t, err)
+				assert.Equal(t, want, data)
+				image, err := png.Decode(bytes.NewReader(data))
+				require.NoError(t, err)
+				assert.Equal(t, 192, image.Bounds().Dx())
+				assert.Equal(t, 192, image.Bounds().Dy())
+
+				darkPixels, transparentPixels := 0, 0
+				for y := image.Bounds().Min.Y; y < image.Bounds().Max.Y; y++ {
+					for x := image.Bounds().Min.X; x < image.Bounds().Max.X; x++ {
+						r, g, b, alpha := image.At(x, y).RGBA()
+						switch {
+						case alpha >= 0xe000 && max(r, g, b) <= 0x4000:
+							darkPixels++
+						case alpha == 0:
+							transparentPixels++
+						}
+					}
+				}
+				pixels := image.Bounds().Dx() * image.Bounds().Dy()
+				assert.Greater(t, transparentPixels, pixels/2, "shortcut icon needs a transparent background")
+				assert.Greater(t, darkPixels, pixels/20, "shortcut glyph should be visible on a light launcher tile")
+			}
 
 			var icons []string
 			for _, icon := range manifest.Icons {
