@@ -28,6 +28,7 @@ import (
 	recommendationstore "github.com/swarm-deploy/swarm-deploy/internal/modules/recommendations/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/logparser"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/pwa"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/tracing"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	"github.com/swarm-deploy/swarm-deploy/ui"
@@ -42,14 +43,14 @@ type Application struct {
 const indexHtml = "index.html"
 const pwaManifestFile = "manifest.webmanifest"
 
-func buildSPAFallbackHandler(uiFS fs.FS, basePath, locale string, pwa config.WebPWASpec) http.Handler {
+func buildSPAFallbackHandler(uiFS fs.FS, basePath, locale string, pwaConfig config.WebPWASpec) http.Handler {
 	fileServer := http.FileServer(http.FS(uiFS))
 	indexBytes, indexErr := fs.ReadFile(uiFS, indexHtml)
 	if indexErr != nil {
 		panic(fmt.Errorf("read embedded index.html: %w", indexErr))
 	}
 	indexBytes = injectRuntimeConfig(indexBytes, basePath, locale)
-	manifestBytes := preparePWAManifest(uiFS, pwa)
+	manifestBytes := preparePWAManifest(uiFS, pwaConfig)
 
 	serveIndex := func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -94,7 +95,7 @@ func buildSPAFallbackHandler(uiFS fs.FS, basePath, locale string, pwa config.Web
 	})
 }
 
-func preparePWAManifest(uiFS fs.FS, pwa config.WebPWASpec) []byte {
+func preparePWAManifest(uiFS fs.FS, pwaConfig config.WebPWASpec) []byte {
 	manifestBytes, err := fs.ReadFile(uiFS, pwaManifestFile)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
@@ -103,16 +104,16 @@ func preparePWAManifest(uiFS fs.FS, pwa config.WebPWASpec) []byte {
 		panic(fmt.Errorf("read embedded PWA manifest: %w", err))
 	}
 
-	var manifest map[string]any
+	var manifest pwa.Manifest
 	err = json.Unmarshal(manifestBytes, &manifest)
 	if err != nil {
 		panic(fmt.Errorf("decode embedded PWA manifest: %w", err))
 	}
-	if pwa.Name != "" {
-		manifest["name"] = pwa.Name
+	if pwaConfig.Name != "" {
+		manifest.Name = pwaConfig.Name
 	}
-	if pwa.ShortName != "" {
-		manifest["short_name"] = pwa.ShortName
+	if pwaConfig.ShortName != "" {
+		manifest.ShortName = pwaConfig.ShortName
 	}
 
 	manifestBytes, err = json.Marshal(manifest)
@@ -146,11 +147,16 @@ func injectRuntimeConfig(indexBytes []byte, basePath, locale string) []byte {
 	return bytes.Replace(indexBytes, []byte("<head>"), []byte("<head>"+injection), 1)
 }
 
-func buildRouter(basePath, locale string, pwa config.WebPWASpec, apiHandler http.Handler, uiFS fs.FS) http.Handler {
+func buildRouter(
+	basePath, locale string,
+	pwaConfig config.WebPWASpec,
+	apiHandler http.Handler,
+	uiFS fs.FS,
+) http.Handler {
 	mux := http.NewServeMux()
 
 	mountedAPIHandler := apiHandler
-	mountedUIHandler := buildSPAFallbackHandler(uiFS, basePath, locale, pwa)
+	mountedUIHandler := buildSPAFallbackHandler(uiFS, basePath, locale, pwaConfig)
 	if basePath != "/" {
 		mountedAPIHandler = http.StripPrefix(basePath, mountedAPIHandler)
 		mountedUIHandler = http.StripPrefix(basePath, mountedUIHandler)
