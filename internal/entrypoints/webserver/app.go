@@ -69,20 +69,24 @@ func buildSPAFallbackHandler(uiFS fs.FS, basePath, locale string) http.Handler {
 			return
 		}
 
-		if cleanPath != indexHtml {
-			file, err := uiFS.Open(cleanPath)
-			if err == nil {
-				defer file.Close()
+		file, err := uiFS.Open(cleanPath)
+		if err != nil {
+			serveIndex(w, r)
+			return
+		}
+		defer file.Close()
 
-				info, statErr := file.Stat()
-				if statErr == nil && !info.IsDir() {
-					fileServer.ServeHTTP(w, r)
-					return
-				}
-			}
+		info, err := file.Stat()
+		if err != nil || info.IsDir() {
+			serveIndex(w, r)
+			return
 		}
 
-		serveIndex(w, r)
+		// Go relies on the system MIME database for .webmanifest.
+		if cleanPath == "manifest.webmanifest" {
+			w.Header().Set("Content-Type", "application/manifest+json")
+		}
+		fileServer.ServeHTTP(w, r)
 	})
 }
 

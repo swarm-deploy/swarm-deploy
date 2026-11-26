@@ -1,9 +1,14 @@
 package webserver
 
 import (
+	"encoding/json/v2"
+	"errors"
 	"io/fs"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"os"
+	"strings"
 	"testing"
 	"testing/fstest"
 
@@ -21,7 +26,9 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/logparser"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	"github.com/swarm-deploy/swarm-deploy/internal/testutil"
+	"github.com/swarm-deploy/swarm-deploy/ui"
 	"go.uber.org/mock/gomock"
+	"golang.org/x/net/html"
 )
 
 func newTestApplication(t *testing.T, webConfig config.WebSpec, language config.Language) *Application {
@@ -264,4 +271,102 @@ func TestEmbeddedUIWithBasePath(t *testing.T) {
 			assert.Contains(t, rec.Body.String(), `<html lang="`+testCase.locale+`">`)
 		})
 	}
+}
+
+func TestPWAURLsFromServicePage(t *testing.T) {
+	uiFS := ui.FS
+	if _, err := fs.Stat(uiFS, "assets"); errors.Is(err, fs.ErrNotExist) {
+		// A clean checkout embeds a placeholder index. Mirror Vite's production base for Go-only runs.
+		index, err := os.ReadFile("../../../ui/index.html")
+		require.NoError(t, err)
+		manifest, err := os.ReadFile("../../../ui/public/manifest.webmanifest")
+		require.NoError(t, err)
+		uiFS = fstest.MapFS{
+			"index.html":           {Data: []byte(strings.ReplaceAll(string(index), "%BASE_URL%", "./"))},
+			"manifest.webmanifest": {Data: manifest},
+		}
+	}
+
+	for _, tc := range []struct {
+		name     string
+		basePath string
+		prefix   string
+	}{
+		{name: "root", basePath: "/"},
+		{name: "prefix", basePath: "/infra/swarm", prefix: "/infra/swarm"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			const origin = "https://swarm.example"
+			handler := buildRouter(tc.basePath, "en", http.NotFoundHandler(), uiFS)
+			page := httptest.NewRequest(http.MethodGet, origin+tc.prefix+"/services/app/api", nil)
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, page)
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			doc, err := html.Parse(rec.Body)
+			require.NoError(t, err)
+			head := findPWAElement(t, doc, "head", "")
+			base := resolvePWAURL(t, page.URL, pwaAttr(findPWAElement(t, head, "base", ""), "href"))
+			manifestLink := findPWAElement(t, head, "link", "manifest")
+			manifestURL := resolvePWAURL(t, base, pwaAttr(manifestLink, "href"))
+			appleLink := findPWAElement(t, head, "link", "apple-touch-icon")
+			appleURL := resolvePWAURL(t, base, pwaAttr(appleLink, "href"))
+			assert.Equal(t, "use-credentials", pwaAttr(manifestLink, "crossorigin"))
+			assert.Equal(t, origin+tc.prefix+"/manifest.webmanifest", manifestURL.String())
+			assert.Equal(t, origin+tc.prefix+"/icons/apple-touch-icon.png", appleURL.String())
+
+			rec = httptest.NewRecorder()
+			handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, manifestURL.String(), nil))
+			require.Equal(t, http.StatusOK, rec.Code)
+			assert.Equal(t, "application/manifest+json", rec.Header().Get("Content-Type"))
+			var manifest struct {
+				StartURL string `json:"start_url"`
+				Scope    string `json:"scope"`
+				Icons    []struct {
+					Src string `json:"src"`
+				} `json:"icons"`
+			}
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &manifest))
+			assert.Equal(t, origin+tc.prefix+"/", resolvePWAURL(t, manifestURL, manifest.StartURL).String())
+			assert.Equal(t, origin+tc.prefix+"/", resolvePWAURL(t, manifestURL, manifest.Scope).String())
+
+			var icons []string
+			for _, icon := range manifest.Icons {
+				icons = append(icons, resolvePWAURL(t, manifestURL, icon.Src).String())
+			}
+			assert.ElementsMatch(t, []string{
+				origin + tc.prefix + "/icons/icon-192.png",
+				origin + tc.prefix + "/icons/icon-512.png",
+				origin + tc.prefix + "/icons/icon-maskable-512.png",
+			}, icons)
+		})
+	}
+}
+
+func findPWAElement(t *testing.T, parent *html.Node, tag, rel string) *html.Node {
+	t.Helper()
+	for node := range parent.Descendants() {
+		if node.Type == html.ElementNode && node.Data == tag && (rel == "" || pwaAttr(node, "rel") == rel) {
+			return node
+		}
+	}
+	require.FailNowf(t, "missing HTML element", "tag=%q rel=%q", tag, rel)
+	return nil
+}
+
+func pwaAttr(node *html.Node, key string) string {
+	for _, attr := range node.Attr {
+		if attr.Key == key {
+			return attr.Val
+		}
+	}
+	return ""
+}
+
+func resolvePWAURL(t *testing.T, base *url.URL, ref string) *url.URL {
+	t.Helper()
+	require.NotEmpty(t, ref)
+	resolved, err := base.Parse(ref)
+	require.NoError(t, err)
+	return resolved
 }

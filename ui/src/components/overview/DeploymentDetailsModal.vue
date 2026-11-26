@@ -706,9 +706,9 @@ onUnmounted(() => {
 <style scoped>
 :deep(.deployment-modal) {
   width: min(1440px, calc(100vw - 64px));
-  max-width: calc(100vw - 64px);
+  max-width: calc(var(--modal-viewport-width) - 64px);
   min-width: 0;
-  max-height: min(85dvh, calc(100dvh - 64px));
+  max-height: calc(var(--modal-viewport-height) - max(64px, 15dvh));
   margin: max(32px, 7.5dvh) auto;
   display: grid;
   grid-template-rows: minmax(0, 1fr);
@@ -1015,9 +1015,9 @@ summary.deployment-resource-heading { cursor: pointer; }
 @media (max-width: 700px) {
   :deep(.deployment-modal) {
     width: calc(100vw - 12px);
-    max-width: calc(100vw - 12px);
-    height: calc(100dvh - 12px);
-    max-height: calc(100dvh - 12px);
+    max-width: calc(var(--modal-viewport-width) - 12px);
+    height: calc(var(--modal-viewport-height) - 12px);
+    max-height: calc(var(--modal-viewport-height) - 12px);
     margin: 6px auto;
     border-radius: 12px;
   }
