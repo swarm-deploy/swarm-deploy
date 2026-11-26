@@ -26,9 +26,13 @@ afterEach(() => {
   i18n.global.locale.value = "en";
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+  vi.useRealTimers();
 });
 
-const routes = [{ path: "/", component: { template: "<div />" } }];
+const routes = [
+  { path: "/", component: { template: "<div />" } },
+  { path: "/overview", name: "overview", component: { template: "<div />" } },
+];
 
 describe("Assistant Drawer", () => {
   it.each([
@@ -1162,9 +1166,163 @@ describe("Assistant unread replies", () => {
   });
 });
 
-async function mountDrawer(path: string) {
+describe("Assistant reply sharing", () => {
+  const shareButton = 'button[aria-label="Share reply"]';
+  const highlightedReply = ".assistant-chat-message-highlighted";
+  const markdown = "**Saved reply**\n\n- Check the cluster";
+
+  function chatWithReplies() {
+    const chat = savedChat();
+    chat.messages.push(
+      { role: "assistant", content: markdown, sequence: 1, activity: ["Tool output"],
+        artifacts: [{ type: "git_branch", label: "branch-name" }] },
+      { role: "user", content: "Next question", sequence: 2 },
+      { role: "assistant", content: "Another answer", sequence: 3 },
+    );
+    return chat;
+  }
+
+  function mockScroll() {
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+      const body = this.closest(".assistant-drawer-body");
+      const sequence = this.dataset.replySequence;
+      if (sequence !== undefined && body) {
+        return new DOMRect(0, Number(sequence) * 100 - body.scrollTop, 100, 40);
+      }
+      return new DOMRect(0, 0, 100, 200);
+    });
+    vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockReturnValue(800);
+    vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(200);
+  }
+
+  it("shares only the selected raw reply and resolves its URL under the router base while a new reply is pending", async () => {
+    const share = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal("navigator", { share });
+    const chat = { ...chatWithReplies(), title: "A saved title" };
+    vi.spyOn(assistantApi, "getAssistantChat").mockResolvedValue(chat);
+    const { wrapper, store } = await mountDrawer(`/?assistant=${chat.id}&tab=events#active`, "/swarm/production");
+    store.pushMessage("system", "System message");
+    store.pushMessage("user", "A new question");
+    store.pending = true;
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.find(".assistant-activity-live").exists()).toBe(true);
+    expect(wrapper.findAll(shareButton)).toHaveLength(2);
+    const click = wrapper.get(shareButton).trigger("click");
+    expect(share).toHaveBeenCalledExactlyOnceWith({
+      title: chat.title,
+      text: markdown,
+      url: `${window.location.origin}/swarm/production/overview?assistant=${chat.id}&reply=1`,
+    });
+    await click;
+    wrapper.unmount();
+  });
+
+  it("hides share controls when the browser has no Web Share API", async () => {
+    vi.stubGlobal("navigator", {});
+    const chat = chatWithReplies();
+    vi.spyOn(assistantApi, "getAssistantChat").mockResolvedValue(chat);
+    const { wrapper } = await mountDrawer(`/?assistant=${chat.id}`);
+
+    expect(wrapper.findAll(".assistant-chat-message-assistant")).toHaveLength(2);
+    expect(wrapper.find(shareButton).exists()).toBe(false);
+    wrapper.unmount();
+  });
+
+  it("shows a localized error on the selected reply and leaves no error after cancellation", async () => {
+    const share = vi.fn()
+      .mockRejectedValueOnce(new DOMException("Blocked", "NotAllowedError"))
+      .mockRejectedValueOnce(new DOMException("Dismissed", "AbortError"));
+    vi.stubGlobal("navigator", { share });
+    const chat = chatWithReplies();
+    vi.spyOn(assistantApi, "getAssistantChat").mockResolvedValue(chat);
+    const { wrapper } = await mountDrawer(`/?assistant=${chat.id}`);
+    const replies = wrapper.findAll(".assistant-chat-message-assistant");
+
+    await replies[0]!.get(shareButton).trigger("click");
+    await flushPromises();
+    expect(replies[0]!.get('[role="alert"]').text()).toBe("Could not share this reply. Try again.");
+    expect(replies[1]!.find('[role="alert"]').exists()).toBe(false);
+
+    await replies[0]!.get(shareButton).trigger("click");
+    await flushPromises();
+    expect(wrapper.find(".assistant-share-error").exists()).toBe(false);
+    wrapper.unmount();
+  });
+
+  it("waits for chat history, scrolls to the linked reply and moves between replies without reloading", async () => {
+    mockScroll();
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const chat = chatWithReplies();
+    let finishLoad!: (chat: AssistantChatHistory) => void;
+    const getChat = vi.spyOn(assistantApi, "getAssistantChat").mockImplementation(() =>
+      new Promise((resolve) => { finishLoad = resolve; }));
+    const { wrapper, router } = await mountDrawer(`/overview?assistant=${chat.id}&reply=1`);
+    const body = wrapper.get<HTMLElement>(".assistant-drawer-body").element;
+
+    expect(useUIStore().assistantDrawerOpen).toBe(true);
+    expect(wrapper.find(highlightedReply).exists()).toBe(false);
+    finishLoad(chat);
+    await flushPromises();
+    expect(body.scrollTop).toBe(100);
+    expect(wrapper.get(highlightedReply).get("[data-reply-sequence]").attributes("data-reply-sequence")).toBe("1");
+
+    await router.push({ query: { assistant: chat.id, reply: "3" } });
+    await flushPromises();
+    expect(body.scrollTop).toBe(300);
+    expect(wrapper.get(highlightedReply).get("[data-reply-sequence]").attributes("data-reply-sequence")).toBe("3");
+    expect(getChat).toHaveBeenCalledOnce();
+
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(wrapper.find(highlightedReply).exists()).toBe(false);
+    expect(body.scrollTop).toBe(300);
+    wrapper.unmount();
+  });
+
+  it.each(["", "&reply=abc", "&reply", "&reply=1.5", "&reply=-1", "&reply=9007199254740992",
+    "&reply=1&reply=3", "&reply=2", "&reply=99"])("opens the chat normally for query suffix %j", async (suffix) => {
+    mockScroll();
+    const chat = chatWithReplies();
+    vi.spyOn(assistantApi, "getAssistantChat").mockResolvedValue(chat);
+    const { wrapper } = await mountDrawer(`/overview?assistant=${chat.id}${suffix}`);
+
+    expect(useUIStore().assistantDrawerOpen).toBe(true);
+    expect(wrapper.text()).toContain("Another answer");
+    expect(wrapper.find(highlightedReply).exists()).toBe(false);
+    expect(wrapper.get<HTMLElement>(".assistant-drawer-body").element.scrollTop).toBe(800);
+    wrapper.unmount();
+  });
+
+  it.each([
+    { button: "Back to chats", assistant: "chats" },
+    { button: "New chat", assistant: "new" },
+    { button: "Close assistant", assistant: undefined },
+  ])("clears reply on $button and keeps other route state", async ({ button, assistant }) => {
+    const chat = chatWithReplies();
+    const other = { ...savedChat(), id: "other", title: "Other chat" };
+    vi.spyOn(assistantApi, "getAssistantChat").mockImplementation(async (id) => id === chat.id ? chat : other);
+    vi.spyOn(assistantApi, "listAssistantChats").mockResolvedValue({ chats: [other] });
+    vi.spyOn(assistantApi, "getAssistantSuggestions").mockResolvedValue({ suggestions: [] });
+    const { wrapper, router } = await mountDrawer(`/overview?assistant=${chat.id}&reply=1&stack=demo#active`);
+
+    await wrapper.get(`[aria-label="${button}"]`).trigger("click");
+    await flushPromises();
+    expect(router.currentRoute.value.query).toEqual(assistant ? { assistant, stack: "demo" } : { stack: "demo" });
+    expect(router.currentRoute.value.hash).toBe("#active");
+    expect(wrapper.find(highlightedReply).exists()).toBe(false);
+
+    if (assistant === "chats") {
+      await wrapper.get('button[title="Other chat"]').trigger("click");
+      await flushPromises();
+      expect(router.currentRoute.value.query).toEqual({ assistant: other.id, stack: "demo" });
+    }
+    wrapper.unmount();
+  });
+});
+
+async function mountDrawer(path: string, base?: string) {
   const pinia = createPinia();
-  const router = createRouter({ history: createMemoryHistory(), routes });
+  const router = createRouter({ history: createMemoryHistory(base), routes });
   await router.push(path);
   const wrapper = mount(AssistantDrawer, { global: { plugins: [pinia, router] } });
   await flushPromises();

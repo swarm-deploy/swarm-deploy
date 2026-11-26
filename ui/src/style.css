@@ -1545,6 +1545,25 @@ body {
   max-width: 100%;
 }
 
+.assistant-chat-message-highlighted {
+  background: var(--surface-selected);
+}
+
+.assistant-share-button {
+  margin-top: 4px;
+}
+
+.assistant-share-button:focus-visible {
+  outline: 2px solid var(--accent-focus);
+  outline-offset: 2px;
+}
+
+.assistant-share-error {
+  margin: 0;
+  color: var(--error);
+  font-size: 0.82rem;
+}
+
 .assistant-chat-message-system {
   padding: 8px 10px;
   border-left: 2px solid var(--error-border);

@@ -2,11 +2,12 @@
 import { computed, defineAsyncComponent, nextTick, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
-import { openNewAssistantChat } from "../../router/assistant";
+import { assistantQuery, openNewAssistantChat } from "../../router/assistant";
 import { getAssistantSuggestions } from "../../api/assistant";
+import { useShare } from "../../composables/useShare";
 import { formatNumber, locale, t } from "../../i18n";
 import type { AssistantSelectionOption, AssistantSuggestion } from "../../api/types";
-import { useAssistantStore } from "../../stores/assistant";
+import { useAssistantStore, type AssistantMessage } from "../../stores/assistant";
 import { useUIStore } from "../../stores/ui";
 import { renderAssistantMarkdown } from "../../utils/assistantMarkdown";
 import { escapeHtml } from "../../utils/escape";
@@ -19,6 +20,7 @@ const uiStore = useUIStore();
 const assistantStore = useAssistantStore();
 const route = useRoute();
 const router = useRouter();
+const { isSupported: shareSupported, share } = useShare();
 
 const messageInput = ref("");
 const inputRef = ref<HTMLTextAreaElement | null>(null);
@@ -36,6 +38,9 @@ const viewportStyle = ref<Record<string, string>>();
 const bodyRef = ref<HTMLElement | null>(null);
 const pageVisible = ref(document.visibilityState === "visible");
 const newReplySequence = ref<number>();
+const highlightedReplySequence = ref<number>();
+const shareErrorSequence = ref<number>();
+let linkedReplyScrollVersion = 0;
 const latestReplySequence = computed(
   () => messages.value.filter((message) => message.role === "assistant").at(-1)?.sequence,
 );
@@ -72,8 +77,14 @@ const usageOpen = computed(() => isOpen.value && route.query.assistant === "usag
 const historyOpen = computed(() => assistantStore.historyOpen && !usageOpen.value);
 const chatOpen = computed(() => !historyOpen.value && !usageOpen.value);
 const historyLoading = computed(() => assistantStore.historyLoading);
-const usageRoute = computed(() => ({ query: assistantQuery("usage"), hash: route.hash }));
+const usageRoute = computed(() => ({ query: assistantQuery(route.query, "usage"), hash: route.hash }));
 const usageOpenChatID = ref("");
+const linkedReplySequence = computed(() => {
+  const reply = route.query.reply;
+  if (typeof reply !== "string" || !/^\d+$/.test(reply)) return undefined;
+  const sequence = Number(reply);
+  return Number.isSafeInteger(sequence) ? sequence : undefined;
+});
 
 const loadingChatID = ref("");
 const existingChatLoading = computed(() => {
@@ -90,14 +101,11 @@ const emptyChatVisible = computed(
 
 const currentChatTitle = computed(() => {
   const persisted = chats.value.find((chat) => chat.id === assistantStore.conversationID);
-  if (persisted?.title) {
-    return persisted.title;
-  }
+  const title = persisted?.title || assistantStore.conversationTitle;
+  if (title) return title;
 
   const firstUserMessage = messages.value.find((message) => message.role === "user")?.text.trim();
-  if (!firstUserMessage) {
-    return t('assistant.newChat');
-  }
+  if (!firstUserMessage) return undefined;
 
   return firstUserMessage.length > 52 ? `${firstUserMessage.slice(0, 52)}…` : firstUserMessage;
 });
@@ -174,10 +182,9 @@ watch(
     }
 
     await nextTick();
-    if (chatOpen.value && route.query.assistant !== "chats") {
+    if (chatOpen.value && route.query.assistant !== "chats" && linkedReplySequence.value === undefined) {
       focusComposer();
     }
-    if (chatOpen.value && bodyRef.value) scrollToBottom(bodyRef.value);
   },
 );
 
@@ -220,12 +227,9 @@ watch([historyMessage, historyMessageRef], () => {
   }
 }, { flush: "post" });
 
-watch(bodyRef, (body) => {
-  if (body) scrollToBottom(body);
-}, { flush: "post" });
-
 watch([isOpen, chatOpen, () => route.query.assistant], () => {
   newReplySequence.value = undefined;
+  shareErrorSequence.value = undefined;
 });
 
 watch(
@@ -240,8 +244,12 @@ watch(
       newReplySequence.value = latest.sequence;
     }
     if (id !== previousID || atBottom) {
+      const scrollVersion = linkedReplyScrollVersion;
       await nextTick();
-      if (body === bodyRef.value && current === messages.value) scrollToBottom(body);
+      // Opening a linked reply takes priority over an automatic scroll scheduled by this update.
+      if (body === bodyRef.value && current === messages.value && scrollVersion === linkedReplyScrollVersion) {
+        scrollToBottom(body);
+      }
     }
   },
 );
@@ -258,6 +266,27 @@ const showingConversationID = computed(() => {
   const id = assistantStore.conversationID;
   return isOpen.value && chatOpen.value && !existingChatLoading.value && route.query.assistant === id ? id : "";
 });
+
+watch(
+  [bodyRef, isOpen, showingConversationID, linkedReplySequence],
+  ([body, opened, id, sequence], [previousBody, wasOpen, previousID, previousSequence], onCleanup) => {
+    if (!body || !opened) return;
+    const reply = id && sequence !== undefined ? findReply(body, sequence) : null;
+    if (reply) {
+      linkedReplyScrollVersion++;
+      scrollToReply(body, reply);
+      highlightedReplySequence.value = sequence;
+      const timeout = window.setTimeout(() => { highlightedReplySequence.value = undefined; }, 2000);
+      onCleanup(() => {
+        window.clearTimeout(timeout);
+        highlightedReplySequence.value = undefined;
+      });
+    } else if (body !== previousBody || !wasOpen || (id && (id !== previousID || sequence !== previousSequence))) {
+      scrollToBottom(body);
+    }
+  },
+  { flush: "post" },
+);
 
 watch(
   [bodyRef, showingConversationID, latestReplySequence, pageVisible],
@@ -320,13 +349,36 @@ function findReply(body: HTMLElement, sequence: number) {
   return body.querySelector<HTMLElement>(`[data-reply-sequence="${sequence}"]`);
 }
 
+function scrollToReply(body: HTMLElement, reply: HTMLElement) {
+  body.scrollTop += reply.getBoundingClientRect().top - body.getBoundingClientRect().top;
+}
+
 function scrollToNewReply() {
   const body = bodyRef.value;
   const sequence = newReplySequence.value;
   if (!body || sequence === undefined) return;
   const reply = findReply(body, sequence);
-  if (!reply) return;
-  body.scrollTop += reply.getBoundingClientRect().top - body.getBoundingClientRect().top;
+  if (reply) scrollToReply(body, reply);
+}
+
+async function shareReply(message: AssistantMessage) {
+  const conversationID = assistantStore.conversationID;
+  const sequence = message.sequence;
+  if (!conversationID || sequence === undefined) return;
+
+  shareErrorSequence.value = undefined;
+  const { href } = router.resolve({ name: "overview", query: { assistant: conversationID, reply: sequence } });
+  try {
+    await share({
+      title: currentChatTitle.value,
+      text: message.text,
+      url: new URL(href, window.location.origin).href,
+    });
+  } catch {
+    if (isOpen.value && chatOpen.value && assistantStore.conversationID === conversationID) {
+      shareErrorSequence.value = sequence;
+    }
+  }
 }
 
 function toggleChatUsage(chatID: string) {
@@ -341,18 +393,8 @@ function formatTokens(value: number | undefined): string {
   return formatNumber(value);
 }
 
-function assistantQuery(value: string | undefined) {
-  const query = { ...route.query };
-  if (value) {
-    query.assistant = value;
-  } else {
-    delete query.assistant;
-  }
-  return query;
-}
-
 async function openHistory() {
-  await router.push({ query: assistantQuery("chats"), hash: route.hash });
+  await router.push({ query: assistantQuery(route.query, "chats"), hash: route.hash });
 }
 
 async function openChat(chatID: string) {
@@ -360,7 +402,7 @@ async function openChat(chatID: string) {
     return;
   }
 
-  await router.push({ query: assistantQuery(chatID) });
+  await router.push({ query: assistantQuery(route.query, chatID) });
 }
 
 async function newChat() {
@@ -374,7 +416,7 @@ async function newChat() {
 async function closeDrawer() {
   usageOpenChatID.value = "";
   uiStore.closeAssistantDrawer();
-  await router.push({ query: assistantQuery(undefined), hash: route.hash });
+  await router.push({ query: assistantQuery(route.query), hash: route.hash });
 }
 
 async function toggleSearch() {
@@ -486,7 +528,7 @@ async function submitHistoryMessage() {
     historyMessage.value = "";
     if (router.currentRoute.value === origin) {
       assistantStore.openCreatedChat(message, response);
-      await router.push({ query: assistantQuery(response.conversation_id), hash: route.hash });
+      await router.push({ query: assistantQuery(route.query, response.conversation_id), hash: route.hash });
     } else if (historyOpen.value) {
       await assistantStore.loadChats();
     }
@@ -501,7 +543,7 @@ watch(
   () => assistantStore.conversationID,
   (conversationID, previousID) => {
     if (conversationID && !previousID && pending.value && route.query.assistant === "new") {
-      void router.replace({ query: assistantQuery(conversationID), hash: route.hash });
+      void router.replace({ query: assistantQuery(route.query, conversationID), hash: route.hash });
     }
   },
 );
@@ -606,7 +648,7 @@ function renderMessageText(role: string, text: string): string {
             <h2 v-if="usageOpen" id="assistant-usage-title" class="assistant-chat-title">{{ t('assistant.usage') }}</h2>
             <template v-else>
               <span class="assistant-avatar assistant-avatar-small" aria-hidden="true">AI</span>
-              <h2 class="assistant-chat-title" :title="currentChatTitle">{{ currentChatTitle }}</h2>
+              <h2 class="assistant-chat-title" :title="currentChatTitle">{{ currentChatTitle || t('assistant.newChat') }}</h2>
             </template>
           </div>
         </template>
@@ -784,7 +826,14 @@ function renderMessageText(role: string, text: string): string {
         <div v-else class="assistant-chat-list">
           <div v-if="currentChatDateLabel" class="assistant-chat-date">{{ currentChatDateLabel }}</div>
           <template v-for="(message, index) in messages" :key="`${message.role}-${index}`">
-            <article class="assistant-chat-message" :class="`assistant-chat-message-${message.role}`">
+            <article
+              class="assistant-chat-message"
+              :class="[
+                `assistant-chat-message-${message.role}`,
+                { 'assistant-chat-message-highlighted': message.role === 'assistant' &&
+                  highlightedReplySequence !== undefined && highlightedReplySequence === message.sequence },
+              ]"
+            >
               <div
                 class="assistant-chat-markdown"
                 :data-reply-sequence="message.role === 'assistant' ? message.sequence : undefined"
@@ -821,6 +870,29 @@ function renderMessageText(role: string, text: string): string {
                   </li>
                 </ol>
               </details>
+              <button
+                v-if="shareSupported && !existingChatLoading && assistantStore.conversationID &&
+                  message.role === 'assistant' && message.sequence !== undefined"
+                type="button"
+                class="assistant-icon-button assistant-share-button"
+                :aria-label="t('assistant.shareReply')"
+                :title="t('assistant.shareReply')"
+                @click="shareReply(message)"
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <circle cx="18" cy="5" r="3" />
+                  <circle cx="6" cy="12" r="3" />
+                  <circle cx="18" cy="19" r="3" />
+                  <path d="m8.6 10.5 6.8-4m-6.8 7 6.8 4" />
+                </svg>
+              </button>
+              <p
+                v-if="message.role === 'assistant' && shareErrorSequence !== undefined && shareErrorSequence === message.sequence"
+                class="assistant-share-error"
+                role="alert"
+              >
+                {{ t('assistant.shareFailed') }}
+              </p>
             </article>
             <article v-if="replyMissing(index)" class="assistant-chat-message assistant-chat-message-system">
               <p class="assistant-chat-text">{{ t('assistant.noReply') }}</p>

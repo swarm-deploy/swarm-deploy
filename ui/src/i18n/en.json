@@ -141,6 +141,8 @@
     "searchChats": "Search chats",
     "send": "Send message",
     "sending": "Sending message",
+    "shareFailed": "Could not share this reply. Try again.",
+    "shareReply": "Share reply",
     "startChatFailed": "Could not start a chat. Try again.",
     "status": "Assistant status: {status}",
     "suggestions": "Suggested prompts",
