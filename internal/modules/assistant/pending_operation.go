@@ -437,6 +437,9 @@ func (t *operationTurn) executePendingOperation(
 	if op.Type == OperationServiceSelfHealDisable && errors.Is(err, selfheal.ErrPolicyChanged) {
 		return t.prepareSelfHealOperation(ctx, op, op.SelfHealPlan.Stack, op.SelfHealPlan.Service), nil
 	}
+	if errors.Is(err, swarm.ErrServiceReplicaRestore) {
+		return t.texts.Format("operation.restart_restore_failed", map[string]any{"Error": err.Error()}), nil
+	}
 	if errors.Is(err, usecase.ErrServiceNotFound) || errors.Is(err, swarm.ErrServiceNotFound) {
 		return t.texts.Text("operation.service_changed"), nil
 	}

@@ -241,6 +241,14 @@ func TestPendingOperationDeterministicTurns(t *testing.T) {
 			expectedAnswer: "no longer exists", expectedCalls: 1, expectedPending: false,
 		},
 		{
+			name: "service disappeared during replica restoration", message: "да", expectedHandled: true,
+			configure: func(_ *operationFlow, _ *MockServiceStore, tools *fakeTools) {
+				tools.executeErr = fmt.Errorf("restart service: %w to 3: %w", swarm.ErrServiceReplicaRestore, swarm.ErrServiceNotFound)
+			},
+			expectedAnswer: "Replicas were scaled to zero. The previous replica count could not be restored. restart service: restore service replicas to 3: service not found",
+			expectedCalls:  1,
+		},
+		{
 			name: "tool disallowed", message: "да", expectedHandled: true,
 			configure: func(flow *operationFlow, _ *MockServiceStore, _ *fakeTools) {
 				flow.allowedToolSet = map[string]struct{}{"service_logs_get": {}}
