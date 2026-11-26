@@ -8,6 +8,10 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/usecase"
 )
 
+func (op OperationType) isSelfHeal() bool {
+	return op == OperationServiceSelfHealEnable || op == OperationServiceSelfHealDisable
+}
+
 func (t *operationTurn) collectSelfHeal(
 	ctx context.Context, op PendingOperation, target string,
 ) (string, conversation.TokenUsage) {
@@ -30,20 +34,31 @@ func (t *operationTurn) collectSelfHeal(
 		t.selection = resolution.selection
 		return resolution.message, usage
 	}
-	plan, err := t.prepareSelfHeal(ctx, resolution.stack, resolution.service)
+	return t.prepareSelfHealOperation(ctx, op, resolution.stack, resolution.service), usage
+}
+
+func (t *operationTurn) prepareSelfHealOperation(
+	ctx context.Context, op PendingOperation, stack, service string,
+) string {
+	desiredEnabled := op.Type == OperationServiceSelfHealEnable
+	plan, err := t.prepareSelfHeal(ctx, stack, service, desiredEnabled)
 	if err != nil {
 		t.pending.delete(t.conversationID)
 		if errors.Is(err, usecase.ErrServiceCatalogUnavailable) {
-			return t.texts.Text("operation.catalog_failed"), usage
+			return t.texts.Text("operation.catalog_failed")
 		}
-		return t.texts.Format("operation.failed", map[string]any{"Error": err.Error()}), usage
+		return t.texts.Format("operation.failed", map[string]any{"Error": err.Error()})
 	}
-	if plan.Policy.Enabled {
+	if plan.Policy.Enabled == desiredEnabled {
 		t.pending.delete(t.conversationID)
-		return t.texts.Format("result.self_heal_enabled", t.selfHealMessageData(plan)), usage
+		message := "result.self_heal_enabled"
+		if op.Type == OperationServiceSelfHealDisable {
+			message = "result.self_heal_disabled"
+		}
+		return t.texts.Format(message, t.selfHealMessageData(plan))
 	}
 	op.SelfHealPlan = plan
-	return t.confirmOperation(op), usage
+	return t.confirmOperation(op)
 }
 
 func (f *operationFlow) selfHealMessageData(plan usecase.ServiceSelfHealPlan) map[string]any {

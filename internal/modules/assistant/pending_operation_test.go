@@ -162,10 +162,15 @@ func TestPendingSelfHealRequiresConfirmation(t *testing.T) {
 		{Stack: stack, Name: "infra-prometheus-pushgateway"},
 	}, nil).Times(2)
 	flow := newPendingTestFlow(t, store, executor)
-	flow.prepareSelfHeal = func(_ context.Context, selectedStack, service string) (usecase.ServiceSelfHealPlan, error) {
+	flow.prepareSelfHeal = func(
+		_ context.Context, selectedStack, service string, desiredEnabled bool,
+	) (usecase.ServiceSelfHealPlan, error) {
 		require.Equal(t, stack, selectedStack)
 		require.Equal(t, "infra-prometheus", service)
-		return usecase.ServiceSelfHealPlan{Stack: stack, Service: service, Policy: selfheal.State{Source: "stack"}}, nil
+		require.True(t, desiredEnabled)
+		return usecase.ServiceSelfHealPlan{
+			Stack: stack, Service: service, Policy: selfheal.State{Source: "stack"},
+		}, nil
 	}
 	turn := flow.beginTurn("chat")
 	answer, _ := turn.startPendingOperation(t.Context(), OperationIntent{Type: OperationServiceSelfHealEnable, Target: "prometheus"})

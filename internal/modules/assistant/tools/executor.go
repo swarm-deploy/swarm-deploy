@@ -48,7 +48,7 @@ type Executor struct {
 func NewExecutor(
 	resourcesModule *resources.Module,
 	gitopsModule *gitops.Module,
-	selfHeal *usecase.ServiceSelfHealEnabler,
+	selfHeal *usecase.ServiceSelfHealChanger,
 	deployments *deploymentstore.Store,
 	alertModule *alertmanagement.Module,
 	eventModule *event.Module,
@@ -100,7 +100,18 @@ func NewExecutor(
 		NewReportPromptInjection(eventModule.Dispatcher),
 	}
 	if selfHeal != nil {
-		toolComponents = append(toolComponents, &serviceSelfHealEnable{enabler: selfHeal})
+		toolComponents = append(toolComponents,
+			&serviceSelfHeal{
+				name:           config.AssistantToolNameServiceSelfHealEnable,
+				desiredEnabled: true,
+				publish:        selfHeal.Publish,
+			},
+			&serviceSelfHeal{
+				name:           config.AssistantToolNameServiceSelfHealDisable,
+				desiredEnabled: false,
+				publish:        selfHeal.Publish,
+			},
+		)
 	}
 
 	allowed := config.NormalizeAssistantToolAllowlist(spec.Assistant.Tools)

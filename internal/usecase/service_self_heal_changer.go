@@ -9,15 +9,15 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/modelstore"
 )
 
-// ServiceSelfHealEnabler coordinates catalog selection and GitOps self-heal proposals.
-type ServiceSelfHealEnabler struct {
+// ServiceSelfHealChanger coordinates catalog selection and GitOps self-heal proposals.
+type ServiceSelfHealChanger struct {
 	catalog   modelstore.Store
 	proposals *selfheal.Service
 }
 
-// NewServiceSelfHealEnabler creates the use case from the catalog and GitOps writer.
-func NewServiceSelfHealEnabler(catalog modelstore.Store, proposals *selfheal.Service) *ServiceSelfHealEnabler {
-	return &ServiceSelfHealEnabler{catalog: catalog, proposals: proposals}
+// NewServiceSelfHealChanger creates the use case from the catalog and GitOps writer.
+func NewServiceSelfHealChanger(catalog modelstore.Store, proposals *selfheal.Service) *ServiceSelfHealChanger {
+	return &ServiceSelfHealChanger{catalog: catalog, proposals: proposals}
 }
 
 // ServiceSelfHealPlan identifies the exact service and policy observed during preparation.
@@ -36,29 +36,33 @@ var ErrServiceCatalogUnavailable = errors.New("could not read service catalog")
 // ErrServiceNotFound indicates that the target is absent from the catalog.
 var ErrServiceNotFound = errors.New("service not found in catalog")
 
-// Prepare reads policy for an exact service without publishing a change.
-func (e *ServiceSelfHealEnabler) Prepare(
-	ctx context.Context, stack, service string,
+// Prepare reads policy and prepares a proposal for an exact service.
+func (c *ServiceSelfHealChanger) Prepare(
+	ctx context.Context, stack, service string, desiredEnabled bool,
 ) (ServiceSelfHealPlan, error) {
-	policy, err := e.proposals.Preview(ctx, stack, service)
+	policy, err := c.proposals.Preview(ctx, stack, service, desiredEnabled)
 	if err != nil {
 		return ServiceSelfHealPlan{}, err
 	}
-	return ServiceSelfHealPlan{Stack: stack, Service: service, Policy: policy}, nil
+	return ServiceSelfHealPlan{
+		Stack: stack, Service: service, Policy: policy,
+	}, nil
 }
 
 // Publish revalidates the exact catalog service and publishes against the current write base.
-func (e *ServiceSelfHealEnabler) Publish(
-	ctx context.Context, plan ServiceSelfHealPlan, author string,
+func (c *ServiceSelfHealChanger) Publish(
+	ctx context.Context, plan ServiceSelfHealPlan, desiredEnabled bool, author string,
 ) (selfheal.Result, error) {
-	if err := e.requireService(ctx, plan.Stack, plan.Service); err != nil {
+	if err := c.requireService(ctx, plan.Stack, plan.Service); err != nil {
 		return selfheal.Result{}, err
 	}
-	return e.proposals.Enable(ctx, plan.Stack, plan.Service, plan.Policy, author)
+	return c.proposals.Publish(
+		ctx, plan.Stack, plan.Service, plan.Policy, desiredEnabled, author,
+	)
 }
 
-func (e *ServiceSelfHealEnabler) requireService(ctx context.Context, stack, service string) error {
-	_, found, err := e.catalog.Find(ctx, stack, service)
+func (c *ServiceSelfHealChanger) requireService(ctx context.Context, stack, service string) error {
+	_, found, err := c.catalog.Find(ctx, stack, service)
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrServiceCatalogUnavailable, err)
 	}

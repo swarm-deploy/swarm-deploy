@@ -25,17 +25,17 @@ type State struct {
 	Enabled bool `json:"enabled"`
 }
 
-func prepare(original []byte, service string, stack *bool, global bool) (State, []byte, error) {
+func prepare(original []byte, service string, stack *bool, global, enabled bool) (State, []byte, error) {
 	state, target, err := inspect(original, service, stack, global)
-	if err != nil || state.Enabled {
+	if err != nil || state.Enabled == enabled {
 		return state, nil, err
 	}
-	updated, err := enableLabel(original, service, target)
+	updated, err := setLabel(original, service, target, strconv.FormatBool(enabled))
 	if err != nil {
 		return State{}, nil, err
 	}
 	verified, _, err := inspect(updated, service, stack, global)
-	if err != nil || !verified.Enabled {
+	if err != nil || verified != (State{Source: "service", Enabled: enabled}) {
 		return State{}, nil, errors.New("could not verify edited Compose YAML")
 	}
 	return state, updated, nil
@@ -70,14 +70,14 @@ func inspect(original []byte, service string, stack *bool, global bool) (State, 
 	return State{Source: level, Enabled: enabled}, target, nil
 }
 
-func enableLabel(original []byte, service string, target *yaml.Node) ([]byte, error) {
+func setLabel(original []byte, service string, target *yaml.Node, value string) ([]byte, error) {
 	deploy, err := localField(target, "deploy")
 	if err != nil {
 		return nil, err
 	}
 	if deploy == nil {
 		return editCompose(original, []string{"services", service, "deploy"}, map[string]any{
-			"labels": map[string]string{label: "true"},
+			"labels": map[string]string{label: value},
 		})
 	}
 	labels, err := localField(deploy, "labels")
@@ -86,13 +86,13 @@ func enableLabel(original []byte, service string, target *yaml.Node) ([]byte, er
 	}
 	if labels == nil {
 		return editCompose(original, []string{"services", service, "deploy", "labels"},
-			map[string]string{label: "true"})
+			map[string]string{label: value})
 	}
 	if labels.Anchor != "" || labels.Style&yaml.TaggedStyle != 0 {
 		return nil, errors.New("expected local deploy labels without an explicit YAML tag or anchor")
 	}
 	if labels.Kind == yaml.SequenceNode {
-		return enableListLabel(original, service, labels)
+		return setListLabel(original, service, labels, value)
 	}
 	current, err := localField(labels, label)
 	if err != nil {
@@ -103,10 +103,10 @@ func enableLabel(original []byte, service string, target *yaml.Node) ([]byte, er
 			return nil, validationErr
 		}
 	}
-	return editCompose(original, []string{"services", service, "deploy", "labels", label}, "true")
+	return editCompose(original, []string{"services", service, "deploy", "labels", label}, value)
 }
 
-func enableListLabel(original []byte, service string, labels *yaml.Node) ([]byte, error) {
+func setListLabel(original []byte, service string, labels *yaml.Node, value string) ([]byte, error) {
 	found := -1
 	for i, item := range labels.Content {
 		if item.Kind != yaml.ScalarNode {
@@ -128,7 +128,7 @@ func enableListLabel(original []byte, service string, labels *yaml.Node) ([]byte
 	if found >= 0 {
 		item = strconv.Itoa(found)
 	}
-	return editCompose(original, []string{"services", service, "deploy", "labels", item}, label+"=true")
+	return editCompose(original, []string{"services", service, "deploy", "labels", item}, label+"="+value)
 }
 
 func validateLabelValue(node *yaml.Node) error {

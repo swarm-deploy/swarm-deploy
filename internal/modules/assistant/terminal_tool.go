@@ -16,6 +16,7 @@ const (
 	serviceRestartTriggerTool          = "service_restart_trigger"
 	serviceReplicasSetTool             = "service_replicas_set"
 	serviceSelfHealEnableTool          = "service_self_heal_enable"
+	serviceSelfHealDisableTool         = "service_self_heal_disable"
 	deploySyncTriggerTool              = "deploy_sync_trigger"
 	syncPauseGetTool                   = "sync_pause_get"
 	syncPauseSetTool                   = "sync_pause_set"
@@ -34,14 +35,14 @@ func finalizeTerminalToolResult(localizer *texts.Localizer, toolName, result str
 		return finalizePauseToolResult(localizer, toolName, result)
 	case serviceRestartTriggerTool, serviceReplicasSetTool:
 		return finalizeServiceActionResult(localizer, toolName, result)
-	case serviceSelfHealEnableTool:
-		return finalizeSelfHeal(localizer, result)
+	case serviceSelfHealEnableTool, serviceSelfHealDisableTool:
+		return finalizeSelfHeal(localizer, toolName, result)
 	default:
 		return "", fmt.Errorf("terminal formatter is not configured for tool %q", toolName)
 	}
 }
 
-func finalizeSelfHeal(localizer *texts.Localizer, result string) (string, error) {
+func finalizeSelfHeal(localizer *texts.Localizer, toolName, result string) (string, error) {
 	var update selfheal.Result
 	if err := json.Unmarshal([]byte(result), &update); err != nil {
 		return "", fmt.Errorf("decode self-heal proposal: %w", err)
@@ -49,11 +50,20 @@ func finalizeSelfHeal(localizer *texts.Localizer, result string) (string, error)
 	if update.AlreadyEnabled != "" {
 		return localizer.Text("result.self_heal_unchanged"), nil
 	}
+	if update.AlreadyDisabled != "" {
+		return localizer.Format("result.self_heal_disable_unchanged", map[string]any{
+			"Source": localizer.Text("policy.source_" + update.AlreadyDisabled),
+		}), nil
+	}
 	if update.Branch == "" {
 		return "", errors.New("self-heal proposal must contain the branch name")
 	}
 	data := map[string]any{"Branch": update.Branch}
-	answer := localizer.Format("result.self_heal", data)
+	message := "result.self_heal"
+	if toolName == serviceSelfHealDisableTool {
+		message = "result.self_heal_disable"
+	}
+	answer := localizer.Format(message, data)
 	if update.BranchURL != "" {
 		answer += " " + localizer.Format("result.self_heal_branch", map[string]any{"URL": update.BranchURL})
 	}

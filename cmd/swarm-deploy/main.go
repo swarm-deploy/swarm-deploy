@@ -118,7 +118,7 @@ var modules = []module{
 	{
 		Name: "assistant",
 		Initialize: func(ctx context.Context, cfg *config.Config, cnt *container) error {
-			mod, err := assistant.InitModule(ctx, cfg, cnt, cnt.AssistantTexts, cnt.ServiceSelfHealEnabler)
+			mod, err := assistant.InitModule(ctx, cfg, cnt, cnt.AssistantTexts, cnt.ServiceSelfHealChanger)
 			cnt.Assistant = mod
 			return err
 		},
@@ -132,7 +132,7 @@ func initializeUseCases(_ context.Context, cfg *config.Config, cnt *container) e
 	if err != nil {
 		return fmt.Errorf("initialize GitOps self-heal proposals: %w", err)
 	}
-	cnt.ServiceSelfHealEnabler = usecase.NewServiceSelfHealEnabler(cnt.Resources.ServiceStore, proposals)
+	cnt.ServiceSelfHealChanger = usecase.NewServiceSelfHealChanger(cnt.Resources.ServiceStore, proposals)
 	return nil
 }
 
@@ -391,8 +391,8 @@ type container struct {
 	AlertManagement *alertmanagement.Module
 	Assistant       *assistant.Module
 	AssistantTexts  *texts.Localizer
-	// ServiceSelfHealEnabler coordinates catalog and GitOps policy proposals.
-	ServiceSelfHealEnabler *usecase.ServiceSelfHealEnabler
+	// ServiceSelfHealChanger coordinates catalog and GitOps policy proposals.
+	ServiceSelfHealChanger *usecase.ServiceSelfHealChanger
 }
 
 // GetStorage returns the shared application database.

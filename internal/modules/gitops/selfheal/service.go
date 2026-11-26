@@ -15,7 +15,7 @@ import (
 // ErrPolicyChanged indicates that publication needs a new plan for the current policy.
 var ErrPolicyChanged = errors.New("self-heal policy changed after preparation. Prepare a new plan")
 
-// Service proposes enabling self-heal in the configured Git write repository.
+// Service proposes changes to service self-heal in the configured Git write repository.
 type Service struct {
 	stacks  config.StackProvider
 	global  bool
@@ -37,6 +37,8 @@ type Result struct {
 	PullRequestFailed bool `json:"pullRequestFailed,omitempty"`
 	// AlreadyEnabled identifies the policy source when publication is unnecessary.
 	AlreadyEnabled string `json:"alreadyEnabled,omitempty"`
+	// AlreadyDisabled identifies the policy source when publication is unnecessary.
+	AlreadyDisabled string `json:"alreadyDisabled,omitempty"`
 }
 
 // New creates the self-heal proposal service with an isolated Git write path.
@@ -51,9 +53,9 @@ func New(
 	return &Service{stacks: stacks, global: global, spec: write, dataDir: dataDir, repo: repo, github: github}, nil
 }
 
-// Preview reads policy from the base branch of the configured write repository.
-func (s *Service) Preview(ctx context.Context, stack, service string) (State, error) {
-	change, err := s.prepare(ctx, stack, service)
+// Preview reads policy and checks whether the requested self-heal override is possible.
+func (s *Service) Preview(ctx context.Context, stack, service string, desiredEnabled bool) (State, error) {
+	change, err := s.prepare(ctx, stack, service, desiredEnabled)
 	if err != nil {
 		return State{}, err
 	}
@@ -61,21 +63,31 @@ func (s *Service) Preview(ctx context.Context, stack, service string) (State, er
 	return change.state, nil
 }
 
-// Enable rechecks the policy observed during preparation on a fresh checkout before publishing.
-func (s *Service) Enable(ctx context.Context, stack, service string, expected State, author string) (Result, error) {
-	change, err := s.prepare(ctx, stack, service)
+// Publish rechecks the policy observed during preparation on a fresh checkout before publishing.
+func (s *Service) Publish(
+	ctx context.Context, stack, service string, expected State, desiredEnabled bool, author string,
+) (Result, error) {
+	change, err := s.prepare(ctx, stack, service, desiredEnabled)
 	if err != nil {
 		return Result{}, err
 	}
 	defer change.file.Close(ctx)
-	if change.state.Enabled {
-		return Result{AlreadyEnabled: change.state.Source}, nil
+	if change.state.Enabled == desiredEnabled {
+		if desiredEnabled {
+			return Result{AlreadyEnabled: change.state.Source}, nil
+		}
+		return Result{AlreadyDisabled: change.state.Source}, nil
 	}
 	if change.state != expected {
 		return Result{}, ErrPolicyChanged
 	}
-	branch := fmt.Sprintf("%s-%s-enable-self-heal", branchPart(stack), branchPart(service))
-	title := fmt.Sprintf("chore: enable self-heal for %s/%s", stack, service)
+	action, description := "enable", "Enable automatic drift repair for this service by setting its Compose deploy label."
+	if !desiredEnabled {
+		action = "disable"
+		description = "Disable automatic drift repair for this service by setting its Compose deploy label."
+	}
+	branch := fmt.Sprintf("%s-%s-%s-self-heal", branchPart(stack), branchPart(service), action)
+	title := fmt.Sprintf("chore: %s self-heal for %s/%s", action, stack, service)
 	_, err = change.file.Push(ctx, branch, title, author, change.updated)
 	if err != nil {
 		return Result{}, err
@@ -83,7 +95,7 @@ func (s *Service) Enable(ctx context.Context, stack, service string, expected St
 	result := Result{Branch: branch, BranchURL: s.repo.BranchURL(branch)}
 	if s.github != nil {
 		result.PullRequestURL, err = s.github.CreatePullRequest(ctx, s.repo, s.spec.Branch, branch, title,
-			"Enable automatic drift repair for this service by setting its Compose deploy label.")
+			description)
 		result.PullRequestFailed = err != nil
 	}
 	return result, nil
@@ -95,7 +107,7 @@ type proposal struct {
 	updated []byte
 }
 
-func (s *Service) prepare(ctx context.Context, stack, service string) (proposal, error) {
+func (s *Service) prepare(ctx context.Context, stack, service string, enabled bool) (proposal, error) {
 	for _, spec := range s.stacks.Stacks() {
 		if spec.Name != stack || spec.ComposeFile == "" {
 			continue
@@ -104,7 +116,7 @@ func (s *Service) prepare(ctx context.Context, stack, service string) (proposal,
 		if err != nil {
 			return proposal{}, err
 		}
-		state, updated, err := prepare(file.Original, service, spec.Sync.Policy.SelfHeal, s.global)
+		state, updated, err := prepare(file.Original, service, spec.Sync.Policy.SelfHeal, s.global, enabled)
 		if err != nil {
 			file.Close(ctx)
 			return proposal{}, err

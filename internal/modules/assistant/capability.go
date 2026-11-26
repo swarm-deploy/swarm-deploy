@@ -65,6 +65,7 @@ var capabilityProfiles = map[Capability]CapabilityProfile{
 			"service_replicas_set",
 			"service_restart_trigger",
 			serviceSelfHealEnableTool,
+			serviceSelfHealDisableTool,
 		},
 	},
 	CapabilityPauseSync: {

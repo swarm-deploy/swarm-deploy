@@ -19,6 +19,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/llm"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/texts"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/tools/routing"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/selfheal"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/syncpause"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/usecase"
@@ -45,7 +46,7 @@ type operationFlow struct {
 	tools           ToolExecutor
 	guard           *guard.InjectionChecker
 	allowedToolSet  map[string]struct{}
-	prepareSelfHeal func(context.Context, string, string) (usecase.ServiceSelfHealPlan, error)
+	prepareSelfHeal func(context.Context, string, string, bool) (usecase.ServiceSelfHealPlan, error)
 	pauseTargets    SyncPauseTargetResolver
 	pending         *pendingOperationStore
 }
@@ -86,6 +87,8 @@ const (
 	OperationServiceReplicasSet OperationType = serviceReplicasSetTool
 	// OperationServiceSelfHealEnable proposes enabling GitOps self-heal.
 	OperationServiceSelfHealEnable OperationType = serviceSelfHealEnableTool
+	// OperationServiceSelfHealDisable proposes disabling GitOps self-heal.
+	OperationServiceSelfHealDisable OperationType = serviceSelfHealDisableTool
 	// OperationDeploySync triggers a GitOps synchronization.
 	OperationDeploySync OperationType = deploySyncTriggerTool
 	// OperationSyncPauseSet creates or changes a direct GitOps pause.
@@ -252,7 +255,7 @@ func (t *operationTurn) startPendingOperation(
 		Scope:          strings.TrimSpace(intent.Scope),
 		PauseExpiresAt: intent.ExpiresAt,
 	}
-	if op.Type == OperationServiceSelfHealEnable {
+	if op.Type.isSelfHeal() {
 		return t.collectSelfHeal(ctx, op, op.Target)
 	}
 	if op.Type == OperationDeploySync {
@@ -374,7 +377,7 @@ func (t *operationTurn) handlePendingCollection(
 		return false, "", conversation.TokenUsage{}, nil
 	}
 
-	if op.Type == OperationServiceSelfHealEnable {
+	if op.Type.isSelfHeal() {
 		target := op.replyTarget(message)
 		answer, usage := t.collectSelfHeal(ctx, op, target)
 		return true, answer, usage, nil
@@ -450,6 +453,9 @@ func (t *operationTurn) executePendingOperation(
 		return "", fmt.Errorf("encode pending operation arguments: %w", err)
 	}
 	result, err := t.tools.Execute(ctx, routing.Request{ToolName: string(op.Type), Payload: string(payload)})
+	if op.Type == OperationServiceSelfHealDisable && errors.Is(err, selfheal.ErrPolicyChanged) {
+		return t.prepareSelfHealOperation(ctx, op, op.SelfHealPlan.Stack, op.SelfHealPlan.Service), nil
+	}
 	if errors.Is(err, usecase.ErrServiceNotFound) {
 		return t.texts.Text("operation.service_changed"), nil
 	}
@@ -485,7 +491,7 @@ func (f *operationFlow) pendingOperationArguments(
 		return CapabilityPauseSync, args, aborted, nil
 	case OperationDeploySync:
 		return CapabilityDeploymentSync, map[string]any{}, "", nil
-	case OperationServiceSelfHealEnable:
+	case OperationServiceSelfHealEnable, OperationServiceSelfHealDisable:
 		return CapabilityServiceOperations, op.SelfHealPlan, "", nil
 	case OperationServiceRestart, OperationServiceReplicasSet:
 		services, err := f.store.ReadAll(ctx)
@@ -532,14 +538,14 @@ func (f *operationFlow) operationAllowed(capability Capability, operation Operat
 	if _, ok := f.toolSet([]Capability{capability})[string(operation)]; !ok {
 		return false
 	}
-	if operation != OperationServiceSelfHealEnable {
+	if !operation.isSelfHeal() {
 		return true
 	}
 	if f.prepareSelfHeal == nil {
 		return false
 	}
 	return slices.ContainsFunc(f.tools.Definitions(), func(tool routing.ToolDefinition) bool {
-		return string(tool.Name) == serviceSelfHealEnableTool && tool.Writable && tool.Terminal
+		return string(tool.Name) == string(operation) && tool.Writable && tool.Terminal
 	})
 }
 
@@ -795,6 +801,8 @@ func (f *operationFlow) confirmationMessage(op PendingOperation) string {
 		return f.texts.Format("operation.confirm_restart", data)
 	case OperationServiceSelfHealEnable:
 		return f.texts.Format("operation.confirm_self_heal", f.selfHealMessageData(op.SelfHealPlan))
+	case OperationServiceSelfHealDisable:
+		return f.texts.Format("operation.confirm_self_heal_disable", f.selfHealMessageData(op.SelfHealPlan))
 	default:
 		return ""
 	}
