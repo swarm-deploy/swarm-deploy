@@ -102,9 +102,9 @@ func (mr *MockHistoryStorageMockRecorder) ReadUsage(ctx, from, to, interval any)
 }
 
 // SaveTurns mocks base method.
-func (m *MockHistoryStorage) SaveTurns(ctx context.Context, id, createdBy string, usage TokenUsage, turns ...Turn) (int, error) {
+func (m *MockHistoryStorage) SaveTurns(ctx context.Context, id string, options SaveOptions, usage TokenUsage, turns ...Turn) (int, error) {
 	m.ctrl.T.Helper()
-	varargs := []any{ctx, id, createdBy, usage}
+	varargs := []any{ctx, id, options, usage}
 	for _, a := range turns {
 		varargs = append(varargs, a)
 	}
@@ -115,8 +115,8 @@ func (m *MockHistoryStorage) SaveTurns(ctx context.Context, id, createdBy string
 }
 
 // SaveTurns indicates an expected call of SaveTurns.
-func (mr *MockHistoryStorageMockRecorder) SaveTurns(ctx, id, createdBy, usage any, turns ...any) *gomock.Call {
+func (mr *MockHistoryStorageMockRecorder) SaveTurns(ctx, id, options, usage any, turns ...any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	varargs := append([]any{ctx, id, createdBy, usage}, turns...)
+	varargs := append([]any{ctx, id, options, usage}, turns...)
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SaveTurns", reflect.TypeOf((*MockHistoryStorage)(nil).SaveTurns), varargs...)
 }

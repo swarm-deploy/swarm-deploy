@@ -136,6 +136,8 @@
     "overlayMode": "Use overlay mode",
     "pin": "Pin assistant",
     "placeholder": "Ask the assistant…",
+    "readOnly": "Read-only tools",
+    "readOnlyHint": "Writable assistant tools are disabled in this chat.",
     "requestFailed": "Assistant failed: {message}",
     "responseOptions": "Response options",
     "searchChats": "Search chats",

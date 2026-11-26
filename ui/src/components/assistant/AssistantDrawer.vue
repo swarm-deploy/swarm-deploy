@@ -607,6 +607,16 @@ function renderMessageText(role: string, text: string): string {
             <template v-else>
               <span class="assistant-avatar assistant-avatar-small" aria-hidden="true">AI</span>
               <h2 class="assistant-chat-title" :title="currentChatTitle">{{ currentChatTitle }}</h2>
+              <svg
+                v-if="assistantStore.readOnly"
+                class="assistant-read-only-icon"
+                viewBox="0 0 24 24"
+                role="img"
+                :aria-label="t('assistant.readOnly')"
+              >
+                <rect x="6" y="10" width="12" height="10" rx="2" />
+                <path d="M8.5 10V7.5a3.5 3.5 0 0 1 7 0V10" />
+              </svg>
             </template>
           </div>
         </template>
@@ -877,6 +887,13 @@ function renderMessageText(role: string, text: string): string {
         >
           {{ t('assistant.newReply') }}
         </button>
+        <div v-if="assistantStore.readOnly" class="assistant-read-only-notice" role="status">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <rect x="6" y="10" width="12" height="10" rx="2" />
+            <path d="M8.5 10V7.5a3.5 3.5 0 0 1 7 0V10" />
+          </svg>
+          <span>{{ t('assistant.readOnlyHint') }}</span>
+        </div>
         <div class="assistant-composer">
           <textarea
             ref="inputRef"

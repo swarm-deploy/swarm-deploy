@@ -49,6 +49,8 @@ type ChatRequest struct {
 	Message string
 	// CreatedBy is the authenticated username to use if the chat is first persisted by this run.
 	CreatedBy string
+	// ReadOnly creates a chat where writable assistant tools are disabled.
+	ReadOnly bool
 	// WaitTimeoutMS is a server-side long-poll wait timeout in milliseconds.
 	WaitTimeoutMS int
 }
@@ -61,6 +63,8 @@ type ChatResponse struct {
 	ConversationID string
 	// RequestID identifies a run.
 	RequestID string
+	// ReadOnly indicates that writable assistant tools are disabled for the chat.
+	ReadOnly bool
 	// Answer is a final assistant answer for completed runs.
 	Answer string
 	// AnswerSequence identifies the stored reply when a completed run has persistent history.
@@ -123,6 +127,8 @@ type ChatSummary struct {
 	UpdatedAt time.Time `json:"updated_at"`
 	// Unread indicates that the latest persisted assistant reply is unread.
 	Unread bool `json:"unread"`
+	// ReadOnly indicates that writable assistant tools are disabled for the chat.
+	ReadOnly bool `json:"read_only"`
 	// Usage contains aggregate token consumption when reported by the model provider.
 	Usage *TokenUsage `json:"token_usage,omitempty"`
 	// PrimaryArtifact is the latest pull request, or the latest other artifact when no pull request exists.
@@ -141,6 +147,8 @@ type ChatHistory struct {
 	UpdatedAt time.Time `json:"updated_at"`
 	// Unread indicates that the latest persisted assistant reply is unread.
 	Unread bool `json:"unread"`
+	// ReadOnly indicates that writable assistant tools are disabled for the chat.
+	ReadOnly bool `json:"read_only"`
 	// Usage contains aggregate token consumption when reported by the model provider.
 	Usage *TokenUsage `json:"token_usage,omitempty"`
 	// Messages contains the full persisted user-visible history.

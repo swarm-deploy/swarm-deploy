@@ -29,6 +29,7 @@ func (h *handler) AssistantChat(
 		ConversationID: req.ConversationID.Value,
 		RequestID:      req.RequestID.Value,
 		Message:        req.Message.Value,
+		ReadOnly:       req.ReadOnly.Value,
 		WaitTimeoutMS:  int(req.WaitTimeoutMs.Value),
 	}
 	if user, ok := security.UserFromContext(ctx); ok {
@@ -43,6 +44,7 @@ func toGeneratedAssistantChatResponse(resp assistant.ChatResponse) *generated.As
 		Status:         toGeneratedAssistantStatus(resp.Status),
 		RequestID:      resp.RequestID,
 		ConversationID: resp.ConversationID,
+		ReadOnly:       resp.ReadOnly,
 		Answer:         toOptString(resp.Answer),
 		ErrorMessage:   toOptString(resp.ErrorMessage),
 		Activity:       append([]string(nil), resp.Activity...),

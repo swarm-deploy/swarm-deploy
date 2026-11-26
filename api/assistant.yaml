@@ -133,6 +133,10 @@ components:
           type: string
         message:
           type: string
+        read_only:
+          type: boolean
+          default: false
+          description: Creates a chat where writable assistant tools are disabled.
         wait_timeout_ms:
           type: integer
           format: int32
@@ -140,7 +144,7 @@ components:
           maximum: 30000
     AssistantChatResponse:
       type: object
-      required: [status, request_id, conversation_id]
+      required: [status, request_id, conversation_id, read_only]
       properties:
         status:
           type: string
@@ -149,6 +153,9 @@ components:
           type: string
         conversation_id:
           type: string
+        read_only:
+          type: boolean
+          description: Whether writable assistant tools are disabled for the chat.
         answer:
           type: string
         answer_sequence:
@@ -202,7 +209,7 @@ components:
           minimum: 0
     AssistantChatSummary:
       type: object
-      required: [id, title, created_at, updated_at, unread]
+      required: [id, title, created_at, updated_at, unread, read_only]
       properties:
         id:
           type: string
@@ -215,6 +222,8 @@ components:
           type: string
           format: date-time
         unread:
+          type: boolean
+        read_only:
           type: boolean
         token_usage:
           $ref: '#/components/schemas/AssistantTokenUsage'
@@ -281,7 +290,7 @@ components:
           minLength: 1
     AssistantChatHistory:
       type: object
-      required: [id, title, created_at, updated_at, unread, messages]
+      required: [id, title, created_at, updated_at, unread, read_only, messages]
       properties:
         id:
           type: string
@@ -294,6 +303,8 @@ components:
           type: string
           format: date-time
         unread:
+          type: boolean
+        read_only:
           type: boolean
         token_usage:
           $ref: '#/components/schemas/AssistantTokenUsage'

@@ -28,7 +28,8 @@ func TestAssistantChatReadHTTP(t *testing.T) {
 	reply := conversation.Turn{Role: "assistant", Content: "Reply", Artifacts: []conversation.Artifact{{
 		Type: conversation.ArtifactTypePullRequest, Label: "PR #42", URL: "https://example.com/pull/42",
 	}}}
-	require.NoError(t, history.Append(ctx, "chat", reply))
+	_, err = history.SaveTurns(ctx, "chat", conversation.SaveOptions{ReadOnly: true}, conversation.TokenUsage{}, reply)
+	require.NoError(t, err)
 	service, err := assistant.NewService(assistant.Config{
 		Localizer: newTestAssistantTexts(t, "en"),
 		Enabled:   true, ConversationInMemoryTTL: time.Hour, ConversationHistory: history,
@@ -54,6 +55,7 @@ func TestAssistantChatReadHTTP(t *testing.T) {
 		require.NoError(t, json.Unmarshal(request(http.MethodGet, chatsPath, "", http.StatusOK), &list))
 		require.Len(t, list.Chats, 1)
 		assert.Equal(t, want, list.Chats[0].Unread)
+		assert.True(t, list.Chats[0].ReadOnly)
 		primary, ok := list.Chats[0].PrimaryArtifact.Get()
 		require.True(t, ok)
 		assert.Equal(t, "PR #42", primary.Label)
@@ -66,6 +68,7 @@ func TestAssistantChatReadHTTP(t *testing.T) {
 	require.Len(t, chat.Messages[0].Artifacts, 1)
 	assert.Equal(t, "PR #42", chat.Messages[0].Artifacts[0].Label)
 	assert.True(t, chat.Unread)
+	assert.True(t, chat.ReadOnly)
 	readUnread(true)
 
 	request(http.MethodPut, chatsPath+"/chat/read", `{}`, http.StatusBadRequest)

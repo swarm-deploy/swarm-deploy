@@ -407,7 +407,7 @@ func TestAssistantFollowUpIncludesSavedArtifactsInModelHistory(t *testing.T) {
 			defer server.Close()
 
 			history := newSQLHistory(t)
-			_, err := history.SaveTurns(t.Context(), conversationID, "alice", conversation.TokenUsage{},
+			_, err := history.SaveTurns(t.Context(), conversationID, conversation.SaveOptions{CreatedBy: "alice"}, conversation.TokenUsage{},
 				conversation.Turn{Role: "user", Content: firstQuestion},
 				conversation.Turn{Role: "assistant", Content: firstAnswer, Artifacts: tc.artifacts},
 			)

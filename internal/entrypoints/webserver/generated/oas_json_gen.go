@@ -1263,6 +1263,10 @@ func (s *AssistantChatHistory) encodeFields(e *jx.Encoder) {
 		e.Bool(s.Unread)
 	}
 	{
+		e.FieldStart("read_only")
+		e.Bool(s.ReadOnly)
+	}
+	{
 		if s.TokenUsage.Set {
 			e.FieldStart("token_usage")
 			s.TokenUsage.Encode(e)
@@ -1284,15 +1288,16 @@ func (s *AssistantChatHistory) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfAssistantChatHistory = [8]string{
+var jsonFieldsNameOfAssistantChatHistory = [9]string{
 	0: "id",
 	1: "title",
 	2: "created_at",
 	3: "updated_at",
 	4: "unread",
-	5: "token_usage",
-	6: "messages",
-	7: "active_request",
+	5: "read_only",
+	6: "token_usage",
+	7: "messages",
+	8: "active_request",
 }
 
 // Decode decodes AssistantChatHistory from json.
@@ -1300,7 +1305,7 @@ func (s *AssistantChatHistory) Decode(d *jx.Decoder) error {
 	if s == nil {
 		return errors.New("invalid: unable to decode AssistantChatHistory to nil")
 	}
-	var requiredBitSet [1]uint8
+	var requiredBitSet [2]uint8
 
 	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
 		switch string(k) {
@@ -1364,6 +1369,18 @@ func (s *AssistantChatHistory) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"unread\"")
 			}
+		case "read_only":
+			requiredBitSet[0] |= 1 << 5
+			if err := func() error {
+				v, err := d.Bool()
+				s.ReadOnly = bool(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"read_only\"")
+			}
 		case "token_usage":
 			if err := func() error {
 				s.TokenUsage.Reset()
@@ -1375,7 +1392,7 @@ func (s *AssistantChatHistory) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"token_usage\"")
 			}
 		case "messages":
-			requiredBitSet[0] |= 1 << 6
+			requiredBitSet[0] |= 1 << 7
 			if err := func() error {
 				s.Messages = make([]AssistantChatMessage, 0)
 				if err := d.Arr(func(d *jx.Decoder) error {
@@ -1411,8 +1428,9 @@ func (s *AssistantChatHistory) Decode(d *jx.Decoder) error {
 	}
 	// Validate required fields.
 	var failures []validate.FieldError
-	for i, mask := range [1]uint8{
-		0b01011111,
+	for i, mask := range [2]uint8{
+		0b10111111,
+		0b00000000,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -1827,6 +1845,12 @@ func (s *AssistantChatRequest) encodeFields(e *jx.Encoder) {
 		}
 	}
 	{
+		if s.ReadOnly.Set {
+			e.FieldStart("read_only")
+			s.ReadOnly.Encode(e)
+		}
+	}
+	{
 		if s.WaitTimeoutMs.Set {
 			e.FieldStart("wait_timeout_ms")
 			s.WaitTimeoutMs.Encode(e)
@@ -1834,11 +1858,12 @@ func (s *AssistantChatRequest) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfAssistantChatRequest = [4]string{
+var jsonFieldsNameOfAssistantChatRequest = [5]string{
 	0: "conversation_id",
 	1: "request_id",
 	2: "message",
-	3: "wait_timeout_ms",
+	3: "read_only",
+	4: "wait_timeout_ms",
 }
 
 // Decode decodes AssistantChatRequest from json.
@@ -1846,6 +1871,7 @@ func (s *AssistantChatRequest) Decode(d *jx.Decoder) error {
 	if s == nil {
 		return errors.New("invalid: unable to decode AssistantChatRequest to nil")
 	}
+	s.setDefaults()
 
 	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
 		switch string(k) {
@@ -1878,6 +1904,16 @@ func (s *AssistantChatRequest) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"message\"")
+			}
+		case "read_only":
+			if err := func() error {
+				s.ReadOnly.Reset()
+				if err := s.ReadOnly.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"read_only\"")
 			}
 		case "wait_timeout_ms":
 			if err := func() error {
@@ -1935,6 +1971,10 @@ func (s *AssistantChatResponse) encodeFields(e *jx.Encoder) {
 		e.Str(s.ConversationID)
 	}
 	{
+		e.FieldStart("read_only")
+		e.Bool(s.ReadOnly)
+	}
+	{
 		if s.Answer.Set {
 			e.FieldStart("answer")
 			s.Answer.Encode(e)
@@ -1986,17 +2026,18 @@ func (s *AssistantChatResponse) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfAssistantChatResponse = [10]string{
-	0: "status",
-	1: "request_id",
-	2: "conversation_id",
-	3: "answer",
-	4: "answer_sequence",
-	5: "error_message",
-	6: "poll_after_ms",
-	7: "activity",
-	8: "selection",
-	9: "artifacts",
+var jsonFieldsNameOfAssistantChatResponse = [11]string{
+	0:  "status",
+	1:  "request_id",
+	2:  "conversation_id",
+	3:  "read_only",
+	4:  "answer",
+	5:  "answer_sequence",
+	6:  "error_message",
+	7:  "poll_after_ms",
+	8:  "activity",
+	9:  "selection",
+	10: "artifacts",
 }
 
 // Decode decodes AssistantChatResponse from json.
@@ -2041,6 +2082,18 @@ func (s *AssistantChatResponse) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"conversation_id\"")
+			}
+		case "read_only":
+			requiredBitSet[0] |= 1 << 3
+			if err := func() error {
+				v, err := d.Bool()
+				s.ReadOnly = bool(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"read_only\"")
 			}
 		case "answer":
 			if err := func() error {
@@ -2138,7 +2191,7 @@ func (s *AssistantChatResponse) Decode(d *jx.Decoder) error {
 	// Validate required fields.
 	var failures []validate.FieldError
 	for i, mask := range [2]uint8{
-		0b00000111,
+		0b00001111,
 		0b00000000,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
@@ -2261,6 +2314,10 @@ func (s *AssistantChatSummary) encodeFields(e *jx.Encoder) {
 		e.Bool(s.Unread)
 	}
 	{
+		e.FieldStart("read_only")
+		e.Bool(s.ReadOnly)
+	}
+	{
 		if s.TokenUsage.Set {
 			e.FieldStart("token_usage")
 			s.TokenUsage.Encode(e)
@@ -2274,14 +2331,15 @@ func (s *AssistantChatSummary) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfAssistantChatSummary = [7]string{
+var jsonFieldsNameOfAssistantChatSummary = [8]string{
 	0: "id",
 	1: "title",
 	2: "created_at",
 	3: "updated_at",
 	4: "unread",
-	5: "token_usage",
-	6: "primary_artifact",
+	5: "read_only",
+	6: "token_usage",
+	7: "primary_artifact",
 }
 
 // Decode decodes AssistantChatSummary from json.
@@ -2353,6 +2411,18 @@ func (s *AssistantChatSummary) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"unread\"")
 			}
+		case "read_only":
+			requiredBitSet[0] |= 1 << 5
+			if err := func() error {
+				v, err := d.Bool()
+				s.ReadOnly = bool(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"read_only\"")
+			}
 		case "token_usage":
 			if err := func() error {
 				s.TokenUsage.Reset()
@@ -2383,7 +2453,7 @@ func (s *AssistantChatSummary) Decode(d *jx.Decoder) error {
 	// Validate required fields.
 	var failures []validate.FieldError
 	for i, mask := range [1]uint8{
-		0b00011111,
+		0b00111111,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.

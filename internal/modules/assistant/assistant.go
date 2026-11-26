@@ -37,6 +37,7 @@ func (a *DisabledAssistant) Chat(_ context.Context, req ChatRequest) ChatRespons
 		Status:         StatusDisabled,
 		ConversationID: req.ConversationID,
 		RequestID:      req.RequestID,
+		ReadOnly:       req.ReadOnly,
 		ErrorMessage:   a.texts.Text("chat.disabled"),
 	}
 }

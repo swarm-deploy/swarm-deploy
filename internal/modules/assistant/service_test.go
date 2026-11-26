@@ -376,6 +376,70 @@ func TestServiceChatHandlesToolCalls(t *testing.T) {
 	assert.Equal(t, int64(6), chats[0].Usage.TotalTokens)
 }
 
+func TestServiceReadOnlyChatCanContinueWithoutWritableTools(t *testing.T) {
+	tools := &fakeTools{definitions: []routing.ToolDefinition{
+		{Name: "deploy_sync_trigger", Writable: true, Terminal: true},
+		{Name: "deployment_list", ParametersJSONSchema: map[string]any{"type": "object"}},
+	}}
+	var chatCall int64
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch atomic.AddInt64(&chatCall, 1) {
+		case 1:
+			writeChatResponse(t, w,
+				`{"route":"deployments","capabilities":["deployment_sync"],"operation":{"type":"deploy_sync_trigger"}}`,
+				nil,
+			)
+		case 2:
+			writeChatResponse(t, w,
+				`{"route":"deployments","capabilities":["deployment_history"],"operation":null}`,
+				nil,
+			)
+		case 3:
+			writeChatResponse(t, w, "", []map[string]any{{
+				"id": "deployment-list", "type": "function",
+				"function": map[string]any{"name": "deployment_list", "arguments": `{}`},
+			}})
+		case 4:
+			writeChatResponse(t, w, "Writable tools stay disabled.", nil)
+		default:
+			t.Fatalf("unexpected chat completion call")
+		}
+	}))
+	defer server.Close()
+
+	history := newSQLHistory(t)
+	service := newRoutingTestServiceWithHistory(t, server.URL, serviceStore(t, nil), tools, nil, history)
+	created := service.Chat(t.Context(), ChatRequest{Message: "Run sync now", ReadOnly: true, CreatedBy: "mcp"})
+	require.Equal(t, StatusCompleted, created.Status)
+	assert.True(t, created.ReadOnly)
+	assert.Equal(t, "This read-only chat cannot perform operations that change runtime or GitOps state.", created.Answer)
+	assert.Nil(t, created.Selection)
+	assert.Empty(t, tools.calls)
+	_, pending := service.graph.operations.pending.get(created.ConversationID)
+	assert.False(t, pending)
+
+	chat, found, err := service.GetChat(t.Context(), created.ConversationID)
+	require.NoError(t, err)
+	require.True(t, found)
+	assert.True(t, chat.ReadOnly)
+	followup := service.Chat(t.Context(), ChatRequest{
+		ConversationID: created.ConversationID,
+		Message:        "Show deployment history.",
+	})
+	assert.Equal(t, StatusCompleted, followup.Status)
+	assert.True(t, followup.ReadOnly)
+	assert.Equal(t, "Writable tools stay disabled.", followup.Answer)
+	assert.Equal(t, []string{"deployment_list"}, tools.calls)
+
+	persisted, found, err := history.ReadChat(t.Context(), created.ConversationID)
+	require.NoError(t, err)
+	require.True(t, found)
+	assert.True(t, persisted.ReadOnly)
+	assert.Equal(t, "mcp", persisted.CreatedBy)
+	require.Len(t, persisted.Turns, 4)
+}
+
 func TestServiceChatSkipsRetrievalForSmallTalk(t *testing.T) {
 	store := serviceStore(t, []model.Info{{Name: "api", Stack: "app", Image: "example/api:v1"}})
 	store.EXPECT().ReadAll(gomock.Any()).Times(0)
@@ -537,12 +601,12 @@ func TestServiceChatDeduplicatesAtRunCapacity(t *testing.T) {
 				&metrics.NopAssistant{},
 			)
 			require.NoError(t, err)
-			oldest := newChatRun("request-0", "conversation", "привет", false)
+			oldest := newChatRun("request-0", "conversation", "привет", false, false)
 			oldest.finish(StatusCompleted, "original answer", "", nil, nil, nil)
 			oldest.finishedAt = time.Now().Add(-time.Minute)
 			serviceInstance.runs[oldest.requestID] = oldest
 			for index := 1; index < maxRetainedRuns; index++ {
-				run := newChatRun("request-"+strconv.Itoa(index), "conversation", "привет", false)
+				run := newChatRun("request-"+strconv.Itoa(index), "conversation", "привет", false, false)
 				run.finish(StatusCompleted, "answer", "", nil, nil, nil)
 				serviceInstance.runs[run.requestID] = run
 			}
@@ -689,7 +753,8 @@ func TestServiceChatSavesQuestionBeforeReply(t *testing.T) {
 			conversationID := ""
 			if testCase.previous != nil {
 				conversationID = "existing"
-				_, err := history.SaveTurns(t.Context(), conversationID, "alice", conversation.TokenUsage{}, testCase.previous...)
+				_, err := history.SaveTurns(t.Context(), conversationID,
+					conversation.SaveOptions{CreatedBy: "alice"}, conversation.TokenUsage{}, testCase.previous...)
 				require.NoError(t, err)
 			}
 			tools := NewMockToolExecutor(gomock.NewController(t))
@@ -751,8 +816,8 @@ func TestServiceGetChatReturnsConsistentSnapshot(t *testing.T) {
 			unblock := sync.OnceFunc(func() { close(resume) })
 			defer unblock()
 			paused.EXPECT().SaveTurns(gomock.Any(), "chat", gomock.Any(), gomock.Any(), gomock.Any()).
-				DoAndReturn(func(ctx context.Context, id, by string, usage conversation.TokenUsage, turns ...conversation.Turn) (int, error) {
-					sequence, err := history.SaveTurns(ctx, id, by, usage, turns...)
+				DoAndReturn(func(ctx context.Context, id string, options conversation.SaveOptions, usage conversation.TokenUsage, turns ...conversation.Turn) (int, error) {
+					sequence, err := history.SaveTurns(ctx, id, options, usage, turns...)
 					if err == nil && turns[0].Role == role {
 						close(committed)
 						<-resume
@@ -898,7 +963,7 @@ func TestServiceChatGenerationFailurePreservesUnread(t *testing.T) {
 			const chatID = "chat"
 			ctx := t.Context()
 			history := newSQLHistory(t)
-			sequence, err := history.SaveTurns(ctx, chatID, "", conversation.TokenUsage{},
+			sequence, err := history.SaveTurns(ctx, chatID, conversation.SaveOptions{}, conversation.TokenUsage{},
 				conversation.Turn{Role: "user", Content: "Earlier question"},
 				conversation.Turn{Role: "assistant", Content: "Earlier reply"})
 			require.NoError(t, err)

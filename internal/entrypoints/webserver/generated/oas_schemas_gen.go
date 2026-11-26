@@ -614,6 +614,7 @@ type AssistantChatHistory struct {
 	CreatedAt     time.Time                     `json:"created_at"`
 	UpdatedAt     time.Time                     `json:"updated_at"`
 	Unread        bool                          `json:"unread"`
+	ReadOnly      bool                          `json:"read_only"`
 	TokenUsage    OptAssistantTokenUsage        `json:"token_usage"`
 	Messages      []AssistantChatMessage        `json:"messages"`
 	ActiveRequest OptAssistantActiveChatRequest `json:"active_request"`
@@ -642,6 +643,11 @@ func (s *AssistantChatHistory) GetUpdatedAt() time.Time {
 // GetUnread returns the value of Unread.
 func (s *AssistantChatHistory) GetUnread() bool {
 	return s.Unread
+}
+
+// GetReadOnly returns the value of ReadOnly.
+func (s *AssistantChatHistory) GetReadOnly() bool {
+	return s.ReadOnly
 }
 
 // GetTokenUsage returns the value of TokenUsage.
@@ -682,6 +688,11 @@ func (s *AssistantChatHistory) SetUpdatedAt(val time.Time) {
 // SetUnread sets the value of Unread.
 func (s *AssistantChatHistory) SetUnread(val bool) {
 	s.Unread = val
+}
+
+// SetReadOnly sets the value of ReadOnly.
+func (s *AssistantChatHistory) SetReadOnly(val bool) {
+	s.ReadOnly = val
 }
 
 // SetTokenUsage sets the value of TokenUsage.
@@ -838,7 +849,9 @@ type AssistantChatRequest struct {
 	ConversationID OptString `json:"conversation_id"`
 	RequestID      OptString `json:"request_id"`
 	Message        OptString `json:"message"`
-	WaitTimeoutMs  OptInt32  `json:"wait_timeout_ms"`
+	// Creates a chat where writable assistant tools are disabled.
+	ReadOnly      OptBool  `json:"read_only"`
+	WaitTimeoutMs OptInt32 `json:"wait_timeout_ms"`
 }
 
 // GetConversationID returns the value of ConversationID.
@@ -854,6 +867,11 @@ func (s *AssistantChatRequest) GetRequestID() OptString {
 // GetMessage returns the value of Message.
 func (s *AssistantChatRequest) GetMessage() OptString {
 	return s.Message
+}
+
+// GetReadOnly returns the value of ReadOnly.
+func (s *AssistantChatRequest) GetReadOnly() OptBool {
+	return s.ReadOnly
 }
 
 // GetWaitTimeoutMs returns the value of WaitTimeoutMs.
@@ -876,6 +894,11 @@ func (s *AssistantChatRequest) SetMessage(val OptString) {
 	s.Message = val
 }
 
+// SetReadOnly sets the value of ReadOnly.
+func (s *AssistantChatRequest) SetReadOnly(val OptBool) {
+	s.ReadOnly = val
+}
+
 // SetWaitTimeoutMs sets the value of WaitTimeoutMs.
 func (s *AssistantChatRequest) SetWaitTimeoutMs(val OptInt32) {
 	s.WaitTimeoutMs = val
@@ -886,7 +909,9 @@ type AssistantChatResponse struct {
 	Status         AssistantChatResponseStatus `json:"status"`
 	RequestID      string                      `json:"request_id"`
 	ConversationID string                      `json:"conversation_id"`
-	Answer         OptString                   `json:"answer"`
+	// Whether writable assistant tools are disabled for the chat.
+	ReadOnly bool      `json:"read_only"`
+	Answer   OptString `json:"answer"`
 	// Persisted sequence of the completed answer, when available.
 	AnswerSequence OptInt                `json:"answer_sequence"`
 	ErrorMessage   OptString             `json:"error_message"`
@@ -909,6 +934,11 @@ func (s *AssistantChatResponse) GetRequestID() string {
 // GetConversationID returns the value of ConversationID.
 func (s *AssistantChatResponse) GetConversationID() string {
 	return s.ConversationID
+}
+
+// GetReadOnly returns the value of ReadOnly.
+func (s *AssistantChatResponse) GetReadOnly() bool {
+	return s.ReadOnly
 }
 
 // GetAnswer returns the value of Answer.
@@ -959,6 +989,11 @@ func (s *AssistantChatResponse) SetRequestID(val string) {
 // SetConversationID sets the value of ConversationID.
 func (s *AssistantChatResponse) SetConversationID(val string) {
 	s.ConversationID = val
+}
+
+// SetReadOnly sets the value of ReadOnly.
+func (s *AssistantChatResponse) SetReadOnly(val bool) {
+	s.ReadOnly = val
 }
 
 // SetAnswer sets the value of Answer.
@@ -1065,6 +1100,7 @@ type AssistantChatSummary struct {
 	CreatedAt       time.Time              `json:"created_at"`
 	UpdatedAt       time.Time              `json:"updated_at"`
 	Unread          bool                   `json:"unread"`
+	ReadOnly        bool                   `json:"read_only"`
 	TokenUsage      OptAssistantTokenUsage `json:"token_usage"`
 	PrimaryArtifact OptAssistantArtifact   `json:"primary_artifact"`
 }
@@ -1092,6 +1128,11 @@ func (s *AssistantChatSummary) GetUpdatedAt() time.Time {
 // GetUnread returns the value of Unread.
 func (s *AssistantChatSummary) GetUnread() bool {
 	return s.Unread
+}
+
+// GetReadOnly returns the value of ReadOnly.
+func (s *AssistantChatSummary) GetReadOnly() bool {
+	return s.ReadOnly
 }
 
 // GetTokenUsage returns the value of TokenUsage.
@@ -1127,6 +1168,11 @@ func (s *AssistantChatSummary) SetUpdatedAt(val time.Time) {
 // SetUnread sets the value of Unread.
 func (s *AssistantChatSummary) SetUnread(val bool) {
 	s.Unread = val
+}
+
+// SetReadOnly sets the value of ReadOnly.
+func (s *AssistantChatSummary) SetReadOnly(val bool) {
+	s.ReadOnly = val
 }
 
 // SetTokenUsage sets the value of TokenUsage.

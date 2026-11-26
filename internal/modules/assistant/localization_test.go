@@ -24,7 +24,7 @@ func TestAssistantSendsInstallationLanguageToProviderForExistingChat(t *testing.
 			history := newSQLHistory(t)
 			oldQuestion := conversation.Turn{Role: "user", Content: "Prometheus"}
 			oldReply := conversation.Turn{Role: "assistant", Content: tc.oldAnswer, Activity: []string{"Original activity"}}
-			_, err := history.SaveTurns(t.Context(), "existing", "", conversation.TokenUsage{}, oldQuestion, oldReply)
+			_, err := history.SaveTurns(t.Context(), "existing", conversation.SaveOptions{}, conversation.TokenUsage{}, oldQuestion, oldReply)
 			require.NoError(t, err)
 
 			var requests []capturedChatRequest
