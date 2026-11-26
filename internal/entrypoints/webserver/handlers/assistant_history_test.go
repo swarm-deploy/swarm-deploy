@@ -25,7 +25,9 @@ func TestAssistantChatReadHTTP(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	history := conversation.NewSQLHistoryStorage(db)
-	reply := conversation.Turn{Role: "assistant", Content: "Reply"}
+	reply := conversation.Turn{Role: "assistant", Content: "Reply", Artifacts: []conversation.Artifact{{
+		Type: conversation.ArtifactTypePullRequest, Label: "PR #42", URL: "https://example.com/pull/42",
+	}}}
 	require.NoError(t, history.Append(ctx, "chat", reply))
 	service, err := assistant.NewService(assistant.Config{
 		Localizer: newTestAssistantTexts(t, "en"),
@@ -52,12 +54,17 @@ func TestAssistantChatReadHTTP(t *testing.T) {
 		require.NoError(t, json.Unmarshal(request(http.MethodGet, chatsPath, "", http.StatusOK), &list))
 		require.Len(t, list.Chats, 1)
 		assert.Equal(t, want, list.Chats[0].Unread)
+		primary, ok := list.Chats[0].PrimaryArtifact.Get()
+		require.True(t, ok)
+		assert.Equal(t, "PR #42", primary.Label)
 	}
 
 	var chat generated.AssistantChatHistory
 	require.NoError(t, json.Unmarshal(request(http.MethodGet, chatsPath+"/chat", "", http.StatusOK), &chat))
 	require.Len(t, chat.Messages, 1)
 	assert.Zero(t, chat.Messages[0].Sequence)
+	require.Len(t, chat.Messages[0].Artifacts, 1)
+	assert.Equal(t, "PR #42", chat.Messages[0].Artifacts[0].Label)
 	assert.True(t, chat.Unread)
 	readUnread(true)
 

@@ -47,6 +47,7 @@ func toGeneratedAssistantChatResponse(resp assistant.ChatResponse) *generated.As
 		ErrorMessage:   toOptString(resp.ErrorMessage),
 		Activity:       append([]string(nil), resp.Activity...),
 		Selection:      toGeneratedAssistantSelection(resp.Selection),
+		Artifacts:      toGeneratedAssistantArtifacts(resp.Artifacts),
 	}
 	if resp.AnswerSequence != nil {
 		generatedResp.AnswerSequence = generated.NewOptInt(*resp.AnswerSequence)
@@ -61,6 +62,26 @@ func toGeneratedAssistantChatResponse(resp assistant.ChatResponse) *generated.As
 	}
 
 	return generatedResp
+}
+
+func toGeneratedAssistantArtifacts(artifacts []assistant.Artifact) []generated.AssistantArtifact {
+	if len(artifacts) == 0 {
+		return nil
+	}
+	result := make([]generated.AssistantArtifact, 0, len(artifacts))
+	for _, artifact := range artifacts {
+		result = append(result, generated.AssistantArtifact{
+			Type: string(artifact.Type), Label: artifact.Label, URL: toOptString(artifact.URL),
+		})
+	}
+	return result
+}
+
+func toGeneratedAssistantArtifact(artifact *assistant.Artifact) generated.OptAssistantArtifact {
+	if artifact == nil {
+		return generated.OptAssistantArtifact{}
+	}
+	return generated.NewOptAssistantArtifact(toGeneratedAssistantArtifacts([]assistant.Artifact{*artifact})[0])
 }
 
 func toGeneratedAssistantSelection(selection *assistant.Selection) generated.OptAssistantSelection {

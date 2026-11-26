@@ -230,6 +230,7 @@ type operationTurn struct {
 	conversationID string
 	next           *PendingOperation
 	selection      *conversation.Selection
+	artifacts      []conversation.Artifact
 }
 
 func (f *operationFlow) beginTurn(conversationID string) *operationTurn {
@@ -480,7 +481,8 @@ func (t *operationTurn) executePendingOperation(
 		return "", err
 	}
 	recordTerminalTool(ctx, string(op.Type))
-	return answer, nil
+	t.artifacts = append([]conversation.Artifact(nil), answer.artifacts...)
+	return answer.text, nil
 }
 
 func (f *operationFlow) pendingOperationArguments(
@@ -596,14 +598,14 @@ func (t *operationTurn) executeConfirmedPauseScale(
 		return "", err
 	}
 	if op.Scope != string(syncpause.ScopeService) {
-		return t.texts.Format("operation.scale_scope_required", map[string]any{"PauseResult": pauseAnswer}), nil
+		return t.texts.Format("operation.scale_scope_required", map[string]any{"PauseResult": pauseAnswer.text}), nil
 	}
 	retry := PendingOperation{Type: OperationServiceReplicasSet, Stage: PendingOperationConfirmation,
 		Target: op.Stack + "/" + op.Service, Stack: op.Stack, Service: op.Service, Replicas: op.Replicas}
 	serviceTools := t.toolSet([]Capability{CapabilityServiceOperations})
 	if _, ok := serviceTools[serviceReplicasSetTool]; !ok {
 		t.stageConfirmation(retry)
-		return t.texts.Format("operation.scale_forbidden", map[string]any{"PauseResult": pauseAnswer}), nil
+		return t.texts.Format("operation.scale_forbidden", map[string]any{"PauseResult": pauseAnswer.text}), nil
 	}
 	scalePayload, err := json.Marshal(map[string]any{
 		"stack": op.Stack, "service": op.Service, "replicas": op.Replicas,
@@ -617,7 +619,7 @@ func (t *operationTurn) executeConfirmedPauseScale(
 	if scaleErr != nil {
 		t.stageConfirmation(retry)
 		return t.texts.Format("operation.scale_failed", map[string]any{
-			"PauseResult": pauseAnswer, "Error": strings.TrimSpace(scaleErr.Error()),
+			"PauseResult": pauseAnswer.text, "Error": strings.TrimSpace(scaleErr.Error()),
 		}), nil
 	}
 	if t.guard.Check(scaleResult) {
@@ -629,7 +631,7 @@ func (t *operationTurn) executeConfirmedPauseScale(
 	}
 	recordTerminalTool(ctx, string(op.Type))
 	recordTerminalTool(ctx, serviceReplicasSetTool)
-	return pauseAnswer + " " + scaleAnswer, nil
+	return pauseAnswer.text + " " + scaleAnswer.text, nil
 }
 
 func isSelfResolveRequest(message string) bool {

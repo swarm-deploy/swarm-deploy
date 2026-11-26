@@ -14,6 +14,28 @@ type Turn struct {
 	Activity []string `json:"activity,omitempty"`
 	// Selection contains structured reply options rendered by clients.
 	Selection *Selection `json:"selection,omitempty"`
+	// Artifacts contains structured outputs produced by an assistant operation.
+	Artifacts []Artifact `json:"artifacts,omitempty"`
+}
+
+// ArtifactType identifies the presentation kind of an assistant artifact.
+type ArtifactType string
+
+const (
+	// ArtifactTypePullRequest identifies a published Git pull request.
+	ArtifactTypePullRequest ArtifactType = "pull_request"
+	// ArtifactTypeGitBranch identifies a published Git branch.
+	ArtifactTypeGitBranch ArtifactType = "git_branch"
+)
+
+// Artifact describes a durable output produced by an assistant operation.
+type Artifact struct {
+	// Type identifies how clients present the artifact.
+	Type ArtifactType `json:"type"`
+	// Label is the user-visible artifact name.
+	Label string `json:"label"`
+	// URL opens the artifact in its external system when available.
+	URL string `json:"url,omitempty"`
 }
 
 // Selection contains a single-choice prompt attached to an assistant turn.

@@ -57,6 +57,8 @@ type Chat struct {
 	Unread bool `json:"unread"`
 	// Usage contains aggregate token consumption for chat requests.
 	Usage *TokenUsage `json:"token_usage,omitempty"`
+	// PrimaryArtifact is the latest pull request, or the latest other artifact when no pull request exists.
+	PrimaryArtifact *Artifact `json:"primary_artifact,omitempty"`
 }
 
 // addUsage leaves usage absent until a provider supplies a sample.
@@ -84,6 +86,8 @@ type ChatSummary struct {
 	Unread bool `json:"unread"`
 	// Usage contains aggregate token consumption for the chat.
 	Usage *TokenUsage `json:"token_usage,omitempty"`
+	// PrimaryArtifact is the latest pull request, or the latest other artifact when no pull request exists.
+	PrimaryArtifact *Artifact `json:"primary_artifact,omitempty"`
 }
 
 // HistoryStorage persists complete assistant chats independently from the in-memory context cache.

@@ -1104,6 +1104,136 @@ func (s *AssistantActiveChatRequest) UnmarshalJSON(data []byte) error {
 }
 
 // Encode implements json.Marshaler.
+func (s *AssistantArtifact) Encode(e *jx.Encoder) {
+	e.ObjStart()
+	s.encodeFields(e)
+	e.ObjEnd()
+}
+
+// encodeFields encodes fields.
+func (s *AssistantArtifact) encodeFields(e *jx.Encoder) {
+	{
+		e.FieldStart("type")
+		e.Str(s.Type)
+	}
+	{
+		e.FieldStart("label")
+		e.Str(s.Label)
+	}
+	{
+		if s.URL.Set {
+			e.FieldStart("url")
+			s.URL.Encode(e)
+		}
+	}
+}
+
+var jsonFieldsNameOfAssistantArtifact = [3]string{
+	0: "type",
+	1: "label",
+	2: "url",
+}
+
+// Decode decodes AssistantArtifact from json.
+func (s *AssistantArtifact) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode AssistantArtifact to nil")
+	}
+	var requiredBitSet [1]uint8
+
+	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
+		switch string(k) {
+		case "type":
+			requiredBitSet[0] |= 1 << 0
+			if err := func() error {
+				v, err := d.Str()
+				s.Type = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"type\"")
+			}
+		case "label":
+			requiredBitSet[0] |= 1 << 1
+			if err := func() error {
+				v, err := d.Str()
+				s.Label = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"label\"")
+			}
+		case "url":
+			if err := func() error {
+				s.URL.Reset()
+				if err := s.URL.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"url\"")
+			}
+		default:
+			return d.Skip()
+		}
+		return nil
+	}); err != nil {
+		return errors.Wrap(err, "decode AssistantArtifact")
+	}
+	// Validate required fields.
+	var failures []validate.FieldError
+	for i, mask := range [1]uint8{
+		0b00000011,
+	} {
+		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
+			// Mask only required fields and check equality to mask using XOR.
+			//
+			// If XOR result is not zero, result is not equal to expected, so some fields are missed.
+			// Bits of fields which would be set are actually bits of missed fields.
+			missed := bits.OnesCount8(result)
+			for bitN := 0; bitN < missed; bitN++ {
+				bitIdx := bits.TrailingZeros8(result)
+				fieldIdx := i*8 + bitIdx
+				var name string
+				if fieldIdx < len(jsonFieldsNameOfAssistantArtifact) {
+					name = jsonFieldsNameOfAssistantArtifact[fieldIdx]
+				} else {
+					name = strconv.Itoa(fieldIdx)
+				}
+				failures = append(failures, validate.FieldError{
+					Name:  name,
+					Error: validate.ErrFieldRequired,
+				})
+				// Reset bit.
+				result &^= 1 << bitIdx
+			}
+		}
+	}
+	if len(failures) > 0 {
+		return &validate.Error{Fields: failures}
+	}
+
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *AssistantArtifact) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *AssistantArtifact) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode implements json.Marshaler.
 func (s *AssistantChatHistory) Encode(e *jx.Encoder) {
 	e.ObjStart()
 	s.encodeFields(e)
@@ -1365,14 +1495,25 @@ func (s *AssistantChatMessage) encodeFields(e *jx.Encoder) {
 			s.Selection.Encode(e)
 		}
 	}
+	{
+		if s.Artifacts != nil {
+			e.FieldStart("artifacts")
+			e.ArrStart()
+			for _, elem := range s.Artifacts {
+				elem.Encode(e)
+			}
+			e.ArrEnd()
+		}
+	}
 }
 
-var jsonFieldsNameOfAssistantChatMessage = [5]string{
+var jsonFieldsNameOfAssistantChatMessage = [6]string{
 	0: "sequence",
 	1: "role",
 	2: "content",
 	3: "activity",
 	4: "selection",
+	5: "artifacts",
 }
 
 // Decode decodes AssistantChatMessage from json.
@@ -1446,6 +1587,23 @@ func (s *AssistantChatMessage) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"selection\"")
+			}
+		case "artifacts":
+			if err := func() error {
+				s.Artifacts = make([]AssistantArtifact, 0)
+				if err := d.Arr(func(d *jx.Decoder) error {
+					var elem AssistantArtifact
+					if err := elem.Decode(d); err != nil {
+						return err
+					}
+					s.Artifacts = append(s.Artifacts, elem)
+					return nil
+				}); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"artifacts\"")
 			}
 		default:
 			return d.Skip()
@@ -1816,9 +1974,19 @@ func (s *AssistantChatResponse) encodeFields(e *jx.Encoder) {
 			s.Selection.Encode(e)
 		}
 	}
+	{
+		if s.Artifacts != nil {
+			e.FieldStart("artifacts")
+			e.ArrStart()
+			for _, elem := range s.Artifacts {
+				elem.Encode(e)
+			}
+			e.ArrEnd()
+		}
+	}
 }
 
-var jsonFieldsNameOfAssistantChatResponse = [9]string{
+var jsonFieldsNameOfAssistantChatResponse = [10]string{
 	0: "status",
 	1: "request_id",
 	2: "conversation_id",
@@ -1828,6 +1996,7 @@ var jsonFieldsNameOfAssistantChatResponse = [9]string{
 	6: "poll_after_ms",
 	7: "activity",
 	8: "selection",
+	9: "artifacts",
 }
 
 // Decode decodes AssistantChatResponse from json.
@@ -1941,6 +2110,23 @@ func (s *AssistantChatResponse) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"selection\"")
+			}
+		case "artifacts":
+			if err := func() error {
+				s.Artifacts = make([]AssistantArtifact, 0)
+				if err := d.Arr(func(d *jx.Decoder) error {
+					var elem AssistantArtifact
+					if err := elem.Decode(d); err != nil {
+						return err
+					}
+					s.Artifacts = append(s.Artifacts, elem)
+					return nil
+				}); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"artifacts\"")
 			}
 		default:
 			return d.Skip()
@@ -2080,15 +2266,22 @@ func (s *AssistantChatSummary) encodeFields(e *jx.Encoder) {
 			s.TokenUsage.Encode(e)
 		}
 	}
+	{
+		if s.PrimaryArtifact.Set {
+			e.FieldStart("primary_artifact")
+			s.PrimaryArtifact.Encode(e)
+		}
+	}
 }
 
-var jsonFieldsNameOfAssistantChatSummary = [6]string{
+var jsonFieldsNameOfAssistantChatSummary = [7]string{
 	0: "id",
 	1: "title",
 	2: "created_at",
 	3: "updated_at",
 	4: "unread",
 	5: "token_usage",
+	6: "primary_artifact",
 }
 
 // Decode decodes AssistantChatSummary from json.
@@ -2169,6 +2362,16 @@ func (s *AssistantChatSummary) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"token_usage\"")
+			}
+		case "primary_artifact":
+			if err := func() error {
+				s.PrimaryArtifact.Reset()
+				if err := s.PrimaryArtifact.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"primary_artifact\"")
 			}
 		default:
 			return d.Skip()
@@ -10496,6 +10699,39 @@ func (s OptAssistantActiveChatRequest) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON implements stdjson.Unmarshaler.
 func (s *OptAssistantActiveChatRequest) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes AssistantArtifact as json.
+func (o OptAssistantArtifact) Encode(e *jx.Encoder) {
+	if !o.Set {
+		return
+	}
+	o.Value.Encode(e)
+}
+
+// Decode decodes AssistantArtifact from json.
+func (o *OptAssistantArtifact) Decode(d *jx.Decoder) error {
+	if o == nil {
+		return errors.New("invalid: unable to decode OptAssistantArtifact to nil")
+	}
+	o.Set = true
+	if err := o.Value.Decode(d); err != nil {
+		return err
+	}
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s OptAssistantArtifact) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *OptAssistantArtifact) UnmarshalJSON(data []byte) error {
 	d := jx.DecodeBytes(data)
 	return s.Decode(d)
 }

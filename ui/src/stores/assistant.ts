@@ -5,6 +5,7 @@ import type {
   AssistantChatRequest,
   AssistantChatResponse,
   AssistantChatSummary,
+  AssistantArtifact,
   AssistantSelection,
 } from "../api/types";
 import { t } from "../i18n";
@@ -24,6 +25,7 @@ export interface AssistantMessage {
   activity?: string[];
   selection?: AssistantSelection;
   sequence?: number;
+  artifacts?: AssistantArtifact[];
 }
 
 interface AssistantState {
@@ -74,8 +76,9 @@ export const useAssistantStore = defineStore("assistant", {
       activity?: string[],
       sequence?: number,
       selection?: AssistantSelection,
+      artifacts?: AssistantArtifact[],
     ) {
-      this.messages.push({ role, text, activity, sequence, selection });
+      this.messages.push({ role, text, activity, sequence, selection, artifacts });
     },
     async requestAssistant(payload: AssistantChatRequest): Promise<AssistantChatResponse> {
       return sendAssistantChat(payload);
@@ -167,6 +170,7 @@ export const useAssistantStore = defineStore("assistant", {
         activity: message.activity,
         selection: message.selection,
         sequence: message.sequence,
+        artifacts: message.artifacts,
       }));
       this.unreadReplySequence = chat.unread
         ? chat.messages.filter((message) => message.role === "assistant").at(-1)?.sequence
@@ -245,6 +249,7 @@ export const useAssistantStore = defineStore("assistant", {
           this.activity.length > 0 ? [...this.activity] : undefined,
           response.answer_sequence,
           response.selection,
+          response.artifacts,
         );
         this.unreadReplySequence = response.answer_sequence;
         this.activity = [];

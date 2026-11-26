@@ -585,7 +585,8 @@ func (g *graph) finalizeTerminalResultNode(
 			return messages, nil
 		}
 
-		executionState.answer = answer
+		executionState.answer = answer.text
+		executionState.operationTurn.artifacts = append([]conversation.Artifact(nil), answer.artifacts...)
 		executionState.terminalTool = result.toolName
 		recordTerminalTool(ctx, result.toolName)
 		return messages, nil

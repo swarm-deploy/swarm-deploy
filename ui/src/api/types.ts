@@ -556,6 +556,13 @@ export interface AssistantChatResponse {
   poll_after_ms?: number;
   activity?: string[];
   selection?: AssistantSelection;
+  artifacts?: AssistantArtifact[];
+}
+
+export interface AssistantArtifact {
+  type: string;
+  label: string;
+  url?: string;
 }
 
 export interface AssistantTokenUsage {
@@ -587,6 +594,7 @@ export interface AssistantChatSummary {
   created_at: string;
   updated_at: string;
   token_usage?: AssistantTokenUsage;
+  primary_artifact?: AssistantArtifact;
 }
 
 export interface AssistantChatsResponse {
@@ -609,6 +617,7 @@ export interface AssistantChatMessage {
   content: string;
   activity?: string[];
   selection?: AssistantSelection;
+  artifacts?: AssistantArtifact[];
 }
 
 export interface AssistantSelection {

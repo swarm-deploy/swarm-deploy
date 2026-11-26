@@ -44,7 +44,7 @@ func TestOpenPullRequestUsesPublishedBranchAndConfiguredBase(t *testing.T) {
 		assert.NoError(t, err)
 		assert.JSONEq(t, `{"base":"deploy","head":"proposal","title":"enable self-heal","body":"details"}`, string(body))
 		w.WriteHeader(http.StatusCreated)
-		_, err = io.WriteString(w, `{"html_url":"`+link+`"}`)
+		_, err = io.WriteString(w, `{"html_url":"`+link+`","number":42}`)
 		assert.NoError(t, err)
 	}))
 	defer server.Close()
@@ -57,5 +57,5 @@ func TestOpenPullRequestUsesPublishedBranchAndConfiguredBase(t *testing.T) {
 	provider.client = client
 	pr, err := provider.CreatePullRequest(t.Context(), repo, "deploy", "proposal", "enable self-heal", "details")
 	require.NoError(t, err)
-	assert.Equal(t, link, pr)
+	assert.Equal(t, PullRequest{URL: link, Number: 42}, pr)
 }

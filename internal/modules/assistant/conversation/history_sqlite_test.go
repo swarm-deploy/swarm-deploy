@@ -147,6 +147,72 @@ func TestSQLChatConcurrentAppends(t *testing.T) {
 	assert.EqualValues(t, 8, chat.Usage.TotalTokens)
 }
 
+func TestSQLChatPrimaryArtifactSelection(t *testing.T) {
+	ctx := t.Context()
+	db, err := storage.OpenSQLite(ctx, t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	repo := NewSQLHistoryStorage(db)
+
+	branchA := Artifact{Type: ArtifactTypeGitBranch, Label: "branch-a", URL: "https://example.com/branch-a"}
+	pullRequest42 := Artifact{Type: ArtifactTypePullRequest, Label: "PR #42", URL: "https://example.com/pull/42"}
+	branchB := Artifact{Type: ArtifactTypeGitBranch, Label: "branch-b"}
+	pullRequest43 := Artifact{Type: ArtifactTypePullRequest, Label: "PR #43", URL: "https://example.com/pull/43"}
+
+	steps := []struct {
+		name string
+		turn Turn
+		want Artifact
+	}{
+		{name: "branch A", turn: Turn{Role: "assistant", Content: "A", Artifacts: []Artifact{branchA}}, want: branchA},
+		{name: "PR 42", turn: Turn{Role: "assistant", Content: "PR", Artifacts: []Artifact{pullRequest42}}, want: pullRequest42},
+		{name: "ordinary reply", turn: Turn{Role: "assistant", Content: "No artifact"}, want: pullRequest42},
+		{name: "branch B", turn: Turn{Role: "assistant", Content: "B", Artifacts: []Artifact{branchB}}, want: pullRequest42},
+		{name: "PR 43", turn: Turn{Role: "assistant", Content: "New PR", Artifacts: []Artifact{pullRequest43}}, want: pullRequest43},
+	}
+	for _, step := range steps {
+		t.Run(step.name, func(t *testing.T) {
+			require.NoError(t, repo.Append(ctx, "chat", step.turn))
+			summaries, readErr := repo.ReadChats(ctx)
+			require.NoError(t, readErr)
+			require.Len(t, summaries, 1)
+			assert.Equal(t, &step.want, summaries[0].PrimaryArtifact)
+		})
+	}
+
+	chat, found, err := repo.ReadChat(ctx, "chat")
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Len(t, chat.Turns, len(steps))
+	assert.Equal(t, []Artifact{branchA}, chat.Turns[0].Artifacts)
+	assert.Equal(t, &pullRequest43, chat.PrimaryArtifact)
+}
+
+func TestSQLChatFullSaveRebuildsPrimaryArtifact(t *testing.T) {
+	ctx := t.Context()
+	db, err := storage.OpenSQLite(ctx, t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	repo := NewSQLHistoryStorage(db)
+	now := time.Now().UTC()
+	pullRequest := Artifact{Type: ArtifactTypePullRequest, Label: "PR #42", URL: "https://example.com/pull/42"}
+
+	require.NoError(t, repo.Save(ctx, Chat{
+		ID: "chat", Title: "Artifacts", CreatedAt: now, UpdatedAt: now,
+		PrimaryArtifact: &Artifact{Type: ArtifactTypeGitBranch, Label: "stale"},
+		Turns: []Turn{
+			{Role: "assistant", Content: "Branch", Artifacts: []Artifact{{Type: ArtifactTypeGitBranch, Label: "branch"}}},
+			{Role: "assistant", Content: "PR", Artifacts: []Artifact{pullRequest}},
+			{Role: "assistant", Content: "Later branch", Artifacts: []Artifact{{Type: ArtifactTypeGitBranch, Label: "later"}}},
+		},
+	}))
+
+	summaries, err := repo.ReadChats(ctx)
+	require.NoError(t, err)
+	require.Len(t, summaries, 1)
+	assert.Equal(t, &pullRequest, summaries[0].PrimaryArtifact)
+}
+
 func TestSQLChatPreservesCreatorFromFirstInsert(t *testing.T) {
 	ctx := t.Context()
 	db, err := storage.OpenSQLite(ctx, t.TempDir())
@@ -311,4 +377,6 @@ func TestSQLChatUnreadMigration(t *testing.T) {
 	require.Len(t, chat.Turns, 1)
 	assert.Equal(t, 7, chat.Turns[0].Sequence)
 	assert.Equal(t, "Existing reply", chat.Turns[0].Content)
+	assert.Empty(t, chat.Turns[0].Artifacts)
+	assert.Nil(t, chat.PrimaryArtifact)
 }
