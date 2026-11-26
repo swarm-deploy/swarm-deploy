@@ -4,8 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"regexp"
-	"strings"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/githosting"
@@ -88,7 +86,10 @@ func (s *Service) Publish(
 		action = "disable"
 		description = "Disable automatic drift repair for this service by setting its Compose deploy label."
 	}
-	branch := fmt.Sprintf("%s-%s-%s-self-heal", branchPart(stack), branchPart(service), action)
+	branch, err := git.NewProposalBranch(stack, service, action, "self-heal")
+	if err != nil {
+		return Result{}, err
+	}
 	title := fmt.Sprintf("chore: %s self-heal for %s/%s", action, stack, service)
 	_, err = change.file.Push(ctx, branch, title, author, change.updated)
 	if err != nil {
@@ -129,10 +130,4 @@ func (s *Service) prepare(ctx context.Context, stack, service string, enabled bo
 		return proposal{file: file, state: state, updated: updated}, nil
 	}
 	return proposal{}, fmt.Errorf("GitOps stack %q has no Compose file", stack)
-}
-
-var invalidBranchPart = regexp.MustCompile(`[^a-zA-Z0-9._-]+`)
-
-func branchPart(value string) string {
-	return strings.Trim(invalidBranchPart.ReplaceAllString(value, "-"), ".-")
 }

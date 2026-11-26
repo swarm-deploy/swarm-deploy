@@ -39,7 +39,7 @@ func TestDisableSelfHealThroughChat(t *testing.T) {
 	const inherited = "services:\n  backup: {image: backup:v1, deploy: {replicas: 2}}\n  api: {image: api:v1}\n"
 	const overrideEnabled = "services:\n  backup:\n    image: backup:v1\n    deploy:\n      labels:\n        - " + label + "=true # keep\n  api: {image: api:v1}\n"
 	const overrideDisabled = "services:\n  backup: {image: backup:v1, deploy: {labels: {" + label + ": 'false'}}}\n"
-	const branch = "jobs-backup-disable-self-heal"
+	const branchPrefix = "jobs-backup-disable-self-heal-"
 
 	for _, tc := range []struct {
 		name, initial, update, language string
@@ -82,11 +82,14 @@ func TestDisableSelfHealThroughChat(t *testing.T) {
 			defer server.Close()
 			service, repo, commit := newSelfHealChat(t, server.URL, tc.language, tc.allow)
 			base := commit(tc.initial)
-			ref := plumbing.NewBranchReferenceName(branch)
 			assertNoProposal := func() {
 				t.Helper()
-				_, err := repo.Reference(ref, true)
-				require.ErrorIs(t, err, plumbing.ErrReferenceNotFound)
+				branches, err := repo.Branches()
+				require.NoError(t, err)
+				require.NoError(t, branches.ForEach(func(ref *plumbing.Reference) error {
+					assert.False(t, strings.HasPrefix(ref.Name().Short(), branchPrefix))
+					return nil
+				}))
 			}
 
 			first := service.Chat(t.Context(), ChatRequest{Message: "Отключи self-heal у jobs/backup"})
@@ -124,12 +127,16 @@ func TestDisableSelfHealThroughChat(t *testing.T) {
 				assertNoProposal()
 				return
 			}
-			require.Equal(t, []Artifact{{Type: conversation.ArtifactTypeGitBranch, Label: branch}}, response.Artifacts)
+			require.Len(t, response.Artifacts, 1)
+			branchArtifact := response.Artifacts[0]
+			assert.Equal(t, conversation.ArtifactTypeGitBranch, branchArtifact.Type)
+			assert.Regexp(t, `^jobs-backup-disable-self-heal-[a-z2-7]{8}$`, branchArtifact.Label)
 			history, found, err := service.GetChat(t.Context(), response.ConversationID)
 			require.NoError(t, err)
 			require.True(t, found)
 			require.NotEmpty(t, history.Messages)
 			assert.Equal(t, response.Artifacts, history.Messages[len(history.Messages)-1].Artifacts)
+			ref := plumbing.NewBranchReferenceName(branchArtifact.Label)
 			proposal, err := repo.Reference(ref, true)
 			require.NoError(t, err)
 			revision, err := repo.CommitObject(proposal.Hash())
