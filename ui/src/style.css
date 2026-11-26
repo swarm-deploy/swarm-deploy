@@ -899,6 +899,8 @@ body {
     border-radius: 0;
     padding: 0;
     background: var(--backdrop-soft);
+    -webkit-backdrop-filter: blur(2px);
+    backdrop-filter: blur(2px);
     transition: opacity 160ms ease-out;
   }
 
