@@ -199,6 +199,10 @@ web:
   address: ":8080"
   # URL prefix for UI and API routes. Use / for root deployment.
   basePath: /
+  # Optional names used when the web interface is installed as a PWA.
+  # pwa:
+  #   name: "My Cluster"
+  #   shortName: "mc"
   # Uncomment to enable basic authentication with a mounted htpasswd file.
   # security:
   #   authentication:
