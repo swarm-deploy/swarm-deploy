@@ -59,9 +59,10 @@ describe("NetworksView", () => {
     expect(wrapper.text()).not.toContain("infra_default");
     expect(wrapper.get("tbody tr").classes()).toContain("app-table-row--clickable");
     expect(wrapper.findAll(".networks-row-link")).toHaveLength(2);
+    expect(wrapper.findAll(".networks-row-link").every((link) => link.text() === "")).toBe(true);
+    expect(wrapper.findAll(".networks-stack-link")).toHaveLength(2);
     const stackLinks = wrapper.findAllComponents(RouterLinkStub);
     expect(stackLinks).toHaveLength(4);
-    expect(stackLinks.every((link) => link.classes().includes("service-inline-link"))).toBe(true);
     expect(stackLinks.map((link) => link.props("to"))).toEqual([
       { name: "network-details", params: { network: "app-network" } },
       { name: "stack-details", params: { stack: "app" } },

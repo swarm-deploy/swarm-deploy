@@ -198,7 +198,12 @@ onMounted(() => {
       </template>
           <tr v-for="network in filteredNetworks" :key="network.id" class="networks-row app-table-row--clickable">
             <td class="networks-desktop-cell">
-              <RouterLink class="service-inline-link networks-row-link" :to="{ name: 'network-details', params: { network: network.id } }">{{ network.name || t('common.notApplicable') }}</RouterLink>
+              <span>{{ network.name || t('common.notApplicable') }}</span>
+              <RouterLink
+                class="networks-row-link"
+                :aria-label="`${t('networks.details')}: ${network.name || t('common.notApplicable')}`"
+                :to="{ name: 'network-details', params: { network: network.id } }"
+              />
             </td>
             <td class="networks-desktop-cell">
               <RouterLink
@@ -218,7 +223,12 @@ onMounted(() => {
             <td class="networks-mobile-cell">
               <div class="networks-mobile-summary">
                 <div class="networks-mobile-heading">
-                  <strong><RouterLink class="service-inline-link networks-row-link" :to="{ name: 'network-details', params: { network: network.id } }">{{ network.name || t('common.notApplicable') }}</RouterLink></strong>
+                  <strong>{{ network.name || t('common.notApplicable') }}</strong>
+                  <RouterLink
+                    class="networks-row-link"
+                    :aria-label="`${t('networks.details')}: ${network.name || t('common.notApplicable')}`"
+                    :to="{ name: 'network-details', params: { network: network.id } }"
+                  />
                   <span>
                     <RouterLink
                       v-if="network.stack_name"
