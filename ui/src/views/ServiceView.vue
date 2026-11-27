@@ -604,15 +604,6 @@ watch([stackName, serviceName], ([stack, service], _, onCleanup) => {
   text-decoration: none;
 }
 
-.service-inline-link {
-  color: var(--interactive-primary);
-  text-decoration: none;
-}
-
-.service-inline-link:hover {
-  text-decoration: underline;
-}
-
 .service-repository-link {
   display: inline-flex;
   align-items: center;

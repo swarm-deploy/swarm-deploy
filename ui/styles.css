@@ -2196,6 +2196,15 @@ a.overview-summary-row:focus-visible {
   font-size: 0.88rem;
 }
 
+.service-inline-link {
+  color: var(--interactive-primary);
+  text-decoration: none;
+}
+
+.service-inline-link:hover {
+  text-decoration: underline;
+}
+
 .repo-link {
   display: inline-flex;
   align-items: center;
