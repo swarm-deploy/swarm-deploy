@@ -104,7 +104,6 @@ describe("global modal navigation", () => {
     await router.push("/deployments");
     const overviewStore = useOverviewStore();
     const secretDetailsStore = useSecretDetailsStore();
-    overviewStore.serviceStatusModalOpen = true;
     overviewStore.alertDetailsModalOpen = true;
     overviewStore.deploymentDetailsModalOpen = true;
     overviewStore.commitDetailsModalOpen = true;
@@ -115,7 +114,6 @@ describe("global modal navigation", () => {
     await router.push("/events?tab=alerts");
     await flushPromises();
 
-    expect(overviewStore.serviceStatusModalOpen).toBe(false);
     expect(overviewStore.alertDetailsModalOpen).toBe(false);
     expect(overviewStore.deploymentDetailsModalOpen).toBe(false);
     expect(overviewStore.commitDetailsModalOpen).toBe(false);

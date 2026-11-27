@@ -452,13 +452,6 @@ button:hover,
   overflow-wrap: anywhere;
 }
 
-.services-link-panel {
-  margin-bottom: 20px;
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
 .stack-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -3502,14 +3495,6 @@ button.app-copy-button.service-image-copy-button {
     grid-column: 2;
     grid-row: 1 / span 2;
   }
-}
-
-.service-status-link-panel {
-  margin-bottom: 0;
-}
-
-.service-status-open-details-btn {
-  width: 100%;
 }
 
 @keyframes reveal {

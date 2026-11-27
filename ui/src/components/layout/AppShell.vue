@@ -13,7 +13,6 @@ import AssistantDrawer from "../assistant/AssistantDrawer.vue";
 import MobileNavigation from "./MobileNavigation.vue";
 import SidebarNav from "./SidebarNav.vue";
 import TopBar from "./TopBar.vue";
-import ServiceStatusModal from "../overview/ServiceStatusModal.vue";
 import AlertDetailsModal from "../overview/AlertDetailsModal.vue";
 import CommitDetailsModal from "../overview/CommitDetailsModal.vue";
 import DeploymentDetailsModal from "../overview/DeploymentDetailsModal.vue";
@@ -36,7 +35,6 @@ const assistantPinnedActive = computed(
 
 watch(() => route.path, (path, previousPath) => {
   if (!previousPath || path === previousPath) return;
-  if (overviewStore.serviceStatusModalOpen) overviewStore.closeServiceStatusModal();
   if (overviewStore.alertDetailsModalOpen) overviewStore.closeAlertDetailsModal();
   if (overviewStore.deploymentDetailsModalOpen) overviewStore.closeDeploymentDetailsModal();
   if (overviewStore.commitDetailsModalOpen) overviewStore.closeCommitDetailsModal();
@@ -128,7 +126,6 @@ onMounted(() => {
       :assistant-enabled="assistantStore.enabled"
       @toggle-assistant="handleAssistantToggle"
     />
-    <ServiceStatusModal />
     <AlertDetailsModal :linked="Boolean(linkedAlertID)" />
     <DeploymentDetailsModal />
     <CommitDetailsModal />
