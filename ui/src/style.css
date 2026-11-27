@@ -1549,8 +1549,17 @@ body {
   background: var(--surface-selected);
 }
 
-.assistant-share-button {
+.assistant-reply-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
   margin-top: 4px;
+}
+
+.assistant-share-button {
+  width: 28px;
+  height: 28px;
+  flex-basis: 28px;
 }
 
 .assistant-share-button:focus-visible {

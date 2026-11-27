@@ -11,6 +11,7 @@ import { useAssistantStore, type AssistantMessage } from "../../stores/assistant
 import { useUIStore } from "../../stores/ui";
 import { renderAssistantMarkdown } from "../../utils/assistantMarkdown";
 import { escapeHtml } from "../../utils/escape";
+import AppCopyButton from "../common/AppCopyButton.vue";
 import AssistantArtifacts from "./AssistantArtifacts.vue";
 
 const AssistantUsage = defineAsyncComponent(() => import("./AssistantUsage.vue"));
@@ -862,6 +863,31 @@ function renderMessageText(role: string, text: string): string {
                   <span v-if="option.description">{{ option.description }}</span>
                 </button>
               </div>
+              <div v-if="message.role === 'assistant'" class="assistant-reply-actions">
+                <AppCopyButton :value="message.text" :label="t('assistant.copyReply')" color="var(--muted)" />
+                <button
+                  v-if="shareSupported && !existingChatLoading && assistantStore.conversationID && message.sequence !== undefined"
+                  type="button"
+                  class="assistant-icon-button assistant-share-button"
+                  :aria-label="t('assistant.shareReply')"
+                  :title="t('assistant.shareReply')"
+                  @click="shareReply(message)"
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <circle cx="18" cy="5" r="3" />
+                    <circle cx="6" cy="12" r="3" />
+                    <circle cx="18" cy="19" r="3" />
+                    <path d="m8.6 10.5 6.8-4m-6.8 7 6.8 4" />
+                  </svg>
+                </button>
+              </div>
+              <p
+                v-if="message.role === 'assistant' && shareErrorSequence !== undefined && shareErrorSequence === message.sequence"
+                class="assistant-share-error"
+                role="alert"
+              >
+                {{ t('assistant.shareFailed') }}
+              </p>
               <details v-if="message.activity?.length" class="assistant-activity-details">
                 <summary>{{ t('assistant.activity') }}</summary>
                 <ol>
@@ -870,29 +896,6 @@ function renderMessageText(role: string, text: string): string {
                   </li>
                 </ol>
               </details>
-              <button
-                v-if="shareSupported && !existingChatLoading && assistantStore.conversationID &&
-                  message.role === 'assistant' && message.sequence !== undefined"
-                type="button"
-                class="assistant-icon-button assistant-share-button"
-                :aria-label="t('assistant.shareReply')"
-                :title="t('assistant.shareReply')"
-                @click="shareReply(message)"
-              >
-                <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <circle cx="18" cy="5" r="3" />
-                  <circle cx="6" cy="12" r="3" />
-                  <circle cx="18" cy="19" r="3" />
-                  <path d="m8.6 10.5 6.8-4m-6.8 7 6.8 4" />
-                </svg>
-              </button>
-              <p
-                v-if="message.role === 'assistant' && shareErrorSequence !== undefined && shareErrorSequence === message.sequence"
-                class="assistant-share-error"
-                role="alert"
-              >
-                {{ t('assistant.shareFailed') }}
-              </p>
             </article>
             <article v-if="replyMissing(index)" class="assistant-chat-message assistant-chat-message-system">
               <p class="assistant-chat-text">{{ t('assistant.noReply') }}</p>

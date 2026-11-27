@@ -1167,6 +1167,7 @@ describe("Assistant unread replies", () => {
 });
 
 describe("Assistant reply sharing", () => {
+  const copyButton = 'button[aria-label="Copy reply text"]';
   const shareButton = 'button[aria-label="Share reply"]';
   const highlightedReply = ".assistant-chat-message-highlighted";
   const markdown = "**Saved reply**\n\n- Check the cluster";
@@ -1207,8 +1208,15 @@ describe("Assistant reply sharing", () => {
     await wrapper.vm.$nextTick();
 
     expect(wrapper.find(".assistant-activity-live").exists()).toBe(true);
+    expect(wrapper.findAll(copyButton)).toHaveLength(2);
     expect(wrapper.findAll(shareButton)).toHaveLength(2);
-    const click = wrapper.get(shareButton).trigger("click");
+    const actions = wrapper.get(".assistant-reply-actions");
+    const copy = actions.get(copyButton).element;
+    const shareAction = actions.get(shareButton);
+    expect(copy.nextElementSibling).toBe(shareAction.element);
+    expect(actions.element.nextElementSibling).toBe(wrapper.get(".assistant-activity-details").element);
+
+    const click = shareAction.trigger("click");
     expect(share).toHaveBeenCalledExactlyOnceWith({
       title: chat.title,
       text: markdown,
@@ -1218,14 +1226,20 @@ describe("Assistant reply sharing", () => {
     wrapper.unmount();
   });
 
-  it("hides share controls when the browser has no Web Share API", async () => {
-    vi.stubGlobal("navigator", {});
+  it("copies only the reply Markdown when the browser has no Web Share API", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal("navigator", { clipboard: { writeText } });
+    vi.stubGlobal("isSecureContext", true);
     const chat = chatWithReplies();
     vi.spyOn(assistantApi, "getAssistantChat").mockResolvedValue(chat);
     const { wrapper } = await mountDrawer(`/?assistant=${chat.id}`);
 
     expect(wrapper.findAll(".assistant-chat-message-assistant")).toHaveLength(2);
     expect(wrapper.find(shareButton).exists()).toBe(false);
+    await wrapper.get(copyButton).trigger("click");
+    await flushPromises();
+    expect(writeText).toHaveBeenCalledExactlyOnceWith(markdown);
+    expect(wrapper.get(".assistant-reply-actions").get("button").attributes("aria-label")).toBe("Copied");
     wrapper.unmount();
   });
 
