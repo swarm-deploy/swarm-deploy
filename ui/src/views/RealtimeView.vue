@@ -19,6 +19,7 @@ import AppStatusBadge from "../components/common/AppStatusBadge.vue";
 import AppTable from "../components/common/AppTable.vue";
 import AppTableEmpty from "../components/common/AppTableEmpty.vue";
 import SidebarIcon from "../components/layout/SidebarIcon.vue";
+import DeploymentIcon from "../components/overview/DeploymentIcon.vue";
 import TaskDetailsPanel from "../components/services/TaskDetailsPanel.vue";
 import TaskStatusBadge from "../components/services/TaskStatusBadge.vue";
 import TaskLogsModal from "../components/services/TaskLogsModal.vue";
@@ -65,7 +66,8 @@ const services = ref<SwarmService[]>([]);
 const initialLoading = ref(true);
 const refreshing = ref(false);
 const refreshError = ref("");
-const selectedStacks = ref<string[]>([]);
+const selectedStacks = ref<string[]>(linkedStack.value ? [linkedStack.value] : []);
+const selectedServices = ref<string[]>(linkedService.value ? [linkedService.value] : []);
 const stateFilter = ref<RuntimeState | "all">("all");
 const stateOptions: { value: RuntimeState | "all"; label: string }[] = [
   { value: "all", label: t("realtime.allStates") },
@@ -306,17 +308,47 @@ const stackOptions = computed(() => {
   }).map((stack) => ({ value: stack, label: stackLabel(stack) }));
 });
 
+const serviceOptions = computed(() => {
+  const stacksByService = new Map<string, Set<string>>();
+  for (const service of services.value) {
+    if (selectedStacks.value.length > 0 && !selectedStacks.value.includes(service.stack)) continue;
+    const stacks = stacksByService.get(service.name) ?? new Set<string>();
+    stacks.add(service.stack);
+    stacksByService.set(service.name, stacks);
+  }
+  for (const service of selectedServices.value) {
+    if (!stacksByService.has(service)) stacksByService.set(service, new Set());
+  }
+  return [...stacksByService.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([service, stacks]) => {
+      const stackNames = [...stacks].sort((left, right) => left.localeCompare(right));
+      return {
+        value: service,
+        label: service,
+        description: selectedStacks.value.length === 1 ? undefined : stackNames.map(stackLabel).join(", "),
+        searchText: `${service} ${stackNames.join(" ")}`,
+      };
+    });
+});
+
 const selectedStackSummary = computed(() => {
   if (selectedStacks.value.length === 0) return t("realtime.allStacks");
   if (selectedStacks.value.length <= 2) return selectedStacks.value.map(stackLabel).join(", ");
   return plural("common.stacksSelected", selectedStacks.value.length);
 });
 
+const selectedServiceSummary = computed(() => {
+  if (selectedServices.value.length === 0) return t("realtime.allServices");
+  if (selectedServices.value.length <= 2) return selectedServices.value.join(", ");
+  return plural("common.servicesSelected", selectedServices.value.length);
+});
+
 const filteredServices = computed(() => {
   const query = searchQuery.value.trim().toLocaleLowerCase();
   return services.value.filter((service) => {
-    if (linkedService.value && (service.name !== linkedService.value || service.stack !== linkedStack.value)) return false;
     if (selectedStacks.value.length > 0 && !selectedStacks.value.includes(service.stack)) return false;
+    if (selectedServices.value.length > 0 && !selectedServices.value.includes(service.name)) return false;
     if (stateFilter.value !== "all" && serviceRuntimeState(service) !== stateFilter.value) return false;
     if (!query) return true;
     return [service.name, service.full_name, service.stack, service.image]
@@ -342,7 +374,15 @@ function stackLabel(stack: string): string {
 }
 
 function selectStacks(stacks: string[]): void {
+  const availableServices = new Set(services.value
+    .filter((service) => stacks.length === 0 || stacks.includes(service.stack))
+    .map((service) => service.name));
   selectedStacks.value = stacks;
+  selectedServices.value = selectedServices.value.filter((service) => availableServices.has(service));
+}
+
+function selectServices(selected: string[]): void {
+  selectedServices.value = selected;
 }
 
 function stateVariant(state: RuntimeState): "success" | "warning" | "neutral" {
@@ -596,11 +636,6 @@ onUnmounted(() => {
     <p v-if="refreshError && services.length > 0" class="realtime-stale-warning" role="status">
       {{ t('realtime.staleDataWarning', { error: refreshError }) }}
     </p>
-    <p v-if="linkedService" class="meta">
-      {{ linkedStack ? `${linkedStack}/${linkedService}` : linkedService }} ·
-      <RouterLink class="assistant-md-link" :to="{ name: 'realtime' }">{{ t('realtime.showAllServices') }}</RouterLink>
-    </p>
-
     <div class="realtime-filters" :aria-label="t('realtime.filters')">
       <label class="realtime-search">
         <svg class="realtime-filter-icon" viewBox="0 0 20 20" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.5" /><path d="m12.5 12.5 4 4" /></svg>
@@ -621,6 +656,28 @@ onUnmounted(() => {
         >
           <template #icon>
             <SidebarIcon class="realtime-filter-icon" name="services" />
+          </template>
+        </AppSelect>
+      </div>
+      <div class="realtime-filter-field">
+        <AppSelect
+          multiple
+          class="realtime-service-filter"
+          :model-value="selectedServices"
+          :options="serviceOptions"
+          :label="t('realtime.filterService')"
+          :placeholder="t('realtime.allServices')"
+          :heading="t('common.services')"
+          :selection-label="selectedServiceSummary"
+          searchable
+          :search-label="t('common.searchServices')"
+          :search-placeholder="t('common.searchServices')"
+          :empty-message="t('common.noMatchingServices')"
+          descriptive
+          @update:model-value="selectServices"
+        >
+          <template #icon>
+            <DeploymentIcon class="realtime-filter-icon" name="service" />
           </template>
         </AppSelect>
       </div>
@@ -935,7 +992,7 @@ onUnmounted(() => {
 .realtime-refresh-option:hover, .realtime-refresh-option--selected { background: var(--surface-hover-soft); }
 .realtime-refresh-option svg { width: 15px; height: 15px; fill: none; stroke: var(--interactive-primary); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .realtime-stale-warning, .realtime-inline-error { margin: 0; border: 1px solid var(--warning-border); border-radius: 7px; background: var(--warning-muted); color: var(--warning); padding: 9px 12px; font-size: .8rem; }
-.realtime-filters { min-width: 0; display: grid; grid-template-columns: minmax(240px, 1fr) 180px 170px; gap: 10px; align-items: center; padding: 12px; border: 1px solid var(--border-subtle); border-radius: 10px; background: var(--surface-card-soft); }
+.realtime-filters { min-width: 0; display: grid; grid-template-columns: minmax(240px, 1fr) 180px 180px 170px; gap: 10px; align-items: center; padding: 12px; border: 1px solid var(--border-subtle); border-radius: 10px; background: var(--surface-card-soft); }
 .realtime-search { position: relative; min-width: 0; }
 .realtime-filter-icon { width: 17px; height: 17px; flex: 0 0 17px; color: var(--muted); fill: none; stroke: currentColor; stroke-width: 1.6; pointer-events: none; }
 .realtime-search .realtime-filter-icon { position: absolute; z-index: 1; left: 11px; top: 50%; transform: translateY(-50%); }
@@ -1002,13 +1059,14 @@ onUnmounted(() => {
 
 @media (max-width: 1180px) {
   .realtime-workspace--details { grid-template-columns: minmax(0, 1fr) minmax(340px, 380px); }
-  .realtime-filters { grid-template-columns: minmax(220px, 1fr) 160px 150px; }
+  .realtime-filters { grid-template-columns: repeat(3, minmax(150px, 1fr)); }
+  .realtime-search { grid-column: 1 / -1; }
 }
 
 @media (max-width: 900px) {
   .realtime-header { align-items: stretch; flex-direction: column; gap: 10px; }
   .realtime-refresh-control { align-self: flex-end; }
-  .realtime-filters { grid-template-columns: minmax(0, 1fr) minmax(130px, .45fr) minmax(130px, .45fr); }
+  .realtime-filters { grid-template-columns: repeat(3, minmax(130px, 1fr)); }
   .realtime-search { grid-column: 1 / -1; }
   .realtime-workspace--details { grid-template-columns: minmax(0, 1fr); }
   :deep(.realtime-task-panel) { position: fixed; z-index: 61; inset: 8px; max-height: calc(100dvh - 16px); }
@@ -1022,6 +1080,7 @@ onUnmounted(() => {
   .realtime-refresh-dropdown { flex: 0 0 auto; }
   .realtime-filters { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); padding: 10px; }
   .realtime-search { grid-column: 1 / -1; }
+  .realtime-state-filter { grid-column: 1 / -1; }
   .realtime-services-panel :deep(.app-table-wrap) { overflow: visible; }
   .realtime-services-panel :deep(.realtime-services-table) { display: block; min-width: 0 !important; }
   .realtime-services-panel :deep(.realtime-services-table colgroup), .realtime-services-panel :deep(.realtime-services-table > thead) { display: none; }
