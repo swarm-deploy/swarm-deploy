@@ -7,6 +7,7 @@ import { assistantQuery } from "../../router/assistant";
 import { useAssistantStore } from "../../stores/assistant";
 import { useCurrentUserStore } from "../../stores/currentUser";
 import { useOverviewStore } from "../../stores/overview";
+import { useSecretDetailsStore } from "../../stores/secretDetails";
 import { useUIStore } from "../../stores/ui";
 import AssistantDrawer from "../assistant/AssistantDrawer.vue";
 import MobileNavigation from "./MobileNavigation.vue";
@@ -22,6 +23,7 @@ import SecretDetailsModal from "../secrets/SecretDetailsModal.vue";
 const route = useRoute();
 const router = useRouter();
 const overviewStore = useOverviewStore();
+const secretDetailsStore = useSecretDetailsStore();
 const assistantStore = useAssistantStore();
 const currentUserStore = useCurrentUserStore();
 const uiStore = useUIStore();
@@ -31,6 +33,17 @@ const currentUserLabel = computed(() => currentUserStore.displayName.trim() || t
 const assistantPinnedActive = computed(
   () => assistantStore.enabled && uiStore.assistantDrawerOpen && uiStore.assistantPinned,
 );
+
+watch(() => route.path, (path, previousPath) => {
+  if (!previousPath || path === previousPath) return;
+  if (overviewStore.serviceStatusModalOpen) overviewStore.closeServiceStatusModal();
+  if (overviewStore.alertDetailsModalOpen) overviewStore.closeAlertDetailsModal();
+  if (overviewStore.deploymentDetailsModalOpen) overviewStore.closeDeploymentDetailsModal();
+  if (overviewStore.commitDetailsModalOpen) overviewStore.closeCommitDetailsModal();
+  if (overviewStore.stackManifestModalOpen) overviewStore.closeStackManifestModal();
+  if (secretDetailsStore.modalOpen) secretDetailsStore.closeSecretDetails();
+}, { flush: "sync" });
+
 const linkedDeploymentID = computed(() => {
   const value = route.query.deployment_id;
   if (typeof value === "string") return value.trim();

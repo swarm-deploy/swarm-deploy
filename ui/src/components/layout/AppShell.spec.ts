@@ -7,6 +7,7 @@ import { ApiError } from "../../api/client";
 import * as overviewAPI from "../../api/overview";
 import type { Alert } from "../../api/types";
 import { useOverviewStore } from "../../stores/overview";
+import { useSecretDetailsStore } from "../../stores/secretDetails";
 import AppShell from "./AppShell.vue";
 
 const assistantStore = {
@@ -91,6 +92,52 @@ describe("assistant launcher", () => {
     await flushPromises();
 
     expect(router.currentRoute.value.fullPath).toBe("/events?tab=alerts#active");
+    wrapper.unmount();
+  });
+});
+
+describe("global modal navigation", () => {
+  beforeEach(() => setActivePinia(createPinia()));
+
+  it("closes every global modal when the page changes", async () => {
+    const router = testRouter();
+    await router.push("/deployments");
+    const overviewStore = useOverviewStore();
+    const secretDetailsStore = useSecretDetailsStore();
+    overviewStore.serviceStatusModalOpen = true;
+    overviewStore.alertDetailsModalOpen = true;
+    overviewStore.deploymentDetailsModalOpen = true;
+    overviewStore.commitDetailsModalOpen = true;
+    overviewStore.stackManifestModalOpen = true;
+    secretDetailsStore.modalOpen = true;
+    const wrapper = shallowMount(AppShell, { global: { plugins: [router] } });
+
+    await router.push("/events?tab=alerts");
+    await flushPromises();
+
+    expect(overviewStore.serviceStatusModalOpen).toBe(false);
+    expect(overviewStore.alertDetailsModalOpen).toBe(false);
+    expect(overviewStore.deploymentDetailsModalOpen).toBe(false);
+    expect(overviewStore.commitDetailsModalOpen).toBe(false);
+    expect(overviewStore.stackManifestModalOpen).toBe(false);
+    expect(secretDetailsStore.modalOpen).toBe(false);
+    wrapper.unmount();
+  });
+
+  it("keeps global modals open when only the page query changes", async () => {
+    const router = testRouter();
+    await router.push("/events?tab=alerts");
+    const overviewStore = useOverviewStore();
+    const secretDetailsStore = useSecretDetailsStore();
+    overviewStore.commitDetailsModalOpen = true;
+    secretDetailsStore.modalOpen = true;
+    const wrapper = shallowMount(AppShell, { global: { plugins: [router] } });
+
+    await router.push("/events?tab=events");
+    await flushPromises();
+
+    expect(overviewStore.commitDetailsModalOpen).toBe(true);
+    expect(secretDetailsStore.modalOpen).toBe(true);
     wrapper.unmount();
   });
 });
