@@ -125,3 +125,106 @@ func TestListDeliveries(t *testing.T) {
 		})
 	}
 }
+
+func TestAlertOpeningRecipients(t *testing.T) {
+	recipients := []events.AlertRecipient{{BotIdentity: "bot", ChatID: "chat", ThreadID: 3}}
+	testCases := []struct {
+		name          string
+		lookupAlertID string
+		invalidSchema bool
+		wantFound     bool
+		wantErr       error
+	}{
+		{name: "retained opening", lookupAlertID: "alert-1", wantFound: true},
+		{name: "different lifecycle", lookupAlertID: "alert-2"},
+		{name: "invalid retained publication", lookupAlertID: "alert-1", invalidSchema: true, wantErr: ErrInvalidPayload},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			db := testutil.OpenSQLite(t)
+			repository := New(db)
+			require.NoError(t, repository.Publish(t.Context(), &events.AlertOpened{
+				Alert:      events.AlertSnapshot{ID: "alert-1", Kind: "node_disconnected", OpenedAt: time.Now().UTC()},
+				Recipients: recipients,
+			}, []string{"subscriber"}, time.Now().UTC()))
+			if testCase.invalidSchema {
+				_, err := db.Exec(t.Context(), "UPDATE outbox_events SET schema_version=999")
+				require.NoError(t, err)
+			}
+
+			got, found, err := repository.AlertOpeningRecipients(t.Context(), testCase.lookupAlertID)
+			if testCase.wantErr != nil {
+				require.ErrorIs(t, err, testCase.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, testCase.wantFound, found)
+			if testCase.wantFound {
+				assert.Equal(t, recipients, got)
+			} else {
+				assert.Empty(t, got)
+			}
+		})
+	}
+}
+
+func TestRetainedAlertLifecycleIDs(t *testing.T) {
+	testCases := []struct {
+		name      string
+		event     events.Event
+		lookupIDs []string
+		want      map[string]bool
+	}{
+		{
+			name: "opened lifecycle",
+			event: &events.AlertOpened{
+				Alert: events.AlertSnapshot{ID: "alert-1", Kind: "node_disconnected", OpenedAt: time.Now().UTC()},
+			},
+			lookupIDs: []string{"alert-1", "alert-2"},
+			want:      map[string]bool{"alert-1": true},
+		},
+		{
+			name: "resolved lifecycle",
+			event: &events.AlertResolved{
+				Alert: events.AlertSnapshot{ID: "alert-2", Kind: "node_disconnected", OpenedAt: time.Now().UTC()},
+			},
+			lookupIDs: []string{"alert-1", "alert-2"},
+			want:      map[string]bool{"alert-2": true},
+		},
+		{
+			name: "known IDs only",
+			event: &events.AlertOpened{
+				Alert: events.AlertSnapshot{ID: "alert-3", Kind: "node_disconnected", OpenedAt: time.Now().UTC()},
+			},
+			lookupIDs: []string{"alert-1", "alert-2"},
+			want:      map[string]bool{},
+		},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			db := testutil.OpenSQLite(t)
+			repository := New(db)
+			require.NoError(t, repository.Publish(
+				t.Context(), testCase.event, []string{"subscriber"}, time.Now().UTC(),
+			))
+
+			got, err := repository.RetainedAlertLifecycleIDs(t.Context(), testCase.lookupIDs)
+			require.NoError(t, err)
+			assert.Equal(t, testCase.want, got)
+		})
+	}
+}
+
+func TestRetainedAlertLifecycleIDsKeepsUnsupportedSchema(t *testing.T) {
+	db := testutil.OpenSQLite(t)
+	repository := New(db)
+	require.NoError(t, repository.Publish(t.Context(), &events.AlertResolved{
+		Alert: events.AlertSnapshot{ID: "alert-1", Kind: "node_disconnected", OpenedAt: time.Now().UTC()},
+	}, []string{"subscriber"}, time.Now().UTC()))
+	_, err := db.Exec(t.Context(), "UPDATE outbox_events SET schema_version=999")
+	require.NoError(t, err)
+
+	retained, err := repository.RetainedAlertLifecycleIDs(t.Context(), []string{"alert-1", "alert-2"})
+	require.NoError(t, err)
+	assert.Equal(t, map[string]bool{"alert-1": true}, retained)
+}

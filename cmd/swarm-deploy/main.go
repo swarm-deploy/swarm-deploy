@@ -71,7 +71,7 @@ var modules = []module{
 		Initialize: func(ctx context.Context, cfg *config.Config, cnt *container) error {
 			return notifications.InitModule(
 				ctx, cfg.Spec.Notifications, cfg.Spec.Web.Origin, cfg.Spec.Web.BasePath, cfg.Spec.System.Language,
-				cnt.Event.Dispatcher, cnt.GetStorage(),
+				cnt.Event.Dispatcher, cnt.Event.Outbox, cnt.GetStorage(),
 			)
 		},
 	},

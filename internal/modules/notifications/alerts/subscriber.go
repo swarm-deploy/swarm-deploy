@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"html"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -52,11 +53,11 @@ func parseSubscriptionID(id string) (events.AlertRecipient, error) {
 
 // Register subscribes all configured and persisted physical destinations to both transitions.
 func Register(
-	ctx context.Context, bus dispatcher.Dispatcher, db storage.Database, spec config.NotificationSpec,
-	actionBuilder actions.Builder,
+	ctx context.Context, bus dispatcher.Dispatcher, outboxRepository *outbox.Repository,
+	db storage.Database, spec config.NotificationSpec, actionBuilder actions.Builder,
 ) error {
 	store := NewStore(db)
-	if err := store.PruneCompleted(ctx); err != nil {
+	if err := pruneCompleted(ctx, db, store, outboxRepository); err != nil {
 		return err
 	}
 	recipients := make(map[events.AlertRecipient]bool)
@@ -78,7 +79,7 @@ func Register(
 	for _, recipient := range known {
 		recipients[recipient] = true
 	}
-	pending, err := outbox.New(db).ListDeliveries(ctx, outbox.ListDeliveriesFilter{
+	pending, err := outboxRepository.ListDeliveries(ctx, outbox.ListDeliveriesFilter{
 		SubscriptionIDPrefix: "alert:telegram:",
 		Statuses: []outbox.DeliveryStatus{
 			outbox.DeliveryStatusPending,
@@ -98,7 +99,8 @@ func Register(
 	}
 	for recipient := range recipients {
 		handler := dispatcher.External(&Subscriber{
-			store: store, spec: spec, recipient: recipient, publisher: bus, now: time.Now,
+			store: store, outbox: outboxRepository, db: db,
+			spec: spec, recipient: recipient, publisher: bus, now: time.Now,
 			actionBuilder: actionBuilder,
 		})
 		id := SubscriptionID(recipient)
@@ -112,9 +114,35 @@ func Register(
 	return nil
 }
 
+func pruneCompleted(
+	ctx context.Context, db storage.Database, store *Store, outboxRepository *outbox.Repository,
+) error {
+	return db.WithinTransaction(ctx, func(ctx context.Context) error {
+		alertIDs, err := store.CompletedAlertIDs(ctx)
+		if err != nil {
+			return err
+		}
+		// Bound the SQL parameters for both the retention lookup and the delete.
+		const batchSize = 500
+		for batch := range slices.Chunk(alertIDs, batchSize) {
+			retained, inspectErr := outboxRepository.RetainedAlertLifecycleIDs(ctx, batch)
+			if inspectErr != nil {
+				return inspectErr
+			}
+			deletable := slices.DeleteFunc(batch, func(id string) bool { return retained[id] })
+			if err = store.DeleteCompleted(ctx, deletable); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
 // Subscriber delivers both lifecycle phases for one physical Telegram recipient.
 type Subscriber struct {
 	store         *Store
+	outbox        *outbox.Repository
+	db            storage.Database
 	spec          config.NotificationSpec
 	recipient     events.AlertRecipient
 	publisher     dispatcher.Dispatcher
@@ -125,7 +153,7 @@ type Subscriber struct {
 
 // Handle applies an alert transition, with durable per-recipient progress.
 func (s *Subscriber) Handle(ctx context.Context, envelope events.Envelope) error {
-	if err := s.store.PruneCompleted(ctx); err != nil {
+	if err := pruneCompleted(ctx, s.db, s.store, s.outbox); err != nil {
 		return err
 	}
 	switch event := envelope.Event.(type) {
@@ -246,7 +274,7 @@ func (s *Subscriber) resolutionLink(
 }
 
 func (s *Subscriber) shouldResolveWithoutLink(ctx context.Context, event *events.AlertResolved) (bool, error) {
-	openingRecipients, openingPending, err := s.store.OpeningRecipients(ctx, event.Alert.ID)
+	openingRecipients, openingPending, err := s.outbox.AlertOpeningRecipients(ctx, event.Alert.ID)
 	if err != nil {
 		return false, err
 	}

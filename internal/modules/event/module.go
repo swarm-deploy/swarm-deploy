@@ -19,6 +19,8 @@ type Module struct {
 	Dispatcher dispatcher.Dispatcher
 	// History stores the retained event history.
 	History *history.SQLStore
+	// Outbox exposes supported inspection operations for retained publications and deliveries.
+	Outbox *outbox.Repository
 
 	// Bus is the only durable delivery worker.
 	Bus *dispatcher.OutboxDispatcher
@@ -38,8 +40,9 @@ func InitModule(historyCapacity int, enrichUser bool, cnt Container) (*Module, e
 		return nil, fmt.Errorf("init history store: %w", err)
 	}
 
-	bus := dispatcher.NewOutboxDispatcher(outbox.New(db))
-	srv := &Module{Dispatcher: bus, History: historyStore, Bus: bus}
+	outboxRepository := outbox.New(db)
+	bus := dispatcher.NewOutboxDispatcher(outboxRepository)
+	srv := &Module{Dispatcher: bus, History: historyStore, Outbox: outboxRepository, Bus: bus}
 
 	if enrichUser {
 		srv.Dispatcher = dispatcher.NewEnrichableDispatcher(
