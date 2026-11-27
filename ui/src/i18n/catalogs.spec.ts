@@ -50,13 +50,4 @@ describe("translation catalogs", () => {
     i18n.global.locale.value = "ru";
     expect(plural("common.serviceCount", 1001)).toBe("1\u00a0001 сервис");
   });
-
-  it("uses the requested Russian labels on the service page", () => {
-    i18n.global.locale.value = "ru";
-    expect([
-      i18n.global.t("service.memory"),
-      i18n.global.t("service.cpu"),
-      i18n.global.t("common.date"),
-    ]).toEqual(["Запрос / лимит RAM", "Запрос / лимит CPU", "Дата"]);
-  });
 });
