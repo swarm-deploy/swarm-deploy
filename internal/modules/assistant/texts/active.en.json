@@ -62,7 +62,7 @@
     "other": "Set {{.Count}} replicas for `{{.Service}}` in stack `{{.Stack}}`?"
   },
   "operation.confirm_restart": "Restart `{{.Service}}` in stack `{{.Stack}}`?",
-  "operation.confirm_image_pin": "**Create a proposal to pin the running image in Git?**\n\n**Service:** `{{.Stack}}/{{.Service}}`\n**Running tasks:** {{.Count}}\n\n**Current value in Git**\n\n`{{.CurrentImage}}`\n\n**Proposed value**\n\n`{{.ProposedImage}}`",
+  "operation.confirm_image_pin": "**Create a proposal to pin the running image in Git?**\n\n**Service:** `{{.Stack}}/{{.Service}}`\n**Running tasks: {{.Count}}**\n\n**Current value in Git**\n\n`{{.CurrentImage}}`\n\n**Proposed value**\n\n`{{.ProposedImage}}`",
   "policy.source_service": "its service label",
   "policy.source_stack": "stack policy",
   "policy.source_global": "global policy",
