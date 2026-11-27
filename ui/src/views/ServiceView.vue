@@ -368,7 +368,7 @@ watch([stackName, serviceName], ([stack, service], _, onCleanup) => {
             <AppTableEmpty v-else-if="deploymentsError" role="alert">{{ deploymentsError }}</AppTableEmpty>
             <AppTableEmpty v-else-if="!deployments.length" :message="t('service.noDeployments')" />
             <AppTable v-else fixed :aria-label="t('service.deploymentHistory')">
-              <template #head><tr><th scope="col">{{ t('common.version') }}</th><th scope="col">{{ t('common.status') }}</th><th scope="col">{{ t('common.started') }}</th><th scope="col"><span class="sr-only">{{ t('common.details') }}</span></th></tr></template>
+              <template #head><tr><th scope="col">{{ t('common.version') }}</th><th scope="col">{{ t('common.status') }}</th><th scope="col">{{ t('common.date') }}</th><th scope="col"><span class="sr-only">{{ t('common.details') }}</span></th></tr></template>
               <tr v-for="deployment in deployments" :key="deployment.id" class="app-table-row--clickable" @click="overviewStore.openDeploymentDetailsModal(deployment.id)">
                 <td><strong :title="deployment.image">{{ deployment.image_version || t('common.notApplicable') }}</strong></td>
                 <td><AppStatusBadge :variant="deploymentBadge(deployment.status).variant" filled>{{ deploymentBadge(deployment.status).label }}</AppStatusBadge></td>
