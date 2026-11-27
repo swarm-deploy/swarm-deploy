@@ -1545,6 +1545,36 @@ body {
   max-width: 100%;
 }
 
+.assistant-chat-message-highlighted {
+  background: var(--surface-selected);
+}
+
+.assistant-reply-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+  /* Align the copy glyph with the reply text while keeping the full button hit area. */
+  margin-inline-start: -8px;
+}
+
+.assistant-share-button {
+  width: 28px;
+  height: 28px;
+  flex-basis: 28px;
+}
+
+.assistant-share-button:focus-visible {
+  outline: 2px solid var(--accent-focus);
+  outline-offset: 2px;
+}
+
+.assistant-share-error {
+  margin: 0;
+  color: var(--error);
+  font-size: 0.82rem;
+}
+
 .assistant-chat-message-system {
   padding: 8px 10px;
   border-left: 2px solid var(--error-border);

@@ -40,6 +40,7 @@ describe("assistant launcher", () => {
   afterEach(() => {
     assistantStore.enabled = false;
     assistantStore.conversationID = "";
+    uiStore.assistantDrawerOpen = false;
   });
 
   it.each([
@@ -75,6 +76,21 @@ describe("assistant launcher", () => {
     await flushPromises();
 
     expect(router.currentRoute.value.query).toEqual({ tab: "alerts", assistant: "new" });
+    wrapper.unmount();
+  });
+
+  it("clears the reply and conversation when closing from the launcher", async () => {
+    setActivePinia(createPinia());
+    assistantStore.enabled = true;
+    uiStore.assistantDrawerOpen = true;
+    const router = testRouter();
+    await router.push("/events?tab=alerts&assistant=chat-1&reply=1#active");
+    const wrapper = shallowMount(AppShell, { global: { plugins: [router] } });
+
+    wrapper.getComponent({ name: "TopBar" }).vm.$emit("toggle-assistant");
+    await flushPromises();
+
+    expect(router.currentRoute.value.fullPath).toBe("/events?tab=alerts#active");
     wrapper.unmount();
   });
 });
