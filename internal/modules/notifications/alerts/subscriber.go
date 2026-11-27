@@ -17,6 +17,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/outbox"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/notifications/actions"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/notifications/notifiers"
 	"github.com/swarm-deploy/swarm-deploy/internal/storage"
 )
@@ -52,6 +53,7 @@ func parseSubscriptionID(id string) (events.AlertRecipient, error) {
 // Register subscribes all configured and persisted physical destinations to both transitions.
 func Register(
 	ctx context.Context, bus dispatcher.Dispatcher, db storage.Database, spec config.NotificationSpec,
+	actionBuilder actions.Builder,
 ) error {
 	store := NewStore(db)
 	if err := store.PruneCompleted(ctx); err != nil {
@@ -97,6 +99,7 @@ func Register(
 	for recipient := range recipients {
 		handler := dispatcher.External(&Subscriber{
 			store: store, spec: spec, recipient: recipient, publisher: bus, now: time.Now,
+			actionBuilder: actionBuilder,
 		})
 		id := SubscriptionID(recipient)
 		if err = bus.Subscribe(events.TypeNameAlertOpened, id, handler); err != nil {
@@ -111,12 +114,13 @@ func Register(
 
 // Subscriber delivers both lifecycle phases for one physical Telegram recipient.
 type Subscriber struct {
-	store      *Store
-	spec       config.NotificationSpec
-	recipient  events.AlertRecipient
-	publisher  dispatcher.Dispatcher
-	now        func() time.Time
-	apiBaseURL string
+	store         *Store
+	spec          config.NotificationSpec
+	recipient     events.AlertRecipient
+	publisher     dispatcher.Dispatcher
+	now           func() time.Time
+	apiBaseURL    string
+	actionBuilder actions.Builder
 }
 
 // Handle applies an alert transition, with durable per-recipient progress.
@@ -165,13 +169,13 @@ func (s *Subscriber) opened(ctx context.Context, alert events.AlertSnapshot) err
 		parseMode = telegramHTMLParseMode
 	}
 	notifier, err := s.notifier(alert.Kind, chatName, notifiers.TelegramOptions{
-		Message: rule.AlertOpenedTemplate(alert.Kind), ParseMode: parseMode, Buttons: rule.Opened.Buttons,
+		Message: rule.AlertOpenedTemplate(alert.Kind), ParseMode: parseMode,
 	})
 	if err != nil {
 		return err
 	}
 	receipt, err := notifier.Notify(ctx, notifiers.Message{
-		Payload: payload, ButtonPayload: alert, Action: notifiers.ActionSend,
+		Payload: payload, Actions: s.actionBuilder.Alert(alert.ID), Action: notifiers.ActionSend,
 	})
 	if err != nil {
 		return err
@@ -204,18 +208,15 @@ func (s *Subscriber) resolved(ctx context.Context, event *events.AlertResolved) 
 		action = notifiers.Action(rule.AlertResolvedAction())
 	}
 	options := notifiers.TelegramOptions{
-		Message: rule.AlertResolvedTemplate(alert.Kind), ParseMode: parseMode, Buttons: rule.Resolved.Buttons,
-	}
-	if action == notifiers.ActionEdit && rule.Resolved.Buttons == nil {
-		options.Buttons = rule.Opened.Buttons
-		options.EditOnlyButtons = true
+		Message: rule.AlertResolvedTemplate(alert.Kind), ParseMode: parseMode,
 	}
 	notifier, err := s.notifier(alert.Kind, chatName, options)
 	if err != nil {
 		return err
 	}
 	receipt, err := notifier.Notify(ctx, notifiers.Message{
-		Payload: payload, ButtonPayload: alert, Action: action, TargetMessageID: link.OpenedMessageID.Int64,
+		Payload: payload, Actions: s.actionBuilder.Alert(alert.ID),
+		Action: action, TargetMessageID: link.OpenedMessageID.Int64,
 	})
 	if err != nil {
 		return err

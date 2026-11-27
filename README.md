@@ -136,6 +136,8 @@ system:
 
 web:
   address: ":8080"
+  # Optional public origin used for notification links. Omit it to send notifications without actions.
+  origin: https://swarm-deploy.example
   # Optional URL prefix for both UI and API. Defaults to /.
   basePath: /swarm-deploy
   # Optional names for the installed PWA. Both default to Swarm Deploy.
@@ -157,9 +159,11 @@ The 0.15.0 runtime configuration uses module sections. Update older configuratio
 
 `web.basePath` defaults to `/`. A trailing slash is normalized, so `/infrastructure/swarm/` serves the UI at `/infrastructure/swarm/` and the API below `/infrastructure/swarm/api/`. Path segments must use URL-unreserved ASCII characters (letters, digits, `-`, `_`, `.`, `~`); percent-encoding and ServeMux wildcard syntax are not accepted. The configured value is authoritative; `X-Forwarded-Prefix` is not used. Health, metrics, and webhook endpoints keep their independently configured paths.
 
+`web.origin` is an optional public HTTP(S) origin such as `https://swarm-deploy.example`. When configured, swarm-deploy combines it with `web.basePath` to add localized deployment and alert actions to notifications. It must not contain credentials, a path, query, or fragment. Without it, notifications are sent without actions.
+
 `web.pwa.name` and `web.pwa.shortName` set the full and compact names shown for an installed PWA. Both default to `Swarm Deploy`. Restart swarm-deploy and reinstall the PWA after changing them so the browser picks up the updated manifest.
 
-`system.language` sets the web interface language for the entire installation. Use `en` for English (the default) or `ru` for Russian. After editing the setting, restart swarm-deploy and refresh the page. The installation setting takes precedence over browser language preferences.
+`system.language` sets the UI and generated notification-action language for the entire installation. Use `en` for English (the default) or `ru` for Russian. After editing the setting, restart swarm-deploy and refresh the page. The installation setting takes precedence over browser language preferences.
 
 Stacks are declared separately:
 

@@ -10,24 +10,17 @@ The removed `notifications.on` key is rejected; no compatibility alias is provid
 Existing configurations with `notifications.events.SendNotificationFailed` load
 with a startup warning. Remove this retired route from the configuration.
 
-## Telegram buttons
+## Notification actions
 
-Add an optional `buttons` list to a Telegram event route or to an alert route's
-`opened` or `resolved` section. Each button has a `text` label and a `url`.
-Both use Go `text/template` with the same fields as the corresponding message.
-Telegram displays the buttons in configuration order, one per row.
+When `web.origin` is configured, swarm-deploy adds localized actions to notifications
+that have a web destination. `DeploySuccess` opens its deployment, and every alert
+opening or resolution opens the alert. The URL combines `web.origin`, `web.basePath`,
+and the application route. Without `web.origin`, notifications do not include actions.
 
-The rendered URL must be an absolute `http://`, `https://`, or `tg://` URL.
-If the template renders an empty URL, swarm-deploy skips that button. The
-[example below](#example) uses this to hide the deployment link when a `SyncFailed`
-alert has no `DeploymentID`. Button templates are validated at startup, and
-rendered URLs are checked before sending.
-
-With `resolved.action: edit`, omitting `resolved.buttons` renders the current
-`opened.buttons` templates again using the resolved alert's data. The resulting
-links can change if the templates or alert data change. Set `buttons: []` under
-`resolved` to clear the keyboard on edit, or supply a list to replace it.
-Replies and fallback sends use the buttons configured under `resolved`.
+Action labels follow `system.language`. Telegram renders actions as one inline button
+per row. Custom webhooks receive the same transport-neutral `actions` JSON array next
+to `Payload`; receivers decide how to present it. Notification routes do not accept a
+`buttons` field.
 
 ## Alert lifecycle
 
@@ -191,6 +184,10 @@ semantics.
 ## Example
 
 ```yaml
+web:
+  origin: https://swarm-deploy.example
+  basePath: /
+
 notifications:
   messengers:
     telegram:
@@ -211,9 +208,6 @@ notifications:
             💚 deploy {{ .Status }}
             stack: {{ .StackName }}
             at: {{ date "2006-01-02 15:04" .OccurredAt }} UTC
-          buttons:
-            - text: "Open {{ .StackName }} deployment"
-              url: "https://swarm-deploy.example/deployments?deployment_id={{ .DeploymentID | urlquery }}"
     NodeJoined:
       telegram:
         - chats: [default, deployments]
@@ -226,19 +220,11 @@ notifications:
           resolved:
             action: reply
             message: "✅ {{ .Title }}: {{ .Resolution }}"
-            buttons:
-              - text: "Open alert"
-                url: "https://swarm-deploy.example/events?tab=alerts&alert_id={{ .ID | urlquery }}"
     SyncFailed:
       telegram:
         - chats: deployments
           opened:
             message: "🔴 Synchronization failed: {{ .ResourceID }}"
-            buttons:
-              - text: "Open alert"
-                url: "https://swarm-deploy.example/events?tab=alerts&alert_id={{ .ID | urlquery }}"
-              - text: "Open failed deployment"
-                url: '{{ with .DeploymentID }}https://swarm-deploy.example/deployments?deployment_id={{ . | urlquery }}{{ end }}'
           resolved:
             action: edit
             message: "✅ Synchronization recovered: {{ .ResourceID }}"

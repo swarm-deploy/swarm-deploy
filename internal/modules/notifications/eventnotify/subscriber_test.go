@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/notifications/actions"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/notifications/notifiers"
 	"go.uber.org/mock/gomock"
 )
@@ -28,7 +29,7 @@ func TestSubscriberReturnsDeliveryFailureWithoutPublishing(t *testing.T) {
 				Services:   []DeploymentService{{Name: "api", Image: "api:1"}},
 				OccurredAt: time.Time{}.UTC(),
 			}}).Return(notifiers.Receipt{}, tc.err)
-			err := NewSubscriber(notifier).Handle(context.Background(), events.Envelope{ID: "source", Event: event})
+			err := NewSubscriber(notifier, actions.Builder{}).Handle(context.Background(), events.Envelope{ID: "source", Event: event})
 			require.ErrorIs(t, err, tc.err)
 		})
 	}
@@ -37,6 +38,27 @@ func TestSubscriberReturnsDeliveryFailureWithoutPublishing(t *testing.T) {
 func TestSubscriberSkipsDeploySuccessWithoutServices(t *testing.T) {
 	// No Notify expectation: an Attempt without targets has nothing to announce.
 	notifier := notifiers.NewMockNotifier(gomock.NewController(t))
-	err := NewSubscriber(notifier).Handle(context.Background(), events.Envelope{ID: "source", Event: &events.DeploySuccess{}})
+	err := NewSubscriber(notifier, actions.Builder{}).Handle(context.Background(), events.Envelope{ID: "source", Event: &events.DeploySuccess{}})
+	require.NoError(t, err)
+}
+
+func TestSubscriberAddsDeploymentAction(t *testing.T) {
+	notifier := notifiers.NewMockNotifier(gomock.NewController(t))
+	actionBuilder, err := actions.NewBuilder("https://swarm.example", "/swarm", "ru")
+	require.NoError(t, err)
+	event := &events.DeploySuccess{DeployEvent: events.DeployEvent{
+		DeploymentID: "deployment-1", Services: []compose.Service{{Name: "api", Image: "api:1"}},
+	}}
+	notifier.EXPECT().Notify(gomock.Any(), notifiers.Message{
+		Payload: DeploymentPayload{
+			ID: "source", DeploymentID: "deployment-1", Type: "DeploySuccess", Status: StatusSuccess,
+			Services: []DeploymentService{{Name: "api", Image: "api:1"}}, OccurredAt: time.Time{}.UTC(),
+		},
+		Actions: []actions.Action{{
+			Text: "Открыть деплоймент", URL: "https://swarm.example/swarm/deployments?deployment_id=deployment-1",
+		}},
+	}).Return(notifiers.Receipt{}, nil)
+
+	err = NewSubscriber(notifier, actionBuilder).Handle(context.Background(), events.Envelope{ID: "source", Event: event})
 	require.NoError(t, err)
 }

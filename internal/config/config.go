@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -119,7 +120,7 @@ type SecretsSpec struct {
 }
 
 type SystemSpec struct {
-	// Language selects the web interface language. Defaults to English.
+	// Language selects the installation language for UI and generated text. Defaults to English.
 	Language Language `yaml:"language"`
 	// Log contains log level settings.
 	Log LogSpec `yaml:"log"`
@@ -359,6 +360,7 @@ func (c *Config) applyWebAndHealthDefaults() {
 	if strings.TrimSpace(c.Spec.Web.Address) == "" {
 		c.Spec.Web.Address = defaultWebAddress
 	}
+	c.Spec.Web.Origin = normalizeWebOrigin(c.Spec.Web.Origin)
 	c.Spec.Web.BasePath = normalizeWebBasePath(c.Spec.Web.BasePath)
 	c.Spec.Web.PWA.Name = strings.TrimSpace(c.Spec.Web.PWA.Name)
 	if c.Spec.Web.PWA.Name == "" {
@@ -377,6 +379,14 @@ func (c *Config) applyWebAndHealthDefaults() {
 	if c.Spec.HealthServer.Healthz.Path == "" {
 		c.Spec.HealthServer.Healthz.Path = "/healthz"
 	}
+}
+
+func normalizeWebOrigin(origin string) string {
+	origin = strings.TrimSpace(origin)
+	if strings.HasSuffix(origin, "/") && !strings.HasSuffix(origin, "//") {
+		return strings.TrimSuffix(origin, "/")
+	}
+	return origin
 }
 
 func normalizeWebBasePath(basePath string) string {
@@ -739,6 +749,9 @@ func (c *Config) validate() error {
 }
 
 func (c *Config) validateWeb() []error {
+	if err := validateWebOrigin(c.Spec.Web.Origin); err != nil {
+		return []error{err}
+	}
 	basePath := c.Spec.Web.BasePath
 	if !strings.HasPrefix(basePath, "/") {
 		return []error{errors.New("web.basePath must start with /")}
@@ -776,6 +789,24 @@ func (c *Config) validateWeb() []error {
 		}
 	}
 
+	return nil
+}
+
+func validateWebOrigin(origin string) error {
+	if origin == "" {
+		return nil
+	}
+	parsed, err := url.Parse(origin)
+	if err != nil || !parsed.IsAbs() || parsed.Host == "" {
+		return errors.New("web.origin must be an absolute HTTP or HTTPS origin")
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return errors.New("web.origin must use http or https")
+	}
+	if parsed.User != nil || parsed.Path != "" || parsed.RawPath != "" || parsed.RawQuery != "" ||
+		parsed.ForceQuery || parsed.Fragment != "" {
+		return errors.New("web.origin must not contain user info, path, query, or fragment")
+	}
 	return nil
 }
 
