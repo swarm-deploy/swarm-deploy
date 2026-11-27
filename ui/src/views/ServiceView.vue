@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { enumLabel, formatNumber, plural, t } from "../i18n";
+import { enumLabel, plural, t } from "../i18n";
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRoute } from "vue-router";
 
@@ -17,6 +17,7 @@ import AppTableEmpty from "../components/common/AppTableEmpty.vue";
 import SidebarIcon from "../components/layout/SidebarIcon.vue";
 import DeploymentIcon from "../components/overview/DeploymentIcon.vue";
 import NetworkDetailsModal from "../components/services/NetworkDetailsModal.vue";
+import ServiceReplicasBadge from "../components/services/ServiceReplicasBadge.vue";
 import ServiceSyncPauseModal from "../components/services/ServiceSyncPauseModal.vue";
 import { useOverviewStore } from "../stores/overview";
 import { useSecretDetailsStore } from "../stores/secretDetails";
@@ -66,18 +67,6 @@ const spec = computed(() => serviceStatus.value?.spec);
 const liveService = computed(() => swarmServices.value?.find((service) =>
   service.stack === stackName.value && service.name === serviceName.value));
 const replicaCounts = computed(() => liveService.value?.replicas);
-const replicaBadgeText = computed(() => {
-  if (!replicaCounts.value) return swarmServices.value ? t("common.unavailable") : t("common.unknown");
-  const { running, desired } = replicaCounts.value;
-  return t("service.replicaCount", { running: formatNumber(running), desired: formatNumber(desired) });
-});
-const replicaBadgeVariant = computed(() => {
-  if (!replicaCounts.value) return swarmServices.value ? "error" : "neutral";
-  const { running, desired } = replicaCounts.value;
-  if (running === desired) return "success";
-  if (desired > 0 && running === 0) return "error";
-  return "warning";
-});
 const image = computed(() => serviceInfo.value?.image || spec.value?.image);
 const repository = computed(() => {
   const href = serviceInfo.value?.repository_url;
@@ -228,15 +217,13 @@ watch([stackName, serviceName], ([stack, service], _, onCleanup) => {
         <RouterLink :to="stackRoute" class="service-inline-link">{{ stackName }}</RouterLink>
         <div class="service-heading-summary">
           <h2>{{ serviceName }}</h2>
-          <AppStatusBadge
+          <ServiceReplicasBadge
             v-if="!loading || replicaCounts"
             class="service-replica-badge"
             :class="{ 'service-replica-badge--desktop': !loading && serviceStatus }"
-            :variant="replicaBadgeVariant"
-            filled
-          >
-            {{ replicaBadgeText }}
-          </AppStatusBadge>
+            :replicas="replicaCounts"
+            :unavailable="swarmServices !== null"
+          />
         </div>
       </div>
       <div class="service-heading-actions">
@@ -262,9 +249,11 @@ watch([stackName, serviceName], ([stack, service], _, onCleanup) => {
           <AppPanel tag="section" class="service-section service-metadata" header-class="service-metadata-header" aria-labelledby="service-metadata-title">
             <template #header>
               <h3 id="service-metadata-title">{{ t('common.service') }}</h3>
-              <AppStatusBadge class="service-replica-badge service-replica-badge--mobile" :variant="replicaBadgeVariant" filled>
-                {{ replicaBadgeText }}
-              </AppStatusBadge>
+              <ServiceReplicasBadge
+                class="service-replica-badge service-replica-badge--mobile"
+                :replicas="replicaCounts"
+                :unavailable="swarmServices !== null"
+              />
             </template>
             <AppTable summary fixed :aria-label="t('common.service')">
               <template #colgroup><colgroup><col class="service-metadata-label" /><col /></colgroup></template>
@@ -469,10 +458,6 @@ watch([stackName, serviceName], ([stack, service], _, onCleanup) => {
   margin: 0;
   font-size: clamp(1.3rem, 3vw, 1.85rem);
   overflow-wrap: anywhere;
-}
-
-.service-replica-badge {
-  white-space: nowrap;
 }
 
 .service-replica-badge--mobile {

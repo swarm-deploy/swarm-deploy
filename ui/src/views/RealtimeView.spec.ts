@@ -175,21 +175,23 @@ describe("RealtimeView", () => {
     fallback.unmount();
   });
 
-  it("renders all live services, standalone rows, replica counts, and runtime states", async () => {
+  it("shows replica counts as the status for every live service", async () => {
     const wrapper = await mountView();
 
     expect(wrapper.findAll(".realtime-service-row")).toHaveLength(4);
     expect(wrapper.text()).toContain("Standalone");
-    expect(wrapper.text()).toContain("2/2");
-    expect(wrapper.text()).toContain("Running");
-    expect(wrapper.text()).toContain("Degraded");
-    expect(wrapper.text()).toContain("Scaled down");
-    expect(wrapper.text()).toContain("Unknown");
-    expect(wrapper.get(".realtime-replicas-running--degraded").text()).toBe("1");
+    const badges = wrapper.findAll(".realtime-state-cell .app-status-badge");
+    expect(badges.map((badge) => badge.text())).toEqual([
+      "2 / 2 replicas", "1 / 2 replicas", "0 / 0 replicas", "3 / 2 replicas",
+    ]);
+    expect(badges.every((badge) => badge.classes().includes("app-status-badge--filled"))).toBe(true);
+    expect(badges[0].classes()).toContain("app-status-badge--success");
+    expect(badges[1].classes()).toContain("app-status-badge--warning");
+    expect(badges[2].classes()).toContain("app-status-badge--success");
+    expect(badges[3].classes()).toContain("app-status-badge--warning");
     expect(wrapper.findAll(".realtime-services-table > thead th").map((header) => header.text())).toEqual([
       "Service",
       "Stack",
-      "Replicas",
       "State",
       "Updated",
       "Actions",
@@ -407,7 +409,7 @@ describe("Realtime service scaling", () => {
     ] });
     const wrapper = await mountView();
     expect(wrapper.findAll(".realtime-actions-button")).toHaveLength(4);
-    expect(wrapper.findAll(".realtime-replicas button")).toHaveLength(0);
+    expect(wrapper.findAll(".realtime-state-cell button")).toHaveLength(0);
     await wrapper.get('[aria-label="Actions for proxy"]').trigger("click");
     expect(wrapper.get('[aria-label="Scale proxy"]').text()).toContain("Scale replicas");
     for (const row of wrapper.findAll(".realtime-service-row")) {
@@ -519,7 +521,7 @@ describe("Realtime service scaling", () => {
     expect(wrapper.get<HTMLInputElement>('input[type="search"]').element.value).toBe("infra_api");
     expect(wrapper.findAll(".realtime-service-row")).toHaveLength(1);
     expect(wrapper.findAll(".realtime-task-row")).toHaveLength(2);
-    expect(wrapper.get(".realtime-replicas").text()).toBe("2/0");
+    expect(wrapper.get(".realtime-state-cell").text()).toBe("2 / 0 replicas");
     expect(wrapper.get(".realtime-task-panel").text()).toContain("task-current");
     wrapper.unmount();
   });
@@ -651,7 +653,7 @@ describe("Realtime service scaling", () => {
     await flushPromises();
     resolveOldServices({ services });
     await flushPromises();
-    expect(wrapper.findAll(".realtime-replicas")[0].text()).toBe("2/6");
+    expect(wrapper.get(".realtime-state-cell").text()).toBe("2 / 6 replicas");
     await wrapper.get('[aria-label="Actions for api"]').trigger("click");
     await wrapper.get('[aria-label="Scale api"]').trigger("click");
     expect(wrapper.get<HTMLInputElement>("#realtime-scale-replicas").element.value).toBe("6");
@@ -778,7 +780,9 @@ describe("Realtime service restart", () => {
     finish();
     await flushPromises();
     expect(apiMocks.fetchSwarmServices).toHaveBeenCalledTimes(2);
-    expect(wrapper.findAll(".realtime-replicas")[0].text()).toBe(failure ? "0/0" : "0/4");
+    const badge = wrapper.get(".realtime-state-cell .app-status-badge");
+    expect(badge.text()).toBe(failure ? "0 / 0 replicas" : "0 / 4 replicas");
+    expect(badge.classes()).toContain(failure ? "app-status-badge--success" : "app-status-badge--error");
     if (failure) {
       expect(wrapper.get('[role="alert"]').text()).toContain(failure);
       expect(wrapper.get('[role="alert"]').text()).toContain("Replica state may have changed");
