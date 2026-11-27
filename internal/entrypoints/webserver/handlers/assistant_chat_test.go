@@ -46,7 +46,10 @@ func TestAssistantChatAcceptsRequestAtLimit(t *testing.T) {
 
 func TestGeneratedAssistantChatResponseIncludesSelection(t *testing.T) {
 	response := toGeneratedAssistantChatResponse(assistant.ChatResponse{
-		Status: assistant.StatusCompleted,
+		Status:      assistant.StatusCompleted,
+		Outcome:     assistant.ChatOutcomeOperationBlocked,
+		Restriction: assistant.ChatRestrictionReadOnly,
+		Operation:   "deploy_sync_trigger",
 		Selection: &assistant.Selection{Options: []assistant.SelectionOption{{
 			Label: "api", Description: "core", Value: "core/api",
 		}}},
@@ -65,4 +68,7 @@ func TestGeneratedAssistantChatResponseIncludesSelection(t *testing.T) {
 	assert.Equal(t, "pull_request", response.Artifacts[0].Type)
 	assert.Equal(t, "PR #42", response.Artifacts[0].Label)
 	assert.Equal(t, "https://example.com/pull/42", response.Artifacts[0].URL.Value)
+	assert.Equal(t, assistant.ChatOutcomeOperationBlocked, response.Outcome.Value)
+	assert.Equal(t, assistant.ChatRestrictionReadOnly, response.Restriction.Value)
+	assert.Equal(t, "deploy_sync_trigger", response.Operation.Value)
 }

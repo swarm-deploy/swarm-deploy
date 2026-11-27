@@ -156,6 +156,15 @@ components:
         read_only:
           type: boolean
           description: Whether writable assistant tools are disabled for the chat. Omitted when the chat mode is unknown.
+        outcome:
+          type: string
+          description: Machine-readable result of the request. Currently operation_blocked when a requested operation was not started.
+        restriction:
+          type: string
+          description: Restriction that produced the outcome. Currently read_only.
+        operation:
+          type: string
+          description: Name of the requested operation associated with the outcome.
         answer:
           type: string
         answer_sequence:

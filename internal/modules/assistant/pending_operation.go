@@ -229,8 +229,14 @@ type operationTurn struct {
 	*operationFlow
 	conversationID string
 	next           *PendingOperation
+	blocked        *blockedOperation
 	selection      *conversation.Selection
 	artifacts      []conversation.Artifact
+}
+
+type blockedOperation struct {
+	restriction string
+	operation   OperationType
 }
 
 func (f *operationFlow) beginTurn(conversationID string) *operationTurn {

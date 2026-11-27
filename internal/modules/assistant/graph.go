@@ -330,6 +330,10 @@ func (g *graph) routeNode(
 		executionState.effectiveToolSet = g.responseToolSet(route, result.Capabilities)
 		if result.Operation != nil {
 			if executionState.readOnly {
+				executionState.operationTurn.blocked = &blockedOperation{
+					restriction: ChatRestrictionReadOnly,
+					operation:   result.Operation.Type,
+				}
 				executionState.answer = g.config.Localizer.Text("chat.read_only_operation")
 				executionState.routeCompleted = true
 				return messages, nil
