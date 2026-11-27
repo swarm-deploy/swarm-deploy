@@ -5,8 +5,6 @@ import { useRoute, useRouter } from "vue-router";
 
 import { fetchSearch } from "../../api/search";
 import type { SearchResult } from "../../api/types";
-import { useOverviewStore } from "../../stores/overview";
-import { useSecretDetailsStore } from "../../stores/secretDetails";
 import AppButton from "../common/AppButton.vue";
 import SidebarIcon from "./SidebarIcon.vue";
 
@@ -19,8 +17,6 @@ const emit = defineEmits<{
 const MIN_QUERY_LENGTH = 2;
 const SEARCH_DEBOUNCE_MS = 300;
 
-const overviewStore = useOverviewStore();
-const secretDetailsStore = useSecretDetailsStore();
 const route = useRoute();
 const router = useRouter();
 
@@ -162,7 +158,7 @@ async function selectService(item: SearchResult) {
   }
 
   closeSearch();
-  await overviewStore.openServiceStatusModal(stackName, serviceName);
+  await router.push({ name: "service-details", params: { stack: stackName, service: serviceName } });
 }
 
 async function selectSecret(item: SearchResult) {
@@ -172,7 +168,7 @@ async function selectSecret(item: SearchResult) {
   }
 
   closeSearch();
-  await secretDetailsStore.openSecretDetails(secretName);
+  await router.push({ name: "secrets", query: { search: secretName } });
 }
 
 function handleDocumentClick(event: MouseEvent) {

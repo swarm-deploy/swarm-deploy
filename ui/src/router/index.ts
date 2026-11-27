@@ -78,6 +78,7 @@ export const router = createRouter({
       path: "/secrets",
       name: "secrets",
       component: SecretsView,
+      props: (route) => ({ initialSearch: typeof route.query.search === "string" ? route.query.search : "" }),
     },
   ],
 });

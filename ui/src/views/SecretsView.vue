@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { formatDate } from "../utils/format";
 import { formatNumber, locale, t } from "../i18n";
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 
 import { fetchSecretManagers, fetchSecrets, syncSecretManager } from "../api/secrets";
 import type { SecretInfo, SecretManagerInfo, SecretManagerSyncResponse } from "../api/types";
@@ -13,13 +13,15 @@ import CreateSecretModal from "../components/secrets/CreateSecretModal.vue";
 import SecretManagerCard from "../components/secrets/SecretManagerCard.vue";
 import { useSecretDetailsStore } from "../stores/secretDetails";
 
+const props = withDefaults(defineProps<{ initialSearch?: string }>(), { initialSearch: "" });
+
 const loading = ref(false);
 const loadingError = ref("");
 const secrets = ref<SecretInfo[]>([]);
 const secretManagers = ref<SecretManagerInfo[]>([]);
 const syncingManager = ref("");
 const managerFeedback = ref<Record<string, { kind: "success" | "error"; message: string }>>({});
-const searchQuery = ref("");
+const searchQuery = ref(props.initialSearch);
 const createModalOpen = ref(false);
 const createFeedback = ref("");
 const secretDetailsStore = useSecretDetailsStore();
@@ -31,6 +33,10 @@ type MobileSortValue = `${SortKey}:${SortDirection}`;
 const sortKey = ref<SortKey>("name");
 const sortDirection = ref<SortDirection>("ascending");
 const collator = new Intl.Collator(locale(), { numeric: true, sensitivity: "base" });
+
+watch(() => props.initialSearch, (value) => {
+  searchQuery.value = value;
+});
 
 const mobileSortValue = computed<MobileSortValue>({
   get: (): MobileSortValue => `${sortKey.value}:${sortDirection.value}` as MobileSortValue,

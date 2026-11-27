@@ -70,6 +70,82 @@ describe("TopBar search", () => {
     wrapper.unmount();
   });
 
+  it("opens a service result on the service page", async () => {
+    vi.mocked(fetchSearch).mockResolvedValue({
+      results: [
+        {
+          kind: "service",
+          match: "service_name",
+          label: "api",
+          stack: "payments",
+          service: "api",
+        },
+      ],
+    });
+
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [
+        { path: "/", component: { template: "<div />" } },
+        { path: "/services/:stack/:service", name: "service-details", component: { template: "<div />" } },
+      ],
+    });
+    await router.push("/");
+    await router.isReady();
+
+    const wrapper = mount(TopBar, {
+      props: { assistantEnabled: false },
+      global: { plugins: [router] },
+    });
+
+    await wrapper.get<HTMLInputElement>('input[type="search"]').setValue("api");
+    await vi.advanceTimersByTimeAsync(300);
+    await flushPromises();
+    await wrapper.get(".topbar-search-item").trigger("click");
+    await flushPromises();
+
+    expect(router.currentRoute.value.path).toBe("/services/payments/api");
+    wrapper.unmount();
+  });
+
+  it("opens a secret result on the filtered secrets page", async () => {
+    vi.mocked(fetchSearch).mockResolvedValue({
+      results: [
+        {
+          kind: "secret",
+          match: "secret_name",
+          label: "database-password",
+          secret_name: "database-password",
+        },
+      ],
+    });
+
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [
+        { path: "/", component: { template: "<div />" } },
+        { path: "/secrets", name: "secrets", component: { template: "<div />" } },
+      ],
+    });
+    await router.push("/");
+    await router.isReady();
+
+    const wrapper = mount(TopBar, {
+      props: { assistantEnabled: false },
+      global: { plugins: [router] },
+    });
+
+    await wrapper.get<HTMLInputElement>('input[type="search"]').setValue("database");
+    await vi.advanceTimersByTimeAsync(300);
+    await flushPromises();
+    await wrapper.get(".topbar-search-item").trigger("click");
+    await flushPromises();
+
+    expect(router.currentRoute.value.path).toBe("/secrets");
+    expect(router.currentRoute.value.query.search).toBe("database-password");
+    wrapper.unmount();
+  });
+
   it("localizes the visible and accessible assistant labels", async () => {
     i18n.global.locale.value = "ru";
     const router = createRouter({
