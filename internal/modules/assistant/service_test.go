@@ -698,7 +698,7 @@ func TestServiceChatLimitsConcurrentRuns(t *testing.T) {
 		requestStarted <- struct{}{}
 		<-release
 		w.Header().Set("Content-Type", "application/json")
-		writeChatResponse(t, w, string(RouteGeneral), nil)
+		writeChatResponse(t, w, string(RouteNeedsClarification), nil)
 	}))
 	defer server.Close()
 	defer close(release)

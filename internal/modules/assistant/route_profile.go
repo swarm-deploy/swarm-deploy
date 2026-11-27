@@ -19,6 +19,9 @@ type RouteProfile struct {
 
 //nolint:exhaustive // Terminal routes do not have a response profile.
 var routeProfiles = map[Route]RouteProfile{
+	RouteGeneral: {
+		Prompt: platformPrompt,
+	},
 	RoutePlatform: {
 		Prompt: platformPrompt,
 	},

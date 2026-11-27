@@ -256,22 +256,6 @@ func TestAssistantLocalRoutesFinishBeforeGeneration(t *testing.T) {
 		name, locale, question, decision, reply, routeActivity string
 	}{
 		{
-			name:          "assistant identity in Russian",
-			locale:        "ru",
-			question:      "Who are you?",
-			decision:      `{"route":"general","capabilities":[],"operation":null,"language":"ru"}`,
-			routeActivity: "Маршрут: general",
-			reply:         "Я помогаю с эксплуатацией swarm-deploy, Docker Swarm и инфраструктуры.",
-		},
-		{
-			name:          "unrelated task misclassified as general",
-			locale:        "en",
-			question:      "Сделай промт для ИИ-ассисинта redis",
-			decision:      `{"route":"general","capabilities":[],"operation":null,"language":"ru"}`,
-			routeActivity: "Route: general",
-			reply:         "I help with swarm-deploy, Docker Swarm, and infrastructure operations.",
-		},
-		{
 			name:          "clearly outside scope",
 			locale:        "ru",
 			question:      "Сделай HTML-страницу с кнопкой Download",
@@ -311,6 +295,56 @@ func TestAssistantLocalRoutesFinishBeforeGeneration(t *testing.T) {
 			assert.Equal(t, tc.question, requests[0].Messages[len(requests[0].Messages)-1].Content)
 			assert.Zero(t, reads.Load())
 			assert.Empty(t, tools.calls)
+		})
+	}
+}
+
+func TestAssistantAnswersProductFeedbackFollowUp(t *testing.T) {
+	const question = "Как пожаловаться на работу swarm-deploy?"
+	const previousAnswer = "Я помогаю с эксплуатацией swarm-deploy, Docker Swarm и инфраструктуры."
+	const followUp = "Вот и помоги"
+	const issuesURL = "https://github.com/swarm-deploy/swarm-deploy/issues"
+	const answer = "Откройте обращение в GitHub Issues: " + issuesURL
+
+	for _, tc := range []struct{ route, decision string }{
+		{"platform", `{"route":"platform","capabilities":[],"operation":null}`},
+		{"general", `{"route":"general","capabilities":["service_context","configuration"],"operation":{"type":"deploy_sync_trigger"}}`},
+	} {
+		t.Run(tc.route, func(t *testing.T) {
+			var requests []capturedChatRequest
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+				requests = append(requests, decodeCapturedChatRequest(t, req))
+				w.Header().Set("Content-Type", "application/json")
+				if len(requests) == 1 {
+					writeChatResponse(t, w, tc.decision, nil)
+					return
+				}
+				writeChatResponse(t, w, answer, nil)
+			}))
+			defer server.Close()
+
+			store, reads := observedServiceStore(t, nil)
+			tools := NewMockToolExecutor(gomock.NewController(t))
+			tools.EXPECT().Definitions().Return(assistantTestToolDefinitions()).AnyTimes()
+			svc := newRoutingTestServiceWithLocale(t, server.URL, store, tools, nil, nil, "ru")
+			svc.conversationStorage.Append("feedback", false,
+				conversation.Turn{Role: "user", Content: question},
+				conversation.Turn{Role: "assistant", Content: previousAnswer},
+			)
+
+			response := svc.Chat(t.Context(), ChatRequest{ConversationID: "feedback", Message: followUp})
+			require.Equal(t, StatusCompleted, response.Status, response.ErrorMessage)
+			assert.Equal(t, answer, response.Answer)
+			assert.Contains(t, response.Activity, "Маршрут: "+tc.route)
+			require.Len(t, requests, 2)
+			generation := requests[1]
+			require.Len(t, generation.Messages, 4)
+			assert.Contains(t, generation.Messages[0].Content, issuesURL)
+			assert.Equal(t, question, generation.Messages[1].Content)
+			assert.Equal(t, previousAnswer, generation.Messages[2].Content)
+			assert.Equal(t, followUp, generation.Messages[3].Content)
+			assert.Equal(t, []string{assistantPromptInjectionReportTool}, capturedToolNames(generation))
+			assert.Zero(t, reads.Load())
 		})
 	}
 }

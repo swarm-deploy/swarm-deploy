@@ -107,7 +107,7 @@ func (r *llmRouter) Route(ctx context.Context, req RouteRequest) (RouteResult, e
 
 	rawRoute := strings.ToLower(strings.TrimSpace(string(decision.Route)))
 	route := Route(rawRoute)
-	if localRouteMessageID(route) != "" {
+	if route == RouteGeneral || localRouteMessageID(route) != "" {
 		return RouteResult{Route: route, Usage: completion.Usage}, nil
 	}
 	if _, ok := routeProfiles[route]; !ok {
@@ -155,7 +155,7 @@ func (r *llmRouter) Route(ctx context.Context, req RouteRequest) (RouteResult, e
 
 func localRouteMessageID(route Route) string {
 	switch route { //nolint:exhaustive // Only terminal routes have a local reply.
-	case RouteGeneral, RouteOutOfScope:
+	case RouteOutOfScope:
 		return "router.scope"
 	case RouteNeedsClarification:
 		return "router.clarify"
@@ -225,16 +225,16 @@ func recentTurns(history []conversation.Turn, limit int) []conversation.Turn {
 //nolint:lll // Keeping prompt instructions on semantic lines makes the model-facing text easier to audit.
 const routerSystemPrompt = `Classify the user's request for the swarm-deploy assistant.
 Return compact JSON only: {"route":"<route>","capabilities":["<capability>"],"operation":null}.
-First identify the requested outcome using the latest message and recent conversation. Supported goals are using swarm-deploy and deploying, configuring, observing, operating, or troubleshooting workloads and infrastructure. An infrastructure task can be supported without naming Docker or swarm-deploy.
+First identify the requested outcome using the latest message and recent conversation. Supported goals include learning about swarm-deploy, using it, giving feedback about it, and deploying, configuring, observing, operating, or troubleshooting workloads and infrastructure. An infrastructure task can be supported without naming Docker or swarm-deploy.
 Choose a response profile only when the requested result directly serves a supported goal or a listed lookup. Classify the outcome the user actually asks for. A related term, product name, or earlier infrastructure topic does not make a new task supported.
 For a mixed request, choose the route, capabilities, and operation for its supported parts only. Add "scoped_request" containing those parts in the user's language, preserving exact resource names and relevant constraints. Omit it when the whole request is supported.
 For general, out_of_scope, or needs_clarification, return empty capabilities and a null operation.
 Capabilities are composable: include every context/tool group needed for the supported request.
 Routes:
-- general: greetings, acknowledgements, and questions about this assistant's identity or remit
+- general: greetings, acknowledgements, and questions about who this assistant is
 - out_of_scope: clear requested outcome with no supported part
 - needs_clarification: the requested outcome or its connection to a supported goal remains unclear after considering the conversation
-- platform: how to use swarm-deploy and its built-in assistant, product behavior, running global configuration, and practical infrastructure guidance: installing components, monitoring, deployment patterns, and Docker Swarm concepts
+- platform: questions about swarm-deploy and its built-in assistant, including features, usage, product behavior, feedback, bug reports, and feature requests. Also covers running global configuration and practical infrastructure guidance: installing components, monitoring, deployment patterns, and Docker Swarm concepts
 - services: service catalog or service-focused inspection/operations
 - cluster: nodes, Docker networks, plugins, or secrets
 - deployments: synchronization, deployment/event history, recommendations, git history, or commit diffs
@@ -268,6 +268,7 @@ For Pause Sync mutations, use operation {"type":"sync_pause_set|sync_pause_resum
 Target is copied from the current user message. Never infer a missing operation target from history.
 Examples:
 "Привет" -> {"route":"general","capabilities":[],"operation":null}
+"Как пожаловаться на работу swarm-deploy?" -> {"route":"platform","capabilities":[],"operation":null}
 "Где находится Юпитер?" -> {"route":"out_of_scope","capabilities":[],"operation":null}
 "Покажи логи api" -> {"route":"services","capabilities":["service_context","service_runtime"],"operation":null}
 "Проверь DNS api.example.com" -> {"route":"lookups","capabilities":["dns"],"operation":null}
