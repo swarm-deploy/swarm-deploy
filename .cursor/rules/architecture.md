@@ -147,7 +147,7 @@ Path: `internal/modules/notifications`.
 
 - The composition root initializes Notifications after Event and before the worker starts. Notifications registers event and alert deliveries as external subscribers through Event's dispatcher.
 - `notifications/eventnotify` owns the mapping from events to notification payloads and the standard templates. Configuration validation uses its reference payloads.
-- Alert notifications consume `AlertOpened` and `AlertResolved` and use Alert Management kind constants to choose message formatting. Notifications uses Event's Outbox inspection to recover subscriptions and shared storage for `notification_messages`. `alerts/store.go` also reads Outbox tables directly; see known issues.
+- Alert notifications consume `AlertOpened` and `AlertResolved` and use Alert Management kind constants to choose message formatting. Notifications uses Event's typed Outbox inspection contract to recover subscriptions, read retained opening recipients, and protect replayable lifecycles during cleanup. Its Store uses shared storage only for `notification_messages`.
 
 ### Architectural Invariants
 
@@ -257,15 +257,14 @@ below describe their current role and the established constraints to preserve.
 These observations do not authorize refactoring. Preserve behavior within task scope;
 do not expand a violation or choose a new owner without explicit approval.
 
-1. **Existing persistence-boundary violation/coupling:** `notifications/alerts/store.go`
-   reads Event's `outbox_events` payload/schema for routing and cleanup, and uses raw cleanup SQL.
-   **Clarification:** what repository contracts should expose these cross-module checks?
-   Do not treat access to the shared database as ownership of another module's tables.
-3. **Resolved: Event/Notifications assembly boundary.** See [Event](#event) and
+1. **Resolved: Event/Notifications persistence boundary.** Event owns Outbox SQL,
+   persisted payload decoding, and typed alert-lifecycle inspection. Notifications coordinates
+   those supported inspection results with its own `notification_messages` repository.
+2. **Resolved: Event/Notifications assembly boundary.** See [Event](#event) and
    [Notifications](#notifications) for the supported ownership boundary.
-4. **Residual Deployments wiring coupling:** `deployments/module.go` reads
+3. **Residual Deployments wiring coupling:** `deployments/module.go` reads
    `cfg.Spec.GitOps.Secrets.Age` and `cfg.Spec.GitOps.Sync.Policy`.
    **Clarification:** is this configuration shape intentional or compatibility residue?
    It does not permit a GitOps module dependency or direct SDK operations.
-5. **Resolved: transaction documentation mismatch.** Nested `WithinTransaction` calls
+4. **Resolved: transaction documentation mismatch.** Nested `WithinTransaction` calls
    join the active transaction without savepoints or independent rollback.

@@ -4,8 +4,6 @@ package alerts
 import (
 	"context"
 	"database/sql"
-	"encoding/json/v2"
-	"errors"
 	"fmt"
 	"time"
 
@@ -87,31 +85,6 @@ func (s *Store) HasAny(ctx context.Context, alertID string) (bool, error) {
 	return count > 0, nil
 }
 
-// OpeningRecipients reads the still-pending opening route when no link exists yet.
-func (s *Store) OpeningRecipients(ctx context.Context, alertID string) ([]events.AlertRecipient, bool, error) {
-	var payload string
-	query, args, err := s.db.Dialect().From("outbox_events").Prepared(true).Select("payload").
-		Where(goqu.Ex{"event_type": "AlertOpened"},
-			goqu.L("json_extract(payload, '$.alert.id') = ?", alertID)).Limit(1).ToSQL()
-	if err != nil {
-		return nil, false, err
-	}
-	err = s.db.Get(ctx, &payload, query, args...)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, false, nil
-	}
-	if err != nil {
-		return nil, false, err
-	}
-	var event struct {
-		Recipients []events.AlertRecipient `json:"recipients"`
-	}
-	if err = json.Unmarshal([]byte(payload), &event); err != nil {
-		return nil, false, err
-	}
-	return event.Recipients, true, nil
-}
-
 // MarkOpened records an accepted initial message before Outbox acknowledgement.
 func (s *Store) MarkOpened(
 	ctx context.Context, alertID string, recipient events.AlertRecipient, receipt notifiers.Receipt, at time.Time,
@@ -181,14 +154,34 @@ func (s *Store) KnownRecipients(ctx context.Context) ([]events.AlertRecipient, e
 	return result, nil
 }
 
-// PruneCompleted removes resolved links only after no lifecycle delivery can replay them.
-func (s *Store) PruneCompleted(ctx context.Context) error {
-	query := `DELETE FROM notification_messages
-		WHERE resolved_at IS NOT NULL AND NOT EXISTS (
-			SELECT 1 FROM outbox_events e
-			WHERE e.event_type IN ('AlertOpened','AlertResolved')
-			AND json_extract(e.payload, '$.alert.id') = notification_messages.alert_id
-		)`
-	_, err := s.db.Exec(ctx, query)
+// CompletedAlertIDs returns alert lifecycles with at least one completed message link.
+func (s *Store) CompletedAlertIDs(ctx context.Context) ([]string, error) {
+	alertIDs := []string{}
+	query, args, err := s.db.Dialect().From("notification_messages").Prepared(true).
+		Select("alert_id").Distinct().Where(goqu.I("resolved_at").IsNotNull()).ToSQL()
+	if err != nil {
+		return nil, err
+	}
+	if err = s.db.Select(ctx, &alertIDs, query, args...); err != nil {
+		return nil, err
+	}
+	return alertIDs, nil
+}
+
+// DeleteCompleted removes completed message links for explicitly allowed alert lifecycles.
+func (s *Store) DeleteCompleted(ctx context.Context, alertIDs []string) error {
+	if len(alertIDs) == 0 {
+		return nil
+	}
+	values := make([]any, 0, len(alertIDs))
+	for _, alertID := range alertIDs {
+		values = append(values, alertID)
+	}
+	query, args, err := s.db.Dialect().Delete("notification_messages").Prepared(true).
+		Where(goqu.I("alert_id").In(values...), goqu.I("resolved_at").IsNotNull()).ToSQL()
+	if err != nil {
+		return err
+	}
+	_, err = s.db.Exec(ctx, query, args...)
 	return err
 }

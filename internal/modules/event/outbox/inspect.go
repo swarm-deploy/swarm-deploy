@@ -2,11 +2,15 @@ package outbox
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 
 	"github.com/doug-martin/goqu/v9"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 )
+
+const alertIDPayloadPath = "$.alert.id"
 
 // ListFilter restricts retained outbox publications.
 type ListFilter struct {
@@ -86,4 +90,85 @@ func (r *Repository) ListDeliveries(ctx context.Context, filter ListDeliveriesFi
 		return nil, err
 	}
 	return deliveries, nil
+}
+
+// AlertOpeningRecipients returns the recipients from a retained AlertOpened publication.
+func (r *Repository) AlertOpeningRecipients(
+	ctx context.Context, alertID string,
+) ([]events.AlertRecipient, bool, error) {
+	var row publicationRow
+	query, args, err := r.db.Dialect().From("outbox_events").Prepared(true).
+		Select("id", "event_type", "schema_version", "payload", "occurred_at", "sequence", "traceparent").
+		Where(
+			goqu.Ex{"event_type": events.TypeNameAlertOpened},
+			goqu.Func("json_extract", goqu.I("payload"), alertIDPayloadPath).Eq(alertID),
+		).
+		Order(goqu.I("sequence").Asc()).
+		Limit(1).
+		ToSQL()
+	if err != nil {
+		return nil, false, fmt.Errorf("build alert opening query: %w", err)
+	}
+	if err = r.db.Get(ctx, &row, query, args...); errors.Is(err, sql.ErrNoRows) {
+		return nil, false, nil
+	} else if err != nil {
+		return nil, false, err
+	}
+	publication, err := row.publication()
+	if err != nil {
+		return nil, false, err
+	}
+	event, ok := publication.Envelope.Event.(*events.AlertOpened)
+	if !ok {
+		return nil, false, errors.Join(ErrInvalidPayload, fmt.Errorf(
+			"expected AlertOpened publication, got %T", publication.Envelope.Event,
+		))
+	}
+	return event.Recipients, true, nil
+}
+
+// RetainedAlertLifecycleIDs returns alert IDs that still have an AlertOpened or AlertResolved publication.
+func (r *Repository) RetainedAlertLifecycleIDs(
+	ctx context.Context, alertIDs []string,
+) (map[string]bool, error) {
+	retained := make(map[string]bool)
+	if len(alertIDs) == 0 {
+		return retained, nil
+	}
+	values := make([]any, 0, len(alertIDs))
+	for _, alertID := range alertIDs {
+		values = append(values, alertID)
+	}
+	rows := []publicationRow{}
+	query, args, err := r.db.Dialect().From("outbox_events").Prepared(true).
+		Select("id", "event_type", "schema_version", "payload", "occurred_at", "sequence", "traceparent").
+		Where(
+			goqu.I("event_type").In(events.TypeNameAlertOpened, events.TypeNameAlertResolved),
+			goqu.Func("json_extract", goqu.I("payload"), alertIDPayloadPath).In(values...),
+		).
+		Order(goqu.I("sequence").Asc()).
+		ToSQL()
+	if err != nil {
+		return nil, fmt.Errorf("build retained alert lifecycle query: %w", err)
+	}
+	if err = r.db.Select(ctx, &rows, query, args...); err != nil {
+		return nil, err
+	}
+	for _, row := range rows {
+		publication, decodeErr := row.publication()
+		if decodeErr != nil {
+			return nil, decodeErr
+		}
+		switch event := publication.Envelope.Event.(type) {
+		case *events.AlertOpened:
+			retained[event.Alert.ID] = true
+		case *events.AlertResolved:
+			retained[event.Alert.ID] = true
+		default:
+			return nil, errors.Join(ErrInvalidPayload, fmt.Errorf(
+				"expected alert lifecycle publication, got %T", publication.Envelope.Event,
+			))
+		}
+	}
+	return retained, nil
 }

@@ -70,7 +70,7 @@ func TestTelegramAlertDeliveryReportsMessengerHealth(t *testing.T) {
 	t.Cleanup(server.Close)
 	recipients := spec.AlertRecipients("sync_failed")
 	subscriber := &Subscriber{
-		store: NewStore(db), spec: spec, recipient: recipients[0],
+		store: NewStore(db), outbox: outbox.New(db), db: db, spec: spec, recipient: recipients[0],
 		publisher: bus, now: time.Now, apiBaseURL: server.URL,
 	}
 	alert := events.AlertSnapshot{ID: "sync", Kind: "sync_failed", Title: "Sync failed"}
@@ -156,7 +156,8 @@ func TestAlertTelegramButtons(t *testing.T) {
 			route.Resolved.Buttons = tt.buttons
 			recipients := spec.AlertRecipients("sync_failed")
 			subscriber := &Subscriber{
-				store: NewStore(db), spec: spec, recipient: recipients[0], publisher: &eventbus.NopDispatcher{}, now: time.Now, apiBaseURL: server.URL,
+				store: NewStore(db), outbox: outbox.New(db), db: db,
+				spec: spec, recipient: recipients[0], publisher: &eventbus.NopDispatcher{}, now: time.Now, apiBaseURL: server.URL,
 			}
 			alert := events.AlertSnapshot{ID: "alert-1", Kind: "sync_failed", Title: "Sync failed", DeploymentID: "dep-1"}
 			require.NoError(t, subscriber.Handle(t.Context(), events.Envelope{Event: &events.AlertOpened{
@@ -273,7 +274,8 @@ func TestSyncFailedAlertRendering(t *testing.T) {
 			defer server.Close()
 			recipient := spec.AlertRecipients("sync_failed")[0]
 			subscriber := &Subscriber{
-				store: NewStore(db), spec: spec, recipient: recipient, publisher: &eventbus.NopDispatcher{}, now: time.Now, apiBaseURL: server.URL,
+				store: NewStore(db), outbox: outbox.New(db), db: db,
+				spec: spec, recipient: recipient, publisher: &eventbus.NopDispatcher{}, now: time.Now, apiBaseURL: server.URL,
 			}
 			alert := events.AlertSnapshot{
 				ID: "failed", Kind: "sync_failed", Title: test.title, ResourceID: "infra<&",
@@ -304,7 +306,8 @@ func TestSyncFailedDefaultAlertTruncatesLongError(t *testing.T) {
 	defer server.Close()
 	recipient := spec.AlertRecipients("sync_failed")[0]
 	subscriber := &Subscriber{
-		store: NewStore(db), spec: spec, recipient: recipient, publisher: &eventbus.NopDispatcher{}, now: time.Now, apiBaseURL: server.URL,
+		store: NewStore(db), outbox: outbox.New(db), db: db,
+		spec: spec, recipient: recipient, publisher: &eventbus.NopDispatcher{}, now: time.Now, apiBaseURL: server.URL,
 	}
 	alert := events.AlertSnapshot{
 		ID: "long-failure", Kind: "sync_failed", Title: "Synchronization outcome unknown", ResourceID: "infra-monitoring",
@@ -326,7 +329,10 @@ func subscribeTestRecipients(t *testing.T, bus *eventbus.OutboxDispatcher, db st
 	t.Helper()
 	recipients := spec.AlertRecipients("node_disconnected")
 	for _, recipient := range recipients {
-		subscriber := eventbus.External(&Subscriber{store: NewStore(db), spec: spec, recipient: recipient, publisher: bus, now: time.Now, apiBaseURL: url})
+		subscriber := eventbus.External(&Subscriber{
+			store: NewStore(db), outbox: outbox.New(db), db: db,
+			spec: spec, recipient: recipient, publisher: bus, now: time.Now, apiBaseURL: url,
+		})
 		require.NoError(t, bus.Subscribe(events.TypeNameAlertOpened, SubscriptionID(recipient), subscriber))
 		require.NoError(t, bus.Subscribe(events.TypeNameAlertResolved, SubscriptionID(recipient), subscriber))
 	}
@@ -344,6 +350,23 @@ func drain(t *testing.T, bus *eventbus.OutboxDispatcher) {
 	}
 }
 
+func deliveryEventID(
+	t *testing.T, repository *outbox.Repository, eventType events.TypeName, subscriptionID string,
+) string {
+	t.Helper()
+	deliveries, err := repository.ListDeliveries(t.Context(), outbox.ListDeliveriesFilter{
+		SubscriptionIDPrefix: subscriptionID,
+	})
+	require.NoError(t, err)
+	for _, delivery := range deliveries {
+		if delivery.EventType == eventType && delivery.SubscriptionID == subscriptionID {
+			return delivery.EventID
+		}
+	}
+	require.FailNow(t, "delivery not found", "event type %s subscription %s", eventType, subscriptionID)
+	return ""
+}
+
 func TestRegisterIncludesFallbackAndCustomRecipientsForFutureAlertKinds(t *testing.T) {
 	db, err := storage.OpenSQLite(t.Context(), t.TempDir())
 	require.NoError(t, err)
@@ -359,8 +382,9 @@ func TestRegisterIncludesFallbackAndCustomRecipientsForFutureAlertKinds(t *testi
 			Chats: config.NotificationChatNames{"infra"},
 		}}},
 	}
-	bus := eventbus.NewOutboxDispatcher(outbox.New(db))
-	require.NoError(t, Register(t.Context(), bus, db, spec))
+	repository := outbox.New(db)
+	bus := eventbus.NewOutboxDispatcher(repository)
+	require.NoError(t, Register(t.Context(), bus, repository, db, spec))
 	futureRecipients := spec.AlertRecipients("future_alert_kind")
 	require.Len(t, futureRecipients, 1)
 	require.NoError(t, bus.Publish(t.Context(), &events.AlertOpened{
@@ -373,12 +397,32 @@ func TestRegisterIncludesFallbackAndCustomRecipientsForFutureAlertKinds(t *testi
 	for _, kind := range []string{"future_alert_kind", "sync_failed", "node_disconnected"} {
 		recipients := spec.AlertRecipients(kind)
 		require.Len(t, recipients, 1)
-		var deliveries int
-		require.NoError(t, db.Get(t.Context(), &deliveries, `SELECT count(*) FROM outbox_deliveries d
-			JOIN outbox_events e ON e.id=d.event_id WHERE e.event_type='AlertOpened' AND d.subscription_id=?`,
-			SubscriptionID(recipients[0])))
-		assert.Equal(t, 1, deliveries, "recipient for %s must be registered", kind)
+		assert.NotEmpty(t, deliveryEventID(
+			t, repository, events.TypeNameAlertOpened, SubscriptionID(recipients[0]),
+		), "recipient for %s must be registered", kind)
 	}
+}
+
+func TestRegisterRecoversSubscriberFromRetainedDelivery(t *testing.T) {
+	db, err := storage.OpenSQLite(t.Context(), t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	repository := outbox.New(db)
+	bus := eventbus.NewOutboxDispatcher(repository)
+	recipient := events.AlertRecipient{BotIdentity: "retained-bot", ChatID: "-900", ThreadID: 7}
+	require.NoError(t, repository.Publish(t.Context(), &events.AlertOpened{
+		Alert: events.AlertSnapshot{
+			ID: "retained-subscription", Kind: "node_disconnected", OpenedAt: time.Now().UTC(),
+		},
+	}, []string{SubscriptionID(recipient)}, time.Now().UTC()))
+
+	require.NoError(t, Register(t.Context(), bus, repository, db, config.NotificationSpec{}))
+	handled, err := bus.ProcessNext(t.Context())
+	require.NoError(t, err)
+	require.True(t, handled)
+	deliveries, err := repository.ListDeliveries(t.Context(), outbox.ListDeliveriesFilter{})
+	require.NoError(t, err)
+	assert.Empty(t, deliveries)
 }
 
 func TestAlertIndependentDeliveryOrderingAndRestart(t *testing.T) {
@@ -445,10 +489,9 @@ func TestAlertIndependentDeliveryOrderingAndRestart(t *testing.T) {
 	bus = eventbus.NewOutboxDispatcher(repository)
 	subscribeTestRecipients(t, bus, db, spec, server.URL)
 	failInfra.Store(false)
-	var infraOpenEventID string
-	require.NoError(t, db.Get(t.Context(), &infraOpenEventID, `SELECT d.event_id FROM outbox_deliveries d
-		JOIN outbox_events e ON e.id=d.event_id WHERE e.event_type='AlertOpened' AND d.subscription_id=?`,
-		SubscriptionID(recipients[1])))
+	infraOpenEventID := deliveryEventID(
+		t, repository, events.TypeNameAlertOpened, SubscriptionID(recipients[1]),
+	)
 	_, err = db.Exec(t.Context(), `UPDATE outbox_deliveries SET status='failed' WHERE event_id=? AND subscription_id=?`,
 		infraOpenEventID, SubscriptionID(recipients[1]))
 	require.NoError(t, err)
@@ -470,22 +513,176 @@ func TestAlertMessageStoreRetentionAndReplay(t *testing.T) {
 	spec := alertSpec()
 	recipients := spec.AlertRecipients("node_disconnected")
 	store := NewStore(db)
+	repository := outbox.New(db)
 	for _, recipient := range recipients {
 		require.NoError(t, store.Ensure(t.Context(), "old-open", recipient))
 		require.NoError(t, store.MarkOpened(t.Context(), "old-open", recipient, notifiers.Receipt{MessageID: int64(recipient.ThreadID)}, time.Now().Add(-365*24*time.Hour)))
 	}
-	require.NoError(t, store.PruneCompleted(t.Context()))
+	require.NoError(t, pruneCompleted(t.Context(), db, store, repository))
 	for _, recipient := range recipients {
 		link, getErr := store.Get(t.Context(), "old-open", recipient)
 		require.NoError(t, getErr)
 		assert.True(t, link.OpenedAt.Valid, "open alerts have no TTL")
 	}
 	require.NoError(t, store.MarkResolved(t.Context(), "old-open", recipients[0], notifiers.Receipt{MessageID: 55, Action: notifiers.ActionReply}, time.Now()))
-	require.NoError(t, store.PruneCompleted(t.Context()))
+	require.NoError(t, pruneCompleted(t.Context(), db, store, repository))
 	_, err = store.Get(t.Context(), "old-open", recipients[0])
 	assert.ErrorIs(t, err, sql.ErrNoRows)
 	_, err = store.Get(t.Context(), "old-open", recipients[1])
 	assert.NoError(t, err)
+}
+
+func TestPruneCompletedWaitsForEveryRetainedLifecycleDeliveryState(t *testing.T) {
+	for _, status := range []outbox.DeliveryStatus{
+		outbox.DeliveryStatusPending,
+		outbox.DeliveryStatusProcessing,
+		outbox.DeliveryStatusFailed,
+	} {
+		t.Run(string(status), func(t *testing.T) {
+			db, err := storage.OpenSQLite(t.Context(), t.TempDir())
+			require.NoError(t, err)
+			t.Cleanup(func() { require.NoError(t, db.Close()) })
+			repository := outbox.New(db)
+			store := NewStore(db)
+			recipient := alertSpec().AlertRecipients("node_disconnected")[0]
+			const alertID = "retained-lifecycle"
+			const subscriptionID = "test-alert-delivery"
+			now := time.Now().UTC()
+			require.NoError(t, store.Ensure(t.Context(), alertID, recipient))
+			require.NoError(t, store.MarkResolved(
+				t.Context(), alertID, recipient, notifiers.Receipt{Action: notifiers.ActionSend}, now,
+			))
+			require.NoError(t, repository.Publish(t.Context(), &events.AlertOpened{
+				Alert:      events.AlertSnapshot{ID: alertID, Kind: "node_disconnected", OpenedAt: now},
+				Recipients: []events.AlertRecipient{recipient},
+			}, []string{subscriptionID}, now))
+
+			var claimed outbox.Delivery
+			if status != outbox.DeliveryStatusPending {
+				claimed, err = repository.Claim(t.Context(), now, time.Hour)
+				require.NoError(t, err)
+			}
+			if status == outbox.DeliveryStatusFailed {
+				require.NoError(t, repository.Fail(t.Context(), claimed, "test", true, 1, now))
+			}
+
+			require.NoError(t, pruneCompleted(t.Context(), db, store, repository))
+			_, err = store.Get(t.Context(), alertID, recipient)
+			require.NoError(t, err, "retained %s publication must protect the link", status)
+
+			switch status {
+			case outbox.DeliveryStatusPending:
+				claimed, err = repository.Claim(t.Context(), now, time.Hour)
+				require.NoError(t, err)
+				require.NoError(t, repository.Acknowledge(t.Context(), claimed, now))
+			case outbox.DeliveryStatusProcessing:
+				require.NoError(t, repository.Acknowledge(t.Context(), claimed, now))
+			case outbox.DeliveryStatusFailed:
+				require.NoError(t, repository.Discard(
+					t.Context(), claimed.EventID, claimed.SubscriptionID, now,
+				))
+			}
+
+			require.NoError(t, pruneCompleted(t.Context(), db, store, repository))
+			_, err = store.Get(t.Context(), alertID, recipient)
+			assert.ErrorIs(t, err, sql.ErrNoRows)
+		})
+	}
+}
+
+func TestPruneCompletedKeepsUnfinishedLinks(t *testing.T) {
+	db, err := storage.OpenSQLite(t.Context(), t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	store := NewStore(db)
+	recipient := alertSpec().AlertRecipients("node_disconnected")[0]
+	require.NoError(t, store.Ensure(t.Context(), "unfinished", recipient))
+
+	require.NoError(t, pruneCompleted(t.Context(), db, store, outbox.New(db)))
+	_, err = store.Get(t.Context(), "unfinished", recipient)
+	require.NoError(t, err)
+}
+
+func TestPruneCompletedKeepsLinksWhenOutboxInspectionFails(t *testing.T) {
+	db, err := storage.OpenSQLite(t.Context(), t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	store := NewStore(db)
+	recipient := alertSpec().AlertRecipients("node_disconnected")[0]
+	require.NoError(t, store.Ensure(t.Context(), "inspection-error", recipient))
+	require.NoError(t, store.MarkResolved(
+		t.Context(), "inspection-error", recipient, notifiers.Receipt{Action: notifiers.ActionSend}, time.Now(),
+	))
+
+	outboxDB, err := storage.OpenSQLite(t.Context(), t.TempDir())
+	require.NoError(t, err)
+	repository := outbox.New(outboxDB)
+	require.NoError(t, outboxDB.Close())
+	require.Error(t, pruneCompleted(t.Context(), db, store, repository))
+
+	_, err = store.Get(t.Context(), "inspection-error", recipient)
+	require.NoError(t, err)
+}
+
+func TestEarlyResolutionUsesRetainedOpeningRecipients(t *testing.T) {
+	testCases := []struct {
+		name                 string
+		retainOpening        bool
+		subscriberRecipient  int
+		resolutionRecipients []int
+		wantSends            int
+	}{
+		{
+			name: "recipient from retained opening receives resolution", retainOpening: true,
+			subscriberRecipient: 0, resolutionRecipients: []int{0, 1}, wantSends: 1,
+		},
+		{
+			name: "recipient absent from retained opening is skipped", retainOpening: true,
+			subscriberRecipient: 1, resolutionRecipients: []int{0, 1}, wantSends: 0,
+		},
+		{
+			name:                "resolution recipients are fallback after opening publication is gone",
+			subscriberRecipient: 1, resolutionRecipients: []int{1}, wantSends: 1,
+		},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			db, err := storage.OpenSQLite(t.Context(), t.TempDir())
+			require.NoError(t, err)
+			t.Cleanup(func() { require.NoError(t, db.Close()) })
+			repository := outbox.New(db)
+			spec := alertSpec()
+			recipients := spec.AlertRecipients("node_disconnected")
+			alert := events.AlertSnapshot{
+				ID: "early-resolution", Kind: "node_disconnected", Title: "Node disconnected",
+				OpenedAt: time.Now().UTC(),
+			}
+			if testCase.retainOpening {
+				require.NoError(t, repository.Publish(t.Context(), &events.AlertOpened{
+					Alert: alert, Recipients: []events.AlertRecipient{recipients[0]},
+				}, []string{"opening-delivery"}, time.Now().UTC()))
+			}
+			resolvedRecipients := make([]events.AlertRecipient, 0, len(testCase.resolutionRecipients))
+			for _, index := range testCase.resolutionRecipients {
+				resolvedRecipients = append(resolvedRecipients, recipients[index])
+			}
+			sends := 0
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				sends++
+				_, _ = w.Write([]byte(`{"ok":true,"result":{"message_id":42}}`))
+			}))
+			t.Cleanup(server.Close)
+			subscriber := &Subscriber{
+				store: NewStore(db), outbox: repository, db: db,
+				spec: spec, recipient: recipients[testCase.subscriberRecipient],
+				publisher: &eventbus.NopDispatcher{}, now: time.Now, apiBaseURL: server.URL,
+			}
+			require.NoError(t, subscriber.Handle(t.Context(), events.Envelope{Event: &events.AlertResolved{
+				Alert: alert, Recipients: resolvedRecipients,
+			}}))
+			assert.Equal(t, testCase.wantSends, sends)
+		})
+	}
 }
 
 func TestAlertReceiptSurvivesReplayBeforeAcknowledgement(t *testing.T) {
@@ -501,7 +698,10 @@ func TestAlertReceiptSurvivesReplayBeforeAcknowledgement(t *testing.T) {
 	}))
 	defer server.Close()
 	bus := eventbus.NewOutboxDispatcher(outbox.New(db))
-	subscriber := &Subscriber{store: NewStore(db), spec: spec, recipient: recipient, publisher: &eventbus.NopDispatcher{}, now: time.Now, apiBaseURL: server.URL}
+	subscriber := &Subscriber{
+		store: NewStore(db), outbox: outbox.New(db), db: db,
+		spec: spec, recipient: recipient, publisher: &eventbus.NopDispatcher{}, now: time.Now, apiBaseURL: server.URL,
+	}
 	require.NoError(t, bus.Subscribe(events.TypeNameAlertOpened, SubscriptionID(recipient), eventbus.External(subscriber)))
 	alert := events.AlertSnapshot{ID: "crash-cycle", Kind: "node_disconnected", Title: "Node disconnected", OpenedAt: time.Now().UTC()}
 	event := &events.AlertOpened{Alert: alert, Recipients: []events.AlertRecipient{recipient}}
@@ -544,7 +744,11 @@ func TestAlertResolutionUsesOriginalPhysicalChatAfterRouteChange(t *testing.T) {
 		_, _ = w.Write([]byte(`{"ok":true,"result":{"message_id":78}}`))
 	}))
 	defer server.Close()
-	subscriber := &Subscriber{store: store, spec: newSpec, recipient: recipient, publisher: &eventbus.NopDispatcher{}, now: time.Now, apiBaseURL: server.URL}
+	repository := outbox.New(db)
+	subscriber := &Subscriber{
+		store: store, outbox: repository, db: db,
+		spec: newSpec, recipient: recipient, publisher: &eventbus.NopDispatcher{}, now: time.Now, apiBaseURL: server.URL,
+	}
 	resolved := time.Now().UTC()
 	err = subscriber.Handle(t.Context(), events.Envelope{Event: &events.AlertResolved{Alert: events.AlertSnapshot{
 		ID: "moved-route", Kind: "node_disconnected", Title: "Node disconnected",
@@ -566,7 +770,8 @@ func TestAlertResolutionUsesOriginalPhysicalChatAfterRouteChange(t *testing.T) {
 	assert.False(t, noOriginal.ReplyMessageID.Valid)
 	defaultRecipient := newSpec.AlertRecipients("node_disconnected")[0]
 	defaultSubscriber := &Subscriber{
-		store: store, spec: newSpec, recipient: defaultRecipient, publisher: &eventbus.NopDispatcher{}, now: time.Now, apiBaseURL: server.URL,
+		store: store, outbox: repository, db: db,
+		spec: newSpec, recipient: defaultRecipient, publisher: &eventbus.NopDispatcher{}, now: time.Now, apiBaseURL: server.URL,
 	}
 	require.NoError(t, defaultSubscriber.Handle(t.Context(), events.Envelope{Event: &events.AlertResolved{
 		Alert: events.AlertSnapshot{ID: "never-opened", Kind: "node_disconnected", Title: "Node disconnected",
@@ -579,7 +784,10 @@ func TestAlertResolutionUsesOriginalPhysicalChatAfterRouteChange(t *testing.T) {
 	assert.Equal(t, "send", defaultLink.ResolvedAction.String)
 
 	newSpec.Messengers.Telegram.BotToken.Content = nil
-	missing := &Subscriber{store: store, spec: newSpec, recipient: recipient, publisher: &eventbus.NopDispatcher{}, now: time.Now, apiBaseURL: server.URL}
+	missing := &Subscriber{
+		store: store, outbox: repository, db: db,
+		spec: newSpec, recipient: recipient, publisher: &eventbus.NopDispatcher{}, now: time.Now, apiBaseURL: server.URL,
+	}
 	alert := events.AlertSnapshot{ID: "missing-credentials", Kind: "node_disconnected", Title: "Node disconnected"}
 	require.ErrorContains(t, missing.Handle(t.Context(), events.Envelope{Event: &events.AlertOpened{
 		Alert: alert, Recipients: []events.AlertRecipient{recipient},
@@ -603,7 +811,8 @@ func TestResolvedAlertDoesNotSendOpeningOnManualReplay(t *testing.T) {
 	repository := outbox.New(db)
 	bus := eventbus.NewOutboxDispatcher(repository)
 	subscriber := &Subscriber{
-		store: NewStore(db), spec: spec, recipient: recipient, publisher: &eventbus.NopDispatcher{}, now: time.Now, apiBaseURL: server.URL,
+		store: NewStore(db), outbox: repository, db: db,
+		spec: spec, recipient: recipient, publisher: &eventbus.NopDispatcher{}, now: time.Now, apiBaseURL: server.URL,
 	}
 	id := SubscriptionID(recipient)
 	require.NoError(t, bus.Subscribe(events.TypeNameAlertOpened, id, eventbus.External(subscriber)))
@@ -617,10 +826,7 @@ func TestResolvedAlertDoesNotSendOpeningOnManualReplay(t *testing.T) {
 		Alert: alert, Recipients: []events.AlertRecipient{recipient},
 	}))
 
-	var openingID string
-	require.NoError(t, db.Get(t.Context(), &openingID, `SELECT e.id FROM outbox_events e
-		JOIN outbox_deliveries d ON d.event_id = e.id
-		WHERE e.event_type = 'AlertOpened' AND d.subscription_id = ?`, id))
+	openingID := deliveryEventID(t, repository, events.TypeNameAlertOpened, id)
 	// Simulate an opening delivery exhausted before it could send.
 	_, err = db.Exec(t.Context(), `UPDATE outbox_deliveries SET status='failed'
 		WHERE event_id=? AND subscription_id=?`, openingID, id)
@@ -696,7 +902,10 @@ func TestGitAlertDefaultTelegramHTMLAndCustomTemplates(t *testing.T) {
 			}))
 			defer server.Close()
 			recipient := spec.AlertRecipients("git_repository_unavailable")[0]
-			subscriber := &Subscriber{store: NewStore(db), spec: spec, recipient: recipient, publisher: &eventbus.NopDispatcher{}, now: time.Now, apiBaseURL: server.URL}
+			subscriber := &Subscriber{
+				store: NewStore(db), outbox: outbox.New(db), db: db,
+				spec: spec, recipient: recipient, publisher: &eventbus.NopDispatcher{}, now: time.Now, apiBaseURL: server.URL,
+			}
 			alert := events.AlertSnapshot{
 				ID: "git-html", Kind: "git_repository_unavailable", Title: "Git repository unavailable",
 				ResourceID: "example.com/org/<repo>&test", Message: "Git <network> & unavailable",

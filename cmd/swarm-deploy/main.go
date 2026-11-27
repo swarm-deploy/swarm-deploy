@@ -69,7 +69,9 @@ var modules = []module{
 	{
 		Name: "notifications",
 		Initialize: func(ctx context.Context, cfg *config.Config, cnt *container) error {
-			return notifications.InitModule(ctx, cfg.Spec.Notifications, cnt.Event.Dispatcher, cnt.GetStorage())
+			return notifications.InitModule(
+				ctx, cfg.Spec.Notifications, cnt.Event.Dispatcher, cnt.Event.Outbox, cnt.GetStorage(),
+			)
 		},
 	},
 	{

@@ -10,6 +10,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/outbox"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/notifications/alerts"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/notifications/eventnotify"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/notifications/notifiers"
@@ -18,13 +19,14 @@ import (
 
 // InitModule registers notification subscribers before the Event worker starts.
 func InitModule(
-	ctx context.Context, spec config.NotificationSpec, bus dispatcher.Dispatcher, db storage.Database,
+	ctx context.Context, spec config.NotificationSpec, bus dispatcher.Dispatcher,
+	outboxRepository *outbox.Repository, db storage.Database,
 ) error {
 	slog.InfoContext(ctx, "[notifications] init notification subscribers")
 	if err := registerEventSubscribers(ctx, bus, spec); err != nil {
 		return fmt.Errorf("init notification subscribers: %w", err)
 	}
-	if err := alerts.Register(ctx, bus, db, spec); err != nil {
+	if err := alerts.Register(ctx, bus, outboxRepository, db, spec); err != nil {
 		return fmt.Errorf("init alert notifications: %w", err)
 	}
 	return nil

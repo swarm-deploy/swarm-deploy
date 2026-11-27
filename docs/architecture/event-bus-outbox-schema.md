@@ -31,6 +31,10 @@ WAL permits committed-state readers. Do not share a transaction context between 
 consumers use the `dispatcher.External(handler)` adapter. The dispatcher coordinates subscriptions,
 while `outbox.Repository` owns SQLite persistence and payload encoding and `outbox.Worker` owns durable delivery. This does not change
 publication or durability: every matching subscriber gets its own delivery record.
+The Event module exposes that same repository for supported inspection operations. Alert Notifications uses
+typed inspection results for retained opening recipients and lifecycle retention; Outbox table names, JSON paths,
+and payload decoding remain private to Event. Cleanup coordinates those results with `notification_messages`
+inside one shared-database transaction.
 `Run` stops on cancellation; unacknowledged work remains on disk. Missing subscriptions
 or incompatible payloads are parked as failed. `outbox.Repository.Replay` and
 `outbox.Repository.Discard` address a single failed delivery. Prometheus collection
