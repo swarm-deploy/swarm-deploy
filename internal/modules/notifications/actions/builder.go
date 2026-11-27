@@ -6,7 +6,25 @@ import (
 	"strings"
 )
 
-const languageRussian = "ru"
+type actionKind string
+
+const (
+	actionDeployment actionKind = "deployment"
+	actionAlert      actionKind = "alert"
+	languageEnglish             = "en"
+	languageRussian             = "ru"
+)
+
+var actionLabels = map[string]map[actionKind]string{
+	languageEnglish: {
+		actionDeployment: "Open deployment",
+		actionAlert:      "Open alert",
+	},
+	languageRussian: {
+		actionDeployment: "Деплоймент",
+		actionAlert:      "Алерт",
+	},
+}
 
 // Action is a transport-neutral notification link.
 type Action struct {
@@ -42,7 +60,7 @@ func (b Builder) Deployment(deploymentID string) []Action {
 	}
 	query := url.Values{"deployment_id": []string{deploymentID}}
 	return []Action{{
-		Text: b.text("Open deployment", "Деплоймент"), URL: b.buildURL("/deployments", query),
+		Text: b.label(actionDeployment), URL: b.buildURL("/deployments", query),
 	}}
 }
 
@@ -52,7 +70,7 @@ func (b Builder) Alert(alertID string) []Action {
 		return nil
 	}
 	query := url.Values{"tab": []string{"alerts"}, "alert_id": []string{alertID}}
-	return []Action{{Text: b.text("Open alert", "Алерт"), URL: b.buildURL("/events", query)}}
+	return []Action{{Text: b.label(actionAlert), URL: b.buildURL("/events", query)}}
 }
 
 func (b Builder) buildURL(route string, query url.Values) string {
@@ -66,9 +84,10 @@ func (b Builder) buildURL(route string, query url.Values) string {
 	return target.String()
 }
 
-func (b Builder) text(english, russian string) string {
-	if b.language == languageRussian {
-		return russian
+func (b Builder) label(kind actionKind) string {
+	labels, ok := actionLabels[b.language]
+	if !ok {
+		labels = actionLabels[languageEnglish]
 	}
-	return english
+	return labels[kind]
 }
