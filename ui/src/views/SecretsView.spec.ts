@@ -82,6 +82,27 @@ describe("SecretsView sorting", () => {
     expect(button!.element.closest("th")?.getAttribute("aria-sort")).toBe("descending");
   });
 
+  it("renders compact mobile rows and exposes every sort order", async () => {
+    const wrapper = mount(SecretsView, { global: { plugins: [createPinia()] } });
+    await flushPromises();
+
+    const summaries = wrapper.findAll(".secrets-mobile-summary");
+    expect(wrapper.get(".secrets-mobile-date-heading").text()).toBe("Added");
+    expect(summaries).toHaveLength(3);
+    expect(summaries[0].text()).toContain("Alpha");
+    expect(summaries[0].text()).toContain("Zebra");
+    expect(summaries[0].text()).toContain("/middle");
+    expect(summaries[0].text()).toContain("v10");
+    expect(wrapper.findAll(".secrets-mobile-date time")[0].attributes("datetime")).toBe("2026-01-03T00:00:00Z");
+
+    const sort = wrapper.get(".secrets-mobile-sort .app-select");
+    const options = sort.findAll(".app-select-option");
+    expect(options).toHaveLength(10);
+    await options.find((option) => option.text().startsWith("Date Added ↓"))!.trigger("click");
+
+    expect(renderedNames(wrapper)).toEqual(["Alpha", "Charlie", "Bravo"]);
+  });
+
   it("refreshes after acknowledging a Cloud Secrets result without a page-wide success alert", async () => {
     vi.mocked(fetchSecretManagers).mockResolvedValue({
       secret_managers: [{

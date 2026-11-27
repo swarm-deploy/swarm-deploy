@@ -6,6 +6,7 @@ import { computed, onMounted, ref } from "vue";
 import { fetchSecretManagers, fetchSecrets, syncSecretManager } from "../api/secrets";
 import type { SecretInfo, SecretManagerInfo, SecretManagerSyncResponse } from "../api/types";
 import AppButton from "../components/common/AppButton.vue";
+import AppSelect from "../components/common/AppSelect.vue";
 import AppTable from "../components/common/AppTable.vue";
 import AppTableEmpty from "../components/common/AppTableEmpty.vue";
 import CreateSecretModal from "../components/secrets/CreateSecretModal.vue";
@@ -25,10 +26,33 @@ const secretDetailsStore = useSecretDetailsStore();
 
 type SortKey = "name" | "description" | "createdAt" | "externalPath" | "externalVersionID";
 type SortDirection = "ascending" | "descending";
+type MobileSortValue = `${SortKey}:${SortDirection}`;
 
 const sortKey = ref<SortKey>("name");
 const sortDirection = ref<SortDirection>("ascending");
 const collator = new Intl.Collator(locale(), { numeric: true, sensitivity: "base" });
+
+const mobileSortValue = computed<MobileSortValue>({
+  get: (): MobileSortValue => `${sortKey.value}:${sortDirection.value}` as MobileSortValue,
+  set: (value: MobileSortValue) => {
+    const [key, direction] = value.split(":") as [SortKey, SortDirection];
+    sortKey.value = key;
+    sortDirection.value = direction;
+  },
+});
+
+const mobileSortOptions = computed<Array<{ value: MobileSortValue; label: string }>>(() => [
+  { value: "name:ascending", label: `${t("common.name")} ↑` },
+  { value: "name:descending", label: `${t("common.name")} ↓` },
+  { value: "description:ascending", label: `${t("common.description")} ↑` },
+  { value: "description:descending", label: `${t("common.description")} ↓` },
+  { value: "createdAt:ascending", label: `${t("secrets.dateAdded")} ↑` },
+  { value: "createdAt:descending", label: `${t("secrets.dateAdded")} ↓` },
+  { value: "externalPath:ascending", label: `${t("secrets.externalPath")} ↑` },
+  { value: "externalPath:descending", label: `${t("secrets.externalPath")} ↓` },
+  { value: "externalVersionID:ascending", label: `${t("secrets.externalVersionId")} ↑` },
+  { value: "externalVersionID:descending", label: `${t("secrets.externalVersionId")} ↓` },
+]);
 
 const normalizedQuery = computed(() => searchQuery.value.trim().toLowerCase());
 
@@ -122,6 +146,10 @@ function ariaSort(key: SortKey): SortDirection | "none" {
 function sortIndicator(key: SortKey): string {
   if (sortKey.value !== key) return "↕";
   return sortDirection.value === "ascending" ? "↑" : "↓";
+}
+
+function formatMobileDate(raw: string): string {
+  return formatDate(raw, { day: "numeric", month: "short" });
 }
 
 async function loadSecrets() {
@@ -233,7 +261,14 @@ async function handleSecretCreated(message?: string) {
         :placeholder="t('secrets.searchPlaceholder')"
         :aria-label="t('secrets.search')"
       />
-      <AppButton compact class="secrets-create-button" @click="createModalOpen = true">{{ t('secrets.create') }}</AppButton>
+      <div class="secrets-mobile-sort">
+        <span>{{ t('secrets.sort') }}</span>
+        <AppSelect v-model="mobileSortValue" :options="mobileSortOptions" :label="t('secrets.sort')" />
+      </div>
+      <AppButton compact class="secrets-create-button" @click="createModalOpen = true">
+        <span class="secrets-create-label-desktop">{{ t('secrets.create') }}</span>
+        <span class="secrets-create-label-mobile">{{ t('secrets.createShort') }}</span>
+      </AppButton>
     </div>
 
     <AppTableEmpty v-if="loading && secrets.length === 0" :message="t('common.loading')" />
@@ -247,31 +282,33 @@ async function handleSecretCreated(message?: string) {
     <AppTable v-else class="secrets-table" fixed :min-width="showDescriptionColumn ? '900px' : '720px'">
       <template #head>
           <tr>
-            <th :aria-sort="ariaSort('name')">
+            <th class="secrets-desktop-cell" :aria-sort="ariaSort('name')">
               <button class="app-table-sort" type="button" @click="changeSort('name')">
                 {{ t('common.name') }} <span class="app-table-sort-indicator" aria-hidden="true">{{ sortIndicator('name') }}</span>
               </button>
             </th>
-            <th v-if="showDescriptionColumn" :aria-sort="ariaSort('description')">
+            <th v-if="showDescriptionColumn" class="secrets-desktop-cell" :aria-sort="ariaSort('description')">
               <button class="app-table-sort" type="button" @click="changeSort('description')">
                 {{ t('common.description') }} <span class="app-table-sort-indicator" aria-hidden="true">{{ sortIndicator('description') }}</span>
               </button>
             </th>
-            <th :aria-sort="ariaSort('createdAt')">
+            <th class="secrets-desktop-cell" :aria-sort="ariaSort('createdAt')">
               <button class="app-table-sort" type="button" @click="changeSort('createdAt')">
                 {{ t('secrets.dateAdded') }} <span class="app-table-sort-indicator" aria-hidden="true">{{ sortIndicator('createdAt') }}</span>
               </button>
             </th>
-            <th :aria-sort="ariaSort('externalPath')">
+            <th class="secrets-desktop-cell" :aria-sort="ariaSort('externalPath')">
               <button class="app-table-sort" type="button" @click="changeSort('externalPath')">
                 {{ t('secrets.externalPath') }} <span class="app-table-sort-indicator" aria-hidden="true">{{ sortIndicator('externalPath') }}</span>
               </button>
             </th>
-            <th :aria-sort="ariaSort('externalVersionID')">
+            <th class="secrets-desktop-cell" :aria-sort="ariaSort('externalVersionID')">
               <button class="app-table-sort" type="button" @click="changeSort('externalVersionID')">
                 {{ t('secrets.externalVersionId') }} <span class="app-table-sort-indicator" aria-hidden="true">{{ sortIndicator('externalVersionID') }}</span>
               </button>
             </th>
+            <th class="secrets-mobile-cell">{{ t('common.secret') }}</th>
+            <th class="secrets-mobile-cell secrets-mobile-date-heading">{{ t('secrets.dateAddedShort') }}</th>
           </tr>
       </template>
           <tr
@@ -285,11 +322,25 @@ async function handleSecretCreated(message?: string) {
             @keydown.enter="openSecretDetails(secret.name)"
             @keydown.space.prevent="openSecretDetails(secret.name)"
           >
-            <td>{{ secret.name || t('common.notApplicable') }}</td>
-            <td v-if="showDescriptionColumn">{{ secret.description || t('common.notApplicable') }}</td>
-            <td>{{ formatDate(secret.created_at) }}</td>
-            <td>{{ secret.external?.path || t('common.notApplicable') }}</td>
-            <td>{{ secret.external?.version_id || t('common.notApplicable') }}</td>
+            <td class="secrets-desktop-cell">{{ secret.name || t('common.notApplicable') }}</td>
+            <td v-if="showDescriptionColumn" class="secrets-desktop-cell">{{ secret.description || t('common.notApplicable') }}</td>
+            <td class="secrets-desktop-cell">{{ formatDate(secret.created_at) }}</td>
+            <td class="secrets-desktop-cell">{{ secret.external?.path || t('common.notApplicable') }}</td>
+            <td class="secrets-desktop-cell">{{ secret.external?.version_id || t('common.notApplicable') }}</td>
+            <td class="secrets-mobile-cell secrets-mobile-summary-cell">
+              <span class="secrets-mobile-summary">
+                <strong>{{ secret.name || t('common.notApplicable') }}</strong>
+                <span v-if="secret.description" class="secrets-mobile-description">{{ secret.description }}</span>
+                <span v-if="secret.external?.path || secret.external?.version_id" class="secrets-mobile-external">
+                  <code v-if="secret.external?.path">{{ secret.external.path }}</code>
+                  <span v-if="secret.external?.version_id" class="secrets-mobile-version">v{{ secret.external.version_id }}</span>
+                </span>
+                <span v-else class="secrets-mobile-source">{{ t('secrets.swarmSecret') }}</span>
+              </span>
+            </td>
+            <td class="secrets-mobile-cell secrets-mobile-date">
+              <time :datetime="secret.created_at">{{ formatMobileDate(secret.created_at) }}</time>
+            </td>
           </tr>
     </AppTable>
 
@@ -306,6 +357,122 @@ async function handleSecretCreated(message?: string) {
 .secrets-toolbar-actions { width: 100%; max-width: none; align-items: center; justify-content: space-between; gap: 10px; }
 .secrets-toolbar-actions .secrets-search-input { flex: 1 1 360px; max-width: 520px; min-width: 0; }
 .secrets-create-button { flex: 0 0 auto; }
+.secrets-mobile-sort, .secrets-create-label-mobile, .secrets-mobile-cell { display: none; }
 .secrets-create-feedback { margin: 0; border: 1px solid var(--success-border); border-radius: 8px; background: var(--success-muted); color: var(--success); padding: 8px 10px; font-size: .82rem; }
 .secrets-table :deep(td) { overflow-wrap: anywhere; }
+
+@media (max-width: 650px) {
+  .secrets-table { overflow-x: hidden; }
+
+  .secrets-toolbar-actions {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: end;
+  }
+
+  .secrets-toolbar-actions .secrets-search-input {
+    grid-column: 1 / -1;
+    max-width: none;
+    font-size: 16px;
+  }
+
+  .secrets-mobile-sort {
+    min-width: 0;
+    display: grid;
+    gap: 4px;
+    color: var(--muted);
+    font-size: .7rem;
+  }
+
+  .secrets-mobile-sort :deep(.app-select) {
+    min-width: 0;
+    width: 100%;
+    --app-select-height: 34px;
+  }
+
+  .secrets-create-label-desktop { display: none; }
+  .secrets-create-label-mobile { display: inline; }
+
+  .secrets-table :deep(.app-table) {
+    min-width: 0 !important;
+    table-layout: fixed;
+  }
+
+  .secrets-table :deep(.secrets-desktop-cell) { display: none; }
+  .secrets-table :deep(.secrets-mobile-cell) { display: table-cell; }
+
+  .secrets-table :deep(.secrets-mobile-date-heading),
+  .secrets-table :deep(.secrets-mobile-date) {
+    width: 72px;
+    text-align: right;
+  }
+
+  .secrets-table :deep(.secrets-mobile-date) {
+    white-space: nowrap;
+  }
+
+  .secrets-table :deep(th) { padding-top: 8px; padding-bottom: 8px; }
+  .secrets-table :deep(td) { vertical-align: top; padding-top: 12px; padding-bottom: 12px; }
+
+  .secrets-mobile-summary {
+    min-width: 0;
+    display: grid;
+    gap: 4px;
+  }
+
+  .secrets-mobile-summary strong {
+    color: var(--text);
+    font-size: .84rem;
+    font-weight: 600;
+    line-height: 1.3;
+    overflow-wrap: anywhere;
+  }
+
+  .secrets-mobile-description {
+    color: var(--muted);
+    font-size: .74rem;
+    line-height: 1.35;
+    overflow-wrap: anywhere;
+  }
+
+  .secrets-mobile-external {
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 2px;
+  }
+
+  .secrets-mobile-external code {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--muted);
+    font-size: .68rem;
+  }
+
+  .secrets-mobile-version {
+    flex: 0 0 auto;
+    border-radius: 999px;
+    background: var(--accent-muted);
+    color: var(--accent-strong);
+    padding: 1px 5px;
+    font-size: .66rem;
+    line-height: 1.35;
+  }
+
+  .secrets-mobile-source,
+  .secrets-mobile-date {
+    color: var(--muted);
+    font-size: .7rem;
+  }
+}
+
+@media (max-width: 360px) {
+  .secrets-toolbar-actions { grid-template-columns: minmax(0, 1fr); }
+  .secrets-toolbar-actions .secrets-search-input { grid-column: 1; }
+  .secrets-mobile-sort { width: 100%; }
+  .secrets-create-button { width: 100%; }
+}
 </style>
