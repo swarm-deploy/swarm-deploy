@@ -42,28 +42,62 @@ func (s *SQLHistoryStorage) ReadChats(ctx context.Context) ([]ChatSummary, error
 	return result, nil
 }
 
-// Get reads metadata and turns from a consistent transaction snapshot.
+// ReadChat reads metadata and turns from one consistent query snapshot.
 func (s *SQLHistoryStorage) ReadChat(ctx context.Context, id string) (Chat, bool, error) {
-	var chat Chat
-	found := false
-	err := s.db.WithinTransaction(ctx, func(ctx context.Context) error {
-		var err error
-		chat, found, err = s.readChatMetadata(ctx, id)
-		if err != nil || !found {
-			return err
-		}
-		turnsQuery, turnsArgs, buildErr := s.db.Dialect().From("assistant_turns").Prepared(true).
-			Select("sequence", "payload").Where(goqu.Ex{"chat_id": id}).Order(goqu.I("sequence").Asc()).ToSQL()
-		if buildErr != nil {
-			return buildErr
-		}
-		chat.Turns, err = s.queryTurns(ctx, turnsQuery, turnsArgs...)
-		return err
-	})
+	query, args, err := s.db.Dialect().From(goqu.T("assistant_chats").As("chat")).Prepared(true).
+		LeftJoin(
+			goqu.T("assistant_turns").As("turn"),
+			goqu.On(goqu.I("turn.chat_id").Eq(goqu.I("chat.id"))),
+		).
+		Select(
+			goqu.I("chat.id").As("id"),
+			goqu.I("chat.title").As("title"),
+			goqu.I("chat.created_at").As("created_at"),
+			goqu.I("chat.created_by").As("created_by"),
+			goqu.I("chat.updated_at").As("updated_at"),
+			goqu.I("chat.unread").As("unread"),
+			goqu.I("chat.input_tokens").As("input_tokens"),
+			goqu.I("chat.output_tokens").As("output_tokens"),
+			goqu.I("chat.total_tokens").As("total_tokens"),
+			goqu.I("chat.primary_artifact").As("primary_artifact"),
+			goqu.I("turn.sequence").As("turn_sequence"),
+			goqu.I("turn.payload").As("turn_payload"),
+		).
+		Where(goqu.I("chat.id").Eq(id)).
+		Order(goqu.I("turn.sequence").Asc()).
+		ToSQL()
 	if err != nil {
 		return Chat{}, false, err
 	}
-	return chat, found, nil
+	var rows []chatTurnRow
+	if err = s.db.Select(ctx, &rows, query, args...); err != nil {
+		return Chat{}, false, err
+	}
+	if len(rows) == 0 {
+		return Chat{}, false, nil
+	}
+	meta, err := rows[0].summary()
+	if err != nil {
+		return Chat{}, false, err
+	}
+	chat := Chat{
+		ID: meta.ID, Title: meta.Title, CreatedAt: meta.CreatedAt, CreatedBy: rows[0].CreatedBy.String,
+		UpdatedAt: meta.UpdatedAt, Unread: meta.Unread, Usage: meta.Usage,
+		PrimaryArtifact: meta.PrimaryArtifact,
+		Turns:           make([]Turn, 0, len(rows)),
+	}
+	for _, row := range rows {
+		if !row.TurnSequence.Valid {
+			continue
+		}
+		var turn Turn
+		if err = json.Unmarshal(row.TurnPayload, &turn); err != nil {
+			return Chat{}, false, err
+		}
+		turn.Sequence = int(row.TurnSequence.Int64)
+		chat.Turns = append(chat.Turns, turn)
+	}
+	return chat, true, nil
 }
 
 func (s *SQLHistoryStorage) readChatMetadata(ctx context.Context, id string) (Chat, bool, error) {
@@ -256,26 +290,6 @@ func (s *SQLHistoryStorage) saveTurn(ctx context.Context, chatID string, sequenc
 	return err
 }
 
-func (s *SQLHistoryStorage) queryTurns(ctx context.Context, query string, args ...any) ([]Turn, error) {
-	var rows []struct {
-		Sequence int    `db:"sequence"`
-		Payload  []byte `db:"payload"`
-	}
-	if err := s.db.Select(ctx, &rows, query, args...); err != nil {
-		return nil, err
-	}
-	result := make([]Turn, 0, len(rows))
-	for _, row := range rows {
-		var value Turn
-		if err := json.Unmarshal(row.Payload, &value); err != nil {
-			return nil, err
-		}
-		value.Sequence = row.Sequence
-		result = append(result, value)
-	}
-	return result, nil
-}
-
 var chatColumns = []any{
 	"id", "title", "created_at", "updated_at", "unread", "input_tokens", "output_tokens", "total_tokens",
 	"primary_artifact",
@@ -292,6 +306,12 @@ type chatRow struct {
 	OutputTokens    sql.NullInt64  `db:"output_tokens"`
 	TotalTokens     sql.NullInt64  `db:"total_tokens"`
 	PrimaryArtifact sql.NullString `db:"primary_artifact"`
+}
+
+type chatTurnRow struct {
+	chatRow
+	TurnSequence sql.NullInt64 `db:"turn_sequence"`
+	TurnPayload  []byte        `db:"turn_payload"`
 }
 
 func (r chatRow) summary() (ChatSummary, error) {
