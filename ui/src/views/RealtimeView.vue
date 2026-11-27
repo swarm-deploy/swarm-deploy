@@ -719,7 +719,7 @@ onUnmounted(() => {
               </td>
               <td class="realtime-stack-cell" :data-label="t('common.stack')"><span :class="{ 'realtime-standalone': !service.stack }">{{ service.stack || t('realtime.standalone') }}</span></td>
               <td class="realtime-state-cell" :data-label="t('common.state')">
-                <ServiceReplicasBadge :replicas="service.replicas" />
+                <ServiceReplicasBadge :replicas="service.replicas" compact />
               </td>
               <td class="realtime-updated-cell" :data-label="t('common.updated')"><time :datetime="service.updated_at" :title="formatDate(service.updated_at)">{{ formatRelativeTime(service.updated_at) }}</time></td>
               <td class="realtime-actions-cell" :data-label="t('common.action')" @click.stop>

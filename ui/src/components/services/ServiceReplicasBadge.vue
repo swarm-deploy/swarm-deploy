@@ -8,12 +8,14 @@ import AppStatusBadge from "../common/AppStatusBadge.vue";
 const props = defineProps<{
   replicas?: SwarmServiceReplicas;
   unavailable?: boolean;
+  compact?: boolean;
 }>();
 
 const label = computed(() => {
   if (!props.replicas) return t(props.unavailable ? "common.unavailable" : "common.unknown");
-  const { running, desired } = props.replicas;
-  return t("service.replicaCount", { running: formatNumber(running), desired: formatNumber(desired) });
+  const running = formatNumber(props.replicas.running);
+  const desired = formatNumber(props.replicas.desired);
+  return props.compact ? `${running}/${desired}` : t("service.replicaCount", { running, desired });
 });
 
 const variant = computed(() => {

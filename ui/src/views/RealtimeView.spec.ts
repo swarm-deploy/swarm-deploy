@@ -181,9 +181,7 @@ describe("RealtimeView", () => {
     expect(wrapper.findAll(".realtime-service-row")).toHaveLength(4);
     expect(wrapper.text()).toContain("Standalone");
     const badges = wrapper.findAll(".realtime-state-cell .app-status-badge");
-    expect(badges.map((badge) => badge.text())).toEqual([
-      "2 / 2 replicas", "1 / 2 replicas", "0 / 0 replicas", "3 / 2 replicas",
-    ]);
+    expect(badges.map((badge) => badge.text())).toEqual(["2/2", "1/2", "0/0", "3/2"]);
     expect(badges.every((badge) => badge.classes().includes("app-status-badge--filled"))).toBe(true);
     expect(badges[0].classes()).toContain("app-status-badge--success");
     expect(badges[1].classes()).toContain("app-status-badge--warning");
@@ -521,7 +519,7 @@ describe("Realtime service scaling", () => {
     expect(wrapper.get<HTMLInputElement>('input[type="search"]').element.value).toBe("infra_api");
     expect(wrapper.findAll(".realtime-service-row")).toHaveLength(1);
     expect(wrapper.findAll(".realtime-task-row")).toHaveLength(2);
-    expect(wrapper.get(".realtime-state-cell").text()).toBe("2 / 0 replicas");
+    expect(wrapper.get(".realtime-state-cell").text()).toBe("2/0");
     expect(wrapper.get(".realtime-task-panel").text()).toContain("task-current");
     wrapper.unmount();
   });
@@ -653,7 +651,7 @@ describe("Realtime service scaling", () => {
     await flushPromises();
     resolveOldServices({ services });
     await flushPromises();
-    expect(wrapper.get(".realtime-state-cell").text()).toBe("2 / 6 replicas");
+    expect(wrapper.get(".realtime-state-cell").text()).toBe("2/6");
     await wrapper.get('[aria-label="Actions for api"]').trigger("click");
     await wrapper.get('[aria-label="Scale api"]').trigger("click");
     expect(wrapper.get<HTMLInputElement>("#realtime-scale-replicas").element.value).toBe("6");
@@ -781,7 +779,7 @@ describe("Realtime service restart", () => {
     await flushPromises();
     expect(apiMocks.fetchSwarmServices).toHaveBeenCalledTimes(2);
     const badge = wrapper.get(".realtime-state-cell .app-status-badge");
-    expect(badge.text()).toBe(failure ? "0 / 0 replicas" : "0 / 4 replicas");
+    expect(badge.text()).toBe(failure ? "0/0" : "0/4");
     expect(badge.classes()).toContain(failure ? "app-status-badge--success" : "app-status-badge--error");
     if (failure) {
       expect(wrapper.get('[role="alert"]').text()).toContain(failure);
