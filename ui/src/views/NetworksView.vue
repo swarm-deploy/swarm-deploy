@@ -103,6 +103,10 @@ function mapText(values?: Record<string, string>): string {
     .join(", ");
 }
 
+function hasMapEntries(values?: Record<string, string>): boolean {
+  return Object.keys(values ?? {}).length > 0;
+}
+
 function vxlanIDText(options?: Record<string, string>): string {
   return options?.[VXLAN_ID_OPTION] || t("common.notApplicable");
 }
@@ -192,7 +196,14 @@ onMounted(() => {
       </template>
           <tr v-for="network in filteredNetworks" :key="network.id">
             <td class="networks-desktop-cell">{{ network.name || t('common.notApplicable') }}</td>
-            <td class="networks-desktop-cell">{{ network.stack_name || t('common.notApplicable') }}</td>
+            <td class="networks-desktop-cell">
+              <RouterLink
+                v-if="network.stack_name"
+                class="assistant-md-link"
+                :to="{ name: 'stack-details', params: { stack: network.stack_name } }"
+              >{{ network.stack_name }}</RouterLink>
+              <template v-else>{{ t('common.notApplicable') }}</template>
+            </td>
             <td class="networks-desktop-cell">{{ network.driver || t('common.notApplicable') }}</td>
             <td class="networks-desktop-cell">{{ vxlanIDText(network.options) }}</td>
             <td class="networks-desktop-cell">{{ boolText(network.attachable) }}</td>
@@ -205,7 +216,14 @@ onMounted(() => {
               <div class="networks-mobile-summary">
                 <div class="networks-mobile-heading">
                   <strong>{{ network.name || t('common.notApplicable') }}</strong>
-                  <span>{{ network.stack_name || t('common.notApplicable') }}</span>
+                  <span>
+                    <RouterLink
+                      v-if="network.stack_name"
+                      class="assistant-md-link"
+                      :to="{ name: 'stack-details', params: { stack: network.stack_name } }"
+                    >{{ network.stack_name }}</RouterLink>
+                    <template v-else>{{ t('common.notApplicable') }}</template>
+                  </span>
                 </div>
                 <div class="networks-mobile-runtime">
                   <span>{{ network.driver || t('common.notApplicable') }}</span>
@@ -217,8 +235,8 @@ onMounted(() => {
                   <div><dt>{{ t('networks.ingress') }}:</dt><dd>{{ boolText(network.ingress) }}</dd></div>
                   <div><dt>{{ t('networks.managed') }}:</dt><dd>{{ boolText(network.managed) }}</dd></div>
                 </dl>
-                <dl class="networks-mobile-details">
-                  <div><dt>{{ t('common.labels') }}:</dt><dd>{{ mapText(network.labels) }}</dd></div>
+                <dl v-if="hasMapEntries(network.labels) || hasOptionsColumn" class="networks-mobile-details">
+                  <div v-if="hasMapEntries(network.labels)"><dt>{{ t('common.labels') }}:</dt><dd>{{ mapText(network.labels) }}</dd></div>
                   <div v-if="hasOptionsColumn"><dt>{{ t('networks.options') }}:</dt><dd>{{ optionsText(network.options) }}</dd></div>
                 </dl>
               </div>

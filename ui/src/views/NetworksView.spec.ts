@@ -1,4 +1,4 @@
-import { flushPromises, mount } from "@vue/test-utils";
+import { flushPromises, mount, RouterLinkStub } from "@vue/test-utils";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { fetchNetworks } from "../api/cluster";
@@ -22,7 +22,14 @@ const appNetwork = {
     "com.example.encrypted": "true",
   },
 };
-const infraNetwork = { ...appNetwork, id: "infra-network", name: "infra_default", stack_name: "infra" };
+const infraNetwork = {
+  ...appNetwork,
+  id: "infra-network",
+  name: "infra_default",
+  stack_name: "infra",
+  labels: undefined,
+  options: { "com.docker.network.driver.overlay.vxlanid_list": "4098" },
+};
 
 describe("NetworksView", () => {
   beforeEach(() => {
@@ -33,7 +40,7 @@ describe("NetworksView", () => {
   });
 
   it("loads networks filtered by selected stacks", async () => {
-    const wrapper = mount(NetworksView);
+    const wrapper = mount(NetworksView, { global: { stubs: { RouterLink: RouterLinkStub } } });
     await flushPromises();
 
     expect(fetchNetworks).toHaveBeenCalledWith({ stacks: [] });
@@ -50,10 +57,17 @@ describe("NetworksView", () => {
     expect(wrapper.findAll("tbody tr")).toHaveLength(1);
     expect(wrapper.text()).toContain("app_default");
     expect(wrapper.text()).not.toContain("infra_default");
+    const stackLinks = wrapper.findAllComponents(RouterLinkStub);
+    expect(stackLinks).toHaveLength(2);
+    expect(stackLinks.every((link) => link.classes().includes("assistant-md-link"))).toBe(true);
+    expect(stackLinks.map((link) => link.props("to"))).toEqual([
+      { name: "stack-details", params: { stack: "app" } },
+      { name: "stack-details", params: { stack: "app" } },
+    ]);
   });
 
   it("renders a complete compact network summary for mobile layouts", async () => {
-    const wrapper = mount(NetworksView);
+    const wrapper = mount(NetworksView, { global: { stubs: { RouterLink: RouterLinkStub } } });
     await flushPromises();
 
     const summaries = wrapper.findAll(".networks-mobile-summary");
@@ -70,5 +84,6 @@ describe("NetworksView", () => {
     ]);
     expect(summaries[0].text()).toContain("com.example.owner=platform");
     expect(summaries[0].text()).toContain("com.example.encrypted=true");
+    expect(summaries[1].findAll(".networks-mobile-details dt").map((item) => item.text())).not.toContain("Labels:");
   });
 });
