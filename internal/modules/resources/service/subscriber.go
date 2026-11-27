@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/doug-martin/goqu/v9"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	deploymentstore "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
@@ -155,52 +154,25 @@ func (s *Subscriber) persistProjection(
 		return fmt.Errorf("service catalog projection requires source event ID")
 	}
 	return s.db.WithinTransaction(ctx, func(ctx context.Context) error {
-		current, err := s.currentDeployment(ctx, deploySuccess)
-		if err != nil {
-			return err
-		}
-		if !current {
+		currentID, err := s.deployments.BaselineDeploymentID(ctx, deploySuccess.StackName)
+		if errors.Is(err, deploymentstore.ErrNotFound) {
 			return nil
 		}
-		query, args, err := s.db.Dialect().Insert("service_catalog_receipts").Prepared(true).
-			Rows(goqu.Record{"source_event_id": sourceID}).
-			OnConflict(goqu.DoNothing()).
-			ToSQL()
 		if err != nil {
 			return err
 		}
-		result, err := s.db.Exec(ctx, query, args...)
-		if err != nil {
-			return err
-		}
-		inserted, err := result.RowsAffected()
-		if err != nil {
-			return err
-		}
-		if inserted == 0 {
+		if currentID != deploySuccess.DeploymentID {
 			return nil
 		}
-		if err = s.store.ReplaceStack(ctx, deploySuccess.StackName, services); err != nil {
-			return fmt.Errorf("persist services for stack %s: %w", deploySuccess.StackName, err)
+		accepted, err := s.store.ReplaceStackOnce(ctx, sourceID, deploySuccess.StackName, services)
+		if err != nil {
+			return err
+		}
+		if !accepted {
+			return nil
 		}
 		return s.events.Publish(ctx, &events.ServiceCatalogUpdated{StackName: deploySuccess.StackName})
 	})
-}
-
-func (s *Subscriber) currentDeployment(ctx context.Context, deploySuccess *events.DeploySuccess) (bool, error) {
-	if deploySuccess.DeploymentID == "" {
-		return true, nil
-	}
-	var current bool
-	exists := s.db.Dialect().From("desired_snapshots").Prepared(true).Select(goqu.L("1")).
-		Where(goqu.Ex{"stack": deploySuccess.StackName, "deployment_id": deploySuccess.DeploymentID})
-	query, args, err := s.db.Dialect().From().Prepared(true).
-		Select(goqu.L("EXISTS ?", exists)).ToSQL()
-	if err != nil {
-		return false, err
-	}
-	err = s.db.Get(ctx, &current, query, args...)
-	return current, err
 }
 
 func (s *Subscriber) loadWebRouteConfigs(

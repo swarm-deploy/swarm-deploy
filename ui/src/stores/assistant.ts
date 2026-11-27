@@ -33,6 +33,7 @@ interface AssistantState {
   pending: boolean;
   conversationID: string;
   readOnly: boolean;
+  conversationTitle: string;
   activeRequestID: string;
   activity: string[];
   messages: AssistantMessage[];
@@ -52,6 +53,7 @@ export const useAssistantStore = defineStore("assistant", {
     pending: false,
     conversationID: "",
     readOnly: false,
+    conversationTitle: "",
     activeRequestID: "",
     activity: [],
     messages: [],
@@ -136,6 +138,7 @@ export const useAssistantStore = defineStore("assistant", {
       this.chatHistoryStale = false;
       this.conversationID = "";
       this.readOnly = false;
+      this.conversationTitle = "";
       this.activeRequestID = "";
       this.activity = [];
       this.messages = [];
@@ -166,6 +169,7 @@ export const useAssistantStore = defineStore("assistant", {
       this.chatHistoryStale = false;
       this.conversationID = chat.id;
       this.readOnly = chat.read_only;
+      this.conversationTitle = chat.title;
       this.activeRequestID = active?.request_id || "";
       this.activity = active?.activity || [];
       this.messages = chat.messages.map((message) => ({

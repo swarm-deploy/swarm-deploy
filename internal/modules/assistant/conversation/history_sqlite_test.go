@@ -177,6 +177,51 @@ func TestSQLChatConcurrentAppends(t *testing.T) {
 	assert.EqualValues(t, 8, chat.Usage.TotalTokens)
 }
 
+func TestSQLChatReadDoesNotWaitForWriter(t *testing.T) {
+	ctx := t.Context()
+	db, err := storage.OpenSQLite(ctx, t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	repo := NewSQLHistoryStorage(db)
+	require.NoError(t, repo.Append(ctx, "chat", Turn{Role: "user", Content: "Original"}))
+
+	writerStarted := make(chan struct{})
+	releaseWriter := make(chan struct{})
+	writerDone := make(chan error, 1)
+	var releaseOnce sync.Once
+	release := func() { releaseOnce.Do(func() { close(releaseWriter) }) }
+	defer release()
+	go func() {
+		writerDone <- db.WithinTransaction(ctx, func(ctx context.Context) error {
+			_, updateErr := db.Exec(ctx, "UPDATE assistant_chats SET title = ? WHERE id = ?", "Pending", "chat")
+			if updateErr != nil {
+				return updateErr
+			}
+			close(writerStarted)
+			<-releaseWriter
+			return assert.AnError
+		})
+	}()
+	select {
+	case <-writerStarted:
+	case writerErr := <-writerDone:
+		require.NoError(t, writerErr)
+	case <-time.After(time.Second):
+		require.Fail(t, "writer did not start")
+	}
+
+	readCtx, cancel := context.WithTimeout(ctx, time.Second)
+	defer cancel()
+	chat, found, err := repo.ReadChat(readCtx, "chat")
+	require.NoError(t, err)
+	require.True(t, found)
+	assert.Equal(t, "Original", chat.Title)
+	assert.Equal(t, []Turn{{Sequence: 0, Role: "user", Content: "Original"}}, chat.Turns)
+
+	release()
+	require.ErrorIs(t, <-writerDone, assert.AnError)
+}
+
 func TestSQLChatPrimaryArtifactSelection(t *testing.T) {
 	ctx := t.Context()
 	db, err := storage.OpenSQLite(ctx, t.TempDir())

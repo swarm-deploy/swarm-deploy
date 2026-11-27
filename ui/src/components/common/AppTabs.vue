@@ -115,8 +115,8 @@ function handleKeydown(event: KeyboardEvent, index: number): void {
 }
 
 .app-tabs-tab--active {
-  border-bottom-color: var(--control-primary);
-  color: var(--control-primary);
+  border-bottom-color: var(--interactive-primary);
+  color: var(--interactive-primary);
 }
 
 :global(:root[data-theme="dark"] .app-tabs-tab--active) {

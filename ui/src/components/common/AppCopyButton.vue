@@ -76,7 +76,7 @@ onBeforeUnmount(resetCopied);
   border: 1px solid transparent;
   border-radius: 4px;
   background: transparent;
-  color: var(--control-primary);
+  color: var(--interactive-primary);
   transform: none;
   filter: none;
 }

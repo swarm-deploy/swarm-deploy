@@ -684,7 +684,7 @@ onUnmounted(() => {
 .create-secret-dsn-value-label { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .create-secret-dsn-value { display: flex; align-items: center; padding-right: 4px; }
 .create-secret-dsn-value input { flex: 1; min-width: 0; width: 100%; border: 0; outline: 0; padding: 0; background: transparent; color: var(--text); font: .76rem "JetBrains Mono", ui-monospace, monospace; }
-.create-secret-dsn-action { padding: 0; border: 0; background: transparent; color: var(--control-primary); font: inherit; font-size: .7rem; text-decoration: underline; }
+.create-secret-dsn-action { padding: 0; border: 0; background: transparent; color: var(--interactive-primary); font: inherit; font-size: .7rem; text-decoration: underline; }
 .create-secret-dsn .form-helper { margin: 0; }
 .create-secret-form { min-height: 0; grid-auto-rows: max-content; gap: 11px; overflow-y: auto; padding: 0 20px 18px; }
 .create-secret-tabs { flex: 0 0 auto; gap: 0; margin: 0; }
@@ -717,7 +717,7 @@ onUnmounted(() => {
 .create-secret-mode-toggle button, .create-secret-small-action { border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: transparent; color: var(--muted); padding: 0 9px; font: inherit; font-size: .74rem; transform: none; filter: none; }
 .create-secret-mode-toggle button:hover:not(:disabled), .create-secret-small-action:hover:not(:disabled) { color: var(--text); background: var(--surface-hover); transform: none; filter: none; }
 .create-secret-mode-toggle button:focus-visible, .create-secret-small-action:focus-visible { outline: 2px solid var(--accent-focus); outline-offset: -2px; }
-.create-secret-mode-toggle button.active { border-bottom-color: var(--control-primary); color: var(--control-primary); }
+.create-secret-mode-toggle button.active { border-bottom-color: var(--interactive-primary); color: var(--interactive-primary); }
 .create-secret-tool-divider { width: 1px; align-self: center; height: 17px; margin: 0 2px; background: var(--border-default); }
 .create-secret-small-action { display: inline-flex; align-items: center; gap: 5px; }
 .create-secret-small-action svg { width: 15px; height: 15px; }
@@ -776,7 +776,7 @@ onUnmounted(() => {
 .create-secret-sync-status--partial svg path:last-child { fill: none; stroke: var(--surface-modal); stroke-width: 2; stroke-linecap: round; }
 .create-secret-sync-status .create-secret-spinner { width: 14px; height: 14px; border-width: 1.5px; }
 .create-secret-result-error { margin: -2px 0 0; border: 1px solid var(--error-border); border-radius: 6px; background: var(--error-muted); color: var(--error); padding: 9px 11px; font-size: .77rem; line-height: 1.45; }
-.create-secret-result-link { width: 100%; display: inline-flex; align-items: center; gap: 7px; color: var(--control-primary); padding: 0 2px; font-size: .82rem; font-weight: 600; text-decoration: none; }
+.create-secret-result-link { width: 100%; display: inline-flex; align-items: center; gap: 7px; color: var(--interactive-primary); padding: 0 2px; font-size: .82rem; font-weight: 600; text-decoration: none; }
 .create-secret-result-link:hover { text-decoration: underline; }
 .create-secret-result-link:focus-visible { outline: 2px solid var(--accent-focus); outline-offset: 3px; }
 .create-secret-result-link svg { width: 17px; height: 17px; }
