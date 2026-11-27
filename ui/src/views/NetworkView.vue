@@ -11,12 +11,14 @@ import AppPanel from "../components/common/AppPanel.vue";
 import AppTable from "../components/common/AppTable.vue";
 import AppTableEmpty from "../components/common/AppTableEmpty.vue";
 import DeploymentIcon from "../components/overview/DeploymentIcon.vue";
+import { usePageStore } from "../stores/page";
 import { formatDate } from "../utils/format";
 
 const VXLAN_ID_OPTION = "com.docker.network.driver.overlay.vxlanid_list";
 const ENCRYPTED_OPTION = "encrypted";
 
 const route = useRoute();
+const pageStore = usePageStore();
 const networkID = computed(() => String(route.params.network ?? ""));
 const network = ref<NetworkInfo | null>(null);
 const services = ref<ServiceInfo[] | null>(null);
@@ -68,6 +70,7 @@ async function load(): Promise<void> {
   const current = ++request;
   const id = networkID.value;
   network.value = null;
+  pageStore.setTitle("");
   services.value = null;
   loadError.value = "";
   servicesError.value = "";
@@ -80,7 +83,10 @@ async function load(): Promise<void> {
   ]);
   if (current !== request) return;
 
-  if (networkResult.status === "fulfilled") network.value = networkResult.value;
+  if (networkResult.status === "fulfilled") {
+    network.value = networkResult.value;
+    pageStore.setTitle(networkResult.value.name);
+  }
   else loadError.value = errorMessage(networkResult.reason, t("networks.loadDetailsFailed"));
   if (servicesResult.status === "fulfilled") services.value = servicesResult.value.services;
   else servicesError.value = errorMessage(servicesResult.reason, t("networks.loadCatalogFailed"));
@@ -88,7 +94,10 @@ async function load(): Promise<void> {
 }
 
 watch(networkID, () => { void load(); }, { immediate: true });
-onUnmounted(() => { request++; });
+onUnmounted(() => {
+  request++;
+  pageStore.setTitle("");
+});
 </script>
 
 <template>
@@ -96,9 +105,12 @@ onUnmounted(() => { request++; });
     <header v-if="network" class="network-heading">
       <DeploymentIcon name="network" class="network-heading-icon" />
       <div class="network-heading-content">
-        <RouterLink :to="{ name: 'networks' }" class="service-inline-link">{{ t('common.networks') }}</RouterLink>
         <div class="network-heading-summary">
           <h2>{{ network.name }}</h2>
+        </div>
+        <div class="network-heading-metadata">
+          <span>{{ network.driver || t('common.notApplicable') }}</span>
+          <span>{{ enumLabel('networkScopes', network.scope, network.scope || t('common.notApplicable')) }}</span>
           <span
             v-if="network.managed"
             class="network-managed app-tooltip"
@@ -106,10 +118,6 @@ onUnmounted(() => { request++; });
             :aria-label="`${t('networks.managed')}: ${t('networks.managedHint')}`"
             :data-tooltip="t('networks.managedHint')"
           >{{ t('networks.managed') }} <span aria-hidden="true">ⓘ</span></span>
-        </div>
-        <div class="network-heading-metadata">
-          <span>{{ network.driver || t('common.notApplicable') }}</span>
-          <span>{{ enumLabel('networkScopes', network.scope, network.scope || t('common.notApplicable')) }}</span>
           <RouterLink
             v-if="network.stack_name"
             class="service-inline-link"

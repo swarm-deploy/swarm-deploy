@@ -1,4 +1,5 @@
 import { flushPromises, mount } from "@vue/test-utils";
+import { createPinia } from "pinia";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createMemoryHistory, createRouter } from "vue-router";
 
@@ -26,7 +27,7 @@ async function mountPage() {
     ],
   });
   await router.push("/networks/network-id");
-  const wrapper = mount(NetworkView, { global: { plugins: [router] } });
+  const wrapper = mount(NetworkView, { global: { plugins: [createPinia(), router] } });
   await flushPromises();
   return wrapper;
 }
@@ -85,6 +86,9 @@ describe("NetworkView", () => {
 
     expect(api.fetchNetwork).toHaveBeenCalledExactlyOnceWith("network-id");
     expect(wrapper.get(".network-heading h2").text()).toBe("app_backend");
+    expect(wrapper.find('.network-heading a[href="/networks"]').exists()).toBe(false);
+    expect(wrapper.get(".network-heading-metadata").text()).toContain("Managed");
+    expect(wrapper.get(".network-heading-summary").text()).not.toContain("Managed");
     expect(wrapper.get(".network-managed").attributes("data-tooltip"))
       .toBe("Managed by swarm-deploy GitOps through networks.yaml.");
 
