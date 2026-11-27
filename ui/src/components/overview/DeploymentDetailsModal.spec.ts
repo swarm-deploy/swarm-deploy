@@ -92,6 +92,7 @@ describe("Deployment Details modal", () => {
       expect(target).toEqual({ name: "stack-details", params: { stack: "app" } });
     });
     const link = wrapper.get(".deployment-stack-link");
+    expect(link.classes()).toContain("service-inline-link");
     expect(link.attributes("href")).toBe("/stacks/app");
     await link.trigger("click");
     await flushPromises();
@@ -99,6 +100,16 @@ describe("Deployment Details modal", () => {
     expect(wrapper.find('[role="dialog"]').exists()).toBe(false);
     wrapper.unmount();
     opener.remove();
+  });
+
+  it("uses the shared inline link style for commit details", () => {
+    const store = useOverviewStore();
+    store.deploymentDetailsData = deployment();
+    store.deploymentDetailsModalOpen = true;
+    const wrapper = mount(DeploymentDetailsModal);
+
+    expect(wrapper.get(".deployment-commit-link").classes()).toContain("service-inline-link");
+    wrapper.unmount();
   });
 
   it("renders missing stack metadata without a broken link", () => {

@@ -455,8 +455,8 @@ onUnmounted(() => {
           </div>
         </div>
         <dl v-if="detail && !store.deploymentDetailsLoading && !store.deploymentDetailsError" class="deployment-metadata">
-          <div class="deployment-metadata-item"><dt><DeploymentIcon name="stack" />{{ t('common.stack') }}</dt><dd><RouterLink v-if="detail.stack?.trim()" v-slot="{ href }" custom :to="{ name: 'stack-details', params: { stack: detail.stack } }"><a class="deployment-stack-link" :href="href" @click="openStack">{{ detail.stack }}</a></RouterLink><span v-else>—</span></dd></div>
-          <div class="deployment-metadata-item"><dt><DeploymentIcon name="commit" />{{ t('common.commit') }}</dt><dd><button v-if="detail.commit" type="button" class="deployment-commit-link" @click="openCommit">{{ shortCommitHash(detail.commit) }}<span aria-hidden="true">↗</span></button><span v-else>—</span></dd></div>
+          <div class="deployment-metadata-item"><dt><DeploymentIcon name="stack" />{{ t('common.stack') }}</dt><dd><RouterLink v-if="detail.stack?.trim()" v-slot="{ href }" custom :to="{ name: 'stack-details', params: { stack: detail.stack } }"><a class="service-inline-link deployment-stack-link" :href="href" @click="openStack">{{ detail.stack }}</a></RouterLink><span v-else>—</span></dd></div>
+          <div class="deployment-metadata-item"><dt><DeploymentIcon name="commit" />{{ t('common.commit') }}</dt><dd><button v-if="detail.commit" type="button" class="service-inline-link deployment-commit-link" @click="openCommit">{{ shortCommitHash(detail.commit) }}<span aria-hidden="true">↗</span></button><span v-else>—</span></dd></div>
           <div class="deployment-metadata-item"><dt><DeploymentIcon name="calendar" />{{ t('common.started') }}</dt><dd><span class="deployment-date-desktop">{{ formatDate(detail.started_at) }}</span><span class="deployment-date-mobile">{{ formatCompactDate(detail.started_at) }}</span></dd></div>
           <div class="deployment-metadata-item"><dt><DeploymentIcon name="calendar" />{{ t('common.finished') }}</dt><dd><span class="deployment-date-desktop">{{ detail.finished_at ? formatDate(detail.finished_at) : detail.status === "running" ? t('deployments.inProgress') : "—" }}</span><span class="deployment-date-mobile">{{ detail.finished_at ? formatCompactDate(detail.finished_at) : detail.status === "running" ? t('deployments.inProgress') : "—" }}</span></dd></div>
           <div class="deployment-metadata-item"><dt><DeploymentIcon name="clock" />{{ t('common.duration') }}</dt><dd>{{ duration }}</dd></div>
@@ -761,14 +761,10 @@ onUnmounted(() => {
 .deployment-metadata dt > :deep(.deployment-icon) { position: absolute; left: 18px; top: 50%; width: 22px; height: 22px; color: var(--muted); transform: translateY(-50%); }
 .deployment-metadata-item:first-child dt > :deep(.deployment-icon) { left: 0; }
 .deployment-metadata dd { margin: 4px 0 0; overflow-wrap: anywhere; line-height: 1.25; }
-.deployment-stack-link { color: var(--accent-strong); text-decoration: none; }
-.deployment-stack-link:hover { text-decoration: underline; }
 .deployment-date-mobile { display: none; }
-.deployment-commit-link { display: inline-flex; align-items: center; gap: 7px; border: 0; background: transparent; color: var(--interactive-primary); padding: 0; font: inherit; font-family: ui-monospace, monospace; }
-.deployment-commit-link:hover { transform: none; filter: none; text-decoration: underline; }
+.deployment-commit-link { display: inline-flex; align-items: center; gap: 7px; border: 0; background: transparent; padding: 0; font: inherit; font-family: ui-monospace, monospace; }
+.deployment-commit-link:hover { transform: none; filter: none; }
 .deployment-commit-link span { font-family: inherit; font-size: .95rem; }
-:global(:root[data-theme="dark"] .deployment-commit-link) { color: var(--text); }
-:global(:root[data-theme="dark"] .deployment-commit-link span) { color: var(--accent-strong); }
 .deployment-outcome {
   display: grid;
   grid-template-columns: 46px minmax(0, 1fr);
