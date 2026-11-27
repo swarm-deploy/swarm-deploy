@@ -1554,6 +1554,8 @@ body {
   align-items: center;
   gap: 4px;
   margin-top: 4px;
+  /* Align the copy glyph with the reply text while keeping the full button hit area. */
+  margin-inline-start: -8px;
 }
 
 .assistant-share-button {
