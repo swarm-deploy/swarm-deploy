@@ -55,6 +55,8 @@ type Chat struct {
 	Turns []Turn `json:"messages"`
 	// Unread indicates that the latest persisted assistant reply is unread.
 	Unread bool `json:"unread"`
+	// ReadOnly disables writable assistant tools for the chat.
+	ReadOnly bool `json:"read_only"`
 	// Usage contains aggregate token consumption for chat requests.
 	Usage *TokenUsage `json:"token_usage,omitempty"`
 	// PrimaryArtifact is the latest pull request, or the latest other artifact when no pull request exists.
@@ -84,6 +86,8 @@ type ChatSummary struct {
 	UpdatedAt time.Time `json:"updated_at"`
 	// Unread indicates that the latest persisted assistant reply is unread.
 	Unread bool `json:"unread"`
+	// ReadOnly indicates that writable assistant tools are disabled for the chat.
+	ReadOnly bool `json:"read_only"`
 	// Usage contains aggregate token consumption for the chat.
 	Usage *TokenUsage `json:"token_usage,omitempty"`
 	// PrimaryArtifact is the latest pull request, or the latest other artifact when no pull request exists.
@@ -96,14 +100,24 @@ type HistoryStorage interface {
 	ReadUsage(ctx context.Context, from, to time.Time, interval UsageInterval) ([]UsageBucket, error)
 	// ReadChats returns persisted chat metadata ordered by latest update first.
 	ReadChats(ctx context.Context) ([]ChatSummary, error)
+	// ReadChatMetadata reads a single chat without loading its turns.
+	ReadChatMetadata(ctx context.Context, id string) (Chat, bool, error)
 	// ReadChat returns a persisted chat by conversation ID.
 	ReadChat(ctx context.Context, id string) (Chat, bool, error)
 	// MarkRead clears unread if sequence identifies the latest assistant reply.
 	MarkRead(ctx context.Context, id string, sequence int) error
 	// SaveTurns appends turns and accumulates model token usage atomically. Turns may be omitted.
-	// A nonempty createdBy is recorded when the chat is first inserted.
+	// Creation options are recorded only when the chat is first inserted.
 	// On success it returns the last appended turn sequence, or -1 when no turns were appended.
-	SaveTurns(ctx context.Context, id, createdBy string, usage TokenUsage, turns ...Turn) (int, error)
+	SaveTurns(ctx context.Context, id string, options SaveOptions, usage TokenUsage, turns ...Turn) (int, error)
+}
+
+// SaveOptions contains chat metadata used only when SaveTurns creates a chat.
+type SaveOptions struct {
+	// CreatedBy is the authenticated username that created the chat.
+	CreatedBy string
+	// ReadOnly disables writable assistant tools for the created chat.
+	ReadOnly bool
 }
 
 func buildChatTitle(turns []Turn) string {

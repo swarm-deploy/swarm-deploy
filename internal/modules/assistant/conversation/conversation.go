@@ -56,6 +56,8 @@ type SelectionOption struct {
 
 // Conversation contains conversation messages and metadata.
 type Conversation struct {
+	// ReadOnly indicates that writable tools are disabled for this conversation.
+	ReadOnly bool
 	// Turns keeps conversation messages in chronological order.
 	Turns []Turn
 	// LastMessageAt is a timestamp of the latest appended message.
@@ -67,5 +69,5 @@ type Storage interface {
 	// Get returns conversation by conversation id.
 	Get(id string) (Conversation, bool)
 	// Append appends turns to conversation and updates LastMessageAt.
-	Append(id string, turns ...Turn)
+	Append(id string, readOnly bool, turns ...Turn)
 }

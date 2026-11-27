@@ -57,6 +57,7 @@ func (h *handler) GetAssistantChat(
 		CreatedAt:     chat.CreatedAt,
 		UpdatedAt:     chat.UpdatedAt,
 		Unread:        chat.Unread,
+		ReadOnly:      chat.ReadOnly,
 		TokenUsage:    toGeneratedAssistantTokenUsage(chat.Usage),
 		Messages:      messages,
 		ActiveRequest: toGeneratedAssistantActiveChatRequest(chat.ActiveRequest),
@@ -118,6 +119,7 @@ func toGeneratedAssistantChatSummary(chat assistant.ChatSummary) generated.Assis
 		CreatedAt:       chat.CreatedAt,
 		UpdatedAt:       chat.UpdatedAt,
 		Unread:          chat.Unread,
+		ReadOnly:        chat.ReadOnly,
 		TokenUsage:      toGeneratedAssistantTokenUsage(chat.Usage),
 		PrimaryArtifact: toGeneratedAssistantArtifact(chat.PrimaryArtifact),
 	}

@@ -238,6 +238,7 @@ describe("Assistant Drawer", () => {
         status: "completed",
         conversation_id: "created",
         request_id: "request-id",
+        read_only: false,
         answer: "Assistant answer",
       });
 
@@ -291,6 +292,7 @@ describe("Assistant Drawer", () => {
         status: "in_progress",
         conversation_id: "created",
         request_id: "request-id",
+        read_only: false,
         activity: ["Routing request"],
         poll_after_ms: 1,
       })
@@ -315,7 +317,7 @@ describe("Assistant Drawer", () => {
       request_id: "request-id",
       wait_timeout_ms: 750,
     });
-    finish({ status: "completed", conversation_id: "created", request_id: "request-id", answer: "Healthy" });
+    finish({ status: "completed", conversation_id: "created", request_id: "request-id", read_only: false, answer: "Healthy" });
     await flushPromises();
 
     expect(store.pending).toBe(false);
@@ -346,12 +348,42 @@ describe("Assistant Drawer", () => {
     await wrapper.get('button[title="Check the cluster"]').trigger("click");
     await flushPromises();
 
-    accept({ status: "in_progress", conversation_id: "new-id", request_id: "new-request" });
+    accept({ status: "in_progress", conversation_id: "new-id", request_id: "new-request", read_only: false });
     await flushPromises();
     expect(router.currentRoute.value.query.assistant).toBe(chat.id);
     expect(wrapper.get(".assistant-chat-message-user").text()).toBe("Check the cluster");
     expect(wrapper.get<HTMLTextAreaElement>(".assistant-chat-form textarea").element.disabled).toBe(false);
     expect(request).toHaveBeenCalledOnce();
+    wrapper.unmount();
+  });
+
+  it("shows the restricted tool mode while keeping the chat composer available", async () => {
+    const chat = { ...savedChat(), read_only: true };
+    vi.spyOn(assistantApi, "getAssistantChat").mockResolvedValue(chat);
+    vi.spyOn(assistantApi, "listAssistantChats").mockResolvedValue({ chats: [chat] });
+    const send = vi.spyOn(assistantApi, "sendAssistantChat");
+
+    const { wrapper } = await mountDrawer(`/?assistant=${chat.id}`);
+
+    expect(wrapper.get<HTMLTextAreaElement>(".assistant-chat-form textarea").element.disabled).toBe(false);
+    expect(wrapper.get(".assistant-read-only-notice").text()).toBe("Writable assistant tools are disabled in this chat.");
+    expect(wrapper.find('[aria-label="Read-only tools"]').exists()).toBe(true);
+    expect(send).not.toHaveBeenCalled();
+    wrapper.unmount();
+  });
+
+  it("keeps the read-only notice when polling returns an error without a mode", async () => {
+    const chat = { ...savedChat({ request_id: "lost-request", activity: [] }), read_only: true };
+    vi.spyOn(assistantApi, "getAssistantChat").mockResolvedValue(chat);
+    vi.spyOn(assistantApi, "listAssistantChats").mockResolvedValue({ chats: [chat] });
+    vi.spyOn(assistantApi, "sendAssistantChat").mockResolvedValue({
+      status: "failed", request_id: "lost-request", conversation_id: chat.id, error_message: "Unknown request",
+    });
+
+    const { wrapper } = await mountDrawer(`/?assistant=${chat.id}`);
+
+    expect(wrapper.text()).toContain("Unknown request");
+    expect(wrapper.find(".assistant-read-only-notice").exists()).toBe(true);
     wrapper.unmount();
   });
 
@@ -366,7 +398,9 @@ describe("Assistant Drawer", () => {
     vi.spyOn(assistantApi, "listAssistantChats").mockResolvedValue({ chats: [] });
     let finish!: (response: AssistantChatResponse) => void;
     const send = vi.spyOn(assistantApi, "sendAssistantChat")
-      .mockResolvedValueOnce({ status: "in_progress", conversation_id: "explanation", request_id: "request", poll_after_ms: 1 })
+      .mockResolvedValueOnce({
+        status: "in_progress", conversation_id: "explanation", request_id: "request", read_only: false, poll_after_ms: 1,
+      })
       .mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
     const wrapper = mount({
       components: { AssistantDrawer, CommitDetailsModal },
@@ -384,7 +418,9 @@ describe("Assistant Drawer", () => {
     expect(send.mock.calls[0][0].conversation_id).toBeUndefined();
     expect(wrapper.get(".assistant-chat-message-user").text()).toContain("abc123");
     await vi.waitFor(() => expect(send).toHaveBeenCalledTimes(2));
-    finish({ status: "completed", conversation_id: "explanation", request_id: "request", answer: "Explanation" });
+    finish({
+      status: "completed", conversation_id: "explanation", request_id: "request", read_only: false, answer: "Explanation",
+    });
     await flushPromises();
     expect(wrapper.get<HTMLTextAreaElement>(".assistant-chat-form textarea").element.disabled).toBe(false);
     wrapper.unmount();
@@ -402,8 +438,12 @@ describe("Assistant Drawer", () => {
     const get = vi.spyOn(assistantApi, "getAssistantChat").mockResolvedValueOnce(chat).mockResolvedValueOnce(current);
     vi.spyOn(assistantApi, "listAssistantChats").mockResolvedValue({ chats: [chat] });
     const send = vi.spyOn(assistantApi, "sendAssistantChat")
-      .mockResolvedValueOnce({ status: "failed", conversation_id: chat.id, request_id: "declined", error_message: "Chat is busy" })
-      .mockResolvedValueOnce({ status: "completed", conversation_id: chat.id, request_id: "other", answer: "Saved reply" });
+      .mockResolvedValueOnce({
+        status: "failed", conversation_id: chat.id, request_id: "declined", read_only: false, error_message: "Chat is busy",
+      })
+      .mockResolvedValueOnce({
+        status: "completed", conversation_id: chat.id, request_id: "other", read_only: false, answer: "Saved reply",
+      });
     await router.push({ query: { assistant: chat.id } });
     const wrapper = mount(AssistantDrawer, { global: { plugins: [pinia, router] } });
     await flushPromises();
@@ -435,8 +475,8 @@ describe("Assistant Drawer", () => {
     const assistantStore = useAssistantStore();
     const date = new Date().toISOString();
     assistantStore.chats = [
-      { id: "first", title: "Inspect proxy", created_at: date, updated_at: date, unread: false },
-      { id: "second", title: "Check worker nodes", created_at: date, updated_at: date, unread: false },
+      { id: "first", title: "Inspect proxy", created_at: date, updated_at: date, unread: false, read_only: false },
+      { id: "second", title: "Check worker nodes", created_at: date, updated_at: date, unread: false, read_only: false },
     ];
     assistantStore.loadChats = vi.fn(async () => undefined);
     const wrapper = mount(AssistantDrawer, { global: { plugins: [pinia, router] } });
@@ -466,8 +506,8 @@ describe("Assistant Drawer", () => {
     const assistantStore = useAssistantStore();
     const date = new Date().toISOString();
     assistantStore.chats = [
-      { id: "first", title: "Inspect proxy", created_at: date, updated_at: date, unread: false },
-      { id: "second", title: "Check nodes", created_at: date, updated_at: date, unread: false },
+      { id: "first", title: "Inspect proxy", created_at: date, updated_at: date, unread: false, read_only: false },
+      { id: "second", title: "Check nodes", created_at: date, updated_at: date, unread: false, read_only: false },
     ];
     assistantStore.loadChats = vi.fn(async () => undefined);
     vi.spyOn(assistantStore, "requestAssistant");
@@ -532,7 +572,7 @@ describe("Assistant Drawer", () => {
       const payload = path === "/api/assistant/suggestions"
         ? { suggestions: [{ id: "from-api", title, prompt }] }
         : path === "/api/v1/assistant/chat"
-          ? { status: "completed", conversation_id: "chat-1", request_id: "turn-1", answer: "Done" }
+          ? { status: "completed", conversation_id: "chat-1", request_id: "turn-1", read_only: false, answer: "Done" }
           : { chats: [] };
       return new Response(JSON.stringify(payload), {
         status: 200, headers: { "Content-Type": "application/json" },
@@ -630,6 +670,7 @@ describe("Assistant Drawer", () => {
       status: "completed",
       conversation_id: chat.id,
       request_id: "selection-request",
+      read_only: false,
       answer: "Restart infra-prometheus-pushgateway?",
       answer_sequence: 3,
     });
@@ -714,7 +755,9 @@ describe("Assistant Drawer", () => {
     expect(wrapper.text()).not.toContain("No reply received");
     expect(request).toHaveBeenCalledWith({ conversation_id: "chat-1", request_id: "request-id", wait_timeout_ms: 750 });
 
-    finish({ status: "completed", conversation_id: "chat-1", request_id: "request-id", answer: "Healthy" });
+    finish({
+      status: "completed", conversation_id: "chat-1", request_id: "request-id", read_only: false, answer: "Healthy",
+    });
     await flushPromises();
 
     expect(store.pending).toBe(false);
@@ -809,7 +852,7 @@ describe("Assistant Drawer", () => {
     vi.spyOn(assistantApi, "getAssistantChat").mockResolvedValueOnce(first)
       .mockImplementationOnce(() => new Promise((resolve) => { loadSecond = resolve; }));
     const request = vi.spyOn(store, "requestAssistant").mockResolvedValue({
-      status: "completed", conversation_id: first.id, request_id: "request", answer: "Healthy",
+      status: "completed", conversation_id: first.id, request_id: "request", read_only: false, answer: "Healthy",
     });
     await router.push({ query: { assistant: first.id } });
     const wrapper = mount(AssistantDrawer, { global: { plugins: [pinia, router] } });
@@ -845,7 +888,7 @@ describe("Assistant Drawer", () => {
     );
     store.loadChats = vi.fn(async () => undefined);
     const request = vi.spyOn(store, "requestAssistant").mockResolvedValue({
-      status: "completed", conversation_id: chat.id, request_id: "request", answer: "Healthy",
+      status: "completed", conversation_id: chat.id, request_id: "request", read_only: false, answer: "Healthy",
     });
     await router.push({ query: { assistant: chat.id } });
     const wrapper = mount(AssistantDrawer, { global: { plugins: [pinia, router] } });
@@ -878,7 +921,9 @@ describe("Assistant Drawer", () => {
     let finish!: (response: AssistantChatResponse) => void;
     const request = vi.spyOn(store, "requestAssistant")
       .mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }))
-      .mockResolvedValueOnce({ status: "completed", conversation_id: "separate", request_id: "second", answer: "New answer" });
+      .mockResolvedValueOnce({
+        status: "completed", conversation_id: "separate", request_id: "second", read_only: false, answer: "New answer",
+      });
     await router.push("/?assistant=new");
     const wrapper = mount(AssistantDrawer, { global: { plugins: [pinia, router] } });
     await flushPromises();
@@ -896,7 +941,7 @@ describe("Assistant Drawer", () => {
     await form.trigger("submit");
     await flushPromises();
     expect(request.mock.calls[1][0].conversation_id).toBeUndefined();
-    finish({ status: "completed", conversation_id: chat.id, request_id: "running", answer: "Old answer" });
+    finish({ status: "completed", conversation_id: chat.id, request_id: "running", read_only: false, answer: "Old answer" });
     await flushPromises();
     expect(router.currentRoute.value.query.assistant).toBe("separate");
     expect(wrapper.get(".assistant-chat-message-assistant").text()).toContain("New answer");
@@ -917,7 +962,9 @@ describe("Assistant Drawer", () => {
     const get = vi.spyOn(assistantApi, "getAssistantChat").mockResolvedValueOnce(running)
       .mockImplementationOnce(() => new Promise((resolve) => { reload = resolve; }));
     const request = vi.spyOn(store, "requestAssistant").mockRejectedValueOnce(new TypeError("Connection lost"))
-      .mockResolvedValueOnce({ status: "completed", conversation_id: running.id, request_id: "running", answer: "Recovered answer" });
+      .mockResolvedValueOnce({
+        status: "completed", conversation_id: running.id, request_id: "running", read_only: false, answer: "Recovered answer",
+      });
     await router.push({ query: { assistant: running.id } });
     const wrapper = mount(AssistantDrawer, { global: { plugins: [pinia, router] } });
     await flushPromises();
@@ -942,6 +989,7 @@ function savedChat(activeRequest?: AssistantChatHistory["active_request"]): Assi
   return {
     id: "chat-1",
     unread: false,
+    read_only: false,
     title: "Check the cluster",
     created_at: "2026-11-21T10:00:00Z",
     updated_at: "2026-11-21T10:00:00Z",
@@ -1092,7 +1140,8 @@ describe("Assistant unread replies", () => {
     });
 
     await store.finishAssistantMessage({
-      status: "completed", conversation_id: chat.id, request_id: "request", answer: "New answer", answer_sequence: 1,
+      status: "completed", conversation_id: chat.id, request_id: "request", read_only: false,
+      answer: "New answer", answer_sequence: 1,
     });
     await flushPromises();
     expect(body.scrollTop).toBe(newScrollTop);
@@ -1139,7 +1188,8 @@ describe("Assistant unread replies", () => {
 
     for (const sequence of [1, 2]) {
       await store.finishAssistantMessage({
-        status: "completed", conversation_id: chat.id, request_id: String(sequence), answer: "Reply", answer_sequence: sequence,
+        status: "completed", conversation_id: chat.id, request_id: String(sequence), read_only: false,
+        answer: "Reply", answer_sequence: sequence,
       });
       await flushPromises();
       expect(wrapper.find(".assistant-new-reply").exists()).toBe(true);

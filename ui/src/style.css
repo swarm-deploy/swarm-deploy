@@ -1134,6 +1134,15 @@ body {
   font-weight: 600;
 }
 
+.assistant-read-only-icon {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+  fill: none;
+  stroke: var(--muted);
+  stroke-width: 1.8;
+}
+
 .assistant-drawer-actions {
   flex: 0 0 auto;
   gap: 4px;
@@ -1762,6 +1771,26 @@ body {
   padding: 8px 10px;
   border-top: 1px solid var(--line);
   display: block;
+}
+
+.assistant-read-only-notice {
+  min-height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  padding: 0 4px 6px;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.assistant-read-only-notice svg {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
 }
 
 .assistant-new-reply {

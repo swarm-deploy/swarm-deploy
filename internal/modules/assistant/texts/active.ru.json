@@ -7,6 +7,8 @@
   "chat.message_required": "Для нового запроса к ассистенту нужно сообщение.",
   "chat.message_too_large": "Сообщение слишком большое.",
   "chat.no_answer": "Модель не сформировала ответ.",
+  "chat.read_only_creation": "Режим только для чтения можно задать только при создании чата.",
+  "chat.read_only_operation": "В чате только для чтения нельзя выполнять операции, изменяющие состояние runtime или GitOps.",
   "chat.rejected": "Защита от внедрения инструкций отклонила запрос. Переформулируйте вопрос о диагностике.",
   "chat.request_conversation_mismatch": "request_id не относится к указанному conversation_id.",
   "chat.request_id_conflict": "request_id уже связан с другим запросом к ассистенту.",

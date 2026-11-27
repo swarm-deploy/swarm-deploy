@@ -74,6 +74,7 @@ type graphExecutionState struct {
 	operationTurn           *operationTurn
 	history                 []conversation.Turn
 	userMessage             string
+	readOnly                bool
 	route                   Route
 	profile                 RouteProfile
 	capabilities            []Capability
@@ -129,6 +130,7 @@ func (g *graph) run(
 	turn *operationTurn,
 	history []conversation.Turn,
 	userMessage string,
+	readOnly bool,
 	reportActivity func(string),
 ) (string, conversation.TokenUsage, error) {
 	if g.guard.Check(userMessage) {
@@ -145,6 +147,7 @@ func (g *graph) run(
 		operationTurn:  turn,
 		history:        history,
 		userMessage:    userMessage,
+		readOnly:       readOnly,
 		reportActivity: reportActivity,
 	}
 
@@ -326,6 +329,11 @@ func (g *graph) routeNode(
 		executionState.capabilities = append([]Capability(nil), result.Capabilities...)
 		executionState.effectiveToolSet = g.responseToolSet(route, result.Capabilities)
 		if result.Operation != nil {
+			if executionState.readOnly {
+				executionState.answer = g.config.Localizer.Text("chat.read_only_operation")
+				executionState.routeCompleted = true
+				return messages, nil
+			}
 			answer, usage := executionState.operationTurn.startPendingOperation(ctx, *result.Operation)
 			executionState.answer = answer
 			executionState.usage.Add(usage)

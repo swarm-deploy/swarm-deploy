@@ -543,6 +543,7 @@ export interface AssistantChatRequest {
   conversation_id?: string;
   request_id?: string;
   message?: string;
+  read_only?: boolean;
   wait_timeout_ms?: number;
 }
 
@@ -550,6 +551,7 @@ export interface AssistantChatResponse {
   status: AssistantStatus;
   request_id: string;
   conversation_id: string;
+  read_only?: boolean;
   answer?: string;
   answer_sequence?: number;
   error_message?: string;
@@ -590,6 +592,7 @@ export interface AssistantUsageResponse {
 export interface AssistantChatSummary {
   id: string;
   unread: boolean;
+  read_only: boolean;
   title: string;
   created_at: string;
   updated_at: string;

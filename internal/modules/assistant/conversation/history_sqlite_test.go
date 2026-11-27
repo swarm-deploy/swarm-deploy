@@ -58,16 +58,16 @@ func TestSQLChatTransactionsAndRestart(t *testing.T) {
 	require.NoError(t, err)
 	repo := NewSQLHistoryStorage(db)
 	for _, id := range []string{"", "  "} {
-		_, err = repo.SaveTurns(ctx, id, "", TokenUsage{}, Turn{Role: "user", Content: "hello"})
+		_, err = repo.SaveTurns(ctx, id, SaveOptions{}, TokenUsage{}, Turn{Role: "user", Content: "hello"})
 		require.Error(t, err)
 	}
 	_, exists, err := repo.ReadChat(ctx, "missing")
 	require.NoError(t, err)
 	assert.False(t, exists)
-	_, err = repo.SaveTurns(ctx, "chat", "", TokenUsage{InputTokens: 2, TotalTokens: 2}, Turn{Role: "user", Content: "Hello"})
+	_, err = repo.SaveTurns(ctx, "chat", SaveOptions{}, TokenUsage{InputTokens: 2, TotalTokens: 2}, Turn{Role: "user", Content: "Hello"})
 	require.NoError(t, err)
 	require.ErrorIs(t, db.WithinTransaction(ctx, func(ctx context.Context) error {
-		_, err = repo.SaveTurns(ctx, "chat", "", TokenUsage{OutputTokens: 5, TotalTokens: 5}, Turn{Role: "assistant", Content: "rollback"})
+		_, err = repo.SaveTurns(ctx, "chat", SaveOptions{}, TokenUsage{OutputTokens: 5, TotalTokens: 5}, Turn{Role: "assistant", Content: "rollback"})
 		require.NoError(t, err)
 		return assert.AnError
 	}), assert.AnError)
@@ -88,12 +88,42 @@ func TestSQLChatTransactionsAndRestart(t *testing.T) {
 	// Failure after metadata was updated must also restore metadata and original turns.
 	_, err = db.Exec(ctx, "CREATE TRIGGER reject_turn BEFORE INSERT ON assistant_turns BEGIN SELECT RAISE(ABORT, 'injected turn failure'); END")
 	require.NoError(t, err)
-	_, err = repo.SaveTurns(ctx, "chat", "", TokenUsage{TotalTokens: 100}, Turn{Role: "assistant", Content: "lost"})
+	_, err = repo.SaveTurns(ctx, "chat", SaveOptions{}, TokenUsage{TotalTokens: 100}, Turn{Role: "assistant", Content: "lost"})
 	require.Error(t, err)
 	unchanged, exists, err := repo.ReadChat(ctx, "chat")
 	require.NoError(t, err)
 	require.True(t, exists)
 	assert.Equal(t, chat, unchanged)
+}
+
+func TestSQLReadOnlyChatKeepsModeWhenAppendingTurns(t *testing.T) {
+	ctx := t.Context()
+	db, err := storage.OpenSQLite(ctx, t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	repo := NewSQLHistoryStorage(db)
+
+	_, err = repo.SaveTurns(ctx, "chat", SaveOptions{CreatedBy: "mcp", ReadOnly: true}, TokenUsage{},
+		Turn{Role: "user", Content: "Check the cluster"})
+	require.NoError(t, err)
+	_, err = repo.SaveTurns(ctx, "chat", SaveOptions{}, TokenUsage{},
+		Turn{Role: "assistant", Content: "The cluster is healthy"})
+	require.NoError(t, err)
+	_, err = repo.SaveTurns(ctx, "chat", SaveOptions{}, TokenUsage{},
+		Turn{Role: "user", Content: "Restart api"})
+	require.NoError(t, err)
+
+	chat, found, err := repo.ReadChat(ctx, "chat")
+	require.NoError(t, err)
+	require.True(t, found)
+	assert.True(t, chat.ReadOnly)
+	assert.Equal(t, "mcp", chat.CreatedBy)
+	require.Len(t, chat.Turns, 3)
+
+	summaries, err := repo.ReadChats(ctx)
+	require.NoError(t, err)
+	require.Len(t, summaries, 1)
+	assert.True(t, summaries[0].ReadOnly)
 }
 
 func TestSQLChatAppendsAfterLastSequenceWithoutReplacingHistory(t *testing.T) {
@@ -108,7 +138,7 @@ func TestSQLChatAppendsAfterLastSequenceWithoutReplacingHistory(t *testing.T) {
 	_, err = db.Exec(ctx, "CREATE TRIGGER keep_history BEFORE DELETE ON assistant_turns BEGIN SELECT RAISE(ABORT, 'unexpected delete'); END")
 	require.NoError(t, err)
 
-	_, err = repo.SaveTurns(ctx, "chat", "", TokenUsage{TotalTokens: 2},
+	_, err = repo.SaveTurns(ctx, "chat", SaveOptions{}, TokenUsage{TotalTokens: 2},
 		Turn{Role: "assistant", Content: "First reply"}, Turn{Role: "user", Content: "Follow-up"})
 	require.NoError(t, err)
 	var sequences []int
@@ -131,7 +161,7 @@ func TestSQLChatConcurrentAppends(t *testing.T) {
 	errs := make(chan error, 8)
 	for range 8 {
 		group.Go(func() {
-			_, err := repo.SaveTurns(ctx, "chat", "", TokenUsage{TotalTokens: 1}, Turn{Role: "user", Content: "hello"})
+			_, err := repo.SaveTurns(ctx, "chat", SaveOptions{}, TokenUsage{TotalTokens: 1}, Turn{Role: "user", Content: "hello"})
 			errs <- err
 		})
 	}
@@ -274,9 +304,9 @@ func TestSQLChatPreservesCreatorFromFirstInsert(t *testing.T) {
 		{id: "anonymous"},
 	} {
 		t.Run(tc.id, func(t *testing.T) {
-			_, err = repo.SaveTurns(ctx, tc.id, tc.createdBy, TokenUsage{InputTokens: 1, TotalTokens: 1})
+			_, err = repo.SaveTurns(ctx, tc.id, SaveOptions{CreatedBy: tc.createdBy}, TokenUsage{InputTokens: 1, TotalTokens: 1})
 			require.NoError(t, err)
-			_, err = repo.SaveTurns(ctx, tc.id, "bob", TokenUsage{}, Turn{Role: "user", Content: "hello"})
+			_, err = repo.SaveTurns(ctx, tc.id, SaveOptions{CreatedBy: "bob"}, TokenUsage{}, Turn{Role: "user", Content: "hello"})
 			require.NoError(t, err)
 
 			var createdBy sql.NullString

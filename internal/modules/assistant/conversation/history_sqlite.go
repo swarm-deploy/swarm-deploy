@@ -60,6 +60,7 @@ func (s *SQLHistoryStorage) ReadChat(ctx context.Context, id string) (Chat, bool
 			goqu.I("chat.output_tokens").As("output_tokens"),
 			goqu.I("chat.total_tokens").As("total_tokens"),
 			goqu.I("chat.primary_artifact").As("primary_artifact"),
+			goqu.I("chat.read_only").As("read_only"),
 			goqu.I("turn.sequence").As("turn_sequence"),
 			goqu.I("turn.payload").As("turn_payload"),
 		).
@@ -82,7 +83,7 @@ func (s *SQLHistoryStorage) ReadChat(ctx context.Context, id string) (Chat, bool
 	}
 	chat := Chat{
 		ID: meta.ID, Title: meta.Title, CreatedAt: meta.CreatedAt, CreatedBy: rows[0].CreatedBy.String,
-		UpdatedAt: meta.UpdatedAt, Unread: meta.Unread, Usage: meta.Usage,
+		UpdatedAt: meta.UpdatedAt, Unread: meta.Unread, ReadOnly: meta.ReadOnly, Usage: meta.Usage,
 		PrimaryArtifact: meta.PrimaryArtifact,
 		Turns:           make([]Turn, 0, len(rows)),
 	}
@@ -100,7 +101,8 @@ func (s *SQLHistoryStorage) ReadChat(ctx context.Context, id string) (Chat, bool
 	return chat, true, nil
 }
 
-func (s *SQLHistoryStorage) readChatMetadata(ctx context.Context, id string) (Chat, bool, error) {
+// ReadChatMetadata reads a single chat without loading its turns.
+func (s *SQLHistoryStorage) ReadChatMetadata(ctx context.Context, id string) (Chat, bool, error) {
 	query, args, err := s.db.Dialect().From("assistant_chats").Prepared(true).
 		Select(chatColumns...).SelectAppend("created_by").Where(goqu.Ex{"id": id}).ToSQL()
 	if err != nil {
@@ -119,7 +121,7 @@ func (s *SQLHistoryStorage) readChatMetadata(ctx context.Context, id string) (Ch
 		return Chat{}, false, err
 	}
 	return Chat{ID: meta.ID, Title: meta.Title, CreatedAt: meta.CreatedAt, CreatedBy: row.CreatedBy.String,
-		UpdatedAt: meta.UpdatedAt, Unread: meta.Unread, Usage: meta.Usage,
+		UpdatedAt: meta.UpdatedAt, Unread: meta.Unread, ReadOnly: meta.ReadOnly, Usage: meta.Usage,
 		PrimaryArtifact: meta.PrimaryArtifact}, true, nil
 }
 
@@ -142,7 +144,8 @@ func (s *SQLHistoryStorage) MarkRead(ctx context.Context, id string, sequence in
 // The creator is recorded only on the first insert.
 func (s *SQLHistoryStorage) SaveTurns(
 	ctx context.Context,
-	id, createdBy string,
+	id string,
+	options SaveOptions,
 	usage TokenUsage,
 	turns ...Turn,
 ) (int, error) {
@@ -155,13 +158,16 @@ func (s *SQLHistoryStorage) SaveTurns(
 	}
 	sequence := -1
 	err := s.db.WithinTransaction(ctx, func(ctx context.Context) error {
-		chat, exists, err := s.readChatMetadata(ctx, id)
+		chat, exists, err := s.ReadChatMetadata(ctx, id)
 		if err != nil {
 			return err
 		}
 		now := time.Now().UTC()
 		if !exists {
-			chat = Chat{ID: id, Title: defaultChatTitle, CreatedAt: now, CreatedBy: createdBy, UpdatedAt: now}
+			chat = Chat{
+				ID: id, Title: defaultChatTitle, CreatedAt: now, CreatedBy: options.CreatedBy,
+				UpdatedAt: now, ReadOnly: options.ReadOnly,
+			}
 		}
 		chat.addUsage(usage)
 		if len(turns) == 0 {
@@ -193,7 +199,7 @@ func (s *SQLHistoryStorage) SaveTurns(
 
 // Append appends turns without a usage sample.
 func (s *SQLHistoryStorage) Append(ctx context.Context, id string, turns ...Turn) error {
-	_, err := s.SaveTurns(ctx, id, "", TokenUsage{}, turns...)
+	_, err := s.SaveTurns(ctx, id, SaveOptions{}, TokenUsage{}, turns...)
 	return err
 }
 
@@ -238,7 +244,7 @@ func (s *SQLHistoryStorage) saveChatSummary(ctx context.Context, chat Chat) erro
 			"id": chat.ID, "title": chat.Title, "created_at": chat.CreatedAt.UTC(), "created_by": createdBy,
 			"updated_at": chat.UpdatedAt.UTC(), "input_tokens": input,
 			"output_tokens": output, "total_tokens": total, "unread": chat.Unread,
-			"primary_artifact": primaryArtifact,
+			"primary_artifact": primaryArtifact, "read_only": chat.ReadOnly,
 		}).
 		OnConflict(goqu.DoUpdate("id", goqu.Record{
 			"title": goqu.I("excluded.title"), "created_at": goqu.I("excluded.created_at"),
@@ -292,7 +298,7 @@ func (s *SQLHistoryStorage) saveTurn(ctx context.Context, chatID string, sequenc
 
 var chatColumns = []any{
 	"id", "title", "created_at", "updated_at", "unread", "input_tokens", "output_tokens", "total_tokens",
-	"primary_artifact",
+	"primary_artifact", "read_only",
 }
 
 type chatRow struct {
@@ -302,6 +308,7 @@ type chatRow struct {
 	CreatedBy       sql.NullString `db:"created_by"`
 	UpdatedAt       time.Time      `db:"updated_at"`
 	Unread          bool           `db:"unread"`
+	ReadOnly        bool           `db:"read_only"`
 	InputTokens     sql.NullInt64  `db:"input_tokens"`
 	OutputTokens    sql.NullInt64  `db:"output_tokens"`
 	TotalTokens     sql.NullInt64  `db:"total_tokens"`
@@ -316,7 +323,8 @@ type chatTurnRow struct {
 
 func (r chatRow) summary() (ChatSummary, error) {
 	result := ChatSummary{
-		ID: r.ID, Title: r.Title, CreatedAt: r.CreatedAt.UTC(), UpdatedAt: r.UpdatedAt.UTC(), Unread: r.Unread,
+		ID: r.ID, Title: r.Title, CreatedAt: r.CreatedAt.UTC(), UpdatedAt: r.UpdatedAt.UTC(),
+		Unread: r.Unread, ReadOnly: r.ReadOnly,
 	}
 	if r.InputTokens.Valid || r.OutputTokens.Valid || r.TotalTokens.Valid {
 		result.Usage = &TokenUsage{

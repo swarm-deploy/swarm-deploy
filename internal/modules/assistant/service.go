@@ -41,6 +41,7 @@ const maxRunActivity = 32
 var (
 	errRequestIDConflict = errors.New("request_id is already bound to another assistant request")
 	errConversationBusy  = errors.New("assistant conversation already has an active request")
+	errReadOnlyCreation  = errors.New("read-only can only be set when creating an assistant chat")
 )
 
 // Service provides assistant chat workflow with start/poll semantics.
@@ -184,7 +185,7 @@ func (s *Service) Chat(ctx context.Context, request ChatRequest) ChatResponse {
 		requestID = uuid.NewString()
 	}
 
-	run, created, readErr := s.getOrCreateRun(ctx, requestID, conversationID, message)
+	run, created, readErr := s.getOrCreateRun(ctx, requestID, conversationID, message, request.ReadOnly)
 	if readErr != nil {
 		switch {
 		case errors.Is(readErr, errRequestIDConflict):
@@ -193,6 +194,9 @@ func (s *Service) Chat(ctx context.Context, request ChatRequest) ChatResponse {
 		case errors.Is(readErr, errConversationBusy):
 			return ChatResponse{Status: StatusFailed, ConversationID: conversationID, RequestID: requestID,
 				ErrorMessage: s.config.Localizer.Text("chat.conversation_busy")}
+		case errors.Is(readErr, errReadOnlyCreation):
+			return ChatResponse{Status: StatusFailed, ConversationID: conversationID, RequestID: requestID,
+				ErrorMessage: s.config.Localizer.Text("chat.read_only_creation")}
 		}
 		return ChatResponse{Status: StatusFailed, ConversationID: conversationID, RequestID: requestID,
 			ErrorMessage: s.config.Localizer.Text("chat.history_read_failed")}
@@ -252,7 +256,9 @@ func (s *Service) prepareRun(ctx context.Context, run *chatRun, createdBy string
 	defer unlock()
 
 	question := conversation.Turn{Role: "user", Content: run.message}
-	_, err = s.persistConversation(ctx, run.conversationID, createdBy, conversation.TokenUsage{}, question)
+	_, err = s.persistConversation(
+		ctx, run.conversationID, createdBy, run.readOnly, conversation.TokenUsage{}, question,
+	)
 	if err != nil {
 		run.finish(StatusFailed, "", s.config.Localizer.Text("chat.save_message_failed"), nil, nil, nil)
 		return nil, false
@@ -276,10 +282,10 @@ func (s *Service) runAssistant(ctx context.Context, createdBy string, history []
 
 	run.addActivity(s.config.Localizer.Text("progress.analyze"))
 	turn := s.graph.operations.beginTurn(conversationID)
-	answer, usage, err := s.graph.run(runCtx, turn, history, run.message, run.addActivity)
+	answer, usage, err := s.graph.run(runCtx, turn, history, run.message, run.readOnly, run.addActivity)
 	if err != nil {
 		// The saved question stays in history, so the model sees what the user sees.
-		s.conversationStorage.Append(conversationID, question)
+		s.conversationStorage.Append(conversationID, run.readOnly, question)
 		if errors.Is(err, guard.ErrPromptInjection) {
 			rejectedPrompt := run.message
 			var promptErr *guard.PromptInjectionError
@@ -288,12 +294,12 @@ func (s *Service) runAssistant(ctx context.Context, createdBy string, history []
 			}
 
 			s.publishPromptRejection(runCtx, rejectedPrompt)
-			_, _ = s.persistConversation(ctx, conversationID, createdBy, usage)
+			_, _ = s.persistConversation(ctx, conversationID, createdBy, run.readOnly, usage)
 			run.finish(StatusRejected, "", s.config.Localizer.Text("chat.rejected"), nil, nil, nil)
 			return
 		}
 
-		_, _ = s.persistConversation(ctx, conversationID, createdBy, usage)
+		_, _ = s.persistConversation(ctx, conversationID, createdBy, run.readOnly, usage)
 		slog.ErrorContext(
 			runCtx,
 			"[assistant] failed to generate response",
@@ -319,16 +325,16 @@ func (s *Service) runAssistant(ctx context.Context, createdBy string, history []
 	unlock, err := s.lockChatHistory(ctx, conversationID)
 	if err == nil {
 		defer unlock()
-		sequence, err = s.persistConversation(ctx, conversationID, createdBy, usage, reply)
+		sequence, err = s.persistConversation(ctx, conversationID, createdBy, run.readOnly, usage, reply)
 	}
 	if err != nil {
 		// Keep the model context equal to the saved history: the question stays, the lost reply does not.
-		s.conversationStorage.Append(conversationID, question)
+		s.conversationStorage.Append(conversationID, run.readOnly, question)
 		run.finish(StatusFailed, "", s.config.Localizer.Text("chat.save_response_failed"), nil, nil, nil)
 		return
 	}
 	turn.publish()
-	s.conversationStorage.Append(conversationID, question, reply)
+	s.conversationStorage.Append(conversationID, run.readOnly, question, reply)
 
 	var answerSequence *int
 	if sequence >= 0 {
@@ -341,6 +347,7 @@ func (s *Service) persistConversation(
 	ctx context.Context,
 	conversationID string,
 	createdBy string,
+	readOnly bool,
 	usage conversation.TokenUsage,
 	turns ...conversation.Turn,
 ) (int, error) {
@@ -349,7 +356,13 @@ func (s *Service) persistConversation(
 	}
 	persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), conversationPersistenceTimeout)
 	defer cancel()
-	sequence, err := s.conversationHistory.SaveTurns(persistCtx, conversationID, createdBy, usage, turns...)
+	sequence, err := s.conversationHistory.SaveTurns(
+		persistCtx,
+		conversationID,
+		conversation.SaveOptions{CreatedBy: createdBy, ReadOnly: readOnly},
+		usage,
+		turns...,
+	)
 	if err != nil {
 		slog.ErrorContext(
 			ctx,
@@ -398,6 +411,7 @@ func (s *Service) getOrCreateRun(
 	requestID,
 	conversationID,
 	message string,
+	readOnly bool,
 ) (*chatRun, bool, error) {
 	s.runsMu.Lock()
 	defer s.runsMu.Unlock()
@@ -405,26 +419,56 @@ func (s *Service) getOrCreateRun(
 	s.pruneRunsLocked()
 
 	if existing := s.runs[requestID]; existing != nil {
-		if (conversationID != "" && existing.conversationID != conversationID) || existing.message != message {
+		if (conversationID != "" && existing.conversationID != conversationID) ||
+			existing.message != message || existing.requestedReadOnly != readOnly {
 			return nil, false, errRequestIDConflict
 		}
 		return existing, false, nil
 	}
-	if conversationID == "" {
-		conversationID = uuid.NewString()
-	} else if s.activeRunLocked(conversationID) != nil {
-		return nil, false, errConversationBusy
-	}
-
-	conversationCreated, err := s.isConversationNewLocked(ctx, conversationID)
+	run, err := s.newRunLocked(ctx, requestID, conversationID, message, readOnly)
 	if err != nil {
 		return nil, false, err
 	}
-
 	s.makeRoomForRunLocked()
-	run := newChatRun(requestID, conversationID, message, conversationCreated)
 	s.runs[requestID] = run
 	return run, true, nil
+}
+
+func (s *Service) newRunLocked(
+	ctx context.Context, requestID, conversationID, message string, readOnly bool,
+) (*chatRun, error) {
+	if conversationID == "" {
+		return newChatRun(requestID, uuid.NewString(), message, true, readOnly), nil
+	}
+	if s.activeRunLocked(conversationID) != nil {
+		return nil, errConversationBusy
+	}
+	storedMode, found, err := s.conversationModeLocked(ctx, conversationID)
+	if err != nil {
+		return nil, err
+	}
+	if found && readOnly && !storedMode {
+		return nil, errReadOnlyCreation
+	}
+	run := newChatRun(requestID, conversationID, message, !found, readOnly)
+	if found {
+		run.readOnly = storedMode
+	}
+	return run, nil
+}
+
+func (s *Service) conversationModeLocked(ctx context.Context, id string) (bool, bool, error) {
+	for _, run := range s.runs {
+		if run.conversationID == id && run.isStarted() {
+			return run.readOnly, true, nil
+		}
+	}
+	if s.conversationHistory != nil {
+		chat, found, err := s.conversationHistory.ReadChatMetadata(ctx, id)
+		return chat.ReadOnly, found, err
+	}
+	cached, found := s.conversationStorage.Get(id)
+	return cached.ReadOnly, found, nil
 }
 
 // activeRunLocked returns the unfinished run of a conversation. Only one run per conversation can be active.
@@ -447,30 +491,6 @@ func (s *Service) getStartedRun(conversationID string) *chatRun {
 		return nil
 	}
 	return run
-}
-
-func (s *Service) isConversationNewLocked(ctx context.Context, conversationID string) (bool, error) {
-	if _, ok := s.conversationStorage.Get(conversationID); ok {
-		return false, nil
-	}
-	if s.conversationHistory != nil {
-		_, ok, err := s.conversationHistory.ReadChat(ctx, conversationID)
-		if err != nil {
-			return false, err
-		}
-		if ok {
-			return false, nil
-		}
-	}
-
-	// Only a started run has saved its question; a failed attempt does not create the conversation.
-	for _, run := range s.runs {
-		if run.conversationID == conversationID && run.isStarted() {
-			return false, nil
-		}
-	}
-
-	return true, nil
 }
 
 func (s *Service) pruneRunsLocked() {
@@ -525,7 +545,7 @@ func (s *Service) getConversation(ctx context.Context, conversationID string) ([
 		return nil, err
 	}
 
-	s.conversationStorage.Append(conversationID, persisted.Turns...)
+	s.conversationStorage.Append(conversationID, persisted.ReadOnly, persisted.Turns...)
 	conversationData, ok = s.conversationStorage.Get(conversationID)
 	if !ok {
 		return nil, nil
@@ -549,7 +569,7 @@ func (s *Service) ListChats(ctx context.Context) ([]ChatSummary, error) {
 	for _, chat := range chats {
 		result = append(result, ChatSummary{
 			ID: chat.ID, Title: chat.Title, CreatedAt: chat.CreatedAt, UpdatedAt: chat.UpdatedAt,
-			Unread: chat.Unread, Usage: chat.Usage, PrimaryArtifact: chat.PrimaryArtifact,
+			Unread: chat.Unread, ReadOnly: chat.ReadOnly, Usage: chat.Usage, PrimaryArtifact: chat.PrimaryArtifact,
 		})
 	}
 	return result, nil
@@ -626,7 +646,7 @@ func (s *Service) GetChat(ctx context.Context, id string) (ChatHistory, bool, er
 
 	history := ChatHistory{
 		ID: chat.ID, Title: chat.Title, CreatedAt: chat.CreatedAt, UpdatedAt: chat.UpdatedAt,
-		Unread: chat.Unread, Usage: chat.Usage, Messages: messages,
+		Unread: chat.Unread, ReadOnly: chat.ReadOnly, Usage: chat.Usage, Messages: messages,
 	}
 	if active != nil {
 		history.ActiveRequest = &ActiveChatRequest{RequestID: active.requestID, Activity: active.activitySnapshot()}
@@ -646,10 +666,12 @@ func sanitizeWaitTimeout(timeoutMS int) time.Duration {
 }
 
 type chatRun struct {
-	requestID       string
-	conversationID  string
-	message         string
-	newConversation bool
+	requestID         string
+	conversationID    string
+	message           string
+	newConversation   bool
+	readOnly          bool
+	requestedReadOnly bool
 
 	done chan struct{}
 
@@ -665,14 +687,16 @@ type chatRun struct {
 	artifacts  []Artifact
 }
 
-func newChatRun(requestID, conversationID, message string, newConversation bool) *chatRun {
+func newChatRun(requestID, conversationID, message string, newConversation, readOnly bool) *chatRun {
 	return &chatRun{
-		requestID:       requestID,
-		conversationID:  conversationID,
-		message:         message,
-		newConversation: newConversation,
-		done:            make(chan struct{}),
-		status:          StatusInProgress,
+		requestID:         requestID,
+		conversationID:    conversationID,
+		message:           message,
+		newConversation:   newConversation,
+		readOnly:          readOnly,
+		requestedReadOnly: readOnly,
+		done:              make(chan struct{}),
+		status:            StatusInProgress,
 	}
 }
 
@@ -756,14 +780,17 @@ func (r *chatRun) snapshot() ChatResponse {
 	defer r.mu.RUnlock()
 
 	conversationID := r.conversationID
+	readOnly := new(r.readOnly)
 	if r.newConversation && !r.started {
 		// The conversation was never saved, so clients must not open it.
 		conversationID = ""
+		readOnly = nil
 	}
 	return ChatResponse{
 		Status:         r.status,
 		ConversationID: conversationID,
 		RequestID:      r.requestID,
+		ReadOnly:       readOnly,
 		Answer:         r.answer,
 		AnswerSequence: r.sequence,
 		ErrorMessage:   r.error,

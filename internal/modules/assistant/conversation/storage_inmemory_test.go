@@ -11,7 +11,7 @@ import (
 func TestInMemoryStorageAppendAndGet(t *testing.T) {
 	storage := NewInMemoryStorage(time.Minute, 3)
 
-	storage.Append("conv-1", Turn{Role: "user", Content: "hello"})
+	storage.Append("conv-1", false, Turn{Role: "user", Content: "hello"})
 	conversationData, ok := storage.Get("conv-1")
 	require.True(t, ok, "expected conversation to exist")
 	require.Len(t, conversationData.Turns, 1, "unexpected turn count")
@@ -27,7 +27,7 @@ func TestInMemoryStoragePrunesByTTL(t *testing.T) {
 		return now
 	}
 
-	storage.Append("conv-1", Turn{Role: "user", Content: "hello"})
+	storage.Append("conv-1", false, Turn{Role: "user", Content: "hello"})
 
 	storage.now = func() time.Time {
 		return now.Add(11 * time.Second)
@@ -42,7 +42,7 @@ func TestInMemoryStoragePrunesByTTL(t *testing.T) {
 func TestInMemoryStorageRespectsMaxTurns(t *testing.T) {
 	storage := NewInMemoryStorage(time.Minute, 2)
 	storage.Append(
-		"conv-1",
+		"conv-1", false,
 		Turn{Role: "user", Content: "one"},
 		Turn{Role: "assistant", Content: "two"},
 		Turn{Role: "user", Content: "three"},

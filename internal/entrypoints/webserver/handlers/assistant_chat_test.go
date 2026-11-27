@@ -34,12 +34,14 @@ func TestAssistantChatAcceptsRequestAtLimit(t *testing.T) {
 	h := &handler{assistant: assistant.NewDisabledAssistant(localizer), assistantTexts: localizer}
 
 	response, err := h.AssistantChat(context.Background(), &generated.AssistantChatRequest{
-		Message: generated.NewOptString(strings.Repeat("x", assistantChatRequestMaxBytes)),
+		Message:  generated.NewOptString(strings.Repeat("x", assistantChatRequestMaxBytes)),
+		ReadOnly: generated.NewOptBool(true),
 	})
 
 	require.NoError(t, err)
 	require.NotNil(t, response)
 	assert.Equal(t, generated.AssistantChatResponseStatusDisabled, response.Status)
+	assert.False(t, response.ReadOnly.IsSet())
 }
 
 func TestGeneratedAssistantChatResponseIncludesSelection(t *testing.T) {

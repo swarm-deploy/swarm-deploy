@@ -71,6 +71,22 @@ func (mr *MockHistoryStorageMockRecorder) ReadChat(ctx, id any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReadChat", reflect.TypeOf((*MockHistoryStorage)(nil).ReadChat), ctx, id)
 }
 
+// ReadChatMetadata mocks base method.
+func (m *MockHistoryStorage) ReadChatMetadata(ctx context.Context, id string) (Chat, bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ReadChatMetadata", ctx, id)
+	ret0, _ := ret[0].(Chat)
+	ret1, _ := ret[1].(bool)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// ReadChatMetadata indicates an expected call of ReadChatMetadata.
+func (mr *MockHistoryStorageMockRecorder) ReadChatMetadata(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReadChatMetadata", reflect.TypeOf((*MockHistoryStorage)(nil).ReadChatMetadata), ctx, id)
+}
+
 // ReadChats mocks base method.
 func (m *MockHistoryStorage) ReadChats(ctx context.Context) ([]ChatSummary, error) {
 	m.ctrl.T.Helper()
@@ -102,9 +118,9 @@ func (mr *MockHistoryStorageMockRecorder) ReadUsage(ctx, from, to, interval any)
 }
 
 // SaveTurns mocks base method.
-func (m *MockHistoryStorage) SaveTurns(ctx context.Context, id, createdBy string, usage TokenUsage, turns ...Turn) (int, error) {
+func (m *MockHistoryStorage) SaveTurns(ctx context.Context, id string, options SaveOptions, usage TokenUsage, turns ...Turn) (int, error) {
 	m.ctrl.T.Helper()
-	varargs := []any{ctx, id, createdBy, usage}
+	varargs := []any{ctx, id, options, usage}
 	for _, a := range turns {
 		varargs = append(varargs, a)
 	}
@@ -115,8 +131,8 @@ func (m *MockHistoryStorage) SaveTurns(ctx context.Context, id, createdBy string
 }
 
 // SaveTurns indicates an expected call of SaveTurns.
-func (mr *MockHistoryStorageMockRecorder) SaveTurns(ctx, id, createdBy, usage any, turns ...any) *gomock.Call {
+func (mr *MockHistoryStorageMockRecorder) SaveTurns(ctx, id, options, usage any, turns ...any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	varargs := append([]any{ctx, id, createdBy, usage}, turns...)
+	varargs := append([]any{ctx, id, options, usage}, turns...)
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SaveTurns", reflect.TypeOf((*MockHistoryStorage)(nil).SaveTurns), varargs...)
 }

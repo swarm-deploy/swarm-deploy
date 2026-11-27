@@ -32,6 +32,7 @@ interface AssistantState {
   enabled: boolean;
   pending: boolean;
   conversationID: string;
+  readOnly: boolean;
   conversationTitle: string;
   activeRequestID: string;
   activity: string[];
@@ -51,6 +52,7 @@ export const useAssistantStore = defineStore("assistant", {
     enabled: true,
     pending: false,
     conversationID: "",
+    readOnly: false,
     conversationTitle: "",
     activeRequestID: "",
     activity: [],
@@ -135,6 +137,7 @@ export const useAssistantStore = defineStore("assistant", {
       this.pending = false;
       this.chatHistoryStale = false;
       this.conversationID = "";
+      this.readOnly = false;
       this.conversationTitle = "";
       this.activeRequestID = "";
       this.activity = [];
@@ -165,6 +168,7 @@ export const useAssistantStore = defineStore("assistant", {
       this.pending = Boolean(active);
       this.chatHistoryStale = false;
       this.conversationID = chat.id;
+      this.readOnly = chat.read_only;
       this.conversationTitle = chat.title;
       this.activeRequestID = active?.request_id || "";
       this.activity = active?.activity || [];
@@ -241,6 +245,7 @@ export const useAssistantStore = defineStore("assistant", {
     },
     updateAssistantProgress(response: AssistantChatResponse) {
       this.conversationID = response.conversation_id || this.conversationID;
+      this.readOnly = response.read_only ?? this.readOnly;
       this.activeRequestID = response.request_id || this.activeRequestID;
       this.activity = response.activity || this.activity;
     },
