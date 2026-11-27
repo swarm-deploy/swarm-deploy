@@ -15,11 +15,11 @@ import {
 import type { ServiceRealtimeTask, ServiceSyncPauseResponse, SwarmService, SwarmTaskDetails } from "../api/types";
 import AppButton from "../components/common/AppButton.vue";
 import AppSelect from "../components/common/AppSelect.vue";
-import AppStatusBadge from "../components/common/AppStatusBadge.vue";
 import AppTable from "../components/common/AppTable.vue";
 import AppTableEmpty from "../components/common/AppTableEmpty.vue";
 import SidebarIcon from "../components/layout/SidebarIcon.vue";
 import DeploymentIcon from "../components/overview/DeploymentIcon.vue";
+import ServiceReplicasBadge from "../components/services/ServiceReplicasBadge.vue";
 import TaskDetailsPanel from "../components/services/TaskDetailsPanel.vue";
 import TaskStatusBadge from "../components/services/TaskStatusBadge.vue";
 import TaskLogsModal from "../components/services/TaskLogsModal.vue";
@@ -365,10 +365,6 @@ function errorMessage(reason: unknown): string {
   return reason instanceof Error ? reason.message : t("common.requestFailed");
 }
 
-function stateLabel(state: RuntimeState): string {
-  return stateOptions.find((option) => option.value === state)?.label ?? t("common.unknown");
-}
-
 function stackLabel(stack: string): string {
   return stack || t("realtime.standalone");
 }
@@ -383,12 +379,6 @@ function selectStacks(stacks: string[]): void {
 
 function selectServices(selected: string[]): void {
   selectedServices.value = selected;
-}
-
-function stateVariant(state: RuntimeState): "success" | "warning" | "neutral" {
-  if (state === "running") return "success";
-  if (state === "degraded") return "warning";
-  return "neutral";
 }
 
 function shortID(id: string): string {
@@ -707,13 +697,12 @@ onUnmounted(() => {
           <template #colgroup>
             <col class="realtime-col-service" />
             <col class="realtime-col-stack" />
-            <col class="realtime-col-replicas" />
             <col class="realtime-col-state" />
             <col class="realtime-col-updated" />
             <col class="realtime-col-actions" />
           </template>
           <template #head>
-            <tr><th>{{ t('common.service') }}</th><th>{{ t('common.stack') }}</th><th>{{ t('common.replicas') }}</th><th>{{ t('common.state') }}</th><th>{{ t('common.updated') }}</th><th>{{ t('common.action') }}</th></tr>
+            <tr><th>{{ t('common.service') }}</th><th>{{ t('common.stack') }}</th><th>{{ t('common.state') }}</th><th>{{ t('common.updated') }}</th><th>{{ t('common.action') }}</th></tr>
           </template>
           <template v-for="service in filteredServices" :key="service.id">
             <tr class="realtime-service-row" :class="{ 'realtime-service-row--expanded': expandedServiceIDs.has(service.id) }" @click="toggleService(service)">
@@ -728,31 +717,28 @@ onUnmounted(() => {
                   <small v-if="service.full_name !== service.name">{{ service.full_name }}</small>
                 </div>
               </td>
-              <td :data-label="t('common.stack')"><span :class="{ 'realtime-standalone': !service.stack }">{{ service.stack || t('realtime.standalone') }}</span></td>
-              <td class="realtime-replicas" :data-label="t('common.replicas')">
-                <div class="realtime-replicas-content">
-                  <span class="realtime-replica-count"><strong :class="{ 'realtime-replicas-running--degraded': serviceRuntimeState(service) === 'degraded' }">{{ formatNumber(service.replicas.running) }}</strong><span>/</span>{{ formatNumber(service.replicas.desired) }}</span>
-                </div>
+              <td class="realtime-stack-cell" :data-label="t('common.stack')"><span :class="{ 'realtime-standalone': !service.stack }">{{ service.stack || t('realtime.standalone') }}</span></td>
+              <td class="realtime-state-cell" :data-label="t('common.state')">
+                <ServiceReplicasBadge :replicas="service.replicas" compact />
               </td>
-              <td :data-label="t('common.state')"><AppStatusBadge class="realtime-state" :variant="stateVariant(serviceRuntimeState(service))" dot>{{ stateLabel(serviceRuntimeState(service)) }}</AppStatusBadge></td>
-              <td :data-label="t('common.updated')"><time :datetime="service.updated_at" :title="formatDate(service.updated_at)">{{ formatRelativeTime(service.updated_at) }}</time></td>
+              <td class="realtime-updated-cell" :data-label="t('common.updated')"><time :datetime="service.updated_at" :title="formatDate(service.updated_at)">{{ formatRelativeTime(service.updated_at) }}</time></td>
               <td class="realtime-actions-cell" :data-label="t('common.action')" @click.stop>
                 <button v-if="service.mode === 'replicated'" class="realtime-actions-button" type="button" :aria-label="t('realtime.actionsForService', { service: service.name || service.full_name })" :aria-expanded="actionsService?.id === service.id" aria-haspopup="true" :disabled="restartPending" @click.stop="toggleActions(service, $event)" @focusout="handleActionsFocusout">⋯</button>
               </td>
             </tr>
             <template v-if="expandedServiceIDs.has(service.id)">
               <tr v-if="tasksFor(service.id).loading && tasksFor(service.id).tasks.length === 0" class="realtime-task-message-row">
-                <td colspan="6"><span>{{ t('realtime.loadingTasks') }}</span></td>
+                <td colspan="5"><span>{{ t('realtime.loadingTasks') }}</span></td>
               </tr>
               <tr v-else-if="tasksFor(service.id).error && tasksFor(service.id).tasks.length === 0" class="realtime-task-message-row realtime-task-message-row--error">
-                <td colspan="6"><span role="alert">{{ t('realtime.loadTasksError', { error: tasksFor(service.id).error }) }}</span></td>
+                <td colspan="5"><span role="alert">{{ t('realtime.loadTasksError', { error: tasksFor(service.id).error }) }}</span></td>
               </tr>
               <tr v-else-if="tasksFor(service.id).tasks.length === 0" class="realtime-task-message-row">
-                <td colspan="6"><span>{{ t('realtime.noTasks') }}</span></td>
+                <td colspan="5"><span>{{ t('realtime.noTasks') }}</span></td>
               </tr>
               <template v-else>
                 <tr v-if="tasksFor(service.id).error" class="realtime-task-message-row realtime-task-message-row--warning">
-                  <td colspan="6"><span role="status">{{ t('realtime.staleTasksWarning', { error: tasksFor(service.id).error }) }}</span></td>
+                  <td colspan="5"><span role="status">{{ t('realtime.staleTasksWarning', { error: tasksFor(service.id).error }) }}</span></td>
                 </tr>
                 <tr
                   v-for="task in tasksFor(service.id).tasks"
@@ -760,7 +746,7 @@ onUnmounted(() => {
                   class="realtime-task-row"
                   :class="{ 'realtime-task-row--selected': selectedTaskID === task.id }"
                 >
-                  <td colspan="6">
+                  <td colspan="5">
                     <div class="realtime-task-grid">
                       <button type="button" class="realtime-task-select" @click="selectTask(task)"><strong>{{ t('realtime.slotNumber', { slot: formatNumber(task.slot) }) }}</strong><code>{{ shortID(task.id) }}</code></button>
                       <span class="realtime-task-node">{{ task.node_name || task.node || t('common.unavailable') }}</span>
@@ -1007,10 +993,9 @@ onUnmounted(() => {
 .realtime-services-panel :deep(.app-table-wrap) { min-width: 0; }
 .realtime-services-panel :deep(.app-table th) { height: 40px; padding: 7px 14px; }
 .realtime-services-panel :deep(.app-table td) { height: 46px; padding: 9px 14px; }
-.realtime-col-service { width: 32%; }
-.realtime-col-stack { width: 17%; }
-.realtime-col-replicas { width: 12%; }
-.realtime-col-state { width: 17%; }
+.realtime-col-service { width: 38%; }
+.realtime-col-stack { width: 20%; }
+.realtime-col-state { width: 20%; }
 .realtime-col-updated { width: auto; }
 .realtime-service-row { cursor: pointer; transition: background-color 120ms ease; }
 .realtime-service-row:hover, .realtime-service-row--expanded { background: var(--surface-hover-soft); }
@@ -1025,12 +1010,6 @@ onUnmounted(() => {
 .realtime-expand-button svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; transition: transform 120ms ease; }
 .realtime-expand-button[aria-expanded="true"] svg { transform: rotate(90deg); }
 .realtime-standalone { color: var(--muted); font-style: italic; }
-.realtime-replicas { font-variant-numeric: tabular-nums; white-space: nowrap; }
-.realtime-replicas strong { color: var(--text); }
-.realtime-replicas .realtime-replicas-running--degraded { color: var(--warning); }
-.realtime-replicas-content { display: inline-flex; align-items: center; gap: 6px; }
-.realtime-replica-count > span { margin-inline: 3px; color: var(--muted); }
-.realtime-state { border: 0; padding: 0; }
 .realtime-service-row time { color: var(--muted); font-size: .76rem; white-space: nowrap; }
 .realtime-task-row > td { height: auto !important; padding: 0 !important; background: transparent; }
 .realtime-task-grid { position: relative; box-sizing: border-box; width: calc(100% - 44px); min-width: 0; min-height: 46px; display: grid; grid-template-columns: minmax(150px, 1.05fr) minmax(90px, .7fr) minmax(95px, .7fr) minmax(76px, .6fr) minmax(120px, 1.15fr); align-items: center; gap: 12px; margin-left: 44px; border-left: 1px solid var(--border-subtle); padding: 6px calc(20% + 118px) 6px 16px; font-size: .78rem; }
@@ -1085,17 +1064,15 @@ onUnmounted(() => {
   .realtime-services-panel :deep(.realtime-services-table) { display: block; min-width: 0 !important; }
   .realtime-services-panel :deep(.realtime-services-table colgroup), .realtime-services-panel :deep(.realtime-services-table > thead) { display: none; }
   .realtime-services-panel :deep(.realtime-services-table > tbody) { display: block; }
-  .realtime-service-row { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 7px 12px; padding: 12px; border-bottom: 1px solid var(--border-subtle); }
+  .realtime-service-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 7px 12px; padding: 12px; border-bottom: 1px solid var(--border-subtle); }
   .realtime-services-panel :deep(.realtime-service-row > td) { display: flex; min-width: 0; height: auto; padding: 0; border: 0; }
   .realtime-service-name-cell { grid-column: 1; grid-row: 1; }
   .realtime-service-title strong { order: 1; }
   .realtime-service-title .realtime-expand-button { order: 2; }
-  .realtime-service-row > td:nth-child(2) { grid-column: 1; grid-row: 2; font-size: .76rem; }
-  .realtime-service-row > td:nth-child(3) { grid-column: 2; grid-row: 2; justify-content: flex-end; }
-  .realtime-service-row > td:nth-child(4) { grid-column: 2; grid-row: 1; justify-content: flex-end; }
-  .realtime-service-row:has(.realtime-actions-button) > td:nth-child(3) { padding-right: 40px; }
-  .realtime-service-row > .realtime-actions-cell { position: absolute; right: 12px; bottom: 10px; }
-  .realtime-service-row > td:nth-child(5) { display: none !important; }
+  .realtime-stack-cell { grid-column: 1; grid-row: 2; align-items: center; font-size: .76rem; }
+  .realtime-state-cell { grid-column: 2; grid-row: 1; align-items: center; justify-content: flex-end; }
+  .realtime-actions-cell { grid-column: 2; grid-row: 2; justify-content: flex-end; }
+  .realtime-updated-cell { display: none !important; }
   .realtime-task-row, .realtime-task-message-row { display: block; }
   .realtime-task-row > td, .realtime-task-message-row > td { display: block; }
   .realtime-task-grid { width: calc(100% - 28px); grid-template-columns: minmax(0, 1fr) auto; gap: 5px 12px; min-height: 0; margin-left: 28px; padding: 9px 12px; }
