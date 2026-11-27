@@ -251,7 +251,7 @@ onBeforeUnmount(() => document.removeEventListener("click", handleDocumentClick)
   padding: 7px;
 }
 .app-select-header { display: flex; align-items: center; justify-content: space-between; padding: 5px 6px 8px; }
-.app-select-header button { border: 0; background: transparent; color: var(--control-primary); padding: 0; font: inherit; }
+.app-select-header button { border: 0; background: transparent; color: var(--interactive-primary); padding: 0; font: inherit; }
 .app-select-header button:disabled { cursor: not-allowed; opacity: .55; }
 .app-select-menu > input[type="search"] {
   box-sizing: border-box;
@@ -269,7 +269,7 @@ onBeforeUnmount(() => document.removeEventListener("click", handleDocumentClick)
 .app-select-option { display: flex; align-items: flex-start; gap: 9px; border-radius: 6px; padding: 7px 6px; color: var(--text); font-size: .82rem; }
 button.app-select-option { width: 100%; border: 0; background: transparent; font-family: inherit; font-weight: 400; text-align: left; cursor: pointer; }
 .app-select-option:hover { background: var(--surface-hover-soft); }
-.app-select-check { flex: 0 0 16px; width: 16px; height: 16px; color: var(--control-primary); visibility: hidden; }
+.app-select-check { flex: 0 0 16px; width: 16px; height: 16px; color: var(--interactive-primary); visibility: hidden; }
 .app-select-option[aria-pressed="true"] .app-select-check { visibility: visible; }
 .app-select-option input {
   flex: 0 0 16px;
@@ -278,7 +278,7 @@ button.app-select-option { width: 100%; border: 0; background: transparent; font
   height: 16px;
   margin: 1px 0 0;
   padding: 0;
-  accent-color: var(--control-primary);
+  accent-color: var(--interactive-primary);
 }
 .app-select-option-text { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .app-select-option-label { overflow-wrap: anywhere; }

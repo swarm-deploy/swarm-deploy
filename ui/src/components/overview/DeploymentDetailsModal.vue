@@ -764,7 +764,7 @@ onUnmounted(() => {
 .deployment-stack-link { color: var(--accent-strong); text-decoration: none; }
 .deployment-stack-link:hover { text-decoration: underline; }
 .deployment-date-mobile { display: none; }
-.deployment-commit-link { display: inline-flex; align-items: center; gap: 7px; border: 0; background: transparent; color: var(--control-primary); padding: 0; font: inherit; font-family: ui-monospace, monospace; }
+.deployment-commit-link { display: inline-flex; align-items: center; gap: 7px; border: 0; background: transparent; color: var(--interactive-primary); padding: 0; font: inherit; font-family: ui-monospace, monospace; }
 .deployment-commit-link:hover { transform: none; filter: none; text-decoration: underline; }
 .deployment-commit-link span { font-family: inherit; font-size: .95rem; }
 :global(:root[data-theme="dark"] .deployment-commit-link) { color: var(--text); }
@@ -892,7 +892,7 @@ onUnmounted(() => {
 }
 .deployment-init-job-logs-button:hover,
 .deployment-init-job-logs-button[aria-expanded="true"] { background: transparent; color: var(--text); filter: none; transform: none; }
-.deployment-init-job-logs-button:focus-visible { outline: 2px solid var(--control-primary); outline-offset: 2px; }
+.deployment-init-job-logs-button:focus-visible { outline: 2px solid var(--interactive-primary); outline-offset: 2px; }
 .deployment-init-job-logs-button svg { width: 18px; height: 18px; }
 .deployment-init-job-logs { margin: 0 0 8px; border-left: 2px solid var(--line); padding: 4px 10px; }
 .deployment-init-job-logs pre { max-height: 320px; overflow: auto; white-space: pre; }
@@ -952,7 +952,7 @@ details[open] > summary .deployment-chevron { transform: rotate(90deg); }
 }
 .deployment-info-button svg { width: 20px; height: 20px; }
 .deployment-info-button:hover, .deployment-info-button[aria-expanded="true"] { color: var(--text); transform: none; filter: none; }
-.deployment-info-button:focus-visible { outline: 2px solid var(--control-primary); outline-offset: 2px; }
+.deployment-info-button:focus-visible { outline: 2px solid var(--interactive-primary); outline-offset: 2px; }
 .deployment-info-tooltip {
   position: absolute;
   z-index: 10;

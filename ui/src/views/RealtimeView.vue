@@ -886,7 +886,7 @@ onUnmounted(() => {
 .realtime-scale-pause-help-button { display: inline-grid; place-items: center; width: 25px; height: 25px; padding: 2px; border: 0; border-radius: 50%; background: transparent; color: var(--muted); cursor: help; }
 .realtime-scale-pause-help-button svg { width: 20px; height: 20px; }
 .realtime-scale-pause-help-button:hover, .realtime-scale-pause-help-button[aria-expanded="true"] { color: var(--text); transform: none; filter: none; }
-.realtime-scale-pause-help-button:focus-visible { outline: 2px solid var(--control-primary); outline-offset: 2px; }
+.realtime-scale-pause-help-button:focus-visible { outline: 2px solid var(--interactive-primary); outline-offset: 2px; }
 .realtime-scale-pause-tooltip {
   position: absolute;
   z-index: 10;
@@ -907,7 +907,7 @@ onUnmounted(() => {
 .realtime-scale-input:focus-within { border-color: var(--accent-border); outline: 2px solid var(--accent-focus); outline-offset: 1px; }
 .realtime-scale-input input { flex: 1 1 auto; min-width: 0; width: 100%; height: 100%; border: 0; border-radius: 0; outline: 0; background: transparent; color: var(--text); padding: 4px 8px; text-align: center; font: inherit; font-size: .84rem; appearance: textfield; }
 .realtime-scale-input input::-webkit-inner-spin-button, .realtime-scale-input input::-webkit-outer-spin-button { appearance: none; margin: 0; }
-.realtime-scale-input button { display: inline-grid; place-items: center; flex: 0 0 28px; width: 28px; min-width: 0; border: 0; border-radius: 0; background: transparent; color: var(--control-primary); padding: 0; font-size: 16px; line-height: 1; transform: none; filter: none; }
+.realtime-scale-input button { display: inline-grid; place-items: center; flex: 0 0 28px; width: 28px; min-width: 0; border: 0; border-radius: 0; background: transparent; color: var(--interactive-primary); padding: 0; font-size: 16px; line-height: 1; transform: none; filter: none; }
 .realtime-scale-input button:hover:not(:disabled) { background: var(--surface-hover); }
 .realtime-scale-input button:focus-visible { outline: 2px solid var(--accent-focus); outline-offset: -3px; }
 .realtime-scale-modal button:disabled { cursor: not-allowed; opacity: .58; }
@@ -933,7 +933,7 @@ onUnmounted(() => {
 .realtime-refresh-menu { position: absolute; z-index: 30; top: calc(100% + 6px); right: 0; width: 150px; max-height: min(360px, calc(100dvh - 128px)); overflow-y: auto; border: 1px solid var(--border-default); border-radius: 8px; background: var(--surface-elevated); box-shadow: var(--shadow-popover); padding: 6px; }
 .realtime-refresh-option { width: 100%; min-height: 32px; display: flex; align-items: center; justify-content: space-between; gap: 12px; border: 0; border-radius: 6px; background: transparent; color: var(--text); padding: 6px 9px; text-align: left; }
 .realtime-refresh-option:hover, .realtime-refresh-option--selected { background: var(--surface-hover-soft); }
-.realtime-refresh-option svg { width: 15px; height: 15px; fill: none; stroke: var(--control-primary); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.realtime-refresh-option svg { width: 15px; height: 15px; fill: none; stroke: var(--interactive-primary); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .realtime-stale-warning, .realtime-inline-error { margin: 0; border: 1px solid var(--warning-border); border-radius: 7px; background: var(--warning-muted); color: var(--warning); padding: 9px 12px; font-size: .8rem; }
 .realtime-filters { min-width: 0; display: grid; grid-template-columns: minmax(240px, 1fr) 180px 170px; gap: 10px; align-items: center; padding: 12px; border: 1px solid var(--border-subtle); border-radius: 10px; background: var(--surface-card-soft); }
 .realtime-search { position: relative; min-width: 0; }
@@ -994,7 +994,7 @@ onUnmounted(() => {
 .realtime-task-message-row > td { height: auto !important; padding: 9px 14px 9px 60px !important; color: var(--muted); font-size: .78rem; }
 .realtime-task-message-row--error > td { color: var(--error); }
 .realtime-task-message-row--warning > td { color: var(--warning); }
-.realtime-task-action-button { display: inline-grid; place-items: center; width: 28px; height: 28px; border: 0; border-radius: 4px; background: transparent; color: var(--control-primary); padding: 0; transform: none; filter: none; }
+.realtime-task-action-button { display: inline-grid; place-items: center; width: 28px; height: 28px; border: 0; border-radius: 4px; background: transparent; color: var(--interactive-primary); padding: 0; transform: none; filter: none; }
 .realtime-task-action-button:hover { background: var(--surface-hover); transform: none; filter: none; }
 .realtime-task-action-button svg { width: 16px; height: 16px; fill: none; stroke: #606060; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
 .realtime-mobile-panel-backdrop { display: none; }
