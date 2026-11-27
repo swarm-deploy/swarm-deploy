@@ -91,6 +91,7 @@ describe("NetworkView", () => {
     expect(wrapper.get(".network-heading-summary").text()).not.toContain("Managed");
     expect(wrapper.get(".network-managed").attributes("data-tooltip"))
       .toBe("Managed by swarm-deploy GitOps through networks.yaml.");
+    expect(wrapper.get(".network-managed").classes()).toContain("network-managed-tooltip");
 
     const metadata = wrapper.get('table[aria-label="Network metadata"]');
     for (const value of ["network-id", "app", "overlay", "swarm", "VXLAN ID", "4097", "Enabled", "Yes", "No"]) {

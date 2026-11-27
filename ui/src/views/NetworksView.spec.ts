@@ -92,6 +92,7 @@ describe("NetworksView", () => {
     expect(summaries[0].text()).toContain("com.example.encrypted=true");
     expect(summaries[0].get(".networks-managed-label").attributes("data-tooltip"))
       .toBe("Managed by swarm-deploy GitOps through networks.yaml.");
+    expect(summaries[0].get(".networks-managed-label").classes()).toContain("network-managed-tooltip");
     expect(summaries[1].findAll(".networks-mobile-details dt").map((item) => item.text())).not.toContain("Labels:");
   });
 });

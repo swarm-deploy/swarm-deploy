@@ -185,7 +185,7 @@ onMounted(() => {
             <th class="networks-desktop-cell">{{ t('networks.ingress') }}</th>
             <th class="networks-desktop-cell">
               <span
-                class="networks-managed-label app-tooltip"
+                class="networks-managed-label app-tooltip network-managed-tooltip"
                 tabindex="0"
                 :aria-label="`${t('networks.managed')}: ${t('networks.managedHint')}`"
                 :data-tooltip="t('networks.managedHint')"
@@ -249,7 +249,7 @@ onMounted(() => {
                   <div>
                     <dt>
                       <span
-                        class="networks-managed-label app-tooltip"
+                        class="networks-managed-label app-tooltip network-managed-tooltip"
                         tabindex="0"
                         :aria-label="`${t('networks.managed')}: ${t('networks.managedHint')}`"
                         :data-tooltip="t('networks.managedHint')"
@@ -366,13 +366,6 @@ onMounted(() => {
   gap: 3px;
   border-radius: 3px;
   cursor: help;
-}
-
-.networks-managed-label::after {
-  width: max-content;
-  max-width: min(300px, calc(100vw - 32px));
-  white-space: normal;
-  text-align: left;
 }
 
 .networks-managed-label:focus {

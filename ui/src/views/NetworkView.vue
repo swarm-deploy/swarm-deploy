@@ -113,7 +113,7 @@ onUnmounted(() => {
           <span>{{ enumLabel('networkScopes', network.scope, network.scope || t('common.notApplicable')) }}</span>
           <span
             v-if="network.managed"
-            class="network-managed app-tooltip"
+            class="network-managed app-tooltip network-managed-tooltip"
             tabindex="0"
             :aria-label="`${t('networks.managed')}: ${t('networks.managedHint')}`"
             :data-tooltip="t('networks.managedHint')"
@@ -201,7 +201,6 @@ onUnmounted(() => {
 .network-heading-metadata { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 0; color: var(--muted); font-size: .75rem; }
 .network-heading-metadata > * + *::before { content: ""; display: inline-block; width: 1px; height: 12px; margin: 0 10px; vertical-align: -2px; background: var(--border-subtle); }
 .network-managed { display: inline-flex; align-items: center; gap: 3px; border-radius: 4px; color: var(--muted); cursor: help; font-size: .75rem; font-weight: 600; }
-.network-managed::after { width: max-content; max-width: min(300px, calc(100vw - 32px)); white-space: normal; text-align: left; }
 .network-managed:focus { outline: 2px solid var(--interactive-primary); outline-offset: 2px; }
 .network-managed:focus::after { opacity: 1; transform: translate(-50%, 0); }
 .network-dossier { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 24px; }
