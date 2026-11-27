@@ -135,40 +135,24 @@ func (r *Repository) RetainedAlertLifecycleIDs(
 	if len(alertIDs) == 0 {
 		return retained, nil
 	}
-	values := make([]any, 0, len(alertIDs))
-	for _, alertID := range alertIDs {
-		values = append(values, alertID)
-	}
-	rows := []publicationRow{}
+	// A retained publication protects its link even if its schema cannot be decoded.
+	alertID := goqu.Func("json_extract", goqu.I("payload"), alertIDPayloadPath)
 	query, args, err := r.db.Dialect().From("outbox_events").Prepared(true).
-		Select("id", "event_type", "schema_version", "payload", "occurred_at", "sequence", "traceparent").
+		Select(alertID).Distinct().
 		Where(
 			goqu.I("event_type").In(events.TypeNameAlertOpened, events.TypeNameAlertResolved),
-			goqu.Func("json_extract", goqu.I("payload"), alertIDPayloadPath).In(values...),
+			alertID.In(alertIDs),
 		).
-		Order(goqu.I("sequence").Asc()).
 		ToSQL()
 	if err != nil {
 		return nil, fmt.Errorf("build retained alert lifecycle query: %w", err)
 	}
-	if err = r.db.Select(ctx, &rows, query, args...); err != nil {
+	var retainedIDs []string
+	if err = r.db.Select(ctx, &retainedIDs, query, args...); err != nil {
 		return nil, err
 	}
-	for _, row := range rows {
-		publication, decodeErr := row.publication()
-		if decodeErr != nil {
-			return nil, decodeErr
-		}
-		switch event := publication.Envelope.Event.(type) {
-		case *events.AlertOpened:
-			retained[event.Alert.ID] = true
-		case *events.AlertResolved:
-			retained[event.Alert.ID] = true
-		default:
-			return nil, errors.Join(ErrInvalidPayload, fmt.Errorf(
-				"expected alert lifecycle publication, got %T", publication.Envelope.Event,
-			))
-		}
+	for _, id := range retainedIDs {
+		retained[id] = true
 	}
 	return retained, nil
 }

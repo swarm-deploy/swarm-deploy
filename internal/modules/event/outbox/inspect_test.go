@@ -215,7 +215,7 @@ func TestRetainedAlertLifecycleIDs(t *testing.T) {
 	}
 }
 
-func TestRetainedAlertLifecycleIDsRejectsInvalidPublication(t *testing.T) {
+func TestRetainedAlertLifecycleIDsKeepsUnsupportedSchema(t *testing.T) {
 	db := testutil.OpenSQLite(t)
 	repository := New(db)
 	require.NoError(t, repository.Publish(t.Context(), &events.AlertResolved{
@@ -224,6 +224,7 @@ func TestRetainedAlertLifecycleIDsRejectsInvalidPublication(t *testing.T) {
 	_, err := db.Exec(t.Context(), "UPDATE outbox_events SET schema_version=999")
 	require.NoError(t, err)
 
-	_, err = repository.RetainedAlertLifecycleIDs(t.Context(), []string{"alert-1"})
-	require.ErrorIs(t, err, ErrInvalidPayload)
+	retained, err := repository.RetainedAlertLifecycleIDs(t.Context(), []string{"alert-1", "alert-2"})
+	require.NoError(t, err)
+	assert.Equal(t, map[string]bool{"alert-1": true}, retained)
 }

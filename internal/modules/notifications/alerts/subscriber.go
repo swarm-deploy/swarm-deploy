@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"html"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -116,20 +117,22 @@ func pruneCompleted(
 ) error {
 	return db.WithinTransaction(ctx, func(ctx context.Context) error {
 		alertIDs, err := store.CompletedAlertIDs(ctx)
-		if err != nil || len(alertIDs) == 0 {
-			return err
-		}
-		retained, err := outboxRepository.RetainedAlertLifecycleIDs(ctx, alertIDs)
 		if err != nil {
 			return err
 		}
-		deletable := make([]string, 0, len(alertIDs))
-		for _, alertID := range alertIDs {
-			if !retained[alertID] {
-				deletable = append(deletable, alertID)
+		// Bound the SQL parameters for both the retention lookup and the delete.
+		const batchSize = 500
+		for batch := range slices.Chunk(alertIDs, batchSize) {
+			retained, inspectErr := outboxRepository.RetainedAlertLifecycleIDs(ctx, batch)
+			if inspectErr != nil {
+				return inspectErr
+			}
+			deletable := slices.DeleteFunc(batch, func(id string) bool { return retained[id] })
+			if err = store.DeleteCompleted(ctx, deletable); err != nil {
+				return err
 			}
 		}
-		return store.DeleteCompleted(ctx, deletable)
+		return nil
 	})
 }
 

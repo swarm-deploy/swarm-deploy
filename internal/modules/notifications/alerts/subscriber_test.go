@@ -590,6 +590,31 @@ func TestPruneCompletedWaitsForEveryRetainedLifecycleDeliveryState(t *testing.T)
 	}
 }
 
+func TestRegisterPrunesMoreCompletedAlertsThanSQLiteParameterLimit(t *testing.T) {
+	ctx := t.Context()
+	db, err := storage.OpenSQLite(ctx, t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	_, err = db.Exec(ctx, `WITH RECURSIVE ids(n) AS (
+		VALUES(1) UNION ALL SELECT n + 1 FROM ids WHERE n < 32768
+	)
+	INSERT INTO notification_messages (alert_id, messenger, bot_identity, chat_id, resolved_at)
+	SELECT printf('alert-%05d', n), 'telegram', 'bot', 'chat', 1 FROM ids`)
+	require.NoError(t, err)
+
+	repository := outbox.New(db)
+	now := time.Now().UTC()
+	const retainedID = "alert-32768"
+	require.NoError(t, repository.Publish(ctx, &events.AlertResolved{
+		Alert: events.AlertSnapshot{ID: retainedID, Kind: "sync_failed", OpenedAt: now},
+	}, []string{"subscriber"}, now))
+
+	require.NoError(t, Register(ctx, eventbus.NewOutboxDispatcher(repository), repository, db, config.NotificationSpec{}))
+	remaining, err := NewStore(db).CompletedAlertIDs(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, []string{retainedID}, remaining)
+}
+
 func TestPruneCompletedKeepsUnfinishedLinks(t *testing.T) {
 	db, err := storage.OpenSQLite(t.Context(), t.TempDir())
 	require.NoError(t, err)

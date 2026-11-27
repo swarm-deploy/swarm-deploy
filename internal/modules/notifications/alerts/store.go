@@ -173,12 +173,8 @@ func (s *Store) DeleteCompleted(ctx context.Context, alertIDs []string) error {
 	if len(alertIDs) == 0 {
 		return nil
 	}
-	values := make([]any, 0, len(alertIDs))
-	for _, alertID := range alertIDs {
-		values = append(values, alertID)
-	}
 	query, args, err := s.db.Dialect().Delete("notification_messages").Prepared(true).
-		Where(goqu.I("alert_id").In(values...), goqu.I("resolved_at").IsNotNull()).ToSQL()
+		Where(goqu.I("alert_id").In(alertIDs), goqu.I("resolved_at").IsNotNull()).ToSQL()
 	if err != nil {
 		return err
 	}
