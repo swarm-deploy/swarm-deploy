@@ -3,6 +3,7 @@ import { t } from "../../i18n";
 import { computed, onMounted, watch } from "vue";
 import { RouterView, useRoute, useRouter } from "vue-router";
 
+import { assistantQuery } from "../../router/assistant";
 import { useAssistantStore } from "../../stores/assistant";
 import { useCurrentUserStore } from "../../stores/currentUser";
 import { useOverviewStore } from "../../stores/overview";
@@ -82,14 +83,8 @@ async function handleAssistantToggle() {
     return;
   }
 
-  const query = { ...route.query };
-  if (uiStore.assistantDrawerOpen) {
-    delete query.assistant;
-  } else {
-    query.assistant = assistantStore.conversationID || "new";
-  }
-
-  await router.push({ query, hash: route.hash });
+  const assistant = uiStore.assistantDrawerOpen ? undefined : assistantStore.conversationID || "new";
+  await router.push({ query: assistantQuery(route.query, assistant), hash: route.hash });
 }
 
 onMounted(() => {
