@@ -16,6 +16,11 @@ const appNetwork = {
   ingress: false,
   managed: true,
   stack_name: "app",
+  labels: { "com.example.owner": "platform" },
+  options: {
+    "com.docker.network.driver.overlay.vxlanid_list": "4097",
+    "com.example.encrypted": "true",
+  },
 };
 const infraNetwork = { ...appNetwork, id: "infra-network", name: "infra_default", stack_name: "infra" };
 
@@ -45,5 +50,25 @@ describe("NetworksView", () => {
     expect(wrapper.findAll("tbody tr")).toHaveLength(1);
     expect(wrapper.text()).toContain("app_default");
     expect(wrapper.text()).not.toContain("infra_default");
+  });
+
+  it("renders a complete compact network summary for mobile layouts", async () => {
+    const wrapper = mount(NetworksView);
+    await flushPromises();
+
+    const summaries = wrapper.findAll(".networks-mobile-summary");
+    expect(summaries).toHaveLength(2);
+    expect(summaries[0].text()).toContain("app_default");
+    expect(summaries[0].text()).toContain("app");
+    expect(summaries[0].text()).toContain("overlay");
+    expect(summaries[0].text()).toContain("VXLAN 4097");
+    expect(summaries[0].findAll(".networks-mobile-flags dt").map((item) => item.text())).toEqual([
+      "Attachable:", "Internal:", "Ingress:", "Managed:",
+    ]);
+    expect(summaries[0].findAll(".networks-mobile-flags dd").map((item) => item.text())).toEqual([
+      "true", "false", "false", "true",
+    ]);
+    expect(summaries[0].text()).toContain("com.example.owner=platform");
+    expect(summaries[0].text()).toContain("com.example.encrypted=true");
   });
 });

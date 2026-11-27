@@ -703,7 +703,7 @@
     "filterStack": "Фильтр сетей по стеку",
     "filters": "Фильтры сетей",
     "gateway": "Шлюз",
-    "ingress": "Входящая",
+    "ingress": "Ingress",
     "internal": "Внутренняя",
     "loadError": "Не удалось загрузить сети: {error}",
     "loadNetworksFailed": "Не удалось загрузить сети",
