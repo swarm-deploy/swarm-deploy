@@ -620,7 +620,7 @@ watch([stackName, serviceName], ([stack, service], _, onCleanup) => {
 }
 
 .service-inline-link {
-  color: var(--control-primary);
+  color: var(--interactive-primary);
   text-decoration: none;
 }
 

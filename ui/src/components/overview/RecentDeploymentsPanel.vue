@@ -141,8 +141,8 @@ function openDeploymentFromKeyboard(event: KeyboardEvent, id: string) {
 .stack-deployment-meta strong { color: var(--text); font-weight: 500; }
 .stack-deployment-summary { color: var(--muted); font-size: .78rem; line-height: 1.4; overflow-wrap: anywhere; }
 .stack-deployment--failed .stack-deployment-summary { color: var(--error); }
-.stack-commit-button { border: 0; background: transparent; color: var(--control-primary); padding: 0; border-radius: 3px; font: inherit; font-weight: 650; box-shadow: none; white-space: nowrap; }
-.stack-commit-button:hover { color: var(--control-primary-hover); transform: none; filter: none; }
+.stack-commit-button { border: 0; background: transparent; color: var(--interactive-primary); padding: 0; border-radius: 3px; font: inherit; font-weight: 650; box-shadow: none; white-space: nowrap; }
+.stack-commit-button:hover { color: var(--interactive-primary-hover); transform: none; filter: none; }
 .stack-commit-button:focus-visible { outline: 2px solid var(--accent-focus); outline-offset: 2px; }
 .stack-commit-button:active { transform: translateY(1px); }
 .stack-commit-button:disabled { color: var(--muted); background: var(--surface-muted); opacity: .65; cursor: not-allowed; }

@@ -226,7 +226,7 @@ body {
   align-items: center;
   justify-content: center;
   overflow: hidden;
-  color: var(--control-primary);
+  color: var(--interactive-primary);
   font-size: 0.9rem;
   font-weight: 800;
   letter-spacing: -0.04em;
@@ -236,16 +236,11 @@ body {
 }
 
 .sidebar-brand-name {
-  color: var(--control-primary);
+  color: var(--interactive-primary);
   font-size: 1rem;
   font-weight: 700;
   line-height: 1.25;
   letter-spacing: -0.015em;
-}
-
-:root:not([data-theme="light"]) .sidebar-brand-mark,
-:root:not([data-theme="light"]) .sidebar-brand-name {
-  color: #3E79A9;
 }
 
 .sidebar-label {
