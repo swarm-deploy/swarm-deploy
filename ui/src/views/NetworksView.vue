@@ -192,7 +192,7 @@ onMounted(() => {
               <span
                 class="networks-managed-label app-tooltip"
                 tabindex="0"
-                :aria-label="${t('networks.managed')}: ${t('networks.managedHint')}"
+                :aria-label="`${t('networks.managed')}: ${t('networks.managedHint')}`"
                 :data-tooltip="t('networks.managedHint')"
               >{{ t('networks.managed') }} <span aria-hidden="true">ⓘ</span></span>
             </th>
@@ -245,7 +245,7 @@ onMounted(() => {
                       <span
                         class="networks-managed-label app-tooltip"
                         tabindex="0"
-                        :aria-label="${t('networks.managed')}: ${t('networks.managedHint')}"
+                        :aria-label="`${t('networks.managed')}: ${t('networks.managedHint')}`"
                         :data-tooltip="t('networks.managedHint')"
                       >{{ t('networks.managed') }} <span aria-hidden="true">ⓘ</span></span>:
                     </dt>
