@@ -173,7 +173,7 @@ onUnmounted(() => { request++; });
         <AppTable v-else class="network-services-table" min-width="520px" :aria-label="t('networks.connectedServices')">
           <template #head><tr><th scope="col">{{ t('common.service') }}</th><th scope="col">{{ t('common.stack') }}</th><th scope="col">{{ t('networks.address') }}</th></tr></template>
           <tr v-for="item in connectedServices" :key="item.key">
-            <td class="network-service-name"><RouterLink v-if="item.service?.stack" class="service-inline-link" :to="{ name: 'service-details', params: { stack: item.service.stack, service: item.service.name } }">{{ item.name }}</RouterLink><strong v-else>{{ item.name }}</strong></td>
+            <td class="network-service-name"><RouterLink v-if="item.service?.stack" class="service-inline-link" :to="{ name: 'service-details', params: { stack: item.service.stack, service: item.service.name } }">{{ item.name }}</RouterLink><span v-else>{{ item.name }}</span></td>
             <td class="network-service-stack"><RouterLink v-if="item.service?.stack" class="service-inline-link" :to="{ name: 'stack-details', params: { stack: item.service.stack } }">{{ item.service.stack }}</RouterLink><span v-else>{{ t('common.notApplicable') }}</span></td>
             <td class="network-service-address"><code>{{ item.vip || t('common.notApplicable') }}</code></td>
           </tr>
@@ -228,6 +228,8 @@ onUnmounted(() => { request++; });
   .network-services-table :deep(tr) { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px; padding: 10px 0; }
   .network-services-table :deep(td) { max-width: none; padding: 0; border: 0; overflow: visible; }
   .network-services-table :deep(tr + tr) { border-top: 1px solid var(--border-subtle); }
+  .network-services-table :deep(.app-table tr:last-child) { border-bottom: 1px solid var(--border-subtle); }
+  .network-services-table :deep(.app-table tr:last-child > *) { border-bottom: 0; }
   .network-service-name { grid-column: 1; grid-row: 1; }
   .network-service-stack { grid-column: 1; grid-row: 2; color: var(--muted); font-size: .74rem; }
   .network-service-address { grid-column: 2; grid-row: 1 / span 2; align-self: end; color: var(--muted); font-size: .74rem; text-align: right; }

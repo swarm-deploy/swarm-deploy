@@ -118,6 +118,7 @@ describe("NetworkView", () => {
     expect(wrapper.get('[role="alert"]').text()).toContain("Catalog unavailable");
     expect(wrapper.get('table[aria-label="Connected services"]').text()).toContain("app_api");
     expect(wrapper.get('table[aria-label="Connected services"]').text()).toContain("10.0.1.10");
+    expect(wrapper.find(".network-service-name strong").exists()).toBe(false);
   });
 
   it("keeps Scope and its value in English for the Russian locale", async () => {
