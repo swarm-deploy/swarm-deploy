@@ -188,7 +188,14 @@ onMounted(() => {
             <th class="networks-desktop-cell">{{ t('networks.attachable') }}</th>
             <th class="networks-desktop-cell">{{ t('networks.internal') }}</th>
             <th class="networks-desktop-cell">{{ t('networks.ingress') }}</th>
-            <th class="networks-desktop-cell">{{ t('networks.managed') }}</th>
+            <th class="networks-desktop-cell">
+              <span
+                class="networks-managed-label app-tooltip"
+                tabindex="0"
+                :aria-label="`${t('networks.managed')}: ${t('networks.managedHint')}`"
+                :data-tooltip="t('networks.managedHint')"
+              >{{ t('networks.managed') }} <span aria-hidden="true">ⓘ</span></span>
+            </th>
             <th class="networks-desktop-cell">{{ t('common.labels') }}</th>
             <th v-if="hasOptionsColumn" class="networks-desktop-cell">{{ t('networks.options') }}</th>
             <th class="networks-mobile-cell">{{ t('common.network') }}</th>
@@ -233,7 +240,17 @@ onMounted(() => {
                   <div><dt>{{ t('networks.attachable') }}:</dt><dd>{{ boolText(network.attachable) }}</dd></div>
                   <div><dt>{{ t('networks.internal') }}:</dt><dd>{{ boolText(network.internal) }}</dd></div>
                   <div><dt>{{ t('networks.ingress') }}:</dt><dd>{{ boolText(network.ingress) }}</dd></div>
-                  <div><dt>{{ t('networks.managed') }}:</dt><dd>{{ boolText(network.managed) }}</dd></div>
+                  <div>
+                    <dt>
+                      <span
+                        class="networks-managed-label app-tooltip"
+                        tabindex="0"
+                        :aria-label="`${t('networks.managed')}: ${t('networks.managedHint')}`"
+                        :data-tooltip="t('networks.managedHint')"
+                      >{{ t('networks.managed') }} <span aria-hidden="true">ⓘ</span></span>:
+                    </dt>
+                    <dd>{{ boolText(network.managed) }}</dd>
+                  </div>
                 </dl>
                 <dl v-if="hasMapEntries(network.labels) || hasOptionsColumn" class="networks-mobile-details">
                   <div v-if="hasMapEntries(network.labels)"><dt>{{ t('common.labels') }}:</dt><dd>{{ mapText(network.labels) }}</dd></div>
@@ -313,6 +330,31 @@ onMounted(() => {
 
 .networks-mobile-cell {
   display: none;
+}
+
+.networks-managed-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  border-radius: 3px;
+  cursor: help;
+}
+
+.networks-managed-label::after {
+  width: max-content;
+  max-width: min(300px, calc(100vw - 32px));
+  white-space: normal;
+  text-align: left;
+}
+
+.networks-managed-label:focus {
+  outline: 2px solid var(--interactive-primary);
+  outline-offset: 2px;
+}
+
+.networks-managed-label:focus::after {
+  opacity: 1;
+  transform: translate(-50%, 0);
 }
 
 @media (max-width: 700px) {
@@ -409,6 +451,15 @@ onMounted(() => {
   .networks-mobile-flags dd {
     margin: 0;
     color: var(--text);
+  }
+
+  .networks-mobile-flags .networks-managed-label::after {
+    left: 0;
+    transform: translate(0, -4px);
+  }
+
+  .networks-mobile-flags .networks-managed-label:is(:hover, :focus)::after {
+    transform: translate(0, 0);
   }
 
   .networks-mobile-details {

@@ -77,13 +77,15 @@ describe("NetworksView", () => {
     expect(summaries[0].text()).toContain("overlay");
     expect(summaries[0].text()).toContain("VXLAN 4097");
     expect(summaries[0].findAll(".networks-mobile-flags dt").map((item) => item.text())).toEqual([
-      "Attachable:", "Internal:", "Ingress:", "Managed:",
+      "Attachable:", "Internal:", "Ingress:", "Managed ⓘ:",
     ]);
     expect(summaries[0].findAll(".networks-mobile-flags dd").map((item) => item.text())).toEqual([
       "true", "false", "false", "true",
     ]);
     expect(summaries[0].text()).toContain("com.example.owner=platform");
     expect(summaries[0].text()).toContain("com.example.encrypted=true");
+    expect(summaries[0].get(".networks-managed-label").attributes("data-tooltip"))
+      .toBe("Managed by swarm-deploy GitOps through networks.yaml.");
     expect(summaries[1].findAll(".networks-mobile-details dt").map((item) => item.text())).not.toContain("Labels:");
   });
 });
