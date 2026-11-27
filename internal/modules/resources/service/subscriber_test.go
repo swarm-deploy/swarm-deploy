@@ -186,10 +186,11 @@ func TestSubscriberBaselineReadErrorIsReturned(t *testing.T) {
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	store := modelstore.NewSQLStore(db)
 	require.NoError(t, store.ReplaceStack(t.Context(), "app", []model.Info{{Name: "current", Stack: "app"}}))
-	_, err = db.Exec(t.Context(), "DROP TABLE desired_snapshots")
-	require.NoError(t, err)
+	deploymentDB := storage.NewMockDatabase(ctrl)
+	deploymentDB.EXPECT().Dialect().Return(db.Dialect())
+	deploymentDB.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any(), "app").Return(assert.AnError)
 	subscriber := &Subscriber{
-		db: db, deployments: deploymentstore.NewStore(db), store: store,
+		db: db, deployments: deploymentstore.NewStore(deploymentDB), store: store,
 		events: dispatcher.NewMockDispatcher(ctrl),
 	}
 	event := &events.DeploySuccess{DeployEvent: events.DeployEvent{
@@ -198,8 +199,7 @@ func TestSubscriberBaselineReadErrorIsReturned(t *testing.T) {
 
 	err = subscriber.persistProjection(t.Context(), "deploy-success", event,
 		[]model.Info{{Name: "new", Stack: "app"}})
-	require.Error(t, err)
-	assert.ErrorContains(t, err, "desired_snapshots")
+	require.ErrorIs(t, err, assert.AnError)
 	_, currentExists, readErr := store.Find(t.Context(), "app", "current")
 	require.NoError(t, readErr)
 	assert.True(t, currentExists)
