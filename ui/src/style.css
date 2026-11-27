@@ -512,7 +512,8 @@ body {
   position: relative;
 }
 
-:is(.sidebar.collapsed .sidebar-link, .app-tooltip)[data-tooltip]::after {
+.sidebar.collapsed .sidebar-link[data-tooltip]::after,
+.app-tooltip[data-tooltip]::after {
   content: attr(data-tooltip);
   position: absolute;
   z-index: 20;
@@ -531,7 +532,8 @@ body {
   transition: opacity 150ms ease, transform 150ms ease;
 }
 
-:is(.sidebar.collapsed .sidebar-link, .app-tooltip)[data-tooltip]:is(:hover, :focus-visible)::after {
+.sidebar.collapsed .sidebar-link[data-tooltip]:is(:hover, :focus-visible)::after,
+.app-tooltip[data-tooltip]:is(:hover, :focus-visible)::after {
   opacity: 1;
 }
 
