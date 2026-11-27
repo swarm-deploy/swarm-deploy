@@ -6,6 +6,7 @@ import DeploymentsView from "../views/DeploymentsView.vue";
 import ClusterView from "../views/ClusterView.vue";
 import EventsView from "../views/EventsAlertsView.vue";
 import GraphView from "../views/GraphView.vue";
+import NetworkView from "../views/NetworkView.vue";
 import NetworksView from "../views/NetworksView.vue";
 import OverviewView from "../views/OverviewView.vue";
 import RecommendationsView from "../views/RecommendationsView.vue";
@@ -73,6 +74,11 @@ export const router = createRouter({
       path: "/networks",
       name: "networks",
       component: NetworksView,
+    },
+    {
+      path: "/networks/:network",
+      name: "network-details",
+      component: NetworkView,
     },
     {
       path: "/secrets",

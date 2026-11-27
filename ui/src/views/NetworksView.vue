@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { plural, t } from "../i18n";
+import { enumLabel, plural, t } from "../i18n";
 import { computed, onMounted, ref } from "vue";
 
 import { fetchNetworks } from "../api/cluster";
@@ -107,10 +107,6 @@ function hasMapEntries(values?: Record<string, string>): boolean {
   return Object.keys(values ?? {}).length > 0;
 }
 
-function vxlanIDText(options?: Record<string, string>): string {
-  return options?.[VXLAN_ID_OPTION] || t("common.notApplicable");
-}
-
 function optionsText(options?: Record<string, string>): string {
   const entries = Object.entries(options ?? {}).filter(([key]) => key !== VXLAN_ID_OPTION);
   if (entries.length === 0) {
@@ -178,13 +174,12 @@ onMounted(() => {
 
     <AppTableEmpty v-else-if="filteredNetworks.length === 0" :message="t('networks.noFilterMatches')" />
 
-    <AppTable v-else class="networks-table" min-width="960px">
+    <AppTable v-else class="networks-table" min-width="880px">
       <template #head>
           <tr>
             <th class="networks-desktop-cell">{{ t('common.name') }}</th>
             <th class="networks-desktop-cell">{{ t('common.stack') }}</th>
             <th class="networks-desktop-cell">{{ t('common.driver') }}</th>
-            <th class="networks-desktop-cell">VXLAN ID</th>
             <th class="networks-desktop-cell">{{ t('networks.attachable') }}</th>
             <th class="networks-desktop-cell">{{ t('networks.internal') }}</th>
             <th class="networks-desktop-cell">{{ t('networks.ingress') }}</th>
@@ -202,7 +197,9 @@ onMounted(() => {
           </tr>
       </template>
           <tr v-for="network in filteredNetworks" :key="network.id">
-            <td class="networks-desktop-cell">{{ network.name || t('common.notApplicable') }}</td>
+            <td class="networks-desktop-cell">
+              <RouterLink class="service-inline-link" :to="{ name: 'network-details', params: { network: network.id } }">{{ network.name || t('common.notApplicable') }}</RouterLink>
+            </td>
             <td class="networks-desktop-cell">
               <RouterLink
                 v-if="network.stack_name"
@@ -212,7 +209,6 @@ onMounted(() => {
               <template v-else>{{ t('common.notApplicable') }}</template>
             </td>
             <td class="networks-desktop-cell">{{ network.driver || t('common.notApplicable') }}</td>
-            <td class="networks-desktop-cell">{{ vxlanIDText(network.options) }}</td>
             <td class="networks-desktop-cell">{{ boolText(network.attachable) }}</td>
             <td class="networks-desktop-cell">{{ boolText(network.internal) }}</td>
             <td class="networks-desktop-cell">{{ boolText(network.ingress) }}</td>
@@ -222,7 +218,7 @@ onMounted(() => {
             <td class="networks-mobile-cell">
               <div class="networks-mobile-summary">
                 <div class="networks-mobile-heading">
-                  <strong>{{ network.name || t('common.notApplicable') }}</strong>
+                  <strong><RouterLink class="service-inline-link" :to="{ name: 'network-details', params: { network: network.id } }">{{ network.name || t('common.notApplicable') }}</RouterLink></strong>
                   <span>
                     <RouterLink
                       v-if="network.stack_name"
@@ -234,7 +230,7 @@ onMounted(() => {
                 </div>
                 <div class="networks-mobile-runtime">
                   <span>{{ network.driver || t('common.notApplicable') }}</span>
-                  <span>VXLAN {{ vxlanIDText(network.options) }}</span>
+                  <span>{{ enumLabel('networkScopes', network.scope, network.scope || t('common.notApplicable')) }}</span>
                 </div>
                 <dl class="networks-mobile-flags">
                   <div><dt>{{ t('networks.attachable') }}:</dt><dd>{{ boolText(network.attachable) }}</dd></div>

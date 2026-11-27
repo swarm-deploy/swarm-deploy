@@ -72,6 +72,8 @@ paths:
     $ref: './resources/nodes.yaml#/paths/~1api~1v1~1nodes~1{id}~1labels~1{key}'
   /api/v1/networks:
     $ref: './resources/networks.yaml#/paths/~1api~1v1~1networks'
+  /api/v1/networks/{network_id}:
+    $ref: './resources/networks.yaml#/paths/~1api~1v1~1networks~1{network_id}'
   /api/v1/secrets:
     $ref: './resources/secrets.yaml#/paths/~1api~1v1~1secrets'
   /api/v1/secrets/suggestions/dsn:

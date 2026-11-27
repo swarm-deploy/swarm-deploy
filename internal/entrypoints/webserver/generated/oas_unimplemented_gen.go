@@ -157,6 +157,13 @@ func (UnimplementedHandler) GetGraph(ctx context.Context) (r *GraphResponse, _ e
 	return r, ht.ErrNotImplemented
 }
 
+// GetNetwork implements getNetwork operation.
+//
+// GET /api/v1/networks/{network_id}
+func (UnimplementedHandler) GetNetwork(ctx context.Context, params GetNetworkParams) (r GetNetworkRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // GetSecretByName implements getSecretByName operation.
 //
 // GET /api/v1/secrets/{name}

@@ -9477,9 +9477,65 @@ func (s *NetworkInfo) encodeFields(e *jx.Encoder) {
 			e.ArrEnd()
 		}
 	}
+	{
+		if s.CreatedAt.Set {
+			e.FieldStart("created_at")
+			s.CreatedAt.Encode(e, json.EncodeDateTime)
+		}
+	}
+	{
+		if s.EnableIpv4.Set {
+			e.FieldStart("enable_ipv4")
+			s.EnableIpv4.Encode(e)
+		}
+	}
+	{
+		if s.EnableIpv6.Set {
+			e.FieldStart("enable_ipv6")
+			s.EnableIpv6.Encode(e)
+		}
+	}
+	{
+		if s.ConfigOnly.Set {
+			e.FieldStart("config_only")
+			s.ConfigOnly.Encode(e)
+		}
+	}
+	{
+		if s.ConfigFrom.Set {
+			e.FieldStart("config_from")
+			s.ConfigFrom.Encode(e)
+		}
+	}
+	{
+		if s.IpamDriver.Set {
+			e.FieldStart("ipam_driver")
+			s.IpamDriver.Encode(e)
+		}
+	}
+	{
+		if s.Services != nil {
+			e.FieldStart("services")
+			e.ArrStart()
+			for _, elem := range s.Services {
+				elem.Encode(e)
+			}
+			e.ArrEnd()
+		}
+	}
+	{
+		if s.Peers != nil {
+			e.FieldStart("peers")
+			e.ArrStart()
+			for _, elem := range s.Peers {
+				elem.Encode(e)
+			}
+			e.ArrEnd()
+		}
+	}
 }
 
-var jsonFieldsNameOfNetworkInfo = [12]string{
+var jsonFieldsNameOfNetworkInfo = [20]string{
 	0:  "id",
 	1:  "name",
 	2:  "scope",
@@ -9492,6 +9548,14 @@ var jsonFieldsNameOfNetworkInfo = [12]string{
 	9:  "stack_name",
 	10: "managed",
 	11: "ipam",
+	12: "created_at",
+	13: "enable_ipv4",
+	14: "enable_ipv6",
+	15: "config_only",
+	16: "config_from",
+	17: "ipam_driver",
+	18: "services",
+	19: "peers",
 }
 
 // Decode decodes NetworkInfo from json.
@@ -9499,7 +9563,7 @@ func (s *NetworkInfo) Decode(d *jx.Decoder) error {
 	if s == nil {
 		return errors.New("invalid: unable to decode NetworkInfo to nil")
 	}
-	var requiredBitSet [2]uint8
+	var requiredBitSet [3]uint8
 
 	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
 		switch string(k) {
@@ -9646,6 +9710,100 @@ func (s *NetworkInfo) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"ipam\"")
 			}
+		case "created_at":
+			if err := func() error {
+				s.CreatedAt.Reset()
+				if err := s.CreatedAt.Decode(d, json.DecodeDateTime); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"created_at\"")
+			}
+		case "enable_ipv4":
+			if err := func() error {
+				s.EnableIpv4.Reset()
+				if err := s.EnableIpv4.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"enable_ipv4\"")
+			}
+		case "enable_ipv6":
+			if err := func() error {
+				s.EnableIpv6.Reset()
+				if err := s.EnableIpv6.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"enable_ipv6\"")
+			}
+		case "config_only":
+			if err := func() error {
+				s.ConfigOnly.Reset()
+				if err := s.ConfigOnly.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"config_only\"")
+			}
+		case "config_from":
+			if err := func() error {
+				s.ConfigFrom.Reset()
+				if err := s.ConfigFrom.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"config_from\"")
+			}
+		case "ipam_driver":
+			if err := func() error {
+				s.IpamDriver.Reset()
+				if err := s.IpamDriver.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"ipam_driver\"")
+			}
+		case "services":
+			if err := func() error {
+				s.Services = make([]NetworkServiceInfo, 0)
+				if err := d.Arr(func(d *jx.Decoder) error {
+					var elem NetworkServiceInfo
+					if err := elem.Decode(d); err != nil {
+						return err
+					}
+					s.Services = append(s.Services, elem)
+					return nil
+				}); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"services\"")
+			}
+		case "peers":
+			if err := func() error {
+				s.Peers = make([]NetworkPeerInfo, 0)
+				if err := d.Arr(func(d *jx.Decoder) error {
+					var elem NetworkPeerInfo
+					if err := elem.Decode(d); err != nil {
+						return err
+					}
+					s.Peers = append(s.Peers, elem)
+					return nil
+				}); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"peers\"")
+			}
 		default:
 			return d.Skip()
 		}
@@ -9655,9 +9813,10 @@ func (s *NetworkInfo) Decode(d *jx.Decoder) error {
 	}
 	// Validate required fields.
 	var failures []validate.FieldError
-	for i, mask := range [2]uint8{
+	for i, mask := range [3]uint8{
 		0b01111111,
 		0b00000100,
+		0b00000000,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -9724,11 +9883,25 @@ func (s *NetworkInfoIpamItem) encodeFields(e *jx.Encoder) {
 			s.Gateway.Encode(e)
 		}
 	}
+	{
+		if s.IPRange.Set {
+			e.FieldStart("ip_range")
+			s.IPRange.Encode(e)
+		}
+	}
+	{
+		if s.AuxAddresses.Set {
+			e.FieldStart("aux_addresses")
+			s.AuxAddresses.Encode(e)
+		}
+	}
 }
 
-var jsonFieldsNameOfNetworkInfoIpamItem = [2]string{
+var jsonFieldsNameOfNetworkInfoIpamItem = [4]string{
 	0: "subnet",
 	1: "gateway",
+	2: "ip_range",
+	3: "aux_addresses",
 }
 
 // Decode decodes NetworkInfoIpamItem from json.
@@ -9759,6 +9932,26 @@ func (s *NetworkInfoIpamItem) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"gateway\"")
 			}
+		case "ip_range":
+			if err := func() error {
+				s.IPRange.Reset()
+				if err := s.IPRange.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"ip_range\"")
+			}
+		case "aux_addresses":
+			if err := func() error {
+				s.AuxAddresses.Reset()
+				if err := s.AuxAddresses.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"aux_addresses\"")
+			}
 		default:
 			return d.Skip()
 		}
@@ -9779,6 +9972,62 @@ func (s *NetworkInfoIpamItem) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON implements stdjson.Unmarshaler.
 func (s *NetworkInfoIpamItem) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode implements json.Marshaler.
+func (s NetworkInfoIpamItemAuxAddresses) Encode(e *jx.Encoder) {
+	e.ObjStart()
+	s.encodeFields(e)
+	e.ObjEnd()
+}
+
+// encodeFields implements json.Marshaler.
+func (s NetworkInfoIpamItemAuxAddresses) encodeFields(e *jx.Encoder) {
+	for k, elem := range s {
+		e.FieldStart(k)
+
+		e.Str(elem)
+	}
+}
+
+// Decode decodes NetworkInfoIpamItemAuxAddresses from json.
+func (s *NetworkInfoIpamItemAuxAddresses) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode NetworkInfoIpamItemAuxAddresses to nil")
+	}
+	m := s.init()
+	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
+		var elem string
+		if err := func() error {
+			v, err := d.Str()
+			elem = string(v)
+			if err != nil {
+				return err
+			}
+			return nil
+		}(); err != nil {
+			return errors.Wrapf(err, "decode field %q", k)
+		}
+		m[string(k)] = elem
+		return nil
+	}); err != nil {
+		return errors.Wrap(err, "decode NetworkInfoIpamItemAuxAddresses")
+	}
+
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s NetworkInfoIpamItemAuxAddresses) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *NetworkInfoIpamItemAuxAddresses) UnmarshalJSON(data []byte) error {
 	d := jx.DecodeBytes(data)
 	return s.Decode(d)
 }
@@ -9891,6 +10140,232 @@ func (s NetworkInfoOptions) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON implements stdjson.Unmarshaler.
 func (s *NetworkInfoOptions) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode implements json.Marshaler.
+func (s *NetworkPeerInfo) Encode(e *jx.Encoder) {
+	e.ObjStart()
+	s.encodeFields(e)
+	e.ObjEnd()
+}
+
+// encodeFields encodes fields.
+func (s *NetworkPeerInfo) encodeFields(e *jx.Encoder) {
+	{
+		e.FieldStart("name")
+		e.Str(s.Name)
+	}
+	{
+		e.FieldStart("ip")
+		e.Str(s.IP)
+	}
+}
+
+var jsonFieldsNameOfNetworkPeerInfo = [2]string{
+	0: "name",
+	1: "ip",
+}
+
+// Decode decodes NetworkPeerInfo from json.
+func (s *NetworkPeerInfo) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode NetworkPeerInfo to nil")
+	}
+	var requiredBitSet [1]uint8
+
+	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
+		switch string(k) {
+		case "name":
+			requiredBitSet[0] |= 1 << 0
+			if err := func() error {
+				v, err := d.Str()
+				s.Name = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"name\"")
+			}
+		case "ip":
+			requiredBitSet[0] |= 1 << 1
+			if err := func() error {
+				v, err := d.Str()
+				s.IP = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"ip\"")
+			}
+		default:
+			return d.Skip()
+		}
+		return nil
+	}); err != nil {
+		return errors.Wrap(err, "decode NetworkPeerInfo")
+	}
+	// Validate required fields.
+	var failures []validate.FieldError
+	for i, mask := range [1]uint8{
+		0b00000011,
+	} {
+		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
+			// Mask only required fields and check equality to mask using XOR.
+			//
+			// If XOR result is not zero, result is not equal to expected, so some fields are missed.
+			// Bits of fields which would be set are actually bits of missed fields.
+			missed := bits.OnesCount8(result)
+			for bitN := 0; bitN < missed; bitN++ {
+				bitIdx := bits.TrailingZeros8(result)
+				fieldIdx := i*8 + bitIdx
+				var name string
+				if fieldIdx < len(jsonFieldsNameOfNetworkPeerInfo) {
+					name = jsonFieldsNameOfNetworkPeerInfo[fieldIdx]
+				} else {
+					name = strconv.Itoa(fieldIdx)
+				}
+				failures = append(failures, validate.FieldError{
+					Name:  name,
+					Error: validate.ErrFieldRequired,
+				})
+				// Reset bit.
+				result &^= 1 << bitIdx
+			}
+		}
+	}
+	if len(failures) > 0 {
+		return &validate.Error{Fields: failures}
+	}
+
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *NetworkPeerInfo) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *NetworkPeerInfo) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode implements json.Marshaler.
+func (s *NetworkServiceInfo) Encode(e *jx.Encoder) {
+	e.ObjStart()
+	s.encodeFields(e)
+	e.ObjEnd()
+}
+
+// encodeFields encodes fields.
+func (s *NetworkServiceInfo) encodeFields(e *jx.Encoder) {
+	{
+		e.FieldStart("name")
+		e.Str(s.Name)
+	}
+	{
+		if s.Vip.Set {
+			e.FieldStart("vip")
+			s.Vip.Encode(e)
+		}
+	}
+}
+
+var jsonFieldsNameOfNetworkServiceInfo = [2]string{
+	0: "name",
+	1: "vip",
+}
+
+// Decode decodes NetworkServiceInfo from json.
+func (s *NetworkServiceInfo) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode NetworkServiceInfo to nil")
+	}
+	var requiredBitSet [1]uint8
+
+	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
+		switch string(k) {
+		case "name":
+			requiredBitSet[0] |= 1 << 0
+			if err := func() error {
+				v, err := d.Str()
+				s.Name = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"name\"")
+			}
+		case "vip":
+			if err := func() error {
+				s.Vip.Reset()
+				if err := s.Vip.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"vip\"")
+			}
+		default:
+			return d.Skip()
+		}
+		return nil
+	}); err != nil {
+		return errors.Wrap(err, "decode NetworkServiceInfo")
+	}
+	// Validate required fields.
+	var failures []validate.FieldError
+	for i, mask := range [1]uint8{
+		0b00000001,
+	} {
+		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
+			// Mask only required fields and check equality to mask using XOR.
+			//
+			// If XOR result is not zero, result is not equal to expected, so some fields are missed.
+			// Bits of fields which would be set are actually bits of missed fields.
+			missed := bits.OnesCount8(result)
+			for bitN := 0; bitN < missed; bitN++ {
+				bitIdx := bits.TrailingZeros8(result)
+				fieldIdx := i*8 + bitIdx
+				var name string
+				if fieldIdx < len(jsonFieldsNameOfNetworkServiceInfo) {
+					name = jsonFieldsNameOfNetworkServiceInfo[fieldIdx]
+				} else {
+					name = strconv.Itoa(fieldIdx)
+				}
+				failures = append(failures, validate.FieldError{
+					Name:  name,
+					Error: validate.ErrFieldRequired,
+				})
+				// Reset bit.
+				result &^= 1 << bitIdx
+			}
+		}
+	}
+	if len(failures) > 0 {
+		return &validate.Error{Fields: failures}
+	}
+
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *NetworkServiceInfo) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *NetworkServiceInfo) UnmarshalJSON(data []byte) error {
 	d := jx.DecodeBytes(data)
 	return s.Decode(d)
 }
@@ -11260,6 +11735,40 @@ func (s OptLastWebhookStatus) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON implements stdjson.Unmarshaler.
 func (s *OptLastWebhookStatus) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes NetworkInfoIpamItemAuxAddresses as json.
+func (o OptNetworkInfoIpamItemAuxAddresses) Encode(e *jx.Encoder) {
+	if !o.Set {
+		return
+	}
+	o.Value.Encode(e)
+}
+
+// Decode decodes NetworkInfoIpamItemAuxAddresses from json.
+func (o *OptNetworkInfoIpamItemAuxAddresses) Decode(d *jx.Decoder) error {
+	if o == nil {
+		return errors.New("invalid: unable to decode OptNetworkInfoIpamItemAuxAddresses to nil")
+	}
+	o.Set = true
+	o.Value = make(NetworkInfoIpamItemAuxAddresses)
+	if err := o.Value.Decode(d); err != nil {
+		return err
+	}
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s OptNetworkInfoIpamItemAuxAddresses) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *OptNetworkInfoIpamItemAuxAddresses) UnmarshalJSON(data []byte) error {
 	d := jx.DecodeBytes(data)
 	return s.Decode(d)
 }

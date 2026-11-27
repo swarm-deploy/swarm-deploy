@@ -18,6 +18,26 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/NetworksResponse'
+  /api/v1/networks/{network_id}:
+    get:
+      operationId: getNetwork
+      parameters:
+        - in: path
+          name: network_id
+          required: true
+          description: Docker network identifier or name.
+          schema:
+            type: string
+            minLength: 1
+      responses:
+        '200':
+          description: Current Docker network details.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NetworkInfo'
+        '404':
+          description: Network not found.
 components:
   schemas:
     NetworksResponse:
@@ -67,3 +87,46 @@ components:
                 type: string
               gateway:
                 type: string
+              ip_range:
+                type: string
+              aux_addresses:
+                type: object
+                additionalProperties:
+                  type: string
+        created_at:
+          type: string
+          format: date-time
+        enable_ipv4:
+          type: boolean
+        enable_ipv6:
+          type: boolean
+        config_only:
+          type: boolean
+        config_from:
+          type: string
+        ipam_driver:
+          type: string
+        services:
+          type: array
+          items:
+            $ref: '#/components/schemas/NetworkServiceInfo'
+        peers:
+          type: array
+          items:
+            $ref: '#/components/schemas/NetworkPeerInfo'
+    NetworkServiceInfo:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+        vip:
+          type: string
+    NetworkPeerInfo:
+      type: object
+      required: [name, ip]
+      properties:
+        name:
+          type: string
+        ip:
+          type: string

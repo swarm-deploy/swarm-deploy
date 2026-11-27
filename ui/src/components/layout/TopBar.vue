@@ -59,6 +59,8 @@ const mobileTitle = computed(() => {
       return t("navigation.cluster");
     case "networks":
       return t("common.networks");
+    case "network-details":
+      return t("common.network");
     case "secrets":
       return t("common.secrets");
     case "deployments":

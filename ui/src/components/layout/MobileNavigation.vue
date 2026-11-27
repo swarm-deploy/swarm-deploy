@@ -51,12 +51,12 @@ const currentThemeLabel = computed(
   () => themeOptions.find((option) => option.value === uiStore.themeMode)?.label ?? t("navigation.system"),
 );
 const moreActive = computed(
-  () => moreOpen.value || moreLinks.some((link) => route.path === link.to),
+  () => moreOpen.value || moreLinks.some((link) => isActive(link.to)),
 );
 const scrimOpacity = computed(() => Math.max(0.35, 1 - dragOffset.value / 320));
 
 function isActive(path: string): boolean {
-  return route.path === path;
+  return route.path === path || route.path.startsWith(`${path}/`);
 }
 
 function resetDrag(): void {

@@ -87,6 +87,10 @@ type Handler interface {
 	//
 	// GET /api/v1/graph
 	GetGraph(ctx context.Context) (*GraphResponse, error)
+	// GetNetwork implements getNetwork operation.
+	//
+	// GET /api/v1/networks/{network_id}
+	GetNetwork(ctx context.Context, params GetNetworkParams) (GetNetworkRes, error)
 	// GetSecretByName implements getSecretByName operation.
 	//
 	// GET /api/v1/secrets/{name}

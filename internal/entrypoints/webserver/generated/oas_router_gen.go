@@ -14,7 +14,7 @@ var (
 	rn5AllowedHeaders = map[string]string{
 		"POST": "Content-Type",
 	}
-	rn81AllowedHeaders = map[string]string{
+	rn83AllowedHeaders = map[string]string{
 		"PUT": "Content-Type",
 	}
 	rn3AllowedHeaders = map[string]string{
@@ -35,7 +35,7 @@ var (
 	rn22AllowedHeaders = map[string]string{
 		"PUT": "Content-Type",
 	}
-	rn85AllowedHeaders = map[string]string{
+	rn87AllowedHeaders = map[string]string{
 		"PUT": "Content-Type",
 	}
 )
@@ -365,7 +365,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 											default:
 												s.notAllowed(w, r, notAllowedParams{
 													allowedMethods: "PUT",
-													allowedHeaders: rn81AllowedHeaders,
+													allowedHeaders: rn83AllowedHeaders,
 													acceptPost:     "",
 													acceptPatch:    "",
 												})
@@ -792,7 +792,6 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 						}
 
 						if len(elem) == 0 {
-							// Leaf node.
 							switch r.Method {
 							case "GET":
 								s.handleListNetworksRequest([0]string{}, elemIsEscaped, w, r)
@@ -806,6 +805,44 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 							}
 
 							return
+						}
+						switch elem[0] {
+						case '/': // Prefix: "/"
+
+							if l := len("/"); len(elem) >= l && elem[0:l] == "/" {
+								elem = elem[l:]
+							} else {
+								break
+							}
+
+							// Param: "network_id"
+							// Leaf parameter, slashes are prohibited
+							idx := strings.IndexByte(elem, '/')
+							if idx >= 0 {
+								break
+							}
+							args[0] = elem
+							elem = ""
+
+							if len(elem) == 0 {
+								// Leaf node.
+								switch r.Method {
+								case "GET":
+									s.handleGetNetworkRequest([1]string{
+										args[0],
+									}, elemIsEscaped, w, r)
+								default:
+									s.notAllowed(w, r, notAllowedParams{
+										allowedMethods: "GET",
+										allowedHeaders: nil,
+										acceptPost:     "",
+										acceptPatch:    "",
+									})
+								}
+
+								return
+							}
+
 						}
 
 					case 'o': // Prefix: "odes"
@@ -1715,7 +1752,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 												default:
 													s.notAllowed(w, r, notAllowedParams{
 														allowedMethods: "PUT",
-														allowedHeaders: rn85AllowedHeaders,
+														allowedHeaders: rn87AllowedHeaders,
 														acceptPost:     "",
 														acceptPatch:    "",
 													})
@@ -2661,7 +2698,6 @@ func (s *Server) FindPath(method string, u *url.URL) (r Route, _ bool) {
 						}
 
 						if len(elem) == 0 {
-							// Leaf node.
 							switch method {
 							case "GET":
 								r.name = ListNetworksOperation
@@ -2675,6 +2711,42 @@ func (s *Server) FindPath(method string, u *url.URL) (r Route, _ bool) {
 							default:
 								return
 							}
+						}
+						switch elem[0] {
+						case '/': // Prefix: "/"
+
+							if l := len("/"); len(elem) >= l && elem[0:l] == "/" {
+								elem = elem[l:]
+							} else {
+								break
+							}
+
+							// Param: "network_id"
+							// Leaf parameter, slashes are prohibited
+							idx := strings.IndexByte(elem, '/')
+							if idx >= 0 {
+								break
+							}
+							args[0] = elem
+							elem = ""
+
+							if len(elem) == 0 {
+								// Leaf node.
+								switch method {
+								case "GET":
+									r.name = GetNetworkOperation
+									r.summary = ""
+									r.operationID = "getNetwork"
+									r.operationGroup = ""
+									r.pathPattern = "/api/v1/networks/{network_id}"
+									r.args = args
+									r.count = 1
+									return r, true
+								default:
+									return
+								}
+							}
+
 						}
 
 					case 'o': // Prefix: "odes"

@@ -58,10 +58,12 @@ describe("NetworksView", () => {
     expect(wrapper.text()).toContain("app_default");
     expect(wrapper.text()).not.toContain("infra_default");
     const stackLinks = wrapper.findAllComponents(RouterLinkStub);
-    expect(stackLinks).toHaveLength(2);
+    expect(stackLinks).toHaveLength(4);
     expect(stackLinks.every((link) => link.classes().includes("service-inline-link"))).toBe(true);
     expect(stackLinks.map((link) => link.props("to"))).toEqual([
+      { name: "network-details", params: { network: "app-network" } },
       { name: "stack-details", params: { stack: "app" } },
+      { name: "network-details", params: { network: "app-network" } },
       { name: "stack-details", params: { stack: "app" } },
     ]);
   });
@@ -75,7 +77,8 @@ describe("NetworksView", () => {
     expect(summaries[0].text()).toContain("app_default");
     expect(summaries[0].text()).toContain("app");
     expect(summaries[0].text()).toContain("overlay");
-    expect(summaries[0].text()).toContain("VXLAN 4097");
+    expect(summaries[0].text()).toContain("swarm");
+    expect(summaries[0].text()).not.toContain("VXLAN");
     expect(summaries[0].findAll(".networks-mobile-flags dt").map((item) => item.text())).toEqual([
       "Attachable:", "Internal:", "Ingress:", "Managed ⓘ:",
     ]);

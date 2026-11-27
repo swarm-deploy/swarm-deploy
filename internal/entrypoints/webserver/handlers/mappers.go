@@ -3,9 +3,11 @@ package handlers
 import (
 	"context"
 	"math"
+	"sort"
 	"strings"
 	"time"
 
+	dockernetwork "github.com/docker/docker/api/types/network"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
@@ -476,42 +478,75 @@ func toGeneratedNodes(nodes []swarm.Node) []generated.NodeInfo {
 func toGeneratedNetworks(networks []swarm.Network) []generated.NetworkInfo {
 	mapped := make([]generated.NetworkInfo, 0, len(networks))
 	for _, network := range networks {
-		item := generated.NetworkInfo{
-			ID:         network.ID,
-			Name:       network.Name,
-			Scope:      network.Scope,
-			Driver:     network.Driver,
-			Internal:   network.Internal,
-			Attachable: network.Attachable,
-			Ingress:    network.Ingress,
-		}
-		if len(network.Labels) > 0 {
-			labels := network.Labels
-
-			if stackName := labelsdict.GetStackName(labels); stackName != "" {
-				item.SetStackName(generated.NewOptString(stackName))
-			}
-
-			item.Managed = labelsdict.NetworkManaged(labels)
-
-			delete(labels, labelsdict.NetworkManagedKey)
-			delete(labels, labelsdict.StackNamespace)
-
-			item.Labels = generated.NewOptNetworkInfoLabels(labels)
-		}
-		if len(network.Options) > 0 {
-			item.Options = generated.NewOptNetworkInfoOptions(cloneStringMap(network.Options))
-		}
-		for _, pool := range network.IPAM {
-			item.Ipam = append(item.Ipam, generated.NetworkInfoIpamItem{
-				Subnet: toOptString(pool.Subnet), Gateway: toOptString(pool.Gateway),
-			})
-		}
-
-		mapped = append(mapped, item)
+		mapped = append(mapped, toGeneratedNetwork(network))
 	}
 
 	return mapped
+}
+
+func toGeneratedNetwork(network swarm.Network) generated.NetworkInfo {
+	item := generated.NetworkInfo{
+		ID:         network.ID,
+		Name:       network.Name,
+		Scope:      network.Scope,
+		Driver:     network.Driver,
+		Internal:   network.Internal,
+		Attachable: network.Attachable,
+		Ingress:    network.Ingress,
+		CreatedAt:  toOptDateTime(network.CreatedAt),
+		EnableIpv4: generated.NewOptBool(network.EnableIPv4),
+		EnableIpv6: generated.NewOptBool(network.EnableIPv6),
+		ConfigOnly: generated.NewOptBool(network.ConfigOnly),
+		ConfigFrom: toOptString(network.ConfigFrom),
+		IpamDriver: toOptString(network.IPAMDriver),
+	}
+	if len(network.Labels) > 0 {
+		labels := cloneStringMap(network.Labels)
+		if stackName := labelsdict.GetStackName(labels); stackName != "" {
+			item.SetStackName(generated.NewOptString(stackName))
+		}
+		item.Managed = labelsdict.NetworkManaged(labels)
+		delete(labels, labelsdict.NetworkManagedKey)
+		delete(labels, labelsdict.StackNamespace)
+		item.Labels = generated.NewOptNetworkInfoLabels(labels)
+	}
+	if len(network.Options) > 0 {
+		item.Options = generated.NewOptNetworkInfoOptions(cloneStringMap(network.Options))
+	}
+	for _, pool := range network.IPAM {
+		mappedPool := generated.NetworkInfoIpamItem{
+			Subnet: toOptString(pool.Subnet), Gateway: toOptString(pool.Gateway), IPRange: toOptString(pool.IPRange),
+		}
+		if len(pool.AuxAddress) > 0 {
+			mappedPool.AuxAddresses = generated.NewOptNetworkInfoIpamItemAuxAddresses(cloneStringMap(pool.AuxAddress))
+		}
+		item.Ipam = append(item.Ipam, mappedPool)
+	}
+
+	serviceNames := make([]string, 0, len(network.Services))
+	for name := range network.Services {
+		serviceNames = append(serviceNames, name)
+	}
+	sort.Strings(serviceNames)
+	for _, name := range serviceNames {
+		item.Services = append(item.Services, generated.NetworkServiceInfo{
+			Name: name,
+			Vip:  toOptString(network.Services[name].VIP),
+		})
+	}
+
+	peers := append([]dockernetwork.PeerInfo(nil), network.Peers...)
+	sort.Slice(peers, func(i, j int) bool {
+		if peers[i].Name == peers[j].Name {
+			return peers[i].IP < peers[j].IP
+		}
+		return peers[i].Name < peers[j].Name
+	})
+	for _, peer := range peers {
+		item.Peers = append(item.Peers, generated.NetworkPeerInfo{Name: peer.Name, IP: peer.IP})
+	}
+
+	return item
 }
 
 func toGeneratedSecrets(secrets []secretservice.SecretWithUsage) []generated.SecretInfo {

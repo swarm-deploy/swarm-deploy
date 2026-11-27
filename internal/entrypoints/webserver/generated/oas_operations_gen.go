@@ -26,6 +26,7 @@ const (
 	GetEventFiltersOperation            OperationName = "GetEventFilters"
 	GetGitCommitOperation               OperationName = "GetGitCommit"
 	GetGraphOperation                   OperationName = "GetGraph"
+	GetNetworkOperation                 OperationName = "GetNetwork"
 	GetSecretByNameOperation            OperationName = "GetSecretByName"
 	GetServiceOperation                 OperationName = "GetService"
 	GetServiceSyncPauseOperation        OperationName = "GetServiceSyncPause"

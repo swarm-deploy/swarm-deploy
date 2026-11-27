@@ -16,7 +16,6 @@ import AppTable from "../components/common/AppTable.vue";
 import AppTableEmpty from "../components/common/AppTableEmpty.vue";
 import SidebarIcon from "../components/layout/SidebarIcon.vue";
 import DeploymentIcon from "../components/overview/DeploymentIcon.vue";
-import NetworkDetailsModal from "../components/services/NetworkDetailsModal.vue";
 import ServiceReplicasBadge from "../components/services/ServiceReplicasBadge.vue";
 import ServiceSyncPauseModal from "../components/services/ServiceSyncPauseModal.vue";
 import { useOverviewStore } from "../stores/overview";
@@ -46,15 +45,12 @@ const serviceInfo = ref<ServiceInfo | null>(null);
 const serviceStatus = ref<ServiceStatusResponse | null>(null);
 const swarmServices = ref<SwarmService[] | null>(null);
 const networks = ref<NetworkInfo[]>([]);
-const networksLoading = ref(false);
-const networksError = ref("");
 const deployments = ref<ServiceDeploymentResponse[]>([]);
 const deploymentsLoading = ref(true);
 const deploymentsError = ref("");
 const menu = ref<HTMLDetailsElement | null>(null);
 const labelsModalOpen = ref(false);
 const syncPauseOpen = ref(false);
-const selectedNetworkTarget = ref("");
 
 function handleDocumentClick(event: MouseEvent) {
   if (menu.value && !menu.value.contains(event.target as Node)) menu.value.open = false;
@@ -141,7 +137,6 @@ const attachedNetworks = computed(() => networkTargets.value.map((target) => ({
   target,
   info: networks.value.find((network) => network.id === target || network.name === target),
 })));
-const selectedNetwork = computed(() => attachedNetworks.value.find(({ target }) => target === selectedNetworkTarget.value));
 const configs = computed(() => spec.value?.configs ?? []);
 const secrets = computed(() => spec.value?.secrets ?? []);
 
@@ -165,14 +160,11 @@ watch([stackName, serviceName], ([stack, service], _, onCleanup) => {
   serviceInfo.value = null;
   swarmServices.value = null;
   networks.value = [];
-  networksError.value = "";
-  networksLoading.value = true;
   deployments.value = [];
   deploymentsLoading.value = true;
   deploymentsError.value = "";
   labelsModalOpen.value = false;
   syncPauseOpen.value = false;
-  selectedNetworkTarget.value = "";
   if (menu.value) menu.value.open = false;
 
   void fetchServiceStatus(stack, service).then((status) => {
@@ -194,11 +186,7 @@ watch([stackName, serviceName], ([stack, service], _, onCleanup) => {
   });
   void fetchNetworks().then((response) => {
     if (current) networks.value = response.networks;
-  }).catch((error) => {
-    if (current) networksError.value = errorMessage(error, t("service.loadNetworkFailed"));
-  }).finally(() => {
-    if (current) networksLoading.value = false;
-  });
+  }).catch(() => undefined);
   void fetchServiceDeployments(stack, service, 4).then((response) => {
     if (current) deployments.value = response.deployments;
   }).catch((error) => {
@@ -342,9 +330,9 @@ watch([stackName, serviceName], ([stack, service], _, onCleanup) => {
             <template #header><h3 id="service-related-title">{{ t('service.related') }}</h3></template>
             <ul v-if="attachedNetworks.length || secrets.length || configs.length" class="service-entities">
               <li v-for="{ target, info } in attachedNetworks" :key="`network-${target}`">
-                <button class="service-entity" type="button" aria-haspopup="dialog" @click="selectedNetworkTarget = target">
+                <RouterLink class="service-entity" :to="{ name: 'network-details', params: { network: info?.id || target } }">
                   <DeploymentIcon name="network" /><span>{{ t('common.network') }}</span><strong>{{ info?.name || target }}</strong><span aria-hidden="true">›</span>
-                </button>
+                </RouterLink>
               </li>
               <li v-for="secret in secrets" :key="`secret-${secret.secret_id || secret.secret_name}-${secret.target}`">
                 <button class="service-entity" type="button" aria-haspopup="dialog" @click="secretDetailsStore.openSecretDetails(secret.secret?.name || secret.secret_name)">
@@ -414,7 +402,6 @@ watch([stackName, serviceName], ([stack, service], _, onCleanup) => {
       </div>
     </AppModal>
 
-    <NetworkDetailsModal v-if="selectedNetwork" :target="selectedNetwork.target" :network="selectedNetwork.info" :services="swarmServices" :loading="networksLoading" :error="networksError" @close="selectedNetworkTarget = ''" />
     <ServiceSyncPauseModal v-if="syncPauseOpen" :stack="stackName" :service="serviceName" @close="syncPauseOpen = false" />
   </section>
 </template>

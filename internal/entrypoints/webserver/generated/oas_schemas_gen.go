@@ -3949,6 +3949,11 @@ type GetEventNotFound struct{}
 
 func (*GetEventNotFound) getEventRes() {}
 
+// GetNetworkNotFound is response for GetNetwork operation.
+type GetNetworkNotFound struct{}
+
+func (*GetNetworkNotFound) getNetworkRes() {}
+
 // GetStackSyncPausesNotFound is response for GetStackSyncPauses operation.
 type GetStackSyncPausesNotFound struct{}
 
@@ -4340,6 +4345,14 @@ type NetworkInfo struct {
 	StackName  OptString             `json:"stack_name"`
 	Managed    bool                  `json:"managed"`
 	Ipam       []NetworkInfoIpamItem `json:"ipam"`
+	CreatedAt  OptDateTime           `json:"created_at"`
+	EnableIpv4 OptBool               `json:"enable_ipv4"`
+	EnableIpv6 OptBool               `json:"enable_ipv6"`
+	ConfigOnly OptBool               `json:"config_only"`
+	ConfigFrom OptString             `json:"config_from"`
+	IpamDriver OptString             `json:"ipam_driver"`
+	Services   []NetworkServiceInfo  `json:"services"`
+	Peers      []NetworkPeerInfo     `json:"peers"`
 }
 
 // GetID returns the value of ID.
@@ -4402,6 +4415,46 @@ func (s *NetworkInfo) GetIpam() []NetworkInfoIpamItem {
 	return s.Ipam
 }
 
+// GetCreatedAt returns the value of CreatedAt.
+func (s *NetworkInfo) GetCreatedAt() OptDateTime {
+	return s.CreatedAt
+}
+
+// GetEnableIpv4 returns the value of EnableIpv4.
+func (s *NetworkInfo) GetEnableIpv4() OptBool {
+	return s.EnableIpv4
+}
+
+// GetEnableIpv6 returns the value of EnableIpv6.
+func (s *NetworkInfo) GetEnableIpv6() OptBool {
+	return s.EnableIpv6
+}
+
+// GetConfigOnly returns the value of ConfigOnly.
+func (s *NetworkInfo) GetConfigOnly() OptBool {
+	return s.ConfigOnly
+}
+
+// GetConfigFrom returns the value of ConfigFrom.
+func (s *NetworkInfo) GetConfigFrom() OptString {
+	return s.ConfigFrom
+}
+
+// GetIpamDriver returns the value of IpamDriver.
+func (s *NetworkInfo) GetIpamDriver() OptString {
+	return s.IpamDriver
+}
+
+// GetServices returns the value of Services.
+func (s *NetworkInfo) GetServices() []NetworkServiceInfo {
+	return s.Services
+}
+
+// GetPeers returns the value of Peers.
+func (s *NetworkInfo) GetPeers() []NetworkPeerInfo {
+	return s.Peers
+}
+
 // SetID sets the value of ID.
 func (s *NetworkInfo) SetID(val string) {
 	s.ID = val
@@ -4462,9 +4515,53 @@ func (s *NetworkInfo) SetIpam(val []NetworkInfoIpamItem) {
 	s.Ipam = val
 }
 
+// SetCreatedAt sets the value of CreatedAt.
+func (s *NetworkInfo) SetCreatedAt(val OptDateTime) {
+	s.CreatedAt = val
+}
+
+// SetEnableIpv4 sets the value of EnableIpv4.
+func (s *NetworkInfo) SetEnableIpv4(val OptBool) {
+	s.EnableIpv4 = val
+}
+
+// SetEnableIpv6 sets the value of EnableIpv6.
+func (s *NetworkInfo) SetEnableIpv6(val OptBool) {
+	s.EnableIpv6 = val
+}
+
+// SetConfigOnly sets the value of ConfigOnly.
+func (s *NetworkInfo) SetConfigOnly(val OptBool) {
+	s.ConfigOnly = val
+}
+
+// SetConfigFrom sets the value of ConfigFrom.
+func (s *NetworkInfo) SetConfigFrom(val OptString) {
+	s.ConfigFrom = val
+}
+
+// SetIpamDriver sets the value of IpamDriver.
+func (s *NetworkInfo) SetIpamDriver(val OptString) {
+	s.IpamDriver = val
+}
+
+// SetServices sets the value of Services.
+func (s *NetworkInfo) SetServices(val []NetworkServiceInfo) {
+	s.Services = val
+}
+
+// SetPeers sets the value of Peers.
+func (s *NetworkInfo) SetPeers(val []NetworkPeerInfo) {
+	s.Peers = val
+}
+
+func (*NetworkInfo) getNetworkRes() {}
+
 type NetworkInfoIpamItem struct {
-	Subnet  OptString `json:"subnet"`
-	Gateway OptString `json:"gateway"`
+	Subnet       OptString                          `json:"subnet"`
+	Gateway      OptString                          `json:"gateway"`
+	IPRange      OptString                          `json:"ip_range"`
+	AuxAddresses OptNetworkInfoIpamItemAuxAddresses `json:"aux_addresses"`
 }
 
 // GetSubnet returns the value of Subnet.
@@ -4477,6 +4574,16 @@ func (s *NetworkInfoIpamItem) GetGateway() OptString {
 	return s.Gateway
 }
 
+// GetIPRange returns the value of IPRange.
+func (s *NetworkInfoIpamItem) GetIPRange() OptString {
+	return s.IPRange
+}
+
+// GetAuxAddresses returns the value of AuxAddresses.
+func (s *NetworkInfoIpamItem) GetAuxAddresses() OptNetworkInfoIpamItemAuxAddresses {
+	return s.AuxAddresses
+}
+
 // SetSubnet sets the value of Subnet.
 func (s *NetworkInfoIpamItem) SetSubnet(val OptString) {
 	s.Subnet = val
@@ -4485,6 +4592,27 @@ func (s *NetworkInfoIpamItem) SetSubnet(val OptString) {
 // SetGateway sets the value of Gateway.
 func (s *NetworkInfoIpamItem) SetGateway(val OptString) {
 	s.Gateway = val
+}
+
+// SetIPRange sets the value of IPRange.
+func (s *NetworkInfoIpamItem) SetIPRange(val OptString) {
+	s.IPRange = val
+}
+
+// SetAuxAddresses sets the value of AuxAddresses.
+func (s *NetworkInfoIpamItem) SetAuxAddresses(val OptNetworkInfoIpamItemAuxAddresses) {
+	s.AuxAddresses = val
+}
+
+type NetworkInfoIpamItemAuxAddresses map[string]string
+
+func (s *NetworkInfoIpamItemAuxAddresses) init() NetworkInfoIpamItemAuxAddresses {
+	m := *s
+	if m == nil {
+		m = map[string]string{}
+		*s = m
+	}
+	return m
 }
 
 type NetworkInfoLabels map[string]string
@@ -4507,6 +4635,58 @@ func (s *NetworkInfoOptions) init() NetworkInfoOptions {
 		*s = m
 	}
 	return m
+}
+
+// Ref: #/components/schemas/NetworkPeerInfo
+type NetworkPeerInfo struct {
+	Name string `json:"name"`
+	IP   string `json:"ip"`
+}
+
+// GetName returns the value of Name.
+func (s *NetworkPeerInfo) GetName() string {
+	return s.Name
+}
+
+// GetIP returns the value of IP.
+func (s *NetworkPeerInfo) GetIP() string {
+	return s.IP
+}
+
+// SetName sets the value of Name.
+func (s *NetworkPeerInfo) SetName(val string) {
+	s.Name = val
+}
+
+// SetIP sets the value of IP.
+func (s *NetworkPeerInfo) SetIP(val string) {
+	s.IP = val
+}
+
+// Ref: #/components/schemas/NetworkServiceInfo
+type NetworkServiceInfo struct {
+	Name string    `json:"name"`
+	Vip  OptString `json:"vip"`
+}
+
+// GetName returns the value of Name.
+func (s *NetworkServiceInfo) GetName() string {
+	return s.Name
+}
+
+// GetVip returns the value of Vip.
+func (s *NetworkServiceInfo) GetVip() OptString {
+	return s.Vip
+}
+
+// SetName sets the value of Name.
+func (s *NetworkServiceInfo) SetName(val string) {
+	s.Name = val
+}
+
+// SetVip sets the value of Vip.
+func (s *NetworkServiceInfo) SetVip(val OptString) {
+	s.Vip = val
 }
 
 // Ref: #/components/schemas/NetworksResponse
@@ -5616,6 +5796,52 @@ func (o OptLastWebhookStatus) Get() (v LastWebhookStatus, ok bool) {
 
 // Or returns value if set, or given parameter if does not.
 func (o OptLastWebhookStatus) Or(d LastWebhookStatus) LastWebhookStatus {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptNetworkInfoIpamItemAuxAddresses returns new OptNetworkInfoIpamItemAuxAddresses with value set to v.
+func NewOptNetworkInfoIpamItemAuxAddresses(v NetworkInfoIpamItemAuxAddresses) OptNetworkInfoIpamItemAuxAddresses {
+	return OptNetworkInfoIpamItemAuxAddresses{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptNetworkInfoIpamItemAuxAddresses is optional NetworkInfoIpamItemAuxAddresses.
+type OptNetworkInfoIpamItemAuxAddresses struct {
+	Value NetworkInfoIpamItemAuxAddresses
+	Set   bool
+}
+
+// IsSet returns true if OptNetworkInfoIpamItemAuxAddresses was set.
+func (o OptNetworkInfoIpamItemAuxAddresses) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptNetworkInfoIpamItemAuxAddresses) Reset() {
+	var v NetworkInfoIpamItemAuxAddresses
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptNetworkInfoIpamItemAuxAddresses) SetTo(v NetworkInfoIpamItemAuxAddresses) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptNetworkInfoIpamItemAuxAddresses) Get() (v NetworkInfoIpamItemAuxAddresses, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptNetworkInfoIpamItemAuxAddresses) Or(d NetworkInfoIpamItemAuxAddresses) NetworkInfoIpamItemAuxAddresses {
 	if v, ok := o.Get(); ok {
 		return v
 	}

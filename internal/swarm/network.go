@@ -2,6 +2,7 @@ package swarm
 
 import (
 	"errors"
+	"time"
 
 	dockernetwork "github.com/docker/docker/api/types/network"
 )
@@ -17,13 +18,20 @@ type ListNetworksFilter struct {
 
 // Network is a runtime snapshot of Docker network metadata.
 type Network struct {
+	// ID is a Docker network identifier.
 	ID string `json:"id"`
 	// Name is a Docker network name.
 	Name string `json:"name"`
+	// CreatedAt is the network creation timestamp.
+	CreatedAt time.Time `json:"created_at,omitempty"`
 	// Scope describes where network exists (for example: local or swarm).
 	Scope string `json:"scope"`
 	// Driver is a Docker network driver name.
 	Driver string `json:"driver"`
+	// EnableIPv4 indicates IPv4 support for the network.
+	EnableIPv4 bool `json:"enable_ipv4"`
+	// EnableIPv6 indicates IPv6 support for the network.
+	EnableIPv6 bool `json:"enable_ipv6"`
 	// Internal indicates that network is internal-only.
 	Internal bool `json:"internal"`
 	// Attachable indicates network can be attached by standalone containers.
@@ -34,8 +42,18 @@ type Network struct {
 	Labels map[string]string `json:"labels"`
 	// Options contains driver-specific network options.
 	Options map[string]string `json:"options"`
+	// ConfigOnly indicates that the network only provides reusable configuration.
+	ConfigOnly bool `json:"config_only"`
+	// ConfigFrom identifies the config-only network supplying this network configuration.
+	ConfigFrom string `json:"config_from,omitempty"`
+	// IPAMDriver is the Docker IPAM driver name.
+	IPAMDriver string `json:"ipam_driver,omitempty"`
 	// IPAM describes the network subnets and gateways.
 	IPAM []dockernetwork.IPAMConfig `json:"ipam,omitempty"`
+	// Services contains Swarm service endpoints returned by verbose network inspection.
+	Services map[string]dockernetwork.ServiceInfo `json:"services,omitempty"`
+	// Peers contains overlay peers returned by network inspection.
+	Peers []dockernetwork.PeerInfo `json:"peers,omitempty"`
 	// Stack name of stack, computed from labels,
 	Stack string `json:"stack,omitempty"`
 }

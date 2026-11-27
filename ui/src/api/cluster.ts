@@ -1,5 +1,5 @@
 import { apiRequest } from "./client";
-import type { NetworksResponse, NodeLabelCreateRequest, NodeLabelUpdateRequest, NodesResponse } from "./types";
+import type { NetworkInfo, NetworksResponse, NodeLabelCreateRequest, NodeLabelUpdateRequest, NodesResponse } from "./types";
 
 export function fetchNodes(): Promise<NodesResponse> {
   return apiRequest<NodesResponse>("/api/v1/nodes");
@@ -43,4 +43,8 @@ export function fetchNetworks(options: FetchNetworksOptions = {}): Promise<Netwo
 
   const query = params.toString();
   return apiRequest<NetworksResponse>(`/api/v1/networks${query ? `?${query}` : ""}`);
+}
+
+export function fetchNetwork(networkID: string): Promise<NetworkInfo> {
+  return apiRequest<NetworkInfo>(`/api/v1/networks/${encodeURIComponent(networkID)}`);
 }
