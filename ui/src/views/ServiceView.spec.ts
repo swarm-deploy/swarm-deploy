@@ -288,7 +288,7 @@ describe("ServiceView", () => {
   it("opens real Deployment details and shows the original status vocabulary", async () => {
     const wrapper = await mountPage();
     const history = wrapper.get('table[aria-label="Deployment history"]');
-    expect(history.findAll("th").map((item) => item.text())).toEqual(["Version", "Status", "Started", "Details"]);
+    expect(history.findAll("th").map((item) => item.text())).toEqual(["Version", "Status", "Date", "Details"]);
     expect(history.text()).toContain("Superseded");
     expect(wrapper.get(".service-deployments .app-panel-header").text()).toBe("Deployments");
     expect(wrapper.get(".service-deployments").text()).not.toMatch(/Current|Git sync healthy/);
