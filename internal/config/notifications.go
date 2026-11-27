@@ -55,8 +55,6 @@ type AlertMessageSpec struct {
 	Action string `yaml:"action"`
 	// Message is a template rendered against the public alert payload.
 	Message string `yaml:"message"`
-	// Buttons are URL button templates for this lifecycle phase.
-	Buttons []notificationtemplate.ButtonSpec `yaml:"buttons,omitempty"`
 }
 
 const (
@@ -245,8 +243,6 @@ func (names *NotificationChatNames) UnmarshalYAML(node *yaml.Node) error {
 type TelegramChannel struct {
 	Chats   NotificationChatNames `yaml:"chats"`
 	Message string                `yaml:"message"`
-	// Buttons are URL button templates rendered against the event payload.
-	Buttons []notificationtemplate.ButtonSpec `yaml:"buttons,omitempty"`
 }
 
 func (c TelegramChannel) ChatNames() []string {
@@ -435,16 +431,14 @@ func (c *NotificationSpec) validateAlertChannel(path, kind string, route Telegra
 		Title: "Alert", Message: "details", ResourceID: "resource", DeploymentID: "deployment-id",
 		OpenedAt: time.Now().UTC(),
 	}
-	errs = append(errs, validateTelegramTemplates(
-		path+".opened", route.AlertOpenedTemplate(string(notificationAlertKind(kind))), route.Opened.Buttons, payload,
+	errs = append(errs, validateTelegramTemplate(
+		path+".opened", route.AlertOpenedTemplate(string(notificationAlertKind(kind))), payload,
 	)...)
 	resolvedAt := time.Now().UTC()
 	payload.ResolvedAt = &resolvedAt
 	payload.Resolution = "Recovered"
 	payload.ResolutionReason = "recovered"
-	errs = append(errs, validateTelegramTemplates(
-		path+".resolved", route.AlertResolvedTemplate(), route.Resolved.Buttons, payload,
-	)...)
+	errs = append(errs, validateTelegramTemplate(path+".resolved", route.AlertResolvedTemplate(), payload)...)
 	return errs
 }
 
@@ -493,35 +487,20 @@ func (c *NotificationSpec) validateChatNames(path string, names NotificationChat
 
 func validateTelegramEventTemplates(eventTypeName events.TypeName, path string, rule TelegramChannel) []error {
 	message := strings.TrimSpace(rule.Message)
-	if message == "" && len(rule.Buttons) == 0 {
+	if message == "" {
 		return nil
 	}
 	payloads, ok := eventnotify.ReferencePayloads(eventTypeName)
 	if !ok {
-		field := "message"
-		if message == "" {
-			field = "buttons"
-		}
-		return []error{fmt.Errorf("%s.%s: notification payload is not defined", path, field)}
+		return []error{fmt.Errorf("%s.message: notification payload is not defined", path)}
 	}
-	return validateTelegramTemplates(path, message, rule.Buttons, payloads...)
+	return validateTelegramTemplate(path, message, payloads...)
 }
 
-func validateTelegramTemplates(
-	path, message string, buttons []notificationtemplate.ButtonSpec, payloads ...any,
-) []error {
-	buttonTemplates, err := notificationtemplate.NewButtons(buttons)
-	if err != nil {
-		return []error{fmt.Errorf("%s.%w", path, err)}
-	}
+func validateTelegramTemplate(path, message string, payloads ...any) []error {
 	for _, payload := range payloads {
-		if message != "" {
-			if err = notificationtemplate.Validate(message, payload); err != nil {
-				return []error{fmt.Errorf("%s.message: invalid template: %w", path, err)}
-			}
-		}
-		if err = buttonTemplates.Validate(payload); err != nil {
-			return []error{fmt.Errorf("%s.%w", path, err)}
+		if err := notificationtemplate.Validate(message, payload); err != nil {
+			return []error{fmt.Errorf("%s.message: invalid template: %w", path, err)}
 		}
 	}
 	return nil

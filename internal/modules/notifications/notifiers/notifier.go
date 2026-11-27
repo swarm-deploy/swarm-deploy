@@ -2,13 +2,15 @@ package notifiers
 
 import (
 	"context"
+
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/notifications/actions"
 )
 
 type Message struct {
 	// Payload is the stable data contract used to render or send a notification.
 	Payload any `json:"Payload"`
-	// ButtonPayload optionally supplies unformatted data for Telegram buttons.
-	ButtonPayload any `json:"-"`
+	// Actions are transport-neutral links attached to the notification.
+	Actions []actions.Action `json:"actions,omitempty"`
 	// Action selects a transport operation for lifecycle notifications.
 	Action Action `json:"-"`
 	// TargetMessageID is the original transport message for reply or edit.

@@ -104,6 +104,7 @@ type alertRouteSettings struct {
 }
 
 type webSettings struct {
+	Origin         string      `json:"origin,omitempty"`
 	BasePath       string      `json:"basePath"`
 	Authentication string      `json:"authentication"`
 	PWA            pwaSettings `json:"pwa"`
@@ -160,6 +161,7 @@ func projectGlobalConfiguration(
 			System:        projectSystem(spec.System),
 			Notifications: notifications,
 			Web: webSettings{
+				Origin:         spec.Web.Origin,
 				BasePath:       spec.Web.BasePath,
 				Authentication: spec.Web.Security.Authentication.Strategy(),
 				PWA:            pwaSettings{Name: spec.Web.PWA.Name, ShortName: spec.Web.PWA.ShortName},

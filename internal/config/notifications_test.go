@@ -1,6 +1,7 @@
 package config
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -8,6 +9,22 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	"go.yaml.in/yaml/v3"
 )
+
+func TestNotificationButtonsAreNotConfigurable(t *testing.T) {
+	for _, testCase := range []struct {
+		name, payload string
+		target        any
+	}{
+		{name: "event", payload: "buttons: [{text: Open, url: https://example.com}]", target: &TelegramChannel{}},
+		{name: "alert", payload: "buttons: [{text: Open, url: https://example.com}]", target: &AlertMessageSpec{}},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			decoder := yaml.NewDecoder(strings.NewReader(testCase.payload))
+			decoder.KnownFields(true)
+			require.ErrorContains(t, decoder.Decode(testCase.target), "field buttons not found")
+		})
+	}
+}
 
 func TestNotificationChatNames(t *testing.T) {
 	tests := []struct {

@@ -89,6 +89,7 @@ notifications:
     SyncFailed:
       telegram: [{chats: [default, chat-alias-canary], resolved: {action: edit}}]
 web:
+  origin: https://swarm.example
   basePath: /swarm/
   pwa: {name: "My Cluster", shortName: "mc"}
   security: {authentication: {authProxy: {loginHeader: X-Login-Canary}}}
@@ -148,7 +149,7 @@ func TestSwarmDeployConfigGet(t *testing.T) {
   "deployments":{"pollInterval":"4s","initJobDefaultTimeout":"7m"},"event":{"historyCapacity":17},
   "system":{"language":"ru","logLevel":"DEBUG","tracing":{"enabled":true,"sampler":{"strategy":"parentbased_traceidratio","ratio":0}}},
   "notifications":{"telegramConfigured":true,"telegramMaxAttemptsPerAction":7,"eventTypes":["DeploySuccess"]},
-  "web":{"basePath":"/swarm","authentication":"auth_proxy","pwa":{"name":"My Cluster","shortName":"mc"}},
+  "web":{"origin":"https://swarm.example","basePath":"/swarm","authentication":"auth_proxy","pwa":{"name":"My Cluster","shortName":"mc"}},
   "healthServer":{"healthcheckPath":"/live","metricsPath":"/prometheus"},
   "assistant":{"enabled":true,"toolAccess":{"mode":"allowlist"},"maxOutputTokens":1200,"conversationInMemoryTTL":"30m"},
   "hostings":{"integrations":[{"type":"github","releaseLookupTokenConfigured":true}]}
@@ -165,7 +166,7 @@ func TestSwarmDeployConfigGet(t *testing.T) {
 		{"system", `{"language":"en","logLevel":"INFO","tracing":{"enabled":false}}`,
 			`{"language":"ru","logLevel":"DEBUG","tracing":{"enabled":true,"sampler":{"strategy":"parentbased_traceidratio","ratio":0}}}`},
 		{"web", `{"basePath":"/","authentication":"none","pwa":{"name":"Swarm Deploy","shortName":"Swarm Deploy"}}`,
-			`{"basePath":"/swarm","authentication":"auth_proxy","pwa":{"name":"My Cluster","shortName":"mc"}}`},
+			`{"origin":"https://swarm.example","basePath":"/swarm","authentication":"auth_proxy","pwa":{"name":"My Cluster","shortName":"mc"}}`},
 		{"healthServer", `{"healthcheckPath":"/healthz","metricsPath":"/metrics"}`, `{"healthcheckPath":"/live","metricsPath":"/prometheus"}`},
 		{"assistant",
 			`{"enabled":false,"toolAccess":{"mode":"unrestricted"},"maxOutputTokens":800,"conversationInMemoryTTL":"1h"}`,
