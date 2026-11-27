@@ -199,7 +199,7 @@ onMounted(() => {
             <td class="networks-desktop-cell">
               <RouterLink
                 v-if="network.stack_name"
-                class="assistant-md-link"
+                class="service-inline-link"
                 :to="{ name: 'stack-details', params: { stack: network.stack_name } }"
               >{{ network.stack_name }}</RouterLink>
               <template v-else>{{ t('common.notApplicable') }}</template>
@@ -219,7 +219,7 @@ onMounted(() => {
                   <span>
                     <RouterLink
                       v-if="network.stack_name"
-                      class="assistant-md-link"
+                      class="service-inline-link"
                       :to="{ name: 'stack-details', params: { stack: network.stack_name } }"
                     >{{ network.stack_name }}</RouterLink>
                     <template v-else>{{ t('common.notApplicable') }}</template>

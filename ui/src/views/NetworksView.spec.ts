@@ -59,7 +59,7 @@ describe("NetworksView", () => {
     expect(wrapper.text()).not.toContain("infra_default");
     const stackLinks = wrapper.findAllComponents(RouterLinkStub);
     expect(stackLinks).toHaveLength(2);
-    expect(stackLinks.every((link) => link.classes().includes("assistant-md-link"))).toBe(true);
+    expect(stackLinks.every((link) => link.classes().includes("service-inline-link"))).toBe(true);
     expect(stackLinks.map((link) => link.props("to"))).toEqual([
       { name: "stack-details", params: { stack: "app" } },
       { name: "stack-details", params: { stack: "app" } },
