@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
+	"github.com/swarm-deploy/swarm-deploy/internal/githosting"
 	alertmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/tools/routing"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
@@ -38,6 +39,12 @@ type gitOpsSettings struct {
 	GitPollInterval   string       `json:"gitPollInterval,omitempty"`
 	WebhookEnabled    bool         `json:"webhookEnabled"`
 	GlobalPolicy      gitOpsPolicy `json:"globalPolicy"`
+	// SyncAuthType is the configured authentication type for Git synchronization.
+	SyncAuthType config.GitAuthType `json:"syncAuthType"`
+	// PushAuthType is the effective authentication type for publishing proposal branches.
+	PushAuthType config.GitAuthType `json:"pushAuthType"`
+	// GitHubPullRequestsConfigured indicates that the write remote and API token are configured for PR creation.
+	GitHubPullRequestsConfigured bool `json:"githubPullRequestsConfigured"`
 }
 
 type gitOpsPolicy struct {
@@ -129,8 +136,9 @@ type hostingSettings struct {
 }
 
 type hostingIntegration struct {
-	Type     string `json:"type"`
-	AuthMode string `json:"authMode"`
+	Type string `json:"type"`
+	// ReleaseLookupTokenConfigured indicates whether the release lookup client has an API token.
+	ReleaseLookupTokenConfigured bool `json:"releaseLookupTokenConfigured"`
 }
 
 func projectGlobalConfiguration(
@@ -140,11 +148,6 @@ func projectGlobalConfiguration(
 	imageTag := spec.GitOps.Sync.Policy.Image.Tag
 	notifications, configuredEvents := projectEventNotifications(spec.Notifications)
 	assistant, allowedNames := projectAssistant(spec.Assistant, allowed, builtins)
-
-	authMode := "anonymous"
-	if spec.Hostings.GitHub.Token != "" {
-		authMode = "authenticated"
-	}
 
 	return globalConfiguration{
 		overview: configOverview{
@@ -166,7 +169,10 @@ func projectGlobalConfiguration(
 				MetricsPath:     httpRoutePath(spec.HealthServer.Metrics.Path),
 			},
 			Assistant: assistant,
-			Hostings:  hostingSettings{Integrations: []hostingIntegration{{Type: "github", AuthMode: authMode}}},
+			Hostings: hostingSettings{Integrations: []hostingIntegration{{
+				Type:                         "github",
+				ReleaseLookupTokenConfigured: spec.Hostings.GitHub.Token != "",
+			}}},
 		},
 		imageTag:     imageTagSettings{Required: imageTag.Required, NoLatest: imageTag.NoLatest, OnlySHA: imageTag.OnlySHA},
 		events:       configuredEvents,
@@ -209,17 +215,32 @@ func (c *globalConfiguration) section(section string) any {
 }
 
 func projectGitOps(spec config.GitOpsSpec) gitOpsSettings {
+	push, apiToken := spec.Git.ForPush()
 	settings := gitOpsSettings{
-		SyncMode:          spec.Sync.Mode,
-		ReconcileInterval: configDuration(spec.Sync.Interval.Value),
-		GitPollingEnabled: spec.Sync.GitPollingEnabled(),
-		WebhookEnabled:    spec.Sync.Webhook.Enabled,
-		GlobalPolicy:      gitOpsPolicy{SelfHeal: spec.Sync.Policy.SelfHeal, Prune: spec.Sync.Policy.Prune},
+		SyncMode:                     spec.Sync.Mode,
+		SyncAuthType:                 gitAuthType(spec.Git.Auth.Type),
+		PushAuthType:                 gitAuthType(push.Auth.Type),
+		GitHubPullRequestsConfigured: apiToken != "" && githosting.SupportsGitHubPullRequests(push.Repository),
+		ReconcileInterval:            configDuration(spec.Sync.Interval.Value),
+		GitPollingEnabled:            spec.Sync.GitPollingEnabled(),
+		WebhookEnabled:               spec.Sync.Webhook.Enabled,
+		GlobalPolicy:                 gitOpsPolicy{SelfHeal: spec.Sync.Policy.SelfHeal, Prune: spec.Sync.Policy.Prune},
 	}
 	if settings.GitPollingEnabled {
 		settings.GitPollInterval = configDuration(spec.Git.Pull.Interval.Value)
 	}
 	return settings
+}
+
+func gitAuthType(authType config.GitAuthType) config.GitAuthType {
+	switch authType {
+	case config.GitAuthTypeHTTP, config.GitAuthTypeSSH:
+		return authType
+	case "", config.GitAuthTypeNone:
+		return config.GitAuthTypeNone
+	default:
+		return "unknown"
+	}
 }
 
 func projectSystem(spec config.SystemSpec) systemSettings {
