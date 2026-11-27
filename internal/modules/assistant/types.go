@@ -65,6 +65,12 @@ type ChatResponse struct {
 	RequestID string
 	// ReadOnly reports the mode when the chat has been identified.
 	ReadOnly *bool
+	// Outcome is a machine-readable result when the request completed without performing the requested action.
+	Outcome string
+	// Restriction identifies the policy that produced Outcome.
+	Restriction string
+	// Operation identifies the requested operation associated with Outcome.
+	Operation string
 	// Answer is a final assistant answer for completed runs.
 	Answer string
 	// AnswerSequence identifies the stored reply when a completed run has persistent history.
@@ -80,6 +86,13 @@ type ChatResponse struct {
 	// Artifacts contains structured outputs produced by a completed run.
 	Artifacts []Artifact
 }
+
+const (
+	// ChatOutcomeOperationBlocked means a requested operation was not started.
+	ChatOutcomeOperationBlocked = "operation_blocked"
+	// ChatRestrictionReadOnly means the chat does not permit state-changing operations.
+	ChatRestrictionReadOnly = "read_only"
+)
 
 // Artifact describes a durable output produced by an assistant operation.
 type Artifact = conversation.Artifact

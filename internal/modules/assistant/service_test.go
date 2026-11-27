@@ -414,6 +414,9 @@ func TestServiceReadOnlyChatCanContinueWithoutWritableTools(t *testing.T) {
 	require.Equal(t, StatusCompleted, created.Status)
 	assert.Equal(t, new(true), created.ReadOnly)
 	assert.Equal(t, "This read-only chat cannot perform operations that change runtime or GitOps state.", created.Answer)
+	assert.Equal(t, ChatOutcomeOperationBlocked, created.Outcome)
+	assert.Equal(t, ChatRestrictionReadOnly, created.Restriction)
+	assert.Equal(t, deploySyncTriggerTool, created.Operation)
 	assert.Nil(t, created.Selection)
 	assert.Empty(t, tools.calls)
 	_, pending := service.graph.operations.pending.get(created.ConversationID)
@@ -430,6 +433,9 @@ func TestServiceReadOnlyChatCanContinueWithoutWritableTools(t *testing.T) {
 	require.Equal(t, StatusCompleted, followup.Status)
 	assert.Equal(t, new(true), followup.ReadOnly)
 	assert.Equal(t, "Writable tools stay disabled.", followup.Answer)
+	assert.Empty(t, followup.Outcome)
+	assert.Empty(t, followup.Restriction)
+	assert.Empty(t, followup.Operation)
 	assert.Equal(t, followup, service.Chat(t.Context(), request))
 	request.ReadOnly = true
 	conflict := service.Chat(t.Context(), request)
@@ -630,12 +636,12 @@ func TestServiceChatDeduplicatesAtRunCapacity(t *testing.T) {
 			)
 			require.NoError(t, err)
 			oldest := newChatRun("request-0", "conversation", "привет", false, false)
-			oldest.finish(StatusCompleted, "original answer", "", nil, nil, nil)
+			oldest.complete("original answer", nil, nil, nil, nil)
 			oldest.finishedAt = time.Now().Add(-time.Minute)
 			serviceInstance.runs[oldest.requestID] = oldest
 			for index := 1; index < maxRetainedRuns; index++ {
 				run := newChatRun("request-"+strconv.Itoa(index), "conversation", "привет", false, false)
-				run.finish(StatusCompleted, "answer", "", nil, nil, nil)
+				run.complete("answer", nil, nil, nil, nil)
 				serviceInstance.runs[run.requestID] = run
 			}
 

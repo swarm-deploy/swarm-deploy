@@ -214,7 +214,7 @@ func (s *Service) startRun(ctx context.Context, run *chatRun, createdBy string) 
 	select {
 	case s.runSlots <- struct{}{}:
 	default:
-		run.finish(StatusFailed, "", s.config.Localizer.Text("chat.busy"), nil, nil, nil)
+		run.finish(StatusFailed, s.config.Localizer.Text("chat.busy"))
 		return
 	}
 
@@ -238,19 +238,19 @@ func (s *Service) startRun(ctx context.Context, run *chatRun, createdBy string) 
 func (s *Service) prepareRun(ctx context.Context, run *chatRun, createdBy string) ([]conversation.Turn, bool) {
 	if s.graph.guard.Check(run.message) {
 		s.publishPromptRejection(ctx, run.message)
-		run.finish(StatusRejected, "", s.config.Localizer.Text("chat.rejected"), nil, nil, nil)
+		run.finish(StatusRejected, s.config.Localizer.Text("chat.rejected"))
 		return nil, false
 	}
 
 	history, err := s.getConversation(ctx, run.conversationID)
 	if err != nil {
-		run.finish(StatusFailed, "", s.config.Localizer.Text("chat.history_read_failed"), nil, nil, nil)
+		run.finish(StatusFailed, s.config.Localizer.Text("chat.history_read_failed"))
 		return nil, false
 	}
 
 	unlock, err := s.lockChatHistory(ctx, run.conversationID)
 	if err != nil {
-		run.finish(StatusFailed, "", s.config.Localizer.Text("chat.save_message_failed"), nil, nil, nil)
+		run.finish(StatusFailed, s.config.Localizer.Text("chat.save_message_failed"))
 		return nil, false
 	}
 	defer unlock()
@@ -260,7 +260,7 @@ func (s *Service) prepareRun(ctx context.Context, run *chatRun, createdBy string
 		ctx, run.conversationID, createdBy, run.readOnly, conversation.TokenUsage{}, question,
 	)
 	if err != nil {
-		run.finish(StatusFailed, "", s.config.Localizer.Text("chat.save_message_failed"), nil, nil, nil)
+		run.finish(StatusFailed, s.config.Localizer.Text("chat.save_message_failed"))
 		return nil, false
 	}
 
@@ -295,7 +295,7 @@ func (s *Service) runAssistant(ctx context.Context, createdBy string, history []
 
 			s.publishPromptRejection(runCtx, rejectedPrompt)
 			_, _ = s.persistConversation(ctx, conversationID, createdBy, run.readOnly, usage)
-			run.finish(StatusRejected, "", s.config.Localizer.Text("chat.rejected"), nil, nil, nil)
+			run.finish(StatusRejected, s.config.Localizer.Text("chat.rejected"))
 			return
 		}
 
@@ -307,7 +307,7 @@ func (s *Service) runAssistant(ctx context.Context, createdBy string, history []
 			slog.String("request_id", run.requestID),
 			slog.Any("err", err),
 		)
-		run.finish(StatusFailed, "", s.config.Localizer.Text("chat.generation_failed"), nil, nil, nil)
+		run.finish(StatusFailed, s.config.Localizer.Text("chat.generation_failed"))
 		return
 	}
 
@@ -330,7 +330,7 @@ func (s *Service) runAssistant(ctx context.Context, createdBy string, history []
 	if err != nil {
 		// Keep the model context equal to the saved history: the question stays, the lost reply does not.
 		s.conversationStorage.Append(conversationID, run.readOnly, question)
-		run.finish(StatusFailed, "", s.config.Localizer.Text("chat.save_response_failed"), nil, nil, nil)
+		run.finish(StatusFailed, s.config.Localizer.Text("chat.save_response_failed"))
 		return
 	}
 	turn.publish()
@@ -340,7 +340,7 @@ func (s *Service) runAssistant(ctx context.Context, createdBy string, history []
 	if sequence >= 0 {
 		answerSequence = &sequence
 	}
-	run.finish(StatusCompleted, answer, "", answerSequence, turn.selection, turn.artifacts)
+	run.complete(answer, answerSequence, turn.selection, turn.artifacts, turn.blocked)
 }
 
 func (s *Service) persistConversation(
@@ -685,6 +685,7 @@ type chatRun struct {
 	activity   []string
 	selection  *Selection
 	artifacts  []Artifact
+	blocked    *blockedOperation
 }
 
 func newChatRun(requestID, conversationID, message string, newConversation, readOnly bool) *chatRun {
@@ -751,11 +752,29 @@ func (r *chatRun) isFinished() bool {
 
 func (r *chatRun) finish(
 	status Status,
+	errorMessage string,
+) {
+	r.finishResult(status, "", errorMessage, nil, nil, nil, nil)
+}
+
+func (r *chatRun) complete(
+	answer string,
+	sequence *int,
+	selection *Selection,
+	artifacts []Artifact,
+	blocked *blockedOperation,
+) {
+	r.finishResult(StatusCompleted, answer, "", sequence, selection, artifacts, blocked)
+}
+
+func (r *chatRun) finishResult(
+	status Status,
 	answer string,
 	errorMessage string,
 	sequence *int,
 	selection *Selection,
 	artifacts []Artifact,
+	blocked *blockedOperation,
 ) {
 	r.mu.Lock()
 	if r.status != StatusInProgress {
@@ -768,6 +787,10 @@ func (r *chatRun) finish(
 	r.sequence = sequence
 	r.selection = selection
 	r.artifacts = append([]Artifact(nil), artifacts...)
+	if blocked != nil {
+		blockedCopy := *blocked
+		r.blocked = &blockedCopy
+	}
 	r.error = strings.TrimSpace(errorMessage)
 	r.finishedAt = time.Now()
 	r.mu.Unlock()
@@ -786,7 +809,7 @@ func (r *chatRun) snapshot() ChatResponse {
 		conversationID = ""
 		readOnly = nil
 	}
-	return ChatResponse{
+	response := ChatResponse{
 		Status:         r.status,
 		ConversationID: conversationID,
 		RequestID:      r.requestID,
@@ -798,6 +821,12 @@ func (r *chatRun) snapshot() ChatResponse {
 		Selection:      r.selection,
 		Artifacts:      append([]Artifact(nil), r.artifacts...),
 	}
+	if r.blocked != nil {
+		response.Outcome = ChatOutcomeOperationBlocked
+		response.Restriction = r.blocked.restriction
+		response.Operation = string(r.blocked.operation)
+	}
+	return response
 }
 func (s *Service) publishPromptRejection(ctx context.Context, prompt string) {
 	err := s.event.Publish(ctx, &events.AssistantPromptInjectionDetected{

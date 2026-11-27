@@ -1977,6 +1977,24 @@ func (s *AssistantChatResponse) encodeFields(e *jx.Encoder) {
 		}
 	}
 	{
+		if s.Outcome.Set {
+			e.FieldStart("outcome")
+			s.Outcome.Encode(e)
+		}
+	}
+	{
+		if s.Restriction.Set {
+			e.FieldStart("restriction")
+			s.Restriction.Encode(e)
+		}
+	}
+	{
+		if s.Operation.Set {
+			e.FieldStart("operation")
+			s.Operation.Encode(e)
+		}
+	}
+	{
 		if s.Answer.Set {
 			e.FieldStart("answer")
 			s.Answer.Encode(e)
@@ -2028,18 +2046,21 @@ func (s *AssistantChatResponse) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfAssistantChatResponse = [11]string{
+var jsonFieldsNameOfAssistantChatResponse = [14]string{
 	0:  "status",
 	1:  "request_id",
 	2:  "conversation_id",
 	3:  "read_only",
-	4:  "answer",
-	5:  "answer_sequence",
-	6:  "error_message",
-	7:  "poll_after_ms",
-	8:  "activity",
-	9:  "selection",
-	10: "artifacts",
+	4:  "outcome",
+	5:  "restriction",
+	6:  "operation",
+	7:  "answer",
+	8:  "answer_sequence",
+	9:  "error_message",
+	10: "poll_after_ms",
+	11: "activity",
+	12: "selection",
+	13: "artifacts",
 }
 
 // Decode decodes AssistantChatResponse from json.
@@ -2094,6 +2115,36 @@ func (s *AssistantChatResponse) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"read_only\"")
+			}
+		case "outcome":
+			if err := func() error {
+				s.Outcome.Reset()
+				if err := s.Outcome.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"outcome\"")
+			}
+		case "restriction":
+			if err := func() error {
+				s.Restriction.Reset()
+				if err := s.Restriction.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"restriction\"")
+			}
+		case "operation":
+			if err := func() error {
+				s.Operation.Reset()
+				if err := s.Operation.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"operation\"")
 			}
 		case "answer":
 			if err := func() error {

@@ -552,6 +552,9 @@ export interface AssistantChatResponse {
   request_id: string;
   conversation_id: string;
   read_only?: boolean;
+  outcome?: string;
+  restriction?: string;
+  operation?: string;
   answer?: string;
   answer_sequence?: number;
   error_message?: string;

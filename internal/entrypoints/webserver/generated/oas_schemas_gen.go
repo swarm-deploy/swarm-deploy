@@ -910,8 +910,15 @@ type AssistantChatResponse struct {
 	RequestID      string                      `json:"request_id"`
 	ConversationID string                      `json:"conversation_id"`
 	// Whether writable assistant tools are disabled for the chat. Omitted when the chat mode is unknown.
-	ReadOnly OptBool   `json:"read_only"`
-	Answer   OptString `json:"answer"`
+	ReadOnly OptBool `json:"read_only"`
+	// Machine-readable result of the request. Currently operation_blocked when a requested operation was
+	// not started.
+	Outcome OptString `json:"outcome"`
+	// Restriction that produced the outcome. Currently read_only.
+	Restriction OptString `json:"restriction"`
+	// Name of the requested operation associated with the outcome.
+	Operation OptString `json:"operation"`
+	Answer    OptString `json:"answer"`
 	// Persisted sequence of the completed answer, when available.
 	AnswerSequence OptInt                `json:"answer_sequence"`
 	ErrorMessage   OptString             `json:"error_message"`
@@ -939,6 +946,21 @@ func (s *AssistantChatResponse) GetConversationID() string {
 // GetReadOnly returns the value of ReadOnly.
 func (s *AssistantChatResponse) GetReadOnly() OptBool {
 	return s.ReadOnly
+}
+
+// GetOutcome returns the value of Outcome.
+func (s *AssistantChatResponse) GetOutcome() OptString {
+	return s.Outcome
+}
+
+// GetRestriction returns the value of Restriction.
+func (s *AssistantChatResponse) GetRestriction() OptString {
+	return s.Restriction
+}
+
+// GetOperation returns the value of Operation.
+func (s *AssistantChatResponse) GetOperation() OptString {
+	return s.Operation
 }
 
 // GetAnswer returns the value of Answer.
@@ -994,6 +1016,21 @@ func (s *AssistantChatResponse) SetConversationID(val string) {
 // SetReadOnly sets the value of ReadOnly.
 func (s *AssistantChatResponse) SetReadOnly(val OptBool) {
 	s.ReadOnly = val
+}
+
+// SetOutcome sets the value of Outcome.
+func (s *AssistantChatResponse) SetOutcome(val OptString) {
+	s.Outcome = val
+}
+
+// SetRestriction sets the value of Restriction.
+func (s *AssistantChatResponse) SetRestriction(val OptString) {
+	s.Restriction = val
+}
+
+// SetOperation sets the value of Operation.
+func (s *AssistantChatResponse) SetOperation(val OptString) {
+	s.Operation = val
 }
 
 // SetAnswer sets the value of Answer.
