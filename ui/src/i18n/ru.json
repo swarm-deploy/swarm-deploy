@@ -688,19 +688,15 @@
     "viewGithub": "Открыть swarm-deploy на GitHub"
   },
   "networkScopes": {
-    "global": "глобальная",
-    "local": "локальная",
-    "swarm": "кластер Swarm"
+    "global": "global",
+    "local": "local",
+    "swarm": "swarm"
   },
   "networks": {
     "address": "Адрес",
     "addressing": "Адресация",
     "allStacks": "Все стеки",
     "attachable": "Attachable",
-    "auxAddress": "Вспомогательный адрес · {name}",
-    "configFrom": "Источник конфигурации",
-    "configOnly": "Только конфигурация",
-    "configurationDiagnostics": "Конфигурация и диагностика",
     "connectedServices": "Подключённые сервисы",
     "copyId": "Скопировать ID сети",
     "details": "Сведения о сети",
@@ -728,14 +724,11 @@
     "metadata": "Метаданные сети",
     "noAddressPools": "Пулы адресов не настроены.",
     "noConnectedServices": "Нет подключённых сервисов.",
-    "noDiagnostics": "Дополнительных диагностических данных нет.",
     "noDetails": "Сведения о сети недоступны.",
     "noFilterMatches": "Нет сетей, соответствующих фильтрам.",
     "options": "Параметры",
-    "peers": "Узлы overlay-сети",
     "runningTasks": "Задачи: {running} из {desired}",
-    "runtime": "Runtime",
-    "scope": "Область действия",
+    "scope": "Scope",
     "search": "Поиск сетей",
     "searchPlaceholder": "Поиск по имени, стеку, области, драйверу, меткам…",
     "subnet": "Подсеть",

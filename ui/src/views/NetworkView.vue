@@ -15,9 +15,7 @@ import ServiceReplicasBadge from "../components/services/ServiceReplicasBadge.vu
 import { formatDate } from "../utils/format";
 
 const VXLAN_ID_OPTION = "com.docker.network.driver.overlay.vxlanid_list";
-const MTU_OPTION = "com.docker.network.driver.mtu";
 const ENCRYPTED_OPTION = "encrypted";
-const DIAGNOSTIC_OPTIONS = new Set([VXLAN_ID_OPTION, MTU_OPTION, ENCRYPTED_OPTION]);
 
 const route = useRoute();
 const networkID = computed(() => String(route.params.network ?? ""));
@@ -30,44 +28,46 @@ let request = 0;
 
 const connectedServices = computed(() => {
   const current = network.value;
-  if (!current || !services.value) return [];
+  if (!current) return [];
 
-  return services.value.filter((service) => service.network_targets?.some((target) =>
-    target === current.id || target === current.name,
-  )).sort((left, right) => left.full_name.localeCompare(right.full_name));
+  const swarmServices = services.value ?? [];
+  const serviceByFullName = new Map(swarmServices.map((service) => [service.full_name, service]));
+  const serviceByName = new Map(swarmServices.map((service) => [service.name, service]));
+  const endpoints = new Map((current.services ?? []).map((service) => [service.name, service]));
+  const rows = new Map<string, {
+    key: string;
+    name: string;
+    vip?: string;
+    service?: SwarmService;
+  }>();
+
+  for (const endpoint of current.services ?? []) {
+    const service = serviceByFullName.get(endpoint.name) ?? serviceByName.get(endpoint.name);
+    const key = service?.id ?? `network-service-${endpoint.name}`;
+    rows.set(key, { key, name: service?.name ?? endpoint.name, vip: endpoint.vip, service });
+  }
+
+  for (const service of swarmServices) {
+    const attached = service.network_targets?.some((target) => target === current.id || target === current.name);
+    if (!attached || rows.has(service.id)) continue;
+
+    const endpoint = endpoints.get(service.full_name) ?? endpoints.get(service.name);
+    rows.set(service.id, {
+      key: service.id,
+      name: service.name,
+      vip: endpoint?.vip,
+      service,
+    });
+  }
+
+  return [...rows.values()].sort((left, right) =>
+    (left.service?.full_name ?? left.name).localeCompare(right.service?.full_name ?? right.name));
 });
-const networkServices = computed(() => new Map(
-  (network.value?.services ?? []).map((service) => [service.name, service]),
-));
 const isEncrypted = computed(() => Object.hasOwn(network.value?.options ?? {}, ENCRYPTED_OPTION));
-const visibleOptions = computed(() => Object.entries(network.value?.options ?? {})
-  .filter(([key]) => !DIAGNOSTIC_OPTIONS.has(key))
-  .sort(([left], [right]) => left.localeCompare(right)));
-const labels = computed(() => Object.entries(network.value?.labels ?? {})
-  .sort(([left], [right]) => left.localeCompare(right)));
-const auxiliaryAddresses = computed(() => (network.value?.ipam ?? []).flatMap((pool) =>
-  Object.entries(pool.aux_addresses ?? {}).map(([name, address]) => ({ name, address })),
-));
-const hasDiagnostics = computed(() => Boolean(
-  network.value?.options?.[VXLAN_ID_OPTION] ||
-  network.value?.options?.[MTU_OPTION] ||
-  network.value?.config_only ||
-  network.value?.config_from ||
-  labels.value.length ||
-  visibleOptions.value.length ||
-  auxiliaryAddresses.value.length ||
-  network.value?.peers?.length,
-));
 
 function boolText(value: boolean | undefined): string {
   if (value === undefined) return t("common.notApplicable");
   return value ? t("common.yes") : t("common.no");
-}
-
-function serviceVIP(service: SwarmService): string {
-  return networkServices.value.get(service.full_name)?.vip ??
-    networkServices.value.get(service.name)?.vip ??
-    t("common.notApplicable");
 }
 
 function errorMessage(error: unknown, fallback: string): string {
@@ -148,6 +148,7 @@ onUnmounted(() => { request++; });
             <tr><th scope="row">{{ t('common.stack') }}</th><td><RouterLink v-if="network.stack_name" class="service-inline-link" :to="{ name: 'stack-details', params: { stack: network.stack_name } }">{{ network.stack_name }}</RouterLink><span v-else>{{ t('common.notApplicable') }}</span></td></tr>
             <tr><th scope="row">{{ t('common.driver') }}</th><td>{{ network.driver || t('common.notApplicable') }}</td></tr>
             <tr><th scope="row">{{ t('networks.scope') }}</th><td>{{ enumLabel('networkScopes', network.scope, network.scope || t('common.notApplicable')) }}</td></tr>
+            <tr v-if="network.options?.[VXLAN_ID_OPTION]"><th scope="row">VXLAN ID</th><td><code>{{ network.options[VXLAN_ID_OPTION] }}</code></td></tr>
             <tr><th scope="row">{{ t('networks.encryption') }}</th><td>{{ isEncrypted ? t('networks.enabled') : t('networks.disabled') }}</td></tr>
             <tr><th scope="row">{{ t('networks.attachable') }}</th><td>{{ boolText(network.attachable) }}</td></tr>
             <tr><th scope="row">{{ t('networks.internal') }}</th><td>{{ boolText(network.internal) }}</td></tr>
@@ -177,48 +178,19 @@ onUnmounted(() => { request++; });
 
       <AppPanel tag="section" class="network-section network-services" aria-labelledby="network-services-title">
         <template #header><h3 id="network-services-title">{{ t('networks.connectedServices') }}</h3></template>
-        <AppTableEmpty v-if="servicesError" role="alert">{{ t('networks.loadServicesError', { error: servicesError }) }}</AppTableEmpty>
-        <AppTableEmpty v-else-if="!connectedServices.length" :message="t('networks.noConnectedServices')" />
+        <p v-if="servicesError" class="meta" role="alert">{{ t('networks.loadServicesError', { error: servicesError }) }}</p>
+        <AppTableEmpty v-if="!connectedServices.length" :message="t('networks.noConnectedServices')" />
         <AppTable v-else class="network-services-table" min-width="700px" :aria-label="t('networks.connectedServices')">
           <template #head><tr><th scope="col">{{ t('common.service') }}</th><th scope="col">{{ t('common.stack') }}</th><th scope="col">{{ t('networks.discovery') }}</th><th scope="col">{{ t('networks.address') }}</th><th scope="col">{{ t('common.replicas') }}</th></tr></template>
-          <tr v-for="service in connectedServices" :key="service.id">
-            <td class="network-service-name"><RouterLink v-if="service.stack" class="service-inline-link" :to="{ name: 'service-details', params: { stack: service.stack, service: service.name } }">{{ service.name }}</RouterLink><strong v-else>{{ service.name }}</strong></td>
-            <td class="network-service-stack"><RouterLink v-if="service.stack" class="service-inline-link" :to="{ name: 'stack-details', params: { stack: service.stack } }">{{ service.stack }}</RouterLink><span v-else>{{ t('common.notApplicable') }}</span></td>
-            <td class="network-service-discovery">{{ service.endpoint_mode?.toUpperCase() || t('common.notApplicable') }}</td>
-            <td class="network-service-address"><code>{{ serviceVIP(service) }}</code></td>
-            <td class="network-service-replicas"><ServiceReplicasBadge :replicas="service.replicas" compact /></td>
+          <tr v-for="item in connectedServices" :key="item.key">
+            <td class="network-service-name"><RouterLink v-if="item.service?.stack" class="service-inline-link" :to="{ name: 'service-details', params: { stack: item.service.stack, service: item.service.name } }">{{ item.name }}</RouterLink><strong v-else>{{ item.name }}</strong></td>
+            <td class="network-service-stack"><RouterLink v-if="item.service?.stack" class="service-inline-link" :to="{ name: 'stack-details', params: { stack: item.service.stack } }">{{ item.service.stack }}</RouterLink><span v-else>{{ t('common.notApplicable') }}</span></td>
+            <td class="network-service-discovery">{{ item.service?.endpoint_mode?.toUpperCase() || t('common.notApplicable') }}</td>
+            <td class="network-service-address"><code>{{ item.vip || t('common.notApplicable') }}</code></td>
+            <td class="network-service-replicas"><ServiceReplicasBadge v-if="item.service" :replicas="item.service.replicas" compact /><span v-else>{{ t('common.notApplicable') }}</span></td>
           </tr>
         </AppTable>
       </AppPanel>
-
-      <details class="network-diagnostics">
-        <summary><span>{{ t('networks.configurationDiagnostics') }}</span><span aria-hidden="true">›</span></summary>
-        <AppTableEmpty v-if="!hasDiagnostics" :message="t('networks.noDiagnostics')" />
-        <div v-else class="network-diagnostics-grid">
-          <section class="network-diagnostic-group" aria-labelledby="network-diagnostic-runtime-title">
-            <h4 id="network-diagnostic-runtime-title">{{ t('networks.runtime') }}</h4>
-            <dl class="network-diagnostic-list">
-              <div v-if="network.options?.[VXLAN_ID_OPTION]"><dt>VXLAN ID</dt><dd><code>{{ network.options[VXLAN_ID_OPTION] }}</code></dd></div>
-              <div v-if="network.options?.[MTU_OPTION]"><dt>MTU</dt><dd>{{ network.options[MTU_OPTION] }}</dd></div>
-              <div><dt>{{ t('networks.configOnly') }}</dt><dd>{{ boolText(network.config_only) }}</dd></div>
-              <div v-if="network.config_from"><dt>{{ t('networks.configFrom') }}</dt><dd>{{ network.config_from }}</dd></div>
-              <div v-for="item in auxiliaryAddresses" :key="`${item.name}-${item.address}`"><dt>{{ t('networks.auxAddress', { name: item.name }) }}</dt><dd><code>{{ item.address }}</code></dd></div>
-            </dl>
-          </section>
-          <section v-if="labels.length" class="network-diagnostic-group" aria-labelledby="network-diagnostic-labels-title">
-            <h4 id="network-diagnostic-labels-title">{{ t('common.labels') }}</h4>
-            <dl class="network-diagnostic-list"><div v-for="[key, value] in labels" :key="key"><dt>{{ key }}</dt><dd>{{ value }}</dd></div></dl>
-          </section>
-          <section v-if="visibleOptions.length" class="network-diagnostic-group" aria-labelledby="network-diagnostic-options-title">
-            <h4 id="network-diagnostic-options-title">{{ t('networks.options') }}</h4>
-            <dl class="network-diagnostic-list"><div v-for="[key, value] in visibleOptions" :key="key"><dt>{{ key }}</dt><dd>{{ value }}</dd></div></dl>
-          </section>
-          <section v-if="network.peers?.length" class="network-diagnostic-group" aria-labelledby="network-diagnostic-peers-title">
-            <h4 id="network-diagnostic-peers-title">{{ t('networks.peers') }}</h4>
-            <dl class="network-diagnostic-list"><div v-for="peer in network.peers" :key="`${peer.name}-${peer.ip}`"><dt>{{ peer.name }}</dt><dd><code>{{ peer.ip }}</code></dd></div></dl>
-          </section>
-        </div>
-      </details>
     </template>
   </section>
 </template>
@@ -258,18 +230,6 @@ onUnmounted(() => { request++; });
 .network-services-table :deep(.app-table th:nth-child(4)) { width: 22%; }
 .network-service-replicas { text-align: right; }
 .network-service-replicas :deep(.app-status-badge) { font-size: .7rem; }
-.network-diagnostics { min-width: 0; border-block: 1px solid var(--border-subtle); }
-.network-diagnostics > summary { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 9px 0; color: var(--text); cursor: pointer; list-style: none; font-size: 1rem; font-weight: 650; }
-.network-diagnostics > summary::-webkit-details-marker { display: none; }
-.network-diagnostics > summary > span:last-child { color: var(--muted); font-size: 1.15rem; transition: transform .15s ease; }
-.network-diagnostics[open] > summary > span:last-child { transform: rotate(90deg); }
-.network-diagnostics-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 24px; padding: 2px 0 12px; }
-.network-diagnostic-group { min-width: 0; }
-.network-diagnostic-group h4 { margin: 10px 0 4px; color: var(--muted); font-size: .7rem; letter-spacing: .055em; text-transform: uppercase; }
-.network-diagnostic-list { margin: 0; border-top: 1px solid var(--border-subtle); }
-.network-diagnostic-list > div { display: grid; grid-template-columns: minmax(110px, 34%) minmax(0, 1fr); gap: 8px; padding: 7px 0; border-bottom: 1px solid var(--border-subtle); font-size: .76rem; overflow-wrap: anywhere; }
-.network-diagnostic-list dt { color: var(--muted); }
-.network-diagnostic-list dd { min-width: 0; margin: 0; }
 
 @container service-details-page (max-width: 680px) {
   .network-details-page { gap: 16px; }
@@ -289,10 +249,5 @@ onUnmounted(() => { request++; });
   .network-service-stack { grid-column: 1; grid-row: 2; color: var(--muted); font-size: .74rem; }
   .network-service-discovery { grid-column: 1; grid-row: 3; color: var(--muted); font-size: .74rem; }
   .network-service-address { grid-column: 2; grid-row: 2 / span 2; align-self: end; color: var(--muted); font-size: .74rem; text-align: right; }
-  .network-diagnostics-grid { grid-template-columns: minmax(0, 1fr); }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .network-diagnostics > summary > span:last-child { transition-duration: 0s; }
 }
 </style>

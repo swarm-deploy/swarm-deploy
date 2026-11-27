@@ -196,14 +196,14 @@ onMounted(() => {
             <th class="networks-mobile-cell">{{ t('common.network') }}</th>
           </tr>
       </template>
-          <tr v-for="network in filteredNetworks" :key="network.id">
+          <tr v-for="network in filteredNetworks" :key="network.id" class="networks-row app-table-row--clickable">
             <td class="networks-desktop-cell">
-              <RouterLink class="service-inline-link" :to="{ name: 'network-details', params: { network: network.id } }">{{ network.name || t('common.notApplicable') }}</RouterLink>
+              <RouterLink class="service-inline-link networks-row-link" :to="{ name: 'network-details', params: { network: network.id } }">{{ network.name || t('common.notApplicable') }}</RouterLink>
             </td>
             <td class="networks-desktop-cell">
               <RouterLink
                 v-if="network.stack_name"
-                class="service-inline-link"
+                class="service-inline-link networks-stack-link"
                 :to="{ name: 'stack-details', params: { stack: network.stack_name } }"
               >{{ network.stack_name }}</RouterLink>
               <template v-else>{{ t('common.notApplicable') }}</template>
@@ -218,11 +218,11 @@ onMounted(() => {
             <td class="networks-mobile-cell">
               <div class="networks-mobile-summary">
                 <div class="networks-mobile-heading">
-                  <strong><RouterLink class="service-inline-link" :to="{ name: 'network-details', params: { network: network.id } }">{{ network.name || t('common.notApplicable') }}</RouterLink></strong>
+                  <strong><RouterLink class="service-inline-link networks-row-link" :to="{ name: 'network-details', params: { network: network.id } }">{{ network.name || t('common.notApplicable') }}</RouterLink></strong>
                   <span>
                     <RouterLink
                       v-if="network.stack_name"
-                      class="service-inline-link"
+                      class="service-inline-link networks-stack-link"
                       :to="{ name: 'stack-details', params: { stack: network.stack_name } }"
                     >{{ network.stack_name }}</RouterLink>
                     <template v-else>{{ t('common.notApplicable') }}</template>
@@ -326,6 +326,28 @@ onMounted(() => {
 
 .networks-mobile-cell {
   display: none;
+}
+
+.networks-table :deep(.networks-row) {
+  position: relative;
+  cursor: pointer;
+}
+
+.networks-row-link {
+  position: static;
+}
+
+.networks-row-link::after {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  content: "";
+}
+
+.networks-stack-link,
+.networks-managed-label {
+  position: relative;
+  z-index: 2;
 }
 
 .networks-managed-label {

@@ -57,6 +57,8 @@ describe("NetworksView", () => {
     expect(wrapper.findAll("tbody tr")).toHaveLength(1);
     expect(wrapper.text()).toContain("app_default");
     expect(wrapper.text()).not.toContain("infra_default");
+    expect(wrapper.get("tbody tr").classes()).toContain("app-table-row--clickable");
+    expect(wrapper.findAll(".networks-row-link")).toHaveLength(2);
     const stackLinks = wrapper.findAllComponents(RouterLinkStub);
     expect(stackLinks).toHaveLength(4);
     expect(stackLinks.every((link) => link.classes().includes("service-inline-link"))).toBe(true);

@@ -1,7 +1,8 @@
 import { flushPromises, mount } from "@vue/test-utils";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createMemoryHistory, createRouter } from "vue-router";
 
+import { i18n } from "../i18n";
 import NetworkView from "./NetworkView.vue";
 
 const api = vi.hoisted(() => ({
@@ -68,7 +69,7 @@ beforeEach(() => {
       {
         id: "service-id", name: "api", full_name: "app_api", stack: "app", image: "api:v1",
         mode: "replicated", replicas: { running: 2, desired: 2 }, updated_at: "2026-11-27T18:00:00Z",
-        endpoint_mode: "vip", network_targets: ["network-id"],
+        endpoint_mode: "vip", network_targets: ["different-network"],
       },
       {
         id: "other-id", name: "other", full_name: "app_other", stack: "app", image: "other:v1",
@@ -78,9 +79,10 @@ beforeEach(() => {
     ],
   });
 });
+afterEach(() => { i18n.global.locale.value = "en"; });
 
 describe("NetworkView", () => {
-  it("shows dense network metadata, addressing, services, and diagnostics", async () => {
+  it("shows dense network metadata, addressing, and services reported by network inspect", async () => {
     const wrapper = await mountPage();
 
     expect(api.fetchNetwork).toHaveBeenCalledExactlyOnceWith("network-id");
@@ -89,7 +91,7 @@ describe("NetworkView", () => {
       .toBe("Managed by swarm-deploy GitOps through networks.yaml.");
 
     const metadata = wrapper.get('table[aria-label="Network metadata"]');
-    for (const value of ["network-id", "app", "overlay", "swarm", "Enabled", "Yes", "No"]) {
+    for (const value of ["network-id", "app", "overlay", "swarm", "VXLAN ID", "4097", "Enabled", "Yes", "No"]) {
       expect(metadata.text()).toContain(value);
     }
 
@@ -107,20 +109,26 @@ describe("NetworkView", () => {
     expect(services.text()).toContain("10.0.1.10");
     expect(services.text()).toContain("2/2");
 
-    const diagnostics = wrapper.get(".network-diagnostics");
-    expect(diagnostics.text()).toContain("VXLAN ID4097");
-    expect(diagnostics.text()).toContain("MTU1450");
-    expect(diagnostics.text()).toContain("router");
-    expect(diagnostics.text()).toContain("example.com/ownerplatform");
-    expect(diagnostics.text()).toContain("example.com/modeprivate");
-    expect(diagnostics.text()).toContain("node-a192.0.2.1");
+    expect(wrapper.find(".network-diagnostics").exists()).toBe(false);
   });
 
-  it("keeps network details available when connected services fail", async () => {
+  it("keeps network-inspect services available when service enrichment fails", async () => {
     api.fetchSwarmServices.mockRejectedValueOnce(new Error("Swarm unavailable"));
     const wrapper = await mountPage();
 
     expect(wrapper.get(".network-heading h2").text()).toBe("app_backend");
     expect(wrapper.get('[role="alert"]').text()).toContain("Swarm unavailable");
+    expect(wrapper.get('table[aria-label="Connected services"]').text()).toContain("app_api");
+    expect(wrapper.get('table[aria-label="Connected services"]').text()).toContain("10.0.1.10");
+  });
+
+  it("keeps Scope and its value in English for the Russian locale", async () => {
+    i18n.global.locale.value = "ru";
+    const wrapper = await mountPage();
+    const metadata = wrapper.get('table[aria-label="Метаданные сети"]');
+
+    expect(metadata.findAll("th").map((item) => item.text())).toContain("Scope");
+    expect(metadata.text()).toContain("swarm");
+    expect(metadata.text()).not.toContain("Область действия");
   });
 });
