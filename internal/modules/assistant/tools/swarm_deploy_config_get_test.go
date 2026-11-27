@@ -41,6 +41,12 @@ func loadConfigForTool(t *testing.T, custom bool) config.Spec {
     auth:
       type: http
       http: {username: git-user-canary, passwordPath: %[1]s}
+    push:
+      repository: git@github.com:owner-canary/repo-canary.git
+      auth:
+        type: ssh
+        ssh: {privateKeyPath: %[1]s}
+      apiTokenPath: %[1]s
   sync:
     mode: webhook
     interval: 13s
@@ -128,29 +134,31 @@ func TestSwarmDeployConfigGet(t *testing.T) {
 	}{
 		{"", `{
   "gitops":{"syncMode":"hybrid","reconcileInterval":"1m","gitPollingEnabled":true,"gitPollInterval":"30s","webhookEnabled":false,
-    "globalPolicy":{"selfHeal":false,"prune":false}},
+    "globalPolicy":{"selfHeal":false,"prune":false},"syncAuthType":"none","pushAuthType":"none","githubPullRequestsConfigured":false},
   "deployments":{"pollInterval":"2s","initJobDefaultTimeout":"10m"},"event":{"historyCapacity":500},
   "system":{"language":"en","logLevel":"INFO","tracing":{"enabled":false}},
   "notifications":{"telegramConfigured":false,"eventTypes":[]},
   "web":{"basePath":"/","authentication":"none","pwa":{"name":"Swarm Deploy","shortName":"Swarm Deploy"}},
   "healthServer":{"healthcheckPath":"/healthz","metricsPath":"/metrics"},
   "assistant":{"enabled":false,"toolAccess":{"mode":"unrestricted"},"maxOutputTokens":800,"conversationInMemoryTTL":"1h"},
-  "hostings":{"integrations":[{"type":"github","authMode":"anonymous"}]}
+  "hostings":{"integrations":[{"type":"github","releaseLookupTokenConfigured":false}]}
 }`, `{
   "gitops":{"syncMode":"webhook","reconcileInterval":"13s","gitPollingEnabled":false,"webhookEnabled":true,
-    "globalPolicy":{"selfHeal":true,"prune":true}},
+    "globalPolicy":{"selfHeal":true,"prune":true},"syncAuthType":"http","pushAuthType":"ssh","githubPullRequestsConfigured":true},
   "deployments":{"pollInterval":"4s","initJobDefaultTimeout":"7m"},"event":{"historyCapacity":17},
   "system":{"language":"ru","logLevel":"DEBUG","tracing":{"enabled":true,"sampler":{"strategy":"parentbased_traceidratio","ratio":0}}},
   "notifications":{"telegramConfigured":true,"telegramMaxAttemptsPerAction":7,"eventTypes":["DeploySuccess"]},
   "web":{"basePath":"/swarm","authentication":"auth_proxy","pwa":{"name":"My Cluster","shortName":"mc"}},
   "healthServer":{"healthcheckPath":"/live","metricsPath":"/prometheus"},
   "assistant":{"enabled":true,"toolAccess":{"mode":"allowlist"},"maxOutputTokens":1200,"conversationInMemoryTTL":"30m"},
-  "hostings":{"integrations":[{"type":"github","authMode":"authenticated"}]}
+  "hostings":{"integrations":[{"type":"github","releaseLookupTokenConfigured":true}]}
 }`},
 		{"gitops",
 			`{"syncMode":"hybrid","reconcileInterval":"1m","gitPollingEnabled":true,"gitPollInterval":"30s","webhookEnabled":false,
+			  "syncAuthType":"none","pushAuthType":"none","githubPullRequestsConfigured":false,
 			  "globalPolicy":{"selfHeal":false,"prune":false,"imageTag":{"required":false,"noLatest":false,"onlySHA":false}}}`,
 			`{"syncMode":"webhook","reconcileInterval":"13s","gitPollingEnabled":false,"webhookEnabled":true,
+			  "syncAuthType":"http","pushAuthType":"ssh","githubPullRequestsConfigured":true,
 			  "globalPolicy":{"selfHeal":true,"prune":true,"imageTag":{"required":true,"noLatest":true,"onlySHA":true}}}`},
 		{"deployments", `{"pollInterval":"2s","initJobDefaultTimeout":"10m"}`, `{"pollInterval":"4s","initJobDefaultTimeout":"7m"}`},
 		{"event", `{"historyCapacity":500}`, `{"historyCapacity":17}`},
@@ -163,7 +171,9 @@ func TestSwarmDeployConfigGet(t *testing.T) {
 			`{"enabled":false,"toolAccess":{"mode":"unrestricted"},"maxOutputTokens":800,"conversationInMemoryTTL":"1h"}`,
 			`{"enabled":true,"toolAccess":{"mode":"allowlist","allowedTools":["date","swarm_deploy_config_get"]},
 			  "maxOutputTokens":1200,"conversationInMemoryTTL":"30m"}`},
-		{"hostings", `{"integrations":[{"type":"github","authMode":"anonymous"}]}`, `{"integrations":[{"type":"github","authMode":"authenticated"}]}`},
+		{"hostings",
+			`{"integrations":[{"type":"github","releaseLookupTokenConfigured":false}]}`,
+			`{"integrations":[{"type":"github","releaseLookupTokenConfigured":true}]}`},
 		{"notifications", `{"telegramConfigured":false,"eventTypes":[],"events":[],"alertRouting":[
 		  {"kind":"sync_failed","source":"builtInDefault","configuredRecipients":0},
 		  {"kind":"node_disconnected","source":"builtInDefault","configuredRecipients":0},
@@ -204,6 +214,45 @@ func TestSwarmDeployConfigGet(t *testing.T) {
 					assert.NotContains(t, result, "92387165")
 				})
 			}
+		})
+	}
+}
+
+func TestSwarmDeployConfigGetGitAuthentication(t *testing.T) {
+	spec := loadConfigForTool(t, true)
+	spec.GitOps.Git.Repository = "https://github.com/owner-canary/repo-canary.git"
+	spec.Hostings.GitHub.Token = ""
+
+	for _, tc := range []struct {
+		name                  string
+		pushRepository        string
+		configurePullRequests bool
+		wantPushAuthType      string
+		wantPullRequests      bool
+	}{
+		{"inherit sync credentials", "", false, "http", false},
+		{"create PR without release lookup token", "", true, "http", true},
+		{"different host clears inherited credentials", "git@gitlab.com:owner-canary/repo-canary.git", true, "none", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			configured := spec
+			configured.GitOps.Git.Push = nil
+			if tc.configurePullRequests {
+				configured.GitOps.Git.Push = &config.GitPushSpec{
+					Repository: tc.pushRepository,
+					APIToken:   spec.GitOps.Git.Push.APIToken,
+				}
+			}
+			result, err := configToolExecutor(configured).Execute(t.Context(), routing.Request{
+				ToolName: configGetToolName, Payload: `{}`,
+			})
+			require.NoError(t, err)
+			assert.Contains(t, result, `"syncAuthType":"http"`)
+			assert.Contains(t, result, fmt.Sprintf(`"pushAuthType":%q`, tc.wantPushAuthType))
+			assert.Contains(t, result, fmt.Sprintf(`"githubPullRequestsConfigured":%t`, tc.wantPullRequests))
+			assert.Contains(t, result, `"releaseLookupTokenConfigured":false`)
+			assert.NotContains(t, result, "anonymous")
+			assert.NotContains(t, result, "-canary")
 		})
 	}
 }
