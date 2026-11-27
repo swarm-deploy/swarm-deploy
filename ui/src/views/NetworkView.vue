@@ -234,7 +234,7 @@ onUnmounted(() => {
   .network-services-table :deep(thead) { display: none; }
   .network-services-table :deep(tbody) { display: block; width: 100%; }
   .network-services-table :deep(tr) { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px; padding: 10px 0; }
-  .network-services-table :deep(td) { max-width: none; padding: 0; border: 0; overflow: visible; }
+  .network-services-table :deep(.app-table td) { max-width: none; padding: 0; border: 0; overflow: visible; }
   .network-services-table :deep(tr + tr) { border-top: 1px solid var(--border-subtle); }
   .network-services-table :deep(.app-table tr:last-child) { border-bottom: 1px solid var(--border-subtle); }
   .network-services-table :deep(.app-table tr:last-child > *) { border-bottom: 0; }
