@@ -91,10 +91,15 @@ func TestSubscriberProjectionAndChildEventAreAtomic(t *testing.T) {
 		publisher.EXPECT().Publish(gomock.Any(), gomock.AssignableToTypeOf(&events.ServiceCatalogUpdated{})).
 			Return(nil),
 	)
-	subscriber := &Subscriber{db: db, store: store, events: publisher}
 	require.NoError(t, store.ReplaceStack(t.Context(), "app", []model.Info{{Name: "old", Stack: "app"}}))
+	deploymentID := saveSuccessfulDeployment(t, db, "app", compose.File{})
+	subscriber := &Subscriber{
+		db: db, deployments: deploymentstore.NewStore(db), store: store, events: publisher,
+	}
 
-	event := &events.DeploySuccess{DeployEvent: events.DeployEvent{StackName: "app"}}
+	event := &events.DeploySuccess{DeployEvent: events.DeployEvent{
+		DeploymentID: deploymentID, StackName: "app",
+	}}
 	services := []model.Info{{Name: "new", Stack: "app", Image: "new:1"}}
 	require.ErrorIs(t, subscriber.persistProjection(t.Context(), "deploy-success", event, services), assert.AnError)
 	_, oldExists, err := store.Find(t.Context(), "app", "old")
@@ -131,7 +136,10 @@ func TestSubscriberStaleDeploymentDoesNotPersistReceiptOrCatalog(t *testing.T) {
 	_, err = db.Exec(t.Context(),
 		"INSERT INTO desired_snapshots(stack,deployment_id) VALUES (?,?)", "app", "current-deployment")
 	require.NoError(t, err)
-	subscriber := &Subscriber{db: db, store: store, events: dispatcher.NewMockDispatcher(ctrl)}
+	subscriber := &Subscriber{
+		db: db, deployments: deploymentstore.NewStore(db), store: store,
+		events: dispatcher.NewMockDispatcher(ctrl),
+	}
 	stale := &events.DeploySuccess{DeployEvent: events.DeployEvent{
 		DeploymentID: "stale-deployment", StackName: "app",
 	}}
@@ -144,6 +152,57 @@ func TestSubscriberStaleDeploymentDoesNotPersistReceiptOrCatalog(t *testing.T) {
 	var receipts int
 	require.NoError(t, db.Get(t.Context(), &receipts, "SELECT count(*) FROM service_catalog_receipts"))
 	assert.Zero(t, receipts)
+}
+
+func TestSubscriberMissingBaselineSkipsProjection(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	db, err := storage.OpenSQLite(t.Context(), t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	store := modelstore.NewSQLStore(db)
+	require.NoError(t, store.ReplaceStack(t.Context(), "app", []model.Info{{Name: "current", Stack: "app"}}))
+	subscriber := &Subscriber{
+		db: db, deployments: deploymentstore.NewStore(db), store: store,
+		events: dispatcher.NewMockDispatcher(ctrl),
+	}
+	event := &events.DeploySuccess{DeployEvent: events.DeployEvent{
+		DeploymentID: "missing", StackName: "app",
+	}}
+
+	require.NoError(t, subscriber.persistProjection(t.Context(), "missing-event", event,
+		[]model.Info{{Name: "stale", Stack: "app"}}))
+	_, currentExists, err := store.Find(t.Context(), "app", "current")
+	require.NoError(t, err)
+	assert.True(t, currentExists)
+	var receipts int
+	require.NoError(t, db.Get(t.Context(), &receipts, "SELECT count(*) FROM service_catalog_receipts"))
+	assert.Zero(t, receipts)
+}
+
+func TestSubscriberBaselineReadErrorIsReturned(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	db, err := storage.OpenSQLite(t.Context(), t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	store := modelstore.NewSQLStore(db)
+	require.NoError(t, store.ReplaceStack(t.Context(), "app", []model.Info{{Name: "current", Stack: "app"}}))
+	deploymentDB := storage.NewMockDatabase(ctrl)
+	deploymentDB.EXPECT().Dialect().Return(db.Dialect())
+	deploymentDB.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any(), "app").Return(assert.AnError)
+	subscriber := &Subscriber{
+		db: db, deployments: deploymentstore.NewStore(deploymentDB), store: store,
+		events: dispatcher.NewMockDispatcher(ctrl),
+	}
+	event := &events.DeploySuccess{DeployEvent: events.DeployEvent{
+		DeploymentID: "deployment", StackName: "app",
+	}}
+
+	err = subscriber.persistProjection(t.Context(), "deploy-success", event,
+		[]model.Info{{Name: "new", Stack: "app"}})
+	require.ErrorIs(t, err, assert.AnError)
+	_, currentExists, readErr := store.Find(t.Context(), "app", "current")
+	require.NoError(t, readErr)
+	assert.True(t, currentExists)
 }
 
 func TestSubscriberHandle(t *testing.T) {

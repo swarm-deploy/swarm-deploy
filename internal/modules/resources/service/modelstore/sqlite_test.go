@@ -81,3 +81,49 @@ func TestServiceStoreReplaceStackRollsBack(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []model.Info{keep}, all)
 }
+
+func TestServiceStoreReplaceStackOnce(t *testing.T) {
+	db, err := storage.OpenSQLite(t.Context(), t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	store := NewSQLStore(db)
+	require.NoError(t, store.ReplaceStack(t.Context(), "app", []model.Info{{Name: "old", Stack: "app"}}))
+
+	accepted, err := store.ReplaceStackOnce(t.Context(), "deploy-success", "app", []model.Info{{
+		Name: "api", Stack: "app", Image: "api:1",
+	}})
+	require.NoError(t, err)
+	assert.True(t, accepted)
+
+	accepted, err = store.ReplaceStackOnce(t.Context(), "deploy-success", "app", []model.Info{{
+		Name: "api", Stack: "app", Image: "api:2",
+	}})
+	require.NoError(t, err)
+	assert.False(t, accepted)
+	stored, found, err := store.Find(t.Context(), "app", "api")
+	require.NoError(t, err)
+	require.True(t, found)
+	assert.Equal(t, "api:1", stored.Image)
+}
+
+func TestServiceStoreReplaceStackOnceRollsBackReceiptAndCatalog(t *testing.T) {
+	db, err := storage.OpenSQLite(t.Context(), t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	store := NewSQLStore(db)
+	keep := model.Info{Name: "old", Stack: "app"}
+	require.NoError(t, store.ReplaceStack(t.Context(), "app", []model.Info{keep}))
+
+	accepted, err := store.ReplaceStackOnce(t.Context(), "deploy-success", "app", []model.Info{{Name: ""}})
+	require.Error(t, err)
+	assert.False(t, accepted)
+	all, readErr := store.ReadAll(t.Context())
+	require.NoError(t, readErr)
+	assert.Equal(t, []model.Info{keep}, all)
+
+	accepted, err = store.ReplaceStackOnce(t.Context(), "deploy-success", "app", []model.Info{{
+		Name: "api", Stack: "app",
+	}})
+	require.NoError(t, err)
+	assert.True(t, accepted, "failed replacement must not retain its receipt")
+}
