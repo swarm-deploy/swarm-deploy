@@ -66,6 +66,9 @@ describe("RealtimeView", () => {
     const wrapper = await mountView();
     expect(wrapper.findAll(".realtime-service-row")).toHaveLength(1);
     expect(wrapper.get(".realtime-service-row").text()).toContain("infra_api");
+    expect(wrapper.get(".realtime-stack-filter summary").text()).toContain("infra");
+    expect(wrapper.get(".realtime-service-filter summary").text()).toContain("api");
+    expect(wrapper.find(".meta").exists()).toBe(false);
     expect(wrapper.get('[aria-label="Collapse api"]').attributes("aria-expanded")).toBe("true");
     expect(apiMocks.fetchSwarmServiceTasks).toHaveBeenCalledExactlyOnceWith("one");
     wrapper.unmount();
@@ -201,8 +204,9 @@ describe("RealtimeView", () => {
 
     const filters = wrapper.get(".realtime-filters");
     const stateFilter = filters.get(".realtime-state-filter");
-    expect(filters.findAll(".realtime-filter-icon")).toHaveLength(3);
+    expect(filters.findAll(".realtime-filter-icon")).toHaveLength(4);
     expect(filters.get(".realtime-stack-filter summary").text()).toContain("All stacks");
+    expect(filters.get(".realtime-service-filter summary").text()).toContain("All services");
     expect(stateFilter.get("summary").text()).toContain("All states");
     expect(filters.find(".realtime-result-count").exists()).toBe(false);
     expect(stateFilter.get(".app-select-icon").attributes("aria-hidden")).toBe("true");
@@ -212,6 +216,12 @@ describe("RealtimeView", () => {
     expect(wrapper.text()).toContain("infra_worker");
 
     await wrapper.get<HTMLInputElement>('.realtime-search input').setValue("");
+    const serviceOptions = wrapper.findAll<HTMLInputElement>('.realtime-service-filter .app-select-option input');
+    await serviceOptions.find((option) => option.element.value === "worker")!.setValue(true);
+    expect(wrapper.findAll(".realtime-service-row")).toHaveLength(1);
+    expect(wrapper.text()).toContain("infra_worker");
+
+    await wrapper.get(".realtime-service-filter .app-select-header button").trigger("click");
     const stackOptions = wrapper.findAll<HTMLInputElement>('.realtime-stack-filter .app-select-option input');
     await stackOptions.find((option) => option.element.value === "")!.setValue(true);
     expect(wrapper.findAll(".realtime-service-row")).toHaveLength(1);
