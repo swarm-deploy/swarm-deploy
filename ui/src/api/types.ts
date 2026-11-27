@@ -551,7 +551,7 @@ export interface AssistantChatResponse {
   status: AssistantStatus;
   request_id: string;
   conversation_id: string;
-  read_only: boolean;
+  read_only?: boolean;
   answer?: string;
   answer_sequence?: number;
   error_message?: string;

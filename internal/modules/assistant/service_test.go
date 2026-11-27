@@ -412,7 +412,7 @@ func TestServiceReadOnlyChatCanContinueWithoutWritableTools(t *testing.T) {
 	service := newRoutingTestServiceWithHistory(t, server.URL, serviceStore(t, nil), tools, nil, history)
 	created := service.Chat(t.Context(), ChatRequest{Message: "Run sync now", ReadOnly: true, CreatedBy: "mcp"})
 	require.Equal(t, StatusCompleted, created.Status)
-	assert.True(t, created.ReadOnly)
+	assert.Equal(t, new(true), created.ReadOnly)
 	assert.Equal(t, "This read-only chat cannot perform operations that change runtime or GitOps state.", created.Answer)
 	assert.Nil(t, created.Selection)
 	assert.Empty(t, tools.calls)
@@ -423,13 +423,18 @@ func TestServiceReadOnlyChatCanContinueWithoutWritableTools(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, found)
 	assert.True(t, chat.ReadOnly)
-	followup := service.Chat(t.Context(), ChatRequest{
-		ConversationID: created.ConversationID,
-		Message:        "Show deployment history.",
-	})
-	assert.Equal(t, StatusCompleted, followup.Status)
-	assert.True(t, followup.ReadOnly)
+	// Continue after the original request has been evicted, using the persisted mode.
+	clear(service.runs)
+	request := ChatRequest{ConversationID: created.ConversationID, RequestID: "history", Message: "Show deployment history."}
+	followup := service.Chat(t.Context(), request)
+	require.Equal(t, StatusCompleted, followup.Status)
+	assert.Equal(t, new(true), followup.ReadOnly)
 	assert.Equal(t, "Writable tools stay disabled.", followup.Answer)
+	assert.Equal(t, followup, service.Chat(t.Context(), request))
+	request.ReadOnly = true
+	conflict := service.Chat(t.Context(), request)
+	assert.Equal(t, StatusFailed, conflict.Status)
+	assert.Contains(t, conflict.ErrorMessage, "already bound")
 	assert.Equal(t, []string{"deployment_list"}, tools.calls)
 
 	persisted, found, err := history.ReadChat(t.Context(), created.ConversationID)
@@ -438,6 +443,29 @@ func TestServiceReadOnlyChatCanContinueWithoutWritableTools(t *testing.T) {
 	assert.True(t, persisted.ReadOnly)
 	assert.Equal(t, "mcp", persisted.CreatedBy)
 	require.Len(t, persisted.Turns, 4)
+}
+
+func TestServiceChatCreatesReadOnlyAfterBusy(t *testing.T) {
+	history := newSQLHistory(t)
+	service := newRoutingTestServiceWithHistory(t, "", serviceStore(t, nil), &fakeTools{}, nil, history)
+	for range cap(service.runSlots) {
+		service.runSlots <- struct{}{}
+	}
+	request := ChatRequest{ConversationID: "client-chat", Message: "hi"}
+	busy := service.Chat(t.Context(), request)
+	require.Equal(t, StatusFailed, busy.Status)
+	require.Empty(t, busy.ConversationID)
+	require.Nil(t, busy.ReadOnly)
+	<-service.runSlots
+
+	request.ReadOnly = true
+	created := service.Chat(t.Context(), request)
+	require.Equal(t, StatusCompleted, created.Status)
+	assert.Equal(t, new(true), created.ReadOnly)
+	chat, found, err := history.ReadChatMetadata(t.Context(), request.ConversationID)
+	require.NoError(t, err)
+	require.True(t, found)
+	assert.True(t, chat.ReadOnly)
 }
 
 func TestServiceChatSkipsRetrievalForSmallTalk(t *testing.T) {
@@ -635,20 +663,26 @@ func TestServiceChatDeduplicatesAtRunCapacity(t *testing.T) {
 }
 
 func TestServiceChatRejectsOversizedMessage(t *testing.T) {
-	serviceInstance, err := NewService(
-		Config{Localizer: testAssistantTexts(t, "en"), Enabled: true, ConversationInMemoryTTL: time.Hour},
-		serviceStore(t, nil),
-		&fakeTools{},
-		&dispatcher.NopDispatcher{},
-		&metrics.NopAssistant{},
-	)
-	require.NoError(t, err)
-
-	response := serviceInstance.Chat(context.Background(), ChatRequest{
-		Message: strings.Repeat("x", maxAssistantMessageBytes+1),
+	service := newRoutingTestServiceWithHistory(t, "", serviceStore(t, nil), &fakeTools{}, nil, newSQLHistory(t))
+	created := service.Chat(t.Context(), ChatRequest{Message: "hi", ReadOnly: true})
+	require.Equal(t, StatusCompleted, created.Status)
+	response := service.Chat(t.Context(), ChatRequest{
+		ConversationID: created.ConversationID, Message: strings.Repeat("x", maxAssistantMessageBytes+1),
 	})
 	assert.Equal(t, StatusFailed, response.Status)
 	assert.Contains(t, response.ErrorMessage, "too large")
+	assert.Nil(t, response.ReadOnly)
+}
+
+func TestServiceInMemoryChatRetainsModeAfterRunEviction(t *testing.T) {
+	service := newRoutingTestServiceWithHistory(t, "", serviceStore(t, nil), &fakeTools{}, nil, nil)
+	first := service.Chat(t.Context(), ChatRequest{Message: "hi", ReadOnly: true})
+	require.Equal(t, StatusCompleted, first.Status)
+	clear(service.runs)
+
+	reply := service.Chat(t.Context(), ChatRequest{ConversationID: first.ConversationID, Message: "thanks"})
+	require.Equal(t, StatusCompleted, reply.Status)
+	assert.Equal(t, new(true), reply.ReadOnly)
 }
 
 func TestServiceChatLimitsConcurrentRuns(t *testing.T) {
@@ -685,7 +719,7 @@ func TestServiceChatLimitsConcurrentRuns(t *testing.T) {
 	assert.Contains(t, overloaded.ErrorMessage, "busy")
 }
 
-func TestServiceChatFailsWhenQuestionCannotBeSaved(t *testing.T) {
+func TestServiceChatFailsWhenModeCannotBeRead(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
 		t.Fatalf("model must not run when the question is not saved: %s", r.URL.Path)
 	}))
@@ -697,14 +731,15 @@ func TestServiceChatFailsWhenQuestionCannotBeSaved(t *testing.T) {
 	tools := NewMockToolExecutor(gomock.NewController(t))
 	tools.EXPECT().Definitions().AnyTimes()
 	serviceInstance := newRoutingTestServiceWithHistory(t, server.URL, serviceStore(t, nil), tools, nil, history)
-	serviceInstance.conversationStorage.Append("conversation", conversation.Turn{Role: "user", Content: "earlier"})
+	serviceInstance.conversationStorage.Append("conversation", true, conversation.Turn{Role: "user", Content: "earlier"})
 	require.NoError(t, db.Close())
 
 	response := serviceInstance.Chat(context.Background(), ChatRequest{
 		ConversationID: "conversation", Message: "Check the cluster",
 	})
 	assert.Equal(t, StatusFailed, response.Status)
-	assert.Equal(t, "Failed to save assistant message", response.ErrorMessage)
+	assert.Equal(t, "Failed to read conversation history", response.ErrorMessage)
+	assert.Nil(t, response.ReadOnly)
 	assert.Equal(t, "conversation", response.ConversationID)
 }
 
@@ -809,6 +844,7 @@ func TestServiceGetChatReturnsConsistentSnapshot(t *testing.T) {
 			history := newSQLHistory(t)
 			ctrl := gomock.NewController(t)
 			paused := conversation.NewMockHistoryStorage(ctrl)
+			paused.EXPECT().ReadChatMetadata(gomock.Any(), "chat").DoAndReturn(history.ReadChatMetadata)
 			paused.EXPECT().ReadChat(gomock.Any(), gomock.Any()).DoAndReturn(history.ReadChat).AnyTimes()
 
 			committed := make(chan struct{})

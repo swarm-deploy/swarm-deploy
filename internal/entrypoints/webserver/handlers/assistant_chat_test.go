@@ -41,7 +41,7 @@ func TestAssistantChatAcceptsRequestAtLimit(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, response)
 	assert.Equal(t, generated.AssistantChatResponseStatusDisabled, response.Status)
-	assert.True(t, response.ReadOnly)
+	assert.False(t, response.ReadOnly.IsSet())
 }
 
 func TestGeneratedAssistantChatResponseIncludesSelection(t *testing.T) {

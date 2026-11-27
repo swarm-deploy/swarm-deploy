@@ -368,6 +368,21 @@ describe("Assistant Drawer", () => {
     wrapper.unmount();
   });
 
+  it("keeps the read-only notice when polling returns an error without a mode", async () => {
+    const chat = { ...savedChat({ request_id: "lost-request", activity: [] }), read_only: true };
+    vi.spyOn(assistantApi, "getAssistantChat").mockResolvedValue(chat);
+    vi.spyOn(assistantApi, "listAssistantChats").mockResolvedValue({ chats: [chat] });
+    vi.spyOn(assistantApi, "sendAssistantChat").mockResolvedValue({
+      status: "failed", request_id: "lost-request", conversation_id: chat.id, error_message: "Unknown request",
+    });
+
+    const { wrapper } = await mountDrawer(`/?assistant=${chat.id}`);
+
+    expect(wrapper.text()).toContain("Unknown request");
+    expect(wrapper.find(".assistant-read-only-notice").exists()).toBe(true);
+    wrapper.unmount();
+  });
+
   it.each(["/", "/?assistant=chat-1"])("opens an explanation from %s at its saved chat URL", async (path) => {
     const pinia = createPinia();
     setActivePinia(pinia);

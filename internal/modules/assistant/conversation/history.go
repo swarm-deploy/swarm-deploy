@@ -100,6 +100,8 @@ type HistoryStorage interface {
 	ReadUsage(ctx context.Context, from, to time.Time, interval UsageInterval) ([]UsageBucket, error)
 	// ReadChats returns persisted chat metadata ordered by latest update first.
 	ReadChats(ctx context.Context) ([]ChatSummary, error)
+	// ReadChatMetadata reads a single chat without loading its turns.
+	ReadChatMetadata(ctx context.Context, id string) (Chat, bool, error)
 	// ReadChat returns a persisted chat by conversation ID.
 	ReadChat(ctx context.Context, id string) (Chat, bool, error)
 	// MarkRead clears unread if sequence identifies the latest assistant reply.

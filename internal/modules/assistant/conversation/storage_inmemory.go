@@ -43,11 +43,12 @@ func (s *InMemoryStorage) Get(conversationID string) (Conversation, bool) {
 }
 
 // Append appends turns to a conversation and updates last message timestamp.
-func (s *InMemoryStorage) Append(conversationID string, turns ...Turn) {
+func (s *InMemoryStorage) Append(conversationID string, readOnly bool, turns ...Turn) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	conversationData := s.conversations[conversationID]
+	conversationData.ReadOnly = readOnly
 	conversationData.Turns = append(conversationData.Turns, turns...)
 	if s.maxTurns > 0 && len(conversationData.Turns) > s.maxTurns {
 		conversationData.Turns = conversationData.Turns[len(conversationData.Turns)-s.maxTurns:]

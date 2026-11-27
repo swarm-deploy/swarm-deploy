@@ -48,7 +48,7 @@ func (s *SQLHistoryStorage) ReadChat(ctx context.Context, id string) (Chat, bool
 	found := false
 	err := s.db.WithinTransaction(ctx, func(ctx context.Context) error {
 		var err error
-		chat, found, err = s.readChatMetadata(ctx, id)
+		chat, found, err = s.ReadChatMetadata(ctx, id)
 		if err != nil || !found {
 			return err
 		}
@@ -66,7 +66,8 @@ func (s *SQLHistoryStorage) ReadChat(ctx context.Context, id string) (Chat, bool
 	return chat, found, nil
 }
 
-func (s *SQLHistoryStorage) readChatMetadata(ctx context.Context, id string) (Chat, bool, error) {
+// ReadChatMetadata reads a single chat without loading its turns.
+func (s *SQLHistoryStorage) ReadChatMetadata(ctx context.Context, id string) (Chat, bool, error) {
 	query, args, err := s.db.Dialect().From("assistant_chats").Prepared(true).
 		Select(chatColumns...).SelectAppend("created_by").Where(goqu.Ex{"id": id}).ToSQL()
 	if err != nil {
@@ -122,7 +123,7 @@ func (s *SQLHistoryStorage) SaveTurns(
 	}
 	sequence := -1
 	err := s.db.WithinTransaction(ctx, func(ctx context.Context) error {
-		chat, exists, err := s.readChatMetadata(ctx, id)
+		chat, exists, err := s.ReadChatMetadata(ctx, id)
 		if err != nil {
 			return err
 		}

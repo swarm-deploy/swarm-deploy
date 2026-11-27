@@ -71,6 +71,22 @@ func (mr *MockHistoryStorageMockRecorder) ReadChat(ctx, id any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReadChat", reflect.TypeOf((*MockHistoryStorage)(nil).ReadChat), ctx, id)
 }
 
+// ReadChatMetadata mocks base method.
+func (m *MockHistoryStorage) ReadChatMetadata(ctx context.Context, id string) (Chat, bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ReadChatMetadata", ctx, id)
+	ret0, _ := ret[0].(Chat)
+	ret1, _ := ret[1].(bool)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// ReadChatMetadata indicates an expected call of ReadChatMetadata.
+func (mr *MockHistoryStorageMockRecorder) ReadChatMetadata(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReadChatMetadata", reflect.TypeOf((*MockHistoryStorage)(nil).ReadChatMetadata), ctx, id)
+}
+
 // ReadChats mocks base method.
 func (m *MockHistoryStorage) ReadChats(ctx context.Context) ([]ChatSummary, error) {
 	m.ctrl.T.Helper()

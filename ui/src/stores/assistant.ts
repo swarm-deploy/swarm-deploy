@@ -241,7 +241,7 @@ export const useAssistantStore = defineStore("assistant", {
     },
     updateAssistantProgress(response: AssistantChatResponse) {
       this.conversationID = response.conversation_id || this.conversationID;
-      this.readOnly = response.read_only;
+      this.readOnly = response.read_only ?? this.readOnly;
       this.activeRequestID = response.request_id || this.activeRequestID;
       this.activity = response.activity || this.activity;
     },

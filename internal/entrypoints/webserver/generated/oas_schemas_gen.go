@@ -909,8 +909,8 @@ type AssistantChatResponse struct {
 	Status         AssistantChatResponseStatus `json:"status"`
 	RequestID      string                      `json:"request_id"`
 	ConversationID string                      `json:"conversation_id"`
-	// Whether writable assistant tools are disabled for the chat.
-	ReadOnly bool      `json:"read_only"`
+	// Whether writable assistant tools are disabled for the chat. Omitted when the chat mode is unknown.
+	ReadOnly OptBool   `json:"read_only"`
 	Answer   OptString `json:"answer"`
 	// Persisted sequence of the completed answer, when available.
 	AnswerSequence OptInt                `json:"answer_sequence"`
@@ -937,7 +937,7 @@ func (s *AssistantChatResponse) GetConversationID() string {
 }
 
 // GetReadOnly returns the value of ReadOnly.
-func (s *AssistantChatResponse) GetReadOnly() bool {
+func (s *AssistantChatResponse) GetReadOnly() OptBool {
 	return s.ReadOnly
 }
 
@@ -992,7 +992,7 @@ func (s *AssistantChatResponse) SetConversationID(val string) {
 }
 
 // SetReadOnly sets the value of ReadOnly.
-func (s *AssistantChatResponse) SetReadOnly(val bool) {
+func (s *AssistantChatResponse) SetReadOnly(val OptBool) {
 	s.ReadOnly = val
 }
 

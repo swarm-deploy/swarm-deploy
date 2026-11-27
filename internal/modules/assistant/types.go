@@ -63,8 +63,8 @@ type ChatResponse struct {
 	ConversationID string
 	// RequestID identifies a run.
 	RequestID string
-	// ReadOnly indicates that writable assistant tools are disabled for the chat.
-	ReadOnly bool
+	// ReadOnly reports the mode when the chat has been identified.
+	ReadOnly *bool
 	// Answer is a final assistant answer for completed runs.
 	Answer string
 	// AnswerSequence identifies the stored reply when a completed run has persistent history.

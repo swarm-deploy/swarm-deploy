@@ -44,12 +44,14 @@ func toGeneratedAssistantChatResponse(resp assistant.ChatResponse) *generated.As
 		Status:         toGeneratedAssistantStatus(resp.Status),
 		RequestID:      resp.RequestID,
 		ConversationID: resp.ConversationID,
-		ReadOnly:       resp.ReadOnly,
 		Answer:         toOptString(resp.Answer),
 		ErrorMessage:   toOptString(resp.ErrorMessage),
 		Activity:       append([]string(nil), resp.Activity...),
 		Selection:      toGeneratedAssistantSelection(resp.Selection),
 		Artifacts:      toGeneratedAssistantArtifacts(resp.Artifacts),
+	}
+	if resp.ReadOnly != nil {
+		generatedResp.ReadOnly.SetTo(*resp.ReadOnly)
 	}
 	if resp.AnswerSequence != nil {
 		generatedResp.AnswerSequence = generated.NewOptInt(*resp.AnswerSequence)

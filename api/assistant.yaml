@@ -144,7 +144,7 @@ components:
           maximum: 30000
     AssistantChatResponse:
       type: object
-      required: [status, request_id, conversation_id, read_only]
+      required: [status, request_id, conversation_id]
       properties:
         status:
           type: string
@@ -155,7 +155,7 @@ components:
           type: string
         read_only:
           type: boolean
-          description: Whether writable assistant tools are disabled for the chat.
+          description: Whether writable assistant tools are disabled for the chat. Omitted when the chat mode is unknown.
         answer:
           type: string
         answer_sequence:

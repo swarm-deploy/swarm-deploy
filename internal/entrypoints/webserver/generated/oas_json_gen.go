@@ -1971,8 +1971,10 @@ func (s *AssistantChatResponse) encodeFields(e *jx.Encoder) {
 		e.Str(s.ConversationID)
 	}
 	{
-		e.FieldStart("read_only")
-		e.Bool(s.ReadOnly)
+		if s.ReadOnly.Set {
+			e.FieldStart("read_only")
+			s.ReadOnly.Encode(e)
+		}
 	}
 	{
 		if s.Answer.Set {
@@ -2084,11 +2086,9 @@ func (s *AssistantChatResponse) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"conversation_id\"")
 			}
 		case "read_only":
-			requiredBitSet[0] |= 1 << 3
 			if err := func() error {
-				v, err := d.Bool()
-				s.ReadOnly = bool(v)
-				if err != nil {
+				s.ReadOnly.Reset()
+				if err := s.ReadOnly.Decode(d); err != nil {
 					return err
 				}
 				return nil
@@ -2191,7 +2191,7 @@ func (s *AssistantChatResponse) Decode(d *jx.Decoder) error {
 	// Validate required fields.
 	var failures []validate.FieldError
 	for i, mask := range [2]uint8{
-		0b00001111,
+		0b00000111,
 		0b00000000,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
