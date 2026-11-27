@@ -10,7 +10,7 @@ import (
 	"io/fs"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
-	sharedi18n "github.com/swarm-deploy/swarm-deploy/internal/shared/i18n"
+	sharedlanguage "github.com/swarm-deploy/swarm-deploy/internal/shared/language"
 )
 
 // ManifestFile is the public path of the web application manifest.
@@ -86,7 +86,7 @@ func Prepare(uiFS fs.FS, locale string, pwaConfig config.WebPWASpec) ([]byte, er
 		manifest.ShortName = pwaConfig.ShortName
 	}
 
-	localizer, err := sharedi18n.New(locale, catalogs, "messages.en.json", "messages.ru.json")
+	localizer, err := sharedlanguage.New(locale, catalogs, "messages.en.json", "messages.ru.json")
 	if err != nil {
 		return nil, fmt.Errorf("load PWA texts: %w", err)
 	}

@@ -5,18 +5,20 @@ import (
 	"fmt"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/notifications/actions"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/notifications/notifiers"
 )
 
 type Subscriber struct {
-	notifier notifiers.Notifier
+	notifier      notifiers.Notifier
+	actionBuilder actions.Builder
 }
 
 func NewSubscriber(
-	notifier notifiers.Notifier,
+	notifier notifiers.Notifier, actionBuilder actions.Builder,
 ) *Subscriber {
 	return &Subscriber{
-		notifier: notifier,
+		notifier: notifier, actionBuilder: actionBuilder,
 	}
 }
 
@@ -33,8 +35,10 @@ func (s *Subscriber) Handle(ctx context.Context, envelope events.Envelope) error
 	if err != nil {
 		return fmt.Errorf("build notification payload: %w", err)
 	}
-	_, err = s.notifier.Notify(ctx, notifiers.Message{
-		Payload: payload,
-	})
+	message := notifiers.Message{Payload: payload}
+	if deployment, ok := payload.(DeploymentPayload); ok {
+		message.Actions = s.actionBuilder.Deployment(deployment.DeploymentID)
+	}
+	_, err = s.notifier.Notify(ctx, message)
 	return err
 }

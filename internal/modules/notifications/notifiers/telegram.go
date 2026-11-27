@@ -20,6 +20,7 @@ import (
 	"golang.org/x/net/proxy"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
+	notificationactions "github.com/swarm-deploy/swarm-deploy/internal/modules/notifications/actions"
 	notificationtemplate "github.com/swarm-deploy/swarm-deploy/internal/modules/notifications/template"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/tracing"
@@ -37,10 +38,6 @@ type TelegramOptions struct {
 	Message string
 	// DefaultMessage is the notification template used when Message is empty.
 	DefaultMessage string
-	// Buttons are URL button templates rendered with the message payload.
-	Buttons []notificationtemplate.ButtonSpec
-	// EditOnlyButtons limits inherited opening buttons to edits of the original message.
-	EditOnlyButtons bool
 	// ParseMode selects Telegram message entity parsing.
 	ParseMode string
 	// APIBaseURL is a base URL for Telegram Bot API.
@@ -52,19 +49,17 @@ type TelegramOptions struct {
 }
 
 type TelegramNotifier struct {
-	name            string
-	token           string
-	chatID          string
-	chatThreadID    int64
-	apiBaseURL      string
-	messageTmpl     *notificationtemplate.Renderer
-	buttonTemplates notificationtemplate.ButtonTemplates
-	editOnlyButtons bool
-	parseMode       string
-	retries         uint
-	retryOptions    []retry.Option
-	client          *http.Client
-	publisher       interface {
+	name         string
+	token        string
+	chatID       string
+	chatThreadID int64
+	apiBaseURL   string
+	messageTmpl  *notificationtemplate.Renderer
+	parseMode    string
+	retries      uint
+	retryOptions []retry.Option
+	client       *http.Client
+	publisher    interface {
 		Publish(context.Context, events.Event) error
 	}
 }
@@ -113,11 +108,6 @@ func newTelegramNotifier(name, token, chatID string, publisher interface {
 	if err != nil {
 		return nil, fmt.Errorf("build telegram message template: %w", err)
 	}
-	buttons, err := notificationtemplate.NewButtons(options.Buttons)
-	if err != nil {
-		return nil, fmt.Errorf("build telegram button templates: %w", err)
-	}
-
 	apiBaseURL := options.APIBaseURL
 	if apiBaseURL == "" {
 		apiBaseURL = "https://api.telegram.org"
@@ -134,18 +124,16 @@ func newTelegramNotifier(name, token, chatID string, publisher interface {
 	}
 
 	return &TelegramNotifier{
-		name:            name,
-		token:           token,
-		chatID:          chatID,
-		chatThreadID:    options.ChatThreadID,
-		apiBaseURL:      strings.TrimRight(apiBaseURL, "/"),
-		messageTmpl:     tmpl,
-		buttonTemplates: buttons,
-		editOnlyButtons: options.EditOnlyButtons,
-		parseMode:       options.ParseMode,
-		retries:         retries,
-		client:          client,
-		publisher:       publisher,
+		name:         name,
+		token:        token,
+		chatID:       chatID,
+		chatThreadID: options.ChatThreadID,
+		apiBaseURL:   strings.TrimRight(apiBaseURL, "/"),
+		messageTmpl:  tmpl,
+		parseMode:    options.ParseMode,
+		retries:      retries,
+		client:       client,
+		publisher:    publisher,
 	}, nil
 }
 
@@ -169,29 +157,15 @@ func (n *TelegramNotifier) Notify(ctx context.Context, event Message) (Receipt, 
 	if action == "" || event.TargetMessageID == 0 {
 		action = ActionSend
 	}
-	var buttons []notificationtemplate.Button
-	if !n.editOnlyButtons || action == ActionEdit {
-		buttonPayload := event.ButtonPayload
-		if buttonPayload == nil {
-			buttonPayload = event.Payload
-		}
-		buttons, err = n.buttonTemplates.Render(buttonPayload)
-		if err != nil {
-			return Receipt{}, fmt.Errorf("render telegram button templates: %w", err)
-		}
-	}
-	receipt, err := n.notifyAction(ctx, message, action, event.TargetMessageID, buttons)
+	receipt, err := n.notifyAction(ctx, message, action, event.TargetMessageID, event.Actions)
 	if errors.Is(err, ErrMessageReferenceInvalid) && action != ActionSend {
-		if n.editOnlyButtons {
-			buttons = nil
-		}
-		return n.notifyAction(ctx, message, ActionSend, 0, buttons)
+		return n.notifyAction(ctx, message, ActionSend, 0, event.Actions)
 	}
 	return receipt, err
 }
 
 func (n *TelegramNotifier) notifyAction(
-	ctx context.Context, message string, action Action, targetID int64, buttons []notificationtemplate.Button,
+	ctx context.Context, message string, action Action, targetID int64, actions []notificationactions.Action,
 ) (Receipt, error) {
 	payload := map[string]any{
 		"chat_id": n.chatID,
@@ -212,10 +186,10 @@ func (n *TelegramNotifier) notifyAction(
 	if n.chatThreadID > 0 && action != ActionEdit {
 		payload["message_thread_id"] = n.chatThreadID
 	}
-	if len(buttons) > 0 {
-		rows := make([][]notificationtemplate.Button, 0, len(buttons))
-		for i := range buttons {
-			rows = append(rows, buttons[i:i+1])
+	if len(actions) > 0 {
+		rows := make([][]notificationactions.Action, 0, len(actions))
+		for i := range actions {
+			rows = append(rows, actions[i:i+1])
 		}
 		payload["reply_markup"] = map[string]any{"inline_keyboard": rows}
 	}

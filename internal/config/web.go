@@ -5,6 +5,8 @@ import "github.com/artarts36/specw"
 type WebSpec struct {
 	// Address is an HTTP listen address for UI and API server.
 	Address string `yaml:"address"`
+	// Origin is the optional public HTTP origin used to build links to the web interface.
+	Origin string `yaml:"origin"`
 	// BasePath is the URL path prefix for UI and API routes.
 	BasePath string `yaml:"basePath"`
 	// PWA contains installed web application settings.

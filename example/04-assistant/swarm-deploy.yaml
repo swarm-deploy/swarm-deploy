@@ -161,7 +161,7 @@ notifications:
             message: "🟢 Node connected: {{ .ResourceID }}"
 
 system:
-  # Installation-wide web interface language: en (default) or ru.
+  # Installation-wide UI and generated-text language: en (default) or ru.
   language: en
 
   # OpenTelemetry tracing. Uncomment to enable.
@@ -199,6 +199,8 @@ deployments:
 web:
   # Single web server listen address for UI and API.
   address: ":8080"
+  # Optional public HTTP(S) origin used to build notification action links.
+  # origin: https://swarm-deploy.example
   # URL prefix for UI and API routes. Use / for root deployment.
   basePath: /
   # Optional names used when the web interface is installed as a PWA.

@@ -23,8 +23,8 @@ import (
 	eventbus "github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/outbox"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/notifications/actions"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/notifications/notifiers"
-	notificationtemplate "github.com/swarm-deploy/swarm-deploy/internal/modules/notifications/template"
 	"github.com/swarm-deploy/swarm-deploy/internal/storage"
 )
 
@@ -105,29 +105,20 @@ func TestTelegramAlertDeliveryReportsMessengerHealth(t *testing.T) {
 	assert.Equal(t, model.AlertStatusResolved, recovered.Status)
 }
 
-func TestAlertTelegramButtons(t *testing.T) {
-	const inheritedURL = "https://example.com/current/dep-2"
-	const resolvedURL = "https://example.com/resolved/dep-2"
-	resolvedButtons := []notificationtemplate.ButtonSpec{{
-		Text: "{{ .Resolution }}", URL: "https://example.com/resolved/{{ .DeploymentID }}",
-	}}
+func TestAlertTelegramActions(t *testing.T) {
 	for _, tt := range []struct {
-		name, action, wantURL string
-		buttons               []notificationtemplate.ButtonSpec
-		invalidEdit           bool
+		name, action string
+		invalidEdit  bool
 	}{
-		{name: "edit rerenders current opening template", action: "edit", wantURL: inheritedURL},
-		{name: "edit uses explicit resolution buttons", action: "edit", buttons: resolvedButtons, wantURL: resolvedURL},
-		{name: "edit clears buttons with an empty list", action: "edit", buttons: []notificationtemplate.ButtonSpec{}},
-		{name: "reply does not inherit", action: "reply"},
-		{name: "reply uses resolution buttons", action: "reply", buttons: resolvedButtons, wantURL: resolvedURL},
-		{name: "edit fallback drops inherited buttons", action: "edit", wantURL: inheritedURL, invalidEdit: true},
+		{name: "edit", action: "edit"},
+		{name: "reply", action: "reply"},
+		{name: "edit fallback", action: "edit", invalidEdit: true},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			type request struct {
 				Path   string
 				Markup *struct {
-					Rows [][]notificationtemplate.Button `json:"inline_keyboard"`
+					Rows [][]actions.Action `json:"inline_keyboard"`
 				} `json:"reply_markup"`
 			}
 			requests := make(chan request, 3)
@@ -151,15 +142,16 @@ func TestAlertTelegramButtons(t *testing.T) {
 			routes := spec.Alerts["NodeDisconnected"]
 			spec.Alerts["SyncFailed"] = routes
 			route := &routes.Telegram[0]
-			route.Opened.Buttons = []notificationtemplate.ButtonSpec{{Text: "Open", URL: "https://example.com/{{ .DeploymentID }}"}}
 			route.Resolved.Action = tt.action
-			route.Resolved.Buttons = tt.buttons
 			recipients := spec.AlertRecipients("sync_failed")
+			actionBuilder, err := actions.NewBuilder("https://example.com", "/swarm", "ru")
+			require.NoError(t, err)
 			subscriber := &Subscriber{
 				store: NewStore(db), outbox: outbox.New(db), db: db,
-				spec: spec, recipient: recipients[0], publisher: &eventbus.NopDispatcher{}, now: time.Now, apiBaseURL: server.URL,
+				spec: spec, recipient: recipients[0], publisher: &eventbus.NopDispatcher{},
+				now: time.Now, apiBaseURL: server.URL, actionBuilder: actionBuilder,
 			}
-			alert := events.AlertSnapshot{ID: "alert-1", Kind: "sync_failed", Title: "Sync failed", DeploymentID: "dep-1"}
+			alert := events.AlertSnapshot{ID: "alert/1", Kind: "sync_failed", Title: "Sync failed"}
 			require.NoError(t, subscriber.Handle(t.Context(), events.Envelope{Event: &events.AlertOpened{
 				Alert: alert, Recipients: recipients,
 			}}))
@@ -167,10 +159,10 @@ func TestAlertTelegramButtons(t *testing.T) {
 			opened := <-requests
 			assert.True(t, strings.HasSuffix(opened.Path, "/sendMessage"))
 			require.NotNil(t, opened.Markup)
-			assert.Equal(t, [][]notificationtemplate.Button{{{Text: "Open", URL: "https://example.com/dep-1"}}}, opened.Markup.Rows)
+			assert.Equal(t, [][]actions.Action{{{
+				Text: "Алерт", URL: "https://example.com/swarm/events?alert_id=alert%2F1&tab=alerts",
+			}}}, opened.Markup.Rows)
 
-			route.Opened.Buttons[0].URL = "https://example.com/current/{{ .DeploymentID }}"
-			alert.DeploymentID = "dep-2"
 			alert.Resolution = "Recovered"
 			require.NoError(t, subscriber.Handle(t.Context(), events.Envelope{Event: &events.AlertResolved{Alert: alert}}))
 			if tt.invalidEdit {
@@ -184,18 +176,13 @@ func TestAlertTelegramButtons(t *testing.T) {
 			} else {
 				assert.True(t, strings.HasSuffix(resolved.Path, "/sendMessage"))
 			}
-			if tt.wantURL == "" {
-				assert.Nil(t, resolved.Markup)
-			} else {
-				require.NotNil(t, resolved.Markup)
-				require.Len(t, resolved.Markup.Rows, 1)
-				require.Len(t, resolved.Markup.Rows[0], 1)
-				assert.Equal(t, tt.wantURL, resolved.Markup.Rows[0][0].URL)
-			}
+			require.NotNil(t, resolved.Markup)
+			assert.Equal(t, opened.Markup.Rows, resolved.Markup.Rows)
 			if tt.invalidEdit {
 				fallback := <-requests
 				assert.True(t, strings.HasSuffix(fallback.Path, "/sendMessage"))
-				assert.Nil(t, fallback.Markup)
+				require.NotNil(t, fallback.Markup)
+				assert.Equal(t, opened.Markup.Rows, fallback.Markup.Rows)
 			}
 		})
 	}
@@ -384,7 +371,7 @@ func TestRegisterIncludesFallbackAndCustomRecipientsForFutureAlertKinds(t *testi
 	}
 	repository := outbox.New(db)
 	bus := eventbus.NewOutboxDispatcher(repository)
-	require.NoError(t, Register(t.Context(), bus, repository, db, spec))
+	require.NoError(t, Register(t.Context(), bus, repository, db, spec, actions.Builder{}))
 	futureRecipients := spec.AlertRecipients("future_alert_kind")
 	require.Len(t, futureRecipients, 1)
 	require.NoError(t, bus.Publish(t.Context(), &events.AlertOpened{
@@ -416,7 +403,7 @@ func TestRegisterRecoversSubscriberFromRetainedDelivery(t *testing.T) {
 		},
 	}, []string{SubscriptionID(recipient)}, time.Now().UTC()))
 
-	require.NoError(t, Register(t.Context(), bus, repository, db, config.NotificationSpec{}))
+	require.NoError(t, Register(t.Context(), bus, repository, db, config.NotificationSpec{}, actions.Builder{}))
 	handled, err := bus.ProcessNext(t.Context())
 	require.NoError(t, err)
 	require.True(t, handled)
@@ -609,7 +596,8 @@ func TestRegisterPrunesMoreCompletedAlertsThanSQLiteParameterLimit(t *testing.T)
 		Alert: events.AlertSnapshot{ID: retainedID, Kind: "sync_failed", OpenedAt: now},
 	}, []string{"subscriber"}, now))
 
-	require.NoError(t, Register(ctx, eventbus.NewOutboxDispatcher(repository), repository, db, config.NotificationSpec{}))
+	bus := eventbus.NewOutboxDispatcher(repository)
+	require.NoError(t, Register(ctx, bus, repository, db, config.NotificationSpec{}, actions.Builder{}))
 	remaining, err := NewStore(db).CompletedAlertIDs(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, []string{retainedID}, remaining)
@@ -896,14 +884,7 @@ func TestGitAlertDefaultTelegramHTMLAndCustomTemplates(t *testing.T) {
 			require.NoError(t, err)
 			defer db.Close()
 			spec := alertSpec()
-			buttons := []notificationtemplate.ButtonSpec{{
-				Text: "{{ .ResourceID }}",
-				URL:  "https://example.com/repositories?repo={{ .ResourceID | urlquery }}",
-			}}
-			route := config.TelegramAlertChannel{
-				Opened:   config.AlertMessageSpec{Buttons: buttons},
-				Resolved: config.AlertMessageSpec{Buttons: buttons},
-			}
+			route := config.TelegramAlertChannel{}
 			if custom {
 				route.Opened.Message = "repo={{ .ResourceID }}"
 				route.Resolved.Message = "recovered={{ .ResourceID }}"
@@ -914,9 +895,6 @@ func TestGitAlertDefaultTelegramHTMLAndCustomTemplates(t *testing.T) {
 			type request struct {
 				Text      string `json:"text"`
 				ParseMode string `json:"parse_mode"`
-				Markup    struct {
-					Rows [][]notificationtemplate.Button `json:"inline_keyboard"`
-				} `json:"reply_markup"`
 			}
 			var received []request
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -945,12 +923,6 @@ func TestGitAlertDefaultTelegramHTMLAndCustomTemplates(t *testing.T) {
 				Alert: alert, Recipients: []events.AlertRecipient{recipient},
 			}}))
 			require.Len(t, received, 2)
-			for _, req := range received {
-				assert.Equal(t, [][]notificationtemplate.Button{{{
-					Text: alert.ResourceID,
-					URL:  "https://example.com/repositories?repo=example.com%2Forg%2F%3Crepo%3E%26test",
-				}}}, req.Markup.Rows)
-			}
 			if custom {
 				assert.Empty(t, received[0].ParseMode)
 				assert.Empty(t, received[1].ParseMode)

@@ -1,5 +1,5 @@
-// Package i18n provides the common backend localization mechanism.
-package i18n
+// Package language provides the common backend localization mechanism.
+package language
 
 import (
 	"encoding/json"
@@ -7,7 +7,7 @@ import (
 	"io/fs"
 
 	goi18n "github.com/nicksnyder/go-i18n/v2/i18n"
-	"golang.org/x/text/language"
+	xlanguage "golang.org/x/text/language"
 )
 
 // Localizer renders messages from a feature-owned catalog.
@@ -17,7 +17,7 @@ type Localizer struct {
 
 // New loads the provided catalogs and selects the installation locale.
 func New(locale string, catalogs fs.FS, paths ...string) (*Localizer, error) {
-	bundle := goi18n.NewBundle(language.English)
+	bundle := goi18n.NewBundle(xlanguage.English)
 	bundle.RegisterUnmarshalFunc("json", json.Unmarshal)
 	for _, path := range paths {
 		if _, err := bundle.LoadMessageFileFS(catalogs, path); err != nil {

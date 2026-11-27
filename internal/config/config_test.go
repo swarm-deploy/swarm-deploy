@@ -504,6 +504,7 @@ gitops:
 	cfg, err := Load(configPath)
 	require.NoError(t, err, "load config")
 	assert.Equal(t, defaultWebAddress, cfg.Spec.Web.Address, "expected web.address")
+	assert.Empty(t, cfg.Spec.Web.Origin, "expected web.origin")
 	assert.Equal(t, defaultWebBasePath, cfg.Spec.Web.BasePath, "expected web.basePath")
 	assert.Equal(t, defaultPWAName, cfg.Spec.Web.PWA.Name, "expected web.pwa.name")
 	assert.Equal(t, defaultPWAName, cfg.Spec.Web.PWA.ShortName, "expected web.pwa.shortName")
@@ -549,6 +550,47 @@ func TestValidateWebBasePath(t *testing.T) {
 
 			require.Error(t, err, "expected validation error")
 			assert.Contains(t, err.Error(), testCase.wantErr, "unexpected validation error")
+		})
+	}
+}
+
+func TestValidateWebOrigin(t *testing.T) {
+	testCases := []struct {
+		name, origin, wantErr string
+	}{
+		{name: "absent"},
+		{name: "https", origin: "https://swarm.example"},
+		{name: "http with port", origin: "http://swarm.example:8080"},
+		{name: "missing scheme", origin: "swarm.example", wantErr: "absolute HTTP or HTTPS origin"},
+		{name: "missing host", origin: "https://", wantErr: "absolute HTTP or HTTPS origin"},
+		{name: "unsupported scheme", origin: "ftp://swarm.example", wantErr: "must use http or https"},
+		{name: "user info", origin: "https://user@swarm.example", wantErr: "must not contain"},
+		{name: "path", origin: "https://swarm.example/swarm", wantErr: "must not contain"},
+		{name: "query", origin: "https://swarm.example?cluster=prod", wantErr: "must not contain"},
+		{name: "fragment", origin: "https://swarm.example#status", wantErr: "must not contain"},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			err := errors.Join((&Config{Spec: Spec{Web: WebSpec{Origin: testCase.origin, BasePath: "/"}}}).validateWeb()...)
+			if testCase.wantErr == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorContains(t, err, testCase.wantErr)
+		})
+	}
+}
+
+func TestNormalizeWebOrigin(t *testing.T) {
+	for _, testCase := range []struct{ input, want string }{
+		{input: "", want: ""},
+		{input: " https://swarm.example/ ", want: "https://swarm.example"},
+		{input: "https://swarm.example", want: "https://swarm.example"},
+		{input: "https://swarm.example//", want: "https://swarm.example//"},
+	} {
+		t.Run(fmt.Sprintf("%q", testCase.input), func(t *testing.T) {
+			assert.Equal(t, testCase.want, normalizeWebOrigin(testCase.input))
 		})
 	}
 }
