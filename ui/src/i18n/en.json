@@ -709,6 +709,7 @@
     "loadNetworksFailed": "Failed to load networks",
     "loadingDetails": "Loading network details...",
     "managed": "Managed",
+    "managedHint": "Managed by swarm-deploy GitOps through networks.yaml.",
     "metadata": "Network metadata",
     "noConnectedServices": "No connected services.",
     "noDetails": "Network details are unavailable.",
