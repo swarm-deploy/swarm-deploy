@@ -1,30 +1,16 @@
 package actions
 
 import (
+	"embed"
 	"fmt"
 	"net/url"
 	"strings"
+
+	sharedlanguage "github.com/swarm-deploy/swarm-deploy/internal/shared/language"
 )
 
-type actionKind string
-
-const (
-	actionDeployment actionKind = "deployment"
-	actionAlert      actionKind = "alert"
-	languageEnglish             = "en"
-	languageRussian             = "ru"
-)
-
-var actionLabels = map[string]map[actionKind]string{
-	languageEnglish: {
-		actionDeployment: "Open deployment",
-		actionAlert:      "Open alert",
-	},
-	languageRussian: {
-		actionDeployment: "Деплоймент",
-		actionAlert:      "Алерт",
-	},
-}
+//go:embed messages.en.json messages.ru.json
+var catalogs embed.FS
 
 // Action is a transport-neutral notification link.
 type Action struct {
@@ -36,21 +22,25 @@ type Action struct {
 
 // Builder creates transport-neutral actions for notification payloads.
 type Builder struct {
-	origin   *url.URL
-	basePath string
-	language string
+	origin    *url.URL
+	basePath  string
+	localizer *sharedlanguage.Localizer
 }
 
 // NewBuilder creates an action builder. An empty origin disables actions.
 func NewBuilder(origin, basePath, language string) (Builder, error) {
+	localizer, err := sharedlanguage.New(language, catalogs, "messages.en.json", "messages.ru.json")
+	if err != nil {
+		return Builder{}, fmt.Errorf("load notification action texts: %w", err)
+	}
 	if origin == "" {
-		return Builder{language: language}, nil
+		return Builder{localizer: localizer}, nil
 	}
 	parsed, err := url.Parse(origin)
 	if err != nil {
 		return Builder{}, fmt.Errorf("parse notification origin: %w", err)
 	}
-	return Builder{origin: parsed, basePath: basePath, language: language}, nil
+	return Builder{origin: parsed, basePath: basePath, localizer: localizer}, nil
 }
 
 // Deployment returns the action that opens a deployment in the web interface.
@@ -60,7 +50,7 @@ func (b Builder) Deployment(deploymentID string) []Action {
 	}
 	query := url.Values{"deployment_id": []string{deploymentID}}
 	return []Action{{
-		Text: b.label(actionDeployment), URL: b.buildURL("/deployments", query),
+		Text: b.localizer.Text("action.deployment"), URL: b.buildURL("/deployments", query),
 	}}
 }
 
@@ -70,7 +60,7 @@ func (b Builder) Alert(alertID string) []Action {
 		return nil
 	}
 	query := url.Values{"tab": []string{"alerts"}, "alert_id": []string{alertID}}
-	return []Action{{Text: b.label(actionAlert), URL: b.buildURL("/events", query)}}
+	return []Action{{Text: b.localizer.Text("action.alert"), URL: b.buildURL("/events", query)}}
 }
 
 func (b Builder) buildURL(route string, query url.Values) string {
@@ -82,12 +72,4 @@ func (b Builder) buildURL(route string, query url.Values) string {
 	}
 	target.RawQuery = query.Encode()
 	return target.String()
-}
-
-func (b Builder) label(kind actionKind) string {
-	labels, ok := actionLabels[b.language]
-	if !ok {
-		labels = actionLabels[languageEnglish]
-	}
-	return labels[kind]
 }
