@@ -60,6 +60,12 @@ func (r RepositoryReference) validateGitHubPath() error {
 	return nil
 }
 
+// SupportsGitHubPullRequests reports whether the Git remote identifies a repository for the GitHub PR API.
+func SupportsGitHubPullRequests(remote string) bool {
+	repo := parsePushRepository(remote)
+	return repo.isGitHub() && repo.validateGitHubPath() == nil
+}
+
 // ResolvePushRepository parses the write repository and configures its optional change request creator.
 func ResolvePushRepository(remote, token string) (RepositoryReference, ChangeRequestCreator, error) {
 	repo := parsePushRepository(remote)

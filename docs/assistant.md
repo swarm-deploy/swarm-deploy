@@ -208,6 +208,8 @@ The `system` section reports the effective `language`. In the `assistant` sectio
 
 GitOps settings describe the global policy. In webhook mode, local reconciliation still runs on a timer and periodic Git polling is disabled. For a question about self-heal on a particular stack, the assistant can check the global policy and available runtime evidence. The stack or service override requires separate evidence.
 
+The `gitops` section reports the configured Git authentication types for synchronization and proposal branch pushes. It also reports whether a GitHub write repository and PR API token are configured. The `hostings` section reports whether the separate GitHub API client for looking up releases has a token. Successful access requires evidence from the corresponding operation.
+
 Notification settings describe configured event channels and the route selected for each alert kind, including the fallback and the action on resolution. Telegram attempts include the initial attempt for each delivery action. Delivery success is a separate runtime fact. The assistant's in-memory context TTL only governs the cache. SQLite chat history is retained independently.
 
 Only explicitly selected fields from startup configuration are sent to the model. Tool logs and spans contain execution metadata, and the OpenAI completion trace omits the raw arguments and structured result of this tool. The assistant's answer can include the selected settings and is saved as normal chat history.
