@@ -4,14 +4,13 @@ import { computed, onUnmounted, ref, watch } from "vue";
 import { useRoute } from "vue-router";
 
 import { fetchNetwork } from "../api/cluster";
-import { fetchSwarmServices } from "../api/services";
-import type { NetworkInfo, SwarmService } from "../api/types";
+import { fetchServices } from "../api/services";
+import type { NetworkInfo, ServiceInfo } from "../api/types";
 import AppCopyButton from "../components/common/AppCopyButton.vue";
 import AppPanel from "../components/common/AppPanel.vue";
 import AppTable from "../components/common/AppTable.vue";
 import AppTableEmpty from "../components/common/AppTableEmpty.vue";
 import DeploymentIcon from "../components/overview/DeploymentIcon.vue";
-import ServiceReplicasBadge from "../components/services/ServiceReplicasBadge.vue";
 import { formatDate } from "../utils/format";
 
 const VXLAN_ID_OPTION = "com.docker.network.driver.overlay.vxlanid_list";
@@ -20,7 +19,7 @@ const ENCRYPTED_OPTION = "encrypted";
 const route = useRoute();
 const networkID = computed(() => String(route.params.network ?? ""));
 const network = ref<NetworkInfo | null>(null);
-const services = ref<SwarmService[] | null>(null);
+const services = ref<ServiceInfo[] | null>(null);
 const loading = ref(false);
 const loadError = ref("");
 const servicesError = ref("");
@@ -30,38 +29,29 @@ const connectedServices = computed(() => {
   const current = network.value;
   if (!current) return [];
 
-  const swarmServices = services.value ?? [];
-  const serviceByFullName = new Map(swarmServices.map((service) => [service.full_name, service]));
-  const serviceByName = new Map(swarmServices.map((service) => [service.name, service]));
-  const endpoints = new Map((current.services ?? []).map((service) => [service.name, service]));
-  const rows = new Map<string, {
+  const catalogServices = services.value ?? [];
+  const serviceByFullName = new Map(catalogServices.map((service) => [
+    service.stack ? `${service.stack}_${service.name}` : service.name,
+    service,
+  ]));
+  const rows: Array<{
     key: string;
     name: string;
     vip?: string;
-    service?: SwarmService;
-  }>();
+    service?: ServiceInfo;
+  }> = [];
 
   for (const endpoint of current.services ?? []) {
-    const service = serviceByFullName.get(endpoint.name) ?? serviceByName.get(endpoint.name);
-    const key = service?.id ?? `network-service-${endpoint.name}`;
-    rows.set(key, { key, name: service?.name ?? endpoint.name, vip: endpoint.vip, service });
-  }
-
-  for (const service of swarmServices) {
-    const attached = service.network_targets?.some((target) => target === current.id || target === current.name);
-    if (!attached || rows.has(service.id)) continue;
-
-    const endpoint = endpoints.get(service.full_name) ?? endpoints.get(service.name);
-    rows.set(service.id, {
-      key: service.id,
-      name: service.name,
-      vip: endpoint?.vip,
+    const service = serviceByFullName.get(endpoint.name);
+    rows.push({
+      key: endpoint.name,
+      name: service?.name ?? endpoint.name,
+      vip: endpoint.vip,
       service,
     });
   }
 
-  return [...rows.values()].sort((left, right) =>
-    (left.service?.full_name ?? left.name).localeCompare(right.service?.full_name ?? right.name));
+  return rows.sort((left, right) => left.key.localeCompare(right.key));
 });
 const isEncrypted = computed(() => Object.hasOwn(network.value?.options ?? {}, ENCRYPTED_OPTION));
 
@@ -86,14 +76,14 @@ async function load(): Promise<void> {
   loading.value = true;
   const [networkResult, servicesResult] = await Promise.allSettled([
     fetchNetwork(id),
-    fetchSwarmServices(),
+    fetchServices(),
   ]);
   if (current !== request) return;
 
   if (networkResult.status === "fulfilled") network.value = networkResult.value;
   else loadError.value = errorMessage(networkResult.reason, t("networks.loadDetailsFailed"));
   if (servicesResult.status === "fulfilled") services.value = servicesResult.value.services;
-  else servicesError.value = errorMessage(servicesResult.reason, t("networks.loadServicesFailed"));
+  else servicesError.value = errorMessage(servicesResult.reason, t("networks.loadCatalogFailed"));
   loading.value = false;
 }
 
@@ -178,16 +168,14 @@ onUnmounted(() => { request++; });
 
       <AppPanel tag="section" class="network-section network-services" aria-labelledby="network-services-title">
         <template #header><h3 id="network-services-title">{{ t('networks.connectedServices') }}</h3></template>
-        <p v-if="servicesError" class="meta" role="alert">{{ t('networks.loadServicesError', { error: servicesError }) }}</p>
+        <p v-if="servicesError" class="meta" role="alert">{{ t('networks.loadCatalogError', { error: servicesError }) }}</p>
         <AppTableEmpty v-if="!connectedServices.length" :message="t('networks.noConnectedServices')" />
-        <AppTable v-else class="network-services-table" min-width="700px" :aria-label="t('networks.connectedServices')">
-          <template #head><tr><th scope="col">{{ t('common.service') }}</th><th scope="col">{{ t('common.stack') }}</th><th scope="col">{{ t('networks.discovery') }}</th><th scope="col">{{ t('networks.address') }}</th><th scope="col">{{ t('common.replicas') }}</th></tr></template>
+        <AppTable v-else class="network-services-table" min-width="520px" :aria-label="t('networks.connectedServices')">
+          <template #head><tr><th scope="col">{{ t('common.service') }}</th><th scope="col">{{ t('common.stack') }}</th><th scope="col">{{ t('networks.address') }}</th></tr></template>
           <tr v-for="item in connectedServices" :key="item.key">
             <td class="network-service-name"><RouterLink v-if="item.service?.stack" class="service-inline-link" :to="{ name: 'service-details', params: { stack: item.service.stack, service: item.service.name } }">{{ item.name }}</RouterLink><strong v-else>{{ item.name }}</strong></td>
             <td class="network-service-stack"><RouterLink v-if="item.service?.stack" class="service-inline-link" :to="{ name: 'stack-details', params: { stack: item.service.stack } }">{{ item.service.stack }}</RouterLink><span v-else>{{ t('common.notApplicable') }}</span></td>
-            <td class="network-service-discovery">{{ item.service?.endpoint_mode?.toUpperCase() || t('common.notApplicable') }}</td>
             <td class="network-service-address"><code>{{ item.vip || t('common.notApplicable') }}</code></td>
-            <td class="network-service-replicas"><ServiceReplicasBadge v-if="item.service" :replicas="item.service.replicas" compact /><span v-else>{{ t('common.notApplicable') }}</span></td>
           </tr>
         </AppTable>
       </AppPanel>
@@ -224,12 +212,8 @@ onUnmounted(() => { request++; });
 .network-copy-value code { min-width: 0; overflow-wrap: anywhere; }
 .network-copy-value :deep(.app-copy-button) { margin-inline-start: auto; flex: none; }
 .network-services { min-width: 0; }
-.network-services-table :deep(.app-table th:nth-child(1)) { width: 25%; }
-.network-services-table :deep(.app-table th:nth-child(2)) { width: 20%; }
-.network-services-table :deep(.app-table th:nth-child(3)) { width: 15%; }
-.network-services-table :deep(.app-table th:nth-child(4)) { width: 22%; }
-.network-service-replicas { text-align: right; }
-.network-service-replicas :deep(.app-status-badge) { font-size: .7rem; }
+.network-services-table :deep(.app-table th:nth-child(1)) { width: 40%; }
+.network-services-table :deep(.app-table th:nth-child(2)) { width: 25%; }
 
 @container service-details-page (max-width: 680px) {
   .network-details-page { gap: 16px; }
@@ -245,9 +229,7 @@ onUnmounted(() => { request++; });
   .network-services-table :deep(td) { max-width: none; padding: 0; border: 0; overflow: visible; }
   .network-services-table :deep(tr + tr) { border-top: 1px solid var(--border-subtle); }
   .network-service-name { grid-column: 1; grid-row: 1; }
-  .network-service-replicas { grid-column: 2; grid-row: 1; }
   .network-service-stack { grid-column: 1; grid-row: 2; color: var(--muted); font-size: .74rem; }
-  .network-service-discovery { grid-column: 1; grid-row: 3; color: var(--muted); font-size: .74rem; }
-  .network-service-address { grid-column: 2; grid-row: 2 / span 2; align-self: end; color: var(--muted); font-size: .74rem; text-align: right; }
+  .network-service-address { grid-column: 2; grid-row: 1 / span 2; align-self: end; color: var(--muted); font-size: .74rem; text-align: right; }
 }
 </style>

@@ -7,11 +7,11 @@ import NetworkView from "./NetworkView.vue";
 
 const api = vi.hoisted(() => ({
   fetchNetwork: vi.fn(),
-  fetchSwarmServices: vi.fn(),
+  fetchServices: vi.fn(),
 }));
 
 vi.mock("../api/cluster", () => ({ fetchNetwork: api.fetchNetwork }));
-vi.mock("../api/services", () => ({ fetchSwarmServices: api.fetchSwarmServices }));
+vi.mock("../api/services", () => ({ fetchServices: api.fetchServices }));
 
 const blank = { template: "<div />" };
 
@@ -64,17 +64,15 @@ beforeEach(() => {
     services: [{ name: "app_api", vip: "10.0.1.10" }],
     peers: [{ name: "node-a", ip: "192.0.2.1" }],
   });
-  api.fetchSwarmServices.mockResolvedValue({
+  api.fetchServices.mockResolvedValue({
     services: [
       {
-        id: "service-id", name: "api", full_name: "app_api", stack: "app", image: "api:v1",
-        mode: "replicated", replicas: { running: 2, desired: 2 }, updated_at: "2026-11-27T18:00:00Z",
-        endpoint_mode: "vip", network_targets: ["different-network"],
+        name: "api", stack: "app", image: "api:v1", image_version: "v1",
+        sync_status: "Synced", type: "application", type_title: "Application",
       },
       {
-        id: "other-id", name: "other", full_name: "app_other", stack: "app", image: "other:v1",
-        mode: "replicated", replicas: { running: 1, desired: 1 }, updated_at: "2026-11-27T18:00:00Z",
-        endpoint_mode: "vip", network_targets: ["other-network"],
+        name: "other", stack: "app", image: "other:v1", image_version: "v1",
+        sync_status: "Synced", type: "application", type_title: "Application",
       },
     ],
   });
@@ -105,19 +103,19 @@ describe("NetworkView", () => {
     expect(services.text()).not.toContain("other");
     expect(services.get('a[href="/services/app/api"]').text()).toBe("api");
     expect(services.get('a[href="/stacks/app"]').text()).toBe("app");
-    expect(services.text()).toContain("VIP");
     expect(services.text()).toContain("10.0.1.10");
-    expect(services.text()).toContain("2/2");
+    expect(services.text()).not.toContain("Replicas");
+    expect(services.text()).not.toContain("Discovery");
 
     expect(wrapper.find(".network-diagnostics").exists()).toBe(false);
   });
 
   it("keeps network-inspect services available when service enrichment fails", async () => {
-    api.fetchSwarmServices.mockRejectedValueOnce(new Error("Swarm unavailable"));
+    api.fetchServices.mockRejectedValueOnce(new Error("Catalog unavailable"));
     const wrapper = await mountPage();
 
     expect(wrapper.get(".network-heading h2").text()).toBe("app_backend");
-    expect(wrapper.get('[role="alert"]').text()).toContain("Swarm unavailable");
+    expect(wrapper.get('[role="alert"]').text()).toContain("Catalog unavailable");
     expect(wrapper.get('table[aria-label="Connected services"]').text()).toContain("app_api");
     expect(wrapper.get('table[aria-label="Connected services"]').text()).toContain("10.0.1.10");
   });
