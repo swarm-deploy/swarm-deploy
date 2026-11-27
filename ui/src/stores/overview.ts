@@ -6,8 +6,6 @@ import {
   fetchAlert,
   fetchGitCommit,
   fetchDeployment,
-  fetchServiceDeployments,
-  fetchServiceStatus,
   fetchStackManifestos,
   fetchStacks,
   triggerSync,
@@ -18,7 +16,6 @@ import type {
   Deployment,
   GitCommitDetailsResponse,
   ServiceInfo,
-  ServiceStatusResponse,
   StackView,
   SyncInfo,
 } from "../api/types";
@@ -30,13 +27,6 @@ interface OverviewState {
   loading: boolean;
   loadingError: string;
   syncPending: boolean;
-  serviceStatusData: ServiceStatusResponse | null;
-  serviceStatusLoading: boolean;
-  serviceStatusError: string;
-  serviceStatusModalOpen: boolean;
-  serviceStatusStack: string;
-  serviceStatusService: string;
-  serviceStatusLatestDeploymentAt: string;
   commitDetailsData: GitCommitDetailsResponse | null;
   commitDetailsLoading: boolean;
   commitDetailsError: string;
@@ -70,13 +60,6 @@ export const useOverviewStore = defineStore("overview", {
     loading: false,
     loadingError: "",
     syncPending: false,
-    serviceStatusData: null,
-    serviceStatusLoading: false,
-    serviceStatusError: "",
-    serviceStatusModalOpen: false,
-    serviceStatusStack: "",
-    serviceStatusService: "",
-    serviceStatusLatestDeploymentAt: "",
     commitDetailsData: null,
     commitDetailsLoading: false,
     commitDetailsError: "",
@@ -149,45 +132,6 @@ export const useOverviewStore = defineStore("overview", {
       } finally {
         this.syncPending = false;
       }
-    },
-    async openServiceStatusModal(stackName: string, serviceName: string) {
-      this.serviceStatusModalOpen = true;
-      this.serviceStatusLoading = true;
-      this.serviceStatusError = "";
-      this.serviceStatusData = null;
-      this.serviceStatusStack = stackName;
-      this.serviceStatusService = serviceName;
-      this.serviceStatusLatestDeploymentAt = "";
-
-      try {
-        const [statusResult, deploymentsResult] = await Promise.allSettled([
-          fetchServiceStatus(stackName, serviceName),
-          fetchServiceDeployments(stackName, serviceName, 1),
-        ]);
-
-        if (statusResult.status === "fulfilled") {
-          this.serviceStatusData = statusResult.value;
-        } else {
-          throw statusResult.reason;
-        }
-
-        if (deploymentsResult.status === "fulfilled") {
-          this.serviceStatusLatestDeploymentAt = deploymentsResult.value.deployments.at(0)?.created_at ?? "";
-        }
-      } catch (error) {
-        this.serviceStatusError = error instanceof Error ? error.message : t("service.loadStatusFailedFallback");
-      } finally {
-        this.serviceStatusLoading = false;
-      }
-    },
-    closeServiceStatusModal() {
-      this.serviceStatusModalOpen = false;
-      this.serviceStatusData = null;
-      this.serviceStatusError = "";
-      this.serviceStatusLoading = false;
-      this.serviceStatusStack = "";
-      this.serviceStatusService = "";
-      this.serviceStatusLatestDeploymentAt = "";
     },
     async openCommitDetailsModal(commitHash: string) {
       this.commitDetailsModalOpen = true;
