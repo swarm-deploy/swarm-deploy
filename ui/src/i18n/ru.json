@@ -694,7 +694,7 @@
   },
   "networks": {
     "allStacks": "Все стеки",
-    "attachable": "Подключаемая",
+    "attachable": "Attachable",
     "connectedServices": "Подключённые сервисы",
     "copyId": "Скопировать ID сети",
     "details": "Сведения о сети",
