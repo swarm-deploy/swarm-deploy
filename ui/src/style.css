@@ -1556,7 +1556,7 @@ body {
 .assistant-reply-actions {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 0;
   margin-top: 4px;
   /* Align the copy glyph with the reply text while keeping the full button hit area. */
   margin-inline-start: -8px;
@@ -1566,6 +1566,11 @@ body {
   width: 28px;
   height: 28px;
   flex-basis: 28px;
+}
+
+.assistant-share-button svg {
+  width: 14px;
+  height: 14px;
 }
 
 .assistant-share-button:focus-visible {
