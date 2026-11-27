@@ -52,6 +52,17 @@ describe("SecretsView sorting", () => {
     vi.mocked(fetchSecretManagers).mockResolvedValue({ secret_managers: [] });
   });
 
+  it("filters secrets by the initial search value", async () => {
+    const wrapper = mount(SecretsView, {
+      props: { initialSearch: "Bravo" },
+      global: { plugins: [createPinia()] },
+    });
+    await flushPromises();
+
+    expect(wrapper.get<HTMLInputElement>(".secrets-search-input").element.value).toBe("Bravo");
+    expect(renderedNames(wrapper)).toEqual(["Bravo"]);
+  });
+
   it.each([
     { label: "Name", ascending: ["Alpha", "Bravo", "Charlie"], descending: ["Charlie", "Bravo", "Alpha"] },
     { label: "Description", ascending: ["Bravo", "Charlie", "Alpha"], descending: ["Alpha", "Charlie", "Bravo"] },
