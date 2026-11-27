@@ -178,7 +178,7 @@ Path: `internal/modules/resources`.
 
 - Catalog projections are eventually consistent, not authoritative deployment completion or continuous live health. Preserve source receipts/current-baseline checks during replay.
 - Use Swarm managers for Docker operations. Keep external secret creation and synchronization separate; `Create` does not imply `Sync`.
-- Subscriber-owned SQL is a known issue, not a pattern for new consumers.
+- Catalog receipt and replacement SQL belongs to the Resources repository; subscribers coordinate repository operations and event publication.
 
 ## Recommendations
 
@@ -257,10 +257,8 @@ below describe their current role and the established constraints to preserve.
 These observations do not authorize refactoring. Preserve behavior within task scope;
 do not expand a violation or choose a new owner without explicit approval.
 
-1. **Existing persistence-boundary violation/coupling:** `resources/service/subscriber.go`
-   constructs receipt SQL and directly reads Deployments' `desired_snapshots`, contrary
-   to `go.md`'s repository rule. `notifications/alerts/store.go` reads Event's
-   `outbox_events` payload/schema for routing and cleanup, and uses raw cleanup SQL.
+1. **Existing persistence-boundary violation/coupling:** `notifications/alerts/store.go`
+   reads Event's `outbox_events` payload/schema for routing and cleanup, and uses raw cleanup SQL.
    **Clarification:** what repository contracts should expose these cross-module checks?
    Do not treat access to the shared database as ownership of another module's tables.
 3. **Resolved: Event/Notifications assembly boundary.** See [Event](#event) and

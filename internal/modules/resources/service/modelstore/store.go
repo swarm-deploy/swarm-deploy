@@ -12,6 +12,10 @@ type Store interface {
 	ReadAll(ctx context.Context) ([]model.Info, error)
 	// Get returns saved service metadata by stack and service names.
 	Find(ctx context.Context, stackName string, serviceName string) (model.Info, bool, error)
+	// ReplaceStackOnce replaces stack services unless the source event was already applied.
+	ReplaceStackOnce(
+		ctx context.Context, sourceEventID string, stackName string, services []model.Info,
+	) (bool, error)
 	// ReplaceStack replaces stack services with a new snapshot and saves it to disk.
 	ReplaceStack(ctx context.Context, stackName string, services []model.Info) error
 }

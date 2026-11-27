@@ -70,6 +70,39 @@ func (s *SQLStore) Find(ctx context.Context, stack, name string) (model.Info, bo
 	return row.toInfo(stack, name), true, nil
 }
 
+// ReplaceStackOnce replaces one stack's catalog for a source event at most once.
+func (s *SQLStore) ReplaceStackOnce(
+	ctx context.Context, sourceEventID string, stack string, services []model.Info,
+) (bool, error) {
+	var accepted bool
+	err := s.db.WithinTransaction(ctx, func(ctx context.Context) error {
+		query, args, err := s.db.Dialect().Insert("service_catalog_receipts").Prepared(true).
+			Rows(goqu.Record{"source_event_id": sourceEventID}).
+			OnConflict(goqu.DoNothing()).
+			ToSQL()
+		if err != nil {
+			return err
+		}
+		result, err := s.db.Exec(ctx, query, args...)
+		if err != nil {
+			return err
+		}
+		inserted, err := result.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if inserted == 0 {
+			return nil
+		}
+		if err = s.ReplaceStack(ctx, stack, services); err != nil {
+			return fmt.Errorf("persist services for stack %s: %w", stack, err)
+		}
+		accepted = true
+		return nil
+	})
+	return accepted, err
+}
+
 // ReplaceStack atomically replaces one stack's service metadata.
 func (s *SQLStore) ReplaceStack(ctx context.Context, stack string, services []model.Info) error {
 	return s.db.WithinTransaction(ctx, func(ctx context.Context) error {
