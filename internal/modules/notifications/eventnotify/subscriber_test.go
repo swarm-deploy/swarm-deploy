@@ -55,7 +55,7 @@ func TestSubscriberAddsDeploymentAction(t *testing.T) {
 			Services: []DeploymentService{{Name: "api", Image: "api:1"}}, OccurredAt: time.Time{}.UTC(),
 		},
 		Actions: []actions.Action{{
-			Text: "Открыть деплоймент", URL: "https://swarm.example/swarm/deployments?deployment_id=deployment-1",
+			Text: "Деплоймент", URL: "https://swarm.example/swarm/deployments?deployment_id=deployment-1",
 		}},
 	}).Return(notifiers.Receipt{}, nil)
 

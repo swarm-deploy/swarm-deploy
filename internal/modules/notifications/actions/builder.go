@@ -42,7 +42,7 @@ func (b Builder) Deployment(deploymentID string) []Action {
 	}
 	query := url.Values{"deployment_id": []string{deploymentID}}
 	return []Action{{
-		Text: b.text("Open deployment", "Открыть деплоймент"), URL: b.buildURL("/deployments", query),
+		Text: b.text("Open deployment", "Деплоймент"), URL: b.buildURL("/deployments", query),
 	}}
 }
 
@@ -52,7 +52,7 @@ func (b Builder) Alert(alertID string) []Action {
 		return nil
 	}
 	query := url.Values{"tab": []string{"alerts"}, "alert_id": []string{alertID}}
-	return []Action{{Text: b.text("Open alert", "Открыть алерт"), URL: b.buildURL("/events", query)}}
+	return []Action{{Text: b.text("Open alert", "Алерт"), URL: b.buildURL("/events", query)}}
 }
 
 func (b Builder) buildURL(route string, query url.Values) string {

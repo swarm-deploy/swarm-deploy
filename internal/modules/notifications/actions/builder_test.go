@@ -32,10 +32,10 @@ func TestBuilder(t *testing.T) {
 			name: "Russian base path", origin: "https://swarm.example:8443", basePath: "/infrastructure/swarm", language: "ru",
 			deploymentID: "deployment-1", alertID: "alert-1",
 			wantDeployment: []Action{{
-				Text: "Открыть деплоймент", URL: "https://swarm.example:8443/infrastructure/swarm/deployments?deployment_id=deployment-1",
+				Text: "Деплоймент", URL: "https://swarm.example:8443/infrastructure/swarm/deployments?deployment_id=deployment-1",
 			}},
 			wantAlert: []Action{{
-				Text: "Открыть алерт", URL: "https://swarm.example:8443/infrastructure/swarm/events?alert_id=alert-1&tab=alerts",
+				Text: "Алерт", URL: "https://swarm.example:8443/infrastructure/swarm/events?alert_id=alert-1&tab=alerts",
 			}},
 		},
 	}

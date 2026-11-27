@@ -159,7 +159,7 @@ func TestAlertTelegramActions(t *testing.T) {
 			assert.True(t, strings.HasSuffix(opened.Path, "/sendMessage"))
 			require.NotNil(t, opened.Markup)
 			assert.Equal(t, [][]actions.Action{{{
-				Text: "Открыть алерт", URL: "https://example.com/swarm/events?alert_id=alert%2F1&tab=alerts",
+				Text: "Алерт", URL: "https://example.com/swarm/events?alert_id=alert%2F1&tab=alerts",
 			}}}, opened.Markup.Rows)
 
 			alert.Resolution = "Recovered"
