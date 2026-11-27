@@ -1,6 +1,12 @@
 package config
 
-import "github.com/artarts36/specw"
+import (
+	"regexp"
+
+	"github.com/artarts36/specw"
+)
+
+var ntfyTopicPattern = regexp.MustCompile(`^[-_A-Za-z0-9]{1,64}$`)
 
 type WebSpec struct {
 	// Address is an HTTP listen address for UI and API server.
@@ -20,6 +26,8 @@ type WebPWASpec struct {
 	Name string `yaml:"name"`
 	// ShortName is the installed web application name used when space is limited.
 	ShortName string `yaml:"shortName"`
+	// NtfyTopic enables browser notifications for this ntfy topic when set.
+	NtfyTopic string `yaml:"ntfyTopic"`
 }
 
 type WebUISpec struct {

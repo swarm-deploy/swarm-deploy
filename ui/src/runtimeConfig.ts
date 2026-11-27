@@ -3,6 +3,7 @@ export type Locale = "en" | "ru";
 interface RuntimeConfig {
   basePath?: string;
   locale?: string;
+  ntfyTopic?: string;
 }
 
 const runtimeConfigElementID = "swarm-deploy-runtime-config";
@@ -23,6 +24,10 @@ function readRuntimeConfig(): RuntimeConfig {
 export function getWebBasePath(): string {
   const basePath = String(readRuntimeConfig().basePath || "/").trim();
   return basePath === "/" ? "/" : basePath.replace(/\/+$/, "");
+}
+
+export function getNtfyTopic(): string {
+  return readRuntimeConfig().ntfyTopic ?? "";
 }
 
 export function getLocale(): Locale {

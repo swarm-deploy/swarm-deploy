@@ -164,6 +164,7 @@ web:
   # pwa:
   #   name: "My Cluster"
   #   shortName: "mc"
+  #   ntfyTopic: swarm-deploy
   # Optional links in the Fields tab of parsed task logs. Use the exact field
   # name and an absolute HTTP(S) URL. The UI replaces {value} with the encoded field value.
   # ui:

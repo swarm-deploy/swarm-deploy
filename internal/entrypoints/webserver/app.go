@@ -47,7 +47,7 @@ func buildSPAFallbackHandler(uiFS fs.FS, basePath, locale string, pwaConfig conf
 	if indexErr != nil {
 		panic(fmt.Errorf("read embedded index.html: %w", indexErr))
 	}
-	indexBytes = injectRuntimeConfig(indexBytes, basePath, locale)
+	indexBytes = injectRuntimeConfig(indexBytes, basePath, locale, pwaConfig.NtfyTopic)
 	manifestBytes, manifestErr := pwa.Prepare(uiFS, locale, pwaConfig)
 	if manifestErr != nil {
 		panic(manifestErr)
@@ -96,16 +96,17 @@ func buildSPAFallbackHandler(uiFS fs.FS, basePath, locale string, pwaConfig conf
 	})
 }
 
-func injectRuntimeConfig(indexBytes []byte, basePath, locale string) []byte {
+func injectRuntimeConfig(indexBytes []byte, basePath, locale, ntfyTopic string) []byte {
 	baseHref := basePath
 	if baseHref != "/" {
 		baseHref += "/"
 	}
 
 	runtimeConfig, err := json.Marshal(struct {
-		BasePath string `json:"basePath"`
-		Locale   string `json:"locale"`
-	}{BasePath: basePath, Locale: locale}, jsontext.EscapeForHTML(true), jsontext.EscapeForJS(true))
+		BasePath  string `json:"basePath"`
+		Locale    string `json:"locale"`
+		NtfyTopic string `json:"ntfyTopic,omitempty"`
+	}{BasePath: basePath, Locale: locale, NtfyTopic: ntfyTopic}, jsontext.EscapeForHTML(true), jsontext.EscapeForJS(true))
 	if err != nil {
 		panic(fmt.Errorf("encode UI runtime config: %w", err))
 	}

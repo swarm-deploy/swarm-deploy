@@ -1,4 +1,11 @@
 {
+  "webPush": {
+    "enable": "Enable notifications",
+    "disable": "Disable notifications",
+    "blocked": "Notifications blocked in browser",
+    "error": "Could not update push notifications. Check the connection and try again.",
+    "renew": "Open the app to renew notifications."
+  },
   "activity": {
     "allCategories": "All categories",
     "allSeverities": "All severities",

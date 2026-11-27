@@ -243,3 +243,25 @@ notifications:
             action: edit
             message: "✅ Synchronization recovered: {{ .ResourceID }}"
 ```
+
+## Web Push with ntfy
+
+Set `web.pwa.ntfyTopic` to an ntfy topic. Users can then enable notifications
+on the Events & Alerts page. The default (empty) disables the integration. Each
+browser opts in independently. Use HTTPS. On iOS, open the installed home-screen
+app. The PWA refreshes an existing subscription on startup.
+
+Route exactly `<web.basePath>/ntfy/v1/config` (GET) and
+`<web.basePath>/ntfy/v1/webpush` (POST/DELETE) through the app's authenticated
+reverse proxy to ntfy's corresponding `/v1/...` endpoints. Restrict topic read
+access to the intended users and keep publishing on the server side. ntfy owns
+the VAPID keys, subscription storage and expiry. This integration uses the web
+client API of ntfy 2.38.2. Keep ntfy’s web root enabled internally so its
+subscription API accepts requests. A device subscription survives signing out
+of the app. Use **Disable notifications** to revoke it on a shared device.
+
+Publish events using the existing `notifications.events.<event>.custom` route.
+A push displays ntfy's title and message; tapping it opens the native `click`
+URL within the app, or Events & Alerts by default. To build a link from webhook
+fields, an ntfy template can render the message as JSON with string fields
+`body` and `url`. Relative links resolve against the app's base path.

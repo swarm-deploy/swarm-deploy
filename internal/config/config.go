@@ -739,6 +739,9 @@ func (c *Config) validate() error {
 }
 
 func (c *Config) validateWeb() []error {
+	if topic := c.Spec.Web.PWA.NtfyTopic; topic != "" && !ntfyTopicPattern.MatchString(topic) {
+		return []error{errors.New("web.pwa.ntfyTopic must contain 1 to 64 letters, digits, underscores or hyphens")}
+	}
 	basePath := c.Spec.Web.BasePath
 	if !strings.HasPrefix(basePath, "/") {
 		return []error{errors.New("web.basePath must start with /")}
