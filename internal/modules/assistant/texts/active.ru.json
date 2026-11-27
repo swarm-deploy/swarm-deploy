@@ -72,7 +72,7 @@
     "other": "Установить {{.Count}} реплики для `{{.Service}}` в стеке `{{.Stack}}`?"
   },
   "operation.confirm_restart": "Перезапустить `{{.Service}}` в стеке `{{.Stack}}`?",
-  "operation.confirm_image_pin": "Закрепить запущенный образ `{{.Stack}}/{{.Service}}` в Git? Запущенных задач: {{.Count}}. Текущее значение image в Git: `{{.CurrentImage}}`. Предлагаемое значение: `{{.ProposedImage}}`.",
+  "operation.confirm_image_pin": "**Создать предложение для закрепления запущенного образа в Git?**\n\n**Сервис:** `{{.Stack}}/{{.Service}}`\n**Запущенных задач: {{.Count}}**\n\n**Сейчас в Git**\n\n`{{.CurrentImage}}`\n\n**Предлагаемое значение**\n\n`{{.ProposedImage}}`",
   "policy.source_service": "меткой сервиса",
   "policy.source_stack": "политикой стека",
   "policy.source_global": "глобальной политикой",
