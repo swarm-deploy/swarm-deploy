@@ -47,6 +47,7 @@ var capabilityProfiles = map[Capability]CapabilityProfile{
 		Tools: []string{string(config.AssistantToolNameSwarmDeployConfigGet)},
 	},
 	CapabilityServiceContext: {
+		Tools:          []string{string(config.AssistantToolNameServiceList)},
 		ServiceContext: true,
 	},
 	CapabilityServiceRuntime: {

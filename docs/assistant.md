@@ -114,6 +114,9 @@ The response contains ascending `buckets` with `start`, `input_tokens`, `output_
 - `docker_network_list` - returns current Docker networks snapshot (`name`, `scope`, `driver`, `internal`, `attachable`, `ingress`, `labels`)
 - `docker_plugin_list` - returns current Docker plugins snapshot (`id`, `name`, `description`, `enabled`, `plugin_reference`, `capabilities`)
 - `docker_secret_list` - returns current Docker secrets snapshot (`id`, `name`, `created_at`, `updated_at`, `driver`, `labels`)
+- `service_list` - returns compact service catalog entries in stack/name order
+  - optional `stack` filter; `limit` defaults to `50` and is capped at `100`; use `next_offset` as `offset` to access more services
+  - each entry contains `stack`, `name`, `type`, `description`, and resolved public `web_routes` when available
 - `service_logs_get` - returns bounded recent logs for a stack service
 - `service_task_list` - returns all Docker Swarm task states for a stack service, newest first
   - requires `stack_name` and `service_name`; `limit` defaults to `20` and is capped at `100`; use `next_offset` as `offset` to access older tasks

@@ -235,11 +235,11 @@ Routes:
 - out_of_scope: clear requested outcome with no supported part
 - needs_clarification: the requested outcome or its connection to a supported goal remains unclear after considering the conversation
 - platform: questions about swarm-deploy and its built-in assistant, including features, usage, product behavior, feedback, bug reports, and feature requests. Also covers running global configuration and practical infrastructure guidance: installing components, monitoring, deployment patterns, and Docker Swarm concepts
-- services: service catalog or service-focused inspection/operations
+- services: service catalog or service-focused inspection/operations, including finding a configured web link or route for a service
 - cluster: nodes, Docker networks, plugins, or secrets
 - deployments: synchronization, deployment/event history, recommendations, git history, or commit diffs
 - diagnostics: investigation of failures or availability across runtime data sources
-- lookups: focused DNS, TLS, registry, external release, date/time, or application metrics lookup
+- lookups: focused DNS, TLS, registry, external release, date/time, or application metrics lookup. Returning a configured service link is services, not lookups
 Capabilities:
 - service_context: retrieve service.store metadata with service name, stack, image, description, type, and web routes
 - service_runtime: read-only service health snapshot (tasks, open alerts, latest deployment), logs, specs, web-route ping, or dependencies
@@ -271,6 +271,7 @@ Examples:
 "Как пожаловаться на работу swarm-deploy?" -> {"route":"platform","capabilities":[],"operation":null}
 "Где находится Юпитер?" -> {"route":"out_of_scope","capabilities":[],"operation":null}
 "Покажи логи api" -> {"route":"services","capabilities":["service_context","service_runtime"],"operation":null}
+"Дай ссылку на графану" -> {"route":"services","capabilities":["service_context"],"operation":null}
 "Проверь DNS api.example.com" -> {"route":"lookups","capabilities":["dns"],"operation":null}
 "Когда истекает TLS-сертификат api.example.com?" -> {"route":"lookups","capabilities":["tls"],"operation":null}
 "Why does TLS certificate validation fail on 10.0.0.15:8443?" -> {"route":"diagnostics","capabilities":["tls"],"operation":null}

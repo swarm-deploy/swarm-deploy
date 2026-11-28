@@ -9,6 +9,11 @@ import (
 )
 
 func TestOperationalToolCapabilitiesAndDefaultRoutes(t *testing.T) {
+	serviceContextProfile, ok := capabilityProfile(CapabilityServiceContext)
+	require.True(t, ok)
+	assert.Equal(t, []string{string(config.AssistantToolNameServiceList)}, serviceContextProfile.Tools)
+	assert.True(t, serviceContextProfile.ServiceContext)
+
 	serviceRuntimeProfile, ok := capabilityProfile(CapabilityServiceRuntime)
 	require.True(t, ok)
 	assert.Contains(t, serviceRuntimeProfile.Tools, "service_task_list")
@@ -68,4 +73,10 @@ func TestServiceDeploymentFailureCanComposeOperationalCapabilities(t *testing.T)
 	assert.True(t, hasCapability(capabilities, CapabilityDeploymentHistory))
 	assert.True(t, hasCapability(capabilities, CapabilityAlertManagement))
 	assert.Contains(t, routerSystemPrompt, "Почему упал деплой infra-monitoring?")
+}
+
+func TestRouterPromptRoutesServiceLinksToServiceContext(t *testing.T) {
+	assert.Contains(t, routerSystemPrompt,
+		`"Дай ссылку на графану" -> {"route":"services","capabilities":["service_context"],"operation":null}`)
+	assert.Contains(t, routerSystemPrompt, "Returning a configured service link is services, not lookups")
 }
