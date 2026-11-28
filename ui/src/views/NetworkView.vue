@@ -221,6 +221,7 @@ onUnmounted(() => {
 .network-services { min-width: 0; }
 .network-services-table :deep(.app-table th:nth-child(1)) { width: 40%; }
 .network-services-table :deep(.app-table th:nth-child(2)) { width: 25%; }
+.network-service-name .service-inline-link { font-weight: 600; }
 
 @container service-details-page (max-width: 680px) {
   .network-details-page { gap: 16px; }
