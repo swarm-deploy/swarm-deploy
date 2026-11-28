@@ -84,13 +84,12 @@ const stackAnchor = computed(() => `stack-${encodeURIComponent(props.stack.name)
         :data-tooltip="t('stack.compareState')"
         @click.stop="emit('compare', stack.name)"
       >
-        <svg class="overview-stack-card-action-icon overview-stack-card-compare-icon" viewBox="0 0 28 24" aria-hidden="true">
-          <path d="M11 2H5L2 5v14h5" />
-          <path d="M2 5h3V2M5 8h5M4 11h4M4 14h3" />
-          <path d="M17 2h6l3 3v14h-5" />
-          <path d="M23 2v3h3M18 8h5M20 11h4M21 14h3" />
-          <circle cx="14" cy="14" r="6.5" />
-          <path d="M14 20.5V23" />
+        <svg class="overview-stack-card-action-icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16h7" />
+          <path d="M14 2v4h4M14 2l4 4v5" />
+          <path d="M8 9h6M8 12h3" />
+          <circle cx="15" cy="15" r="4.5" />
+          <path d="m18.25 18.25 3.25 3.25" />
         </svg>
       </button>
       <button
@@ -130,7 +129,6 @@ const stackAnchor = computed(() => `stack-${encodeURIComponent(props.stack.name)
   stroke-linecap: round;
   stroke-linejoin: round;
 }
-.overview-stack-card-compare-icon { width: 26px; }
 .overview-stack-card-action.app-tooltip::after {
   top: auto;
   bottom: calc(100% + 6px);
