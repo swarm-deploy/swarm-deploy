@@ -8553,7 +8553,7 @@ type StackView struct {
 	SourceDigest              OptString   `json:"source_digest"`
 	EffectivelyPausedServices OptInt      `json:"effectively_paused_services"`
 	// Whether synchronization is paused for the entire stack.
-	StackPauseActive          OptBool     `json:"stack_pause_active"`
+	StackPauseActive OptBool `json:"stack_pause_active"`
 }
 
 // GetName returns the value of Name.
