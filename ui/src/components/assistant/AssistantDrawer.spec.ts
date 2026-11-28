@@ -1029,6 +1029,7 @@ describe("Assistant artifacts", () => {
     expect(primaryLink.text()).toBe("PR #42");
     expect(primaryLink.attributes("href")).toBe("https://example.com/pull/42");
     expect(primaryLink.attributes("target")).toBe("_blank");
+    expect(wrapper.find(".assistant-history-item .assistant-artifacts-title").exists()).toBe(false);
     await primaryLink.trigger("click");
     expect(router.currentRoute.value.query.assistant).toBe("chats");
     expect(getChat).not.toHaveBeenCalled();
@@ -1038,6 +1039,9 @@ describe("Assistant artifacts", () => {
     expect(router.currentRoute.value.query.assistant).toBe(chat.id);
     expect(getChat).toHaveBeenCalledOnce();
     expect(wrapper.findAll(".assistant-chat-message-assistant .assistant-artifact")).toHaveLength(2);
+    expect(wrapper.get(".assistant-chat-message-assistant .assistant-artifacts-title").text()).toBe("Created");
+    expect(wrapper.get(".assistant-chat-message-assistant .assistant-artifact-pull-request .assistant-artifact-type").text()).toBe("Pull request");
+    expect(wrapper.get(".assistant-chat-message-assistant .assistant-artifact-git-branch .assistant-artifact-type").text()).toBe("Branch");
     expect(wrapper.get(".assistant-chat-message-assistant .assistant-artifact-git-branch").text()).toContain(branch);
     expect(wrapper.get(".assistant-activity-details").attributes()).not.toHaveProperty("open");
 
