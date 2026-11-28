@@ -389,6 +389,10 @@ onMounted(() => {
   }
 
   .networks-table {
+    min-width: 0;
+  }
+
+  .networks-table :deep(.app-table-scroll) {
     overflow-x: hidden;
   }
 

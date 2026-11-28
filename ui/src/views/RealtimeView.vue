@@ -1060,7 +1060,7 @@ onUnmounted(() => {
   .realtime-filters { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); padding: 10px; }
   .realtime-search { grid-column: 1 / -1; }
   .realtime-state-filter { grid-column: 1 / -1; }
-  .realtime-services-panel :deep(.app-table-wrap) { overflow: visible; }
+  .realtime-services-panel :deep(.app-table-scroll) { overflow: visible; }
   .realtime-services-panel :deep(.realtime-services-table) { display: block; min-width: 0 !important; }
   .realtime-services-panel :deep(.realtime-services-table colgroup), .realtime-services-panel :deep(.realtime-services-table > thead) { display: none; }
   .realtime-services-panel :deep(.realtime-services-table > tbody) { display: block; }

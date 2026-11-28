@@ -1885,7 +1885,10 @@ a.overview-summary-row:focus-visible {
 }
 
 .app-table-wrap {
-  min-height: max-content;
+  min-width: 0;
+}
+
+.app-table-scroll {
   overflow-x: auto;
 }
 

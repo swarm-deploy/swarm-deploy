@@ -373,7 +373,7 @@ onMounted(() => {
 @media (max-width: 700px) {
   .deployments-page { gap: 12px; }
   .deployments-filter-bar { grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 10px; }
-  :deep(.deployments-table-wrap) { overflow-x: visible; }
+  :deep(.deployments-table-wrap .app-table-scroll) { overflow-x: visible; }
   :deep(.deployments-table) { min-width: 0; table-layout: auto; }
   :deep(.deployments-table thead) { display: none; }
   :deep(.deployments-table tbody) { display: block; }

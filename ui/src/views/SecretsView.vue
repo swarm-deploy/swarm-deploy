@@ -368,7 +368,7 @@ async function handleSecretCreated(message?: string) {
 .secrets-table :deep(td) { overflow-wrap: anywhere; }
 
 @media (max-width: 650px) {
-  .secrets-table { overflow-x: hidden; }
+  .secrets-table :deep(.app-table-scroll) { overflow-x: hidden; }
 
   .secrets-toolbar-actions {
     display: grid;

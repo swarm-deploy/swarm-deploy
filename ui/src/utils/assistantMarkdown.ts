@@ -187,7 +187,7 @@ export function renderAssistantMarkdown(text: string): string {
         .join("");
 
       blocks.push(
-        `<div class="app-table-wrap assistant-md-table-wrap"><table class="app-table assistant-md-table"><thead><tr>${headHtml}</tr></thead><tbody>${bodyHtml}</tbody></table></div>`,
+        `<div class="app-table-wrap assistant-md-table-wrap"><div class="app-table-scroll"><table class="app-table assistant-md-table"><thead><tr>${headHtml}</tr></thead><tbody>${bodyHtml}</tbody></table></div></div>`,
       );
       continue;
     }
