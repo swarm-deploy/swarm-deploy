@@ -102,6 +102,12 @@ func (s *Service) complete(
 	if err != nil {
 		return err
 	}
+	// Completed and cleanup-stage outcomes are reached only after DeployStack
+	// verified every target. An empty target scope legitimately skips the waiter.
+	if (state.phase == deploymentmodel.PhaseCompleted || state.phase == deploymentmodel.PhaseCleanup) &&
+		len(attempt.Services(desired)) > 0 {
+		state.verification = deploymentmodel.StageSucceeded
+	}
 
 	finishedAt := s.now().UTC()
 	attempt.Status, attempt.FinishedAt, attempt.ErrorCode = state.status, &finishedAt, state.errorCode

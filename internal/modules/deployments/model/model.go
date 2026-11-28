@@ -75,7 +75,7 @@ const (
 	StageFailed StageStatus = "failed"
 	// StageUnknown has an indeterminate external outcome.
 	StageUnknown StageStatus = "unknown"
-	// StageSkipped did not run because an earlier stage stopped the attempt.
+	// StageSkipped did not run because it was not applicable or an earlier stage stopped the attempt.
 	StageSkipped StageStatus = "skipped"
 )
 
@@ -253,7 +253,7 @@ type Deployment struct {
 	Phase Phase `json:"phase"`
 	// ApplyStatus reports Docker apply independently from later stages.
 	ApplyStatus StageStatus `json:"apply_status"`
-	// VerificationStatus reports explicit convergence verification (currently skipped).
+	// VerificationStatus reports explicit convergence verification.
 	VerificationStatus StageStatus `json:"verification_status"`
 	// CleanupStatus reports post-apply pruning.
 	CleanupStatus StageStatus `json:"cleanup_status"`

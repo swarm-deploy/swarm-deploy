@@ -391,7 +391,11 @@ func (f *gitOpsLifecycleFixture) assertSuccessfulDeployment(t *testing.T, latest
 	runtime := f.runtime(t)
 	require.Equal(t, "success", runtime.LastSyncResult)
 	require.Empty(t, runtime.LastSyncError)
-	require.Equal(t, model.StageSkipped, latest.VerificationStatus)
+	wantVerification := model.StageSucceeded
+	if latest.Attempts[0].TargetServices != nil && len(latest.Attempts[0].TargetServices) == 0 {
+		wantVerification = model.StageSkipped
+	}
+	require.Equal(t, wantVerification, latest.VerificationStatus)
 	require.Equal(t, model.StageSucceeded, latest.CleanupStatus)
 	require.Len(t, f.publications(t, events.TypeNameDeploySuccess), 1)
 	require.Empty(t, f.publications(t, events.TypeNameDeployFailed))

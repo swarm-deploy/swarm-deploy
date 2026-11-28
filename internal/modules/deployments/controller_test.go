@@ -119,7 +119,7 @@ func TestControllerExecuteCompletesSuccessAndAvoidsDuplicateExecution(t *testing
 		return req.StackName == "app" &&
 			req.SourceComposePath == "app.yaml"
 	})).
-		Return(deployer.Result{}, nil)
+		Return(deployer.Result{Verification: deploymentmodel.Verification{Known: true}}, nil)
 	services.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "app"}).Return(nil, nil)
 
 	result, err := controller.Execute(t.Context(), req)
@@ -129,6 +129,7 @@ func TestControllerExecuteCompletesSuccessAndAvoidsDuplicateExecution(t *testing
 	stored, err := deploymentstore.NewStore(db).Get(t.Context(), result.Attempt.DeploymentID)
 	require.NoError(t, err)
 	assert.Equal(t, deploymentmodel.Succeeded, stored.Status)
+	assert.Equal(t, deploymentmodel.StageSucceeded, stored.VerificationStatus)
 
 	stackDeployer.EXPECT().RefreshRegistryAuth(gomock.Any(), deployer.StackRequest{
 		StackName: req.Stack.Name, SourceComposePath: req.Desired.Path, Desired: req.Desired.Compose,
@@ -138,16 +139,41 @@ func TestControllerExecuteCompletesSuccessAndAvoidsDuplicateExecution(t *testing
 	assert.Nil(t, unchanged.Attempt)
 }
 
+func TestControllerExecuteSkipsVerificationWithoutTargetServices(t *testing.T) {
+	db, lifecycle, bus := openService(t)
+	mocks := gomock.NewController(t)
+	stackDeployer := deployer.NewMockStackDeployer(mocks)
+	services := swarm.NewMockServiceManager(mocks)
+	controller := NewController(
+		lifecycle, stackDeployer, services,
+		pruner.NewServicePruner(services, bus, config.SyncPolicySpec{}), &metrics.NopDeploys{},
+	)
+	req := executionRequest("api:1")
+	req.TargetServices = []string{}
+	stackDeployer.EXPECT().DeployStack(gomock.Any(), gomock.Cond(func(request deployer.StackRequest) bool {
+		return request.TargetServices != nil && len(request.TargetServices) == 0
+	})).Return(deployer.Result{Verification: deploymentmodel.Verification{Known: true}}, nil)
+	services.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "app"}).Return(nil, nil)
+
+	result, err := controller.Execute(t.Context(), req)
+	require.NoError(t, err)
+	require.NotNil(t, result.Attempt)
+	stored, err := deploymentstore.NewStore(db).Get(t.Context(), result.Attempt.DeploymentID)
+	require.NoError(t, err)
+	assert.Equal(t, deploymentmodel.StageSkipped, stored.VerificationStatus)
+}
+
 func TestControllerExecuteClassifiesAndPersistsFailures(t *testing.T) {
 	tests := []struct {
-		name        string
-		deployErr   error
-		result      deployer.Result
-		setupLive   func(*swarm.MockServiceManager)
-		wantStatus  deploymentmodel.Status
-		wantPhase   deploymentmodel.Phase
-		wantCode    string
-		wantInitJob bool
+		name             string
+		deployErr        error
+		result           deployer.Result
+		setupLive        func(*swarm.MockServiceManager)
+		wantStatus       deploymentmodel.Status
+		wantPhase        deploymentmodel.Phase
+		wantCode         string
+		wantVerification deploymentmodel.StageStatus
+		wantInitJob      bool
 	}{
 		{
 			name: "known paused update",
@@ -193,6 +219,7 @@ func TestControllerExecuteClassifiesAndPersistsFailures(t *testing.T) {
 		},
 		{
 			name: "cleanup",
+			result: deployer.Result{Verification: deploymentmodel.Verification{Known: true}},
 			setupLive: func(services *swarm.MockServiceManager) {
 				services.EXPECT().ListServices(gomock.Any(), gomock.Any()).Return([]swarm.StackService{{
 					ID: "old", Name: "old", Labels: map[string]string{
@@ -202,6 +229,7 @@ func TestControllerExecuteClassifiesAndPersistsFailures(t *testing.T) {
 				services.EXPECT().Remove(gomock.Any(), "old").Return(errors.New("remove failed"))
 			},
 			wantStatus: deploymentmodel.Failed, wantPhase: deploymentmodel.PhaseCleanup, wantCode: "prune_failed",
+			wantVerification: deploymentmodel.StageSucceeded,
 		},
 	}
 
@@ -232,6 +260,9 @@ func TestControllerExecuteClassifiesAndPersistsFailures(t *testing.T) {
 			require.NoError(t, readErr)
 			assert.Equal(t, testCase.wantStatus, stored.Status)
 			assert.Equal(t, testCase.wantPhase, stored.Phase)
+			if testCase.wantVerification != "" {
+				assert.Equal(t, testCase.wantVerification, stored.VerificationStatus)
+			}
 			if testCase.wantInitJob {
 				require.Len(t, stored.Attempts, 1)
 				require.Len(t, stored.Attempts[0].InitJobs, 1)

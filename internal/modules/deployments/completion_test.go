@@ -31,19 +31,28 @@ func TestCompletePersistsLifecycleBaselineAndEvents(t *testing.T) {
 		wantEvent        events.TypeName
 		wantEventStage   string
 		wantFault        faults.Code
+		emptyTargets     bool
 	}{
 		{
-			name: "success without observation", completion: Completion{Outcome: CompletionSucceeded},
+			name: "success without verification", completion: Completion{Outcome: CompletionSucceeded},
 			wantStatus: deploymentmodel.Succeeded, wantPhase: deploymentmodel.PhaseCompleted,
 			wantApply: deploymentmodel.StageSucceeded, wantVerification: deploymentmodel.StageSkipped,
+			wantCleanup: deploymentmodel.StageSucceeded, wantActual: deploymentmodel.ActualStateUnknown,
+			wantEvent: events.TypeNameDeploySuccess, emptyTargets: true,
+		},
+		{
+			name: "success after verification without observation",
+			completion: Completion{Outcome: CompletionSucceeded},
+			wantStatus: deploymentmodel.Succeeded, wantPhase: deploymentmodel.PhaseCompleted,
+			wantApply: deploymentmodel.StageSucceeded, wantVerification: deploymentmodel.StageSucceeded,
 			wantCleanup: deploymentmodel.StageSucceeded, wantActual: deploymentmodel.ActualStateUnknown,
 			wantEvent: events.TypeNameDeploySuccess,
 		},
 		{
-			name:       "success with observation",
+			name: "success after verification with observation",
 			completion: Completion{Outcome: CompletionSucceeded, ObservedAt: &observedAt},
 			wantStatus: deploymentmodel.Succeeded, wantPhase: deploymentmodel.PhaseCompleted,
-			wantApply: deploymentmodel.StageSucceeded, wantVerification: deploymentmodel.StageSkipped,
+			wantApply: deploymentmodel.StageSucceeded, wantVerification: deploymentmodel.StageSucceeded,
 			wantCleanup: deploymentmodel.StageSucceeded, wantActual: deploymentmodel.ActualStateObserved,
 			wantEvent: events.TypeNameDeploySuccess,
 		},
@@ -92,11 +101,20 @@ func TestCompletePersistsLifecycleBaselineAndEvents(t *testing.T) {
 			wantEvent: events.TypeNameDeployInterrupted, wantEventStage: "verification",
 		},
 		{
-			name: "cleanup failure",
+			name: "cleanup failure without verification",
 			completion: Completion{Outcome: CompletionCleanupFailed,
 				Diagnostic: errors.New("prune failed: token=private-value"), ObservedAt: &observedAt},
 			wantStatus: deploymentmodel.Failed, wantPhase: deploymentmodel.PhaseCleanup,
 			wantApply: deploymentmodel.StageSucceeded, wantVerification: deploymentmodel.StageSkipped,
+			wantCleanup: deploymentmodel.StageFailed, wantActual: deploymentmodel.ActualStateObserved,
+			wantEvent: events.TypeNameDeployFailed, wantEventStage: "cleanup", emptyTargets: true,
+		},
+		{
+			name: "cleanup failure after verification",
+			completion: Completion{Outcome: CompletionCleanupFailed,
+				Diagnostic: errors.New("prune failed: token=private-value"), ObservedAt: &observedAt},
+			wantStatus: deploymentmodel.Failed, wantPhase: deploymentmodel.PhaseCleanup,
+			wantApply: deploymentmodel.StageSucceeded, wantVerification: deploymentmodel.StageSucceeded,
 			wantCleanup: deploymentmodel.StageFailed, wantActual: deploymentmodel.ActualStateObserved,
 			wantEvent: events.TypeNameDeployFailed, wantEventStage: "cleanup",
 		},
@@ -118,8 +136,13 @@ func TestCompletePersistsLifecycleBaselineAndEvents(t *testing.T) {
 				return clock
 			}))
 			subscribe(t, db, bus, testCase.wantEvent)
+			targets := desiredServices("api").Compose.Services.Names()
+			if testCase.emptyTargets {
+				targets = []string{}
+			}
 			attempt, err := service.StartIfChanged(
-				t.Context(), "app", "commit", desiredServices("api"), true, StartOptions{TargetServices: desiredServices("api").Compose.Services.Names()},
+				t.Context(), "app", "commit", desiredServices("api"), true,
+				StartOptions{TargetServices: targets},
 			)
 			require.NoError(t, err)
 			require.NoError(t, service.Complete(t.Context(), attempt.ID, testCase.completion))
@@ -140,9 +163,16 @@ func TestCompletePersistsLifecycleBaselineAndEvents(t *testing.T) {
 			assert.Equal(t, stored.Phase, stored.Attempts[0].Phase)
 			assert.NotContains(t, stored.ErrorDiagnostic, "private-value")
 
-			assertCompletionPublication(t, db, testCase.wantEvent, attempt, testCase.completion, testCase.wantEventStage, testCase.wantFault)
+			wantServices := 1
+			if testCase.emptyTargets {
+				wantServices = 0
+			}
+			assertCompletionPublication(
+				t, db, testCase.wantEvent, attempt, testCase.completion,
+				testCase.wantEventStage, testCase.wantFault, wantServices,
+			)
 			baseline, baselineErr := deploymentstore.NewStore(db).BaselineDeploymentID(t.Context(), "app")
-			if testCase.wantStatus == deploymentmodel.Succeeded {
+			if testCase.wantStatus == deploymentmodel.Succeeded && !testCase.emptyTargets {
 				require.NoError(t, baselineErr)
 				assert.Equal(t, attempt.DeploymentID, baseline)
 			} else {
@@ -160,6 +190,7 @@ func assertCompletionPublication(
 	completion Completion,
 	wantStage string,
 	wantFault faults.Code,
+	wantServices int,
 ) {
 	t.Helper()
 	items := publications(t, db, wantType)
@@ -173,7 +204,7 @@ func assertCompletionPublication(
 		assert.Equal(t, attempt.ID, actual.AttemptID)
 		assert.Equal(t, "app", actual.StackName)
 		assert.Equal(t, "commit", actual.Commit)
-		require.Len(t, actual.Services, 1)
+		require.Len(t, actual.Services, wantServices)
 	case events.TypeNameDeployFailed:
 		actual, ok := event.(*events.DeployFailed)
 		require.True(t, ok)
@@ -181,7 +212,7 @@ func assertCompletionPublication(
 		assert.Equal(t, attempt.ID, actual.AttemptID)
 		assert.Equal(t, "app", actual.StackName)
 		assert.Equal(t, "commit", actual.Commit)
-		require.Len(t, actual.Services, 1)
+		require.Len(t, actual.Services, wantServices)
 		assert.Equal(t, completion.ErrorCode(), actual.ErrorCode)
 		var coded faults.Coded
 		if wantFault == "" {
@@ -201,7 +232,7 @@ func assertCompletionPublication(
 		assert.Equal(t, attempt.ID, actual.AttemptID)
 		assert.Equal(t, "app", actual.StackName)
 		assert.Equal(t, "commit", actual.Commit)
-		require.Len(t, actual.Services, 1)
+		require.Len(t, actual.Services, wantServices)
 		assert.Equal(t, completion.ErrorCode(), actual.Reason)
 		assert.Equal(t, wantStage, actual.Stage)
 		if actual.Error != nil {
