@@ -18,10 +18,23 @@ const route = useRoute();
 const uiStore = useUIStore();
 const moreOpen = ref(false);
 const appearanceOpen = ref(false);
+const installHelpOpen = ref(false);
 const dragOffset = ref(0);
 const dragging = ref(false);
 const moreButtonRef = ref<HTMLButtonElement | null>(null);
 const moreSheetRef = ref<HTMLElement | null>(null);
+const installButtonRef = ref<HTMLButtonElement | null>(null);
+const githubLinkRef = ref<HTMLAnchorElement | null>(null);
+
+type InstallPromptEvent = Event & { prompt: () => Promise<unknown> };
+
+const standaloneDisplay = window.matchMedia("(display-mode: standalone)");
+const iosNavigator = navigator as Navigator & { standalone?: boolean };
+const supportsManualInstall = typeof iosNavigator.standalone === "boolean";
+const standalone = ref(standaloneDisplay.matches || iosNavigator.standalone === true);
+const installPrompt = ref<InstallPromptEvent | null>(null);
+const canInstall = computed(() => !standalone.value && (installPrompt.value !== null || supportsManualInstall));
+const usesInstallHelp = computed(() => canInstall.value && installPrompt.value === null);
 
 const DRAG_CLOSE_DISTANCE = 80;
 const DRAG_CLOSE_VELOCITY = 0.5;
@@ -69,6 +82,7 @@ function closeMore(returnFocus = true): void {
   resetDrag();
   moreOpen.value = false;
   appearanceOpen.value = false;
+  installHelpOpen.value = false;
   if (returnFocus) {
     void nextTick(() => moreButtonRef.value?.focus());
   }
@@ -93,6 +107,36 @@ function openAssistant(): void {
 function selectTheme(theme: ThemeMode): void {
   uiStore.setTheme(theme);
   appearanceOpen.value = false;
+}
+
+function captureInstallPrompt(event: Event): void {
+  if (standalone.value) return;
+  if (window.matchMedia("(max-width: 900px)").matches) event.preventDefault();
+  installPrompt.value = event as InstallPromptEvent;
+}
+
+function clearInstallPrompt(): void {
+  installPrompt.value = null;
+}
+
+function updateStandalone(event: MediaQueryListEvent): void {
+  standalone.value = event.matches || iosNavigator.standalone === true;
+  if (standalone.value) clearInstallPrompt();
+}
+
+async function installApp(): Promise<void> {
+  const prompt = installPrompt.value;
+  if (!prompt) {
+    installHelpOpen.value = !installHelpOpen.value;
+    return;
+  }
+
+  clearInstallPrompt();
+  try {
+    await prompt.prompt();
+  } catch {
+    // A new beforeinstallprompt event is required before trying again.
+  }
 }
 
 function startDrag(event: PointerEvent): void {
@@ -149,13 +193,25 @@ watch(moreOpen, (open) => {
   document.body.classList.toggle("mobile-more-open", open);
 });
 
+watch(canInstall, (available) => {
+  if (available) return;
+  installHelpOpen.value = false;
+  if (document.activeElement === installButtonRef.value) githubLinkRef.value?.focus();
+});
+
 onMounted(() => {
   document.addEventListener("keydown", handleKeydown);
+  window.addEventListener("beforeinstallprompt", captureInstallPrompt);
+  window.addEventListener("appinstalled", clearInstallPrompt);
+  standaloneDisplay.addEventListener("change", updateStandalone);
 });
 
 onUnmounted(() => {
   document.removeEventListener("keydown", handleKeydown);
   document.body.classList.remove("mobile-more-open");
+  window.removeEventListener("beforeinstallprompt", captureInstallPrompt);
+  window.removeEventListener("appinstalled", clearInstallPrompt);
+  standaloneDisplay.removeEventListener("change", updateStandalone);
 });
 </script>
 
@@ -242,12 +298,36 @@ onUnmounted(() => {
 
         <footer class="mobile-more-footer">
           <span>Swarm Deploy {{ appVersion }}</span>
-          <a
-            href="https://github.com/swarm-deploy/swarm-deploy"
-            target="_blank"
-            rel="noopener noreferrer"
-          >GitHub</a>
+          <div class="mobile-more-actions">
+            <a
+              ref="githubLinkRef"
+              class="mobile-more-action"
+              href="https://github.com/swarm-deploy/swarm-deploy"
+              target="_blank"
+              rel="noopener noreferrer"
+              :aria-label="t('navigation.github')"
+              :title="t('navigation.viewGithub')"
+            >
+              <SidebarIcon name="github" />
+            </a>
+            <button
+              v-if="canInstall"
+              ref="installButtonRef"
+              type="button"
+              class="mobile-more-action"
+              :aria-label="t('navigation.installApp')"
+              :title="t('navigation.installApp')"
+              :aria-expanded="usesInstallHelp ? installHelpOpen : undefined"
+              :aria-controls="usesInstallHelp ? 'mobile-install-help' : undefined"
+              @click="installApp"
+            >
+              <SidebarIcon name="install" />
+            </button>
+          </div>
         </footer>
+        <p v-if="usesInstallHelp" v-show="installHelpOpen" id="mobile-install-help" class="mobile-install-help">
+          {{ t('navigation.installAppHelp') }}
+        </p>
       </section>
     </div>
 
