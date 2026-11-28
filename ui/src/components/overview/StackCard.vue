@@ -75,11 +75,33 @@ const stackAnchor = computed(() => `stack-${encodeURIComponent(props.stack.name)
     </dl>
 
     <footer class="overview-stack-card-actions">
-      <button type="button" class="overview-stack-card-action" @click.stop="emit('compare', stack.name)">
-        {{ t('stack.compareState') }}
+      <button
+        type="button"
+        class="overview-stack-card-action app-tooltip"
+        :aria-label="t('stack.compareState')"
+        :data-tooltip="t('stack.compareState')"
+        @click.stop="emit('compare', stack.name)"
+      >
+        <svg class="overview-stack-card-action-icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M10 4H4.5A1.5 1.5 0 0 0 3 5.5V18h5" />
+          <path d="M3 7h3V4M5 10h4M5 13h2" />
+          <path d="M14 4h5.5A1.5 1.5 0 0 1 21 5.5V18h-5" />
+          <path d="M18 4v3h3M15 10h4M17 13h2" />
+          <circle cx="12" cy="14" r="4.5" />
+          <path d="m15.25 17.25 3.75 3.75" />
+        </svg>
       </button>
-      <button type="button" class="overview-stack-card-action" @click.stop="emit('pause', stack.name)">
-        {{ t('common.pauseSync') }}
+      <button
+        type="button"
+        class="overview-stack-card-action app-tooltip"
+        :aria-label="t('common.pauseSync')"
+        :data-tooltip="t('common.pauseSync')"
+        @click.stop="emit('pause', stack.name)"
+      >
+        <svg class="overview-stack-card-action-icon" viewBox="0 0 24 24" aria-hidden="true">
+          <circle cx="12" cy="12" r="9" />
+          <path d="M9.5 9v6M14.5 9v6" />
+        </svg>
       </button>
     </footer>
   </AppCard>
@@ -94,4 +116,34 @@ const stackAnchor = computed(() => `stack-${encodeURIComponent(props.stack.name)
 .overview-stack-card-actions, .overview-stack-commit-badge { position: relative; z-index: 1; }
 .overview-stack-card-actions { pointer-events: none; }
 .overview-stack-card-action { pointer-events: auto; }
+.overview-stack-card-action + .overview-stack-card-action { border-left: 1px solid var(--surface-hover-strong); }
+.overview-stack-card-action-icon {
+  width: 22px;
+  height: 22px;
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.overview-stack-card-action.app-tooltip::after {
+  top: auto;
+  bottom: calc(100% + 6px);
+}
+.overview-stack-card-action.app-tooltip:first-child::after {
+  left: 12px;
+  transform: translateY(4px);
+}
+.overview-stack-card-action.app-tooltip:first-child:is(:hover, :focus-visible)::after {
+  transform: translateY(0);
+}
+.overview-stack-card-action.app-tooltip:last-child::after {
+  right: 12px;
+  left: auto;
+  transform: translateY(4px);
+}
+.overview-stack-card-action.app-tooltip:last-child:is(:hover, :focus-visible)::after {
+  transform: translateY(0);
+}
 </style>

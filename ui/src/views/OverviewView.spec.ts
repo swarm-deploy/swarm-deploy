@@ -86,7 +86,15 @@ describe("Overview stack navigation", () => {
     const link = card.get("a.stack-card-link");
     expect(link.attributes("href")).toBe("/stacks/app");
     expect(link.attributes("tabindex")).not.toBe("-1");
-    await card.get(".overview-stack-card-action").trigger("click");
+    const actions = card.findAll(".overview-stack-card-action");
+    expect(actions).toHaveLength(2);
+    expect(actions[0].attributes("aria-label")).toBe("Compare state");
+    expect(actions[0].attributes("data-tooltip")).toBe("Compare state");
+    expect(actions[1].attributes("aria-label")).toBe("Pause sync");
+    expect(actions[1].attributes("data-tooltip")).toBe("Pause sync");
+    expect(actions.every((action) => action.find("svg[aria-hidden='true']").exists())).toBe(true);
+    expect(actions.every((action) => action.text() === "")).toBe(true);
+    await actions[0].trigger("click");
     await card.get(".overview-stack-commit-badge").trigger("click");
     await flushPromises();
     expect(store.openStackManifestModal).toHaveBeenCalledWith("app");
