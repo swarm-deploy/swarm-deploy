@@ -25,19 +25,21 @@ const tableStyle = computed(() => (props.minWidth ? { minWidth: props.minWidth }
 
 <template>
   <div class="app-table-wrap" :class="wrapClass">
-    <table
-      class="app-table"
-      :class="[{ 'app-table--fixed': fixed, 'app-table--summary': summary }, tableClass]"
-      :style="tableStyle"
-      :aria-label="ariaLabel"
-    >
-      <slot name="colgroup" />
-      <thead v-if="$slots.head">
-        <slot name="head" />
-      </thead>
-      <tbody>
-        <slot />
-      </tbody>
-    </table>
+    <div class="app-table-scroll">
+      <table
+        class="app-table"
+        :class="[{ 'app-table--fixed': fixed, 'app-table--summary': summary }, tableClass]"
+        :style="tableStyle"
+        :aria-label="ariaLabel"
+      >
+        <slot name="colgroup" />
+        <thead v-if="$slots.head">
+          <slot name="head" />
+        </thead>
+        <tbody>
+          <slot />
+        </tbody>
+      </table>
+    </div>
   </div>
 </template>

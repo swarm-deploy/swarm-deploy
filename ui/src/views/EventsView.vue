@@ -643,7 +643,7 @@ onMounted(() => {
 }
 
 @media (max-width: 720px) {
-  :deep(.events-table-wrap) { overflow-x: visible; }
+  :deep(.events-table-wrap .app-table-scroll) { overflow-x: visible; }
   :deep(.events-table) { min-width: 0; table-layout: auto; }
   :deep(.events-table thead) { display: none; }
   :deep(.events-table tbody) { display: block; }

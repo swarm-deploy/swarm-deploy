@@ -303,7 +303,7 @@ onMounted(() => void loadAlerts());
   overflow-wrap: anywhere;
 }
 @media (max-width: 720px) {
-  :deep(.alerts-table-wrap) { overflow-x: visible; }
+  :deep(.alerts-table-wrap .app-table-scroll) { overflow-x: visible; }
   :deep(.alerts-table) { min-width: 0; table-layout: auto; }
   :deep(.alerts-table colgroup) { display: none; }
   :deep(.alerts-table thead) { display: none; }
