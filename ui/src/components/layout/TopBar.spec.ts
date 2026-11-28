@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { fetchSearch } from "../../api/search";
 import { i18n } from "../../i18n";
+import { usePageStore } from "../../stores/page";
 import TopBar from "./TopBar.vue";
 
 vi.mock("../../api/search", () => ({
@@ -187,6 +188,23 @@ describe("TopBar search", () => {
     expect(toggle.attributes("aria-expanded")).toBe("true");
     expect(wrapper.get(".topbar-search").classes()).toContain("mobile-open");
     expect(document.activeElement).toBe(wrapper.get('input[type="search"]').element);
+    wrapper.unmount();
+  });
+
+  it("shows the loaded network name on the network details page", async () => {
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: "/networks/:network", name: "network-details", component: { template: "<div />" } }],
+    });
+    await router.push("/networks/network-id");
+    usePageStore().setTitle("app_backend");
+
+    const wrapper = mount(TopBar, {
+      props: { assistantEnabled: false },
+      global: { plugins: [router] },
+    });
+
+    expect(wrapper.get(".topbar-mobile-title").text()).toBe("app_backend");
     wrapper.unmount();
   });
 });

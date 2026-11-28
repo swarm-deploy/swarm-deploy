@@ -5,6 +5,7 @@ import { useRoute, useRouter } from "vue-router";
 
 import { fetchSearch } from "../../api/search";
 import type { SearchResult } from "../../api/types";
+import { usePageStore } from "../../stores/page";
 import AppButton from "../common/AppButton.vue";
 import SidebarIcon from "./SidebarIcon.vue";
 
@@ -19,6 +20,7 @@ const SEARCH_DEBOUNCE_MS = 300;
 
 const route = useRoute();
 const router = useRouter();
+const pageStore = usePageStore();
 
 const searchRootRef = ref<HTMLElement | null>(null);
 const searchInputRef = ref<HTMLInputElement | null>(null);
@@ -59,6 +61,8 @@ const mobileTitle = computed(() => {
       return t("navigation.cluster");
     case "networks":
       return t("common.networks");
+    case "network-details":
+      return pageStore.title || t("common.network");
     case "secrets":
       return t("common.secrets");
     case "deployments":

@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	dockernetwork "github.com/docker/docker/api/types/network"
 	"github.com/stretchr/testify/assert"
@@ -13,13 +14,26 @@ import (
 )
 
 func TestNetworkManagerMapNetworkMapsFields(t *testing.T) {
+	createdAt := time.Date(2026, time.November, 27, 18, 0, 0, 0, time.UTC)
 	network := dockernetwork.Summary{
+		ID:         "network-id",
 		Name:       "backend",
+		Created:    createdAt,
 		Scope:      "swarm",
 		Driver:     "overlay",
+		EnableIPv4: true,
+		EnableIPv6: true,
 		Internal:   true,
 		Attachable: true,
 		Ingress:    false,
+		ConfigOnly: true,
+		ConfigFrom: dockernetwork.ConfigReference{Network: "base-config"},
+		IPAM: dockernetwork.IPAM{
+			Driver: "default",
+			Config: []dockernetwork.IPAMConfig{{Subnet: "10.0.1.0/24", Gateway: "10.0.1.1"}},
+		},
+		Services: map[string]dockernetwork.ServiceInfo{"app_api": {VIP: "10.0.1.10"}},
+		Peers:    []dockernetwork.PeerInfo{{Name: "node-a", IP: "192.0.2.1"}},
 		Options: map[string]string{
 			"encrypted": "true",
 		},
@@ -30,14 +44,24 @@ func TestNetworkManagerMapNetworkMapsFields(t *testing.T) {
 
 	mapped := (&networkManager{}).mapNetwork(network)
 
+	assert.Equal(t, "network-id", mapped.ID, "unexpected network ID")
 	assert.Equal(t, "backend", mapped.Name, "unexpected network name")
+	assert.Equal(t, createdAt, mapped.CreatedAt, "unexpected creation time")
 	assert.Equal(t, "swarm", mapped.Scope, "unexpected scope")
 	assert.Equal(t, "overlay", mapped.Driver, "unexpected driver")
+	assert.True(t, mapped.EnableIPv4, "unexpected IPv4 flag")
+	assert.True(t, mapped.EnableIPv6, "unexpected IPv6 flag")
 	assert.True(t, mapped.Internal, "unexpected internal flag")
 	assert.True(t, mapped.Attachable, "unexpected attachable flag")
 	assert.False(t, mapped.Ingress, "unexpected ingress flag")
 	assert.Equal(t, map[string]string{"encrypted": "true"}, mapped.Options, "unexpected network options")
 	assert.Equal(t, map[string]string{"com.example.team": "platform"}, mapped.Labels, "unexpected labels")
+	assert.True(t, mapped.ConfigOnly, "unexpected config-only flag")
+	assert.Equal(t, "base-config", mapped.ConfigFrom, "unexpected config source")
+	assert.Equal(t, "default", mapped.IPAMDriver, "unexpected IPAM driver")
+	assert.Equal(t, network.IPAM.Config, mapped.IPAM, "unexpected IPAM config")
+	assert.Equal(t, network.Services, mapped.Services, "unexpected services")
+	assert.Equal(t, network.Peers, mapped.Peers, "unexpected peers")
 }
 
 func TestBuildNetworkListFilters(t *testing.T) {

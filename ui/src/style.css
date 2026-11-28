@@ -557,6 +557,12 @@ body {
   transform: translate(-50%, 0);
 }
 
+.app-tooltip.network-managed-tooltip::after {
+  width: min(220px, calc(100vw - 32px));
+  white-space: normal;
+  text-align: left;
+}
+
 .shell-main {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);

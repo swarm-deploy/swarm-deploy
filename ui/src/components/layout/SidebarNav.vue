@@ -40,7 +40,7 @@ const links = [
 const secondaryLinks = [{ to: "/events", label: t("navigation.eventsAlerts"), icon: "events" }];
 
 function isActive(path: string): boolean {
-  return route.path === path;
+  return route.path === path || route.path.startsWith(`${path}/`);
 }
 
 function formatVersion(value: string): string {

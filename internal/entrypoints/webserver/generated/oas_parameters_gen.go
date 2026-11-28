@@ -1270,6 +1270,92 @@ func decodeGetGitCommitParams(args [1]string, argsEscaped bool, r *http.Request)
 	return params, nil
 }
 
+// GetNetworkParams is parameters of getNetwork operation.
+type GetNetworkParams struct {
+	// Docker network identifier or name.
+	NetworkID string
+}
+
+func unpackGetNetworkParams(packed middleware.Parameters) (params GetNetworkParams) {
+	{
+		key := middleware.ParameterKey{
+			Name: "network_id",
+			In:   "path",
+		}
+		params.NetworkID = packed[key].(string)
+	}
+	return params
+}
+
+func decodeGetNetworkParams(args [1]string, argsEscaped bool, r *http.Request) (params GetNetworkParams, _ error) {
+	// Decode path: network_id.
+	if err := func() error {
+		param := args[0]
+		if argsEscaped {
+			unescaped, err := url.PathUnescape(args[0])
+			if err != nil {
+				return errors.Wrap(err, "unescape path")
+			}
+			param = unescaped
+		}
+		if len(param) > 0 {
+			d := uri.NewPathDecoder(uri.PathDecoderConfig{
+				Param:   "network_id",
+				Value:   param,
+				Style:   uri.PathStyleSimple,
+				Explode: false,
+			})
+
+			if err := func() error {
+				val, err := d.DecodeValue()
+				if err != nil {
+					return err
+				}
+
+				c, err := conv.ToString(val)
+				if err != nil {
+					return err
+				}
+
+				params.NetworkID = c
+				return nil
+			}(); err != nil {
+				return err
+			}
+			if err := func() error {
+				if err := (validate.String{
+					MinLength:     1,
+					MinLengthSet:  true,
+					MaxLength:     0,
+					MaxLengthSet:  false,
+					Email:         false,
+					Hostname:      false,
+					Regex:         nil,
+					MinNumeric:    0,
+					MinNumericSet: false,
+					MaxNumeric:    0,
+					MaxNumericSet: false,
+				}).Validate(string(params.NetworkID)); err != nil {
+					return errors.Wrap(err, "string")
+				}
+				return nil
+			}(); err != nil {
+				return err
+			}
+		} else {
+			return validate.ErrFieldRequired
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "network_id",
+			In:   "path",
+			Err:  err,
+		}
+	}
+	return params, nil
+}
+
 // GetSecretByNameParams is parameters of getSecretByName operation.
 type GetSecretByNameParams struct {
 	Name string

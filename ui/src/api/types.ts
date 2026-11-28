@@ -414,7 +414,15 @@ export interface NetworkInfo {
   options?: Record<string, string>;
   stack_name?: string;
   managed: boolean;
-  ipam?: Array<{ subnet?: string; gateway?: string }>;
+  ipam?: Array<{ subnet?: string; gateway?: string; ip_range?: string; aux_addresses?: Record<string, string> }>;
+  created_at?: string;
+  enable_ipv4?: boolean;
+  enable_ipv6?: boolean;
+  config_only?: boolean;
+  config_from?: string;
+  ipam_driver?: string;
+  services?: Array<{ name: string; vip?: string }>;
+  peers?: Array<{ name: string; ip: string }>;
 }
 
 export interface NetworksResponse {

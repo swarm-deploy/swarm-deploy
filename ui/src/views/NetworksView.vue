@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { plural, t } from "../i18n";
+import { enumLabel, plural, t } from "../i18n";
 import { computed, onMounted, ref } from "vue";
 
 import { fetchNetworks } from "../api/cluster";
@@ -107,10 +107,6 @@ function hasMapEntries(values?: Record<string, string>): boolean {
   return Object.keys(values ?? {}).length > 0;
 }
 
-function vxlanIDText(options?: Record<string, string>): string {
-  return options?.[VXLAN_ID_OPTION] || t("common.notApplicable");
-}
-
 function optionsText(options?: Record<string, string>): string {
   const entries = Object.entries(options ?? {}).filter(([key]) => key !== VXLAN_ID_OPTION);
   if (entries.length === 0) {
@@ -178,19 +174,18 @@ onMounted(() => {
 
     <AppTableEmpty v-else-if="filteredNetworks.length === 0" :message="t('networks.noFilterMatches')" />
 
-    <AppTable v-else class="networks-table" min-width="960px">
+    <AppTable v-else class="networks-table" min-width="880px">
       <template #head>
           <tr>
             <th class="networks-desktop-cell">{{ t('common.name') }}</th>
             <th class="networks-desktop-cell">{{ t('common.stack') }}</th>
             <th class="networks-desktop-cell">{{ t('common.driver') }}</th>
-            <th class="networks-desktop-cell">VXLAN ID</th>
             <th class="networks-desktop-cell">{{ t('networks.attachable') }}</th>
             <th class="networks-desktop-cell">{{ t('networks.internal') }}</th>
             <th class="networks-desktop-cell">{{ t('networks.ingress') }}</th>
             <th class="networks-desktop-cell">
               <span
-                class="networks-managed-label app-tooltip"
+                class="networks-managed-label app-tooltip network-managed-tooltip"
                 tabindex="0"
                 :aria-label="`${t('networks.managed')}: ${t('networks.managedHint')}`"
                 :data-tooltip="t('networks.managedHint')"
@@ -201,18 +196,24 @@ onMounted(() => {
             <th class="networks-mobile-cell">{{ t('common.network') }}</th>
           </tr>
       </template>
-          <tr v-for="network in filteredNetworks" :key="network.id">
-            <td class="networks-desktop-cell">{{ network.name || t('common.notApplicable') }}</td>
+          <tr v-for="network in filteredNetworks" :key="network.id" class="networks-row app-table-row--clickable">
+            <td class="networks-desktop-cell">
+              <span>{{ network.name || t('common.notApplicable') }}</span>
+              <RouterLink
+                class="networks-row-link"
+                :aria-label="`${t('networks.details')}: ${network.name || t('common.notApplicable')}`"
+                :to="{ name: 'network-details', params: { network: network.id } }"
+              />
+            </td>
             <td class="networks-desktop-cell">
               <RouterLink
                 v-if="network.stack_name"
-                class="service-inline-link"
+                class="service-inline-link networks-stack-link"
                 :to="{ name: 'stack-details', params: { stack: network.stack_name } }"
               >{{ network.stack_name }}</RouterLink>
               <template v-else>{{ t('common.notApplicable') }}</template>
             </td>
             <td class="networks-desktop-cell">{{ network.driver || t('common.notApplicable') }}</td>
-            <td class="networks-desktop-cell">{{ vxlanIDText(network.options) }}</td>
             <td class="networks-desktop-cell">{{ boolText(network.attachable) }}</td>
             <td class="networks-desktop-cell">{{ boolText(network.internal) }}</td>
             <td class="networks-desktop-cell">{{ boolText(network.ingress) }}</td>
@@ -223,10 +224,15 @@ onMounted(() => {
               <div class="networks-mobile-summary">
                 <div class="networks-mobile-heading">
                   <strong>{{ network.name || t('common.notApplicable') }}</strong>
+                  <RouterLink
+                    class="networks-row-link"
+                    :aria-label="`${t('networks.details')}: ${network.name || t('common.notApplicable')}`"
+                    :to="{ name: 'network-details', params: { network: network.id } }"
+                  />
                   <span>
                     <RouterLink
                       v-if="network.stack_name"
-                      class="service-inline-link"
+                      class="service-inline-link networks-stack-link"
                       :to="{ name: 'stack-details', params: { stack: network.stack_name } }"
                     >{{ network.stack_name }}</RouterLink>
                     <template v-else>{{ t('common.notApplicable') }}</template>
@@ -234,7 +240,7 @@ onMounted(() => {
                 </div>
                 <div class="networks-mobile-runtime">
                   <span>{{ network.driver || t('common.notApplicable') }}</span>
-                  <span>VXLAN {{ vxlanIDText(network.options) }}</span>
+                  <span>{{ enumLabel('networkScopes', network.scope, network.scope || t('common.notApplicable')) }}</span>
                 </div>
                 <dl class="networks-mobile-flags">
                   <div><dt>{{ t('networks.attachable') }}:</dt><dd>{{ boolText(network.attachable) }}</dd></div>
@@ -243,7 +249,7 @@ onMounted(() => {
                   <div>
                     <dt>
                       <span
-                        class="networks-managed-label app-tooltip"
+                        class="networks-managed-label app-tooltip network-managed-tooltip"
                         tabindex="0"
                         :aria-label="`${t('networks.managed')}: ${t('networks.managedHint')}`"
                         :data-tooltip="t('networks.managedHint')"
@@ -332,19 +338,34 @@ onMounted(() => {
   display: none;
 }
 
+.networks-table :deep(.networks-row) {
+  position: relative;
+  cursor: pointer;
+}
+
+.networks-row-link {
+  position: static;
+}
+
+.networks-row-link::after {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  content: "";
+}
+
+.networks-stack-link,
+.networks-managed-label {
+  position: relative;
+  z-index: 2;
+}
+
 .networks-managed-label {
   display: inline-flex;
   align-items: center;
   gap: 3px;
   border-radius: 3px;
   cursor: help;
-}
-
-.networks-managed-label::after {
-  width: max-content;
-  max-width: min(300px, calc(100vw - 32px));
-  white-space: normal;
-  text-align: left;
 }
 
 .networks-managed-label:focus {

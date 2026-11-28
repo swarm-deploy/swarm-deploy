@@ -76,6 +76,7 @@ async function mountPage(path = "/services/infra/api") {
     routes: [
       { path: "/services/:stack/:service", name: "service-details", component: ServiceView },
       { path: "/services/:stack/:service/configs/:config", name: "service-config", component: ServiceConfigView },
+      { path: "/networks/:network", name: "network-details", component: blank },
       { path: "/stacks/:stack", name: "stack-details", component: blank },
       { path: "/realtime", name: "realtime", component: blank },
       { path: "/deployments", name: "deployments", component: blank },
@@ -256,15 +257,11 @@ describe("ServiceView", () => {
     expect(wrapper.find('.modal[aria-hidden="false"] [role="dialog"][aria-labelledby="service-labels-title"]').exists()).toBe(false);
   });
 
-  it("opens the Network details dialog with subnet, gateway and connected services", async () => {
+  it("links the attached network to its details page", async () => {
     const wrapper = await mountPage();
-    const buttons = wrapper.findAll("button.service-entity");
-    await buttons.find((button) => button.text().includes("infra-overlay"))!.trigger("click");
-    const dialog = wrapper.get('.modal[aria-hidden="false"] [role="dialog"][aria-labelledby="network-details-title"]');
-    for (const value of ["10.0.4.0/24", "10.0.4.1", "infra_worker", "infra_api"]) {
-      expect(dialog.text()).toContain(value);
-    }
-    expect(dialog.text()).not.toContain("infra_other");
+    const link = wrapper.findAll("a.service-entity").find((item) => item.text().includes("infra-overlay"));
+    expect(link?.attributes("href")).toBe("/networks/overlay-id");
+    expect(wrapper.find('[role="dialog"][aria-labelledby="network-details-title"]').exists()).toBe(false);
   });
 
   it("opens the existing Secret details dialog", async () => {
@@ -277,7 +274,7 @@ describe("ServiceView", () => {
 
   it("links to the Config page with the service mount path", async () => {
     const wrapper = await mountPage();
-    const link = wrapper.get("a.service-entity");
+    const link = wrapper.findAll("a.service-entity").find((item) => item.text().includes("api-config"))!;
     expect(link.attributes("href")).toBe("/services/infra/api/configs/config-id?target=/etc/api.yaml");
     await link.trigger("click");
     await flushPromises();

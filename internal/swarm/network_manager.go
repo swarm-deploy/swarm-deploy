@@ -127,14 +127,22 @@ func (*networkManager) mapNetwork(network dockernetwork.Summary) Network {
 	return Network{
 		ID:         network.ID,
 		Name:       network.Name,
+		CreatedAt:  network.Created,
 		Scope:      network.Scope,
 		Driver:     network.Driver,
+		EnableIPv4: network.EnableIPv4,
+		EnableIPv6: network.EnableIPv6,
 		Internal:   network.Internal,
 		Attachable: network.Attachable,
 		Ingress:    network.Ingress,
 		Labels:     network.Labels,
 		Options:    network.Options,
+		ConfigOnly: network.ConfigOnly,
+		ConfigFrom: network.ConfigFrom.Network,
+		IPAMDriver: network.IPAM.Driver,
 		IPAM:       network.IPAM.Config,
+		Services:   network.Services,
+		Peers:      network.Peers,
 		Stack:      labelsdict.GetStackName(network.Labels),
 	}
 }

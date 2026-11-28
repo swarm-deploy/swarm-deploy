@@ -57,11 +57,16 @@ describe("NetworksView", () => {
     expect(wrapper.findAll("tbody tr")).toHaveLength(1);
     expect(wrapper.text()).toContain("app_default");
     expect(wrapper.text()).not.toContain("infra_default");
+    expect(wrapper.get("tbody tr").classes()).toContain("app-table-row--clickable");
+    expect(wrapper.findAll(".networks-row-link")).toHaveLength(2);
+    expect(wrapper.findAll(".networks-row-link").every((link) => link.text() === "")).toBe(true);
+    expect(wrapper.findAll(".networks-stack-link")).toHaveLength(2);
     const stackLinks = wrapper.findAllComponents(RouterLinkStub);
-    expect(stackLinks).toHaveLength(2);
-    expect(stackLinks.every((link) => link.classes().includes("service-inline-link"))).toBe(true);
+    expect(stackLinks).toHaveLength(4);
     expect(stackLinks.map((link) => link.props("to"))).toEqual([
+      { name: "network-details", params: { network: "app-network" } },
       { name: "stack-details", params: { stack: "app" } },
+      { name: "network-details", params: { network: "app-network" } },
       { name: "stack-details", params: { stack: "app" } },
     ]);
   });
@@ -75,7 +80,8 @@ describe("NetworksView", () => {
     expect(summaries[0].text()).toContain("app_default");
     expect(summaries[0].text()).toContain("app");
     expect(summaries[0].text()).toContain("overlay");
-    expect(summaries[0].text()).toContain("VXLAN 4097");
+    expect(summaries[0].text()).toContain("swarm");
+    expect(summaries[0].text()).not.toContain("VXLAN");
     expect(summaries[0].findAll(".networks-mobile-flags dt").map((item) => item.text())).toEqual([
       "Attachable:", "Internal:", "Ingress:", "Managed ⓘ:",
     ]);
@@ -86,6 +92,7 @@ describe("NetworksView", () => {
     expect(summaries[0].text()).toContain("com.example.encrypted=true");
     expect(summaries[0].get(".networks-managed-label").attributes("data-tooltip"))
       .toBe("Managed by swarm-deploy GitOps through networks.yaml.");
+    expect(summaries[0].get(".networks-managed-label").classes()).toContain("network-managed-tooltip");
     expect(summaries[1].findAll(".networks-mobile-details dt").map((item) => item.text())).not.toContain("Labels:");
   });
 });
