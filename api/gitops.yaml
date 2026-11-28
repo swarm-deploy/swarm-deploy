@@ -352,6 +352,9 @@ components:
         effectively_paused_services:
           type: integer
           minimum: 0
+        stack_pause_active:
+          type: boolean
+          description: Whether synchronization is paused for the entire stack.
     StacksResponse:
       type: object
       required: [stacks, sync]

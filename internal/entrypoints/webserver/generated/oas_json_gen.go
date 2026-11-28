@@ -18069,9 +18069,15 @@ func (s *StackView) encodeFields(e *jx.Encoder) {
 			s.EffectivelyPausedServices.Encode(e)
 		}
 	}
+	{
+		if s.StackPauseActive.Set {
+			e.FieldStart("stack_pause_active")
+			s.StackPauseActive.Encode(e)
+		}
+	}
 }
 
-var jsonFieldsNameOfStackView = [8]string{
+var jsonFieldsNameOfStackView = [9]string{
 	0: "name",
 	1: "compose_file",
 	2: "status",
@@ -18080,6 +18086,7 @@ var jsonFieldsNameOfStackView = [8]string{
 	5: "last_deploy_at",
 	6: "source_digest",
 	7: "effectively_paused_services",
+	8: "stack_pause_active",
 }
 
 // Decode decodes StackView from json.
@@ -18174,6 +18181,16 @@ func (s *StackView) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"effectively_paused_services\"")
+			}
+		case "stack_pause_active":
+			if err := func() error {
+				s.StackPauseActive.Reset()
+				if err := s.StackPauseActive.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"stack_pause_active\"")
 			}
 		default:
 			return d.Skip()

@@ -26,6 +26,7 @@ export interface StackView {
   last_deploy_at?: string;
   source_digest?: string;
   effectively_paused_services?: number;
+  stack_pause_active?: boolean;
 }
 
 export type SyncPauseScope = "stack" | "service";

@@ -30,6 +30,8 @@ const statusVariant = computed(() => ({
 
 const serviceLabel = computed(() => plural("common.serviceCount", props.serviceCount));
 const pausedLabel = computed(() => t("stack.pausedCount", { count: formatNumber(props.stack.effectively_paused_services ?? 0) }));
+const stackPauseActive = computed(() => props.stack.stack_pause_active ?? false);
+const syncActionLabel = computed(() => stackPauseActive.value ? t("syncPause.resumeStack") : t("common.pauseSync"));
 const stackAnchor = computed(() => `stack-${encodeURIComponent(props.stack.name)}`);
 </script>
 
@@ -82,25 +84,26 @@ const stackAnchor = computed(() => `stack-${encodeURIComponent(props.stack.name)
         :data-tooltip="t('stack.compareState')"
         @click.stop="emit('compare', stack.name)"
       >
-        <svg class="overview-stack-card-action-icon" viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M10 4H4.5A1.5 1.5 0 0 0 3 5.5V18h5" />
-          <path d="M3 7h3V4M5 10h4M5 13h2" />
-          <path d="M14 4h5.5A1.5 1.5 0 0 1 21 5.5V18h-5" />
-          <path d="M18 4v3h3M15 10h4M17 13h2" />
-          <circle cx="12" cy="14" r="4.5" />
-          <path d="m15.25 17.25 3.75 3.75" />
+        <svg class="overview-stack-card-action-icon overview-stack-card-compare-icon" viewBox="0 0 28 24" aria-hidden="true">
+          <path d="M11 2H5L2 5v14h5" />
+          <path d="M2 5h3V2M5 8h5M4 11h4M4 14h3" />
+          <path d="M17 2h6l3 3v14h-5" />
+          <path d="M23 2v3h3M18 8h5M20 11h4M21 14h3" />
+          <circle cx="14" cy="14" r="6.5" />
+          <path d="M14 20.5V23" />
         </svg>
       </button>
       <button
         type="button"
         class="overview-stack-card-action app-tooltip"
-        :aria-label="t('common.pauseSync')"
-        :data-tooltip="t('common.pauseSync')"
+        :aria-label="syncActionLabel"
+        :data-tooltip="syncActionLabel"
         @click.stop="emit('pause', stack.name)"
       >
         <svg class="overview-stack-card-action-icon" viewBox="0 0 24 24" aria-hidden="true">
           <circle cx="12" cy="12" r="9" />
-          <path d="M9.5 9v6M14.5 9v6" />
+          <path v-if="stackPauseActive" d="m10 8 6 4-6 4Z" />
+          <path v-else d="M9.5 9v6M14.5 9v6" />
         </svg>
       </button>
     </footer>
@@ -127,6 +130,7 @@ const stackAnchor = computed(() => `stack-${encodeURIComponent(props.stack.name)
   stroke-linecap: round;
   stroke-linejoin: round;
 }
+.overview-stack-card-compare-icon { width: 26px; }
 .overview-stack-card-action.app-tooltip::after {
   top: auto;
   bottom: calc(100% + 6px);

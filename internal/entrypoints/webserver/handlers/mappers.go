@@ -37,14 +37,17 @@ func (h *handler) listStacks(ctx context.Context, snapshot model.Runtime) ([]gen
 		stackSnapshot, exists := snapshot.Stacks[stackCfg.Name]
 		item := toGeneratedStack(stackCfg, stackSnapshot, exists)
 		paused := 0
+		stackPauseActive := false
 		if h.syncPauses != nil {
 			pauseState, err := h.syncPauses.GetStack(ctx, stackCfg.Name)
 			if err != nil {
 				return nil, err
 			}
 			paused = len(pauseState.EffectivelyPausedServices)
+			stackPauseActive = pauseState.StackPause != nil
 		}
 		item.EffectivelyPausedServices = generated.NewOptInt(paused)
+		item.StackPauseActive = generated.NewOptBool(stackPauseActive)
 		mapped = append(mapped, item)
 	}
 
