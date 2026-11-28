@@ -487,6 +487,10 @@ watch([stackName, serviceName], ([stack, service], _, onCleanup) => {
   align-self: center;
 }
 
+.service-realtime-link {
+  font-weight: 400;
+}
+
 .service-realtime-link :deep(svg) {
   width: 17px;
   height: 17px;
