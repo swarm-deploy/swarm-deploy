@@ -75,7 +75,6 @@ func TestServiceDeploymentFailureCanComposeOperationalCapabilities(t *testing.T)
 	assert.Contains(t, routerSystemPrompt, "Почему упал деплой infra-monitoring?")
 }
 
-
 func TestRouterPromptRoutesServiceLinksToServiceContext(t *testing.T) {
 	assert.Contains(t, routerSystemPrompt,
 		`"Дай ссылку на графану" -> {"route":"services","capabilities":["service_context"],"operation":null}`)
