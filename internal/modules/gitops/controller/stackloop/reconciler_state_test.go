@@ -296,7 +296,9 @@ func TestReconcileSeparatesPostApplyOutcomes(t *testing.T) {
 			repoDir := t.TempDir()
 			require.NoError(t, writeComposeFile(repoDir))
 			mockRepositoryFiles(repository, repoDir)
-			stackDeployer.EXPECT().DeployStack(gomock.Any(), gomock.Cond(func(req deployer.StackRequest) bool { return req.StackName == "app" })).Return(deployer.Result{}, nil)
+			stackDeployer.EXPECT().DeployStack(gomock.Any(), gomock.Cond(func(req deployer.StackRequest) bool {
+				return req.StackName == "app"
+			})).Return(deployer.Result{VerificationPerformed: true}, nil)
 			tt.setupServices(serviceManager)
 			cfg := &config.Config{Spec: config.Spec{DataDir: filepath.Join(repoDir, ".data"),
 				GitOps: config.GitOpsSpec{Sync: config.SyncSpec{Policy: config.SyncPolicySpec{Prune: true}}}}}

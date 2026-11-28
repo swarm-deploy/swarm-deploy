@@ -51,7 +51,7 @@ func TestRealSwarmGitOpsLifecycle(t *testing.T) {
 		sha, content := f.pushRevision(t, "Initial deployment", desired)
 		f.runner.Run(f.ctx, syncrun.Task{Reason: syncrun.TriggerStartup})
 		latest := f.assertRevision(t, sha, content, desired)
-		f.assertSuccessfulDeployment(t, latest)
+		f.assertSuccessfulDeployment(t, latest, model.StageSucceeded)
 
 		api = f.runningAPI(t, desired)
 		originalResources = f.mountedResources(t, 1)
@@ -114,7 +114,7 @@ func TestRealSwarmGitOpsLifecycle(t *testing.T) {
 		sha, content := f.pushRevision(t, "Update API command and environment", desired)
 		f.pollGit(t)
 		latest := f.assertRevision(t, sha, content, desired)
-		f.assertSuccessfulDeployment(t, latest)
+		f.assertSuccessfulDeployment(t, latest, model.StageSucceeded)
 		require.Equal(t, []string{"api"}, latest.Attempts[0].TargetServices)
 
 		api = f.updatedAPI(t, api, desired)
@@ -130,7 +130,7 @@ func TestRealSwarmGitOpsLifecycle(t *testing.T) {
 		sha, content := f.pushRevision(t, "Add scheduler service", desired)
 		f.pollGit(t)
 		latest := f.assertRevision(t, sha, content, desired)
-		f.assertSuccessfulDeployment(t, latest)
+		f.assertSuccessfulDeployment(t, latest, model.StageSucceeded)
 		require.Equal(t, []string{"scheduler"}, latest.Attempts[0].TargetServices)
 
 		// Retain the API baseline: the bounded idle check also proves isolation
@@ -150,7 +150,7 @@ func TestRealSwarmGitOpsLifecycle(t *testing.T) {
 		require.Equal(t, composeBeforeRotation, content, "rotation changes resource files only")
 		f.pollGit(t)
 		latest := f.assertRevision(t, sha, content, desired)
-		f.assertSuccessfulDeployment(t, latest)
+		f.assertSuccessfulDeployment(t, latest, model.StageSucceeded)
 
 		api = f.updatedAPI(t, api, desired)
 		rotatedResources = f.mountedResources(t, 2)
@@ -183,7 +183,7 @@ func TestRealSwarmGitOpsLifecycle(t *testing.T) {
 		sha, content := f.pushRevision(t, "Recover API", desired)
 		f.pollGit(t)
 		latest := f.assertRevision(t, sha, content, desired)
-		f.assertSuccessfulDeployment(t, latest)
+		f.assertSuccessfulDeployment(t, latest, model.StageSucceeded)
 
 		// Recovery keeps scheduler and compares API against the last healthy generation.
 		api = f.updatedAPI(t, api, desired)
@@ -210,7 +210,7 @@ func TestRealSwarmGitOpsLifecycle(t *testing.T) {
 			"pruning must not change any remaining service spec")
 		f.pollGit(t)
 		latest := f.assertRevision(t, sha, content, desired)
-		f.assertSuccessfulDeployment(t, latest)
+		f.assertSuccessfulDeployment(t, latest, model.StageSkipped)
 
 		require.Equal(t, rotatedResources, f.mountedResources(t, 2))
 		f.assertSchedulerPruned(t, scheduler, sha)
@@ -385,16 +385,16 @@ func (f *gitOpsLifecycleFixture) assertRevision(t *testing.T, sha, content strin
 	return latest
 }
 
-func (f *gitOpsLifecycleFixture) assertSuccessfulDeployment(t *testing.T, latest model.Deployment) {
+func (f *gitOpsLifecycleFixture) assertSuccessfulDeployment(
+	t *testing.T,
+	latest model.Deployment,
+	wantVerification model.StageStatus,
+) {
 	t.Helper()
 	assertSuccessfulHistory(t, latest)
 	runtime := f.runtime(t)
 	require.Equal(t, "success", runtime.LastSyncResult)
 	require.Empty(t, runtime.LastSyncError)
-	wantVerification := model.StageSucceeded
-	if latest.Attempts[0].TargetServices != nil && len(latest.Attempts[0].TargetServices) == 0 {
-		wantVerification = model.StageSkipped
-	}
 	require.Equal(t, wantVerification, latest.VerificationStatus)
 	require.Equal(t, model.StageSucceeded, latest.CleanupStatus)
 	require.Len(t, f.publications(t, events.TypeNameDeploySuccess), 1)

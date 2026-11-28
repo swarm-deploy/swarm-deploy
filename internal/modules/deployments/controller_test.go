@@ -119,7 +119,9 @@ func TestControllerExecuteCompletesSuccessAndAvoidsDuplicateExecution(t *testing
 		return req.StackName == "app" &&
 			req.SourceComposePath == "app.yaml"
 	})).
-		Return(deployer.Result{Verification: deploymentmodel.Verification{Known: true}}, nil)
+		Return(deployer.Result{
+			Verification: deploymentmodel.Verification{Known: true}, VerificationPerformed: true,
+		}, nil)
 	services.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "app"}).Return(nil, nil)
 
 	result, err := controller.Execute(t.Context(), req)
@@ -139,7 +141,7 @@ func TestControllerExecuteCompletesSuccessAndAvoidsDuplicateExecution(t *testing
 	assert.Nil(t, unchanged.Attempt)
 }
 
-func TestControllerExecuteSkipsVerificationWithoutTargetServices(t *testing.T) {
+func TestControllerExecutePersistsSkippedVerificationForInitJobOnlyChange(t *testing.T) {
 	db, lifecycle, bus := openService(t)
 	mocks := gomock.NewController(t)
 	stackDeployer := deployer.NewMockStackDeployer(mocks)
@@ -149,10 +151,12 @@ func TestControllerExecuteSkipsVerificationWithoutTargetServices(t *testing.T) {
 		pruner.NewServicePruner(services, bus, config.SyncPolicySpec{}), &metrics.NopDeploys{},
 	)
 	req := executionRequest("api:1")
-	req.TargetServices = []string{}
 	stackDeployer.EXPECT().DeployStack(gomock.Any(), gomock.Cond(func(request deployer.StackRequest) bool {
-		return request.TargetServices != nil && len(request.TargetServices) == 0
-	})).Return(deployer.Result{Verification: deploymentmodel.Verification{Known: true}}, nil)
+		return len(request.TargetServices) == 1 && request.TargetServices[0] == "api"
+	})).Return(deployer.Result{
+		Verification: deploymentmodel.Verification{Known: true},
+		InitJobs: []deployer.InitJobResult{{Status: deployer.InitJobSucceeded, ServiceName: "api"}},
+	}, nil)
 	services.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "app"}).Return(nil, nil)
 
 	result, err := controller.Execute(t.Context(), req)
@@ -219,7 +223,9 @@ func TestControllerExecuteClassifiesAndPersistsFailures(t *testing.T) {
 		},
 		{
 			name: "cleanup",
-			result: deployer.Result{Verification: deploymentmodel.Verification{Known: true}},
+			result: deployer.Result{
+				Verification: deploymentmodel.Verification{Known: true}, VerificationPerformed: true,
+			},
 			setupLive: func(services *swarm.MockServiceManager) {
 				services.EXPECT().ListServices(gomock.Any(), gomock.Any()).Return([]swarm.StackService{{
 					ID: "old", Name: "old", Labels: map[string]string{

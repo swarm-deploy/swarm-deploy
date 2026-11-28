@@ -21,6 +21,8 @@ type Result struct {
 	SpecificationOnlyServices []string
 	// Verification contains the known rollout obligations produced by execution.
 	Verification deploymentmodel.Verification
+	// VerificationPerformed reports that convergence was checked for at least one service.
+	VerificationPerformed bool
 	// InitJobs contains completed Init Job executions in execution order.
 	InitJobs []InitJobResult
 }

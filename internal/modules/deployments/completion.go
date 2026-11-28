@@ -39,6 +39,8 @@ const (
 type Completion struct {
 	// Verification contains the rollout obligations known at completion.
 	Verification deploymentmodel.Verification
+	// VerificationPerformed reports that convergence was checked for at least one service.
+	VerificationPerformed bool
 	// Outcome identifies the terminal transition.
 	Outcome CompletionOutcome
 	// Diagnostic contains optional technical context and is sanitized before persistence or publication.
@@ -102,13 +104,6 @@ func (s *Service) complete(
 	if err != nil {
 		return err
 	}
-	// Completed and cleanup-stage outcomes are reached only after DeployStack
-	// verified every target. An empty target scope legitimately skips the waiter.
-	if (state.phase == deploymentmodel.PhaseCompleted || state.phase == deploymentmodel.PhaseCleanup) &&
-		len(attempt.Services(desired)) > 0 {
-		state.verification = deploymentmodel.StageSucceeded
-	}
-
 	finishedAt := s.now().UTC()
 	attempt.Status, attempt.FinishedAt, attempt.ErrorCode = state.status, &finishedAt, state.errorCode
 	attempt.ErrorDiagnostic = faults.SafeDiagnostic(state.diagnostic)
@@ -184,7 +179,7 @@ func (completion Completion) state() (completionState, error) {
 			return completionState{}, fmt.Errorf("successful completion cannot contain an error")
 		}
 		state.status, state.phase = deploymentmodel.Succeeded, deploymentmodel.PhaseCompleted
-		state.apply, state.verification = deploymentmodel.StageSucceeded, deploymentmodel.StageSkipped
+		state.apply, state.verification = deploymentmodel.StageSucceeded, completion.verificationStatus()
 		state.cleanup = deploymentmodel.StageSucceeded
 		state.actual = deploymentmodel.ActualStateUnknown
 		if completion.ObservedAt != nil {
@@ -214,7 +209,7 @@ func (completion Completion) state() (completionState, error) {
 			return completionState{}, fmt.Errorf("cleanup failure requires an observation timestamp")
 		}
 		state.status, state.phase = deploymentmodel.Failed, deploymentmodel.PhaseCleanup
-		state.apply, state.verification = deploymentmodel.StageSucceeded, deploymentmodel.StageSkipped
+		state.apply, state.verification = deploymentmodel.StageSucceeded, completion.verificationStatus()
 		state.cleanup, state.actual = deploymentmodel.StageFailed, deploymentmodel.ActualStateObserved
 		state.eventStage = string(state.phase)
 	case CompletionProcessInterrupted:
@@ -228,6 +223,13 @@ func (completion Completion) state() (completionState, error) {
 		return completionState{}, fmt.Errorf("unsupported completion outcome %q", completion.Outcome)
 	}
 	return state, nil
+}
+
+func (completion Completion) verificationStatus() deploymentmodel.StageStatus {
+	if completion.VerificationPerformed {
+		return deploymentmodel.StageSucceeded
+	}
+	return deploymentmodel.StageSkipped
 }
 
 // ErrorCode returns the stable terminal error category for the selected outcome.

@@ -31,18 +31,17 @@ func TestCompletePersistsLifecycleBaselineAndEvents(t *testing.T) {
 		wantEvent        events.TypeName
 		wantEventStage   string
 		wantFault        faults.Code
-		emptyTargets     bool
 	}{
 		{
 			name: "success without verification", completion: Completion{Outcome: CompletionSucceeded},
 			wantStatus: deploymentmodel.Succeeded, wantPhase: deploymentmodel.PhaseCompleted,
 			wantApply: deploymentmodel.StageSucceeded, wantVerification: deploymentmodel.StageSkipped,
 			wantCleanup: deploymentmodel.StageSucceeded, wantActual: deploymentmodel.ActualStateUnknown,
-			wantEvent: events.TypeNameDeploySuccess, emptyTargets: true,
+			wantEvent: events.TypeNameDeploySuccess,
 		},
 		{
 			name: "success after verification without observation",
-			completion: Completion{Outcome: CompletionSucceeded},
+			completion: Completion{Outcome: CompletionSucceeded, VerificationPerformed: true},
 			wantStatus: deploymentmodel.Succeeded, wantPhase: deploymentmodel.PhaseCompleted,
 			wantApply: deploymentmodel.StageSucceeded, wantVerification: deploymentmodel.StageSucceeded,
 			wantCleanup: deploymentmodel.StageSucceeded, wantActual: deploymentmodel.ActualStateUnknown,
@@ -50,7 +49,9 @@ func TestCompletePersistsLifecycleBaselineAndEvents(t *testing.T) {
 		},
 		{
 			name: "success after verification with observation",
-			completion: Completion{Outcome: CompletionSucceeded, ObservedAt: &observedAt},
+			completion: Completion{
+				Outcome: CompletionSucceeded, ObservedAt: &observedAt, VerificationPerformed: true,
+			},
 			wantStatus: deploymentmodel.Succeeded, wantPhase: deploymentmodel.PhaseCompleted,
 			wantApply: deploymentmodel.StageSucceeded, wantVerification: deploymentmodel.StageSucceeded,
 			wantCleanup: deploymentmodel.StageSucceeded, wantActual: deploymentmodel.ActualStateObserved,
@@ -107,12 +108,13 @@ func TestCompletePersistsLifecycleBaselineAndEvents(t *testing.T) {
 			wantStatus: deploymentmodel.Failed, wantPhase: deploymentmodel.PhaseCleanup,
 			wantApply: deploymentmodel.StageSucceeded, wantVerification: deploymentmodel.StageSkipped,
 			wantCleanup: deploymentmodel.StageFailed, wantActual: deploymentmodel.ActualStateObserved,
-			wantEvent: events.TypeNameDeployFailed, wantEventStage: "cleanup", emptyTargets: true,
+			wantEvent: events.TypeNameDeployFailed, wantEventStage: "cleanup",
 		},
 		{
 			name: "cleanup failure after verification",
 			completion: Completion{Outcome: CompletionCleanupFailed,
-				Diagnostic: errors.New("prune failed: token=private-value"), ObservedAt: &observedAt},
+				Diagnostic: errors.New("prune failed: token=private-value"), ObservedAt: &observedAt,
+				VerificationPerformed: true},
 			wantStatus: deploymentmodel.Failed, wantPhase: deploymentmodel.PhaseCleanup,
 			wantApply: deploymentmodel.StageSucceeded, wantVerification: deploymentmodel.StageSucceeded,
 			wantCleanup: deploymentmodel.StageFailed, wantActual: deploymentmodel.ActualStateObserved,
@@ -136,13 +138,9 @@ func TestCompletePersistsLifecycleBaselineAndEvents(t *testing.T) {
 				return clock
 			}))
 			subscribe(t, db, bus, testCase.wantEvent)
-			targets := desiredServices("api").Compose.Services.Names()
-			if testCase.emptyTargets {
-				targets = []string{}
-			}
 			attempt, err := service.StartIfChanged(
 				t.Context(), "app", "commit", desiredServices("api"), true,
-				StartOptions{TargetServices: targets},
+				StartOptions{TargetServices: desiredServices("api").Compose.Services.Names()},
 			)
 			require.NoError(t, err)
 			require.NoError(t, service.Complete(t.Context(), attempt.ID, testCase.completion))
@@ -163,16 +161,12 @@ func TestCompletePersistsLifecycleBaselineAndEvents(t *testing.T) {
 			assert.Equal(t, stored.Phase, stored.Attempts[0].Phase)
 			assert.NotContains(t, stored.ErrorDiagnostic, "private-value")
 
-			wantServices := 1
-			if testCase.emptyTargets {
-				wantServices = 0
-			}
 			assertCompletionPublication(
 				t, db, testCase.wantEvent, attempt, testCase.completion,
-				testCase.wantEventStage, testCase.wantFault, wantServices,
+				testCase.wantEventStage, testCase.wantFault,
 			)
 			baseline, baselineErr := deploymentstore.NewStore(db).BaselineDeploymentID(t.Context(), "app")
-			if testCase.wantStatus == deploymentmodel.Succeeded && !testCase.emptyTargets {
+			if testCase.wantStatus == deploymentmodel.Succeeded {
 				require.NoError(t, baselineErr)
 				assert.Equal(t, attempt.DeploymentID, baseline)
 			} else {
@@ -190,7 +184,6 @@ func assertCompletionPublication(
 	completion Completion,
 	wantStage string,
 	wantFault faults.Code,
-	wantServices int,
 ) {
 	t.Helper()
 	items := publications(t, db, wantType)
@@ -204,7 +197,7 @@ func assertCompletionPublication(
 		assert.Equal(t, attempt.ID, actual.AttemptID)
 		assert.Equal(t, "app", actual.StackName)
 		assert.Equal(t, "commit", actual.Commit)
-		require.Len(t, actual.Services, wantServices)
+		require.Len(t, actual.Services, 1)
 	case events.TypeNameDeployFailed:
 		actual, ok := event.(*events.DeployFailed)
 		require.True(t, ok)

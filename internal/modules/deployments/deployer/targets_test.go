@@ -35,6 +35,7 @@ func TestDeployStackExecutesOnlyTargets(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, result.InitJobs, 1)
 	assert.Equal(t, "api", result.InitJobs[0].ServiceName)
+	assert.True(t, result.VerificationPerformed)
 }
 
 func TestDeployStackEmptyTargetsHasNoExternalEffects(t *testing.T) {
@@ -44,5 +45,6 @@ func TestDeployStackEmptyTargetsHasNoExternalEffects(t *testing.T) {
 	result, err := d.DeployStack(t.Context(), StackRequest{Desired: minimalCompose("api"), TargetServices: []string{}})
 	require.NoError(t, err)
 	assert.True(t, result.Verification.Known)
+	assert.False(t, result.VerificationPerformed)
 	assert.Empty(t, result.InitJobs)
 }
