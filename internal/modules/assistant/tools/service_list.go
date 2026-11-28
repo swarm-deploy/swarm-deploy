@@ -52,8 +52,8 @@ func NewServiceList(services ServicesReader) *ServiceList {
 func (l *ServiceList) Definition() routing.ToolDefinition {
 	return routing.ToolDefinition{
 		Name: config.AssistantToolNameServiceList,
-		Description: "Returns compact persisted service catalog entries. Use when the user asks to list services " +
-			"or when a target is absent from retrieved service metadata.",
+		Description: "Returns compact persisted service catalog entries with resolved public web routes. " +
+			"Call before asking the user for a service identifier or URL when the target is absent from retrieved metadata.",
 		ParametersJSONSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
