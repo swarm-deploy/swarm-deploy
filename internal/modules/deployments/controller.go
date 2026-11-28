@@ -219,7 +219,7 @@ func (c *Controller) execute(ctx context.Context, req ExecuteRequest) (ExecuteRe
 	if cleanupErr != nil {
 		completion := Completion{
 			Outcome: CompletionCleanupFailed, Diagnostic: cleanupErr, ObservedAt: &result.ObservedAt,
-			Verification: deployResult.Verification,
+			Verification: deployResult.Verification, VerificationPerformed: deployResult.VerificationPerformed,
 		}
 		result.Status, result.ErrorCode = deploymentmodel.Failed, completion.ErrorCode()
 		completeErr := c.complete(ctx, req.Stack.Name, attempt.ID, completion)
@@ -227,14 +227,21 @@ func (c *Controller) execute(ctx context.Context, req ExecuteRequest) (ExecuteRe
 		return result, errors.Join(cleanupErr, completeErr)
 	}
 
-	return c.succeed(ctx, req, *attempt, result)
+	return c.succeed(ctx, req, *attempt, deployResult.VerificationPerformed, result)
 }
 
 // succeed completes a successful Attempt and reports the receipts of its desired state.
 func (c *Controller) succeed(
-	ctx context.Context, req ExecuteRequest, attempt deploymentmodel.Attempt, result ExecuteResult,
+	ctx context.Context,
+	req ExecuteRequest,
+	attempt deploymentmodel.Attempt,
+	verificationPerformed bool,
+	result ExecuteResult,
 ) (ExecuteResult, error) {
-	completion := Completion{Outcome: CompletionSucceeded, ObservedAt: &result.ObservedAt}
+	completion := Completion{
+		Outcome: CompletionSucceeded, ObservedAt: &result.ObservedAt,
+		VerificationPerformed: verificationPerformed,
+	}
 	result.Status, result.AppliedRevisions = deploymentmodel.Succeeded, attempt.ServiceRevisions
 	if err := c.complete(ctx, req.Stack.Name, attempt.ID, completion); err != nil {
 		return result, err

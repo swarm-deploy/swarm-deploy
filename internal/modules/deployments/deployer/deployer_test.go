@@ -150,7 +150,7 @@ func TestDeployServiceFailsBeforeDockerWritesWhenServiceIsMissing(t *testing.T) 
 	assert.ErrorContains(t, err, `service "worker" not found`)
 }
 
-func TestDeployStackPassesNoTargetsWhenApplicationIsUnchanged(t *testing.T) {
+func TestDeployStackPassesNoTargetsWhenOnlyInitJobChanged(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	waiter := NewMockServiceWaitExecutor(ctrl)
 	waiter.EXPECT().Snapshot(gomock.Any(), "demo").Return(nil, nil)
@@ -168,13 +168,17 @@ func TestDeployStackPassesNoTargetsWhenApplicationIsUnchanged(t *testing.T) {
 		ID: "service-id", Spec: nativeMinimalServiceSpec("api"),
 	}, nil)
 	wireNativeTestDeployerWithServiceManager(t, deployer, manager, false)
+	desired := minimalCompose("api")
+	desired.Services[0].InitJobs = []compose.InitJob{{Name: "migrate", Image: "example/migrate:2"}}
 
-	_, err := deployer.DeployStack(t.Context(), StackRequest{
+	result, err := deployer.DeployStack(t.Context(), StackRequest{
 		StackName:         "demo",
 		SourceComposePath: "source.yaml",
-		Desired:           minimalCompose("api"), TargetServices: minimalCompose("api").Services.Names(),
+		Desired:           desired, TargetServices: desired.Services.Names(),
 	})
 	require.NoError(t, err)
+	require.Len(t, result.InitJobs, 1)
+	assert.False(t, result.VerificationPerformed)
 }
 
 func TestDeployStackParentCancellationInterruptsConvergence(t *testing.T) {

@@ -199,6 +199,7 @@ func (d *Deployer) waitForStack(ctx context.Context, payload *deployStackPayload
 		managed, _ := services.ReplicasManaged(expected[name])
 		return !managed && !slices.Contains(payload.changed, name) && !slices.Contains(payload.unresolvedServices, name)
 	})
+	payload.result.VerificationPerformed = len(names) > 0
 	verification, err := d.wait(waitCtx, waiterpkg.ServiceWaitRequest{
 		StackName: payload.stackName, ServiceNames: names,
 		Baseline: payload.baseline, AppliedServices: payload.changed,
@@ -271,9 +272,11 @@ func (d *Deployer) waitForService(ctx context.Context, payload *deployServicePay
 	if len(payload.converted.Services) == 0 {
 		return nil
 	}
+	names := convertedServiceNames(payload.stackName, payload.converted.Services)
+	payload.result.VerificationPerformed = len(names) > 0
 	verification, err := d.wait(waitCtx, waiterpkg.ServiceWaitRequest{
 		StackName:    payload.stackName,
-		ServiceNames: convertedServiceNames(payload.stackName, payload.converted.Services),
+		ServiceNames: names,
 		Baseline:     payload.baseline, AppliedServices: payload.changed,
 		UpdateGenerations: payload.updateGenerations,
 		ExpectedSpecs:     expectedServiceSpecs(payload.stackName, payload.converted.Services),
