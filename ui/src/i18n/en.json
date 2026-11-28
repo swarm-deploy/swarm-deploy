@@ -672,6 +672,8 @@
     "github": "swarm-deploy on GitHub",
     "globalNavigation": "Global navigation",
     "graph": "Graph",
+    "installApp": "Install app",
+    "installAppHelp": "In Safari, tap Share, then Add to Home Screen. Turn on Open as Web App and tap Add.",
     "light": "Light",
     "mobileNavigation": "Mobile navigation",
     "more": "More",
