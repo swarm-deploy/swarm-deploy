@@ -12,6 +12,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/enrichment/metadata"
 	servicemodel "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/model"
 	servicetype "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/stype"
+	webroute "github.com/swarm-deploy/webroute/api"
 	"go.uber.org/mock/gomock"
 )
 
@@ -23,6 +24,9 @@ func TestServiceListReturnsCompactSortedPage(t *testing.T) {
 			Metadata: metadata.Metadata{Description: "Dashboards", Type: servicetype.Monitoring},
 			Stack:    "monitoring",
 			Name:     "grafana",
+			WebRoutes: []webroute.WebRoute{
+				{From: webroute.Address{Domain: "grafana.example.com", Address: "grafana.example.com", Port: "443"}},
+			},
 		},
 		{
 			Metadata: metadata.Metadata{Description: "Public API", Type: servicetype.Application},
@@ -48,7 +52,12 @@ func TestServiceListReturnsCompactSortedPage(t *testing.T) {
 			name: "all services are sorted",
 			expected: []serviceListItem{
 				{Stack: "core", Name: "api", Type: "application", Description: "Public API"},
-				{Stack: "monitoring", Name: "grafana", Type: "monitoring", Description: "Dashboards"},
+				{
+					Stack: "monitoring", Name: "grafana", Type: "monitoring", Description: "Dashboards",
+					WebRoutes: []webroute.WebRoute{
+						{From: webroute.Address{Domain: "grafana.example.com", Address: "grafana.example.com", Port: "443"}},
+					},
+				},
 				{Stack: "monitoring", Name: "prometheus", Type: "monitoring", Description: "Metrics"},
 			},
 		},
