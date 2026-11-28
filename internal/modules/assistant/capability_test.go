@@ -9,6 +9,11 @@ import (
 )
 
 func TestOperationalToolCapabilitiesAndDefaultRoutes(t *testing.T) {
+	serviceContextProfile, ok := capabilityProfile(CapabilityServiceContext)
+	require.True(t, ok)
+	assert.Equal(t, []string{string(config.AssistantToolNameServiceList)}, serviceContextProfile.Tools)
+	assert.True(t, serviceContextProfile.ServiceContext)
+
 	serviceRuntimeProfile, ok := capabilityProfile(CapabilityServiceRuntime)
 	require.True(t, ok)
 	assert.Contains(t, serviceRuntimeProfile.Tools, "service_task_list")
