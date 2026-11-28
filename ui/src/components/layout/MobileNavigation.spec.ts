@@ -1,6 +1,6 @@
 import { flushPromises, mount } from "@vue/test-utils";
 import { createPinia, setActivePinia } from "pinia";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createMemoryHistory, createRouter } from "vue-router";
 
 import { useUIStore } from "../../stores/ui";
@@ -12,6 +12,7 @@ vi.hoisted(() => {
     value: vi.fn().mockReturnValue({
       matches: false,
       addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
     }),
   });
 });
@@ -49,9 +50,85 @@ function dispatchPointer(
   element.dispatchEvent(event);
 }
 
+async function mountMoreNavigation() {
+  const router = testRouter();
+  await router.push("/overview");
+  const wrapper = mount(MobileNavigation, {
+    attachTo: document.body,
+    props: { assistantEnabled: true },
+    global: { plugins: [router] },
+  });
+  await wrapper.get('button[aria-controls="mobile-more-sheet"]').trigger("click");
+  return wrapper;
+}
+
+const installButton = 'button[aria-label="Install app"]';
+
+function dispatchInstallPrompt() {
+  const prompt = vi.fn().mockResolvedValue({ outcome: "dismissed" });
+  const event = new Event("beforeinstallprompt", { cancelable: true });
+  window.dispatchEvent(Object.assign(event, { prompt }));
+  return prompt;
+}
+
 describe("MobileNavigation", () => {
   beforeEach(() => {
     setActivePinia(createPinia());
+  });
+
+  afterEach(() => {
+    Reflect.deleteProperty(navigator, "standalone");
+  });
+
+  it("offers the native app prompt only when the browser provides it", async () => {
+    const wrapper = await mountMoreNavigation();
+    const github = wrapper.get<HTMLAnchorElement>('a[aria-label="swarm-deploy on GitHub"]');
+    expect(github.attributes("href")).toBe("https://github.com/swarm-deploy/swarm-deploy");
+    expect(wrapper.find(installButton).exists()).toBe(false);
+
+    const prompt = dispatchInstallPrompt();
+    await wrapper.vm.$nextTick();
+    const install = wrapper.get<HTMLButtonElement>(installButton);
+    install.element.focus();
+    await install.trigger("click");
+
+    expect(prompt).toHaveBeenCalledOnce();
+    expect(wrapper.find(installButton).exists()).toBe(false);
+    expect(document.activeElement).toBe(github.element);
+
+    dispatchInstallPrompt();
+    await wrapper.vm.$nextTick();
+    expect(wrapper.find(installButton).exists()).toBe(true);
+    window.dispatchEvent(new Event("appinstalled"));
+    await wrapper.vm.$nextTick();
+    expect(wrapper.find(installButton).exists()).toBe(false);
+    wrapper.unmount();
+  });
+
+  it("hides installation in standalone display mode", async () => {
+    const display = Object.assign(new EventTarget(), { matches: true });
+    vi.mocked(window.matchMedia).mockReturnValueOnce(display as unknown as MediaQueryList);
+    const wrapper = await mountMoreNavigation();
+    dispatchInstallPrompt();
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.find(installButton).exists()).toBe(false);
+    wrapper.unmount();
+  });
+
+  it.each([false, true])("handles Safari when navigator.standalone is %s", async (standalone) => {
+    Object.defineProperty(navigator, "standalone", { configurable: true, value: standalone });
+    const wrapper = await mountMoreNavigation();
+
+    expect(wrapper.find(installButton).exists()).toBe(!standalone);
+    if (!standalone) {
+      await wrapper.get(installButton).trigger("click");
+      expect(wrapper.get(installButton).attributes("aria-expanded")).toBe("true");
+      expect(wrapper.get("#mobile-install-help").text()).toContain("Add to Home Screen");
+      expect(wrapper.get("#mobile-install-help").isVisible()).toBe(true);
+    }
+
+    wrapper.unmount();
   });
 
   it("opens More and navigates to a secondary destination", async () => {

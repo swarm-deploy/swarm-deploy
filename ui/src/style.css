@@ -1043,7 +1043,7 @@ body {
   }
 
   .mobile-more-footer {
-    padding: 18px 4px 0;
+    padding-inline: 4px;
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -1052,8 +1052,42 @@ body {
     font-size: 0.75rem;
   }
 
-  .mobile-more-footer a {
+  .mobile-more-actions {
+    display: flex;
+    flex: none;
+    margin-inline-end: -4px;
+  }
+
+  .mobile-more-action {
+    display: grid;
+    place-items: center;
+    width: 40px;
+    height: 40px;
+    border: 0;
+    border-radius: 6px;
+    padding: 0;
+    background: transparent;
     color: var(--muted);
+    text-decoration: none;
+  }
+
+  .mobile-more-action:hover,
+  .mobile-more-action:focus-visible {
+    background: var(--surface-hover-soft);
+    color: var(--text);
+    transform: none;
+    filter: none;
+  }
+
+  .mobile-more-action:focus-visible {
+    outline: 2px solid var(--accent-focus);
+    outline-offset: -2px;
+  }
+
+  .mobile-install-help {
+    margin: 4px 4px 0;
+    color: var(--muted);
+    font-size: 0.84rem;
   }
 
   body.mobile-more-open {
