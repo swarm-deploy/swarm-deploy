@@ -102,6 +102,7 @@ describe("NetworkView", () => {
     for (const value of ["10.0.1.0/24", "10.0.1.1", "10.0.1.0/25"]) {
       expect(addressing.text()).toContain(value);
     }
+    expect(wrapper.get(".network-addressing").text()).not.toContain("default");
 
     const services = wrapper.get('table[aria-label="Connected services"]');
     expect(services.text()).toContain("api");

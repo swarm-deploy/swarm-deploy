@@ -160,7 +160,7 @@ onUnmounted(() => {
         <AppPanel tag="section" class="network-section network-addressing" header-class="network-addressing-header" aria-labelledby="network-addressing-title">
           <template #header>
             <h3 id="network-addressing-title">{{ t('networks.addressing') }}</h3>
-            <span v-if="network.ipam_driver" class="meta">{{ network.ipam_driver }}</span>
+            <span v-if="network.ipam_driver && network.ipam_driver !== 'default'" class="meta">{{ network.ipam_driver }}</span>
           </template>
           <AppTableEmpty v-if="!network.ipam?.length" :message="t('networks.noAddressPools')" />
           <AppTable v-else fixed :aria-label="t('networks.addressing')">
