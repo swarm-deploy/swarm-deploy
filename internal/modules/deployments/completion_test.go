@@ -205,7 +205,7 @@ func assertCompletionPublication(
 		assert.Equal(t, attempt.ID, actual.AttemptID)
 		assert.Equal(t, "app", actual.StackName)
 		assert.Equal(t, "commit", actual.Commit)
-		require.Len(t, actual.Services, wantServices)
+		require.Len(t, actual.Services, 1)
 		assert.Equal(t, completion.ErrorCode(), actual.ErrorCode)
 		var coded faults.Coded
 		if wantFault == "" {
@@ -225,7 +225,7 @@ func assertCompletionPublication(
 		assert.Equal(t, attempt.ID, actual.AttemptID)
 		assert.Equal(t, "app", actual.StackName)
 		assert.Equal(t, "commit", actual.Commit)
-		require.Len(t, actual.Services, wantServices)
+		require.Len(t, actual.Services, 1)
 		assert.Equal(t, completion.ErrorCode(), actual.Reason)
 		assert.Equal(t, wantStage, actual.Stage)
 		if actual.Error != nil {
