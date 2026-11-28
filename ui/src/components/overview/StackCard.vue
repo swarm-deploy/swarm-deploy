@@ -30,6 +30,8 @@ const statusVariant = computed(() => ({
 
 const serviceLabel = computed(() => plural("common.serviceCount", props.serviceCount));
 const pausedLabel = computed(() => t("stack.pausedCount", { count: formatNumber(props.stack.effectively_paused_services ?? 0) }));
+const stackPauseActive = computed(() => props.stack.stack_pause_active ?? false);
+const syncActionLabel = computed(() => stackPauseActive.value ? t("syncPause.resumeStack") : t("common.pauseSync"));
 const stackAnchor = computed(() => `stack-${encodeURIComponent(props.stack.name)}`);
 </script>
 
@@ -75,11 +77,33 @@ const stackAnchor = computed(() => `stack-${encodeURIComponent(props.stack.name)
     </dl>
 
     <footer class="overview-stack-card-actions">
-      <button type="button" class="overview-stack-card-action" @click.stop="emit('compare', stack.name)">
-        {{ t('stack.compareState') }}
+      <button
+        type="button"
+        class="overview-stack-card-action app-tooltip"
+        :aria-label="t('stack.compareState')"
+        :data-tooltip="t('stack.compareState')"
+        @click.stop="emit('compare', stack.name)"
+      >
+        <svg class="overview-stack-card-action-icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16h7" />
+          <path d="M14 2v4h4M14 2l4 4v5" />
+          <path d="M8 9h6M8 12h3" />
+          <circle cx="15" cy="15" r="4.5" />
+          <path d="m18.25 18.25 3.25 3.25" />
+        </svg>
       </button>
-      <button type="button" class="overview-stack-card-action" @click.stop="emit('pause', stack.name)">
-        {{ t('common.pauseSync') }}
+      <button
+        type="button"
+        class="overview-stack-card-action app-tooltip"
+        :aria-label="syncActionLabel"
+        :data-tooltip="syncActionLabel"
+        @click.stop="emit('pause', stack.name)"
+      >
+        <svg class="overview-stack-card-action-icon" viewBox="0 0 24 24" aria-hidden="true">
+          <circle cx="12" cy="12" r="9" />
+          <path v-if="stackPauseActive" d="m10 8 6 4-6 4Z" />
+          <path v-else d="M9.5 9v6M14.5 9v6" />
+        </svg>
       </button>
     </footer>
   </AppCard>
@@ -94,4 +118,34 @@ const stackAnchor = computed(() => `stack-${encodeURIComponent(props.stack.name)
 .overview-stack-card-actions, .overview-stack-commit-badge { position: relative; z-index: 1; }
 .overview-stack-card-actions { pointer-events: none; }
 .overview-stack-card-action { pointer-events: auto; }
+.overview-stack-card-action + .overview-stack-card-action { border-left: 1px solid var(--surface-hover-strong); }
+.overview-stack-card-action-icon {
+  width: 22px;
+  height: 22px;
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.overview-stack-card-action.app-tooltip::after {
+  top: auto;
+  bottom: calc(100% + 6px);
+}
+.overview-stack-card-action.app-tooltip:first-child::after {
+  left: 12px;
+  transform: translateY(4px);
+}
+.overview-stack-card-action.app-tooltip:first-child:is(:hover, :focus-visible)::after {
+  transform: translateY(0);
+}
+.overview-stack-card-action.app-tooltip:last-child::after {
+  right: 12px;
+  left: auto;
+  transform: translateY(4px);
+}
+.overview-stack-card-action.app-tooltip:last-child:is(:hover, :focus-visible)::after {
+  transform: translateY(0);
+}
 </style>

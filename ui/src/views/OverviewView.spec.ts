@@ -86,7 +86,15 @@ describe("Overview stack navigation", () => {
     const link = card.get("a.stack-card-link");
     expect(link.attributes("href")).toBe("/stacks/app");
     expect(link.attributes("tabindex")).not.toBe("-1");
-    await card.get(".overview-stack-card-action").trigger("click");
+    const actions = card.findAll(".overview-stack-card-action");
+    expect(actions).toHaveLength(2);
+    expect(actions[0].attributes("aria-label")).toBe("Compare state");
+    expect(actions[0].attributes("data-tooltip")).toBe("Compare state");
+    expect(actions[1].attributes("aria-label")).toBe("Pause sync");
+    expect(actions[1].attributes("data-tooltip")).toBe("Pause sync");
+    expect(actions.every((action) => action.find("svg[aria-hidden='true']").exists())).toBe(true);
+    expect(actions.every((action) => action.text() === "")).toBe(true);
+    await actions[0].trigger("click");
     await card.get(".overview-stack-commit-badge").trigger("click");
     await flushPromises();
     expect(store.openStackManifestModal).toHaveBeenCalledWith("app");
@@ -95,6 +103,28 @@ describe("Overview stack navigation", () => {
     await link.trigger("click");
     await flushPromises();
     expect(router.currentRoute.value.path).toBe("/stacks/app");
+    wrapper.unmount();
+    store.stacks = [];
+  });
+
+  it("shows the resume action for a stack-level sync pause", async () => {
+    store.stacks = [{ name: "app", compose_file: "app.yaml", status: { synced: 1, out_of_synced: 0 }, stack_pause_active: true }];
+    vi.mocked(fetchDeployments).mockResolvedValue({ deployments: [] });
+    const router = createRouter({ history: createMemoryHistory(), routes: [
+      { path: "/overview", component: OverviewView },
+      { path: "/stacks/:stack", name: "stack-details", component: { template: "<div />" } },
+      { path: "/deployments", component: { template: "<div />" } },
+      { path: "/events", component: { template: "<div />" } },
+      { path: "/recommendations", component: { template: "<div />" } },
+    ] });
+    await router.push("/overview");
+    const wrapper = mount(OverviewView, { global: { plugins: [router] } });
+    await flushPromises();
+
+    const syncAction = wrapper.get(".overview-stack-card-action:last-child");
+    expect(syncAction.attributes("aria-label")).toBe("Resume stack sync");
+    expect(syncAction.attributes("data-tooltip")).toBe("Resume stack sync");
+    expect(syncAction.get("path").attributes("d")).toBe("m10 8 6 4-6 4Z");
     wrapper.unmount();
     store.stacks = [];
   });

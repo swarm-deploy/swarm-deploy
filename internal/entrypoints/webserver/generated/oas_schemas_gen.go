@@ -8552,6 +8552,8 @@ type StackView struct {
 	LastDeployAt              OptDateTime `json:"last_deploy_at"`
 	SourceDigest              OptString   `json:"source_digest"`
 	EffectivelyPausedServices OptInt      `json:"effectively_paused_services"`
+	// Whether synchronization is paused for the entire stack.
+	StackPauseActive OptBool `json:"stack_pause_active"`
 }
 
 // GetName returns the value of Name.
@@ -8594,6 +8596,11 @@ func (s *StackView) GetEffectivelyPausedServices() OptInt {
 	return s.EffectivelyPausedServices
 }
 
+// GetStackPauseActive returns the value of StackPauseActive.
+func (s *StackView) GetStackPauseActive() OptBool {
+	return s.StackPauseActive
+}
+
 // SetName sets the value of Name.
 func (s *StackView) SetName(val string) {
 	s.Name = val
@@ -8632,6 +8639,11 @@ func (s *StackView) SetSourceDigest(val OptString) {
 // SetEffectivelyPausedServices sets the value of EffectivelyPausedServices.
 func (s *StackView) SetEffectivelyPausedServices(val OptInt) {
 	s.EffectivelyPausedServices = val
+}
+
+// SetStackPauseActive sets the value of StackPauseActive.
+func (s *StackView) SetStackPauseActive(val OptBool) {
+	s.StackPauseActive = val
 }
 
 // Ref: #/components/schemas/StacksResponse

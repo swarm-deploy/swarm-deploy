@@ -18069,9 +18069,15 @@ func (s *StackView) encodeFields(e *jx.Encoder) {
 			s.EffectivelyPausedServices.Encode(e)
 		}
 	}
+	{
+		if s.StackPauseActive.Set {
+			e.FieldStart("stack_pause_active")
+			s.StackPauseActive.Encode(e)
+		}
+	}
 }
 
-var jsonFieldsNameOfStackView = [8]string{
+var jsonFieldsNameOfStackView = [9]string{
 	0: "name",
 	1: "compose_file",
 	2: "status",
@@ -18080,6 +18086,7 @@ var jsonFieldsNameOfStackView = [8]string{
 	5: "last_deploy_at",
 	6: "source_digest",
 	7: "effectively_paused_services",
+	8: "stack_pause_active",
 }
 
 // Decode decodes StackView from json.
@@ -18087,7 +18094,7 @@ func (s *StackView) Decode(d *jx.Decoder) error {
 	if s == nil {
 		return errors.New("invalid: unable to decode StackView to nil")
 	}
-	var requiredBitSet [1]uint8
+	var requiredBitSet [2]uint8
 
 	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
 		switch string(k) {
@@ -18175,6 +18182,16 @@ func (s *StackView) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"effectively_paused_services\"")
 			}
+		case "stack_pause_active":
+			if err := func() error {
+				s.StackPauseActive.Reset()
+				if err := s.StackPauseActive.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"stack_pause_active\"")
+			}
 		default:
 			return d.Skip()
 		}
@@ -18184,8 +18201,9 @@ func (s *StackView) Decode(d *jx.Decoder) error {
 	}
 	// Validate required fields.
 	var failures []validate.FieldError
-	for i, mask := range [1]uint8{
+	for i, mask := range [2]uint8{
 		0b00000111,
+		0b00000000,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
