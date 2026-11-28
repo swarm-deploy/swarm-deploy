@@ -8,6 +8,7 @@ import (
 
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/tools/routing"
+	webroute "github.com/swarm-deploy/webroute/api"
 )
 
 const (
@@ -38,6 +39,8 @@ type serviceListItem struct {
 	Type string `json:"type"`
 	// Description is the human-readable service description.
 	Description string `json:"description"`
+	// WebRoutes contains public routes resolved for the service.
+	WebRoutes []webroute.WebRoute `json:"web_routes,omitempty"`
 }
 
 // NewServiceList creates the service_list component.
@@ -104,6 +107,7 @@ func (l *ServiceList) Execute(ctx context.Context, request routing.Request) (rou
 			Name:        service.Name,
 			Type:        string(service.Type),
 			Description: service.Description,
+			WebRoutes:   service.WebRoutes,
 		})
 	}
 	sort.Slice(items, func(i, j int) bool {
