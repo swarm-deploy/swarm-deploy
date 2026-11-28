@@ -23,6 +23,7 @@ const (
 	AssistantToolNameDockerNetworkList                  AssistantToolName = "docker_network_list"
 	AssistantToolNameDockerPluginList                   AssistantToolName = "docker_plugin_list"
 	AssistantToolNameDockerSecretList                   AssistantToolName = "docker_secret_list"
+	AssistantToolNameServiceList                        AssistantToolName = "service_list"
 	AssistantToolNameServiceLogsGet                     AssistantToolName = "service_logs_get"
 	AssistantToolNameServiceTaskList                    AssistantToolName = "service_task_list"
 	AssistantToolNameServiceTaskLogsGet                 AssistantToolName = "service_task_logs_get"
